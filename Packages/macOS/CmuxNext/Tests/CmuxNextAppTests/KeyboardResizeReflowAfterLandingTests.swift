@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 @testable import CmuxNextLayout
+@testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Testing
 
@@ -52,5 +53,51 @@ struct KeyboardResizeReflowAfterLandingTests {
             #expect(view.sizes.count == 1, "\(pane)'s content laid out \(view.sizes.count) times after the landing")
             #expect(view.frame.size == view.superview?.bounds.size, "\(pane)'s content is not at its rest size: \(view.frame.size) in \(String(describing: view.superview?.bounds.size)) (host \(host.frame.size))")
         }
+    }
+
+    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy` on), the app's pane content with a terminal in each pane: the
+    /// producer (the terminal surface) lays out once, at its final size no later than the press's first frame tick (one
+    /// grid per terminal; FRAME OWNER S1B moved it there from the key's turn), and nothing in it lays out in any later
+    /// frame of the spring or after the landing; the containers (the terminal hosts) lay out in every frame, and at the
+    /// landing's release only the hold ends.
+    @Test(arguments: [LayoutDirection.left, .right])
+    func theProducerLaysOutOnceAndTheContainersEveryFrame(direction: LayoutDirection) throws {
+        let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let panes: [PaneID] = ["p1", "p2"]
+        func sizes() throws -> [PaneID: (host: CGSize, surface: CGSize)] {
+            try Dictionary(uniqueKeysWithValues: panes.map { pane in
+                let session = try #require(rig.provider.sessions[pane]?.session)
+                return (pane, (session.view.frame.size, session.surfaceView.frame.size))
+            })
+        }
+        let reports = TerminalSurfaceView.gridReports
+        let start = try sizes()
+        #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        try #require(rig.frame(), "the press did not spring")
+        let atPress = try sizes()
+        #expect(TerminalSurfaceView.gridReports - reports == UInt64(panes.count), "up to its first frame the press sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
+        var frames = 1, hostsOff: [String] = [], surfaceMoves: [String] = []
+        while frames < 240, rig.frame() {
+            frames += 1
+            let now = try sizes()
+            for pane in panes {
+                let area = try #require(rig.provider.sessions[pane]?.session.view.superview)
+                if now[pane]?.host != area.bounds.size { hostsOff.append("frame \(frames): \(pane)'s host \(String(describing: now[pane]?.host)) in \(area.bounds.size)") }
+                if now[pane]?.surface != atPress[pane]?.surface { surfaceMoves.append("frame \(frames): \(pane) \(String(describing: now[pane]?.surface))") }
+            }
+        }
+        rig.commit()
+        let landed = try sizes()
+        #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        for pane in panes {
+            #expect(atPress[pane]?.surface != start[pane]?.surface, "\(pane)'s surface did not take its final size by the press's first frame")
+            #expect(landed[pane]?.surface == atPress[pane]?.surface, "\(pane)'s surface laid out again after the landing")
+        }
+        #expect(surfaceMoves.isEmpty, "a surface laid out in a frame of the spring: \(surfaceMoves.prefix(3))")
+        #expect(hostsOff.isEmpty, "a terminal host did not lay out at its pane's area in a frame: \(hostsOff.prefix(3))")
+        #expect(TerminalSurfaceView.gridReports - reports == UInt64(panes.count), "the press sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
     }
 }

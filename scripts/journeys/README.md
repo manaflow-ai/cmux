@@ -28,6 +28,16 @@ python3 scripts/journeys/run.py --list     # id, priority, file, title
 python3 scripts/journeys/run.py --check    # validate the journey files (no fleet)
 ```
 
+A journey that needs a display rate says `"require_hz": 120` (on the journey, a step, or a step inside a step group;
+one rate per journey, a whole number of Hz in [24, 240]).
+The minis' own displays run at 60 Hz, so it runs only on the lease's own virtual display:
+`--whole-host --vdisplay 120x1` (1x pixels) or `--vdisplay 120x2` (2x, a Retina laptop's density). The lease
+makes that display the main display before the app launches and measures it with a fresh process; a display
+that is not the main one, or whose measured rate (within 0.35 ms of 1000/HZ) or pixel density is not the asked
+one, makes the lease's journeys `not run`, and `display.json` (each lease's in `displays.jsonl`) keeps what was
+measured. Without the right `--vdisplay`, such a journey is `not run` before any lease or build wait, with what
+to pass.
+
 Capture hosts come from the fleet registry (`~/.ssh/config.d/fleet-registry.json`, written by
 leo-workspace `tools/reach --install`). On a machine without it, name them:
 `--hosts "cmux17 cmux18 cmux19 cmux21 cmux22 cmux23 cmux24"` (sets `CAPTURE_HOST_SLOT_HOSTS`).
@@ -41,7 +51,7 @@ Output, in `artifacts/journeys/<job12>-<run id>/` (or `--out`, which must be a n
   `host`, `path`, `nonce`, `run_at`, `run_id`, `run_started_at`, `harness`;
 - `run.json`: the run id (`<UTC time>-<8 hex>`), its start time and the harness checkout;
 - `<id>/result.json`: the full record (every step and its reply, every check's detail);
-- `<id>/check-NN.png`: each frame a `frame_text` check read (full size);
+- `<id>/check-NN.png`: each frame a `frame_text` or `frame_marker` check read (full size);
 - `<id>/clip.mp4` (with ffmpeg) or `<id>/clip.png` (an animated PNG, about a frame a second;
   any browser plays it) and `<id>/clip/`, the frames it is made of.
 
@@ -140,8 +150,8 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 
 | `do` | Fields | What it does |
 | --- | --- | --- |
-| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane and its first prompt; later steps use that terminal |
-| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; waits for the topology to list workspace `name` with a terminal and its first prompt, without waiting for it to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus) |
+| `new_terminal` | `via`, `name` | `via: "key"`: the person's New Terminal Tab key (Ctrl-\`, newSurface) through `debug.key` (origin user: it claims the window's keyboard), then as `focused_terminal`; use it in every journey that plays what a person does. `via: "socket"` (the default, kept for older journeys): `action.run newTab` named `name` (focused); waits for the new focused terminal pane that holds the terminal the reply says it created (else the pane view's own creation key) and its first prompt; later steps use that terminal |
+| `script_new_terminal` | `name`, `focus` | automation on purpose: a script's `action.run newTab` through the socket; adopts the terminal the reply says it created (`created`: the daemon's public id at once, or the creation's host id once its tab is the daemon's) and waits for its first prompt, without waiting for the workspace to show (a script's newTab does not take a text input the person has: cp/fix-chief-composer-focus); a reply that names no created terminal fails the step |
 | `neutral_prompt` | | writes `PS1='J> '` (zsh and bash), `cd /tmp` and a clear into the PTY through the daemon (set-up, not under test; no host, user or path in any frame) |
 | `type` | `text`, `enter`, `mark` | presses each character with `debug.key`, then Return when `enter` |
 | `key` | `key`, `modifiers`, `mark` | one `debug.key` (`modifiers`: `control`, `shift`, `option`, `cmd`; named keys: `return`, `escape`, `tab`, `space`, `up`, `down`, `left`, `right`, `delete`, `pageup`, ...) |
@@ -192,7 +202,9 @@ no fixture or earlier run can show the expected text) and `${prompt}` (`J> `).
 | `{"app_pane": {"field": value}}` | app | the pane's `debug.surfaces` fields equal these (`focused`, `link`, ...) |
 | `{"process_present": {"match": "RE", "bind": "NAME", "foreground": true}}` | process | a process under the terminal matches RE (its full command line); `foreground`: it has a controlling tty and is in the tty's foreground group (`ps` stat `+`); `bind` keeps it as NAME |
 | `{"process_gone": "NAME"}` | process | the bound process is gone (or a zombie) |
-| `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded) |
+| `{"frame_marker": "TOKEN"}` | frame | a fresh snapshot of the window shows the marker of TOKEN, read from its pixels (`ext_marker.py`, below); use it for every line the journey itself writes |
+| `{"frame_marker_lacks": {"token": T, "with": W}}` | frame | negative: a fresh snapshot shows W's marker, no marker of T and no unreadable marker |
+| `{"frame_text": "TEXT"}` | frame | a fresh snapshot of the window shows TEXT to text recognition (spaces dropped, look-alike letters folded); only for app text a journey cannot mark |
 | `{"daemon_lacks": "TEXT"}` | daemon | negative: the daemon's screen does not contain TEXT |
 | `{"app_text_lacks": "TEXT"}` | app | negative: the pane's viewport text does not contain TEXT |
 | `{"daemon_history": {...}}` | daemon | the daemon's scrollback (`terminal ID history read`): `rows` `oldest`/`newest`, `count`; `contains`, `lacks` (negative) TEXT; `pattern` (one group: a row number) with `contiguous` and `last` N |
@@ -220,6 +232,54 @@ every poll and holds only when it holds together with the positive ones at the e
 `since`, or it fails with the measured time. Frame checks are read after the other conditions
 hold (text recognition takes about a second) and do not count against `within`.
 
+### The journey's own lines: frame markers, not text recognition
+
+A frame check of a line the journey writes (`${nonce}-42`) is a marker, not `frame_text`: on 2026-11-03 the text
+reader read "733287-42" as "733287-4źął", "jq-447486-400" as "j9-447486-400", and returned no line at all for a
+correct frame (STATUS 9303, 9402, 9444). `ext_marker.py` makes the terminal draw the token as one row of 30
+truecolor cells under its text line, and reads it back from the snapshot's pixels with a check (no language model;
+`test_ext_marker.py` decodes 800 markers in 200 frames, through the color changes a capture can make, and refuses all
+3000 corrupted ones).
+
+```json
+{"do": "marker_install"},
+{"do": "type", "text": "${marker} ok-${nonce}-$((6*7))", "enter": true, "mark": "typed"},
+{"do": "expect", "since": "typed", "all": [
+  {"daemon_line": "ok-${nonce}-42"}, {"app_text_line": "ok-${nonce}-42"}, {"frame_marker": "ok-${nonce}-42"}]}
+```
+
+`marker_install` writes the program to `/tmp/jr-m-<nonce>` and binds `${marker}`; the program prints the token as a
+text line (the daemon and app checks see what `echo` printed), a blank line, the marker and a blank line (no glyph of
+a text line can reach a marker pixel row). It needs the pane's own width to be at least 30 columns (it reads the
+terminal's size, not an exported `COLUMNS`; it exits 3 when the pane is narrower and 4 when its output is no
+terminal), and the typed command line itself is about 40 columns. `frame_marker_lacks {"token": T, "with": W}` is the
+negative for the journey's own lines (the frame negative for other text stays `frame_screen` `lacks`): it holds only
+on a frame that shows W's marker and has no unreadable marker, and it fails at once on the first frame that shows T's
+marker together with W's, also beside an unreadable marker (a later frame without T does not undo it). A frame without
+W is tried again, as it may be from before the step's output, and so is a frame with W and an unreadable marker but no
+T marker. Like every frame condition it is read on fresh snapshots
+after the step's live conditions hold and after its `settle` time, and it stops at the first frame that holds: a T
+marker that shows only before that frame, or only after it, is not seen. It proves the absence only where the frame shows the
+pane, so a marker scrolled away or covered is not seen either way; nor is a marker drawn under 6 pixel rows or one
+whose START cells are covered (neither is reported, so they do not make the negative fail; a covered data cell does, as
+an unreadable marker). A marker whose cell edges are blended (a scaled thumbnail) reads as its own token, as an
+unreadable marker or not at all, by how far it is blended and how the capture changes its colors (measured with one
+pixel column per edge: up to 0.37 of the neighbour's color with no color change, from 0.07 to 0.37 after the P3 and
+dimming changes the tests use). It never reads as another token, and the negative cannot rely on seeing it. A marker
+reads where the window shows it, not only
+in the journey's pane: a thumbnail of a pane with cells of 4 px or more would read too. A check's detail lists the first
+20 markers it found (position, cell width, line height and 24-bit digest, the first six hex digits of sha256 of the
+token).
+
+What a marker proves and what it does not: that this run's terminal output reached the window's pixels, at the cell
+grid, in colors a capture keeps. It draws cell backgrounds only, so it does not prove that glyphs render: a build that
+draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (with its fold of
+look-alike letters, `OCR_FOLD`; the P0 journey runner reports a `frame_text` miss whose daemon and app checks of the
+same text passed as "not judged: reader misread"). Real-app rounds (2026-11-03), 0 unreadable markers in 1155 reads (both journeys of each round):
+1x on cmux21 and 2x on cmux23 (16 x 34 px cells, the lease's own 120 Hz display) with the first layout (no blank
+lines), and 1x on cmux21 with this layout (8 x 17 px cells). A frame check at 2x took about 1.5-1.8 s on a mini (the
+standard-library reader of a 2200x1440 snapshot).
+
 ### Step groups (`ext_*.py`)
 
 A group's own steps and conditions live in `ext_<group>.py` beside `driver.py`; the driver loads
@@ -229,8 +289,9 @@ each one (`load_extensions`) and `run.py` sends them to the mini with it. A grou
 app back for the next journey: leave full screen, close a second window, restore the window
 frame); they run whatever happened and never change the status.
 
-A group may list its negative conditions in `NEGATIVE` (read every poll and through `settle`, as
-`*_lacks` are).
+A group may list its negative conditions in `NEGATIVE` (a live one is read every poll and through `settle`, as
+`*_lacks` are; a frame one fails at once on a frame whose detail says `seen`, what it forbids, and is not tried
+again).
 
 `ext_multiwindow.py` (group multi-window, `journeys/p0/mw-*.json`) judges which window an input acted
 in: the target window changed as asked and every other window did not change. Steps: `name_window`,

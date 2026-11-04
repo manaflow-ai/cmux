@@ -24,9 +24,13 @@ struct Participant: Codable, Equatable {
     enum Avatar: Codable, Equatable {
         case monogram(String)
         case image(String)
+        /// cmux: an agent brand's mark (CmuxAgentBrands `AgentBrandID`), on a white disc
+        /// (an agent's message sent through its owner's CLI, HomeAgentSender).
+        case brand(String)
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: K.self)
             if let m = try c.decodeIfPresent(String.self, forKey: .monogram) { self = .monogram(m) }
+            else if let b = try c.decodeIfPresent(String.self, forKey: .brand) { self = .brand(b) }
             else { self = .image(try c.decode(String.self, forKey: .image)) }
         }
         func encode(to encoder: Encoder) throws {
@@ -34,9 +38,10 @@ struct Participant: Codable, Equatable {
             switch self {
             case let .monogram(m): try c.encode(m, forKey: .monogram)
             case let .image(i): try c.encode(i, forKey: .image)
+            case let .brand(b): try c.encode(b, forKey: .brand)
             }
         }
-        enum K: String, CodingKey { case monogram, image }
+        enum K: String, CodingKey { case monogram, image, brand }
     }
 }
 

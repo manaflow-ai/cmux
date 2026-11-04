@@ -82,7 +82,10 @@ impl Hub {
 
     pub(crate) async fn workflow_upstream_names(&self, run: &RunRecord) -> Result<Vec<String>> {
         let specs: Vec<Value> = serde_json::from_str(&self.workflow_upstreams(run).await?)?;
-        Ok(specs.iter().filter_map(|spec| spec["name"].as_str().map(str::to_owned)).collect())
+        Ok(specs
+            .iter()
+            .filter_map(|spec| spec.get("name").and_then(Value::as_str).map(str::to_owned))
+            .collect())
     }
 
     async fn workflow_tool_profile(
@@ -577,6 +580,7 @@ mod tests {
             doing: Default::default(),
             notice: false,
             persons: true,
+            from_agents: false,
         });
         let before = session.cancels.load(Ordering::SeqCst);
         // The activity ended before pause arrived; it must not change even the

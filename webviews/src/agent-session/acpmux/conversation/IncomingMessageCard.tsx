@@ -40,7 +40,7 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { CardCopy } from "./CardCopy";
-import { knownMark } from "../../shared/AgentMark";
+import { hasAgentMark, knownMark, MonogramMark } from "../../shared/AgentMark";
 import { useMachineChats, useSenderChat, useSenderPlace } from "../subagents/subsessions";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup, MenuSeparator } from "../../../ui/Menu";
 import { copyTextResult } from "./clipboard";
@@ -69,6 +69,7 @@ import type { AgentNotice } from "./agentNotice";
 import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
+import { openSessionAttributes } from "./menuParts";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -98,6 +99,14 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   const avatar = useAgentAvatar(sender.sessionId);
   const harness = senderHarness(sender.harness, message.harness);
   const picture = message.chief ? chief?.src : avatar;
+  // A sender that named its app ("Grok bot › Ada", u20190) wears that app's mark, else its monogram.
+  if (!picture && !message.chief && message.app && !hasAgentMark(harness)) {
+    return hasAgentMark(message.app) ? (
+      <AgentIdentity harness={message.app} size={SENDER_LOGO_SIZE} fallbackNode={<Bot size={16} />} />
+    ) : (
+      <MonogramMark name={message.app} size={SENDER_LOGO_SIZE + 2} />
+    );
+  }
   return picture ? (
     <img className="cv-agent-avatar" src={picture} alt="" width={16} height={16} />
   ) : message.chief && chief?.text ? (
@@ -194,6 +203,7 @@ export function SenderName({
           className="cv-received__from cv-received__from--open"
           title={openTitle}
           ariaLabel={open}
+          attributes={openSessionAttributes(sessionId, true)}
           onClick={() => onOpen(sessionId)}
         />
       ) : (
@@ -436,8 +446,8 @@ export function IncomingMessageLine({
       lineClassName="cv-agent-activity-row"
       toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
       label={
-        // Find counts the panel's whole text, not the line's first-line copy of it. Stacked (the
-        // default, messageLineLook.ts) a message's first line is under the sender, on its own line.
+        // Find counts the panel's whole text, not the line's first-line copy of it. Single (the
+        // default, messageLineLook.ts) a message's first line follows the sender on its line.
         // A notice's title is its text (the row's, which Find searches) and stays on the line: Find
         // highlights it here, inside the line Find otherwise skips (chatFind.ts `findSkipped`).
         lineLook === "single" || agentNotice ? (

@@ -624,6 +624,11 @@ if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
   CMUX_WEB_TEST_RETRY_SKIPPED="$results/retry-skipped" \
     python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
 fi
+# Explicit final per-test outcomes keep successful names available to the base flake scorer without
+# dumping green raw logs. Only whole final attempts contribute; TAP_CI_ENABLED=0 disables the export.
+if [ "${TAP_CI_ENABLED:-1}" != 0 ]; then
+  python3 "$(dirname "$self")/webviews_test_results.py" --tap-markers "$results/summary"
+fi
 
 echo "### webviews tests: $count files, $failed failed or timed out ($((retried + timeout_retried)) retried alone, $(wc -l < "$results/retry-passed" | tr -d ' ') passed alone)"
 if [ -s "$results/retry-passed" ]; then

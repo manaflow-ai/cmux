@@ -67,16 +67,21 @@ const snapshot = chat(
 );
 
 /// Opens the group of messages that wait (ios-remote's steer, artifacts' queued one), which shows
-/// collapsed after the turn, so all five lines show.
+/// collapsed after the turn, so all five lines show. Each opening is its own clicked step, settled
+/// before the next: at the transcript's end an opening pushes the rows above it up by design
+/// (#32644), which the shift gate exempts only for the step's own target (`data-bottom-stack-fold`). Two
+/// raw clicks in one task started both openings outside any step, so their push-up was scored as
+/// shift in the wait that followed.
 const openWaiting: Play = async (ctx) => {
   // The delivered ones sit in one "Received N messages" row (#32720): open it too.
   const received = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
   await ctx.waitFor(() => ctx.document.querySelector(received));
   if (ctx.document.querySelector(received)?.getAttribute("aria-expanded") !== "true")
-    ctx.document.querySelector<HTMLButtonElement>(received)!.click();
+    await ctx.click({ selector: received });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 3);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
   if (ctx.document.querySelector('.cv-pending__toggle[aria-expanded="false"]'))
-    ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")!.click();
+    await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 5);
 };
 
@@ -86,7 +91,9 @@ const openReport: Play = async (ctx) => {
   const line = [...ctx.document.querySelectorAll<HTMLElement>(".cv-received")].find((row) =>
     row.querySelector(".cv-received__from")?.textContent?.includes("fanout-infra"),
   );
-  line?.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")?.click();
+  line?.setAttribute("data-gallery-report", "");
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-received[data-gallery-report] .cv-disclosure__toggle"));
+  await ctx.click({ selector: ".cv-received[data-gallery-report] .cv-disclosure__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__text table") !== null);
 };
 

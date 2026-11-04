@@ -34,6 +34,13 @@ public final class AgentPaneModel {
     /// opening an existing chat only while this holds (`NewTabSparePool.takeConnectedSpare`).
     @ObservationIgnored public internal(set) var clientReady = false
 
+    /// The tab this pane shows (the store's id), asked each time: what a pane keeps per view, not per
+    /// chat, is kept by it (its transcript's place, ``AgentPaneScrollAnchors``; its Session Info, the
+    /// page's `sessionInfoState.ts`), since one chat can be open in two tabs at once. Nil for a page
+    /// that is no tab's (a prewarmed spare until a tab adopts it, the quick panel): those keep by chat.
+    @ObservationIgnored public var tabKey: @MainActor () -> String? = { nil } { didSet { onTabKeyChange?() } }
+    /// The view tells a page that already had its handshake (a spare a tab adopted) its tab.
+    @ObservationIgnored var onTabKeyChange: (() -> Void)?
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
     @ObservationIgnored var onQuestionKeySessionChange: (() -> Void)?
@@ -119,6 +126,10 @@ public final class AgentPaneModel {
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
     @ObservationIgnored public var remoteChat = false
+    /// The origin the pane's page is served from, which its granted media URLs use (the page's CSP
+    /// plays media only from its own origin): the pane's own host, or the shared page host's
+    /// (``AgentPaneMediaGrants/pageOrigin``), set by the view that hosts the page there.
+    @ObservationIgnored var mediaOrigin = AgentPaneSource.bundledOrigin
     /// Logs each missing-chat view the page reports (`chat.missing`).
     @ObservationIgnored let missingChatLog = AgentPaneMissingChatLog()
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
@@ -156,6 +167,11 @@ public final class AgentPaneModel {
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
+    /// Claude's automatic sign-in page of a Cloud chat (``AgentPaneSignInPage/callbackPort(_:)``),
+    /// in a Chromium tab whose localhost is the chat's machine: the open, or nil when no such tab
+    /// can be made here (the card then opens the page that gives a code to paste). Asked before any
+    /// gesture is spent.
+    @ObservationIgnored public var onOpenSignInOnMachine: (@MainActor (URL) -> (@MainActor () -> Bool)?)?
     /// Start Agent's panel (``AgentPaneQuickHooks``): its page's `quick.*` requests.
     @ObservationIgnored public var quick: AgentPaneQuickHooks?
     /// This build's URL scheme, handed to the page with every handshake so
@@ -586,7 +602,7 @@ public final class AgentPaneModel {
             guard let connection = transport.connection,
                   let intent = AgentPaneGestureIntent(gestureParams: ["intent": ["method": "session/prompt", "params": [
                     "promptId": request.retryPromptID, "sessionId": request.sessionID,
-                  ]]]), let ticket = transport.reserveGesture(intent) else { return Self.transportFailure(.gestureRequired) }
+                  ]]]), let ticket = transport.reserveGesture(intent, personOnly: true) else { return Self.transportFailure(.gestureRequired) }
             var released = false
             defer { if !released { _ = transport.gestures.redeem(ticket, connection: connection, pick: nil) } }
             guard await onCloudCredentialTransfer(request), !Task.isCancelled,

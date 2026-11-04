@@ -8,16 +8,13 @@ import CmuxNextDesignTokens
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S1: with `motion.frameOwner.tabStrip` on, a key resize holds only each pane's content area
-/// (`PaneContentAreaView`); with it off, the whole pane content holds as before S1 (one build films both). The held
-/// content keeps its frame and its edge, takes the pane's size once at the release, and does so before it hears that
-/// the motion ended (a terminal then sizes its surface from its final frame). A chat that draws its tools in the tab row
-/// keeps the whole-view hold (page pixels: stage S5/S6).
+/// FRAME OWNER REFACTOR S1: a key resize holds only each pane's content area (`PaneContentAreaView`). The held content
+/// keeps its frame and its edge, takes the pane's size once at the release, and does so before it hears that the motion
+/// ended (a terminal then sizes its surface from its final frame). A chat that draws its tools in the tab row keeps the
+/// whole-view hold (page pixels: stage S5/S6).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaneContentAreaHoldTests {
-    typealias Tests = TabStripFollowsPaneTickTests
-
     /// Content that rides the bottom edge (a terminal with its prompt on its last row) and records its frame when it
     /// hears the motion settled.
     final class Settling: NSView, PaneMotionTargeting, PaneMotionSettling {
@@ -87,42 +84,25 @@ struct PaneContentAreaHoldTests {
         }
     }
 
-    /// The switch off: the whole pane content holds at its start size, strip included, as before S1.
-    @Test func withTheSwitchOffTheWholePaneContentHolds() throws {
-        try Tests.withFrameOwnerSwitch(false) {
-            let rig = Rig()
-            defer { rig.window.closeAfterTest() }
-            let view = try #require(rig.provider.views["p2"])
-            let start = view.frame.size
-            var held = 0
-            try rig.press(.left) { _ in if view.frame.size == start { held += 1 } }
-            #expect(held > 3, "the pane content was not held whole with the switch off (\(held) frames at its start size)")
-            #expect(!view.contentHost.isHolding, "the content area held with the switch off")
-            #expect(view.frame.size == view.superview?.bounds.size, "the pane content did not land at its pane's size")
-        }
-    }
-
-    /// The switch on: the held content keeps its frame in every frame (only the area's bounds origin moves), and at the
-    /// release it has its final size before it hears that the motion ended.
+    /// The held content keeps its frame in every frame (only the area's bounds origin moves), and at the release it has
+    /// its final size before it hears that the motion ended.
     @Test(arguments: [LayoutDirection.left, .right])
     func theHeldContentTakesItsFinalSizeBeforeItHearsTheLanding(_ direction: LayoutDirection) throws {
-        try Tests.withFrameOwnerSwitch {
-            let rig = Rig()
-            defer { rig.window.closeAfterTest() }
-            let view = try #require(rig.provider.views["p2"]), content = try #require(rig.provider.contents["p2"])
-            let start = content.frame
-            content.settledFrames.removeAll()
-            var moved: [String] = []
-            try rig.press(direction) { frame in
-                if content.frame != start { moved.append("frame \(frame): \(content.frame)") }
-                if !view.contentHost.isHolding { moved.append("frame \(frame): the area let go before the landing") }
-            }
-            #expect(moved.isEmpty, "the held content moved or resized during the spring: \(moved.prefix(4))")
-            #expect(!view.contentHost.isHolding && view.contentHost.bounds.origin == .zero, "the hold did not end at the release")
-            #expect(content.frame == view.contentHost.bounds, "the content did not take its area's size at the release: \(content.frame)")
-            #expect(content.settledFrames == [view.contentHost.bounds],
-                    "the content heard the landing at \(content.settledFrames), not at its final frame \(view.contentHost.bounds)")
+        let rig = Rig()
+        defer { rig.window.closeAfterTest() }
+        let view = try #require(rig.provider.views["p2"]), content = try #require(rig.provider.contents["p2"])
+        let start = content.frame
+        content.settledFrames.removeAll()
+        var moved: [String] = []
+        try rig.press(direction) { frame in
+            if content.frame != start { moved.append("frame \(frame): \(content.frame)") }
+            if !view.contentHost.isHolding { moved.append("frame \(frame): the area let go before the landing") }
         }
+        #expect(moved.isEmpty, "the held content moved or resized during the spring: \(moved.prefix(4))")
+        #expect(!view.contentHost.isHolding && view.contentHost.bounds.origin == .zero, "the hold did not end at the release")
+        #expect(content.frame == view.contentHost.bounds, "the content did not take its area's size at the release: \(content.frame)")
+        #expect(content.settledFrames == [view.contentHost.bounds],
+                "the content heard the landing at \(content.settledFrames), not at its final frame \(view.contentHost.bounds)")
     }
 
     /// A chat that draws its tools in the tab row: its page draws the row, so the whole view holds (S5/S6 own it).

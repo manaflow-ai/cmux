@@ -37,6 +37,18 @@ def failed_job(job_id, run_id, sha, name=SWIFT, step=TEST_STEP):
                 {"name": step, "status": "completed", "conclusion": "failure"}]}
 
 
+class CrashClassRuleSignature(unittest.TestCase):
+    OBJC = ("objc-selectors: Sources/A.swift:12: super.viewDidMove (NSView call:viewDidMove/0): probe needed; "
+            "run scripts/cmux-next/check-objc-selectors.py --probe --write on a Mac and commit t.json")
+
+    def test_an_objc_selectors_line_is_a_named_failure_not_an_unmatchable_job(self):
+        job = failed_job(1, 10, HEAD, "crash-class selectors", "Run the selector check")
+        _, tests, _ = excuse.signature(job, log(1, "Run the selector check", self.OBJC))
+        _, other, _ = excuse.signature(job, log(1, "Run the selector check", self.OBJC.replace(":12:", ":13:")))
+        self.assertEqual(tests, {"objc-selectors Sources/A.swift:12 super.viewDidMove (NSView call:viewDidMove/0)"})
+        self.assertNotEqual(tests, other)
+
+
 class FakeGitHub:
     """The head run 10 (workflow 7) and feat-cmux-next's latest completed run 20 of the same workflow."""
 
@@ -181,6 +193,18 @@ class JobLogEndpoint(unittest.TestCase):
             github.logs[job_id] = log(SCHEME, TEST_STEP, "Source.swift:10:1: error: existing failure")
         github.logs[1] += "\n" + log(SCHEME, TEST_STEP, "##[error]\tnew compile failure")
         with self.assertRaisesRegex(excuse.Refused, "new compile failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_rule_line_shared_with_base_does_not_hide_a_new_error_line_of_another_step(self):
+        # The crash-class job: the selector step is red on both sides with the same line, the concurrency step
+        # prints only error lines, and the head adds one.
+        github = InProgressJobLogGitHub()
+        objc = CrashClassRuleSignature.OBJC
+        for job_id in (1, 2):
+            github.jobs[job_id]["name"] = SCHEME
+            github.logs[job_id] = log(SCHEME, TEST_STEP, objc, "##[error]concurrency: Sources/Old.swift:3: old rule")
+        github.logs[1] += "\n" + log(SCHEME, TEST_STEP, "##[error]concurrency: Sources/New.swift:9: new rule")
+        with self.assertRaisesRegex(excuse.Refused, "new rule"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
     def test_raw_log_tabs_do_not_hide_no_verdict_annotation(self):
@@ -640,7 +664,7 @@ class Excusing(unittest.TestCase):
                 self.assertNotIn(f"repos/{REPO}/actions/runs/3000/jobs?filter=latest&per_page=100", self.gh.routes)
 
     def coalesced_setup(self, newest_green: bool, yielded: bool = False):
-        # cmux-next-web.yml runs its web checks at most once every 15 minutes (web_coalesce.py): a push whose
+        # cmux-next-web.yml runs its web checks at most once every 30 minutes (web_coalesce.py): a push whose
         # pending coalesce job a newer push replaced ends cancelled, its coalesce job cancelled and its web job
         # skipped. Such runs sit ahead of the run that covered them.
         name = "web / Web tests (1/4)"
@@ -2120,6 +2144,62 @@ class Script(unittest.TestCase):
         # Lint stays unwaivable, and --override still skips the base comparison.
         self.assertIn("--override cannot bypass god-file, l10n or concurrency lint", text)
 
+
+
+class LostRunnerIsInfra(unittest.TestCase):
+    """A job whose runner was lost (cmux#33162's react-apps-base-check (3), job 126154996598) is infra, not a verdict:
+    refused as one that needs a re-run, never compared and never the PR's own red."""
+
+    FIXTURES = Path(__file__).resolve().parent / "fixtures/test_reds"
+
+    def lost(self):
+        github = FakeGitHub()
+        real = json.loads((self.FIXTURES / "lost-runner-job-126154996598.json").read_text())
+        github.jobs[1] = dict(real, id=1, run_id=10, head_sha=HEAD)
+        return github
+
+    def test_a_lost_runner_is_infra_from_its_steps_with_no_log_read(self):
+        github = self.lost()
+        github.log = lambda repo, job: self.fail("a lost runner's log is never read")
+        with self.assertRaisesRegex(excuse.Infra, "infra, not a verdict .*still in_progress.*needs a re-run"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_an_unstored_log_reads_the_annotations(self):
+        github = self.lost()
+        github.jobs[1]["steps"] = [dict(s, status="completed") for s in github.jobs[1]["steps"]]
+        notes = json.loads((self.FIXTURES / "lost-runner-annotations-126154996598.json").read_text())
+        blob = (self.FIXTURES / "lost-runner-log-126154996598.txt").read_text()
+        plain = github.json
+
+        def json_(route, *, paginate=False):
+            if route == f"repos/{REPO}/check-runs/1/annotations":
+                return notes
+            return plain(route, paginate=paginate)
+
+        def log(repo, job):
+            raise excuse.Refused("GitHub evidence request failed: " + blob + "gh: HTTP 404")
+        github.json, github.log = json_, log
+        with self.assertRaisesRegex(excuse.Infra, "lost communication with the server"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        notes[:] = []  # no annotation: a log GitHub never stored, with no step failed, is a lost runner too
+        with self.assertRaisesRegex(excuse.Infra, "BlobNotFound"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+        def unavailable(repo, job):
+            raise excuse.Refused("GitHub evidence request failed: gh: HTTP 502")
+        github.log = unavailable  # any other unread log stays the refusal it was
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("HTTP 502", str(caught.exception))
+
+    def test_a_real_test_failure_is_still_compared(self):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER.replace("palettePages", "somethingNew"))
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("somethingNew", str(caught.exception))
 
 if __name__ == "__main__":
     unittest.main()
