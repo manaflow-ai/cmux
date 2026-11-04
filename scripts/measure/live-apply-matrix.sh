@@ -10,6 +10,7 @@
 # from 0 to 16 pt, so the badge is 64 px wider at 2x when the new code runs and unchanged when the
 # old code still runs.
 #   scripts/measure/live-apply-matrix.sh OUT [ROW...]   (OUT: logs, PNGs, diffs, rows.jsonl, result.json)
+# LIVE_APPLY_MATRIX_DIFFS_ONLY=1 writes each row's change.diff and stops: no build, any host.
 set -euo pipefail
 out="${1:?usage: live-apply-matrix.sh OUT [ROW...]}"; shift
 mkdir -p "$out"; out="$(cd "$out" && pwd)"
@@ -42,25 +43,82 @@ import SwiftUI
 
 // Written by scripts/measure/live-apply-matrix.sh and removed when it ends. Each declaration is
 // one row's mechanism; a row's change makes its term 16.
-func matrixPad() -> CGFloat { 0 }
-struct MatrixBox { var a: CGFloat = 0; func total() -> CGFloat { a } }
-final class MatrixFinal { var a: CGFloat = 0; func total() -> CGFloat { a } }
-class MatrixBase { func extra() -> CGFloat { 0 } }
-final class MatrixSub: MatrixBase { override func extra() -> CGFloat { 0 } }
-protocol MatrixPadding { func extra() -> CGFloat }
-struct MatrixWitness: MatrixPadding { func extra() -> CGFloat { 0 } }
-final class MatrixObjC: NSObject { @objc dynamic func extra() -> CGFloat { 0 } }
-enum MatrixTone { case plain, loud }
+func matrixPad() -> CGFloat {
+    0 // pad
+}
+
+struct MatrixBox {
+    var a: CGFloat = 0
+    func total() -> CGFloat {
+        a // box
+    }
+}
+
+final class MatrixFinal {
+    var a: CGFloat = 0
+    func total() -> CGFloat {
+        a // final
+    }
+}
+
+class MatrixBase {
+    func extra() -> CGFloat {
+        0 // base
+    }
+}
+
+final class MatrixSub: MatrixBase {
+    override func extra() -> CGFloat {
+        0 // sub
+    }
+}
+
+protocol MatrixPadding {
+    func extra() -> CGFloat
+}
+
+struct MatrixWitness: MatrixPadding {
+    func extra() -> CGFloat {
+        0 // witness
+    }
+}
+
+final class MatrixObjC: NSObject {
+    @objc dynamic func extra() -> CGFloat {
+        0 // objc
+    }
+}
+
+enum MatrixTone {
+    case plain
+    case loud
+}
+
 func matrixTonePad(_ tone: MatrixTone) -> CGFloat {
     switch tone {
     case .plain: 0
     case .loud: 0
     }
 }
-enum MatrixStatics { static func pad() -> CGFloat { 0 } }
-func matrixGeneric<T>(_ value: T) -> CGFloat { 0 }
-func matrixDefault(_ x: CGFloat = 0) -> CGFloat { x }
-@_transparent func matrixInline() -> CGFloat { 0 }
+
+enum MatrixStatics {
+    static func pad() -> CGFloat {
+        0 // statics
+    }
+}
+
+func matrixGeneric<T>(_ value: T) -> CGFloat {
+    0 // generic
+}
+
+func matrixDefault(_ x: CGFloat = 0) -> CGFloat {
+    x
+}
+
+@_transparent func matrixInline() -> CGFloat {
+    0 // inline
+}
+
 let matrixGlobal: CGFloat = 0
 SWIFT
 cat >"$work/Badge.extra.swift" <<'SWIFT'
@@ -108,20 +166,20 @@ seed() {
 
 # Each row: NAME|CATEGORY|FILES TO NAME TO inject.sh|EDIT (a shell function)
 edit_control()         { subst "$badge" ".foregroundStyle(.secondary)" ".foregroundStyle(.red).padding(.leading, 16)"; }
-edit_callee_body()     { subst "$fixture" "func matrixPad() -> CGFloat { 0 }" "func matrixPad() -> CGFloat { 16 }"; }
-edit_callee_sig()      { subst "$fixture" "func matrixPad() -> CGFloat { 0 }" "func matrixPad(scale: CGFloat = 1) -> CGFloat { 16 * scale }"; }
-edit_struct_stored()   { subst "$fixture" "struct MatrixBox { var a: CGFloat = 0; func total() -> CGFloat { a } }" "struct MatrixBox { var a: CGFloat = 0; var b: CGFloat = 16; func total() -> CGFloat { a + b } }"; }
-edit_class_stored()    { subst "$fixture" "final class MatrixFinal { var a: CGFloat = 0; func total() -> CGFloat { a } }" "final class MatrixFinal { var a: CGFloat = 0; var b: CGFloat = 16; func total() -> CGFloat { a + b } }"; }
-edit_vtable_body()     { subst "$fixture" "override func extra() -> CGFloat { 0 }" "override func extra() -> CGFloat { 16 }"; }
-edit_witness_body()    { subst "$fixture" "struct MatrixWitness: MatrixPadding { func extra() -> CGFloat { 0 } }" "struct MatrixWitness: MatrixPadding { func extra() -> CGFloat { 16 } }"; }
-edit_objc_body()       { subst "$fixture" "@objc dynamic func extra() -> CGFloat { 0 }" "@objc dynamic func extra() -> CGFloat { 16 }"; }
-edit_enum_case()       { subst "$fixture" "enum MatrixTone { case plain, loud }" "enum MatrixTone { case plain, loud, huge }"
+edit_callee_body()     { subst "$fixture" "    0 // pad" "    16 // pad"; }
+edit_callee_sig()      { subst "$fixture" $'func matrixPad() -> CGFloat {\n    0 // pad' $'func matrixPad(scale: CGFloat = 1) -> CGFloat {\n    16 * scale // pad'; }
+edit_struct_stored()   { subst "$fixture" $'    var a: CGFloat = 0\n    func total() -> CGFloat {\n        a // box' $'    var a: CGFloat = 0\n    var b: CGFloat = 16\n    func total() -> CGFloat {\n        a + b // box'; }
+edit_class_stored()    { subst "$fixture" $'    var a: CGFloat = 0\n    func total() -> CGFloat {\n        a // final' $'    var a: CGFloat = 0\n    var b: CGFloat = 16\n    func total() -> CGFloat {\n        a + b // final'; }
+edit_vtable_body()     { subst "$fixture" "        0 // sub" "        16 // sub"; }
+edit_witness_body()    { subst "$fixture" "        0 // witness" "        16 // witness"; }
+edit_objc_body()       { subst "$fixture" "        0 // objc" "        16 // objc"; }
+edit_enum_case()       { subst "$fixture" $'    case plain\n    case loud\n' $'    case plain\n    case loud\n    case huge\n'
                          subst "$fixture" "    case .loud: 0" $'    case .loud: 0\n    case .huge: 16'
                          subst "$badge" "matrixTonePad(.plain)" "matrixTonePad(.huge)"; }
-edit_static_stored()   { subst "$fixture" "enum MatrixStatics { static func pad() -> CGFloat { 0 } }" "enum MatrixStatics { static let extra: CGFloat = 16; static func pad() -> CGFloat { extra } }"; }
-edit_generic_body()    { subst "$fixture" "func matrixGeneric<T>(_ value: T) -> CGFloat { 0 }" "func matrixGeneric<T>(_ value: T) -> CGFloat { 16 }"; }
-edit_default_arg()     { subst "$fixture" "func matrixDefault(_ x: CGFloat = 0) -> CGFloat { x }" "func matrixDefault(_ x: CGFloat = 16) -> CGFloat { x }"; }
-edit_transparent()     { subst "$fixture" "@_transparent func matrixInline() -> CGFloat { 0 }" "@_transparent func matrixInline() -> CGFloat { 16 }"; }
+edit_static_stored()   { subst "$fixture" $'enum MatrixStatics {\n    static func pad() -> CGFloat {\n        0 // statics' $'enum MatrixStatics {\n    static let extra: CGFloat = 16\n    static func pad() -> CGFloat {\n        extra // statics'; }
+edit_generic_body()    { subst "$fixture" "    0 // generic" "    16 // generic"; }
+edit_default_arg()     { subst "$fixture" "func matrixDefault(_ x: CGFloat = 0) -> CGFloat {" "func matrixDefault(_ x: CGFloat = 16) -> CGFloat {"; }
+edit_transparent()     { subst "$fixture" "    0 // inline" "    16 // inline"; }
 edit_global_value()    { subst "$fixture" "let matrixGlobal: CGFloat = 0" "let matrixGlobal: CGFloat = 16"; }
 edit_view_state()      { subst "$badge" "    let text: String" $'    let text: String\n    @State private var extra: CGFloat = 16'
                          subst "$badge" ".padding(.horizontal, 8 + matrixExtra())" ".padding(.horizontal, 8 + matrixExtra() + extra)"; }
@@ -158,6 +216,23 @@ start_shell() { # BIN LIVE RENDER LOG
 }
 stop_shell() { [[ -n "$shell" ]] && { kill "$shell" 2>/dev/null || true; wait "$shell" 2>/dev/null || true; }; shell=""; }
 
+diffs_only="${LIVE_APPLY_MATRIX_DIFFS_ONLY:-}"
+if [[ -n "$diffs_only" ]]; then
+  for spec in "${ROWS[@]}"; do
+    IFS='|' read -r name category names edit <<<"$spec"
+    dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
+    seed
+    cp "$fixture" "$dir/MatrixFixture.before.swift"; cp "$badge" "$dir/Badge.before.swift"; cp "$main_swift" "$dir/main.before.swift"
+    "$edit"
+    for f in MatrixFixture Badge main; do
+      case $f in MatrixFixture) p="$fixture";; Badge) p="$badge";; main) p="$main_swift";; esac
+      diff -u --label "a/Prototypes/ViewShell/Sources/ViewShell/$f.swift" --label "b/Prototypes/ViewShell/Sources/ViewShell/$f.swift" \
+        "$dir/$f.before.swift" "$p" >>"$dir/change.diff" || true
+    done
+    rm -f "$dir"/*.before.swift
+  done
+  exit 0
+fi
 swift --version 2>&1 | head -1 >"$out/swift-version.txt"
 sw_vers >"$out/sw_vers.txt" 2>&1 || true
 
