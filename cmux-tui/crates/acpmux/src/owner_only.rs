@@ -195,6 +195,48 @@ pub(crate) fn open_read(path: &Path) -> io::Result<File> {
     Ok(file)
 }
 
+/// Opens an existing regular file for reading only when it is private to this
+/// user (owner and every granting entry our user or an always-allowed SID),
+/// never through a reparse point and never narrowing it: a wider file is
+/// refused, as the `fstat` uid and mode check refuses it on Unix. The check
+/// reads the opened handle's security, not the path's.
+pub(crate) fn open_private_existing(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::MetadataExt;
+
+    let name = wide(path);
+    // SAFETY: a NUL-terminated name; the handle is owned by File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            GENERIC_READ | READ_CONTROL_ACCESS,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a handle CreateFileW returned; `File` owns it.
+    let file = unsafe { File::from_raw_handle(handle) };
+    let attributes = file.metadata()?.file_attributes();
+    if attributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a regular file", path.display()),
+        ));
+    }
+    if let Some(sid) = wider_opened(&file, u32::MAX)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not private to this user ({sid} can use it)", path.display()),
+        ));
+    }
+    Ok(file)
+}
+
 /// Open or create a state file for read/write without following a reparse
 /// point, narrowing a wider DACL before it can be used as daemon.lock.
 pub(crate) fn open_rw(path: &Path) -> io::Result<File> {

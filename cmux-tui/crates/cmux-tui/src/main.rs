@@ -2496,6 +2496,11 @@ fn run_server(
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
     mux.configure_browser_host(&socket_path);
+    // Windows: the acpmux daemon whose agents' bridges cmux Remote's Computer
+    // Use worker admits, named before the host starts so its bootstrap
+    // carries it (Unix names it with the agent chat watch below).
+    #[cfg(windows)]
+    mux.set_remote_host_acpmux_socket(windows_acpmux_socket());
     mux.configure_remote_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -3370,6 +3375,20 @@ fn run_tui_once(
 fn usage_exit(msg: &str) -> ! {
     crate::client_log::stderr_log!("startup", "{BIN}: {msg}\n\n{}", usage());
     client_log::exit(2);
+}
+
+/// Windows: the socket of the standalone `acpmux.exe` daemon beside this one,
+/// the image cmux Remote's Computer Use worker trusts (`ACPMUX_SOCKET`, else
+/// `ACPMUX_HOME`, else `~\.acpmux`), by acpmux's own Windows rule (`cmux acp`
+/// is Unix only). The host registers the process serving it.
+#[cfg(windows)]
+fn windows_acpmux_socket() -> Option<PathBuf> {
+    let value = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
+    let configured = value("ACPMUX_SOCKET").map(|socket| socket.to_string_lossy().into_owned());
+    let home = value("ACPMUX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(acpmux::config::default_home);
+    Some(acpmux::config::socket_path_for_home(&home, configured.as_deref()))
 }
 
 #[cfg(all(test, unix))]

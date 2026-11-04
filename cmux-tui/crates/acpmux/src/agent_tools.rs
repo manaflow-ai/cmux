@@ -499,9 +499,24 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
     if crate::cli::cloud_join::require_joined_consent("control").is_err() {
-        tools.servers.retain(|server| server.name != "cmux-cua");
+        tools.servers.retain(|server| {
+            server.name != "cmux-cua" || bridge_without_machine_consent(server)
+        });
     }
     tools
+}
+
+/// Whether `server` is the helper v2 bridge on Windows, which stays without
+/// the machine consent authority. That authority reads the OS account home,
+/// which acpmux does not read on Windows (`cli/machine_consent.rs`), so it
+/// answers "required, not granted" for every Windows daemon and would drop
+/// the bridge whenever the worker runs. There the cmux Remote worker owns
+/// authorization: it admits only this build's acpmux under a registered
+/// daemon with the secret, the bridge still asks it `machine/consent` before
+/// every call, and every app needs the person's approval
+/// (docs/computer-use-approvals.md). The legacy `cmux-cua mcp` never stays.
+fn bridge_without_machine_consent(server: &McpServer) -> bool {
+    cfg!(windows) && server.args.iter().any(|arg| arg == CUA_BRIDGE_ARG)
 }
 
 fn resolve_with_cua_helper(
@@ -1054,4 +1069,28 @@ mod tests;
 /// another home for it.
 fn home_env() -> String {
     crate::config::home().to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod bridge_consent_tests {
+    use super::*;
+
+    fn server(args: &[&str]) -> McpServer {
+        McpServer {
+            name: crate::cua_v2::SERVER_NAME.into(),
+            command: PathBuf::from("acpmux"),
+            args: args.iter().map(|arg| (*arg).to_owned()).collect(),
+            env: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn only_the_windows_bridge_stays_without_machine_consent() {
+        assert_eq!(bridge_without_machine_consent(&server(&[CUA_BRIDGE_ARG])), cfg!(windows));
+        assert_eq!(
+            bridge_without_machine_consent(&server(&["acp", CUA_BRIDGE_ARG])),
+            cfg!(windows)
+        );
+        assert!(!bridge_without_machine_consent(&server(&["mcp", "--socket", "/s"])));
+    }
 }

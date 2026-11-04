@@ -19,6 +19,18 @@
 //! A host crash leaves `endpoint.json` behind: [`active_dir`] checks that
 //! its helper still runs and removes a stale file ([`liveness`], cx-zgk0).
 //!
+//! Windows (docs/cmux-remote.md, "Windows and Linux"): the cmux Remote host's
+//! Computer Use worker serves the named pipe `\\.\pipe\cmux-remote-<leaf>-cu`
+//! (owner-only DACL, remote clients rejected) and writes `endpoint.json`
+//! (`socket` is that pipe name, `secret`, `pid`, `start`: the worker's
+//! creation time). The bridge reads the file only when it is private to this
+//! user by its handle's owner and DACL (instead of `fstat` uid and mode),
+//! accepts only a local pipe name, connects with identification-only QoS
+//! (waiting a bounded time while every instance is busy) and sends the
+//! secret only after the pipe's server process runs as this user ([`pipe`]).
+//! The worker admits the bridge as on Linux: this build's acpmux image, a
+//! descendant of an acpmux daemon the host registered, the secret.
+//!
 //! Before every tool action, the admitted helper answers `machine/consent`
 //! with `{consentRequired: bool, consent: {screen, control}}`, each state
 //! `none` or `granted`. The helper obtains this from its established app-owned
@@ -45,11 +57,15 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixStream;
+#[cfg(windows)]
+use tokio::net::windows::named_pipe::NamedPipeClient;
 
 mod approval;
 pub mod cli_bridge;
 pub mod labels;
 mod liveness;
+#[cfg(windows)]
+mod pipe;
 
 pub use approval::{ApprovalRefusal, WorkerError};
 pub use labels::Labels;
@@ -94,7 +110,6 @@ pub fn dir_from_env() -> Option<PathBuf> {
 /// so the agent's tool call reports why.
 pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
     let dir = dir.filter(|d| d.join(ENDPOINT_FILE).is_file())?;
-    #[cfg(unix)]
     if let Ok((endpoint, text)) = read_endpoint_text(&dir)
         && let Err(stale) = liveness::check(endpoint.owner, &endpoint.socket)
     {
@@ -108,28 +123,45 @@ pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 /// Reads `endpoint.json` in `dir`. The file must be a regular file of this
-/// user that no other user can read or write (checked with `fstat` on the
-/// opened descriptor, not by path): another local user (fleet Macs run
-/// several slot users) must not be able to point the bridge, and its
-/// secret, at a socket of theirs.
-#[cfg(unix)]
+/// user that no other user can read or write, checked on the opened file,
+/// not by path (`fstat` uid and mode on Unix; the handle's owner and DACL on
+/// Windows): another local user (fleet Macs run several slot users) must not
+/// be able to point the bridge, and its secret, at a socket of theirs.
 pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     read_endpoint_text(dir).map(|(endpoint, _)| endpoint)
 }
 
 /// [`read_endpoint`] and the file's text.
-#[cfg(unix)]
 fn read_endpoint_text(dir: &Path) -> Result<(Endpoint, String)> {
+    let path = dir.join(ENDPOINT_FILE);
+    let text = read_private_text(&path)?;
+    let endpoint = parse_endpoint(&text)?;
+    #[cfg(windows)]
+    if !is_local_pipe_name(&endpoint.socket.to_string_lossy()) {
+        bail!(
+            "{} names {}, not a local named pipe; refusing it",
+            path.display(),
+            endpoint.socket.display()
+        );
+    }
+    Ok((endpoint, text))
+}
+
+fn not_running(path: &Path) -> anyhow::Error {
+    anyhow!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+}
+
+#[cfg(unix)]
+fn read_private_text(path: &Path) -> Result<String> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-    let path = dir.join(ENDPOINT_FILE);
     let mut file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&path)
+        .open(path)
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                anyhow!("the Computer Use helper v2 is not running ({} is missing)", path.display())
+                not_running(path)
             } else {
                 anyhow!("cannot open {}: {e}", path.display())
             }
@@ -147,23 +179,52 @@ fn read_endpoint_text(dir: &Path) -> Result<(Endpoint, String)> {
     }
     let mut text = String::new();
     file.read_to_string(&mut text).context("cannot read endpoint.json")?;
-    let value: Value = serde_json::from_str(&text).context("endpoint.json is not JSON")?;
+    Ok(text)
+}
+
+/// Windows: the owner and every granting DACL entry must be this user (or
+/// SYSTEM, Administrators: they can read any file, as root can on Unix);
+/// a reparse point, a folder or a wider file is refused, never narrowed.
+#[cfg(windows)]
+fn read_private_text(path: &Path) -> Result<String> {
+    use std::io::Read;
+    let mut file = crate::owner_only::open_private_existing(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            not_running(path)
+        } else {
+            anyhow!("cannot use {}: {e}; refusing it", path.display())
+        }
+    })?;
+    let mut text = String::new();
+    file.read_to_string(&mut text).context("cannot read endpoint.json")?;
+    Ok(text)
+}
+
+/// The fields of `endpoint.json`: `socket`, `secret`, and the helper's
+/// `pid` with its start time when the writer recorded them.
+fn parse_endpoint(text: &str) -> Result<Endpoint> {
+    let value: Value = serde_json::from_str(text).context("endpoint.json is not JSON")?;
     let socket = value["socket"].as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
     let secret = value["secret"].as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
-    let endpoint = Endpoint {
+    if socket.is_empty() || secret.is_empty() {
+        bail!("endpoint.json has an empty socket or secret");
+    }
+    Ok(Endpoint {
         socket: PathBuf::from(socket),
         secret: secret.to_owned(),
         owner: Owner::from_json(&value),
-    };
-    Ok((endpoint, text))
+    })
 }
 
-/// Windows port: the owner check (`fstat` uid and mode) needs the owner-only
-/// ACL check of a later landing; the endpoint is refused until then.
-#[cfg(not(unix))]
-pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
-    let _ = dir;
-    Err(crate::platform::unsupported("the Computer Use helper v2 endpoint"))
+/// A pipe on this machine (`\\.\pipe\NAME`), never a remote server's
+/// (`\\HOST\pipe\NAME`) or a file path.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_local_pipe_name(name: &str) -> bool {
+    const PREFIX: &str = r"\\.\pipe\";
+    name.len() > PREFIX.len()
+        && name.is_char_boundary(PREFIX.len())
+        && name[..PREFIX.len()].eq_ignore_ascii_case(PREFIX)
+        && !name[PREFIX.len()..].contains('\0')
 }
 
 /// The id of `session/hello`; requests count from 1.
@@ -192,6 +253,17 @@ impl Helper<UnixStream> {
                 endpoint.socket.display()
             );
         }
+        Helper::admit(stream, &endpoint.secret).await
+    }
+}
+
+#[cfg(windows)]
+impl Helper<NamedPipeClient> {
+    /// Connects to the worker's pipe and presents the secret, only after
+    /// the pipe's server process is shown to run as this user.
+    pub async fn connect(endpoint: &Endpoint) -> Result<Self> {
+        let stream = pipe::connect(&endpoint.socket).await?;
+        pipe::require_same_user_server(&stream, &endpoint.socket)?;
         Helper::admit(stream, &endpoint.secret).await
     }
 }
@@ -315,13 +387,8 @@ impl<S: tokio::io::AsyncRead + AsyncWrite + Unpin> Helper<S> {
     }
 }
 
-/// `acpmux cua-mcp`: an MCP stdio server that forwards to the helper v2.
-#[cfg(not(unix))]
-pub async fn run_bridge() -> Result<()> {
-    Err(crate::platform::unsupported("the Computer Use bridge (its helper socket)"))
-}
-
-#[cfg(unix)]
+/// `acpmux cua-mcp`: an MCP stdio server that forwards to the helper v2
+/// (a Unix socket, or the worker's named pipe on Windows).
 pub async fn run_bridge() -> Result<()> {
     let dir = dir_from_env().ok_or_else(|| anyhow!("{ENDPOINT_DIR_ENV} is not set"))?;
     let stdin = BufReader::new(tokio::io::stdin());
@@ -516,3 +583,7 @@ async fn write_line<W: AsyncWrite + Unpin>(output: &mut W, value: &Value) -> Res
     output.flush().await?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "cua_v2/endpoint_tests.rs"]
+mod endpoint_tests;

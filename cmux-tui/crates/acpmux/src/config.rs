@@ -572,15 +572,24 @@ fn absolute(path: PathBuf) -> PathBuf {
 /// so daemon and clients agree.
 #[cfg(windows)]
 pub fn socket_path() -> PathBuf {
-    if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
+    let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    socket_path_for_home(&home(), configured.as_deref())
+}
+
+/// [`socket_path`] for `home` and a configured `ACPMUX_SOCKET`, without this
+/// process's config: for a host that names another process's acpmux (the
+/// cmux-tui daemon registering it with cmux Remote).
+#[cfg(windows)]
+pub fn socket_path_for_home(home: &Path, configured: Option<&str>) -> PathBuf {
+    if let Some(v) = configured.filter(|v| !v.is_empty()) {
         return absolute(PathBuf::from(v));
     }
-    let preferred = home().join("acpmux.sock");
+    let preferred = home.join("acpmux.sock");
     if preferred.as_os_str().len() < 96 {
         return preferred;
     }
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in home().to_string_lossy().bytes() {
+    for b in home.to_string_lossy().bytes() {
         hash ^= b as u64;
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }

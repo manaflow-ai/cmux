@@ -246,10 +246,20 @@ digits of the request digest, as on macOS (docs/computer-use-approvals.md,
   The never-allowed list matches the running executable: a terminal that runs
   under an interpreter (terminator and guake are `python3`) is matched as
   `python3`, so do not approve an interpreter app on a machine where agents run.
-- **Windows bridge.** `acpmux cua-mcp` serves Unix sockets only today, so on
-  Windows the worker runs and answers status and approvals, but agents reach it
-  once acpmux's bridge speaks to a named pipe (the worker's endpoint is already
-  `\\.\pipe\cmux-remote-<rh-leaf>-cu`).
+- **Windows bridge.** `acpmux cua-mcp` reaches the worker's pipe
+  (`\\.\pipe\cmux-remote-<rh-leaf>-cu`): it reads `endpoint.json` only when
+  the file's owner and DACL make it private to the person (SYSTEM and
+  Administrators aside), accepts only a local pipe name, opens it with
+  identification-only QoS (waiting up to 5 s on `WaitNamedPipeW` while every
+  instance is busy) and sends the secret only after the pipe's server process
+  runs as the person. A session gets the bridge while the worker (`pid`,
+  `start`) runs and the pipe has a server; a file whose worker is gone is
+  removed, as on macOS. The daemon names the standalone `acpmux.exe` daemon's
+  socket (`ACPMUX_SOCKET`, else `ACPMUX_HOME` or `~\.acpmux`) to the host at
+  start, so the worker registers it. Only a daemon running `acpmux.exe` (the
+  image beside the daemon the worker trusts) is admitted, not `cmux acp`, and
+  that daemon must be started with `CMUX_NEXT_CUA_V2_DIR` set to the host's
+  `<runtime>\cu` folder: nothing sets it for it yet on Windows or Linux.
 
 ### Distro matrix
 
