@@ -14,6 +14,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
+import { BACKGROUND_PANE } from "./backgroundPane";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -247,6 +248,30 @@ export default agentPaneEntry({
         await openPanel(ctx);
         await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${AUDIT.id}"] .acpmux-bg__name` });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"));
+      },
+    },
+    tab: {
+      note: 'Its own tab in the chat\'s right column (backgroundPane.ts; Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this"): the app reveals the reserved pane id, the panel fills the tab with Clear finished and no Expand or Close.',
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
+        if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        const shell = ctx.document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+        const panel = ctx.document.querySelector(".acpmux-bg")!.getBoundingClientRect();
+        if (Math.abs(panel.left - shell.left) > 1 || Math.abs(panel.right - shell.right) > 1)
+          throw new Error("the panel fills its tab's width");
+        if (ctx.document.querySelector(".acpmux-main")?.getClientRects().length)
+          throw new Error("the chat's own column is out of sight in the panel's tab");
+        const labels = [...ctx.document.querySelectorAll(".acpmux-bg__head button")].map((b) =>
+          b.getAttribute("aria-label"),
+        );
+        if (labels.includes("Expand") || labels.includes("Close"))
+          throw new Error("its own tab has no Expand or Close");
+        noStrayEdges(ctx);
       },
     },
     finished: {

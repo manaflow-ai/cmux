@@ -17,6 +17,7 @@ const saved = new Map<string, unknown>();
 
 type Played = { element: Element; frames: Keyframe[]; timing: KeyframeAnimationOptions };
 let played: Played[] = [];
+let animations: Animation[] = [];
 
 function installDom(options: { reduced?: boolean; noLinear?: boolean } = {}): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
@@ -38,7 +39,9 @@ function installDom(options: { reduced?: boolean; noLinear?: boolean } = {}): HT
     timing: KeyframeAnimationOptions,
   ) {
     played.push({ element: this, frames, timing });
-    return { cancel() {}, playState: "running", onfinish: null } as unknown as Animation;
+    const animation = { cancel() {}, playState: "running", onfinish: null } as unknown as Animation;
+    animations.push(animation);
+    return animation;
   } as never;
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     if (!saved.has(key)) saved.set(key, scope[key]);
@@ -58,6 +61,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   played = [];
+  animations = [];
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -120,6 +124,40 @@ test("a selection change places it on the new tab at once and slides on transfor
   for (const frame of frames) expect(Object.keys(frame)).toEqual(["transform"]);
   expect(frames[0]!.transform).toBe("translate(4px, 4px) scale(0.5, 1)");
   expect(timing).toEqual({ duration: MOTION_MS.large, easing: MOTION_SPRING });
+});
+
+test("a size change during a slide re-places the highlight when the slide finishes", async () => {
+  const mount = installDom();
+  const observed: (() => void)[] = [];
+  const before = scope.ResizeObserver;
+  scope.ResizeObserver = class {
+    constructor(callback: () => void) {
+      observed.push(callback);
+    }
+    observe() {}
+    disconnect() {}
+  };
+  try {
+    await act(async () => {
+      root = createRoot(mount);
+      root.render(<Tabs />);
+    });
+    await act(async () => select(1));
+    const mark = mount.querySelector<HTMLElement>(".ui-slide-indicator")!;
+    // A font load widens the new tab mid-slide; the slide keeps its course.
+    mount.querySelectorAll<HTMLElement>(".ui-slide-item")[1]!.dataset.box = "48,4,96,24";
+    for (const callback of observed) callback();
+    expect(mark.style.width).toBe("80px");
+    // It lands on the tab's new box, with no second slide.
+    const [slide] = animations as [Animation];
+    await act(async () => void slide.onfinish?.call(slide, new dom!.window.Event("finish") as AnimationPlaybackEvent));
+    expect(mark.style.width).toBe("96px");
+    expect(mark.style.transform).toBe("translate(48px, 4px)");
+    expect(played).toHaveLength(1);
+  } finally {
+    if (before === undefined) delete scope.ResizeObserver;
+    else scope.ResizeObserver = before;
+  }
 });
 
 test("an engine without linear() easing slides on the ease-out instead of throwing", async () => {
