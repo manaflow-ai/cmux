@@ -61,6 +61,28 @@ A settle miss, a stream end (`detached`, `overflow`) or a refused resize
 fails the run. `--resize-rounds` (default 4, so 20 bursts per case)
 repeats the 5 bursts.
 
+Scenario "journal-step" (not in the default list; cmux-ad m11 2) is #34628's 5-8 s maintenance
+stall: agents (the "agents" scenario's hook helpers, --agents of them) fill the journal with
+records the maintenance tick's roster catch-up then reads, while an "app" connection sends what
+the app sends (window_record-like put-frontend-projection, list-workspaces, identify) and a churn
+connection creates and closes terminals (a close takes the roster fold). It runs long enough for
+--journal-ticks maintenance ticks (30 s apart in a release build). It reports each request
+kind's latency (p50/p95/p99/max), the requests over 30 ms (the typing budget's daemon share is
+4 ms; 30 ms is a stall a person sees), and the daemon's slow-maintenance lines.
+
+Scenario "head-of-line" (not in the default list; cmux-ad m11 2, an open question for PL-daemon)
+is a request issued on one connection while an earlier request of the same connection is slow:
+requests on a connection run in order on one dispatch thread. Under the "journal-step" load, an
+`identify` shares one connection with the terminal churn (create, then close, which may wait in
+the daemon), and the same `identify` runs on a connection of its own as the control. It reports
+both identify latencies and the closes'.
+
+The daemon starts as the app starts it, with `--terminal-reap-grace-seconds 30`
+(--reap-grace-seconds; a negative value leaves the flag out): a closed terminal ends after the
+grace, and at most 16 closed terminals wait it out with their PTY. Without the flag a close leaves
+the terminal running unplaced, so a scenario that creates and closes a few hundred terminals runs
+the Mac out of PTYs (511 on macOS); "journal-step" then "head-of-line" did, on two Macs.
+
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
 """
@@ -164,6 +186,9 @@ class Bench:
         self.env = env
         argv = [self.args.bin, "--headless", "--session", self.session, "--socket", self.sock_path,
                 "--state", os.path.join(self.root, "state")]
+        if self.args.reap_grace_seconds >= 0:
+            # As the app starts its daemon (DaemonLauncher): closed terminals end after the grace.
+            argv += ["--terminal-reap-grace-seconds", str(self.args.reap_grace_seconds)]
         self.daemon_log = open(os.path.join(self.root, "daemon.log"), "a")
         self.daemon = subprocess.Popen(argv, stdout=self.daemon_log, stderr=subprocess.STDOUT, env=env,
                                        start_new_session=True)
@@ -866,6 +891,179 @@ class Bench:
             # The numbers above are printed for diagnosis; the run fails.
             raise RuntimeError(f"{name}: {failed}")
 
+    # -- the "journal-step" scenario (cmux-ad m11 2)
+
+    def journal_step(self, name="journal-step"):
+        log("scenario", name, self.args.agents, "agents", self.args.journal_ticks, "ticks")
+        c = Conn(self.sock_path, timeout=300)
+        for i in range(10):
+            must(c.call("new-workspace", name=f"j{i}", cols=80, rows=24), "new-workspace")
+        tree = must(c.call("list-workspaces"), "list-workspaces")
+        ws_ids = [w["id"] for w in tree["workspaces"]]
+        for i in range(self.args.agents):
+            must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i),
+                        cols=80, rows=24), "create-terminal")
+        log_start = os.path.getsize(os.path.join(self.root, "daemon.log"))
+        stop = threading.Event()
+        kinds = ("put-frontend-projection", "list-workspaces", "identify", "create-terminal", "close-surface")
+        lat = {k: [] for k in kinds}
+        errors = []
+        lock = threading.Lock()
+
+        def record(kind, ms, ok, err=None):
+            with lock:
+                lat[kind].append(ms)
+                if not ok and len(errors) < 10:
+                    errors.append(f"{kind}: {err!r}")
+
+        def app():
+            conn = Conn(self.sock_path, timeout=600)
+            k = 0
+            while not stop.is_set():
+                k += 1
+                for kind, fn in (
+                    ("put-frontend-projection", lambda: conn.call(
+                        "put-frontend-projection", frontend="cmux-next", scope="personal", subject_key="windows",
+                        schema_version=1, origin="bench-app", mutation_id=f"jstep-{os.getpid()}-{k}",
+                        projection={"windows": [{"id": "w1", "frame": [0, 0, 1200 + k % 7, 800],
+                                                 "workspace_keys": []}]})),
+                    ("list-workspaces", lambda: conn.call("list-workspaces")),
+                    ("identify", lambda: conn.call("identify")),
+                ):
+                    t = time.perf_counter()
+                    try:
+                        r = fn()
+                        record(kind, (time.perf_counter() - t) * 1000, r.get("ok"), r.get("error"))
+                    except Exception as e:  # noqa: BLE001
+                        record(kind, (time.perf_counter() - t) * 1000, False, e)
+                stop.wait(0.02)
+            conn.close()
+
+        def churn():
+            conn = Conn(self.sock_path, timeout=600)
+            i = 0
+            while not stop.is_set():
+                i += 1
+                t = time.perf_counter()
+                try:
+                    d = must(conn.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=["/bin/sh"],
+                                       cols=80, rows=24), "create-terminal")
+                    record("create-terminal", (time.perf_counter() - t) * 1000, True)
+                    surface = d.get("surface")
+                    if surface is not None:
+                        t = time.perf_counter()
+                        r = conn.call("close-surface", surface=surface)
+                        record("close-surface", (time.perf_counter() - t) * 1000, r.get("ok"), r.get("error"))
+                except Exception as e:  # noqa: BLE001
+                    record("create-terminal", (time.perf_counter() - t) * 1000, False, e)
+                stop.wait(0.2)
+            conn.close()
+
+        threads = [threading.Thread(target=app), threading.Thread(target=churn)]
+        for t in threads:
+            t.start()
+        stop.wait(30.0 * self.args.journal_ticks + 5.0)
+        stop.set()
+        for t in threads:
+            t.join()
+        c.close()
+        with open(os.path.join(self.root, "daemon.log"), errors="replace") as f:
+            f.seek(log_start)
+            slow = [line.strip() for line in f if "slow journal maintenance" in line]
+        res = {k: stats(v) for k, v in lat.items()}
+        res["all"] = stats([v for k in kinds for v in lat[k]])
+        over = {k: sum(1 for v in lat[k] if v > 30.0) for k in kinds}
+        res["over_30ms"] = over
+        res["slow_maintenance"] = slow[:20]
+        res["errors"] = errors
+        self.result["scenarios"][name] = res
+        for metric, s in res.items():
+            if isinstance(s, dict) and "n" in s:
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                      f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+        print(f"PERF-DAEMON {name} over-30ms {json.dumps(over, sort_keys=True)}", flush=True)
+        for line in slow[:20]:
+            print(f"PERF-DAEMON {name} slow-maintenance {line}", flush=True)
+        if errors:
+            print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+
+    # -- the "head-of-line" scenario (cmux-ad m11 2)
+
+    def head_of_line(self, name="head-of-line"):
+        """`journal-step`'s load, with the app's light requests on the SAME connection as the
+        terminal churn (a close may wait in the daemon), against the same requests on a
+        connection of their own. Requests on one connection run in order on one dispatch thread,
+        so a slow request delays every request queued behind it on its connection."""
+        log("scenario", name, self.args.agents, "agents", self.args.journal_ticks, "ticks")
+        c = Conn(self.sock_path, timeout=300)
+        for i in range(10):
+            must(c.call("new-workspace", name=f"h{i}", cols=80, rows=24), "new-workspace")
+        tree = must(c.call("list-workspaces"), "list-workspaces")
+        ws_ids = [w["id"] for w in tree["workspaces"]]
+        for i in range(self.args.agents):
+            must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i),
+                        cols=80, rows=24), "create-terminal")
+        stop = threading.Event()
+        lat = {"identify-shared-connection": [], "identify-own-connection": [], "close-surface": []}
+        lock = threading.Lock()
+
+        def record(kind, ms):
+            with lock:
+                lat[kind].append(ms)
+
+        shared = Conn(self.sock_path, timeout=600)
+        shared_lock = threading.Lock()
+
+        def shared_call(cmd, **params):
+            # One request at a time on the shared connection, as a client that pipelines would
+            # see it: the call is timed from the moment it is queued behind the one in flight.
+            with shared_lock:
+                return shared.call(cmd, **params)
+
+        def churn():
+            i = 0
+            while not stop.is_set():
+                i += 1
+                d = must(shared_call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=["/bin/sh"],
+                                     cols=80, rows=24), "create-terminal")
+                surface = d.get("surface")
+                if surface is not None:
+                    t = time.perf_counter()
+                    shared_call("close-surface", surface=surface)
+                    record("close-surface", (time.perf_counter() - t) * 1000)
+                stop.wait(0.05)
+
+        def light_shared():
+            while not stop.is_set():
+                t = time.perf_counter()
+                shared_call("identify")
+                record("identify-shared-connection", (time.perf_counter() - t) * 1000)
+                stop.wait(0.02)
+
+        def light_own():
+            own = Conn(self.sock_path, timeout=600)
+            while not stop.is_set():
+                t = time.perf_counter()
+                must(own.call("identify"), "identify")
+                record("identify-own-connection", (time.perf_counter() - t) * 1000)
+                stop.wait(0.02)
+            own.close()
+
+        threads = [threading.Thread(target=f) for f in (churn, light_shared, light_own)]
+        for t in threads:
+            t.start()
+        stop.wait(30.0 * self.args.journal_ticks + 5.0)
+        stop.set()
+        for t in threads:
+            t.join()
+        shared.close()
+        c.close()
+        res = {k: stats(v) for k, v in lat.items()}
+        self.result["scenarios"][name] = res
+        for metric, s in res.items():
+            print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                  f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
         self.grow(workspaces, terminals, busy)
@@ -901,6 +1099,10 @@ def main():
                     help="cli-storm: calls a second asked of the 8 CLI workers in total")
     ap.add_argument("--resize-rounds", type=int, default=4,
                     help="resize-mirror: how many times to run its 5 bursts per case")
+    ap.add_argument("--journal-ticks", type=int, default=3,
+                    help="journal-step: maintenance ticks (30 s apart) the load runs through")
+    ap.add_argument("--reap-grace-seconds", type=int, default=30,
+                    help="the daemon's --terminal-reap-grace-seconds, as the app passes it; negative: leave it out")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
@@ -917,6 +1119,10 @@ def main():
             b.resize_mirror()
         if "cli-storm" in wanted:
             b.cli_storm()
+        if "journal-step" in wanted:
+            b.journal_step()
+        if "head-of-line" in wanted:
+            b.head_of_line()
         if "agents-hooks" in wanted:
             # The hooks only: no shipped agent hook calls the CLI per turn.
             args.agent_cli = 0
