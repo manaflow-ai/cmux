@@ -24,10 +24,12 @@ extension CmuxRemoteService {
         })
         computerUse.remote = ComputerUseRemoteSource(available: { [weak self] in
             await self?.waitAvailable() ?? false
-        }, open: { [weak self] in
+        }, open: { [weak self] mode, client in
             guard let self else { throw CmuxRemoteError.unavailable }
             // A tagged DEV app may be driven (the legacy dogfood scope); only this app opens a channel.
-            let opened = try await openChannel("computer-use", extra: ["allowed_target_bundle_id": bundleID])
+            // The worker runs in `mode` for `client`, fixed at its start (docs/computer-use-approvals.md).
+            let opened = try await openChannel("computer-use", extra: ["allowed_target_bundle_id": bundleID,
+                                                                       "permission_mode": mode.rawValue, "client": client])
             return ComputerUseRemoteChannel(pid: opened.pid, socket: opened.socket, executable: executable)
         })
         deviceHub.makeRemoteHub = { [weak self] url, _ in

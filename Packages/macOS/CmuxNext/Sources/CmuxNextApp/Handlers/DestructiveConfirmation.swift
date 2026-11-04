@@ -178,11 +178,11 @@ enum DestructiveConfirmation {
     static let confirmID = "confirm"
     static let suppressID = "dont-ask-again"
 
-    static func spec(_ prompt: Prompt) -> CmuxDialogSpec {
+    static func spec(_ prompt: Prompt, identifier: String = "cmux.dialog.confirmation") -> CmuxDialogSpec {
         CmuxDialogSpec(title: prompt.title, lines: [prompt.body],
                        fields: prompt.suppresses == nil ? [] : [.check(id: suppressID, title: QuitStrings.dontAskAgain, on: false)],
                        buttons: [.cancel(ConfirmationStrings.cancel), CmuxDialogButton(id: confirmID, title: prompt.button, role: prompt.returnConfirms ? .default : .destructive)],
-                       identifier: "cmux.dialog.confirmation")
+                       identifier: identifier)
     }
 
     private static func turnOff(_ path: [String], _ settings: SettingsController?) {

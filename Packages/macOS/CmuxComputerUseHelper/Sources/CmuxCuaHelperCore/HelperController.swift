@@ -17,16 +17,17 @@ private let controlLogger = Logger(subsystem: "com.cmuxterm.cua", category: "con
 /// host socket (`HostConsentServer`), whose peer is checked per connection
 /// by audit token; a `machine_consent` line here is ignored.
 ///
-/// The Computer Use mode is not a control line: it comes from the
-/// environment the host started the helper with (`ComputerUseConfiguration`),
-/// and a `configure` field never changes it.
+/// The Computer Use mode and client are not control lines: they come from
+/// the environment the host started the helper with (`ComputerUseConfiguration`),
+/// and a `configure` field never changes them. `ready` reports them, so the
+/// app sees the client every approval question will carry.
 ///
 /// host -> helper:
 ///   {"type":"configure","socket":PATH,"host_socket":PATH,"host_secret":HEX,"secret":HEX,"acpmux_cdhashes":[HEX],"acpmux_requirement":STRING|null}
 ///   {"type":"register_acpmux","pid":N,"start_sec":N,"start_usec":N}
 ///   {"type":"request_permission","permission":"accessibility"|"screen_recording"}
 /// helper -> host:
-///   {"type":"ready","protocol":1,"pid":N,"socket":PATH,"host_socket":PATH}
+///   {"type":"ready","protocol":1,"pid":N,"socket":PATH,"host_socket":PATH,"permission_mode":MODE,"client":ID}
 ///   {"type":"ack","of":"register_acpmux","ok":BOOL}
 ///   {"type":"error","error":STRING}
 public final class HelperController: Sendable {
@@ -43,6 +44,7 @@ public final class HelperController: Sendable {
     /// when the mode never asks.
     private let approvals: AppApprovalBroker?
     private let hostCheck: any HostCodeChecking
+    private let configuration: ComputerUseConfiguration?
     public let admission = AdmissionState()
     private let servers = OSAllocatedUnfairLock<(HelperSocketServer, HostConsentServer?)?>(initialState: nil)
     private let writeLock = OSAllocatedUnfairLock(initialState: ())
@@ -61,8 +63,10 @@ public final class HelperController: Sendable {
                 inspector: any PeerInspecting = KernelPeerInspector(),
                 requestPermission: @escaping @Sendable (HelperPermission) async -> Bool = { await $0.request() },
                 consent: HostConsentChannel? = nil, approvals: AppApprovalBroker? = nil,
+                configuration: ComputerUseConfiguration? = nil,
                 hostCheck: any HostCodeChecking = CmuxAppCodeCheck(),
                 onExit: @escaping @Sendable (Int32) -> Void = { exit($0) }) {
+        self.configuration = configuration
         self.input = input
         self.output = output
         self.sessions = sessions
@@ -170,6 +174,10 @@ public final class HelperController: Sendable {
         var ready: [String: Any] = ["type": "ready", "protocol": HelperWire.protocolVersion, "pid": Int(getpid()),
                                     "socket": path]
         if let hostServer { ready["host_socket"] = hostServer.path }
+        if let configuration {
+            ready["permission_mode"] = configuration.mode.rawValue
+            ready["client"] = configuration.client
+        }
         send(ready)
     }
 

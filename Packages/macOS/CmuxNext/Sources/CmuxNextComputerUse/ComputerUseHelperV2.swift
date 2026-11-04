@@ -68,7 +68,8 @@ public final class ComputerUseHelperV2 {
     /// App approvals (docs/computer-use-approvals.md): answers the worker's `app_approval`
     /// questions and tells it the saved list. Unset, every question is refused.
     public var approvals: ComputerUseApprovalBroker?
-    /// `computerUse.mode`, read at each start (the `configure` line's `permission_mode`).
+    /// `computerUse.mode`, read at each start: the worker's environment (`CMUX_COMPUTER_USE_MODE`;
+    /// through cmux Remote, the channel open's `permission_mode`), fixed for its life.
     public var permissionMode: @MainActor () -> ComputerUseMode = { .ask }
     /// The mode the running worker was configured with.
     var configuredMode: ComputerUseMode?
@@ -162,7 +163,8 @@ public final class ComputerUseHelperV2 {
     /// The helper's whole environment (nothing is inherited from this app,
     /// whose environment carries cmux tokens). The helper forces the same
     /// Cua Driver values itself before the driver loads.
-    nonisolated static func environment(home: String = NSHomeDirectory(),
+    nonisolated static func environment(mode: ComputerUseMode, client: String,
+                                        home: String = NSHomeDirectory(),
                                         temporaryDirectory: String = ComputerUseHelperDaemon.userTemporaryDirectory(),
                                         user: String = NSUserName(),
                                         bundleID: String? = Bundle.main.bundleIdentifier) -> [String: String] {
@@ -172,6 +174,10 @@ public final class ComputerUseHelperV2 {
         let allowed = bundleID.flatMap { $0.hasPrefix(prefix) && $0.count > prefix.count ? $0 : nil } ?? ""
         return [
             "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed,
+            // Fixed for the helper's life (a mode change starts a new one); the client is the one
+            // the approval broker answers for.
+            "CMUX_COMPUTER_USE_MODE": mode.rawValue,
+            "CMUX_COMPUTER_USE_CLIENT": client,
             "CUA_DRIVER_RS_TELEMETRY_ENABLED": "0",
             "CUA_TELEMETRY_ENABLED": "false",
             "CUA_DRIVER_RS_UPDATE_CHECK": "false",
@@ -213,7 +219,7 @@ public final class ComputerUseHelperV2 {
         if case .running = state { return }
         if let remote, await remote.isAvailable() {
             guard current == generation else { return }
-            return await applyRemote(remote, generation: current)
+            return await applyRemote(remote, start: startIdentity(), generation: current)
         }
         guard current == generation else { return }
         spawner = localSpawner
@@ -231,9 +237,10 @@ public final class ComputerUseHelperV2 {
         }
         unlink(endpointPath)
         let executable = app.appending(path: "Contents/MacOS/\(Self.helperExecutableName)")
+        let start = startIdentity()
         let spawned: ComputerUseHelperV2Child
         do {
-            spawned = try spawner.spawn(executable: executable, environment: Self.environment(),
+            spawned = try spawner.spawn(executable: executable, environment: Self.environment(mode: start.mode, client: start.client),
                                         logPath: directory + "/helper.log")
         } catch {
             return unavailable("the helper did not start: \(error)")
@@ -249,11 +256,20 @@ public final class ComputerUseHelperV2 {
             spawner.terminate(spawned.pid)
             return unavailable("the running helper pid \(spawned.pid) failed its signature check")
         }
-        await configureStarted(spawned, executable: executable, generation: current)
+        await configureStarted(spawned, executable: executable, start: start, generation: current)
+    }
+
+    /// The mode and client a new helper or worker starts with: `computerUse.mode` now, and the
+    /// client the approval broker answers for (each of the worker's questions carries it).
+    func startIdentity() -> ComputerUseStartIdentity {
+        let mode = permissionMode()
+        configuredMode = mode
+        return ComputerUseStartIdentity(mode: mode, client: approvals?.store.client ?? Bundle.main.bundleIdentifier ?? "")
     }
 
     /// Configures a started helper or worker and serves it until it exits.
-    func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, generation current: Int) async {
+    func configureStarted(_ spawned: ComputerUseHelperV2Child, executable: URL, start: ComputerUseStartIdentity,
+                          generation current: Int) async {
         let secret = Self.makeSecret()
         // The host link's own secret: sent only on the helper's stdin, never written to disk.
         let hostSecret = Self.makeSecret()
@@ -261,15 +277,12 @@ public final class ComputerUseHelperV2 {
         let admission: (hashes: [String], requirement: String?) = acpmux.map {
             Self.acpmuxAdmission(executable: $0.executable)
         } ?? (hashes: [], requirement: nil)
-        let mode = permissionMode()
-        configuredMode = mode
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "host_socket": hostSocketPath,
                                 "host_secret": Self.hex(hostSecret), "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull(),
-                                "permission_mode": mode.rawValue,
-                                "client": approvals?.store.client ?? Bundle.main.bundleIdentifier ?? ""]))
-        let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
+                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+        let ready = await Self.ready(of: spawned, within: readyTimeout, clock: clock)
+        let readySocket = ready?.socket
         guard current == generation else {
             spawned.closeInput()
             spawner.terminate(spawned.pid)
@@ -279,6 +292,16 @@ public final class ComputerUseHelperV2 {
             spawned.closeInput()
             spawner.terminate(spawned.pid)
             return unavailable("the helper did not report ready")
+        }
+        // Every question carries the worker's client; one for another client is refused unasked.
+        guard ready?.client == start.client, ready?.mode == start.mode.rawValue else {
+            spawned.closeInput()
+            spawner.terminate(spawned.pid)
+            guard let mode = ready?.mode else {
+                return unavailable("the helper does not run in mode \(start.mode.rawValue) (its log says why)")
+            }
+            return unavailable("the helper runs for client \(ready?.client ?? "none") in mode \(mode), "
+                + "not \(start.client) in \(start.mode.rawValue)")
         }
         let link = await ComputerUseHelperV2HostLink.connect(path: hostSocketPath, helperPID: spawned.pid,
                                                              executable: executable, secret: hostSecret)
@@ -331,7 +354,7 @@ public final class ComputerUseHelperV2 {
         // An acpmux daemon that already runs (it outlives the app) is registered now.
         if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
         // The mode changed while this worker started: it restarts with the new one.
-        if mode != permissionMode() { await restartForModeChange() }
+        if start.mode != permissionMode() { await restartForModeChange() }
     }
 
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
@@ -508,14 +531,17 @@ public final class ComputerUseHelperV2 {
         }
     }
 
-    /// The `socket` of the helper's first `ready` line, or nil after `within`.
-    nonisolated static func readySocket(of child: ComputerUseHelperV2Child, within: Duration,
-                                        clock: any Clock<Duration>) async -> String? {
-        await withTaskGroup(of: String?.self) { group in
+    /// The helper's first `ready` line (its socket, mode and client), or nil after `within`.
+    nonisolated static func ready(of child: ComputerUseHelperV2Child, within: Duration,
+                                  clock: any Clock<Duration>) async -> ComputerUseHelperReady? {
+        await withTaskGroup(of: ComputerUseHelperReady?.self) { group in
             group.addTask {
                 for await line in child.lines {
                     if let object = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
-                       object["type"] as? String == "ready" { return object["socket"] as? String }
+                       object["type"] as? String == "ready" {
+                        return ComputerUseHelperReady(socket: object["socket"] as? String, mode: object["permission_mode"] as? String,
+                                                      client: object["client"] as? String)
+                    }
                 }
                 return nil
             }
@@ -529,4 +555,17 @@ public final class ComputerUseHelperV2 {
             return first
         }
     }
+}
+
+/// The mode and client one helper or worker start runs with.
+nonisolated struct ComputerUseStartIdentity: Sendable, Equatable {
+    var mode: ComputerUseMode
+    var client: String
+}
+
+/// A helper's `ready` line: its socket and the mode and client it reports running with.
+nonisolated struct ComputerUseHelperReady: Sendable, Equatable {
+    var socket: String?
+    var mode: String?
+    var client: String?
 }

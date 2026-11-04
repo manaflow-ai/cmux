@@ -27,7 +27,7 @@ enum UserOnlySettingConfirmation {
         let shown = ShownDialog()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt), in: .window(window)) {
+                shown.id = CmuxDialogCenter.shared.present(DestructiveConfirmation.spec(prompt, identifier: SettingsController.userOnlyConfirmationDialogIdentifier), in: .window(window)) {
                     continuation.resume(returning: $0.button == DestructiveConfirmation.confirmID)
                 }
             }

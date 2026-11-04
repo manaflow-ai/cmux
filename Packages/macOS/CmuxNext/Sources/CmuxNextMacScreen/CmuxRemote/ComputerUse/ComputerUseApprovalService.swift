@@ -10,6 +10,11 @@ private let approvalsLogger = Logger(subsystem: "com.cmuxterm.app.next", categor
 /// one, starts it with the Computer Use worker and the settings, and connects the iPhone host.
 @MainActor
 public final class ComputerUseApprovalService {
+    /// The dialogs that raise what agents may do: only the person answers them (DEBUG
+    /// `debug.dialog` refuses to set, key or press them, `DebugDialog.userOnly`).
+    public static let confirmModeDialogIdentifier = "cmux.dialog.computerUse.confirmMode"
+    public static let approvalDialogIdentifier = "cmux.dialog.computerUse.approval"
+
     public let store: ComputerUseApprovalStore
     public let broker: ComputerUseApprovalBroker
     public let cards: ComputerUseApprovalCards

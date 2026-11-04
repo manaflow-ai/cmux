@@ -348,6 +348,10 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
 
     // MARK: App socket
 
+    /// The Computer Use modes an app channel may start a worker in (the worker refuses `bounded`
+    /// without an owner manifest and `unrestricted` without upstream's own opt-in).
+    static let computerUseModes: Set<String> = ["ask", "standard", "bounded", "unrestricted"]
+
     /// The app's connections: a hello with the secret from `app_grant`, from
     /// that exact process; then one `open` that turns the connection into a
     /// channel (Computer Use control, or the Screen Sharing worker's socket).
@@ -376,7 +380,24 @@ final class HostCore: @unchecked Sendable { // crash-allow: mutable fields are r
             let allowed = (request["allowed_target_bundle_id"] as? String).flatMap {
                 $0.hasPrefix(prefix) && $0.count > prefix.count && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" } ? $0 : nil
             }
-            host.computerUse.open(for: channel, id: id, environment: ["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed ?? ""])
+            // The worker's mode and client are fixed at its start (docs/computer-use-approvals.md, "Mac app
+            // wire"): the mode the app's person chose, one of the four, and the client only when it is the
+            // bundle id the app's own running code is signed as (each question carries it; the app's broker
+            // answers only its own).
+            guard let mode = (request["permission_mode"] as? String).flatMap({ Self.computerUseModes.contains($0) ? $0 : nil }) else {
+                channel.write(RemoteWire.failure(id: id, code: "bad_request", message: "permission_mode must be ask, standard, bounded or unrestricted"))
+                return channel.close()
+            }
+            guard let client = request["client"] as? String, let peer = channel.peer,
+                  let signed = AppCodeIdentity.signingIdentifier(of: peer), client == signed else {
+                channel.write(RemoteWire.failure(id: id, code: "refused", message: "client must be the bundle id this app is signed as"))
+                return channel.close()
+            }
+            host.computerUse.open(for: channel, id: id, environment: [
+                "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS": allowed ?? "",
+                "CMUX_COMPUTER_USE_MODE": mode,
+                "CMUX_COMPUTER_USE_CLIENT": client,
+            ])
         case RemoteWorkerKind.screenSharing.rawValue:
             // A worker that is starting answers within seconds; this connection's own thread waits for it.
             guard host.screen.waitReady(until: Date().addingTimeInterval(10)),

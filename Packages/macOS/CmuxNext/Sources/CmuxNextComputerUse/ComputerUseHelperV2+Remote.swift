@@ -9,14 +9,14 @@ import Foundation
 extension ComputerUseHelperV2 {
     /// The worker through cmux Remote: the host checked its signature at start and runs it as
     /// its own child, so this app checks the host's pid on the consent link.
-    func applyRemote(_ remote: any ComputerUseRemoteSpawning, generation current: Int) async {
+    func applyRemote(_ remote: any ComputerUseRemoteSpawning, start: ComputerUseStartIdentity, generation current: Int) async {
         guard ComputerUseHelperDaemon.makePrivateDirectory((directory as NSString).deletingLastPathComponent),
               ComputerUseHelperDaemon.makePrivateDirectory(directory) else {
             return unavailable("\(directory) is not a private directory of this user")
         }
         unlink(endpointPath)
         let channel: ComputerUseRemoteChannel
-        do { channel = try await remote.openComputerUse() } catch {
+        do { channel = try await remote.openComputerUse(mode: start.mode, client: start.client) } catch {
             guard current == generation else { return }
             return unavailable("cmux Remote did not start Computer Use: \(error)")
         }
@@ -26,7 +26,7 @@ extension ComputerUseHelperV2 {
             return
         }
         spawner = RemoteWorkerSpawner(exited: worker.exited)
-        await configureStarted(worker.child, executable: channel.executable, generation: current)
+        await configureStarted(worker.child, executable: channel.executable, start: start, generation: current)
     }
 
 }

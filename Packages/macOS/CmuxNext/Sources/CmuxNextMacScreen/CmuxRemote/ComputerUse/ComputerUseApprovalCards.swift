@@ -7,7 +7,8 @@ import CmuxNextDesign
 /// stacked downward. A card shows over every app and never takes the frontmost app or the
 /// keyboard by itself; once the person clicks it, its keys work (Return: Allow Once, Escape:
 /// Deny, Command-S: Allow for This Session, Command-A: Always Allow). Only a press on a card
-/// answers from here.
+/// answers from here, and none in the first ``ComputerUseApprovalPressGuard/delay`` after the card
+/// shows or moves (a click or key meant for what was there a moment ago never answers it).
 @MainActor
 public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
     /// One shown card.
@@ -46,6 +47,7 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
 
     public func show(_ pending: ComputerUseApprovalPending, broker: ComputerUseApprovalBroker) {
         if let card = cards[pending.id] {
+            if let panel = card.panel as? ComputerUseApprovalCardPanel { panel.armPressGuard() }
             card.panel?.orderFrontRegardless()
             return
         }
@@ -112,7 +114,7 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
                 CmuxDialogButton(id: ComputerUseApprovalDecision.once.rawValue, title: ComputerUseApprovalStrings.allowOnce, role: .normal),
             ],
             icon: icon,
-            identifier: "cmux.dialog.computerUse.approval")
+            identifier: ComputerUseApprovalService.approvalDialogIdentifier)
     }
 
     /// The target app's icon as TIFF data, nil when it cannot be found.
@@ -134,6 +136,8 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
             guard let panel = cards[id]?.panel, let content = panel.contentView else { continue }
             let size = content.fittingSize
             let frame = CGRect(x: area.maxX - size.width - 16, y: top - size.height, width: size.width, height: size.height)
+            // A card that appears or moves takes no press for a moment.
+            if panel.frame != frame || !panel.isVisible, let card = panel as? ComputerUseApprovalCardPanel { card.armPressGuard() }
             panel.setFrame(frame, display: true)
             top = frame.minY - 8
             panel.orderFrontRegardless()
@@ -147,17 +151,31 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
 @MainActor
 final class ComputerUseApprovalCardPanel: NSPanel {
     private var clicked = false
+    private var pressGuard = ComputerUseApprovalPressGuard()
+    /// The clock the press guard reads (tests inject one).
+    var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
     override var canBecomeKey: Bool { clicked }
     override var canBecomeMain: Bool { false }
 
     override func sendEvent(_ event: NSEvent) {
+        // A press in the guard's window is dropped whole: no button tracks it, and it does not
+        // make the card key either.
+        guard delivers(event.type) else { return }
         if event.type == .leftMouseDown || event.type == .rightMouseDown { clicked = true }
         super.sendEvent(event)
     }
 
-    static func make() -> ComputerUseApprovalCardPanel {
+    /// The card showed or moved now: presses wait out the guard's delay.
+    func armPressGuard() { pressGuard.arm(at: now()) }
+
+    /// Whether an event of `type` reaches the card now.
+    func delivers(_ type: NSEvent.EventType) -> Bool { pressGuard.admits(type, at: now()) }
+
+    static func make(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) -> ComputerUseApprovalCardPanel {
         let panel = ComputerUseApprovalCardPanel(contentRect: CGRect(x: 0, y: 0, width: 420, height: 200),
                                                  styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: true)
+        panel.now = now
+        panel.armPressGuard()
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
@@ -168,6 +186,23 @@ final class ComputerUseApprovalCardPanel: NSPanel {
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
         return panel
+    }
+}
+
+/// Review 1 #8: a card can appear (or move up when another one closes) under a click or a key
+/// already on its way; that press must not answer it. For ``delay`` after the card shows or
+/// moves, mouse-down and key-down events are dropped. The clock is the caller's (no sleeps).
+struct ComputerUseApprovalPressGuard {
+    static let delay: Duration = .milliseconds(600)
+    /// The event types that can press a card's button.
+    static let presses: Set<NSEvent.EventType> = [.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown]
+    private var armedAt: ContinuousClock.Instant?
+
+    mutating func arm(at now: ContinuousClock.Instant) { armedAt = now }
+
+    func admits(_ type: NSEvent.EventType, at now: ContinuousClock.Instant) -> Bool {
+        guard Self.presses.contains(type), let armedAt else { return true }
+        return now - armedAt >= Self.delay
     }
 }
 

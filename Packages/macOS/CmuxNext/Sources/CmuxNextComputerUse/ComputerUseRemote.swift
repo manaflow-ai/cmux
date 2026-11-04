@@ -10,21 +10,26 @@ import CmuxNextCompat
 public nonisolated protocol ComputerUseRemoteSpawning: Sendable {
     /// Whether the daemon runs cmux Remote now (else the in-app helper runs, as before).
     func isAvailable() async -> Bool
-    func openComputerUse() async throws -> ComputerUseRemoteChannel
+    /// Opens a channel whose worker runs in `mode` for `client` (this app's bundle id: cmux Remote
+    /// starts the worker only when it is the one this app's code is signed as).
+    func openComputerUse(mode: ComputerUseMode, client: String) async throws -> ComputerUseRemoteChannel
 }
 
 /// Computer Use through cmux Remote from a closure: the host starts a worker for each channel.
 public nonisolated struct ComputerUseRemoteSource: ComputerUseRemoteSpawning {
     let available: @Sendable () async -> Bool
-    let open: @Sendable () async throws -> ComputerUseRemoteChannel
+    let open: @Sendable (ComputerUseMode, String) async throws -> ComputerUseRemoteChannel
 
-    public init(available: @escaping @Sendable () async -> Bool, open: @escaping @Sendable () async throws -> ComputerUseRemoteChannel) {
+    public init(available: @escaping @Sendable () async -> Bool,
+                open: @escaping @Sendable (ComputerUseMode, String) async throws -> ComputerUseRemoteChannel) {
         self.available = available
         self.open = open
     }
 
     public func isAvailable() async -> Bool { await available() }
-    public func openComputerUse() async throws -> ComputerUseRemoteChannel { try await open() }
+    public func openComputerUse(mode: ComputerUseMode, client: String) async throws -> ComputerUseRemoteChannel {
+        try await open(mode, client)
+    }
 
     /// cmux Remote's executable in this app's embedded bundle (the worker runs it), or nil.
     public static func executable(bundle: Bundle = .main) -> URL? {

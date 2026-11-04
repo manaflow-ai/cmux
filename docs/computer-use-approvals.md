@@ -279,12 +279,20 @@ answer from any collector wins; the app then sends `cu_approval_done`.
 
 ## Mac app wire (worker configure, socket)
 
-- The app passes the mode and its client to the worker in its `configure`
-  line: `"permission_mode": "ask" | "standard" | "bounded" | "unrestricted"`
-  (`computerUse.mode`) and `"client": "<this app's bundle id>"`, the value the
-  worker puts in each request's `client` (the app refuses a question for any
-  other client). A mode change stops the worker's channel and opens a new one
-  (cmux Remote starts a new worker) with the new value.
+- The worker's mode and client are fixed when it starts, never by a
+  `configure` line: `CMUX_COMPUTER_USE_MODE` (`ask` | `standard` | `bounded`
+  | `unrestricted`, `computerUse.mode`) and `CMUX_COMPUTER_USE_CLIENT` (this
+  app's bundle id, the value the worker puts in each request's `client`; the
+  app refuses a question for any other client). The in-app helper gets them in
+  the environment the app starts it with. Through cmux Remote the app's
+  `computer-use` channel open carries `"permission_mode"` and `"client"`; the
+  host refuses a mode outside the four (`bad_request`) and a client other than
+  the signing identifier of the app's running code, read by the connection's
+  audit token (`refused`), then starts the worker with both in its
+  environment. The worker's `ready` line reports `permission_mode` and
+  `client`, and the app stops a worker that reports any other pair. A mode
+  change stops the worker's channel and opens a new one (cmux Remote starts a
+  new worker) with the new value.
 - The app also refuses, without asking anyone, a question whose
   `answerable_until_ms` is more than 11 minutes after `created_ms` or after its
   own clock, and one whose target is cmux itself (its own bundle id or any

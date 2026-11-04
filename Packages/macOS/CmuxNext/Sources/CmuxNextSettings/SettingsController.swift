@@ -43,6 +43,9 @@ public final class SettingsController {
     /// The app's native confirmation for a socket write of a user-only key (`cmux settings set
     /// --confirm`): it shows a sheet that names the key and value and needs a real click or key.
     @ObservationIgnored public var userOnlyConfirmation: (@MainActor (String, JSONValue?) async -> Bool)?
+    /// That sheet's dialog id, its own: only the person answers it (DEBUG `debug.dialog` refuses to
+    /// press it), unlike the other destructive confirmations' shared `cmux.dialog.confirmation`.
+    public static let userOnlyConfirmationDialogIdentifier = "cmux.dialog.settings.userOnlyConfirm"
     /// The Ghostty config files' own `background-blur` (C encoding), before cmux.json's: an
     /// opacity write with Material unset names the material it gives, and an opacity reset drops
     /// only that material (`WindowBackgroundSetting.linkedEdits`). Nil reads as no blur.

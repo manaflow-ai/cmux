@@ -124,7 +124,7 @@ enum ComputerUseApprovalActions {
     static func confirmRaise(title: String, body: String, in window: NSWindow?) async -> Bool {
         let spec = CmuxDialogSpec(title: title, lines: [body],
                                   buttons: [.cancel(), CmuxDialogButton(id: "change", title: ComputerUseApprovalStrings.change, role: .normal)],
-                                  identifier: "cmux.dialog.computerUse.confirmMode")
+                                  identifier: ComputerUseApprovalService.confirmModeDialogIdentifier)
         return await CmuxDialogCenter.shared.present(spec, in: scope(window)).button == "change"
     }
 

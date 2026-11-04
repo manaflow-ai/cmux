@@ -12,6 +12,9 @@ public struct ComputerUseStack: Sendable {
     public let consent: HostConsentChannel
     /// App approvals, asked of the host (`ask` only).
     public let approvals: AppApprovalBroker?
+    /// The mode and client this worker runs with (nil when the environment names no valid mode);
+    /// `ready` reports them so the app sees the client its questions will carry.
+    public let configuration: ComputerUseConfiguration?
 
     /// When the configuration is invalid or the driver does not load, every
     /// call fails with the reason (written to stderr), and nothing runs.
@@ -19,8 +22,10 @@ public struct ComputerUseStack: Sendable {
                 hostBundleID: String?, log: (String) -> Void) {
         let consent = HostConsentChannel()
         self.consent = consent
+        let parsed = Result { try ComputerUseConfiguration(environment: environment) }
+        configuration = try? parsed.get()
         do {
-            let configuration = try ComputerUseConfiguration(environment: environment)
+            let configuration = try parsed.get()
             guard let manifests = ManifestStoreLocation.perProcess() else {
                 throw ToolError("this user's temp directory is unavailable for Computer Use manifests")
             }
@@ -41,6 +46,6 @@ public struct ComputerUseStack: Sendable {
 
     /// The control pipe on stdin and stdout, serving this stack.
     public func controller() -> HelperController {
-        HelperController(sessions: sessions, consent: consent, approvals: approvals)
+        HelperController(sessions: sessions, consent: consent, approvals: approvals, configuration: configuration)
     }
 }

@@ -14,7 +14,8 @@ import Testing
         try pipe.fileHandleForWriting.close()
         let lines = AsyncStream<Data> { continuation in
             continuation.yield(ComputerUseHelperV2.line(["type": "ready", "protocol": 1,
-                                                        "socket": directory.path + "/h.sock"]))
+                                                        "socket": directory.path + "/h.sock",
+                                                        "permission_mode": "ask", "client": Bundle.main.bundleIdentifier ?? ""]))
             continuation.finish()
         }
         let child = ComputerUseHelperV2Child(pid: getpid(), input: descriptor, lines: lines)

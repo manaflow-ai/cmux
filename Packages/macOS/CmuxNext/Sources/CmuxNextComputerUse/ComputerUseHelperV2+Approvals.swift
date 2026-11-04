@@ -31,7 +31,7 @@ extension ComputerUseHelperV2 {
     }
 
     /// `computerUse.mode` changed: a running worker never changes mode, so stop its channel and
-    /// start a new one, which reads the new mode in its `configure` line.
+    /// start a new one, which starts in the new mode.
     /// A start still in progress checks the mode again once it runs (``configuredMode``).
     public func restartForModeChange() async {
         guard case .running = state, configuredMode != permissionMode() else { return }
