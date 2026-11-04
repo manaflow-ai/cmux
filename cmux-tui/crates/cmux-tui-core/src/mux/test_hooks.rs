@@ -152,7 +152,7 @@ impl Mux {
         terminal: &TerminalPublicId,
         surface: Arc<Surface>,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.remove_catalog_terminal(terminal);
         state.insert_catalog_terminal(terminal, &surface)?;
         insert_surface_checked(&mut state, surface)
