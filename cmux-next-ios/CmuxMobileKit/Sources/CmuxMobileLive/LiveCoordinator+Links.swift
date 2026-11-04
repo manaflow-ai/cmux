@@ -458,6 +458,7 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                session.pairingRetries = 0
                 // Allowed already: a code for this Mac has nothing left to approve.
                 pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
@@ -466,12 +467,32 @@ extension LiveCoordinator {
                 return true
             case .legacy:
                 self.setPairing(.idle, for: session)
+                session.pairingRetries = 0
                 return true
             case .refused(let error):
                 log.error("pairing refused: \(error.code, privacy: .public) \(error.message, privacy: .public)")
                 self.setPairing(error.code == "denied" ? .denied(mac: name) : .failed(LinkPairing.refusalText(error)), for: session)
+                self.schedulePairingRetry(session, link, after: error.code)
                 return false
             }
+        }
+    }
+
+    /// Asks the Mac again on `link` by itself after a refusal, so a Mac that becomes ready (or
+    /// a prompt answered late) lets the phone in without the person tapping Retry or relaunching
+    /// the Mac app. Runs while `link` stays this Mac's current, unserved link.
+    func schedulePairingRetry(_ session: MacSession, _ link: any MacLink, after code: String) {
+        session.pairingRetry?.cancel()
+        guard let delay = LinkPairing.retryDelay(after: code, attempt: session.pairingRetries) else { return }
+        session.pairingRetries += 1
+        let macID = session.macID
+        // task-owner: stored in `session.pairingRetry`; a newer refusal or retry cancels it
+        session.pairingRetry = Task { [weak self, weak session, clock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            guard let self, let session, self.sessions[macID] === session, session.currentLink === link,
+                  session.servedLink == nil else { return }
+            log.info("pairing: asking the Mac again (attempt \(session.pairingRetries, privacy: .public))")
+            self.retry(macID: macID)
         }
     }
 
