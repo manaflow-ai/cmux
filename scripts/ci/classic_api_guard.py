@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Refuse a pull request into main that changes classic's auto-deployed API without a reason.
 
-Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. `.github/classic-auto-deploy.json` lists those deploys and the paths each guards. A
+Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. `scripts/ci/classic-auto-deploy.json` lists those deploys and the paths each guards. A
 pull request into main that changes a guarded path fails unless its description has a line
 `Classic API change: <reason>`. Into feat-cmux-next the same change is a warning only:
 feat-cmux-next does not reach main today, so it deploys nothing classic, but the warning keeps
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = ROOT / ".github" / "classic-auto-deploy.json"
+DEFAULT_CONFIG = ROOT / "scripts" / "ci" / "classic-auto-deploy.json"
 REASON_LINE = re.compile(r"^[ \t]*Classic API change:[ \t]*(\S.*)$", re.MULTILINE)
 PLACEHOLDER = re.compile(r"^<[^>]*>$")
 
@@ -110,7 +110,7 @@ def check(
         out.append(
             "::error::Add a line `Classic API change: <reason>` to the description if classic needs this; "
             "new NEXT Cloud backend code goes to manaflow-ai/cmux-platform instead "
-            "(.github/classic-auto-deploy.json lists the paths)."
+            "(scripts/ci/classic-auto-deploy.json lists the paths)."
         )
         return 1, out
     out = [

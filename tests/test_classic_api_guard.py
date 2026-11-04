@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "classic_api_guard.py"
-CONFIG = ROOT / ".github" / "classic-auto-deploy.json"
+CONFIG = ROOT / "scripts" / "ci" / "classic-auto-deploy.json"
 WORKFLOW = ROOT / ".github" / "workflows" / "classic-api-guard.yml"
 
 spec = importlib.util.spec_from_file_location("classic_api_guard", SCRIPT)

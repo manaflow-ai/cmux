@@ -1,7 +1,7 @@
 name: classic API guard
 
 # Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. A pull request into main that changes one of the guarded paths in
-# .github/classic-auto-deploy.json fails until its description has a line
+# scripts/ci/classic-auto-deploy.json fails until its description has a line
 # `Classic API change: <reason>`; into feat-cmux-next it is a warning only, since that branch
 # deploys nothing classic. scripts/ci/classic_api_guard.py decides, run from the base commit,
 # never the pull request's code; the head is read only as a list of changed paths. Editing the
@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/classic_api_guard.py
-            .github/classic-auto-deploy.json
+            scripts/ci/classic-auto-deploy.json
           sparse-checkout-cone-mode: false
 
       - name: Check the changed paths against classic's auto-deploys
