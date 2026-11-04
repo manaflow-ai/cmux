@@ -204,7 +204,7 @@
 .acpmux-menu-item{display:flex;align-items:center;gap:var(--cmux-menu-icon-gap);min-height:var(--ui-row-height);padding:5px var(--ui-row-padding-inline);padding-inline:calc(var(--cmux-menu-icon-x) - var(--ui-popup-padding));box-sizing:border-box;border-radius:var(--ui-row-radius)}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-item{width:calc(100% - 4px);margin-inline-end:4px}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-item{position:relative}
-.acpmux-menu.acpmux-composer-plus .acpmux-menu-hit-area{position:absolute;inset:0;z-index:0;pointer-events:auto}
+.acpmux-menu.acpmux-composer-plus .acpmux-menu-hit-area{position:absolute;inset-block:0;inset-inline-start:0;inset-inline-end:-8px;z-index:999;pointer-events:auto;transform:translateZ(0)}
 .acpmux-menu.acpmux-composer-plus .acpmux-menu-item>*:not(.acpmux-menu-hit-area){position:relative;z-index:1}
 .acpmux-project-browse{width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:default}
 .ui-menu-check{flex:none;display:inline-flex;align-items:center;justify-content:center;line-height:1}
