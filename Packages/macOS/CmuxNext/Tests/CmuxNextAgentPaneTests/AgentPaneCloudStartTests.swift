@@ -130,19 +130,30 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.isEmpty)
     }
 
-    @Test func aFolderOutsideThePanesRootsIsNeverCopied() async throws {
+    /// The folder the composer shows as the chat's starts in Cloud on the Send's gesture, also when
+    /// it is not one of the tab's roots (a recent project, a link to one): the gesture is the pick,
+    /// as for a typed folder of a chat that starts here. Never home or above it, a missing folder,
+    /// or any folder without the gesture.
+    @Test func theComposersFolderStartsInCloudOnTheSendsGestureButNeverHomeOrAbove() async throws {
         let starts = Starts()
-        let (root, folder) = try Self.project()
+        let (root, _) = try Self.project()
         let (outsideRoot, outside) = try Self.project()
         defer {
             try? FileManager.default.removeItem(atPath: root)
             try? FileManager.default.removeItem(atPath: outsideRoot)
         }
-        // A link inside the root to a folder outside it names the outside folder.
         let link = (root as NSString).appendingPathComponent("escape")
         try FileManager.default.createSymbolicLink(atPath: link, withDestinationPath: outside)
-        for cwd in [outside, link, root + "/paint/../../" + (outsideRoot as NSString).lastPathComponent + "/paint",
-                    root + "/missing", "/", NSHomeDirectory()] {
+        for cwd in [outside, link, root + "/../" + (outsideRoot as NSString).lastPathComponent + "/paint"] {
+            starts.seen = []
+            let model = Self.pane(starts, root: root)
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(reply["ok"] as? Bool == true, "\(cwd): \(reply)")
+            #expect(starts.seen.first?.cwd == Self.canonical(outside), "\(cwd)")
+        }
+        starts.seen = []
+        for cwd in [root + "/missing", "/", NSHomeDirectory(), (NSHomeDirectory() as NSString).deletingLastPathComponent] {
             let model = Self.pane(starts, root: root)
             model.transport.gestures.record()
             let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
@@ -150,46 +161,35 @@ struct AgentPaneCloudStartTests {
             // Refused before the hold and the gesture: the person can pick another folder and send.
             #expect(model.transport.replacements.beginSandbox())
         }
-        // A pane whose folder is home (a folderless tab) offers no folder under home by that alone.
-        let homeTab = Self.pane(starts, root: NSHomeDirectory())
-        homeTab.transport.gestures.record()
-        let underHome = await homeTab.respond(to: Self.start(Self.good.merging(["cwd": NSHomeDirectory() + "/Library"]) { $1 }))
-        #expect(underHome["ok"] as? Bool != true)
+        // Without the Send's gesture nothing is copied.
+        let noGesture = Self.pane(starts, root: root)
+        let refused = await noGesture.respond(to: Self.start(Self.good.merging(["cwd": outside]) { $1 }))
+        #expect(refused["ok"] as? Bool != true)
         #expect(starts.seen.isEmpty)
-        // The root's own folder still starts.
-        let model = Self.pane(starts, root: root)
-        model.transport.gestures.record()
-        #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
     }
 
-    /// The copy uploads the Git working copy that holds the folder: a grant of /repo/paint never
-    /// uploads /repo (its siblings and its history); a grant of /repo does, as its upload root.
-    @Test func aFolderInsideAGitWorkingCopyIsCopiedOnlyWhenTheWholeCopyIsInScope() async throws {
+    /// Leo's nightly: a tab whose folder is inside a Git working copy (a repo's `briefs/<lane>`)
+    /// refused its Cloud start with "This folder isn't open in this tab" ("what's this"), since the
+    /// copy uploads the whole working copy and only the subfolder was a root. It starts, and the
+    /// copy is the working copy that holds the folder.
+    @Test func aFolderInsideAGitWorkingCopyStartsInCloudAndCopiesTheWorkingCopy() async throws {
         let starts = Starts()
         let (repo, folder) = try Self.project()
         defer { try? FileManager.default.removeItem(atPath: repo) }
         try FileManager.default.createDirectory(atPath: (repo as NSString).appendingPathComponent(".git"), withIntermediateDirectories: true)
         let narrow = Self.pane(starts, root: folder)
         narrow.transport.gestures.record()
-        let refused = await narrow.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
-        #expect(refused["ok"] as? Bool != true)
-        #expect(narrow.transport.replacements.beginSandbox())
-        #expect(starts.seen.isEmpty)
-
-        let whole = Self.pane(starts, root: repo)
-        whole.transport.gestures.record()
-        let started = await whole.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
-        #expect(started["ok"] as? Bool == true)
+        let started = await narrow.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(started["ok"] as? Bool == true, "\(started)")
         #expect(starts.seen.first?.cwd == Self.canonical(folder))
         #expect(starts.seen.first?.uploadRoot == Self.canonical(repo))
         let canonicalFolder = try #require(Self.canonical(folder))
         #expect(AgentPaneCloudStart.uploadRoot(of: canonicalFolder) == Self.canonical(repo))
     }
 
-    /// Router review at 7149eba: a `.git` file (a linked worktree, `--separate-git-dir`) can name a
-    /// repository outside the pane's roots, whose history the copy would upload. Such a send is
-    /// refused; one whose git folders are in scope starts.
-    @Test func aWorkingCopyWhoseGitFolderIsOutsideTheRootsIsNeverCopied() async throws {
+    /// A `.git` file (a linked worktree, `--separate-git-dir`) names git folders elsewhere: they are
+    /// copied with the working copy, but one that is home or above it never is.
+    @Test func aWorkingCopyWhoseGitFolderIsHomeOrAboveIsNeverCopied() async throws {
         let starts = Starts()
         let (project, _) = try Self.project()
         let (outside, _) = try Self.project()
@@ -201,34 +201,32 @@ struct AgentPaneCloudStartTests {
         try "gitdir: \(worktree)\n".write(toFile: (project as NSString).appendingPathComponent(".git"), atomically: true, encoding: .utf8)
         #expect(AgentPaneCloudStart.gitFolders(of: project) == [worktree, external])
 
-        let narrow = Self.pane(starts, root: project)
-        narrow.transport.gestures.record()
-        let refused = await narrow.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))
+        let linked = Self.pane(starts, root: project)
+        linked.transport.gestures.record()
+        #expect(await linked.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))["ok"] as? Bool == true)
+
+        // A commondir that names `/` is never copied.
+        try "/\n".write(toFile: (worktree as NSString).appendingPathComponent("commondir"), atomically: true, encoding: .utf8)
+        starts.seen = []
+        let rooted = Self.pane(starts, root: project)
+        rooted.transport.gestures.record()
+        let refused = await rooted.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))
         #expect(refused["ok"] as? Bool != true)
         #expect(starts.seen.isEmpty)
-
-        let both = Self.pane(starts)
-        both.transport.roots = { [project, outside] }
-        both.transport.gestures.record()
-        #expect(await both.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))["ok"] as? Bool == true)
     }
 
-    /// A folder of the New Tab page's scan is not the pane's to copy by the Send's gesture alone:
-    /// only once the person picked it (a root of the pane, or one they added).
-    @Test func aScannedProjectTheSendDidNotPickIsNeverCopied() async throws {
+    /// A folder of the New Tab page's scan (a recent project the chip shows that nobody clicked)
+    /// starts in Cloud on the Send's gesture: the Send is the pick.
+    @Test func aScannedProjectTheChipShowsStartsInCloudOnTheSendsGesture() async throws {
         let starts = Starts()
         let (root, folder) = try Self.project()
         defer { try? FileManager.default.removeItem(atPath: root) }
         let model = Self.pane(starts)
         model.transport.gestureRoots = { [root] }
         model.transport.gestures.record()
-        let refused = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
-        #expect(refused["ok"] as? Bool != true)
-        #expect(starts.seen.isEmpty)
-        // Picked (now one of the pane's roots): it starts.
-        model.transport.roots = { [root] }
-        model.transport.gestures.record()
-        #expect(await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))["ok"] as? Bool == true)
+        let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": folder]) { $1 }))
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(starts.seen.first?.cwd == Self.canonical(folder))
     }
 
     // The send's create, tab and copy keys are cmux-tui's (`link/start_chat_cli/tests.rs`).

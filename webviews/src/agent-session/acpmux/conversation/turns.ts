@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import { TURN_RETRY, type AcpmuxActivity, type AcpmuxRow } from "../model";
+import { TURN_RETRY, type AcpmuxActivity, type AcpmuxPlanEntry, type AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
@@ -1100,6 +1100,26 @@ const staysOut = (row: AcpmuxRow) =>
 /// A turn's todo list (an ACP `plan` update's row, direct.ts) that has its entries.
 const isPlan = (row: AcpmuxRow) => row.kind === "plan" && row.plan !== undefined;
 
+/// The running turn's todo list, if it has one: the last plan row whose turn has not ended, which
+/// App.tsx moves into the hat over the composer (subagents/SubagentTray.tsx `plan`).
+export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "plan" && row.plan?.length && !row.turnEnded) return row;
+  }
+  return undefined;
+}
+
+/// Whether two todo lists read the same (each step's words and state).
+export function samePlanEntries(
+  a: readonly AcpmuxPlanEntry[] | undefined,
+  b: readonly AcpmuxPlanEntry[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((entry, index) => entry.content === b[index]!.content && entry.status === b[index]!.status);
+}
+
 /// The latest todo list with entries among a turn's rows, if any.
 const latestPlan = (rows: readonly AcpmuxRow[]) => {
   for (let at = rows.length - 1; at >= 0; at -= 1) if (isPlan(rows[at]!) && rows[at]!.plan!.length) return rows[at];
@@ -1392,7 +1412,7 @@ function codexLiveTurn(
     // Past the streaming text's pause the line says the agent writes, never "Thinking".
     line.liveState = "writing";
   }
-  // Past the turn's first step its clock reads as the turn's whole time ("4m total"), so a long wait
+  // Past the turn's first step its clock reads as the turn's whole time ("2s · 4m" after a step's own time, else "4m" beside the label), so a long wait
   // never reads as that long a think, call or step (Leo, 2026-11-03: "i think the "thinking"
   // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that waited on
   // its subagents).
@@ -1421,7 +1441,7 @@ function codexLiveTurn(
       line.doing = lifted.doing;
       line.doingShell = lifted.shell;
       line.doingDone = true;
-      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m total").
+      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m").
       if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
     }
   }
