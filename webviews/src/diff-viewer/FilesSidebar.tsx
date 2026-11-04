@@ -408,7 +408,14 @@ function PierreFileTree({
           </span>
         ) : null}
         <FileTree model={model} style={{ height: "100%" }} renderContextMenu={() => null} />
-        <MenuPopup className="file-tree-context-menu" label={label("markViewed")}>
+        <MenuPopup
+          className="file-tree-context-menu"
+          label={
+            contextMenu && viewedStateByPath.get(contextMenu.path) === "viewed"
+              ? label("markNotViewed")
+              : label("markViewed")
+          }
+        >
           <MenuItem
             onSelect={() => {
               if (contextMenu) onToggleViewedPath(contextMenu.path);

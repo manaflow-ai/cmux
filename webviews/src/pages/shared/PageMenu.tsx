@@ -52,7 +52,12 @@ function NativePageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
       width: 220,
       rows: items.flatMap((item) => [
         ...(item.separatorBefore ? [{ id: `separator:${item.id}`, kind: "separator" as const, label: "" }] : []),
-        { id: item.id, kind: "action" as const, label: item.label, disabled: item.disabled },
+        {
+          id: item.id,
+          kind: "action" as const,
+          label: item.label,
+          disabled: item.disabled,
+        },
       ]),
     }),
     [items],
@@ -90,7 +95,11 @@ function NativePageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
         {items.map((item) => (
           <span key={item.id}>
             {item.separatorBefore ? <MenuSeparator /> : null}
-            <MenuItem disabled={item.disabled} onSelect={item.run}>
+            <MenuItem
+              className={item.destructive ? "ui-menu-item-destructive" : undefined}
+              disabled={item.disabled}
+              onSelect={item.run}
+            >
               {item.label}
             </MenuItem>
           </span>

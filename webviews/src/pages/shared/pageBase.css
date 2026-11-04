@@ -78,6 +78,18 @@ input {
   opacity: 0;
 }
 
+.page-menu-native-anchor > .ui-button,
+.file-tree-context-anchor > .ui-button {
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
+}
+
 .page-menu-item {
   display: flex;
   align-items: center;
