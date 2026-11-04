@@ -121,6 +121,26 @@ wire_enum! {
     }
 }
 
+/// A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeCardImage {
+    pub hash: HomeSha256,
+    pub mime_type: HomeCardImageMimeType,
+    pub byte_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub width: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub height: Option<Option<i64>>,
+}
+
+wire_enum! {
+    HomeCardImageMimeType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -380,6 +400,9 @@ pub enum HomePart {
     Work(HomePartWork),
     Attachment(HomePartAttachment),
     LinkPreview(HomePartLinkPreview),
+    HomePartCardBrowser(HomePartCardBrowser),
+    HomePartCardSignIn(HomePartCardSignIn),
+    HomePartCardNextSteps(HomePartCardNextSteps),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -441,6 +464,48 @@ pub struct HomePartLinkPreview {
     pub site: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub image: Option<Option<HomeLinkPreviewImage>>,
+}
+
+/// A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: "Browser: <step>" or "Computer: <step>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardBrowser {
+    pub r#type: LitCard,
+    pub kind: LitBrowser,
+    pub surface: HomePartCardBrowserSurface,
+    pub step: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub target: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub image: Option<Option<HomeCardImage>>,
+}
+
+wire_enum! {
+    HomePartCardBrowserSurface {
+        Browser = "browser",
+        Computer = "computer",
+    }
+}
+
+/// Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after "→ ".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardNextSteps {
+    pub r#type: LitCard,
+    pub kind: LitNextSteps,
+    pub choices: Vec<String>,
+}
+
+/// A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: "Secure Store: sign in to <site>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardSignIn {
+    pub r#type: LitCard,
+    pub kind: LitSignIn,
+    pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -837,67 +902,3 @@ wire_enum! {
         ModelSpendUsd = "model.spend_usd",
     }
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MovedAutomation {
-    pub id: AutomationId,
-    pub name: String,
-    pub moved_to: String,
-    pub moved_id: String,
-    pub epoch: i64,
-    pub moved_at: i64,
-}
-
-pub type NativeDeviceId = String;
-
-pub type NativeMeshId = String;
-
-pub type NativeTenantId = String;
-
-wire_enum! {
-    OpClass {
-        Read = "read",
-        MutateOwn = "mutate-own",
-        MutateShared = "mutate-shared",
-        Execute = "execute",
-        SendExternal = "send-external",
-        Money = "money",
-        Destructive = "destructive",
-        CloudLink = "cloud-link",
-        VmSelf = "vm-self",
-    }
-}
-
-/// A normalized pairing code: 8 Crockford base32 symbols, no hyphen.
-pub type PairingCode = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingInfo {
-    pub name: String,
-    pub platform: Platform,
-    pub os_version: String,
-    pub arch: PairingInfoArch,
-    pub cmux_version: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<Vec<ServerCapability>>,
-}
-
-wire_enum! {
-    PairingInfoArch {
-        X8664 = "x86_64",
-        Aarch64 = "aarch64",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PairingPreview {
-    pub code: PairingCode,
-    pub info: PairingInfo,
-    pub public_jwk: PublicJwk,
-    pub thumbprint: String,
-    pub country: Option<String>,
-    pub expires_at: i64,
-}
-
-/// user_<id>, agent_<name> or addr_<26> (an invited address).
-pub type ParticipantId = String;

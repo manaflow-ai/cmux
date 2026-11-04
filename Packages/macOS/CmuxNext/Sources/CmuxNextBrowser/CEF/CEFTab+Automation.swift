@@ -1,8 +1,8 @@
 public import CoreGraphics
 
 /// Chromium's side of the automation calls of ``BrowserTab``: the full page through DevTools, the
-/// cookies through the profile's cookie manager. `evaluateAsync` keeps the protocol's default
-/// (Chromium's `evaluate` awaits a promise).
+/// cookies through the profile's cookie manager. `evaluateAsync` keeps the protocol's validated
+/// wrapper (Chromium's `evaluate` awaits a promise).
 extension CEFTab {
     public func fullPageSnapshot() async throws -> CGImage {
         try await CEFFullPageCapture(tab: self).run()

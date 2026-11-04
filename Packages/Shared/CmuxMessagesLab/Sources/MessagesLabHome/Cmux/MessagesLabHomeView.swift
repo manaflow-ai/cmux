@@ -40,6 +40,7 @@ public final class MessagesLabHomeView: NSView {
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
+        HomeChiefCardRowProvider.install()
         // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
         HomeAgentFoldRowProvider.install()
         controller = ChatController(wake: wake)

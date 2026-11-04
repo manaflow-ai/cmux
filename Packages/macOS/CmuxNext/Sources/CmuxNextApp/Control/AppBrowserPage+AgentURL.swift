@@ -16,7 +16,7 @@ extension AppBrowserPage {
         case .forward: refused = historyStepRefused(page, offset: 1)
         // A wait scripts the page and a screenshot or the page's cookies read
         // it, as an evaluate does.
-        case .reload, .evaluate, .evaluateAsync, .screenshot, .cookies, .input, .upload: refused = showsRefusedPage(page)
+        case .reload, .evaluate, .evaluateAsync, .evaluateIsolated, .screenshot, .cookies, .input, .upload: refused = showsRefusedPage(page)
         }
         guard refused else { return nil }
         return ControlError(

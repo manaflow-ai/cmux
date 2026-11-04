@@ -96,7 +96,9 @@ enum BrowserPageScripts {
     }
 
     static func value(_ selector: String, _ text: String?) -> String {
-        // A password field's value never leaves the page.
-        wrap(find(selector) + "return { value: (el.type === 'password') ? null : (el.value ?? null) };")
+        // A password field's value never leaves the page, nor a filled one whose type changed.
+        wrap(find(selector) + "const auto = String((el.getAttribute && el.getAttribute('autocomplete')) || '').toLowerCase(); "
+            + "const hidden = String(el.type || '').toLowerCase() === 'password' || (el.hasAttribute && el.hasAttribute('\(secretMark)')) "
+            + "|| /password|one-time-code/.test(auto); return { value: hidden ? null : (el.value ?? null) };")
     }
 }

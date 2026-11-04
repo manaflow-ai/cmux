@@ -248,6 +248,50 @@ pub struct SendCall {
     /// Chief knows the reply is long (a list the person asked for): the
     /// length gate lets its first send post (chief_kernel::replies).
     pub long: bool,
+    /// A Secure Store sign-in card for this site (and its sign-in page):
+    /// the person adds the login on their device (brain/cards.rs).
+    pub sign_in: Option<SignInCard>,
+}
+
+/// `send`'s `sign_in`: the site a page needs a login for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignInCard {
+    pub site: String,
+    pub url: Option<String>,
+}
+
+impl SignInCard {
+    fn parse(value: &Value) -> Result<SignInCard, String> {
+        let site = value
+            .get("site")
+            .and_then(Value::as_str)
+            .map(|s| s.trim().trim_end_matches('.').to_ascii_lowercase())
+            .unwrap_or_default();
+        if !cmux_conversation::valid_card_site(&site) {
+            return Err(format!(
+                "send: sign_in.site {site:?} must be a host name such as linkedin.com"
+            ));
+        }
+        let url = match value.get("url") {
+            None | Some(Value::Null) => None,
+            Some(url) => {
+                let url = url.as_str().map(str::trim).unwrap_or_default();
+                if !cmux_conversation::valid_link_url(url) {
+                    return Err("send: sign_in.url must be the http(s) sign-in page".into());
+                }
+                Some(url.to_owned())
+            }
+        };
+        Ok(SignInCard { site, url })
+    }
+
+    fn to_json(&self) -> Value {
+        let mut v = json!({"site": self.site});
+        if let Some(url) = &self.url {
+            v["url"] = json!(url);
+        }
+        v
+    }
 }
 
 impl SendCall {
@@ -273,8 +317,12 @@ impl SendCall {
             Some(Value::String(one)) if !one.trim().is_empty() => vec![one.trim().to_owned()],
             Some(_) => return Err("send: `attachments` must be a list of paths or URLs".into()),
         };
-        if text.is_none() && attachments.is_empty() {
-            return Err("send: give `text`, `attachments` or both".into());
+        let sign_in = match args.get("sign_in") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(SignInCard::parse(value)?),
+        };
+        if text.is_none() && attachments.is_empty() && sign_in.is_none() {
+            return Err("send: give `text`, `attachments`, `sign_in` or more".into());
         }
         let reply_to = match args.get("reply_to") {
             None | Some(Value::Null) => None,
@@ -294,6 +342,7 @@ impl SendCall {
             attachments,
             reply_to,
             long,
+            sign_in,
         })
     }
 
@@ -307,6 +356,9 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if let Some(sign_in) = &self.sign_in {
+            v["sign_in"] = sign_in.to_json();
         }
         if self.long {
             v["long"] = json!(true);

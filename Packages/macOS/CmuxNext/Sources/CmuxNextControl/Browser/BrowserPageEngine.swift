@@ -14,6 +14,10 @@ public enum BrowserPageOperation: Sendable, Hashable {
     /// Runs the body of an async function and awaits what it returns.
     /// Result: `{"value": <JSON>}`.
     case evaluateAsync(String)
+    /// Runs `script` as an expression in cmux's isolated script world, which page scripts and
+    /// agent scripts (`evaluate`, `evaluateAsync`, both the page's world) never reach: its globals
+    /// and prototypes are its own, while the DOM is shared. Result: `{"value": <JSON>}`.
+    case evaluateIsolated(String)
     /// Result: `{"png_base64": …, "width": …, "height": …}` (image pixels).
     case screenshot(BrowserPageCapture)
     /// The cookies of the tab's profile. Result: `{"cookies": [cookie JSON]}`

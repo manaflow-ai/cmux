@@ -43,9 +43,12 @@ impl Brain {
                 self.outbox_timer = None;
                 return;
             };
+            // A browser card is not a turn of talk: the owner's agent
+            // budget ignores it, so it is not paced either.
             let entry = &self.state.outbox[at];
             let (is_message, not_before, attempted, previews_until) = (
-                matches!(entry.op, Op::MessageSend { .. }),
+                matches!(entry.op, Op::MessageSend { .. })
+                    && !super::browser_card::is_card_key(&entry.idempotency_key),
                 entry.not_before,
                 entry.attempted,
                 entry.previews_until,
@@ -61,10 +64,11 @@ impl Brain {
                 );
                 return;
             }
+            // Cards go after the parts the previews and uploads filled (cards.rs).
             let (conversation, key, op) = (
                 entry.conversation.clone(),
                 entry.idempotency_key.clone(),
-                entry.op.clone(),
+                super::cards::with_cards(&entry.op, &entry.cards),
             );
             let gap_ms = self.settings.agent_gap.as_millis() as u64;
             let now = now_ms();
@@ -136,27 +140,61 @@ impl Brain {
                     ))
                 }
                 Err(OpError::Rejected(reason))
-                    if self.state.outbox[at].plain_text.is_some() && has_cards(&op) =>
+                    if (self.state.outbox[at].plain_text.is_some()
+                        || !self.state.outbox[at].cards.is_empty())
+                        && has_cards(&op)
+                        && refuses_parts(&reason) =>
                 {
                     // The owner refused the link cards (an older or stricter
-                    // owner): retry its text and original attachments under
-                    // a new key, since the refused key is spent.
+                    // owner): the reply goes as its original text, unchanged,
+                    // under a new key, since the refused key is spent; each
+                    // other card as a line of it (cards.rs).
                     let head = &mut self.state.outbox[at];
-                    let text = head.plain_text.take().unwrap_or_default();
+                    let text =
+                        super::cards::text_fallback(head.plain_text.take(), &head.op, &head.cards);
                     let mut fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
                         &text,
                     );
-                    // A card rejection must not discard originals that
-                    // already uploaded successfully alongside the card.
+                    // The text answers the same messages in the same thread.
                     if let (
-                        Op::MessageSend { parts, .. },
                         Op::MessageSend {
-                            parts: fallback_parts,
+                            reply_to,
+                            answers,
+                            answers_pending,
+                            thread_root,
                             ..
                         },
-                    ) = (&op, &mut fallback.op)
+                        Op::MessageSend {
+                            reply_to: to,
+                            answers: ans,
+                            answers_pending: pending,
+                            thread_root: root,
+                            ..
+                        },
+                    ) = (&head.op, &mut fallback.op)
+                    {
+                        *to = reply_to.clone();
+                        *ans = answers.clone();
+                        *pending = answers_pending.clone();
+                        *root = thread_root.clone();
+                    }
+                    // A card rejection must not discard originals that
+                    // already uploaded successfully alongside the card. A
+                    // refusal of the attachments themselves would refuse
+                    // the text again: the text then goes without them.
+                    let attachments_refused = ["unknown_attachment", "attachment_mismatch"]
+                        .iter()
+                        .any(|code| reason.contains(code));
+                    if !attachments_refused
+                        && let (
+                            Op::MessageSend { parts, .. },
+                            Op::MessageSend {
+                                parts: fallback_parts,
+                                ..
+                            },
+                        ) = (&op, &mut fallback.op)
                     {
                         fallback_parts.extend(
                             parts
@@ -168,6 +206,13 @@ impl Brain {
                         );
                     }
                     *head = fallback;
+                    // A refused browser card is not sent again (browser_card.rs).
+                    if let Some(card) = self.state.browser_card.as_mut()
+                        && card.key == key
+                    {
+                        card.refused = true;
+                        self.browser_cards_refused = true;
+                    }
                     self.save();
                     (self.log)(&format!(
                         "op {key}: the owner refused its link cards ({reason}); sending the text"
@@ -201,6 +246,23 @@ impl Brain {
                         },
                         other => other,
                     };
+                    // `top` already includes the composed cards. A later retry must not append
+                    // them a second time (and the text fallback can read these parts directly).
+                    head.cards.clear();
+                    // Keep card acknowledgements and any later text fallback tied to this key.
+                    if let Some(card) = self.state.browser_card.as_mut().filter(|c| c.key == key) {
+                        card.key = head.idempotency_key.clone();
+                        card.thread = None;
+                    }
+                    for card in self
+                        .state
+                        .browser_cards_ending
+                        .iter_mut()
+                        .filter(|c| c.key == key)
+                    {
+                        card.key = head.idempotency_key.clone();
+                        card.thread = None;
+                    }
                     self.save();
                     (self.log)(&format!(
                         "op {key}: the owner refused its thread ({reason}); posting it at the top level"
@@ -223,6 +285,20 @@ impl Brain {
     }
 }
 
+/// Whether the owner refused a send for its parts (cards it cannot take),
+/// not for its thread or its pace: only then does the text go instead.
+fn refuses_parts(reason: &str) -> bool {
+    // `unsupported_*`: an owner without a part's kind (`unsupported_link_preview`).
+    [
+        "invalid_parts",
+        "unknown_attachment",
+        "attachment_mismatch",
+        "unsupported_",
+    ]
+    .iter()
+    .any(|code| reason.contains(code))
+}
+
 /// Whether `op` sends link cards (a reply the preview thread filled).
 /// Whether a send carries parts an owner may refuse where text would pass:
 /// link cards, or an approval card (a `question` part).
@@ -231,7 +307,10 @@ fn has_cards(op: &Op) -> bool {
     let Op::MessageSend { parts, .. } = op else {
         return false;
     };
-    parts
-        .iter()
-        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_)))
+    parts.iter().any(|p| {
+        matches!(
+            p,
+            Part::LinkPreview { .. } | Part::Question(_) | Part::Card(_)
+        )
+    })
 }

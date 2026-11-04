@@ -131,8 +131,12 @@ enum HomeMapping {
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
+    ///
+    /// `cards`: what a Chief card shows from this Mac (``HomeChiefCardContext``: the chips a later person
+    /// message said, the Secure Store's sites); only `HomeProjection.refreshCards` knows it, the other
+    /// mappings show a card without it.
     static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
-                               links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
+                               links: Links = { _ in nil }, cards: HomeChiefCardContext = HomeChiefCardContext()) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
         // A Feed row in the main Chief's transcript: one muted caption line, not a bubble from the Chief.
         if let row = item.feedRow, let caption = HomeAgentFoldRowProvider.part(feed: row) { return ([caption], [0]) }
@@ -153,9 +157,14 @@ enum HomeMapping {
         for (i, p) in item.parts.enumerated() {
             if case .attachment(let ref) = p, inTables.contains(ref.hash) { continue }
             let shown: [Part]
-            if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
-               let card = HomeApprovalRowProvider.part(question) { shown = [card] }
-            else { shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links) }
+            if case .card(let card) = p {
+                shown = [HomeChiefCardRowProvider.part(card, media: media, context: cards)]
+            } else if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
+                      let card = HomeApprovalRowProvider.part(question) {
+                shown = [card]
+            } else {
+                shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+            }
             parts += shown
             owners += Array(repeating: i, count: shown.count)
         }
@@ -420,6 +429,9 @@ enum HomeMapping {
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress.value(for: ref.hash))) // // crash program: dictionary read
         case .location(let place):
             return .location(latitude: place.latitude, longitude: place.longitude, title: place.label, subtitle: nil)
+        case .card(let card):
+            // A Chief's card (cmux issue 25830): a drawn row, its screenshot by hash like a link preview's.
+            return HomeChiefCardRowProvider.part(card, media: media, context: HomeChiefCardContext())
         case .work, .approval, .question:
             // Agent session, approval and question cards are not MessagesLab rows
             // yet: their text. The question card moves to the custom-row seam.

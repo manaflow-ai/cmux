@@ -269,6 +269,8 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 Part::Question(question) => {
                     !is_agent || question.state != crate::question::QuestionState::Pending
                 }
+                // Only an agent shows cards (card.rs).
+                Part::Card(_) => !is_agent,
                 _ => false,
             };
             if parts.iter().any(bad_question) {
@@ -363,6 +365,11 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             }
             validate_parts(parts)?;
             crate::question::check_edit(&message.parts, parts)?;
+            let is_agent =
+                head.participant(request.actor).is_some_and(|p| p.kind == ParticipantKind::Agent);
+            if !is_agent && parts.iter().any(|part| matches!(part, Part::Card(_))) {
+                return Err(Reject::InvalidParts);
+            }
             message.parts = parts.clone();
             message.edited_at = Some(now.to_string());
             let part_count = message.parts.len();
@@ -690,6 +697,11 @@ pub fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                 }
             }
             Part::Question(question) => crate::question::validate(question)?,
+            Part::Card(card) => {
+                if !crate::card::valid_card(card) {
+                    return Err(Reject::InvalidParts);
+                }
+            }
             Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }

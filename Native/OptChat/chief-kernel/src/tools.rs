@@ -192,7 +192,11 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "text": {"type": "string", "description": "The message, in Markdown."},
             "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
             "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
-            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."},
+            "sign_in": {"type": "object", "description": "A Secure Store sign-in card: the person adds their login for this site on their own device; you never see it.", "properties": {
+                "site": {"type": "string", "minLength": 1, "description": "The site's host name, for example linkedin.com."},
+                "url": {"type": "string", "minLength": 1, "description": "The http(s) sign-in page."}},
+              "required": ["site"], "additionalProperties": false}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {

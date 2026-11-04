@@ -25,6 +25,14 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitBrowser = "browser"
+}
+
+wire_literal! {
+    LitCard = "card"
+}
+
+wire_literal! {
     LitChief = "chief"
 }
 
@@ -89,6 +97,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitNextSteps = "next_steps"
+}
+
+wire_literal! {
     LitNone = "none"
 }
 
@@ -114,6 +126,10 @@ wire_literal! {
 
 wire_literal! {
     LitReserved = "reserved"
+}
+
+wire_literal! {
+    LitSignIn = "sign_in"
 }
 
 wire_literal! {

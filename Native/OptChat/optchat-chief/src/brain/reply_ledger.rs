@@ -94,7 +94,8 @@ impl Brain {
         else {
             return;
         };
-        if !says_something(parts) {
+        // A browser card (and its text) shows work; it answers nothing.
+        if !says_something(parts) || super::browser_card::is_card_key(key) {
             return;
         }
         let chief_post = key.starts_with("send-") || key.starts_with("turn:optchat:");

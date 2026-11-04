@@ -19,6 +19,12 @@ import Testing
         init(_ stored: [BrowserPageCookie]) { self.stored = stored }
 
         func run(_ operation: BrowserPageOperation, tabID: String, url: String?) async throws -> JSONValue {
+            // The login guard's origin reads around a write (BrowserLoginGuards), not recorded.
+            switch operation {
+            case .state: return ["url": "https://app.example.com/"]
+            case .evaluateIsolated: return ["value": ["origin": "https://app.example.com", "opener": false]]
+            default: break
+            }
             calls.withLock { $0.append(operation) }
             switch operation {
             case .cookies(.list): return ["cookies": .array(stored.map(\.json))]

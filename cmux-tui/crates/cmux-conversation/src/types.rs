@@ -135,6 +135,10 @@ pub enum Part {
     /// it; only `question.answer` moves it out of pending, except the
     /// author's edit that cancels it.
     Question(crate::question::Question),
+    /// A card an agent shows beside its words (card.rs): a live browser or
+    /// computer, a Secure Store sign-in, or suggested next steps. A browser
+    /// card's `image` names an attachment record the owner checks.
+    Card(crate::card::Card),
     /// A part this build cannot read: a type it does not know (a newer
     /// writer's), or a known type whose fields do not decode. Kept as its
     /// JSON so a reader can skip or show it instead of failing the whole

@@ -56,6 +56,16 @@ export const searchCases = (): Array<SearchCase> => {
     { head: dm, messages: [msg("conv_DMAB", 1, B, 4, [text("ÉCOLE deploy notes")]), msg("conv_DMAB", 2, A, 6, [text("日本語のデプロイ deploy")])] },
     { head: other, messages: [msg("conv_OTHR", 1, B, 9, [text("secret deploy plan")])] }
   ]
+  // card parts (card.ts): a browser card's step, a sign-in card's site and next-step choices are message text.
+  const chief = head("conv_CARD", "Chief", [human(A), agent("agent_mux")])
+  const card = (part: Record<string, unknown>) => ({ type: "card", ...part }) as unknown as Part
+  const cardSources: ReadonlyArray<SearchSource> = [
+    { head: chief, messages: [
+      msg("conv_CARD", 1, "agent_mux", 1, [card({ kind: "browser", surface: "browser", step: "Returning to LinkedIn", live: true, url: "https://www.linkedin.com/messaging/" })]),
+      msg("conv_CARD", 2, "agent_mux", 2, [card({ kind: "sign_in", site: "linkedin.com" })]),
+      msg("conv_CARD", 3, "agent_mux", 3, [text("Done."), card({ kind: "next_steps", choices: ["Check LinkedIn again", "Stop"] })])
+    ] }
+  ]
   const run = (name: string, actor: string, input: SearchInput, src: ReadonlyArray<SearchSource> = sources): SearchCase => {
     const r = searchConversations(actor, input, src)
     return { name, actor, input, sources: src, expect: r.ok ? { hits: r.hits } : { reject: r.code } }
@@ -72,6 +82,8 @@ export const searchCases = (): Array<SearchCase> => {
     run("search: empty query", A, { query: "   ", limit: 10 }),
     run("search: a control character in the query", A, { query: "dep\u0007loy", limit: 10 }),
     run("search: limit 0", A, { query: "deploy", limit: 0 }),
-    run("search: limit 101", A, { query: "deploy", limit: 101 })
+    run("search: limit 101", A, { query: "deploy", limit: 101 }),
+    run("search: card steps, sites and choices are searched", A, { query: "linkedin", limit: 10 }, cardSources),
+    run("search: a card's URL is not searched", A, { query: "messaging", limit: 10 }, cardSources)
   ]
 }
