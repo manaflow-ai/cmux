@@ -529,7 +529,7 @@ async fn a_pooled_start_still_running_ends_with_the_daemon() {
 async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
     let mut slow = profile("b");
     slow["env"]["FAKE_INIT_DELAY_MS"] = json!("95000");
-    let daemon = Daemon::with_fakeb("long-alive", 0, &slow);
+    let mut daemon = Daemon::with_fakeb("long-alive", 0, &slow);
     let home = daemon.home.clone();
     let mut rpc = daemon.rpc().await;
     let hint = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
