@@ -238,10 +238,11 @@ async fn a_replay_after_a_hard_stop_sends_the_tail_past_the_saved_last_seq() {
     }
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     drop(store);
-    // A new daemon on the same home: the chat's metadata loads; its log is not read yet.
+    // A new daemon on the same home, as the daemon builds its hub: the chat's metadata loads, its
+    // log is read later (`load_logs`, after the ready line). `Hub::new` would read it at once.
     let store = crate::store::open(&config.store, home.path())
         .unwrap_or_else(|e| panic!("open the store: {e:#}"));
-    let hub = crate::hub::Hub::new(config, store);
+    let hub = crate::hub::Hub::new_deferred(config, store, crate::mailbox::Mailbox::memory());
     let mut seen = Vec::new();
     hub.scan_events(CHAT, 0, &mut |record| {
         seen.push(record.seq);
