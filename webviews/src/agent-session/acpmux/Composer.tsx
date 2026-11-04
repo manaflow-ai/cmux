@@ -484,6 +484,7 @@ export function Composer({
   onProject,
   onComputer,
   onRepick,
+  onCloudMachinePicked,
   projectChoices,
   machineFolders,
   onBrowseProject,
