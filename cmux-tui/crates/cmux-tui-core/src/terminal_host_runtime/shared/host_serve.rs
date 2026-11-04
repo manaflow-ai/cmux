@@ -693,6 +693,9 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             break;
         }
         let write_result = write_frame(&mut stream, &frame);
+        if frame.kind == MessageKind::Output {
+            cmux_flow_trace::hop_id("host.frame.write", 0, host.terminal_id.as_bytes());
+        }
         tap.release(&frame);
         if write_result.is_err() {
             break;

@@ -285,6 +285,7 @@ fn publish_pty_frame(host: &HostShared, bytes: Vec<u8>) -> bool {
     // limits memory while letting a fast renderer consume source bytes
     // independently of parser throughput.
     let source_cursor = host.smart.publish(Frame::new(MessageKind::Output, bytes.clone()));
+    cmux_flow_trace::hop_id("host.pty.published", 0, host.terminal_id.as_bytes());
     enqueue_parser_output(
         &host.parser_commands,
         &host.parser_budget,

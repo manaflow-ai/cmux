@@ -132,6 +132,7 @@ impl HostFrames {
         control_responses: Arc<ControlResponses>,
         protocol_version: u16,
         smart_renderer: bool,
+        trace_terminal: String,
     ) -> std::io::Result<Self> {
         let early = EarlyResponses::new(smart_renderer);
         let shutdown = stream.try_clone()?;
@@ -140,7 +141,14 @@ impl HostFrames {
         let thread_queue = queue.clone();
         let thread_responses = control_responses.clone();
         std::thread::Builder::new().name(name).spawn(move || {
-            read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
+            read_stream(
+                stream,
+                &thread_responses,
+                protocol_version,
+                early,
+                &thread_queue,
+                &trace_terminal,
+            );
         })?;
         Ok(Self { queue, control_responses, early, shutdown })
     }
@@ -257,6 +265,7 @@ fn read_stream(
     protocol_version: u16,
     early: EarlyResponses,
     queue: &Queue,
+    trace_terminal: &str,
 ) {
     loop {
         let draining = queue.state.lock().unwrap().draining;
@@ -267,6 +276,9 @@ fn read_stream(
             break;
         }
         let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) else { break };
+        if frame.kind == MessageKind::Output {
+            cmux_flow_trace::hop_on_traced("daemon.host.read", trace_terminal);
+        }
         // A host-originated clipboard read is outside the live sequence and
         // waits for the user, so it never enters the ordered queue.
         if frame.kind == MessageKind::ClipboardReadRequest {
@@ -401,7 +413,7 @@ mod tests {
         let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
         resync.version = version;
         let stream = stream_of(&[resync, frame(MessageKind::KittyGraphicsLimitsAck, 9, version)]);
-        read_stream(stream, &responses, version, SMART, &queue);
+        read_stream(stream, &responses, version, SMART, &queue, "");
         assert_eq!(
             kitty.recv_timeout(Duration::from_secs(1)).unwrap().kind,
             MessageKind::KittyGraphicsLimitsAck
@@ -446,7 +458,7 @@ mod tests {
         let input = responses.wait_for_test(6, MessageKind::InputAck);
         let queue = queue();
         let stream = stream_of(&[frame(MessageKind::ClearHistoryAck, 5, version)]);
-        read_stream(stream, &responses, version, SMART, &queue);
+        read_stream(stream, &responses, version, SMART, &queue, "");
         assert!(responses.has_waiter(5), "the ordered waiter was failed before its frame");
         assert!(!responses.has_waiter(6), "the thread must fail the early waiters it owns");
         assert!(input.recv_timeout(Duration::from_millis(10)).is_err());
@@ -488,7 +500,7 @@ mod tests {
         let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
         output.version = version;
         let stream = stream_of(&[frame(MessageKind::KittyGraphicsLimitsAck, 4, version), output]);
-        read_stream(stream, &responses, version, SMART, &queue);
+        read_stream(stream, &responses, version, SMART, &queue, "");
         let state = queue.state.lock().unwrap();
         assert_eq!(state.frames.len(), 1, "the frame after the late ack was not read");
     }
@@ -514,7 +526,7 @@ mod tests {
         let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
         output.version = version;
         let stream = stream_of(&[clipboard_request(7, 1, version), output]);
-        read_stream(stream, &responses, version, SMART, &queue);
+        read_stream(stream, &responses, version, SMART, &queue, "");
         assert_eq!(
             signals.lock().unwrap().first(),
             Some(&crate::terminal_host_runtime::ClipboardReadSignal::Request(
@@ -563,7 +575,7 @@ mod tests {
             clipboard_cancel(7, version),
             output,
         ]);
-        read_stream(stream, &responses, version, SMART, &queue);
+        read_stream(stream, &responses, version, SMART, &queue, "");
         assert_eq!(responses.pending_clipboard_read(), None);
         let request = ghostty_vt::ClipboardReadRequest {
             token: 7,

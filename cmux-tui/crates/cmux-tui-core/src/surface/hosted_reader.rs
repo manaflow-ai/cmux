@@ -130,6 +130,7 @@ impl HostedReader {
             self.control_responses.clone(),
             self.protocol_version,
             self.smart_renderer,
+            pty.flow_terminal_id().to_owned(),
         ) {
             Ok(frames) => frames,
             Err(_) => return None,

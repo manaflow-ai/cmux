@@ -210,7 +210,18 @@ fn write_records(file: std::fs::File, sink: &Shared) {
     let mut out = std::io::BufWriter::new(file);
     let mut reported = 0;
     let pid = std::process::id();
+    let mut last_tick = 0u64;
     loop {
+        // NEVER MERGE (R-DAEMON-STATE S1.7 diagnostic): a tick per writer wake, so a paused process shows as a gap in
+        // its own ticks (an idle process still ticks every DRAIN_INTERVAL).
+        let tick = now_ns();
+        if tick.saturating_sub(last_tick) >= 10_000_000 {
+            let _ = writeln!(
+                out,
+                "{{\"hop\":\"flow.tick\",\"flow\":0,\"terminal\":\"\",\"pid\":{pid},\"tid\":0,\"t_ns\":{tick}}}"
+            );
+            last_tick = tick;
+        }
         let mut count = 0;
         while let Some(record) = sink.ring.pop() {
             let terminal =

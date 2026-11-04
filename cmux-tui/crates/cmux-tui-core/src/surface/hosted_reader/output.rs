@@ -146,6 +146,7 @@ impl HostedReader {
         {
             mux.append_shell_commands(terminal.clone(), finished_commands);
         }
+        cmux_flow_trace::hop_on_traced("daemon.output.applied", pty.flow_terminal_id());
         Flow::Continue
     }
 }
