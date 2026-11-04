@@ -204,8 +204,15 @@ class R2UploadRequestsTests(unittest.TestCase):
         # write operation timed out" because one sendall() of the whole body
         # had 30 s in all. A transfer that keeps moving must finish however
         # long it takes; here it takes several idle timeouts in all.
+        # The server reads slowly only for PACED seconds, then drains the rest
+        # at once. Read slowly to the end, the last ~10 MiB the kernel's socket
+        # buffers took in (tcp_wmem + tcp_rmem) left the client waiting for the
+        # response for longer than the idle timeout, and the test failed
+        # wherever buffers are that large (cmuxterm-hq#7079: the client handed
+        # off 12 MiB in 1.0 s; the server read it for 4.8 s).
         self.env["CMUX_R2_UPLOAD_IDLE_SECONDS"] = "2"
         self.env["CMUX_R2_UPLOAD_ATTEMPTS"] = "1"
+        paced = 5.0  # 2.5 idle timeouts
         received = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -213,11 +220,15 @@ class R2UploadRequestsTests(unittest.TestCase):
                 remaining = int(self.headers["Content-Length"])
                 received.append(self.headers.get("Transfer-Encoding"))
                 body = bytearray()
+                until = time.monotonic() + paced
                 while remaining:
                     piece = self.rfile.read(min(remaining, 256 << 10))
+                    if not piece:
+                        break  # the client gave up mid-body; reading on would spin and hang the cleanup
                     body += piece
                     remaining -= len(piece)
-                    time.sleep(0.1)
+                    if time.monotonic() < until:
+                        time.sleep(0.1)
                 received.append(bytes(body))
                 self.send_response(200)
                 self.send_header("Content-Length", "0")
@@ -232,9 +243,14 @@ class R2UploadRequestsTests(unittest.TestCase):
         thread.start()
         self.addCleanup(lambda: (server.shutdown(), thread.join(), server.server_close()))
 
-        body = os.urandom(12 << 20)  # 48 reads of 256 KiB, 0.1 s apart: about 5 s in all
+        # 2.5 MiB/s for 5 s is 12.5 MiB; 32 MiB keeps the client sending past
+        # the paced reads with up to ~19 MiB in buffers, so no gap is waiting on
+        # them, and the whole upload takes more than two idle timeouts.
+        body = os.urandom(32 << 20)
+        started = time.monotonic()
         result = self.upload("cmux.dmg", endpoint=f"https://127.0.0.1:{server.server_port}", body=body)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertGreater(time.monotonic() - started, 2 * 2)
         self.assertEqual(received, [None, body])
 
     def test_a_write_once_put_that_landed_unanswered_reads_as_present(self):
