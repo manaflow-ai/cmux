@@ -154,6 +154,7 @@ export const SubagentTray = memo(function SubagentTray({
   enters = false,
   chat,
   plan,
+  onTuck,
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -194,6 +195,10 @@ export const SubagentTray = memo(function SubagentTray({
   /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
   /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
   plan?: readonly AcpmuxPlanEntry[];
+  /// Tucks the hat away to a pull tab at the top middle of the composer (TrayPullTab.tsx): a chevron
+  /// at the hat's own top middle, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
+  /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
+  onTuck?: () => void;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -480,6 +485,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
+      data-tucks={onTuck ? "" : undefined}
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
       {headed && (
@@ -587,6 +593,17 @@ export const SubagentTray = memo(function SubagentTray({
             {cards}
           </ul>
         </div>
+      )}
+      {onTuck && (
+        <button
+          type="button"
+          className="acpmux-running-tray__tuck"
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="disclosure.expanded" size={12} />
+        </button>
       )}
       {headed && opensPanel === "button" && (
         <button

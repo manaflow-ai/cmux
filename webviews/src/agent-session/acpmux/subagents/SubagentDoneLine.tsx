@@ -298,7 +298,7 @@ function DoneLine({
             title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
             onClick={() => setReportOpen((value) => !value)}
           >
-            <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
           </button>
         ) : (
           /* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -307,7 +307,7 @@ function DoneLine({
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
           >
-            <ChevronRight size={14} strokeWidth={1.2} />
+            <ChevronRight size={14} />
           </span>
         )}
       </TranscriptActivityRowShell>
