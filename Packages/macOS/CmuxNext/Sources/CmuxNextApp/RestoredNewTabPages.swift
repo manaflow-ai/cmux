@@ -35,6 +35,11 @@ enum RestoredNewTabPages {
         return tabs.firstChats[handle] == nil
     }
 
+    /// `tab` is in ``ids(in:tabs:)`` (`restored`: of this Mac's store); reads no tab list, for a sidebar row's own mapping.
+    static func shows(_ tab: TabModel, of workspace: WorkspaceModel, in tabs: AgentTabStore, restored: Bool) -> Bool {
+        tabs.pageTabs.contains(tab.id) || (restored && tab.agentSession != nil && shows(tab, in: tabs, workspace: workspace.handle))
+    }
+
     /// The tabs of `store` that show the New Tab page, with the pages this run opened.
     /// `liveTabs` observes only the store's tab-list revision, so terminal status
     /// updates do not re-arm this structural walk.
