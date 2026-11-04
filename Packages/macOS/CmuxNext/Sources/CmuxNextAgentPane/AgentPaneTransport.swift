@@ -460,6 +460,7 @@ import CmuxNextCompat
         for answer in decisions.takeAnswers() where !remoteWire {
             switch answer {
             case .refused(let peer): onPeerApprovalsOff?(.notEnrolled(peer: peer))
+            case .unproved: onPeerApprovalsOff?(.notRecorded)
             case .counted: onPeerApprovalsOff?(nil)
             }
         }

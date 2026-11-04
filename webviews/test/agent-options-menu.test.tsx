@@ -158,6 +158,41 @@ test("only options no other chip owns are extra", async () => {
   expect(extraConfigOptions(noModes).map((entry) => entry.id)).toEqual(["mode", "thinking"]);
 });
 
+// Leo 2026-11-04 ("this should NOT be in the bottom composer area"): Claude's session recap switch
+// is Settings > Chats > Session Recap, so it never becomes a composer chip.
+test("the session recap option never reaches the composer", async () => {
+  const { extraConfigOptions } = await import("../src/agent-session/acpmux/agentOptions");
+  type Summary = Parameters<typeof extraConfigOptions>[0];
+  const summary = {
+    family: "claude",
+    harness: "claude",
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      option("session-recap", ["default", "on", "off"], { category: "model_config", name: "Session recap" }),
+      option("thinking", ["off", "on"]),
+    ],
+  } as unknown as Summary;
+  expect(extraConfigOptions(summary).map((entry) => entry.id)).toEqual(["thinking"]);
+});
+
+// Leo 2026-11-03 ("why is this here", the Options menu open on a Claude chat): acpmux's per-chat
+// prompt suggestions switch is a usage setting like the recap, so it never becomes a composer chip.
+test("the prompt suggestions option never reaches the composer", async () => {
+  const { extraConfigOptions } = await import("../src/agent-session/acpmux/agentOptions");
+  type Summary = Parameters<typeof extraConfigOptions>[0];
+  const summary = {
+    family: "claude",
+    harness: "claude",
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      option("session-recap", ["default", "on", "off"], { category: "model_config", name: "Session recap" }),
+      option("prompt-suggestions", ["off", "on"], { category: "model_config", name: "Prompt suggestions" }),
+      option("thinking", ["off", "on"]),
+    ],
+  } as unknown as Summary;
+  expect(extraConfigOptions(summary).map((entry) => entry.id)).toEqual(["thinking"]);
+});
+
 test("the Options chip names one option and picks its choice through the config command", async () => {
   const sent: string[] = [];
   await render(codex([option("thinking", ["off", "on"], { name: "Thinking" })]), sent);

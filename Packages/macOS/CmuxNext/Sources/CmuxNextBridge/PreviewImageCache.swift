@@ -22,10 +22,12 @@ public final class PreviewImageCache {
     public var count: Int { images.count }
 
     /// Replaces `key`'s image with `replacement` at `cost` only while `key` still holds `current` (the same object):
-    /// a later picture of the tab is never overwritten by an older one finished late. Keeps its recency.
+    /// a later picture of the tab is never overwritten by an older one finished late. Keeps its recency. A replacement
+    /// that saves no bytes (a compressed copy larger than the decoded picture) is refused, so a replace only ever lowers
+    /// `totalBytes` and the store stays within `capacityBytes` with no eviction.
     @discardableResult
     public func replace(_ current: CGImage, for key: String, with replacement: CGImage, cost: Int) -> Bool {
-        guard images[key] === current, cost <= capacityBytes, let old = costs[key] else { return false }
+        guard images[key] === current, let old = costs[key], cost < old else { return false }
         images[key] = replacement
         costs[key] = cost
         totalBytes += cost - old

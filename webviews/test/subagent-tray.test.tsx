@@ -720,8 +720,9 @@ describe("the tray", () => {
       { open: true },
     );
     try {
+      // A session the agent started reads as a session (trayHeadKinds.ts).
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 2 subagents · 1 command",
+        "Running in background · 1 subagent · 1 session · 1 command",
       );
       const lines = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line")];
       expect(lines.map((line) => line.querySelector(".acpmux-summary-agent__name")?.textContent)).toEqual([
@@ -1034,12 +1035,14 @@ describe("the tray tells the truth", () => {
     );
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
-      // Four subagents (two harness subagents, two chats it started, one waiting) and one command: five rows.
-      // A chat that waits on the person is counted as waiting, never as running.
+      // Two harness subagents, two chats it started (one waiting) and one command: five rows.
+      // A chat that waits on the person is counted as waiting, never as running; a chat it started is
+      // a session. What ended counts after what runs, its failures apart in the danger colour.
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "3 subagents running · 1 waiting · 1 command",
+        "2 subagents running · 1 session · 1 waiting · 1 command · 2 done",
       );
+      expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
       expect(names(lines)).toEqual([
@@ -1069,7 +1072,7 @@ describe("the tray tells the truth", () => {
     }
   });
 
-  test("between turns it says subagents, never agents or sessions", async () => {
+  test("between turns it says subagents and sessions, never agents", async () => {
     const now = Date.now();
     const items = trayItems(
       [agent("Watcher", { background: true, startedAt: now }), agent("Scout", { background: true, startedAt: now })],
@@ -1083,7 +1086,7 @@ describe("the tray tells the truth", () => {
     );
     try {
       expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
-        "Running in background · 3 subagents · 1 command",
+        "Running in background · 2 subagents · 1 session · 1 command",
       );
       expect(root.querySelector(".acpmux-running-tray__finished")).toBeNull();
     } finally {
@@ -1175,6 +1178,49 @@ describe("the tray tells the truth", () => {
     expect([after.action, after.actionShell]).toEqual(["find the bug", undefined]);
   });
 
+  test("a shell substitution gets a readable work title and keeps the raw command in its tooltip", async () => {
+    const raw =
+      "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script scripts/check-glyphs.sh";
+    const entry = command("checks", { command: raw });
+    expect(commandLabel(entry)).toBe("git rev-parse HEAD · cmux-ci run");
+    expect(commandLabel({ ...entry, description: "Check the glyphs on the fleet" })).toBe(
+      "Check the glyphs on the fleet",
+    );
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([], [entry], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      // The tray names the cmux-ci step by its rule, its setup's substitution before it (commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · Fleet run"]);
+      expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
+      expect(root.textContent).not.toContain("HEAD);");
+      expect(root.textContent).not.toContain("--class");
+    } finally {
+      await done();
+    }
+  });
+
+  test("substitutions stay whole and their executed work never disappears as setup", () => {
+    const labels = [
+      ["A=$(touch marker); bun test", "touch marker · bun test"],
+      ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
+      ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
+      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · printf · bun test"],
+      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
+      ["sleep $((60 * 5))", "sleep $((60 * 5))"],
+      ["export A=$(git rev-parse HEAD); bun test", "git rev-parse HEAD · bun test"],
+      ["cd /tmp && A=$(git rev-parse HEAD); /opt/bin/cmux-ci run --ref $A", "git rev-parse HEAD · cmux-ci run"],
+      ["A='$(not executed)'; bun test", "bun test"],
+      ["echo '$(not executed)'", "echo '$(not executed)'"],
+    ];
+    for (const [raw, label] of labels) expect(commandLabel(command("case", { command: raw! }))).toBe(label);
+  });
+
   test("a command shows its description, else the command without its cd and env prefixes", async () => {
     const tool = (id: string, input: Record<string, unknown>) => ({
       id,
@@ -1227,7 +1273,8 @@ describe("the tray tells the truth", () => {
       { open: true },
     );
     try {
-      expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
+      // The tray names a command without a description in words (session-info/commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["Start the dev server", "Running tests"]);
       // The whole command stays one hover away.
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(
         "cd ~/Projects/cmux && bun run dev",
@@ -1306,14 +1353,17 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       expect(dom.window.document.activeElement).toBe(head);
       expect(head.getAttribute("aria-expanded")).toBe("true");
       expect(head.getAttribute("aria-controls")).toBe(root.querySelector(".acpmux-running-tray__list")!.id);
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
+      // The one that ended counts after what runs (trayHeadKinds.ts).
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "1 subagent running · 1 subagent done",
+      );
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
       expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);
     } finally {
       await done();
     }
-    // Nothing runs, the ended lines stay: the header says Subagents, never an empty title.
+    // Nothing runs, the ended lines stay: the header says what ended, never an empty title.
     const ended = panel(0, 2);
     const idle = await render(
       createElement(SubagentTray, {
@@ -1325,7 +1375,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       }),
     );
     try {
-      expect(idle.root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("Subagents");
+      expect(idle.root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents done");
     } finally {
       await idle.done();
     }
@@ -1456,8 +1506,9 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     try {
       // Four lines start folded: open them.
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
-      // Four running, none waiting: the open header counts them all as running.
-      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
+      // Four running, none waiting: the open header counts them all as running, the two chats the
+      // agent started as sessions (trayHeadKinds.ts).
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 2 sessions");
       // What it does is the tooltip's, in words; the line has no subtitle.
       expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
