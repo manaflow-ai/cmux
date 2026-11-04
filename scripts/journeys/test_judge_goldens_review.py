@@ -348,8 +348,9 @@ class TruthFactTests(unittest.TestCase):
             w.close()
 
     def test_a_fact_of_a_film_not_in_films_json_is_no_verdict(self):
+        # (dropped frames, not jump: an absence of jump is refused for its own reason, which would hide this rule)
         self.assert_no_verdict({"id": "typo", "film": "px-build-120x2/px-keys-typo", "why": "t",
-                                "expect": [{"judge": "video_judge", "absent_check": "jump"}]}, "typo")
+                                "expect": [{"judge": "video_judge", "absent_check": "dropped frames"}]}, "is not in films.json")
 
     def test_a_fact_with_no_check_is_no_verdict(self):
         self.assert_no_verdict({"id": "empty", "film": "px-build-120x2/px-keys", "why": "t"}, "empty")
@@ -461,9 +462,9 @@ class ThirdReviewTests(unittest.TestCase):
 
     def test_an_unknown_key_of_a_fact_or_no_why_is_no_verdict(self):
         self.assert_no_verdict({"id": "typo-key", "film": self.FILM, "why": "t",
-                                "expects": [{"judge": "video_judge", "absent_check": "jump"}]}, "typo-key")
+                                "expects": [{"judge": "video_judge", "absent_check": "dropped frames"}]}, "unknown keys")
         self.assert_no_verdict({"id": "no-why", "film": self.FILM,
-                                "expect": [{"judge": "video_judge", "absent_check": "jump"}]}, "no-why")
+                                "expect": [{"judge": "video_judge", "absent_check": "dropped frames"}]}, "no-why: no why")
 
     def test_an_absence_on_a_judge_that_saw_no_frame_is_no_verdict(self):
         import test_judge_goldens_truth as truth
@@ -1246,6 +1247,126 @@ class SeventhReviewTests(unittest.TestCase):
             code, out = w.bless()
             self.assertEqual(code, 0, out)
             self.assertIn("0 folder(s) and 1 file(s)", out)
+        finally:
+            w.close()
+
+
+class EighthReviewTests(unittest.TestCase):
+    """Review 8 of #33930 at a116b2ab95d (FIX, comment 6627130937). A: two guards that the jump rule hid (fixed in the
+    tests above: their own words). Notes: a failure inside the link loop leaves no partly stored film; one snapshot at a
+    time (a lock on the store); a dotted film name brings in no stored film's input; an empty ruler is a ruler of no
+    form; the ruler needs the pinned frames.json too; the copy removes every file it linked when it fails."""
+
+    cli = staticmethod(SixthReviewTests.cli)
+
+    def test_a_failure_inside_the_link_loop_leaves_no_partly_stored_film(self):
+        w = base.Workspace()
+        real = os.link
+        calls = []
+        try:
+            def failing(src, dst, *a, **k):
+                calls.append(dst)
+                if len(calls) == 2:
+                    raise PermissionError(13, "Permission denied", str(dst))
+                return real(src, dst, *a, **k)
+
+            os.link = failing
+            code, out = w.snapshot()
+            os.link = real
+            self.assertNotEqual(code, 0, out)
+            self.assertEqual([p.name for p in (w.store / "films").rglob("*") if p.is_file()], [], out)
+            code, out = w.snapshot()  # no fault now: it completes
+            self.assertEqual(code, 0, out)
+        finally:
+            os.link = real
+            w.close()
+
+    def test_one_snapshot_at_a_time(self):
+        import fcntl
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            lock = w.store / jg.STORE_LOCK
+            with open(lock, "a") as held:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                code, out = self.cli(w, w.root / "manifest-b", "snapshot", "--source", str(w.gallery),
+                                     "--settled-minutes", "0", "--lock-seconds", "1")
+                self.assertEqual(code, 2, out)
+                self.assertIn("another snapshot", out)
+            code, out = self.cli(w, w.root / "manifest-b", "snapshot", "--source", str(w.gallery), "--settled-minutes", "0")
+            self.assertEqual(code, 0, out)
+        finally:
+            w.close()
+
+    def test_a_dotted_film_name_brings_in_no_stored_films_input(self):
+        w = base.Workspace()
+        try:
+            events = w.gallery / "build-a-120x2" / "col-drag.events.json"
+            data = events.read_bytes()
+            events.unlink()
+            self.assertEqual(w.snapshot()[0], 0)
+            events.write_bytes(data)
+            # a new film "col-drag.events" whose trace makes col-drag.events.json look like its own file
+            (w.gallery / "build-a-120x2" / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
+            code, out = w.snapshot()
+            self.assertEqual(code, 2, out)
+            self.assertIn("col-drag.events", out)
+            self.assertFalse((w.store / "films" / "build-a-120x2" / "col-drag.events.json").exists())
+        finally:
+            w.close()
+
+    def test_an_empty_ruler_is_a_ruler_of_no_form(self):
+        import test_judge_goldens_truth as truth
+        for value in ({}, [], ""):
+            with self.subTest(ruler=value):
+                w = truth.TruthWorkspace()
+                try:
+                    w.write_truth()
+                    path = w.manifest / "truth.json"
+                    doc = json.loads(path.read_text())
+                    doc["facts"][0]["ruler"] = value
+                    path.write_text(json.dumps(doc))
+                    self.assertEqual(w.snapshot()[0], 0)
+                    code, out = w.bless()
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("truth.json has facts that cannot be checked", out)
+                finally:
+                    w.close()
+
+    def test_the_ruler_needs_the_pinned_frames_too(self):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth(expect=[{"judge": "judge_trace", "absent_kind": "dropped"}])  # no video_judge: no frames.json
+            frames = w.gallery / "px-build-120x2" / "px-keys.mov.frames.json"
+            data = frames.read_bytes()
+            frames.unlink()
+            self.assertEqual(w.snapshot()[0], 0)
+            folder = w.store / "films" / "px-build-120x2"
+            os.chmod(folder, 0o755)
+            (folder / "px-keys.mov.frames.json").write_bytes(data)
+            os.chmod(folder, 0o555)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("px-keys.mov.frames.json is not pinned", out)
+        finally:
+            w.close()
+
+    def test_a_failed_copy_keeps_no_file_it_linked(self):
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            src = w.root / "gallery-c" / "build-c-120x2"
+            base.write_film(src.parent / "build-c-120x2", "row-drag", frames=6)
+            films = w.store / "films"
+            folder = films / "build-c-120x2"
+            take = {p.name: [p.stat().st_size, jg.sha256_file(p)] for p in src.iterdir() if p.name.endswith(jg.KEEP_SUFFIXES)}
+            os.chmod(films, 0o755)
+            folder.mkdir()
+            (folder / "row-drag.trace.json").write_text("{\"other\": 1}")  # another snapshot's, other bytes
+            problems = jg.copy_folder(src.parent, w.store, "build-c-120x2", take)
+            self.assertTrue(problems)
+            self.assertEqual(sorted(p.name for p in folder.iterdir()), ["row-drag.trace.json"])
         finally:
             w.close()
 
