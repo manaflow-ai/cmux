@@ -1584,7 +1584,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons"],
+            // CCmuxAppFFI: the springing-close rules (cmux-layout-reducer closing_panes).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CCmuxAppFFI"],
             resources: [
                 .process("Resources"),
             ],

@@ -39,7 +39,7 @@ struct ClosingPanes {
     typealias Travel = (now: CGFloat, target: CGFloat)
 
     private(set) var entries: [PaneID: Entry] = [:]
-    private var rules = ClosingPanesRules()
+    private let rules = ClosingPanesRules()
     /// The numbers the rules name panes, scroll areas and row columns by (given out while this value lives).
     private var paneNumbers: [PaneID: UInt64] = [:], panesByNumber: [UInt64: PaneID] = [:]
     private var splitNumbers: [SplitID: UInt64] = [:], columnNumbers: [ColumnID: UInt64] = [:]
