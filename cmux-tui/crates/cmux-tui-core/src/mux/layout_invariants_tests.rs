@@ -917,6 +917,33 @@ proptest! {
     }
 }
 
+/// The case `layout_ops_conserve_tabs` shrank to on feat d8936fb5a11c (census, 2 of 2 runs of
+/// its shard): after splits, moves and a terminal move, two closes leave the scoped projection's
+/// patch without a screen whose pane lost a tab ("the scoped projection omits a changed
+/// screen"). Debug builds cross-check scoped against full on every step.
+#[test]
+fn two_closes_after_moves_restate_the_screen_whose_pane_lost_a_tab() {
+    let mux = test_mux("layout-invariants-shrunk-changed-screen");
+    build(&mux, &[vec![1, 3, 2, 1]]);
+    let mut groups = 0;
+    for op in [
+        Op::NewWorkspace { tab: 8 },
+        Op::Split { tab: 22, pane: 24, edge: TabDropEdge::Left, ratio: None },
+        Op::ReplayedMove { tab: 4, pane: 30, index: 0 },
+        Op::MoveTab { tab: 21, pane: 1, index: 0, undoable: false },
+        Op::TerminalToPane { tab: 1, pane: 34, index: 0 },
+        Op::Split { tab: 0, pane: 41, edge: TabDropEdge::Left, ratio: None },
+        Op::MoveTab { tab: 47, pane: 29, index: 2, undoable: false },
+        Op::Close { tab: 7 },
+        Op::Close { tab: 42 },
+    ] {
+        let mut before = mux.with_state(Clone::clone);
+        let mut rejections = rejections_on_this_thread();
+        let outcome = run(&mux, &op, &mut groups, &mut before, &mut rejections);
+        check_step(&mux, &before, &outcome, rejections);
+    }
+}
+
 /// The case `layout_ops_conserve_tabs` shrank to on feat (78ee0e108e1, 2 of 15 full Linux
 /// runs, BASE RED SUITE 2026-11-04): after a tab moves to another workspace, a close, a
 /// replayed tab move and a second close, the scoped projection's patch left out a pane whose
