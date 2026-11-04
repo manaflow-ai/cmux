@@ -253,6 +253,7 @@ def step_adopt_pane(j, step):
     old_windows = getattr(j, "ext_windows_seen", set(windows(j)))
     end = D.now() + float(step.get("timeout", 20))
     last = "no new focused terminal pane"
+    empty = None  # (pane, terminal, host pid) of the last focused new terminal whose screen was empty
     while D.now() < end:
         for row in all_panes(j):
             key = row.get("pane")
@@ -275,10 +276,76 @@ def step_adopt_pane(j, step):
                     j.ext_windows_seen = set(windows(j))
                     return dict(rec, workspace=row.get("workspace"), frame=frame_of(row), grid=row.get("surface", {}).get("grid"))
                 last = f"pane {key}: terminal {term} has an empty screen"
+                empty = (key, term, row.get("host_pid"))
             except D.StepError as error:
                 last = str(error)
         time.sleep(0.2)
+    if empty is not None:
+        saved = save_empty_screen_diagnostics(j, *empty)
+        last += f" (diagnostics: {', '.join(sorted(saved))})"
     raise D.StepError(f"adopt_pane {step['as']!r} ({want_window} window): {last[-400:]}")
+
+
+def _process_tree(table, root):
+    """The ps rows of `root` and every descendant, each indented under its parent (one per line)."""
+    children = {}
+    for pid, row in table.items():
+        children.setdefault(row["ppid"], []).append(pid)
+    lines, stack = [], [(root, 0)]
+    while stack:
+        pid, depth = stack.pop()
+        row = table.get(pid)
+        if row is None:
+            continue
+        lines.append(f"{'  ' * depth}{pid} ppid={row['ppid']} pgid={row['pgid']} tpgid={row['tpgid']} "
+                     f"tty={row['tty']} stat={row['stat']} {row['command']}")
+        stack.extend((child, depth + 1) for child in sorted(children.get(pid, []), reverse=True))
+    return lines
+
+
+def save_empty_screen_diagnostics(j, pane, term, host_pid):
+    """Evidence for a new terminal whose screen stayed empty (open-P0 close-then-type, build dd832e31, STATUS
+    12261): did its host hold the shell's output for the daemon's launch activation, or did the shell print
+    nothing? Saved as diag-* files, which run.py brings back: the daemon's screen read of the terminal, the
+    app's debug.surfaces and debug.daemon_requests, the process tree under the terminal's host, and a 3 s
+    `sample` of the host and of the daemon (the host's terminal-host-pty thread parked in
+    wait_for_launch_owner_stream_ready means the activation never came). Each read that fails is noted in its
+    file; none of them fails the step, which already failed."""
+    out = j.out
+    saved = {}
+
+    def write(name, text):
+        (out / f"diag-{name}").write_text(text)
+        saved[name] = True
+
+    reads = [("adoptsurfaces.json", lambda: j.app.rpc("debug.surfaces", {"text": True}, timeout=30)),
+             ("adoptrequests.json", lambda: j.app.rpc("debug.daemon_requests", {}, timeout=30)),
+             ("adoptdaemon.json", lambda: j.app.rpc("debug.daemon", {}, timeout=30)),
+             ("adoptscreen.json", lambda: j.app.screen(term))]
+    daemon_pid = None
+    for name, read in reads:
+        try:
+            value = read()
+        except Exception as error:  # every read is best-effort evidence
+            value = {"error": str(error)[-300:]}
+        if name == "adoptdaemon.json" and isinstance(value, dict) and value.get("pid"):
+            daemon_pid = int(value["pid"])
+        write(name, json.dumps({"pane": pane, "terminal": term, "host_pid": host_pid, "value": value},
+                               indent=1, default=str) + "\n")
+    table = j.app.processes()
+    tree = _process_tree(table, int(host_pid)) if host_pid else []
+    write("adopthosttree.txt", "\n".join(tree or [f"no host process (host_pid {host_pid!r})"]) + "\n")
+    for name, pid in (("adopthostsample.txt", host_pid), ("adoptdaemonsample.txt", daemon_pid)):
+        if not pid:
+            write(name, "no pid\n")
+            continue
+        done = D.subprocess.run(["/usr/bin/sample", str(int(pid)), "3", "-mayDie", "-file", str(out / f"diag-{name}")],
+                                capture_output=True, text=True, timeout=60)
+        if done.returncode != 0:
+            write(name, f"sample {pid} exited {done.returncode}: {(done.stdout + done.stderr)[-400:]}\n")
+        else:
+            saved[name] = True
+    return saved
 
 
 def step_use_pane(j, step):
