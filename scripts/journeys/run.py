@@ -477,7 +477,7 @@ def start_vdisplay(host, work, mode, hold, out, timeout):
 
 
 def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.0, whole_host=False, run_ident=None,
-              vdisplay=None):
+              vdisplay=None, keep_movies=True):
     """Plays `specs` in one slot (or, whole_host, on the whole mini with the app active); {id: result} (driver results, or not run with the reason). `exclusive`: the
     lease owns the whole mini (`capture-host acquire --slot --exclusive`: no fleet step runs there meanwhile;
     the fleet rule for any result that is evidence, such as the dogfood smoke gate). `run_ident` ({"run_id",
@@ -601,7 +601,10 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         # mini outside the lease root (a rename) and named in OUT/parked.json; fetch_parked.py fetches them later in a
         # whole-host lease of its own, which its caller takes through the mini scheduler.
         fetch_in_lease(host, work, out, set(ids), left)
-        park_movies(host, work, out, ident.get("run_id"), left)
+        if keep_movies:
+            park_movies(host, work, out, ident.get("run_id"), left)
+        else:  # --no-movies: a diagnosis that reads only the flow files; the movies go with the lease root at the release
+            log("movies not kept (--no-movies): they are removed with the lease root at the release")
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, OSError, tarfile.TarError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
@@ -915,6 +918,9 @@ def main(argv=None):
                     help="an option the chosen journeys' step groups read (spec `options`; e.g. the smoke gate's "
                          "smoke_mode=diagnostic); repeatable")
     ap.add_argument("--frame-interval", type=float, default=1.0, help="seconds between clip frames (>= 0.25)")
+    ap.add_argument("--no-movies", action="store_true",
+                    help="do not park the journeys' movies for a later fetch (fetch_parked.py): they are removed with the "
+                         "lease root at the release. For a diagnosis that reads only the flow files")
     ap.add_argument("--build-wait-minutes", type=float, default=90, help="how long to wait for a running build")
     ap.add_argument("--list", action="store_true", help="print the journeys and exit")
     ap.add_argument("--check", action="store_true", help="validate the journey files and exit")
@@ -984,7 +990,8 @@ def main(argv=None):
     else:
         for group in batches(chosen):
             results.update(run_lease(group, build, out, opts.frame_interval, exclusive=opts.exclusive, vdisplay=opts.vdisplay,
-                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run))
+                                     hog_swap_gb=opts.hog_swap_gb, whole_host=opts.whole_host, run_ident=this_run,
+                                     keep_movies=not opts.no_movies))
 
     lines = []
     for spec in chosen:

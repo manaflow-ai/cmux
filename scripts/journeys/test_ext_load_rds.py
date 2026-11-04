@@ -486,6 +486,14 @@ class ResultFetch(unittest.TestCase):
         self.assertLess(body.index("stop_hog(host, work)"), body.index("fetch_in_lease("))
         self.assertLess(body.index("fetch_in_lease("), body.index("park_movies("))
 
+    def test_no_movies_skips_only_the_park(self):
+        # --no-movies (a flow-file diagnosis): the flow files are still fetched in the lease; only the park is skipped.
+        src = (HERE / "run.py").read_text()
+        body = src[src.index("        fetch_in_lease(host, work, out, set(ids), left)"):src.index("    except (RuntimeError, subprocess.TimeoutExpired, KeyError")]
+        self.assertLess(body.index("if keep_movies:"), body.index("park_movies("))
+        self.assertIn("keep_movies=not opts.no_movies", src)
+        self.assertIn("vdisplay=None, keep_movies=True):", src)   # the default keeps the movies as before
+
     def test_no_fetch_after_the_release(self):
         # run_lease has no code path that runs a remote command after `capture-host release` (R-HARNESS rule).
         src = (HERE / "run.py").read_text()
