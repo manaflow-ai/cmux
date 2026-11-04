@@ -67,9 +67,10 @@ struct ChiefAvatarMotionGalleryTests {
         NSColor.white.setFill()
         NSBezierPath(ovalIn: NSRect(x: -9, y: 1, width: 6, height: 7)).fill()
         NSBezierPath(ovalIn: NSRect(x: 3, y: 1, width: 6, height: 7)).fill()
-        // The glint: its band's x from the band's own loop, clipped to the face.
+        // The glint: its band's x from the band's own loop or its one-shot cue, clipped to the face.
         if let glint = avatar.sublayers?.first(where: { $0.name == SidebarAvatarLooks.glintName }),
-           let x = Self.value(glint.sublayers?.first?.animation(forKey: key), at: time) {
+           let band = glint.sublayers?.first,
+           let x = Self.value(band.animation(forKey: key), at: time) ?? Self.value(band.animation(forKey: SidebarAvatarMotion.cueKey), at: time) {
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(ovalIn: face).addClip()
             let band = NSBezierPath(rect: NSRect(x: -d / 2 + x - d * 0.12, y: -d, width: d * 0.24, height: d * 2))
@@ -123,7 +124,7 @@ struct ChiefAvatarMotionGalleryTests {
                     }
                     let loops = ([avatar] + (avatar.sublayers ?? []).flatMap { [$0] + ($0.sublayers ?? []) })
                         .compactMap { $0.animation(forKey: SidebarAvatarMotion.animationKey) }
-                    // An idle look rests most of its period: sample its first second, where it moves.
+                    // Only working loops; a strip with none (idle, waiting, failed) stands still.
                     period = loops.map { min($0.duration, 1.2) }.max() ?? 1
                 } else {
                     let (from, to): (SidebarAvatarMotion.Mode, SidebarAvatarMotion.Mode) = column == modes.count ? (.working, .waiting) : (.idle, .failed)

@@ -1088,18 +1088,6 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it.</string>
-			<key>pfm_name</key>
-			<string>cloud.tunnel.enabled</string>
-			<key>pfm_title</key>
-			<string>Cloud Tunnel</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
 			<string>An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.</string>
 			<key>pfm_name</key>
 			<string>cloud.agentsStartWithoutAsking</string>
@@ -8973,6 +8961,16 @@
 			<string>DisableTelemetry</string>
 			<key>pfm_title</key>
 			<string>DisableTelemetry</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.</string>
+			<key>pfm_name</key>
+			<string>ComputerUseActsAsPerson</string>
+			<key>pfm_title</key>
+			<string>ComputerUseActsAsPerson</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

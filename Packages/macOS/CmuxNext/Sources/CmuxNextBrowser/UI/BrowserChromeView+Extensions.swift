@@ -152,6 +152,8 @@ extension BrowserChromeView {
     /// back into the window (R55). The pane re-pins its header band itself.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        // Shown during its pane's key hold (a tab switch): it follows the pane from this frame (FRAME OWNER S3).
+        (superview as? PaneContentAreaView)?.followerDidShow()
         guard window != nil else { return }
         updateColors()
         renderPrompt()

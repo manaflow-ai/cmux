@@ -122856,6 +122856,138 @@
         }
       }
     },
+    "subagents.close": {
+      "comment": "Agent pane: the × on a subagent's \"Subagent of\" pill that closes its view back to the chat (subagents/SubagentGroup.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق الوكيل الفرعي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori podagenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk underagent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close subagent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar subagente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer le sous-agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi subagente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទភ្នាក់ងាររង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk underagent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij podagenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar subagente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть субагента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเอเจนต์ย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt ajanı kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити субагента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng tác tử con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉子代理"
+          }
+        }
+      }
+    },
     "subagents.of": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -202713,6 +202845,7 @@
         }
       }
     },
+    "tools.backgroundHintLabel":{"comment":"Agent pane: accessible name of the running command's \"⌃B to run in background\" button, which moves the command to the background as Ctrl-B does","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"bs":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"da":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"de":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"en":{"stringUnit":{"state":"translated","value":"Run in background (Control-B)"}},"es":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"fr":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"it":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"ja":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"km":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"ko":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"nb":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"pl":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"ru":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"th":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"tr":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"uk":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"vi":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"Run in background (Control-B)"}}}},
     "tools.backgroundHint": {
       "comment": "Agent pane: shown at the end of a running command's row in a Claude Code chat; Ctrl-B moves the command to the background, as in Claude Code",
       "extractionState": "manual",
@@ -204298,6 +204431,8 @@
       }
     },
     "sessionInfo.subagent.backPlain": {"comment":"Agent pane: the Inspector's back button on a subagent's panel when what spawned it has no readable name (never its raw session id)","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Back"}},"ar":{"stringUnit":{"state":"needs_review","value":"رجوع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Nazad"}},"da":{"stringUnit":{"state":"needs_review","value":"Tilbage"}},"de":{"stringUnit":{"state":"needs_review","value":"Zurück"}},"es":{"stringUnit":{"state":"needs_review","value":"Atrás"}},"fr":{"stringUnit":{"state":"needs_review","value":"Retour"}},"it":{"stringUnit":{"state":"needs_review","value":"Indietro"}},"ja":{"stringUnit":{"state":"needs_review","value":"戻る"}},"km":{"stringUnit":{"state":"needs_review","value":"ថយក្រោយ"}},"ko":{"stringUnit":{"state":"needs_review","value":"뒤로"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tilbake"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wstecz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Voltar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Назад"}},"th":{"stringUnit":{"state":"needs_review","value":"ย้อนกลับ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назад"}},"vi":{"stringUnit":{"state":"needs_review","value":"Quay lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"返回"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"返回"}}}},
+    "awayRecap.label": {"comment":"Agent pane: muted lead-in of the session recap row, shown when the person comes back to a chat after 5+ minutes away; the recap text follows it","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أثناء غيابك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Dok niste bili tu"}},"da":{"stringUnit":{"state":"needs_review","value":"Mens du var væk"}},"de":{"stringUnit":{"state":"needs_review","value":"Während du weg warst"}},"en":{"stringUnit":{"state":"translated","value":"While you were away"}},"es":{"stringUnit":{"state":"needs_review","value":"Mientras no estabas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Pendant votre absence"}},"it":{"stringUnit":{"state":"needs_review","value":"Mentre eri via"}},"ja":{"stringUnit":{"state":"needs_review","value":"離席中のまとめ"}},"km":{"stringUnit":{"state":"needs_review","value":"ពេលអ្នកមិននៅ"}},"ko":{"stringUnit":{"state":"needs_review","value":"자리를 비운 동안"}},"nb":{"stringUnit":{"state":"needs_review","value":"Mens du var borte"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podczas Twojej nieobecności"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enquanto você esteve fora"}},"ru":{"stringUnit":{"state":"needs_review","value":"Пока вас не было"}},"th":{"stringUnit":{"state":"needs_review","value":"ระหว่างที่คุณไม่อยู่"}},"tr":{"stringUnit":{"state":"needs_review","value":"Siz yokken"}},"uk":{"stringUnit":{"state":"needs_review","value":"Поки вас не було"}},"vi":{"stringUnit":{"state":"needs_review","value":"Trong lúc bạn vắng mặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"你离开期间"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"你離開期間"}}}},
+    "awayRecap.dismiss": {"comment":"Agent pane: accessibility label and tooltip of the × button that hides the session recap row","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إخفاء الملخص"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci sažetak"}},"da":{"stringUnit":{"state":"needs_review","value":"Luk opsummering"}},"de":{"stringUnit":{"state":"needs_review","value":"Zusammenfassung ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss recap"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar resumen"}},"fr":{"stringUnit":{"state":"needs_review","value":"Masquer le récapitulatif"}},"it":{"stringUnit":{"state":"needs_review","value":"Chiudi riepilogo"}},"ja":{"stringUnit":{"state":"needs_review","value":"まとめを閉じる"}},"km":{"stringUnit":{"state":"needs_review","value":"បិទសេចក្ដីសង្ខេប"}},"ko":{"stringUnit":{"state":"needs_review","value":"요약 닫기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lukk sammendrag"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zamknij podsumowanie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Dispensar resumo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Скрыть сводку"}},"th":{"stringUnit":{"state":"needs_review","value":"ปิดสรุป"}},"tr":{"stringUnit":{"state":"needs_review","value":"Özeti kapat"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сховати підсумок"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đóng tóm tắt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"关闭回顾"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"關閉回顧"}}}},
     "sessionInfo.subagent.back": {
       "comment": "Agent pane: the Inspector's back button on a subagent's panel, to what spawned it (the chat, or its parent subagent)",
       "extractionState": "manual",
@@ -244815,6 +244950,60 @@
         "vi": { "stringUnit": { "state": "translated", "value": "Phê duyệt trong trình duyệt, rồi dán mã được hiển thị." } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "在浏览器中批准，然后粘贴显示的代码。" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "在瀏覽器中核准，然後貼上顯示的代碼。" } }
+      }
+    },
+    "turn.signIn.approve": {
+      "comment": "Agent pane: Cloud sign-in card, after Claude's sign-in page opened in a tab that reaches the Cloud machine: approving there signs Claude in with no code to paste.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Approve on the sign-in page; it finishes on its own." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "وافق في صفحة تسجيل الدخول، وسيكتمل الأمر تلقائيًا." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odobri na stranici za prijavu; završit će se samo od sebe." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Godkend på login-siden; resten sker af sig selv." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Auf der Anmeldeseite bestätigen; der Rest geschieht von selbst." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aprueba en la página de inicio de sesión; termina solo." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Approuvez sur la page de connexion ; la suite se fait toute seule." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Approva nella pagina di accesso; il resto avviene da solo." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サインインページで承認してください。あとは自動で完了します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "យល់ព្រមនៅលើទំព័រចូល វានឹងបញ្ចប់ដោយខ្លួនឯង។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "로그인 페이지에서 승인하세요. 나머지는 자동으로 완료됩니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Godkjenn på påloggingssiden; resten skjer av seg selv." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zatwierdź na stronie logowania; reszta zrobi się sama." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aprove na página de login; o resto acontece sozinho." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подтвердите на странице входа — дальше всё произойдёт само." } },
+        "th": { "stringUnit": { "state": "translated", "value": "อนุมัติในหน้าลงชื่อเข้าใช้ ที่เหลือจะเสร็จเอง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Giriş sayfasında onaylayın; gerisi kendiliğinden tamamlanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підтвердьте на сторінці входу — далі все станеться само." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Phê duyệt trên trang đăng nhập; phần còn lại sẽ tự hoàn tất." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "在登录页面上批准，其余会自动完成。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "在登入頁面上核准，其餘會自動完成。" } }
+      }
+    },
+    "turn.signIn.pasteInstead": {
+      "comment": "Agent pane: Cloud sign-in card, a quiet link that switches to pasting the sign-in code by hand.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Paste a code instead" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لصق رمز بدلًا من ذلك" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umjesto toga zalijepi kod" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Indsæt en kode i stedet" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Stattdessen einen Code einfügen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pegar un código en su lugar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Coller un code à la place" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Incolla invece un codice" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "代わりにコードを貼り付ける" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បិទភ្ជាប់កូដជំនួសវិញ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "대신 코드 붙여 넣기" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Lim inn en kode i stedet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zamiast tego wklej kod" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Colar um código em vez disso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Вставить код вместо этого" } },
+        "th": { "stringUnit": { "state": "translated", "value": "วางรหัสแทน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bunun yerine kod yapıştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Натомість вставити код" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Dán mã thay vào đó" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "改为粘贴代码" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "改為貼上代碼" } }
       }
     },
     "turn.signIn.codeLabel": {
