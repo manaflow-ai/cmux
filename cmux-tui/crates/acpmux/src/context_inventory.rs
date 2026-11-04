@@ -220,20 +220,39 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = snapshot(cfg, &meta.cwd);
     if let Some(text) = verified_prompt_text(meta, cfg) {
-        parts.push(ContextPart {
-            id: "cmux-system-prompt".into(),
-            source: "cmux-preset".into(),
-            label: "Preset system prompt".into(),
-            tokens: estimated_tokens(&text),
-            included: true,
-            editable: false,
-            measurement: "estimated".into(),
-            source_bytes: Some(text.len() as u64),
-            channel: None,
-            text: Some(text),
-        });
+        parts.push(preset_part(text));
     }
     parts
+}
+
+fn preset_part(text: String) -> ContextPart {
+    ContextPart {
+        id: "cmux-system-prompt".into(),
+        source: "cmux-preset".into(),
+        label: "Preset system prompt".into(),
+        tokens: estimated_tokens(&text),
+        included: true,
+        editable: false,
+        measurement: "estimated".into(),
+        source_bytes: Some(text.len() as u64),
+        channel: Some("system-prompt-file".into()),
+        text: Some(text),
+    }
+}
+
+/// Refresh only the preset part from the actual launch argv, after preset
+/// resolution. Reading later settings would describe a future launch instead.
+pub fn record_preset_source(meta: &mut SessionMeta, argv: &[String]) {
+    let snapshot = meta.cmux_context.get_or_insert_with(Vec::new);
+    snapshot.retain(|part| part.source != "cmux-preset");
+    let Some(file) = argv.windows(2).rev().find_map(|words| {
+        (words[0] == "--system-prompt-file").then(|| &words[1])
+    }) else {
+        return;
+    };
+    if let Ok(text) = std::fs::read_to_string(file) {
+        snapshot.push(preset_part(text));
+    }
 }
 
 /// Append the captured default or override on the first written turn. All guidance
@@ -424,5 +443,25 @@ mod tests {
         assert!(blocks[0]["text"].as_str().unwrap().contains("read concurrently"));
         record_tool_sources(&mut meta, Vec::new());
         assert_eq!(meta.cmux_context.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn preset_context_follows_actual_launch_file_after_edits_and_removal() {
+        let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
+        let dir = std::env::temp_dir().join(format!("context-source-preset-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("prompt.md");
+        let argv = vec!["claude".into(), "--system-prompt-file".into(), path.to_string_lossy().into()];
+        std::fs::write(&path, "first preset").unwrap();
+        record_preset_source(&mut meta, &argv);
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        // A settings/file edit alone cannot change what the current launch received.
+        std::fs::write(&path, "next preset").unwrap();
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("first preset"));
+        record_preset_source(&mut meta, &argv);
+        assert_eq!(meta.cmux_context.as_ref().unwrap()[0].text.as_deref(), Some("next preset"));
+        record_preset_source(&mut meta, &["claude".into()]);
+        assert!(meta.cmux_context.as_ref().unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

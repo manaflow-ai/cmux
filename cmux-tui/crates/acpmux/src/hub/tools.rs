@@ -56,6 +56,9 @@ impl Hub {
         let sources = source_tools.context_parts(claude);
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         crate::context_inventory::record_tool_sources(&mut m, sources);
+        if !remote && claude {
+            crate::context_inventory::record_preset_source(&mut m, &profile.argv);
+        }
         for row in &mut cmux {
             row.enabled = !m.tools.off.contains(&row.id);
             // What the harness last said of it stays until its next report.
