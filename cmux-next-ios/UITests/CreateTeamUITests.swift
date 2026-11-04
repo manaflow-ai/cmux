@@ -41,7 +41,7 @@ final class CreateTeamUITests: XCTestCase {
 
         XCTAssertTrue(alert.waitForNonExistence(timeout: 10), "the alert stayed up")
         // The new team shows in the drawer's list (reopen the drawer if the switch closed it).
-        let row = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "ios create team")).firstMatch
+        let row = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "ios create team")).firstMatch
         if !row.waitForExistence(timeout: 5), teams.exists { teams.tap() }
         XCTAssertTrue(row.waitForExistence(timeout: 15), "the new team never listed\n\(app.debugDescription)")
         XCTAssertFalse(app.staticTexts["Couldn't create the team"].exists)

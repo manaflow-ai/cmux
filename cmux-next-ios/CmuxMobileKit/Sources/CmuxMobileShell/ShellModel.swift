@@ -671,6 +671,9 @@ final class ShellModel {
             } catch ServiceTeamCreation.Failure.unavailable {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Your account can't create teams")
                 theme.haptics.error()
+            } catch ServiceTeamCreation.Failure.invalidName {
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Team names are 1 to 120 characters")
+                theme.haptics.error()
             } catch {
                 toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Couldn't create the team")
                 theme.haptics.error()

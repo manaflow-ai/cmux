@@ -9,6 +9,8 @@ public struct ServiceTeamCreation: Sendable {
     public enum Failure: Error, Equatable, Sendable {
         /// The service can't create teams for this account (no server key for its project).
         case unavailable
+        /// The name is empty or longer than the server allows.
+        case invalidName
         case failed
     }
 

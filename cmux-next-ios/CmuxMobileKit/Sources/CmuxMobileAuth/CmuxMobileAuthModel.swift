@@ -378,7 +378,12 @@ public final class CmuxMobileAuthModel {
                 let tokens = try await coordinator.currentTokens()
                 return (tokens.accessToken, tokens.refreshToken)
             }
-            let created = try await api.create(displayName: name)
+            let created: CMUXAuthTeam
+            do {
+                created = try await api.create(displayName: name)
+            } catch CMUXTeamError.invalidName {
+                throw ServiceTeamCreation.Failure.invalidName
+            }
             team = AppStore.AccountTeam(id: created.id, name: created.displayName)
         case .mobileService(let apiBase):
             let creation = ServiceTeamCreation(apiBase: apiBase)
@@ -566,6 +571,11 @@ public final class CmuxMobileAuthModel {
             return authError.errorDescription
         }
         if error is CancellationError { return nil }
+        switch error as? ServiceTeamCreation.Failure {
+        case .unavailable: return "Your account can't create teams."
+        case .invalidName: return "Team names are 1 to 120 characters."
+        case .failed, nil: break
+        }
         return "Something went wrong. Try again."
     }
 }
