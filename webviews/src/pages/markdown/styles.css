@@ -4,9 +4,9 @@
    and theme.css always win. The shared base (page colors, one background) is shared/pageBase.css. */
 :where(:root) {
   --cmux-md-font-family: var(--font-ui);
-  --cmux-md-font-size: var(--text-content);
+  --cmux-md-font-size: 16px;
   --cmux-md-font-weight: 400;
-  --cmux-md-line-height: var(--text-content--line-height);
+  --cmux-md-line-height: 1.6;
   --cmux-md-text-color: var(--page-text);
   --cmux-md-muted-color: var(--page-text-2);
   --cmux-md-faint-color: var(--page-text-3);
@@ -31,7 +31,7 @@
   --cmux-md-code-line-height: 1.55;
   --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
   /* Code blocks are the named 16px radius exception in the shared grid. */
-  --cmux-md-code-radius: 16px;
+  --cmux-md-code-radius: var(--ds-radius-2xl);
   --cmux-md-content-width: 72ch;
   --cmux-md-page-padding: var(--ds-space-6);
   --cmux-md-paragraph-spacing: 1em;
