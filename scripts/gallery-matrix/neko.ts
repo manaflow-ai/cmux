@@ -34,62 +34,78 @@ const browser = await chromium.launch({
     : { channel: "chrome" }),
 });
 const results: unknown[] = [];
+const DENSITIES = ["compact", "comfortable"] as const;
+const UI_SCALES = [1, 1.25] as const;
 try {
-  for (const scale of [1, 2]) {
+  for (const deviceScale of [1, 2]) {
     for (const mode of ["light", "dark"] as const) {
-      const context = await browser.newContext({
-        viewport: { width: 680, height: 570 },
-        deviceScaleFactor: scale,
-        colorScheme: mode,
-        reducedMotion: "reduce",
-      });
-      try {
-        const page = await context.newPage();
-        for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker"]) {
-          const errors: string[] = [];
-          const listener = (error: Error) => errors.push(error.message);
-          page.on("pageerror", listener);
-          const params = new URLSearchParams({
-            entry: "agent-pane.neko-icon-family",
-            variant: `${set}-${mode}`,
-            source: "src/agent-session/acpmux/icons/NekoIconGallery.gallery.tsx",
+      for (const density of DENSITIES) {
+        for (const uiScale of UI_SCALES) {
+          const context = await browser.newContext({
+            viewport: { width: 680, height: 570 },
+            deviceScaleFactor: deviceScale,
             colorScheme: mode,
-            locale: "en",
-            reducedMotion: "true",
-            width: "680",
-            height: "570",
+            reducedMotion: "reduce",
           });
-          await page.goto(`http://127.0.0.1:${server.port}/frame.html?${params}`, {
-            waitUntil: "networkidle",
-            timeout: 30000,
-          });
-          await page.waitForSelector('[data-gallery-ready="1"]', { timeout: 30000 });
-          const stage = page.locator("[data-neko-gallery]");
-          await stage
-            .locator("img")
-            .evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
-          await stage.locator("[data-neko-drawing]").evaluateAll((elements) =>
-            Promise.all(
-              elements.map((element) => {
-                const image = new Image();
-                image.src = (element as HTMLElement).dataset.nekoDrawing!;
-                return image.decode();
-              }),
-            ),
-          );
-          const provenance = await page.locator("[data-gallery-revision]").evaluate((el) => ({
-            revision: (el as HTMLElement).dataset.galleryRevision,
-            source: (el as HTMLElement).dataset.gallerySource,
-          }));
-          if (!provenance.revision || !provenance.source || errors.length)
-            throw new Error(JSON.stringify({ provenance, errors }));
-          const file = `${set}-${mode}-${scale}x.png`;
-          await stage.screenshot({ path: resolve(out, file), animations: "disabled" });
-          results.push({ set, mode, scale, file, ...provenance, glyphSizeCssPx: 16 });
-          page.off("pageerror", listener);
+          try {
+            const page = await context.newPage();
+            for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker"]) {
+              const errors: string[] = [];
+              const listener = (error: Error) => errors.push(error.message);
+              page.on("pageerror", listener);
+              const params = new URLSearchParams({
+                entry: "agent-pane.neko-icon-family",
+                variant: `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}`,
+                source: "src/agent-session/acpmux/icons/NekoIconGallery.gallery.tsx",
+                colorScheme: mode,
+                locale: "en",
+                reducedMotion: "true",
+                width: "680",
+                height: "570",
+              });
+              await page.goto(`http://127.0.0.1:${server.port}/frame.html?${params}`, {
+                waitUntil: "networkidle",
+                timeout: 30000,
+              });
+              await page.waitForSelector('[data-gallery-ready="1"]', { timeout: 30000 });
+              const stage = page.locator("[data-neko-gallery]");
+              await stage
+                .locator("img")
+                .evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
+              await stage.locator("[data-neko-drawing]").evaluateAll((elements) =>
+                Promise.all(
+                  elements.map((element) => {
+                    const image = new Image();
+                    image.src = (element as HTMLElement).dataset.nekoDrawing!;
+                    return image.decode();
+                  }),
+                ),
+              );
+              const provenance = await page.locator("[data-gallery-revision]").evaluate((el) => ({
+                revision: (el as HTMLElement).dataset.galleryRevision,
+                source: (el as HTMLElement).dataset.gallerySource,
+              }));
+              if (!provenance.revision || !provenance.source || errors.length)
+                throw new Error(JSON.stringify({ provenance, errors }));
+              const file = `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}-${deviceScale}x.png`;
+              await stage.screenshot({ path: resolve(out, file), animations: "disabled" });
+              results.push({
+                set,
+                density,
+                uiScale,
+                interfaceScale: (density === "compact" ? 0.875 : 1) * uiScale,
+                mode,
+                deviceScale,
+                file,
+                ...provenance,
+                glyphSizeCssPx: 16 * (density === "compact" ? 0.875 : 1) * uiScale,
+              });
+              page.off("pageerror", listener);
+            }
+          } finally {
+            await context.close();
+          }
         }
-      } finally {
-        await context.close();
       }
     }
   }

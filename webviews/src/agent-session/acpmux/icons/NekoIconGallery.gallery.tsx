@@ -74,6 +74,39 @@ const sets = {
   },
 } as const;
 type SetName = keyof typeof sets;
+type Density = "compact" | "comfortable";
+type UiScale = 1 | 1.25;
+
+const DENSITY_MULTIPLIER: Record<Density, number> = { compact: 0.875, comfortable: 1 };
+const UI_SCALES: readonly UiScale[] = [1, 1.25];
+const DENSITIES: readonly Density[] = ["compact", "comfortable"];
+const BASE = {
+  rootPadding: 24,
+  rootMinHeight: 420,
+  rootGap: 20,
+  headerMetaGap: 8,
+  sectionGap: 12,
+  rowGap: 16,
+  itemGap: 8,
+  itemWidth: 44,
+  glyph: 16,
+  sampleGap: 24,
+  sampleMinHeight: 60,
+  noteMaxWidth: 570,
+  noteLineHeight: 1.5,
+  footerGap: 16,
+  footerBorder: 1,
+  footerInset: 12,
+} as const;
+
+function px(value: number): string {
+  return `calc(${value}px * var(--cmux-interface-scale, 1))`;
+}
+
+function interfaceScale(density: Density, uiScale: UiScale): number {
+  return DENSITY_MULTIPLIER[density] * uiScale;
+}
+
 const samples = [
   ["action.copy", "Copy"],
   ["action.reload", "Retry"],
@@ -86,23 +119,32 @@ const samples = [
 function TokenRow({
   experimental = false,
   drawings,
+  scale,
 }: {
   experimental?: boolean;
   drawings?: Readonly<Record<string, string>>;
+  scale: number;
 }) {
+  const glyphSize = BASE.glyph * scale;
   return (
     <IconsProvider pack={experimental ? candidatePack : baselinePack}>
-      <div style={{ display: "flex", gap: 16 }} data-token-row={experimental || drawings ? "candidate" : "default"}>
+      <div
+        style={{ display: "flex", gap: px(BASE.rowGap) }}
+        data-token-row={experimental || drawings ? "candidate" : "default"}
+      >
         {samples.map(([name, label]) => (
-          <span key={name} style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
+          <span
+            key={name}
+            style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}
+          >
             {drawings?.[name] ? (
               <span
                 aria-hidden="true"
                 data-neko-drawing={drawings[name]}
                 style={{
                   display: "block",
-                  width: 16,
-                  height: 16,
+                  width: px(BASE.glyph),
+                  height: px(BASE.glyph),
                   background: "currentColor",
                   maskImage: `url(${drawings[name]})`,
                   maskSize: "contain",
@@ -110,21 +152,21 @@ function TokenRow({
                 }}
               />
             ) : (
-              <Icon name={name} size={16} />
+              <Icon name={name} size={glyphSize} />
             )}
             <span style={{ fontSize: "var(--text-caption)" }}>{label}</span>
           </span>
         ))}
-        <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
-          <Spinner size={16} loading />
+        <span style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}>
+          <Spinner size={glyphSize} loading />
           <span style={{ fontSize: "var(--text-caption)" }}>Working</span>
         </span>
-        <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
-          <Check size={16} />
+        <span style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}>
+          <Check size={glyphSize} />
           <span style={{ fontSize: "var(--text-caption)" }}>Success</span>
         </span>
-        <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
-          <AlertCircle size={16} />
+        <span style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap), width: px(BASE.itemWidth) }}>
+          <AlertCircle size={glyphSize} />
           <span style={{ fontSize: "var(--text-caption)" }}>Error</span>
         </span>
       </div>
@@ -132,10 +174,22 @@ function TokenRow({
   );
 }
 
-function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" | "dark"; set?: SetName }) {
+function NekoIconGallery({
+  mode = "light",
+  set = "authored",
+  density = "comfortable",
+  uiScale = 1,
+}: {
+  mode?: "light" | "dark";
+  set?: SetName;
+  density?: Density;
+  uiScale?: UiScale;
+}) {
   const art = sets[set];
   const dark = mode === "dark";
   const drawings = "drawings" in art ? art.drawings : undefined;
+  const scale = interfaceScale(density, uiScale);
+  const glyphSize = BASE.glyph * scale;
   return (
     <div
       data-neko-gallery={set}
@@ -145,42 +199,52 @@ function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" 
           background: dark ? "#1b1d22" : "#f7f7f5",
           color: dark ? "#d9dce1" : "#383a40",
           colorScheme: mode,
+          "--cmux-interface-scale": scale,
           "--agent-accent": dark ? "#c3a4ff" : "#7a45d6",
-          padding: 24,
-          minHeight: 420,
+          padding: px(BASE.rootPadding),
+          minHeight: px(BASE.rootMinHeight),
           display: "grid",
-          gap: 20,
+          gap: px(BASE.rootGap),
           fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif",
         } as CSSProperties
       }
     >
       <div>
         <strong style={{ fontSize: "var(--text-body)" }}>{art.title} beside cmux default</strong>
-        <div style={{ fontSize: "var(--text-detail)", marginTop: 8 }}>
-          {art.license} · Gallery only · Actual 16 CSS px glyphs
+        <div style={{ fontSize: "var(--text-detail)", marginTop: px(BASE.headerMetaGap) }}>
+          {art.license} · Gallery only · {density} · UI scale {uiScale} · {glyphSize}px glyphs
         </div>
       </div>
-      <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
         <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
-        <TokenRow />
+        <TokenRow scale={scale} />
       </div>
       {set === "authored" || drawings ? (
-        <div style={{ display: "grid", gap: 12 }}>
+        <div style={{ display: "grid", gap: px(BASE.sectionGap) }}>
           <span style={{ fontSize: "var(--text-detail)" }}>
             Candidate · {drawings ? "3" : "2"}/6 actions · Shared spinner/status marks
           </span>
-          <TokenRow experimental={set === "authored"} drawings={drawings} />
+          <TokenRow experimental={set === "authored"} drawings={drawings} scale={scale} />
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 24, alignItems: "center", minHeight: 60 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: px(BASE.sampleGap),
+            alignItems: "center",
+            minHeight: px(BASE.sampleMinHeight),
+          }}
+        >
           {[16, 24, 32].map((size) => (
-            <div key={size} style={{ display: "grid", justifyItems: "center", gap: 8 }}>
+            <div key={size} style={{ display: "grid", justifyItems: "center", gap: px(BASE.itemGap) }}>
               <img
                 src={art.image}
                 alt={`${art.title} cat`}
-                width={size}
-                height={size}
-                style={{ filter: set === "lucide" && dark ? "invert(1)" : undefined }}
+                style={{
+                  width: px(size),
+                  height: px(size),
+                  filter: set === "lucide" && dark ? "invert(1)" : undefined,
+                }}
               />
               <span style={{ fontSize: "var(--text-caption)" }}>{size} px</span>
             </div>
@@ -192,19 +256,28 @@ function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" 
           </span>
         </div>
       )}
-      <div style={{ fontSize: "var(--text-detail)", maxWidth: 570, lineHeight: 1.5 }}>{art.note}</div>
-      <div style={{ borderTop: "1px solid currentColor", paddingTop: 12, display: "grid", gap: 12 }}>
+      <div style={{ fontSize: "var(--text-detail)", maxWidth: px(BASE.noteMaxWidth), lineHeight: BASE.noteLineHeight }}>
+        {art.note}
+      </div>
+      <div
+        style={{
+          borderTop: `${px(BASE.footerBorder)} solid currentColor`,
+          paddingTop: px(BASE.footerInset),
+          display: "grid",
+          gap: px(BASE.sectionGap),
+        }}
+      >
         <span style={{ fontSize: "var(--text-caption)" }}>
           Actual transcript components (baseline; migration owned by the shared icon pass)
         </span>
-        <div style={{ display: "flex", gap: 16 }}>
-          <Copy />
-          <Retry />
-          <Speaker />
-          <Pin />
-          <Spinner loading />
-          <Check />
-          <AlertCircle />
+        <div style={{ display: "flex", gap: px(BASE.footerGap) }}>
+          <Copy size={glyphSize} />
+          <Retry size={glyphSize} />
+          <Speaker size={glyphSize} />
+          <Pin size={glyphSize} />
+          <Spinner size={glyphSize} loading />
+          <Check size={glyphSize} />
+          <AlertCircle size={glyphSize} />
         </div>
       </div>
     </div>
@@ -220,13 +293,17 @@ export default componentEntry({
   load: async () => NekoIconGallery,
   variants: Object.fromEntries(
     (Object.keys(sets) as SetName[]).flatMap((set) =>
-      (["light", "dark"] as const).map((mode) => [
-        `${set}-${mode}`,
-        {
-          note: "Unapproved candidate beside default; see neko-evaluation.md for capture-based verdicts.",
-          props: { mode, set },
-        },
-      ]),
+      DENSITIES.flatMap((density) =>
+        UI_SCALES.flatMap((uiScale) =>
+          (["light", "dark"] as const).map((mode) => [
+            `${set}-${density}-${uiScale === 1 ? "1" : "1.25"}-${mode}`,
+            {
+              note: `Unapproved candidate beside default; ${density}, UI scale ${uiScale}, real DPR captures; see neko-evaluation.md for capture-based verdicts.`,
+              props: { mode, set, density, uiScale },
+            },
+          ]),
+        ),
+      ),
     ),
   ),
 });

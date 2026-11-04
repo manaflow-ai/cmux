@@ -53,7 +53,12 @@ export default {
     // The UI font's WOFF2 lives with the app's resources (src/gallery/frame/uiFont.ts).
     fs: {
       strict: true,
-      allow: [webviewsRoot, path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts")],
+      allow: [
+        webviewsRoot,
+        path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts"),
+        // Gallery-only licensed candidates; no production import uses this directory.
+        path.join(repoRoot, "design/icons/neko-candidates"),
+      ],
     },
     // Behind tailscale serve the page is https://<host>:<public port>/<base>; the socket goes there too.
     ws: publicPort ? { protocol: "wss", clientPort: publicPort } : {},

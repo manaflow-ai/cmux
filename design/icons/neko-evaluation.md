@@ -17,8 +17,15 @@ history, **not quotations of Leo's earlier prompts**:
   mark keeps the cat legible in the footer.” Its 17pt `cat.fill` sits in a dedicated brand control.
   Commit `879a6214a8100fb77777797bf983456081f0501d` reverts the richer app-icon redesigns (#169/#170).
   The reverted `scripts/generate-icon.swift` combined a wallpaper window, cat silhouette and glint.
+  Its `docs/design-direction.md` at the same revision calls for “a quiet place for artwork, with a
+  small amount of personality” and says controls retain macOS appearance. The settled cat has
+  “tapered closed eyes, whiskers and asymmetric tucked paws on a muted plum tile.”
 - Inference: preserve action recognition and small-size clarity; use restrained, noun-specific cues.
   A good mascot does not automatically make a good copy/retry/speak glyph.
+
+The available tracked docs and commit messages did not preserve the original prompts or a specific
+rejection rationale. These repository design notes are the available taste evidence, not invented
+feedback about what Leo disliked.
 
 The private reference `chatgpt/live/transcript-worked-for-branch-menu` shows a restrained monochrome
 action row with consistent visual weight. It was inspected privately; private captures are not copied
