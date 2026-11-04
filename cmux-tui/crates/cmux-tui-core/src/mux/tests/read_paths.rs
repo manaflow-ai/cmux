@@ -509,3 +509,26 @@ fn focus_and_tab_selection_read_only_the_workspaces_they_change() {
         mux.select_tab_as(&Actor::Daemon, pane, None, Some(1));
     });
 }
+
+#[test]
+fn a_layout_undo_preview_reads_no_whole_topology() {
+    // The preview needs only the resource revision for its token. Reading the
+    // whole topology made it cost O(session) with hundreds of workspaces.
+    let mux = test_mux();
+    for _ in 0..4 {
+        mux.new_workspace(None, Some((80, 22))).unwrap();
+    }
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let right = mux.new_pane_right(first_pane, 0.5, Some((38, 22))).unwrap();
+    let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+
+    let reads = WorkspaceRegistry::full_topology_reads_for_test();
+    let preview = mux.undo_layout(right_pane, None, false).unwrap();
+    assert!(matches!(preview, LayoutUndoResult::ConfirmationRequired { .. }), "{preview:?}");
+    assert_eq!(
+        WorkspaceRegistry::full_topology_reads_for_test(),
+        reads,
+        "a layout undo preview read the whole topology"
+    );
+}

@@ -13,6 +13,18 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+/// The longest a frame other than the input port's own waits for the frames the port took before it (S1.6b). Order
+/// holds while the port drains within it: a frame still in its write after it (a large paste to a host that reads
+/// slowly) lets the waiting frame go, and the frames the port queued behind that write may then follow it.
+const INPUT_ORDER_WAIT: Duration = Duration::from_secs(2);
+
+/// The end of a wait for the input port's earlier frames: [`INPUT_ORDER_WAIT`] from now, or the caller's own
+/// `deadline` when it is sooner.
+pub(super) fn input_order_deadline(deadline: Option<Instant>) -> Instant {
+    let cap = Instant::now().checked_add(INPUT_ORDER_WAIT).unwrap_or_else(Instant::now);
+    deadline.map_or(cap, |deadline| deadline.min(cap))
+}
+
 pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
@@ -131,6 +143,9 @@ pub struct HostAttachment {
     pub(crate) launch_activation_pending: bool,
     /// The owner's copy of this host's PTY master (`pty_custody.rs`).
     pub(crate) pty_custody: Option<PtyCustody>,
+    /// The terminal's input port order (R-DAEMON-STATE S1.6b): every other frame this attachment writes waits until
+    /// the port wrote the keys it took before, so no frame passes a key. Set by the terminal that owns the attachment.
+    pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -140,6 +155,22 @@ impl std::fmt::Debug for HostAttachment {
             .field("incarnation", &self.record.incarnation)
             .field("endpoint", &self.record.endpoint)
             .finish_non_exhaustive()
+    }
+}
+
+/// Where a terminal's interactive input goes without the terminal's runtime lock (R-DAEMON-STATE stage S1 step 6):
+/// the writer of one host connection, shared with its attachment. The terminal publishes the route of its current
+/// connection whenever the connection changes (`surface::input_port`).
+#[derive(Clone)]
+pub(crate) struct HostInputRoute {
+    writer: Arc<Mutex<HostStream>>,
+    protocol_version: u16,
+}
+
+impl HostInputRoute {
+    /// One frame on the route's connection, as `HostAttachment::send` writes it.
+    pub(crate) fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        send_host_frame(&self.writer, self.protocol_version, kind, payload)
     }
 }
 
@@ -173,7 +204,52 @@ impl HostAttachment {
     }
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        self.wait_input_order(None);
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The terminal's input port order for this attachment's frames (S1.6b).
+    pub(crate) fn set_input_order(&mut self, order: crate::surface::input_port::PortOrder) {
+        self.input_order = Some(order);
+    }
+
+    /// Before a frame other than the port's own: the frames the port took before are written first (S1.6b), within
+    /// [`input_order_deadline`] of the caller's `deadline`.
+    pub(crate) fn wait_input_order(&self, deadline: Option<Instant>) {
+        if let Some(order) = &self.input_order {
+            order.barrier(input_order_deadline(deadline));
+        }
+    }
+
+    /// A viewer-size frame (`ViewerSize`, `ReleaseViewer`): behind the frames the input port holds, on the port, with
+    /// no wait (a key that moves the grid sends one on its own turn, under the sizing lock); written directly when
+    /// the port holds none (S1.6c, `PortOrder::enqueue_after_pending`).
+    fn send_after_port(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        if let Some(order) = &self.input_order
+            && order.enqueue_after_pending(kind, payload)
+        {
+            return Ok(());
+        }
+        send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The writer for a frame other than the port's own, after the port's earlier frames (S1.6b).
+    fn direct_writer(&self) -> std::sync::MutexGuard<'_, HostStream> {
+        self.direct_writer_until(None)
+    }
+
+    /// [`Self::direct_writer`] for a caller with its own deadline: the wait for the port ends by it.
+    fn direct_writer_until(
+        &self,
+        deadline: Option<Instant>,
+    ) -> std::sync::MutexGuard<'_, HostStream> {
+        self.wait_input_order(deadline);
+        self.writer.lock().recover_poison()
+    }
+
+    /// The route the terminal's input port writes this connection's interactive input on.
+    pub(crate) fn input_route(&self) -> HostInputRoute {
+        HostInputRoute { writer: self.writer.clone(), protocol_version: self.protocol_version }
     }
 
     pub(crate) fn begin_input_confirmed(
@@ -234,7 +310,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
@@ -288,7 +364,7 @@ impl HostAttachment {
     /// the mirror before it resolves the acknowledgement. `None` when the
     /// host does not acknowledge viewer sizes, no size was sent, or the
     /// write failed.
-    pub(crate) fn begin_viewer_size_barrier(&self) -> Option<Receiver<Frame>> {
+    pub(crate) fn begin_viewer_size_barrier(&self, deadline: Instant) -> Option<Receiver<Frame>> {
         if !self.viewer_size_acks {
             return None;
         }
@@ -308,7 +384,7 @@ impl HostAttachment {
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(&mut *self.writer.lock().recover_poison(), &frame).is_ok();
+        let written = write_frame(&mut *self.direct_writer_until(Some(deadline)), &frame).is_ok();
         drop(viewer_size);
         if !written {
             self.control_responses.waiters.lock().recover_poison().remove(&request_id);
@@ -338,7 +414,7 @@ impl HostAttachment {
         let mut payload = Vec::with_capacity(4);
         payload.extend_from_slice(&cols.to_le_bytes());
         payload.extend_from_slice(&rows.to_le_bytes());
-        self.send(MessageKind::ViewerSize, &payload)?;
+        self.send_after_port(MessageKind::ViewerSize, &payload)?;
         Ok(true)
     }
 
@@ -380,7 +456,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer_until(Some(deadline));
             write_frame(&mut *writer, &frame).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -460,7 +536,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -559,7 +635,7 @@ impl HostAttachment {
         // admin connection has already failed; reconnect starts without
         // an implicit lease and therefore needs no compensating message.
         *viewer_size = None;
-        self.send(MessageKind::ReleaseViewer, &[])?;
+        self.send_after_port(MessageKind::ReleaseViewer, &[])?;
         Ok(true)
     }
 

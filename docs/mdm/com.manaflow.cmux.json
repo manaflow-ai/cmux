@@ -1479,6 +1479,11 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.themeFile" : {
+      "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+      "title" : "Theme File",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
@@ -1954,8 +1959,8 @@
     },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
-      "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
-      "title" : "Let Agents Start Cloud Sessions Without Asking",
+      "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
+      "title" : "Let Agents Use Cloud Without Asking",
       "type" : "boolean"
     },
     "cloud.newWorkspaceFolder" : {
@@ -4759,6 +4764,12 @@
       "title" : "Command-1 to 9 Select",
       "type" : "string"
     },
+    "tabs.hideLoneChatTab" : {
+      "default" : false,
+      "description" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+      "title" : "Hide the Tab of a Chat Alone in Its Pane",
+      "type" : "boolean"
+    },
     "tabs.nativeNewTabPage" : {
       "default" : false,
       "description" : "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
@@ -5222,7 +5233,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "standard",
+      "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",

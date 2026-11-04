@@ -451,7 +451,7 @@ export default agentPaneEntry({
       snapshot: allKinds(),
     },
     shipped: {
-      note: 'A finished reply and its footer; an inbox row; then a running turn: "Sent 3 messages", a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
+      note: 'A finished reply and its footer; an inbox row; then a running turn: a send, a command and a send, a reply line, "Ran 2 commands", an inbox row, "Sending message to …" and "2 messages from 2 sessions".',
       snapshot: chat(
         [
           user("Where are the three polish lanes?", 14),
@@ -461,8 +461,10 @@ export default agentPaneEntry({
           user("Hand the three polish lanes their briefs.", 6),
           activity(
             [
+              // A command between the sends keeps three one-line rows: two sends in a row would be one
+              // "Sent 2 messages" line (toolGroups.ts `sendGroup`; Leo, 2026-11-04).
               send("grid-lane", "Take the one-line row pitch."),
-              send("picker-lane", "Take the menu polish."),
+              run("Listed the polish lanes", "acpmux ls --json"),
               send("review-box", "Review #2214 at its head."),
             ],
             5.9,

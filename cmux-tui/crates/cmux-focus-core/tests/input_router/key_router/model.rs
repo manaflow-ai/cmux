@@ -11,9 +11,9 @@ use cmux_focus_core::input::{
     KeyRecord, OfferEnd, SessionEnd, SessionKey, SessionKind, Sink, TerminalKey, Tier, Via,
     WaitReason, WindowRole,
 };
-use cmux_focus_core::reducer;
 use cmux_focus_core::state::{ExpectationKey, FocusState, Resolved, Target};
 use cmux_focus_core::topology::{Kind, Tab};
+use cmux_focus_core::window::WindowFocus;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -106,7 +106,8 @@ struct Aimed {
 
 pub struct Model {
     limit: usize,
-    windows: Vec<(String, FocusState)>,
+    /// Each window's focus, reduced as the app's focus handle reduces it.
+    windows: Vec<(String, WindowFocus)>,
     reaches: Option<Sink>,
     ready: HashSet<Sink>,
     /// Tab sinks that ended: why, and whether no window showed them since.
@@ -179,7 +180,7 @@ impl Model {
     }
 
     pub fn focus(&self, window: &str) -> Option<&FocusState> {
-        self.windows.iter().find(|(id, _)| id == window).map(|(_, focus)| focus)
+        self.windows.iter().find(|(id, _)| id == window).map(|(_, focus)| focus.state())
     }
 
     /// The sink a text key typed now in `window` is aimed at.
@@ -198,9 +199,7 @@ impl Model {
             InputEvent::Focus { window, event } => self.focus_event(window, event),
             InputEvent::WindowOpened { window } => {
                 if !self.windows.iter().any(|(id, _)| **id == **window) {
-                    let mut focus = FocusState::default();
-                    focus.derive();
-                    self.windows.push((window.to_string(), focus));
+                    self.windows.push((window.to_string(), WindowFocus::new()));
                 }
             }
             InputEvent::WindowClosed { window } => self.close(window),
@@ -348,10 +347,10 @@ impl Model {
 
     fn focus_event(&mut self, window: &str, event: &FocusEvent) {
         let Some((_, focus)) = self.windows.iter_mut().find(|(id, _)| id == window) else { return };
-        let before = focus.derived.resolved.clone();
+        let before = focus.state().derived.resolved.clone();
         let mut effects: Vec<FocusEffect> = Vec::new();
-        reducer::reduce(focus, event, &mut effects);
-        let after = focus.derived.resolved.clone();
+        focus.send(event, &mut effects);
+        let after = focus.state().derived.resolved.clone();
         if !matches!(after, Resolved::SidebarField {} | Resolved::TextField {}) {
             self.return_to.remove(window);
         } else if from_content(&before) && by_person(event) {
@@ -393,7 +392,7 @@ impl Model {
     fn shown_sinks(&self) -> Vec<Sink> {
         let mut shown = Vec::new();
         for (_, focus) in &self.windows {
-            for tab in focus.topology.panes.iter().flat_map(|pane| &pane.tabs) {
+            for tab in focus.state().topology.panes.iter().flat_map(|pane| &pane.tabs) {
                 shown.extend(tab_sink(tab));
                 shown.push(Sink::DevTools(Arc::from(tab.id.as_str())));
             }
@@ -437,7 +436,8 @@ impl Model {
     fn forget_shown_creations(&mut self) {
         let windows = &self.windows;
         self.creations.retain(|made| {
-            !made.replied || !windows.iter().any(|(_, focus)| find_tab(focus, &made.key).is_some())
+            !made.replied
+                || !windows.iter().any(|(_, focus)| find_tab(focus.state(), &made.key).is_some())
         });
     }
 
@@ -971,7 +971,7 @@ impl Model {
         focus: &FocusState,
         key: &ExpectationKey,
     ) -> Option<(Option<Arc<str>>, Sink, Kind)> {
-        let others = self.windows.iter().map(|(_, f)| f);
+        let others = self.windows.iter().map(|(_, f)| f.state());
         if let Some(shown) = std::iter::once(focus).chain(others).find_map(|f| find_tab(f, key)) {
             let sink = tab_sink(&shown)?;
             return Some((Some(Arc::from(shown.id.as_str())), sink, shown.kind));

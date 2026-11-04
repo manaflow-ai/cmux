@@ -5,6 +5,7 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
+@testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Testing
 
@@ -30,7 +31,10 @@ import Testing
 @Suite(.serialized, .closesItsWindows)
 struct TabStripFollowsPaneTickTests {
     /// A pane's content view: every size it takes. It answers a pane spring's start with `anchor`, the edge its held
-    /// content rides, as a terminal does (`.bottom` while its prompt is on its last row, the common shell case).
+    /// content rides: content that still keeps one size through a key resize (a page until S5, an agent chat). With
+    /// `motion.frameOwner.terminals` on, a terminal does not hold: it follows its pane in every frame (cmux-ad m6,
+    /// ``aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction:)``); with it off (the default until the
+    /// flip), it keeps one size per press.
     final class Content: NSView, PaneMotionTargeting {
         var sizes: [CGSize] = []
         var anchor = PaneMotionAnchor.top
@@ -129,14 +133,18 @@ struct TabStripFollowsPaneTickTests {
     /// content view fills) and sits at its top; its tabs were laid out at the width it shows; the content below it
     /// never shows under it.
     static func stray(_ pane: PaneID, in rig: Rig) -> String? {
-        guard let host = rig.root.context.hosts[pane], host.window != nil, !host.isHiddenOrHasHiddenAncestor,
-              let view = rig.provider.views[pane] else { return nil }
+        guard let host = rig.root.context.hosts[pane], let view = rig.provider.views[pane] else { return nil }
+        return stray(pane, host: host, view: view, content: rig.provider.contents[pane], scale: rig.window.backingScaleFactor)
+    }
+
+    /// ``stray(_:in:)`` for `view`, the pane content `host` shows, with `content` below its strip, in a window of `scale`.
+    static func stray(_ pane: PaneID, host: PaneHostView, view: PaneContentView, content: NSView?, scale: CGFloat) -> String? {
+        guard host.window != nil, !host.isHiddenOrHasHiddenAncestor else { return nil }
         let area = host.convert(host.contentRect, to: nil)
         // A split's new pane before its first frame at a real size.
         guard area.width >= 1, area.height >= 1 else { return nil }
         let strip = view.stripView
         let shown = strip.convert(strip.bounds, to: nil)
-        let scale = rig.window.backingScaleFactor
         func px(_ value: CGFloat) -> Int { Int((value * scale).rounded()) }
         var off: [String] = []
         if px(shown.minX) != px(area.minX) { off.append("leading edge \(shown.minX) vs pane \(area.minX)") }
@@ -148,7 +156,7 @@ struct TabStripFollowsPaneTickTests {
         if tabs.width > 0, px(tabs.minX) < px(shown.minX) || px(tabs.maxX) > px(shown.maxX) {
             off.append("tabs laid out at \(tabs.minX)...\(tabs.maxX), past the strip's \(shown.minX)...\(shown.maxX)")
         }
-        if let content = rig.provider.contents[pane] {
+        if let content {
             let visible = content.convert(content.visibleRect, to: nil)
             if !visible.isEmpty, px(visible.maxY) > px(shown.minY) { off.append("content shows under the strip (up to \(visible.maxY), strip from \(shown.minY))") }
         }
@@ -242,6 +250,87 @@ struct TabStripFollowsPaneTickTests {
         }
     }
 
+    // MARK: (b) with terminals (cmux-ad m6): the strip and the terminal under it follow the pane in every frame
+
+    /// Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not anymore":
+    /// the strip followed its pane (above), the terminal under it kept one size per press (RESIZE KEYS K3's hold). With a
+    /// terminal in each pane (the app's pane content, a real Ghostty surface) and one press of each arrow on p2: in every
+    /// frame each strip is on its pane; after each frame's layout pass, each terminal host takes its pane's content area
+    /// and its surface the size the host shows it at (the text follows the pane); each terminal asks its PTY for one
+    /// grid, the final one (the program's size per press). These windows draw nothing, so each size shows at once; with
+    /// the window on screen, a size not drawn yet keeps the last frame, top-left (TerminalKeyResizeFrameTests).
+    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): the surface follows its pane with it on, and
+    /// with it off (the default) it takes at most one new size in the press; the strips, the hosts and the grids are the
+    /// same in both.
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down], [false, true])
+    func aKeyResizeKeepsEachStripAndTerminalOnItsPaneInEveryFrame(direction: LayoutDirection, switchOn: Bool) async throws {
+        typealias Ground = PaneGroundCoversPaneTests
+        let vertical = direction == .up || direction == .down
+        let rig = Ground.Rig(Ground.column(vertical ? Ground.stack : Ground.pair), focused: "p2")
+        defer { rig.close() }
+        defer { PaneGroundCoversPaneTests.releaseFrames() }
+        let panes: [PaneID] = ["p1", "p2"]
+        for pane in panes { _ = try await PaneContentPolicyTests.grids(pane, rig) }
+        var sizes: [PaneID: [CGSize]] = [:]
+        /// `atRest`: the surface has its host's size (at rest and after the landing in both states, and in each frame
+        /// with the switch on); else (the switch off, in the press) its new sizes are counted.
+        func off(_ label: String, terminals: Bool, atRest: Bool = false) throws -> [String] {
+            var found: [String] = []
+            for pane in panes {
+                let host = try #require(rig.root.context.hosts[pane])
+                let view = try #require(host.content as? PaneContentView, "\(pane) shows no pane content")
+                let session = try #require(rig.provider.sessions[pane]?.session)
+                let terminal = session.view
+                if let stray = Self.stray(pane, host: host, view: view, content: terminal, scale: rig.window.backingScaleFactor) {
+                    found.append("\(label): \(stray)")
+                }
+                guard terminals else { continue }
+                let area = try #require(terminal.superview, "\(pane)'s terminal host is not in its pane")
+                if terminal.frame.size != area.bounds.size {
+                    found.append("\(label): \(pane)'s terminal host \(terminal.frame.size) in \(area.bounds.size)")
+                }
+                let shown = terminal.surfaceSize(forHostSize: terminal.bounds.size), size = session.surfaceView.frame.size
+                if switchOn || atRest {
+                    if size != shown { found.append("\(label): \(pane)'s surface \(size) in a \(shown) area") }
+                } else if size != sizes[pane]?.last {
+                    sizes[pane, default: []].append(size)
+                }
+            }
+            return found
+        }
+        let atRest = try off("at rest", terminals: true, atRest: true)
+        try #require(atRest.isEmpty, "\(atRest)")
+        for pane in panes { sizes[pane] = try [PaneContentPolicyTests.surface(pane, in: rig).frame.size] }
+        let before = try panes.map { try #require(rig.root.context.hosts[$0]).frame }
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
+        #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        var found: [String] = [], frames = 0, moving = true
+        while moving, frames < 240 {
+            moving = rig.root.advanceFrame(1.0 / 120)
+            frames += 1
+            found += try off("frame \(frames) tick", terminals: false)
+            rig.root.layoutSubtreeIfNeeded()
+            found += try off("frame \(frames) commit", terminals: true)
+        }
+        rig.commit()
+        found += try off("after the landing", terminals: true, atRest: true)
+        try #require(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(try panes.map { try #require(rig.root.context.hosts[$0]).frame } != before, "the press moved nothing")
+        #expect(found.isEmpty, "\(found.count) frames showed a strip or a terminal off its pane: \(found.prefix(6))")
+        if !switchOn {
+            for pane in panes {
+                let taken = (sizes[pane] ?? []).dropFirst()
+                #expect(taken.count <= 1, "\(pane)'s surface took \(taken.count) sizes in one press with the switch off: \(Array(taken))")
+            }
+        }
+        for pane in panes {
+            let grids = try await PaneContentPolicyTests.grids(pane, rig)
+            let final = try #require(try PaneContentPolicyTests.surface(pane, in: rig).fittedGrid)
+            #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
+        }
+    }
+
     // MARK: (a) split, close, ratio, divider release and column springs: the guard (trace fact 2: the strip follows
     // these springs already)
 
@@ -278,7 +367,7 @@ struct TabStripFollowsPaneTickTests {
         case .dividerRelease:
             // What `DividerDrag` leaves for the layout its release makes: the pointer's velocity, leftward.
             let screen = try #require(rig.root.screenViews["s"])
-            screen.releasedDivider = (.split("x"), -900, CACurrentMediaTime())
+            screen.releasedDivider = (.split("x"), -900, CACurrentMediaTime(), MotionTunables.frameOwnerSharedEdges.value)
             rig.model.setSplitRatio("x", ratio: 0.3, transaction: .make(), phase: .ended)
         case .columnWidth:
             rig.model.setColumnWidth("c0", width: 0.35, transaction: .make(), phase: .ended)

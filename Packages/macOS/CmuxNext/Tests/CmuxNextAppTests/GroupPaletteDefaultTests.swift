@@ -146,10 +146,12 @@ import Testing
         // No More Group Actions row (Lawrence 2026-10-20): a right-click shows the flat menu, and
         // the editor offers Pin and Move to Top itself.
         #expect(rows.map(\.id) == ["workspaceGroup.newWorkspace", "workspaceGroup.moveToNewWindow", "workspaceGroup.closeWorkspaces",
-                                   "workspaceGroup.togglePin", "workspaceGroup.moveToTop",
+                                   "workspaceGroup.togglePin", "workspaceGroup.moveToTop", "sidebar.group.sort",
                                    "workspaceGroup.ungroup", "workspaceGroup.delete"])
         #expect(rows.map(\.title) == ["New Workspace in Group", "Move to New Window", "Close All in Group",
-                                      "Pin Group", "Move to Top", "Ungroup", "Delete Group"])
+                                      "Pin Group", "Move to Top", "Sort", "Ungroup", "Delete Group"])
+        // The Sort row reads the group's sort where a row shows its shortcut: Manual until one is picked.
+        #expect(rows.first { $0.id == "sidebar.group.sort" }?.shortcut == "Manual")
     }
 
     /// A right-click on a group header shows the group's flat menu at once (Lawrence 2026-10-20:

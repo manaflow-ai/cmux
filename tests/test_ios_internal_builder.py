@@ -290,6 +290,85 @@ class PackageDriftTests(unittest.TestCase):
             self.assertIsNone(ib.package_drift(str(work), drifted, [("Packages/iOS/P", "no-such-branch")]))
 
 
+class BuilderScriptProbeTests(unittest.TestCase):
+    """builder_has_script reads the signing branch with git; the contents API is only the fallback."""
+
+    def git(self, *args, cwd):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd, check=True,
+                       capture_output=True)
+
+    def repos(self, root: Path, *, with_script: bool, with_branch: bool = True) -> Path:
+        origin, work = root / "origin.git", root / "work"
+        self.git("init", "-q", "--bare", str(origin), cwd=root)
+        self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=root)
+        (work / "README").write_text("x")
+        self.git("add", "README", cwd=work)
+        self.git("commit", "-q", "-m", "base", cwd=work)
+        self.git("remote", "add", "origin", str(origin), cwd=work)
+        self.git("push", "-q", "origin", "feat-cmux-next", cwd=work)
+        if with_branch:
+            self.git("checkout", "-q", "-b", "builder", cwd=work)
+            if with_script:
+                script = work / ib.BUILDER_SCRIPT
+                script.parent.mkdir(parents=True)
+                script.write_text("#!/bin/sh\n")
+                self.git("add", ib.BUILDER_SCRIPT, cwd=work)
+            self.git("commit", "-q", "--allow-empty", "-m", "builder", cwd=work)
+            self.git("push", "-q", "origin", f"builder:{ib.BUILDER_REF}", cwd=work)
+            self.git("checkout", "-q", "feat-cmux-next", cwd=work)
+        clone = root / "clone"
+        # The decide job's checkout: one branch, depth 1, blobless; the probe's fetch then takes --depth=1 too.
+        self.git("clone", "-q", "--depth=1", "--filter=blob:none", "-b", "feat-cmux-next", f"file://{origin}",
+                 str(clone), cwd=root)
+        shallow = subprocess.run(["git", "-C", str(clone), "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(shallow, "true")
+        return clone
+
+    def probe(self, clone: Path, gh_answer: subprocess.CompletedProcess | None = None):
+        real_run = subprocess.run
+        api_calls = []
+
+        def run(args, *a, **kw):
+            if args and args[0] == "gh":
+                api_calls.append(args)
+                return gh_answer
+            return real_run(args, *a, **kw)
+
+        with mock.patch.object(ib.subprocess, "run", side_effect=run), \
+                mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}):
+            answer = ib.builder_has_script(str(clone))
+        return answer, api_calls
+
+    def test_present_script_is_read_with_git_and_no_api_call(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            answer, api_calls = self.probe(self.repos(Path(directory), with_script=True))
+        self.assertTrue(answer)
+        self.assertEqual(api_calls, [])
+
+    def test_missing_script_is_read_with_git_and_no_api_call(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            answer, api_calls = self.probe(self.repos(Path(directory), with_script=False))
+        self.assertFalse(answer)
+        self.assertEqual(api_calls, [])
+
+    def test_unfetchable_branch_falls_back_to_the_contents_api(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            clone = self.repos(Path(directory), with_script=True, with_branch=False)
+            found = subprocess.CompletedProcess(["gh"], 0, ib.BUILDER_SCRIPT + "\n", "")
+            answer, api_calls = self.probe(clone, found)
+            self.assertTrue(answer)
+            self.assertEqual(len(api_calls), 1)
+            self.assertIn(f"repos/manaflow-ai/cmux/contents/{ib.BUILDER_SCRIPT}", api_calls[0])
+            missing = subprocess.CompletedProcess(["gh"], 1, "", "gh: Not Found (HTTP 404)")
+            self.assertFalse(self.probe(clone, missing)[0])
+            down = subprocess.CompletedProcess(["gh"], 1, "", "HTTP 502")
+            self.assertTrue(self.probe(clone, down)[0])
+
+
 class AdmitTests(unittest.TestCase):
     def env(self, **kw):
         env = {

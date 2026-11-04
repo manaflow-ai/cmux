@@ -485,6 +485,20 @@ impl Storage for SimStorage {
         fs.change(step, Change::Rename(from.to_path_buf(), to.to_path_buf()))
     }
 
+    fn remove_file(&self, path: &Path) -> io::Result<()> {
+        let mut fs = lock(&self.fs);
+        let step = fs.begin()?;
+        if !fs.machine.names.files.contains_key(path) {
+            return match step {
+                Step::Crash => Err(crashed()),
+                Step::Run | Step::Fail(_) => Err(io::ErrorKind::NotFound.into()),
+            };
+        }
+        // The file's bytes stay while a name or an open handle may still need them; a crash
+        // keeps only the files its surviving names point to.
+        fs.change(step, Change::Remove(path.to_path_buf()))
+    }
+
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
         let mut fs = lock(&self.fs);
         let done = match fs.begin()? {

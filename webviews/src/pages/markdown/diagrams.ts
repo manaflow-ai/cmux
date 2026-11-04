@@ -9,6 +9,7 @@
 // cannot touch the page; it returns SVG text. Ondine always renders; Mermaid 11 (securityLevel
 // "strict") draws only a source Ondine refuses, with no flag or setting to choose it. Either SVG is parsed
 // as HTML (Mermaid writes HTML labels), cleaned of script, handlers and script URLs, then inserted.
+import { markdownColorScheme } from "./colorScheme";
 type MermaidAPI = {
   initialize(config: Record<string, unknown>): void;
   render(id: string, source: string): Promise<{ svg: string }>;
@@ -67,7 +68,8 @@ export class DiagramLibraries {
 let mermaidCount = 0;
 let mermaidScheme: string | null = null;
 
-const darkScheme = () => globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+// The paper's scheme when `markdown.theme` fixes it, else the App Theme's (markdown-paper-scheme.test.ts).
+const darkScheme = () => markdownColorScheme() === "dark";
 
 let ondineRenderer: ReturnType<OndineAPI["create"]> | null = null;
 

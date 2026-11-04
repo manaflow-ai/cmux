@@ -25,6 +25,9 @@ function installDom(): HTMLElement {
     "Element",
     "KeyboardEvent",
     "IS_REACT_ACT_ENVIRONMENT",
+    // test/preload.ts installs the real pane table; restore it after, never delete it, so later
+    // files in the same bun process still read translated strings.
+    "__cmuxPaneStrings",
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -61,7 +64,6 @@ afterEach(async () => {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  delete globalThis.__cmuxPaneStrings;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

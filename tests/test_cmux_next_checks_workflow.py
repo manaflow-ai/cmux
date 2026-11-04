@@ -760,6 +760,41 @@ class PathRoutingStructure(unittest.TestCase):
         for job_id in ("checks", "generated-files", "generated-verdict", "swift-test", "daemon-test", "release-compile", "cmux-scheme-compile"):
             self.assertIn(job_id, attribution["needs"])
 
+    def test_push_reads_spend_a_cmux_bot_token_not_the_repository_token(self):
+        """Push attribution reads git history and a cmux-bot read token; job reuse lookups of a
+        feat-cmux-next push or dispatch do too. Never minted on a pull request run, comments stay on
+        the workflow token, and a failed mint falls back to it."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["push-attribution"]["steps"]
+        names = [step.get("name") for step in steps]
+        fetch = steps[names.index("Fetch the branch's recent commits")]
+        self.assertIn("--filter=tree:0", fetch["run"])
+        self.assertTrue(fetch["continue-on-error"])
+        mint = steps[names.index("Mint the cmux-bot read token")]
+        comment = steps[names.index("Comment on the pull requests in the failing range")]
+        self.assertLess(names.index("Mint the cmux-bot read token"), names.index("Comment on the pull requests in the failing range"))
+        self.assertEqual(comment["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(comment["env"]["GH_READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        minted = [("push-attribution", mint)]
+        # fast-tier stays secret-free (test_fast_tier_reads_next_bucket_publicly_and_never_saves).
+        for job_id in ("swift-test", "generated-files", "release-compile"):
+            job_steps = jobs[job_id]["steps"]
+            ids = [step.get("id") for step in job_steps]
+            token = job_steps[ids.index("reuse-token")]
+            lookup = job_steps[ids.index("reuse")]
+            self.assertLess(ids.index("reuse-token"), ids.index("reuse"))
+            self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", token["if"])
+            self.assertEqual(token["with"]["permission-actions"], "read")
+            self.assertEqual(lookup["env"]["GH_TOKEN"], "${{ steps.reuse-token.outputs.token || github.token }}")
+            minted.append((job_id, token))
+        for job_id, step in minted:
+            with self.subTest(job=job_id):
+                self.assertIn("github.event_name != 'pull_request'", step["if"])
+                self.assertTrue(step["continue-on-error"])
+                self.assertEqual(step["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+                self.assertFalse(any(key.startswith("permission-") and value == "write"
+                                     for key, value in step["with"].items()))
+
     def test_push_head_preflight_skips_superseded_macos_jobs(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         preflight = jobs["push-head-preflight"]
@@ -1205,9 +1240,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "portable-placement", "release-compile", "request-nightly-next",
-                                           "request-nightly-next-fast",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files", "path_route",
+                                           "release-compile", "request-nightly-next",
                                            "swift-canary", "swift-test", "web-bundles"])
 
 
@@ -1672,7 +1706,10 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 self.assertIn("scripts/ci/job_reuse.py lookup", lookup["run"])
                 self.assertIn("steps.reuse-key.outputs.key", json.dumps(lookup))
                 self.assertIn("steps.reuse-key.outputs.key != ''", lookup["if"])
-                self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+                # A feat-cmux-next push or dispatch lists with a cmux-bot read token (minted only off
+                # pull_request), falling back to the workflow token.
+                self.assertIn(lookup.get("env", {}).get("GH_TOKEN"),
+                              ("${{ github.token }}", "${{ steps.reuse-token.outputs.token || github.token }}"))
                 self.assertIs(lookup.get("continue-on-error"), True)
                 # No actions/cache store: a cache entry of one pull request is unreadable from the others.
                 self.assertFalse([s for s in steps if JOB_PASS_DIR in json.dumps(s)])
@@ -2340,6 +2377,26 @@ def evaluate(expression: str, context: dict):
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
 
 
+class PortablePlacementBootstrapAdmission(unittest.TestCase):
+    def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
+        bootstrap = jobs["portable-placement"]["runs-on"]
+        for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
+            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
+                                                (1, "1", "ubuntu-24.04"),
+                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+                with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
+                    context = {"github.repository_owner": "manaflow-ai",
+                               "github.event_name": "pull_request",
+                               "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                               "github.repository": "manaflow-ai/cmux",
+                               "github.run_attempt": attempt,
+                               "vars.LINUX_RUNNER": fleet,
+                               "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
+                    self.assertEqual(evaluate(bootstrap, context), expected)
+
+
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     """A PR that changes any CmuxNext package Swift file runs the Release compile; a web-only PR does not.
 
@@ -2507,8 +2564,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     def test_the_fast_admission_gate_requests_promotion_itself(self):
         # The fast check's own request reached main's promote job before the admission job
         # existed; the admission job requests once green, after a checkout of the pushed
-        # commit (request-nightly-next.sh refuses any other HEAD), and the downstream helper
-        # waits for it.
+        # commit (request-nightly-next.sh refuses any other HEAD). No downstream helper
+        # repeats that request at the same commit (it cost the repository token's reads).
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         self.assertFalse(any("request-nightly-next.sh" in step.get("run", "")
                              for step in jobs["release-compile-fast"]["steps"]))
@@ -2519,9 +2576,11 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         checkout = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@"))
         self.assertLess(0, checkout)
         self.assertLess(checkout, request)
-        helper = jobs["request-nightly-next-fast"]
-        self.assertIn("release-compile-fast-admission", helper["needs"])
-        self.assertIn("needs.release-compile-fast-admission.result == 'success'", helper["if"])
+        self.assertNotIn("request-nightly-next-fast", jobs)
+        self.assertEqual([job_id for job_id, job in jobs.items()
+                          if "release-compile-fast-admission" in (job.get("needs") or [])
+                          and any("request-nightly-next.sh" in step.get("run", "") for step in job.get("steps", []))],
+                         [])
 
     def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2641,6 +2700,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "vars.CI_PR_POOL_OWNED": "1",
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
+            # The router ran: web-bundles checks its result (a re-run skips portable-placement before it).
+            "needs.path_route.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
             "needs.app-compile-fleet.outputs.verdict": "pass",
             "needs.release-compile-fast.result": "skipped",

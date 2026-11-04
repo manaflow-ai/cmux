@@ -496,11 +496,18 @@ test("a folded run with messages to other agents is estimated as the lines it dr
   expect(heightsOf(run([shell("a", "git status"), read]))[0]).toBe(lines(1));
   // A send between two commands: a line each.
   expect(heightsOf(run([shell("a", "git status"), send("b", "lane-b"), shell("c", "cat x")]))[0]).toBe(lines(3));
-  // Two sends, as two calls or as one shell batch.
-  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(2));
+  // Two sends, as two calls or as one shell batch: one closed "Sent 2 messages" line
+  // (toolGroups.ts `sendGroup`; Leo, 2026-11-04: "why arent these collapsed/collapsible").
+  expect(heightsOf(run([send("a", "lane-a"), send("b", "lane-b")]))[0]).toBe(lines(1));
   expect(heightsOf(run([shell("a", "acpmux send --no-wait lane-a 'a'; acpmux send --no-wait lane-b 'b'")]))[0]).toBe(
-    lines(2),
+    lines(1),
   );
+  // Not folded, two calls that each sent one are that one line too.
+  expect(
+    heightsOf([
+      { id: "two", version: 1, at: 0, kind: "activity", items: [send("a", "lane-a"), send("b", "lane-b")] },
+    ])[0],
+  ).toBe(lines(1));
   // Work folded on each side of the sends: "Ran 2 commands", the send, the fold of the rest, the
   // sub-session message.
   const mixed = [shell("a", "ls"), shell("b", "cat y"), send("s", "lane-a"), shell("d", "git diff"), read, sendMessage];

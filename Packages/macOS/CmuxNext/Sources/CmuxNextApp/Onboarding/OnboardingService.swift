@@ -157,10 +157,10 @@ final class OnboardingService {
         let key = "home.firstRun.historyImportShown"
         guard !defaults.bool(forKey: key) else { return }
         if isFirstRun {
-            // The first workspace can replace its Home pane while launch settles. Show on
-            // top so the offer never belongs to that temporary pane; consume it only
-            // after presentation succeeds.
+            // On top: launch can replace its first Home pane. Consume only once shown. The
+            // mark tells the fresh-home launch smoke this page covers Home on purpose.
             guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
+            DebugTimings.markLaunch("first_run.history_import_shown")
         }
         defaults.set(true, forKey: key)
     }

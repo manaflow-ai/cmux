@@ -282,6 +282,7 @@ pub(crate) fn connect_record_at_version(
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,
+        input_order: None,
     };
     attachment.release_viewer_size()?;
     Ok(attachment)

@@ -12,12 +12,15 @@ export function AgentTag({
   onClick,
   ariaLabel,
   className,
+  attributes,
 }: {
   name: ReactNode;
   title?: string;
   onClick?(event: MouseEvent<HTMLButtonElement>): void;
   ariaLabel?: string;
   className?: string;
+  /// More attributes on the button (`openSessionAttributes`).
+  attributes?: Record<string, string>;
 }) {
   const classes = `cv-agent-tag${className ? ` ${className}` : ""}`;
   if (onClick) {
@@ -28,6 +31,7 @@ export function AgentTag({
         title={title}
         aria-label={ariaLabel}
         data-interactive=""
+        {...attributes}
         onClick={onClick}
       >
         <span className="cv-agent-tag__label">{name}</span>

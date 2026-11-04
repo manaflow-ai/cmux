@@ -41,6 +41,12 @@ const lastTick = (ctx: PlayContext) => {
 };
 const railReady = (ctx: PlayContext) =>
   ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__list [data-tick]"));
+/// A one-tab pane: the transcript runs up under its floating tab row (header/tabRow.ts `soloTab`).
+const solo = async (ctx: PlayContext) => {
+  const { setTabRow } = await import("../header/tabRow");
+  setTabRow({ height: 38, trailingInset: 0, soloTab: true });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-stage[data-solo-tab] .acpmux-minimap__rail"));
+};
 /// Eight lines typed into the composer after the rail drew at rest: the stack grows over the view.
 const tallDraft = async (ctx: PlayContext) => {
   const prompt = { selector: ".acpmux-composer-prompt [contenteditable]" };
@@ -84,6 +90,16 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await railReady(ctx);
         await tallDraft(ctx);
+        await hoverLast(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    "solo-tab-hovered": {
+      note: "A one-tab pane, the transcript under its floating tab row: the rail and its card read the same foot, so the last tick's card still meets it.",
+      snapshot: chat(rows, { title: "Prompt rail in a one-tab pane" }),
+      play: async (ctx) => {
+        await solo(ctx);
+        await railReady(ctx);
         await hoverLast(ctx);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },

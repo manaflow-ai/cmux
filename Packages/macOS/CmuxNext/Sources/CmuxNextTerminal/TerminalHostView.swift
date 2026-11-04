@@ -404,7 +404,8 @@ public final class TerminalHostView: NSView {
         current?.place(surfaceFrame, anchor: surfaceAnchor)
     }
 
-    /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
+    /// The hold ends: the spring landed, or (with `motion.frameOwner.terminals` on) a press whose terminal follows its
+    /// pane (`restAt`). The surface takes the host's area again (the same size, unless the landing differs).
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil

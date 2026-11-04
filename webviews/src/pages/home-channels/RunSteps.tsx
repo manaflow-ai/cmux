@@ -1,8 +1,7 @@
 // Shared by the run sheet and the full inline transcript; every stored step stays in order.
 import { memo, useMemo } from "react";
-import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
-import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { HomeToolGroup } from "./HomeToolGroup";
 import { useT as usePaneT } from "../../agent-session/acpmux/i18n";
 import { runBlocks } from "./runBlocks";
 import { safeLink } from "./runs";
@@ -58,9 +57,14 @@ export const RunSteps = memo(function RunSteps({
       {blocks.map((block) =>
         block.kind === "tools" ? (
           <div key={block.key} className="lg-run-block">
-            <AgentNamesContext.Provider value={agentNames}>
-              <ToolRows row={block.row} />
-            </AgentNamesContext.Provider>
+            <HomeToolGroup
+              row={block.row}
+              steps={(block.row.items ?? []).flatMap((item) => {
+                const step = item.tool ? byId.get(item.tool.id) : undefined;
+                return step ? [step] : [];
+              })}
+              agentNames={agentNames}
+            />
             {extras(block)}
           </div>
         ) : block.kind === "thought" ? (

@@ -7,6 +7,7 @@ use crate::no_panic::{JsonExt, LockExt};
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
+mod context;
 mod events;
 mod info;
 #[path = "requests/mailbox.rs"]
@@ -379,7 +380,7 @@ async fn dispatch_brief(
                     return replayed;
                 }
                 return Err(RpcError::not_found(format!(
-                    "{why}; use --host HOST or connect a peer"
+                    "{why}; use --machine MACHINE or connect one with `acpmux machine add`"
                 )));
             }
         }
@@ -389,7 +390,7 @@ async fn dispatch_brief(
                 return replayed;
             }
             return Err(RpcError::invalid_params(format!(
-                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux machine pick` lists the hosts that are"
             )));
         }
         Some(selected.clone())
@@ -397,7 +398,7 @@ async fn dispatch_brief(
     if let Some(peer_name) = host {
         let peer = hub.peer_by_name(&peer_name).ok_or_else(|| {
             RpcError::not_found(format!(
-                "no peer {peer_name:?}; run `acpmux host ls` and connect it"
+                "no peer {peer_name:?}; run `acpmux machine ls` and connect it"
             ))
         })?;
         if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
@@ -593,7 +594,7 @@ async fn dispatch_brief(
             hub.briefs.release(&id);
         }
         return Err(RpcError::invalid_params(format!(
-            "this host is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
+            "this host is not allowed for this dispatch ({why}); `acpmux machine pick` lists the hosts that are"
         ))
         .with_data(json!({"reason": "dispatch.host_refused"})));
     }
@@ -809,12 +810,9 @@ pub(super) async fn handle_request(
     // boundary, runs under the Web's rules from here on (`hub/vm_boundary.rs`).
     let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
     hub.refuse_at_vm_boundary(conn.auth, control, m, &mut params)?;
-    // A policy raise the person proved in another machine's app, for a chat here: counted and
-    // its challenge spent once, before any check reads it, and the change goes to that very
-    // chat (`hub/person/policy_grant.rs`).
+    // A policy raise the person proved in another machine's app: count and spend it before checks.
     let proved_chat = hub.take_person_policy(m, &params);
     let policy_proved = proved_chat.is_some();
-    // A refused raise of a chat here carries a challenge the person's app can prove.
     let challenge = |e: RpcError, params: &Value| {
         hub.with_policy_challenge(
             m,
@@ -823,6 +821,10 @@ pub(super) async fn handle_request(
             e,
         )
     };
+    // A transitive start is refused before remote mode checks, including via:web.
+    if m == method::SESSION_NEW {
+        super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
+    }
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
@@ -839,6 +841,8 @@ pub(super) async fn handle_request(
         .map_err(|e| challenge(e, &params))?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
+    // For trust writes, remote_guard retains trust.remote for forwarded Web callers.
+    super::peer_forward::refuse_peer_selector(conn.origin, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
     // connection, or a peer forwarding for its own Web client (`via: web`); a peer
@@ -1025,6 +1029,11 @@ async fn dispatch_request_with_identity(
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
             }
+            // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
+            // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
+            if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
+                conn.presence.observes();
+            }
             // A Mac that lends this machine its GitHub login: only over a link that read this
             // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`). It
             // counts from its `_acpmux/watch`, once the Mac's side of the handshake is done.
@@ -1037,11 +1046,12 @@ async fn dispatch_request_with_identity(
             // expansion passes the default recursion limit.
             #[rustfmt::skip]
             let extensions: &[&str] = &[
+                super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -1855,6 +1865,9 @@ async fn dispatch_request_with_identity(
             heap(|| hub.client_set_model(&s, model, conn.origin == Origin::LocalApp)).await
         }
         method::MUX_SET_TOOLS => hub.set_tools(&hub.resolve(session_key(&params)?)?, &params).await,
+        method::MUX_SET_DIRECTORIES => {
+            hub.set_directories(&hub.resolve(session_key(&params)?)?, &params).await
+        }
         method::MUX_MCP_RECONNECT => {
             hub.reconnect_mcp(&hub.resolve(session_key(&params)?)?, &params).await
         }
@@ -2176,6 +2189,9 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_CONTEXT | method::MUX_CONTEXT_OVERRIDE => {
+            context::handle(hub, conn, m, &params).await
+        }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;

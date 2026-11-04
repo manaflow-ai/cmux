@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::goal::GoalState;
 use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -274,6 +275,15 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
+    /// Cmux-owned additions captured when this chat was created. Older chats have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_context: Option<Vec<crate::context_inventory::ContextPart>>,
+    /// A preset override selected at creation; later setting edits affect only new chats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_preset_prompt: Option<String>,
+    /// True only after a harness writer accepts the captured first-turn context.
+    #[serde(default)]
+    pub cmux_context_delivered: bool,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -284,8 +294,12 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<Value>,
+    #[serde(
+        default,
+        deserialize_with = "crate::goal::deserialize_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<GoalState>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -856,6 +870,25 @@ pub trait Store: Send + Sync {
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// Waits up to `timeout` until every record appended so far is durable; false when the time
+    /// ran out. For tests and tools: a request never blocks on the disk. The Local and Memory
+    /// stores do not sync an append, so they return true at once (their appends are as durable
+    /// as they will be until `flush`).
+    fn wait_durable(&self, timeout: std::time::Duration) -> Result<bool> {
+        let _ = timeout;
+        Ok(true)
+    }
+    /// How durable its appends are (`server/durable_gate.rs`). None: appends are not journaled,
+    /// and no connection waits for them.
+    fn durability(&self) -> Option<Durability> {
+        None
+    }
+    /// Why the store asks the daemon to stop with a restart, as it changes: `Some(reason)` once
+    /// the store cannot go on safely (the journal store's frozen checkpoint, whose logs only a
+    /// restart's replay writes again). None: a store that never asks.
+    fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
+        None
+    }
     /// The daemon's shutdown is done: from now on every write is refused. It lets go of
     /// `daemon.lock` before its process exits, so the next daemon may already read this store;
     /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
@@ -885,6 +918,12 @@ pub trait Store: Send + Sync {
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
+    }
+    /// The chat's folder path only, for a caller that needs the path or its parent and reads or
+    /// moves none of the chat's own files: no lock, no wait, no write. `session_dir` is for code
+    /// that reads or moves them (the journal store writes the chat's metadata first).
+    fn session_path(&self, id: &str) -> Option<PathBuf> {
+        self.session_dir(id)
     }
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
@@ -995,97 +1034,37 @@ fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     Ok(match config.mode {
         StoreMode::Memory => Box::new(MemoryStore::default()),
-        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
+        StoreMode::Local if config.journal => Box::new(journal_store::JournalStore::open(
+            config,
+            root,
+            std::sync::Arc::new(journal_store::FencedStorage::daemon()),
+            cmux_journal::Config::default(),
+        )?),
+        StoreMode::Local => {
+            // A journal a run with `store.journal` on left: its lines go to the logs first.
+            if let Err(error) = journal_store::catch_up(config, root) {
+                tracing::error!("the event journal's catch-up with store.journal off: {error:#}");
+            }
+            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?)
+        }
     })
 }
 
-// ---------------------------------------------------------------- memory
+mod durability;
+pub use durability::Durability;
+pub(crate) use durability::streamed;
+mod journal_store;
+#[cfg(test)]
+pub(crate) use journal_store::open_with_journal;
+mod log_sync;
+#[cfg(test)]
+pub(crate) use journal_store::PAUSE_AFTER_LOG_WRITE;
+pub(crate) use log_sync::SyncFailed;
+#[cfg(all(test, unix))]
+mod sync_model;
 
-#[derive(Default)]
-pub struct MemoryStore {
-    inner: Mutex<HashMap<String, (SessionMeta, Vec<EventRecord>)>>,
-}
-
-impl Store for MemoryStore {
-    fn list(&self) -> Result<Vec<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().values().map(|(m, _)| m.clone()).collect())
-    }
-    fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Ok(self.inner.lock_or_recover().get(id).map(|(m, _)| m.clone()))
-    }
-    fn save(&self, meta: &SessionMeta) -> Result<()> {
-        let mut g = self.inner.lock_or_recover();
-        g.entry(meta.id.clone())
-            .and_modify(|(m, _)| *m = meta.clone())
-            .or_insert_with(|| (meta.clone(), Vec::new()));
-        Ok(())
-    }
-    fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        let mut g = self.inner.lock_or_recover();
-        if let Some((_, events)) = g.get_mut(id) {
-            events.push(record.clone());
-            // Bound memory: keep the newest 20k events.
-            if events.len() > 20_000 {
-                let drop = events.len() - 20_000;
-                events.drain(..drop);
-            }
-        }
-        Ok(())
-    }
-    fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
-        let g = self.inner.lock_or_recover();
-        Ok(g.get(id)
-            .map(|(_, ev)| ev.iter().filter(|e| e.seq > after).take(limit).cloned().collect())
-            .unwrap_or_default())
-    }
-    /// Newest first, a bounded window at a time: a visitor that stops early clones only the
-    /// windows it read, and it runs off the lock.
-    fn scan_back(
-        &self,
-        id: &str,
-        after: u64,
-        before: u64,
-        skip: &dyn Fn(&[u8], &[u8]) -> bool,
-        visit: &mut dyn FnMut(EventRecord) -> bool,
-    ) -> Result<()> {
-        const WINDOW: usize = 256;
-        let mut before = before;
-        loop {
-            let (window, lowest) = {
-                let g = self.inner.lock_or_recover();
-                let Some((_, events)) = g.get(id) else { return Ok(()) };
-                let end = events.partition_point(|e| e.seq < before);
-                let mut window = Vec::new();
-                let mut lowest = None;
-                for e in events
-                    .get(..end)
-                    .unwrap_or_default()
-                    .iter()
-                    .rev()
-                    .take_while(|e| e.seq > after)
-                    .take(WINDOW)
-                {
-                    lowest = Some(e.seq);
-                    if !skip(e.dir.as_bytes(), e.kind.as_bytes()) {
-                        window.push(e.clone());
-                    }
-                }
-                (window, lowest)
-            };
-            let Some(lowest) = lowest else { return Ok(()) };
-            for record in window {
-                if !visit(record) {
-                    return Ok(());
-                }
-            }
-            before = lowest;
-        }
-    }
-    fn delete(&self, id: &str) -> Result<()> {
-        self.inner.lock_or_recover().remove(id);
-        Ok(())
-    }
-}
+mod memory;
+pub use memory::MemoryStore;
 
 // ----------------------------------------------------------------- local
 
@@ -1096,6 +1075,9 @@ pub struct LocalStore {
     /// Read-held by every write, true once `seal` ran: a write either lands before the seal
     /// returns or not at all.
     sealed: std::sync::RwLock<bool>,
+    /// A log's sync on its close failed (`SegmentWriter::close`): its lines may be lost on the
+    /// disk. The journal store then keeps every line in its journal (`store/journal_store.rs`).
+    sync_failed: std::sync::atomic::AtomicBool,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1121,11 +1103,12 @@ struct SegmentWriter {
 impl SegmentWriter {
     /// Closes the log, durable first as `flush` would have made it. Called under the
     /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
-    /// records stay in order. A failed sync is logged: its records were written (an append is
-    /// never synced on its own), so only a machine crash before the kernel writes them back
-    /// loses them, as it would any append since the last `flush`.
-    fn close(self, id: &str) {
-        if let Err(e) = self.file.sync_data() {
+    /// records stay in order. A failed sync is logged and noted in `failed`: its records were
+    /// written (an append is never synced on its own), so only a machine crash before the kernel
+    /// writes them back loses them, as it would any append since the last `flush`.
+    fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
+        if let Err(e) = log_sync::sync_segment(&self.file, false) {
+            failed.store(true, std::sync::atomic::Ordering::SeqCst);
             tracing::warn!(session = %id, "sync event log on close: {e}");
         }
     }
@@ -1140,6 +1123,7 @@ impl LocalStore {
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
             sealed: Default::default(),
+            sync_failed: Default::default(),
         })
     }
 
@@ -1461,6 +1445,52 @@ fn first_seq(path: &Path) -> Result<Option<u64>> {
     }
 }
 
+impl LocalStore {
+    /// One whole serialized record (`line` ends with its newline) at the end of `id`'s log: the
+    /// body of [`Store::append`], and the journal store's write of a journaled line
+    /// (`store/journal_store.rs`). Refused once the store is sealed.
+    pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
+        // One lock hold from the eviction to the write: the least recently written log is
+        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // append comes between (a session's records stay in order). Its sync runs under the lock,
+        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let _open = self.writable()?;
+        let mut writers = self.writers.lock_or_recover();
+        if !writers.open.contains_key(id)
+            && writers.open.len() >= OPEN_LOGS
+            && let Some(oldest) =
+                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
+            && let Some(w) = writers.open.remove(&oldest)
+        {
+            w.close(&oldest, &self.sync_failed);
+        }
+        if !writers.open.contains_key(id) {
+            let writer = self.open_writer(id)?;
+            writers.open.insert(id.to_owned(), writer);
+        }
+        writers.clock += 1;
+        let clock = writers.clock;
+        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
+        if full && let Some(old) = writers.open.remove(id) {
+            // The full segment closes before the next one opens (rare: once per segment).
+            let index = old.index + 1;
+            old.close(id, &self.sync_failed);
+            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
+            let file = open_private_append(&path)?;
+            writers
+                .open
+                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
+        }
+        let Some(w) = writers.open.get_mut(id) else {
+            anyhow::bail!("no segment writer for session {id}");
+        };
+        w.used = clock;
+        w.file.write_all(line)?;
+        w.written += line.len() as u64;
+        Ok(())
+    }
+}
+
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let Ok(rd) = std::fs::read_dir(&self.root) else {
@@ -1532,7 +1562,7 @@ impl Store for LocalStore {
     fn flush_session(&self, id: &str) -> Result<()> {
         let writers = self.writers.lock_or_recover();
         if let Some(writer) = writers.open.get(id) {
-            writer.file.sync_all()?;
+            log_sync::sync_segment(&writer.file, true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -1542,46 +1572,9 @@ impl Store for LocalStore {
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
-        // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
-        // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
-        let _open = self.writable()?;
-        let mut writers = self.writers.lock_or_recover();
-        if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
-            && let Some(oldest) =
-                writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
-            && let Some(w) = writers.open.remove(&oldest)
-        {
-            w.close(&oldest);
-        }
-        if !writers.open.contains_key(id) {
-            let writer = self.open_writer(id)?;
-            writers.open.insert(id.to_owned(), writer);
-        }
-        writers.clock += 1;
-        let clock = writers.clock;
-        let full = writers.open.get(id).is_some_and(|w| w.written >= self.segment_bytes);
-        if full && let Some(old) = writers.open.remove(id) {
-            // The full segment closes before the next one opens (rare: once per segment).
-            let index = old.index + 1;
-            old.close(id);
-            let path = self.dir(id).join("events").join(format!("{index:06}.ndjson"));
-            let file = open_private_append(&path)?;
-            writers
-                .open
-                .insert(id.to_owned(), SegmentWriter { index, file, written: 0, used: clock });
-        }
-        let Some(w) = writers.open.get_mut(id) else {
-            anyhow::bail!("no segment writer for session {id}");
-        };
-        w.used = clock;
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
-        w.file.write_all(line.as_bytes())?;
-        w.written += line.len() as u64;
-        Ok(())
+        self.append_line(id, line.as_bytes())
     }
 
     /// Reads only past `after`: a segment whose successor starts at or before `after + 1`
@@ -1738,7 +1731,7 @@ impl Store for LocalStore {
 
     fn flush(&self) -> Result<()> {
         for w in self.writers.lock_or_recover().open.values() {
-            w.file.sync_data()?;
+            log_sync::sync_segment(&w.file, false)?;
         }
         Ok(())
     }
@@ -1755,7 +1748,7 @@ impl Store for LocalStore {
     fn close_log(&self, id: &str) {
         let mut writers = self.writers.lock_or_recover();
         if let Some(w) = writers.open.remove(id) {
-            w.close(id);
+            w.close(id, &self.sync_failed);
         }
     }
 
@@ -1828,11 +1821,17 @@ impl Store for LocalStore {
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    if log_sync::fail_dir_sync(path) {
+        return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
+    }
     let dir = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all()?;
+    dir.sync_all().map_err(SyncFailed)?;
+    #[cfg(test)]
+    sync_model::folder_synced(path);
     Ok(())
 }
 
@@ -2001,6 +2000,7 @@ mod line_rev_tests;
 #[cfg(test)]
 mod agent_session_history_tests {
     use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
+    use crate::goal::{GoalState, GoalStatus};
     use serde_json::json;
 
     fn meta() -> SessionMeta {
@@ -2077,6 +2077,29 @@ mod agent_session_history_tests {
         assert!(m.retired_agent_session_ids.is_empty());
     }
 
+    #[test]
+    fn goal_persistence_round_trip_keeps_quota_stop_reasons() {
+        for status in [GoalStatus::UsageLimited, GoalStatus::BudgetLimited] {
+            let mut m = meta();
+            m.goal = Some(GoalState {
+                objective: "Wait for quota".into(),
+                status: status.clone(),
+                provider: crate::goal::GoalProvider::Codex,
+                token_budget: None,
+                tokens_used: None,
+                elapsed_seconds: None,
+                created_at: None,
+                updated_at: None,
+                steps: None,
+                extra: Default::default(),
+            });
+            let encoded = serde_json::to_value(&m).unwrap();
+            assert_eq!(encoded["goal"]["status"], status.as_str());
+            let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+            assert_eq!(restored.goal.unwrap().status, status);
+        }
+    }
+
     /// A Codex chat's earlier native roots stay known after a restart names a new one, so a
     /// client folding its older records never reads one as a subagent; bounded, oldest first.
     #[test]
@@ -2107,6 +2130,11 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+
+#[cfg(all(test, unix))]
+mod journal_meta_tests;
+#[cfg(all(test, unix))]
+mod journal_store_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.

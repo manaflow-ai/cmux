@@ -20,7 +20,9 @@ nonisolated extension AcpmuxPaneMethods {
         // in place is `_acpmux/app_reply`, never a prompt (acpmux refuses one from the app too).
         // `inlineParts`: display descriptors for the prompt's attachment blocks. The daemon
         // validates them against those blocks and keeps them out of the agent's request.
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
+        // `promptSuggestion: "taken"`: the person sent the suggested next prompt (direct.ts, #34496);
+        // acpmux only counts it taken for the suggestion gate (suggestion_gate.rs marked_taken).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts", "promptSuggestion"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
@@ -106,6 +108,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
+        "_acpmux/resolve": (["query"], []),
         "_acpmux/side": (["sessionId", "chat"], []),
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
@@ -132,8 +135,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         "acp.session.fork": (["sessionId", "throughSeq", "live"], []),
-        "acp.trust.get": (["cwd", "sessionId"], []),
-        "acp.trust.set": (["cwd", "level", "sessionId"], []),
+        // `peer` names the machine that owns `cwd`; its folder is checked for shape only and
+        // never canonicalized against this Mac's filesystem (the owning daemon checks it).
+        "acp.trust.get": (["cwd", "sessionId", "peer"], []),
+        "acp.trust.set": (["cwd", "level", "sessionId", "peer"], []),
         // Never `sha256`: only the relay adds it, after the native sheet's Enable.
         "_acpmux/harness_enable": (["folder", "id"], []),
         // They meet the gesture rule and the sheet; their mode field is their purpose.
@@ -152,6 +157,9 @@ nonisolated extension AcpmuxPaneMethods {
         guard let params = rawParams as? [String: Any] else { return true }
         guard let known = knownParams[method] else { return !params.isEmpty }
         if params.keys.contains(where: { !known.params.contains($0) }) { return true }
+        if (method == "acp.trust.get" || method == "acp.trust.set"), let peer = params["peer"] {
+            guard let name = peer as? String, !name.isEmpty else { return true }
+        }
         let setting = settingMethods.contains(method)
         let denied = setting ? [] : modeFields ?? []
         if params.keys.contains(where: denied.contains) { return true }

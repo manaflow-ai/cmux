@@ -1244,6 +1244,65 @@ class PushAttribution(unittest.TestCase):
         with mock.patch.object(attribution, "gh_api", return_value=payload):
             self.assertEqual(attribution.compare_commits("o/r", a, c), [])
 
+    def test_range_and_culprit_come_from_first_parent_git_history(self):
+        """Squash subjects name their pull requests from local git; only commits git cannot name
+        (a rebase merge, a direct push) share one GraphQL lookup, and nothing asks compare or
+        commits/{sha}/pulls."""
+        import os
+        import subprocess
+        import tempfile
+        import cmux_next_push_attribution as attribution
+
+        with tempfile.TemporaryDirectory() as repo:
+            def git(*args):
+                return subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            shas = []
+            for subject in ("base", "feat: one (#11)", "fix: rebased, no number", "Revert \"x (#9)\" (#12)", "two (#11)"):
+                git("commit", "-q", "--allow-empty", "-m", subject)
+                shas.append(git("rev-parse", "HEAD"))
+            git("checkout", "-q", "-b", "side", shas[1])
+            git("commit", "-q", "--allow-empty", "-m", "side (#99)")
+            git("checkout", "-q", "-")
+            git("merge", "-q", "--no-ff", "-m", "Merge pull request #13 from o/side", "side")
+            shas.append(git("rev-parse", "HEAD"))
+            base, head = shas[0], shas[-1]
+            asked = []
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                with mock.patch.object(attribution, "gh_api", side_effect=lambda path: self.fail(f"REST read {path}")), \
+                     mock.patch.object(attribution, "merged_pulls_batch",
+                                       side_effect=lambda r, unnamed, b: asked.append(unnamed) or {unnamed[0]: [20]}):
+                    self.assertEqual(attribution.pull_requests("o/r", base, head, "feat-cmux-next"), [11, 20, 12, 13])
+                    self.assertEqual(asked, [[shas[2]]])
+                    self.assertEqual(attribution.compare_commits("o/r", base, head), shas[1:])
+                    self.assertEqual(attribution.pull_requests_for_commit("o/r", shas[3], "feat-cmux-next"), [12])
+                # A base off the fetched first-parent chain falls back to the API.
+                with mock.patch.object(attribution, "gh_api", return_value={"commits": []}) as api:
+                    self.assertEqual(attribution.pull_requests("o/r", "f" * 40, head, "feat-cmux-next"), [])
+                    api.assert_called_once()
+            finally:
+                os.chdir(cwd)
+
+    def test_reads_use_the_read_token_and_retry_on_the_workflow_token(self):
+        import subprocess
+        import cmux_next_push_attribution as attribution
+        calls = []
+
+        def run(args, **kwargs):
+            token = (kwargs.get("env") or {}).get("GH_TOKEN", "workflow")
+            calls.append(token)
+            if token == "app":
+                raise subprocess.CalledProcessError(1, args)
+            return subprocess.CompletedProcess(args, 0, stdout="{}")
+
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": "app"}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run):
+            self.assertEqual(attribution.gh_api("repos/o/r/actions/runs/1/jobs"), {})
+        self.assertEqual(calls, ["app", "workflow"])
+
     def test_culprit_mapping_requires_the_prs_actual_merge_commit(self):
         import cmux_next_push_attribution as attribution
         pulls = [{"number": 7, "merged_at": "now", "base": {"ref": "feat-cmux-next"}, "merge_commit_sha": "other"}]

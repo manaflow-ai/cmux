@@ -34,7 +34,7 @@ export default agentPaneEntry({
   },
   variants: {
     "eighteen-prompts": {
-      note: "Eighteen prompts with a tall initial rail. Compare how much quiet vertical rail each height arm gives the thread before overflow.",
+      note: "Eighteen prompts. The fixed arms (200, 240 shipped, 280) keep one height with quiet rail under the last tick; the older initial-* arms are here for comparison.",
       snapshot: chat(medium, { title: "Thread minimap height: initial rail" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="8"]')) return;
@@ -44,7 +44,7 @@ export default agentPaneEntry({
       },
     },
     "seventy-prompts": {
-      note: "Seventy prompts. Compare the maximum arms as they approach the cleared pane height and leave only the rail's own scroll for overflow.",
+      note: "Seventy prompts. A fixed arm stays at its one height and its list scrolls; the initial-* arms grow toward the pane before they scroll.",
       snapshot: chat(long, { title: "Thread minimap height: long chat" }),
       play: async (ctx) => {
         if (!ctx.document.querySelector('[data-tick="40"]')) return;
@@ -58,7 +58,7 @@ export default agentPaneEntry({
       },
     },
     "tall-pane-caps": {
-      note: "Two hundred sixty prompts in a tall pane. The four arms reach distinct row caps before the viewport clearance bound.",
+      note: "Two hundred sixty prompts in a 2100 px pane. A fixed arm keeps the same height as in a 720 px pane; the initial-* arms reach their row caps.",
       height: 2100,
       snapshot: chat(tall, { title: "Thread minimap height: distinct caps" }),
       play: async (ctx) => {

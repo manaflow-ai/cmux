@@ -44,6 +44,17 @@ const BODY = [12, 13] as const;
 const CAPTION = [10.5, 11] as const;
 
 const half = (value: number) => Math.round(value * 2) / 2;
+/** The icon scale glyph boxes sit on (Swift `DensityTokens.iconScale`, design/grid.md). */
+export const ICON_SCALE = [12, 14, 16, 20, 24] as const;
+/** Swift `resolveGlyph`: the level's point on the nearest icon-scale step; a tie goes down below
+ * level 0.5 and up from it, so no density draws a 13, 15 or 18 px glyph. */
+const glyph = (pair: readonly [number, number], level: number) => {
+  const value = at(pair, level, Math.round);
+  return ICON_SCALE.reduce((best, step) => {
+    const d = Math.abs(step - value) - Math.abs(best - value);
+    return d < 0 || (d === 0 && (level < 0.5 ? step < best : step > best)) ? step : best;
+  });
+};
 const at = (pair: readonly [number, number], level: number, round: (value: number) => number) =>
   level === 0 ? pair[0] : level === 1 ? pair[1] : round(pair[0] + (pair[1] - pair[0]) * level);
 
@@ -73,7 +84,7 @@ export function resolve(density: Density): Resolved {
     tabHeight: metric("tabHeight"),
     tabStripHeight: metric("tabStripHeight"),
     itemCornerRadius: metric("itemCornerRadius"),
-    iconSize: metric("iconSize"),
+    iconSize: density.tokens?.iconSize ?? glyph(PAIRS.iconSize, level),
     body: density.fontSize ?? levelBody,
     caption: text(CAPTION),
     inset: spacing === 1 ? 6 : half(6 * spacing),

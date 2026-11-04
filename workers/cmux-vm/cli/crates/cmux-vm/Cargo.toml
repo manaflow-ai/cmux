@@ -23,6 +23,8 @@ preserve-order = ["serde_json/preserve_order"]
 clap.workspace = true
 base64.workspace = true
 cmux-vm-client = { path = "../cmux-vm-client", default-features = false }
+# The agent-key mint's rules, shared with the cmux app (pure: serde only).
+cmux-cloud-config = { path = "../../../../../cmux-tui/crates/cmux-cloud-config" }
 futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true

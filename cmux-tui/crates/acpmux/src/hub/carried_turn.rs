@@ -274,6 +274,7 @@ impl Hub {
         begin: Option<(String, Carried)>,
         continues: Continues,
     ) {
+        self.resume_before_turn();
         {
             let mut running = session.turn.lock().unwrap_or_else(|e| e.into_inner());
             if running.is_some() {

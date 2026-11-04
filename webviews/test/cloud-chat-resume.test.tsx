@@ -278,15 +278,39 @@ test.serial(
   10_000,
 );
 
-// Stable callbacks keep fixture rerenders from restarting the hook's deadline.
-async function deadlineFixture(pending: "inventory" | "recheck") {
+// #35206 removed the resume's 60 s deadline: a live native bridge owns each request's lifetime.
+// A resume now waits until the request answers (the answer continues the resume), the native
+// call fails for good (non-retryable: the daemon is gone), or the person leaves the chat (switch,
+// deactivate, unmount). Here the `pending` request is held until the test answers it or fails it.
+// Stable callbacks keep fixture rerenders from restarting the hook's read.
+const GONE = { ok: false, error: { code: "daemon.gone", retryable: false, origin: "native" } };
+
+async function waitFixture(pending: "inventory" | "recheck") {
   const { useCloudChatRecovery } = await import("../src/agent-session/acpmux/useCloudChatRecovery");
+  const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
   let reads = 0;
   let rechecks = 0;
-  const hung = new Promise<void>(() => {});
+  // One entry per held request, in order: answer it (or fail it) to end that wait.
+  const held: { answer(): void; fail(): void }[] = [];
+  const inventory = {
+    ok: true,
+    value: {
+      signedIn: true,
+      loaded: true,
+      complete: true,
+      account: ["user", null],
+      machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
+    },
+  };
   const recheck = () => {
     rechecks += 1;
-    return hung;
+    if (pending !== "recheck") return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      held.push({
+        answer: () => resolve(),
+        fail: () => reject(new NativeError({ code: GONE.error.code, retryable: false, origin: "native" })),
+      });
+    });
   };
   Object.assign(dom.window, {
     webkit: {
@@ -296,18 +320,12 @@ async function deadlineFixture(pending: "inventory" | "recheck") {
             if (method === "cloudMachine.attach") return { ok: true, value: {} };
             if (method === "cloudMachine.list") {
               reads += 1;
-              if (pending === "inventory") return hung;
+              if (pending === "inventory")
+                return new Promise((resolve) => {
+                  held.push({ answer: () => resolve(inventory), fail: () => resolve(GONE) });
+                });
             }
-            return {
-              ok: true,
-              value: {
-                signedIn: true,
-                loaded: true,
-                complete: true,
-                account: ["user", null],
-                machines: [{ id: "vm-demo", name: "Demo machine", stage: "paused" }],
-              },
-            };
+            return inventory;
           },
         },
       },
@@ -322,41 +340,70 @@ async function deadlineFixture(pending: "inventory" | "recheck") {
     });
     return (
       <div>
-        <button data-action="deadline-wake" onClick={recovery.resume}>
+        <button data-action="wait-wake" onClick={recovery.resume}>
           Resume
         </button>
-        <span data-action="deadline-state">
-          {JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}
-        </span>
+        <span data-action="wait-state">{JSON.stringify({ resuming: recovery.resuming, error: recovery.error })}</span>
       </div>
     );
   }
   return {
     render: (session: string) => act(async () => root.render(<Recovery session={session} />)),
-    wake: () => act(async () => mount.querySelector<HTMLButtonElement>('[data-action="deadline-wake"]')!.click()),
-    state: () => JSON.parse(mount.querySelector('[data-action="deadline-state"]')!.textContent!),
+    wake: () => act(async () => mount.querySelector<HTMLButtonElement>('[data-action="wait-wake"]')!.click()),
+    state: () => JSON.parse(mount.querySelector('[data-action="wait-state"]')!.textContent!),
     reads: () => reads,
     rechecks: () => rechecks,
+    held,
   };
 }
 
 for (const pending of ["inventory", "recheck"] as const) {
-  test.serial(`a hung ${pending} fails at the original recovery deadline`, async () => {
-    const fixture = await deadlineFixture(pending);
+  test.serial(`a slow ${pending} keeps the resume waiting past the old 60 s deadline until it answers`, async () => {
+    const fixture = await waitFixture(pending);
     jest.useFakeTimers({ now: 0 });
     try {
       await fixture.render("old");
       await fixture.wake();
+      expect(fixture.held).toHaveLength(1);
       expect(fixture.reads()).toBe(1);
       expect(fixture.rechecks()).toBe(pending === "recheck" ? 1 : 0);
-      expect(fixture.state()).toEqual({ resuming: true });
+      // Ten minutes, ten times the old deadline: no timer fails the resume and no read is repeated
+      // over the one in flight. A request that never answers while the bridge stays alive keeps
+      // the resume waiting until the person leaves the chat; #35206 states no other end for it.
       await act(async () => {
-        jest.advanceTimersByTime(59_999);
+        jest.advanceTimersByTime(600_000);
       });
       expect(fixture.state()).toEqual({ resuming: true });
+      expect(jest.getTimerCount()).toBe(0);
+      expect(fixture.reads()).toBe(1);
+      // The answer ends the wait: the resume goes on (the inventory's answer runs the recheck)
+      // and reads again a second later.
+      await act(async () => fixture.held[0]!.answer());
+      expect(fixture.rechecks()).toBe(1);
+      expect(fixture.state()).toEqual({ resuming: true });
+      expect(jest.getTimerCount()).toBe(1);
       await act(async () => {
-        jest.advanceTimersByTime(1);
+        jest.advanceTimersByTime(1_000);
       });
+      expect(fixture.reads()).toBe(2);
+    } finally {
+      jest.useRealTimers();
+      await act(async () => root.render(null));
+    }
+  });
+
+  test.serial(`a slow ${pending} whose daemon is gone fails the resume`, async () => {
+    const fixture = await waitFixture(pending);
+    jest.useFakeTimers({ now: 0 });
+    try {
+      await fixture.render("old");
+      await fixture.wake();
+      await act(async () => {
+        jest.advanceTimersByTime(600_000);
+      });
+      expect(fixture.state()).toEqual({ resuming: true });
+      // A non-retryable native failure ends the wait with the error, and nothing reads again.
+      await act(async () => fixture.held[0]!.fail());
       expect(fixture.state().resuming).toBe(false);
       expect(fixture.state().error).toBeDefined();
       expect(jest.getTimerCount()).toBe(0);
@@ -367,26 +414,29 @@ for (const pending of ["inventory", "recheck"] as const) {
   });
 
   test.serial(`switching chats cancels a hung ${pending} without failing the new recovery`, async () => {
-    const fixture = await deadlineFixture(pending);
+    const fixture = await waitFixture(pending);
     jest.useFakeTimers({ now: 0 });
     try {
       await fixture.render("old");
       await fixture.wake();
-      expect(fixture.reads()).toBe(1);
-      expect(jest.getTimerCount()).toBe(1);
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
+      expect(fixture.held).toHaveLength(1);
+      // The person leaves the chat: the old wait ends with no error and no timer left behind.
       await fixture.render("new");
+      expect(fixture.state()).toEqual({ resuming: false });
       expect(jest.getTimerCount()).toBe(0);
       await fixture.wake();
       expect(fixture.state()).toEqual({ resuming: true });
-      // The old deadline expires now; the new chat still has thirty seconds.
-      await act(async () => {
-        jest.advanceTimersByTime(30_000);
-      });
+      const reads = fixture.reads();
+      const rechecks = fixture.rechecks();
+      // The old chat's request answers late, then would fail for good: neither touches the new
+      // recovery, and neither starts a read or a recheck for the chat that was left.
+      await act(async () => fixture.held[0]!.answer());
+      await act(async () => fixture.held[0]!.fail());
       expect(fixture.state()).toEqual({ resuming: true });
-      expect(jest.getTimerCount()).toBe(1);
+      expect(fixture.reads()).toBe(reads);
+      expect(fixture.rechecks()).toBe(rechecks);
+      expect(jest.getTimerCount()).toBe(0);
+      // Unmount ends the new wait too.
       await act(async () => root.render(null));
       expect(jest.getTimerCount()).toBe(0);
     } finally {
@@ -491,6 +541,7 @@ async function attachFixture() {
   const { ChatUnavailableState } = await import("../src/agent-session/acpmux/ChatUnavailableState");
   const { cloudChatUnavailable } = await import("../src/agent-session/acpmux/cloudChatRecovery");
   const rejects: ((cause: Error) => void)[] = [];
+  const list = { gone: false };
   const hung = new Promise<void>(() => {});
   const recheck = () => hung;
   const noop = () => {};
@@ -502,6 +553,7 @@ async function attachFixture() {
             if (method === "cloudMachine.attach") {
               return new Promise((_, reject) => rejects.push(reject));
             }
+            if (method === "cloudMachine.list" && list.gone) return GONE;
             return {
               ok: true,
               value: {
@@ -545,6 +597,7 @@ async function attachFixture() {
     button: () => mount.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]'),
     state: () => JSON.parse(mount.querySelector('[data-action="attach-state"]')!.textContent!),
     rejects,
+    list,
   };
 }
 
@@ -566,28 +619,31 @@ test.serial("a failed resume still offers Resume machine and sends attach again"
   expect(fixture.state()).toEqual({ resuming: true });
 });
 
-test.serial("a timed-out attach's late rejection leaves a newer resume running", async () => {
-  const fixture = await attachFixture();
-  jest.useFakeTimers({ now: 0 });
-  await fixture.render();
-  await act(async () => fixture.button()!.click());
-  await act(async () => {
-    jest.advanceTimersByTime(60_000);
-  });
-  expect(fixture.state().resuming).toBe(false);
-  expect(fixture.state().error).toBeDefined();
-  expect(jest.getTimerCount()).toBe(0);
-  await act(async () => fixture.button()!.click());
-  expect(fixture.rejects).toHaveLength(2);
-  expect(fixture.state()).toEqual({ resuming: true });
-  await act(async () => fixture.rejects[0]!(new Error("old attach failed")));
-  expect(fixture.state()).toEqual({ resuming: true });
-  expect(fixture.button()?.disabled).toBe(true);
-  expect(jest.getTimerCount()).toBe(1);
-  // The current attach still owns its failure and releases the retry button.
-  await act(async () => fixture.rejects[1]!(new Error("current attach failed")));
-  expect(fixture.state().resuming).toBe(false);
-  expect(fixture.state().error).toBeDefined();
-  expect(fixture.button()?.disabled).toBe(false);
-  expect(jest.getTimerCount()).toBe(0);
-});
+test.serial(
+  "an attach left pending when its resume ends: its late rejection leaves a newer resume running",
+  async () => {
+    const fixture = await attachFixture();
+    await fixture.render();
+    // The daemon is gone: the resume's account read fails for good while its attach is still pending.
+    fixture.list.gone = true;
+    await act(async () => fixture.button()!.click());
+    expect(fixture.rejects).toHaveLength(1);
+    expect(fixture.state().resuming).toBe(false);
+    expect(fixture.state().error).toBeDefined();
+    expect(fixture.button()?.disabled).toBe(false);
+    // The daemon is back and the person resumes again.
+    fixture.list.gone = false;
+    await act(async () => fixture.button()!.click());
+    expect(fixture.rejects).toHaveLength(2);
+    expect(fixture.state()).toEqual({ resuming: true });
+    await act(async () => fixture.rejects[0]!(new Error("old attach failed")));
+    expect(fixture.state()).toEqual({ resuming: true });
+    expect(fixture.button()?.disabled).toBe(true);
+    // The current attach still owns its failure and releases the retry button.
+    await act(async () => fixture.rejects[1]!(new Error("current attach failed")));
+    expect(fixture.state().resuming).toBe(false);
+    expect(fixture.state().error).toBeDefined();
+    expect(fixture.button()?.disabled).toBe(false);
+    await act(async () => root.render(null));
+  },
+);

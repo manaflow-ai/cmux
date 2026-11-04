@@ -84,3 +84,28 @@
   width: auto;
   padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
 }
+/* The agent's wrap-up recap (wrapUp.ts): muted at the top of the box, a paragraph's gap above the
+   question, as Claude desktop's next-step box. Alone, it is the whole box. */
+.acpmux-next-step__recap {
+  margin: 0 0 var(--ds-space-2, 8px);
+  color: var(--agent-muted);
+  overflow-wrap: anywhere;
+}
+.acpmux-next-step--recap .acpmux-next-step__recap,
+.acpmux-next-step--answered .acpmux-next-step__recap {
+  margin-bottom: 0;
+}
+.acpmux-next-step--answered .acpmux-next-step__recap {
+  margin-bottom: var(--ds-space-2, 8px);
+}
+.acpmux-next-step.acpmux-next-step--recap {
+  display: block;
+  box-sizing: border-box;
+  padding: var(--ds-space-3, 12px) var(--ds-space-4, 16px);
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 12px;
+  background: var(--acpmux-question-bg);
+  font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
+  line-height: var(--text-body--line-height);
+}

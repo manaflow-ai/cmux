@@ -97,3 +97,44 @@ test("child views preserve call generations, match cold replay and keep old snap
   ]);
   expect(fold.views().parent).toBe(after);
 });
+
+test("a subagent's background shell that ended reads ended in its view, never running", async () => {
+  const { transcriptBackground } = await import("../summary/sessionSummary");
+  const fold = new SubagentFold();
+  const steps: Step[] = [
+    spawn("parent", null),
+    tool("watch", { status: "in_progress", rawInput: { command: "bun run dev", run_in_background: true } }),
+    own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running", taskId: "b1" }),
+    own({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "watch",
+      status: "completed",
+      content: { type: "text", text: "Command running in background with ID: b1" },
+    }),
+  ];
+  steps.forEach((step, index) => feed(fold, step, index + 1));
+  const running = (rows: Parameters<typeof transcriptBackground>[0]) =>
+    transcriptBackground(rows)
+      .tasks.filter((task) => task.state === "running")
+      .map((task) => task.id);
+  expect(running(fold.views().parent!)).toEqual(["watch"]);
+  // Stopped at its background time limit, as Claude Code reports it to the subagent's session.
+  feed(
+    fold,
+    own({
+      sessionUpdate: "background_task_update",
+      toolCallId: "watch",
+      state: "stopped",
+      taskId: "b1",
+      summary: "Background command was stopped after reaching its background time limit",
+    }),
+    steps.length + 1,
+  );
+  const view = fold.views().parent!;
+  expect(running(view)).toEqual([]);
+  const call = view.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "watch")?.tool;
+  expect(call?.background?.state).toBe("stopped");
+  // A late running update leaves it ended.
+  feed(fold, own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }), steps.length + 2);
+  expect(running(fold.views().parent!)).toEqual([]);
+});
