@@ -282,9 +282,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 }
 
 /// Retry, and Retry with another model when the harness has several: sends prompt row `rowId`
-/// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
-/// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
-/// `data-retryable`; conversation.css).
+/// (`prompt`, as the agent got it) again. Only a queued prompt's row draws it (PendingSteer.tsx); a
+/// sent prompt's Retry is its turn's reply footer's (TurnRows.tsx TurnFooter).
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
@@ -324,10 +323,10 @@ export function PromptActions({
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {retry}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
+  // Its queue row keeps Retry; once sent, the last turn's Retry is the reply footer's (TurnFooter).
   return <div className="cv-user__actions">{pending ? pending(actions, { retry }) : actions}</div>;
 }
 
@@ -344,7 +343,7 @@ export function SentActions({ text }: { text: string }) {
 }
 
 /// The row at the end of another agent's message line (IncomingMessageCard.tsx IncomingMessageLine):
-/// its age and Retry, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
+/// its age, then `more` (a waiting steer's ⋯, QueuedMessageCard.tsx) in the same group,
 /// never a second one beside it. No read receipt: the message is the agent's to read. No Pin and no
 /// hover Copy: another session's message is no prompt of this chat's to pin, and the opened card's
 /// corner Copy (CardCopy) and the right-click menu copy it (Leo, 2026-10-30: "all these weird button
@@ -355,7 +354,6 @@ export function ReceivedActions({ row, more }: { row: AcpmuxRow; more?: ReactNod
       <span className="cv-received-actions">
         <MessageFooterRow>
           <MessageTime at={row.at} className="cv-user__time" />
-          <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
           {more}
         </MessageFooterRow>
       </span>

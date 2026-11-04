@@ -178,8 +178,10 @@ export function UserBubble({
       />
     );
   }
-  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
-  // Retry not while it is still on its way: a second send would duplicate it.
+  // A waiting steer's queue row shows Retry and Fork (PendingSteer.tsx); Retry not while it is still
+  // on its way: a second send would duplicate it. The sent row keeps Fork alone: the last turn's
+  // Retry is its reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry is on your
+  // prompt bubble ... Put it, with the model switch, in the last turn's footer.").
   const retry =
     !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
   const forkButton =
@@ -288,7 +290,6 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {retry}
               {forkButton}
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>

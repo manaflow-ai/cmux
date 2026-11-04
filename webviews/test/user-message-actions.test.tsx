@@ -58,7 +58,7 @@ async function draw(row: AcpmuxRow, actions: object) {
   );
 }
 
-test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt checks or state dots", async () => {
+test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or state dots", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -78,8 +78,8 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
-  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Retry", "Fork from here"]);
+  // Leo's row, then the direct prompt actions: Copy, Edit and Fork (Retry is the reply footer's).
+  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Fork from here"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
@@ -97,7 +97,6 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
       .replace(/\s/g, " "),
   );
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
-  expect(tooltip('button[aria-label="Retry"]')).toBe("Retry");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
   expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
@@ -105,8 +104,8 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
   );
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("Fork gives same-frame pending feedback and suppresses duplicate activation", async () => {
@@ -248,7 +247,7 @@ test("a chat that cannot fork at a prompt hides Fork there rather than showing i
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy", "Retry"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
@@ -272,15 +271,15 @@ test("a read steer shows only normal hover actions", async () => {
   expect(host.textContent).not.toContain("Steer");
 });
 
-test("Retry under a prompt sends it again (shown under every prompt)", async () => {
-  const sent: [string, string][] = [];
+// Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears on the reply only after a
+// failure. Put it, with the model switch, in the last turn's footer." (TurnRows.tsx TurnFooter).
+test("a sent prompt draws no Retry: the last turn's reply footer has it", async () => {
   await draw(
     { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
-    { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
+    { retry: () => undefined },
   );
-  const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
-  act(() => retry.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
 });
 
 test("a recorded steer has no receipt checks in its normal hover actions", async () => {
