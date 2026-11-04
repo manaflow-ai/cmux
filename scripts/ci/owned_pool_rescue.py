@@ -3820,6 +3820,11 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
     spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
     if placement_key not in spec:
         return None, f"the workflow has no {placement_key} job"
+    if portable and "github.run_attempt" in str(spec[placement_key].get("if") or ""):
+        # A historical head may allow the current placement but skip the bot's
+        # next attempt. Without evaluating its arbitrary expression, we cannot
+        # prove that re-running this job refreshes the route; leave it queued.
+        return None, f"{placement_job} has an unverified attempt condition"
     needs: dict[str, set[str]] = {}
     for key, job in spec.items():
         wanted = job.get("needs") or []

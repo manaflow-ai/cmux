@@ -7735,6 +7735,20 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
         plan = rescue.failover_plan(api, target, self.jobs(started_at=-10), clock.sleep, lambda _: None)
         self.assertIsNone(plan)
 
+    def test_legacy_placement_that_skips_attempt_three_is_not_cancelled(self):
+        clock, api, target = self.world(started_at=10)
+        api.workflow = PORTABLE_PLACEMENT_FIXTURE.replace(
+            "    name: portable light placement",
+            "    if: ${{ github.run_attempt == 1 || github.run_attempt == 2 && "
+            "contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor) }}\n"
+            "    name: portable light placement", 1)
+        self.assertEqual(target.attempt, 2)
+        plan = rescue.failover_plan(api, target, self.jobs(started_at=10), clock.sleep, lambda _: None)
+        self.assertIsNone(plan)
+        self.assertFalse(rescue.open_head_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                   log=lambda _: None))
+        self.assertNotIn("cancel", api.calls)
+
     def test_first_and_later_attempts_can_refresh_current_placement(self):
         for full_rerun, attempt in ((False, 1), (True, 2), (False, 3), (True, 4)):
             with self.subTest(full_rerun=full_rerun, attempt=attempt):

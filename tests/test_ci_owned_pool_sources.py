@@ -198,6 +198,30 @@ class OwnedPoolSources(unittest.TestCase):
             'A = "x"\nB = ("y "\n     "z")\nNIGHTLY_SIGN_ALTERNATES: dict = {"j": ("J", (A, B)), "k": ("K", (A,))}\n'),
             {"j": ("x", "y z"), "k": ("x",)})
 
+    def test_portable_light_placement_jobs_can_run_on_attempt_three(self) -> None:
+        source = self.rescue_tree.read(sources.RESCUE_SCRIPT) if self.rescue_tree is not None else None
+        if source is None:
+            self.skipTest("main's rescue is not readable")
+        paths = sources._constants(source).get("PORTABLE_LIGHT_WORKFLOW_PATHS", ())
+        self.assertEqual(len(paths), 3)
+        seen = set()
+        for tree in self.trees:
+            for path in paths:
+                text = tree.read(path)
+                if text is None:
+                    continue
+                placement = sources._load(text).get("jobs", {}).get("portable-placement")
+                if not isinstance(placement, dict):
+                    continue  # Older main copies have no placement graph and fail closed.
+                with self.subTest(tree=str(tree), workflow=path):
+                    self.assertNotIn("github.run_attempt", str(placement.get("if") or ""),
+                                     "attempt 2 rescue must not skip placement on attempt 3")
+                    self.assertTrue(any("portable_job_placement.py" in str(step.get("run") or "")
+                                        for step in placement.get("steps", [])))
+                    seen.add(path)
+        if self.other is not None:
+            self.assertEqual(seen, set(paths), "all three deployed portable graphs must be checked")
+
     def test_every_watched_workflow_is_owned_on_some_branch(self) -> None:
         if self.watched is None or self.other is None:
             self.skipTest("both branches are needed to call an entry stale")
