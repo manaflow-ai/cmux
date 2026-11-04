@@ -142,6 +142,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
                 tokens: skill.get("tokens").and_then(Value::as_u64).unwrap_or(0),
                 included: true,
                 editable: false,
+                measurement: "measured".into(),
+                source_bytes: None,
                 text: None,
             });
         }
