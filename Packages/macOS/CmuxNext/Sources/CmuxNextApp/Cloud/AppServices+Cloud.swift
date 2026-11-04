@@ -12,6 +12,7 @@ import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
+import CmuxNextSettings
 import Foundation
 import Observation
 
@@ -93,10 +94,22 @@ extension AppServices {
         if registry.context != context { registry.context = context }
     }
 
+    /// Whether an agent's, the CLI's or a script's Cloud create asks the person first: only while they turned
+    /// `cloud.agentsStartWithoutAsking` off (``CloudAgentStartSetting``, on by default).
+    var agentsAskBeforeUsingCloud: Bool { !CloudAgentStartSetting().delegated(in: settings?.snapshot.root ?? .object([:])) }
+
+    /// The create card's Don't Ask Again switch: the person's own click turns `cloud.agentsStartWithoutAsking` back on.
+    func letAgentsUseCloudWithoutAsking() async {
+        try? await settings?.setSetting(at: CloudAgentStartSetting.path, to: .bool(true), by: .user)
+    }
+
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
-        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
+                                                                     stopAsking: { [weak self] in await self?.letAgentsUseCloudWithoutAsking() }) }
+        // Agents create Cloud machines without asking unless the person turned asking on (Leo, 2026-11-04).
+        cloud.agentsAskFirst = { [weak self] in self?.agentsAskBeforeUsingCloud ?? false }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
         cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }

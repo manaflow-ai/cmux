@@ -51,7 +51,7 @@ extension CloudService {
     /// ``CloudMachineCreateFlow``, with the request's one idempotency key (cmuxterm-hq#4709): the
     /// creation's Retry sends the same key to the same team, so a create whose answer was lost
     /// answers its first machine instead of making a second.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
+    func appServerCreate(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
                          persistSent: (@MainActor @Sendable (String) async throws -> Void)? = nil) async throws -> CloudMachine {
@@ -74,7 +74,7 @@ extension CloudService {
         // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
         let record: JSONValue
         do {
-            record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+            record = try await flow.create(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, key: pinned.idempotencyKey,
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment, madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
@@ -176,19 +176,42 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
+    /// The card asks only while the person turned asking on, so it carries a Don't Ask Again switch (Leo, 2026-11-04: "a
+    /// cute toggle or checkmark"): flipping it is Create, and `stopAsking` lets agents create without asking from then on.
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
-                                         chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
+                                         chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
+                                         stopAsking: @MainActor () async -> Void = {}) async -> Bool {
         let intro: String, machine: CloudMachineCreateFlow.Machine
         switch prompt {
         case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
         case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
-        if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }
+        if case .agentRequest = prompt, let asks {
+            guard window != nil else { return false }
+            switch await asks.choose(requestCard(intro: intro, lines: lines), asker: machine.askedBy, present: chatOpen) {
+            case requestCreate?: return true
+            case requestStopAsking?: await stopAsking(); return true
+            default: return false
+            }
+        }
         // A cancelled wait (the hold answered elsewhere) dismisses the sheet (CmuxDialogCenter.present).
         guard let window else { return false }
         return await CmuxDialogCenter.shared.present(confirmSpec(CloudStrings.createConfirmTitle, ([intro] + lines).joined(separator: "\n"),
                                                                  button: CloudStrings.createConfirmButton, identifier: createConfirmIdentifier), in: .window(window)).button == "confirm"
+    }
+}
+
+extension CloudPresenter {
+    static let requestCreate = "yes", requestStopAsking = "stopAsking"
+
+    /// The sidebar card of a create no person started: Create (the yes), Cancel, and the Don't Ask Again switch.
+    static func requestCard(intro: String, lines: [String]) -> SidebarNoticeCard {
+        let actions = [SidebarNoticeCard.Action(id: requestCreate, title: CloudStrings.createConfirmButton, prominent: true),
+                       SidebarNoticeCard.Action(id: "no", title: CloudStrings.cancel),
+                       SidebarNoticeCard.Action(id: requestStopAsking, title: CloudStrings.createStopAsking, isSwitch: true)]
+        return SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: "cloud", title: CloudStrings.createConfirmTitle, detail: intro, lines: lines,
+                                 actions: actions, dismissLabel: CloudStrings.cancel)
     }
 }
 
