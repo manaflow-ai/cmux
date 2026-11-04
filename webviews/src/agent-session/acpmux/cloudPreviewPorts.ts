@@ -86,6 +86,11 @@ function apply(event: PortEvent, target: CloudPreviewContext): boolean {
   if (!matches(event, target)) return false;
   if (event.state === "down" || event.state === "closed") {
     knownPorts.delete(event.port);
+    unscopedKnown.delete(event.port);
+    // A new turn copies the session baseline, so a close must also leave the session's set, or
+    // the next turn restores the closed port as known and a reopen shows no card.
+    knownByContext.set(contextKey(target), knownPorts);
+    knownByContext.set(machineSessionKey(target), knownPorts);
     current = current.filter((item) => item.port !== event.port);
     return false;
   }
