@@ -595,7 +595,7 @@ browser <selector> mouse|wheel --pointer-frame-seq <decimal>
 
 notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
-notification clear [--terminal <term_id>]
+notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
 notification ack --client <id> <notification-id>...
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>

@@ -67,6 +67,9 @@ impl TypingConnection {
         let (writer, outbound) = captured_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
         attach_test_view(&mux, client, terminal.id, &writer);
+        // The view reports its size, as the app's view does: its grid is then decided and applied, so a key's sizing
+        // note is skipped through the settled-grid check, not only while no view counts.
+        mux.resize_surface_for_client(terminal.id, client, 100, 30).unwrap();
         let scheduler =
             Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
         Self { mux, client, writer, outbound, scheduler, surface: terminal.id, input }
@@ -166,6 +169,14 @@ fn hold_proxy_authors(mux: &Arc<Mux>, hold: &dyn Fn()) {
 
 fn hold_creating_inputs(mux: &Arc<Mux>, hold: &dyn Fn()) {
     mux.hold_creating_inputs_for_test(hold);
+}
+
+fn hold_client_sizing(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.hold_client_sizing_for_test(hold);
+}
+
+fn hold_activity(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.activity.hold_for_test(hold);
 }
 
 /// A terminal another creation names, still being created (`terminal-input-while-creating-v1`).
@@ -270,6 +281,10 @@ fn assert_old_path_waits_for(name: &str, holder: Holder) {
     connection.close();
     eprintln!("SHARED-LOCKS control (lane off) key wait while {name} is held {HOLD:?}: {waited:?}");
     assert!(
+        waited != Duration::MAX,
+        "control: with stage S1 off a key never reached its terminal while {name} was held"
+    );
+    assert!(
         waited >= BUDGET,
         "control: with stage S1 off the key took {waited:?} while {name} was held {HOLD:?}; the hold does not reach \
          the old path, so the lane's test proves nothing"
@@ -325,6 +340,154 @@ fn a_key_waits_for_no_creating_input_lock() {
         (creating, hold_creating_inputs as Holder),
         (behind, hold_session_behind_a_creating_input_reader as Holder),
     ]);
+}
+
+/// Stage S1 step 5: after a key, the terminal's sizing notes activity (the newest view sets the grid under the
+/// default policy) and the VM activity stream notes a person's input. When the key's view is already the newest and
+/// the grid is settled, the note changes nothing, so the key reads that from the terminal with no lock; the input
+/// time is an atomic. Every attach, detach, resize and size report of every terminal holds the sizing lock, and a
+/// PTY resize runs under it.
+#[test]
+fn a_key_waits_for_neither_the_sizing_nor_the_activity_lock() {
+    let sizing = "client sizing (Mux.client_sizing)";
+    let activity = "VM activity stream (ActivityStream)";
+    assert_old_path_waits_for(sizing, hold_client_sizing);
+    assert_old_path_waits_for(activity, hold_activity);
+    assert_keys_wait_for_none(&[
+        (sizing, hold_client_sizing as Holder),
+        (activity, hold_activity as Holder),
+    ]);
+}
+
+/// A respawn under the same placement and runtime id builds a new terminal runtime: its keys must get the sizing
+/// fast path back (the sizing entry outlives the respawn, and must follow it to the new runtime), so after one key
+/// that takes the slow path, keys again wait for no sizing lock.
+#[test]
+fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
+    let connection = warmed(TypingConnection::open());
+    let removed = connection
+        .mux
+        .remove_surface_runtime_for_test(connection.surface)
+        .expect("the placement had a runtime");
+    let respawned =
+        crate::Surface::spawn_for_test(connection.surface, SurfaceOptions::default(), Weak::new())
+            .unwrap();
+    let (sent, input) = mpsc::channel();
+    respawned.replace_input_writer_for_test(Box::new(TimedInput(sent)));
+    connection.mux.insert_surface_runtime_for_test(respawned);
+    let connection = TypingConnection { input, ..connection };
+    // One key on the slow path: it finds the sizing entry and, with the fix, points it at the new runtime.
+    connection.submit("after-respawn", b'r');
+    assert!(connection.arrival(b'r').is_some(), "the key after the respawn never arrived");
+    connection.settle(&["after-respawn"]);
+    // The old runtime's slot is cleared, so nothing publishes into a runtime that no view types into.
+    assert!(
+        !removed.skips_sizing_note(connection.client),
+        "the replaced runtime still publishes the sizing fast path"
+    );
+    let waited = key_wait_while_held(&connection, 0, hold_client_sizing);
+    eprintln!(
+        "SHARED-LOCKS after a respawn, key wait while client sizing is held {HOLD:?}: {waited:?}"
+    );
+    drop(removed);
+    connection.close();
+    assert!(
+        waited < BUDGET,
+        "after a respawn the keys waited {waited:?} for the sizing lock held {HOLD:?}"
+    );
+}
+
+/// #34261 review 2: a settled terminal's sizing entry looks its surface up only when it makes the entry, so a size
+/// state read takes the session lock once with the switch off (the caller's own lookup), never again under the
+/// sizing lock, and none with the switch on. Looked up on every access, it took the session lock under the sizing
+/// lock in every attach, size report, claim and size-state read, so with the switch off (the default) a key's sizing
+/// note waited for automation's session-lock holds behind them.
+#[test]
+fn a_settled_size_state_read_takes_the_session_lock_once_with_the_switch_off() {
+    let mut counts = Vec::new();
+    for (lane, expected) in [(false, 1), (true, 0)] {
+        let connection = TypingConnection::open_with(lane);
+        // The view's attach and its 100x30 report made the entry; this read settles nothing new.
+        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+        let before = crate::mux::state_locks_taken_on_this_thread();
+        assert!(connection.mux.terminal_size_state(connection.surface).is_some());
+        let taken = crate::mux::state_locks_taken_on_this_thread() - before;
+        connection.close();
+        counts.push((lane, taken, expected));
+    }
+    eprintln!(
+        "SHARED-LOCKS session locks per settled size-state read (lane, taken, expected): {counts:?}"
+    );
+    for (lane, taken, expected) in counts {
+        assert_eq!(
+            taken, expected,
+            "lane {lane}: one settled size-state read took the session lock {taken} times, not {expected}"
+        );
+    }
+}
+
+/// R-DAEMON-STATE S1.6b: on the lane the person's key (a connection attached to the terminal it types into) answers
+/// when the input port took it; any other client's write (a script's `cmux send`, MCP) answers when the port wrote it,
+/// with its error, as the old path answered.
+#[test]
+fn the_persons_keys_answer_when_taken_and_other_writes_when_written() {
+    let connection = TypingConnection::open();
+    let (_, reply) = cmd_terminal_io::input_surface(
+        &connection.mux,
+        connection.client,
+        &connection.writer,
+        connection.surface,
+    )
+    .unwrap();
+    assert_eq!(reply, crate::surface::InputReply::Accepted, "the person's key waits for its write");
+    let (script_writer, _script_outbound) = captured_writer();
+    let script =
+        connection.mux.control_clients.register(ClientTransport::Unix, script_writer.clone());
+    let (_, reply) =
+        cmd_terminal_io::input_surface(&connection.mux, script, &script_writer, connection.surface)
+            .unwrap();
+    assert_eq!(
+        reply,
+        crate::surface::InputReply::Written,
+        "a script's write answers before it is written"
+    );
+    connection.close();
+}
+
+/// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
+/// another view's focus click takes the grid, and the next key from the first view takes it back, on both arms.
+#[test]
+fn after_another_views_click_a_key_takes_the_grid_back() {
+    for lane in [false, true] {
+        let first = TypingConnection::open_with(lane);
+        let mux = first.mux.clone();
+        let surface = first.surface;
+        mux.pin_latest_size_policy_for_test(surface);
+        let (second_writer, _second_outbound) = captured_writer();
+        let second = mux.control_clients.register(ClientTransport::Unix, second_writer.clone());
+        attach_test_view(&mux, second, surface, &second_writer);
+        mux.resize_surface_for_client(surface, first.client, 100, 30).unwrap();
+        mux.resize_surface_for_client(surface, second, 60, 20).unwrap();
+
+        first.submit("first-key", b'a');
+        assert!(first.arrival(b'a').is_some(), "lane {lane}: the first key never arrived");
+        first.settle(&["first-key"]);
+        let grid =
+            |mux: &Mux| mux.terminal_size_state(surface).map(|state| (state.cols, state.rows));
+        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the typing view sets the grid");
+
+        assert_eq!(mux.note_terminal_activity(surface, second, None), Some(true), "lane {lane}");
+        assert_eq!(grid(&mux), Some((60, 20)), "lane {lane}: the clicked view takes the grid");
+
+        first.submit("second-key", b'b');
+        assert!(first.arrival(b'b').is_some(), "lane {lane}: the second key never arrived");
+        first.settle(&["second-key"]);
+        assert_eq!(grid(&mux), Some((100, 30)), "lane {lane}: the key took the grid back");
+        assert!(mux.activity.user_input_ms_for_test().is_some(), "lane {lane}: the input time");
+
+        disconnect_client(&mux, second, false);
+        first.close();
+    }
 }
 
 /// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.

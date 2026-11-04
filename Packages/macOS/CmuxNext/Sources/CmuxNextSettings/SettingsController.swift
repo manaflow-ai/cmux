@@ -58,10 +58,22 @@ public final class SettingsController {
     @ObservationIgnored public var recentFonts = RecentFonts()
     /// Device-scoped values of the managing team's policy; set with `setTeamPolicy`.
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
+    /// The theme file `appearance.themeFile` names, as the last load read it (nil: none named).
+    public private(set) var themeFile: ThemeFileOverlay?
+    /// Every theme file in `~/.config/cmux/themes`, name to text, as the last load read them (the
+    /// palette's and Settings' list, and what a preview of one applies with no disk read).
+    public private(set) var themeFileSources: [String: String] = [:]
+    /// The effective settings under the theme file (`snapshot.root` before it applies), so a preview
+    /// of another theme file starts from them.
+    @ObservationIgnored var rootUnderThemeFile: JSONValue = .object([:])
+    /// The active theme file's last text that parsed, which a save that does not parse keeps applying.
+    @ObservationIgnored fileprivate var lastGoodThemeFile: ThemeFileInput?
 
     @ObservationIgnored let applier: SettingsApplier
     @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
+    /// Watches the active theme file and the themes folder (`ThemeFileSetting`).
+    @ObservationIgnored private var themeWatchers: (name: String?, watchers: [ConfigFileWatcher])?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
     @ObservationIgnored private var lastSource: LoadInputs?
@@ -92,6 +104,13 @@ public final class SettingsController {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
+        /// The active theme file's name and text (nil text: missing or unreadable).
+        var themeFile: ThemeFileInput?
+    }
+
+    fileprivate nonisolated struct ThemeFileInput: Equatable, Sendable {
+        let name: String
+        let source: String?
     }
 
     public init(
@@ -128,6 +147,7 @@ public final class SettingsController {
         self.watcher = watcher
         watcher.start()
         startManagedWatchers()
+        watchThemeFiles(named: ThemeFileSetting.name(in: snapshot.root))
         if loadCount == 0 { loadNow() } else { requestReload() }
         if rotatingFavoriteThemes { rotateFavoriteThemeAtLaunch(root: snapshot.root) }
     }
@@ -135,6 +155,8 @@ public final class SettingsController {
     public func stop() {
         watcher?.stop()
         watcher = nil
+        themeWatchers?.watchers.forEach { $0.stop() }
+        themeWatchers = nil
         stopManagedWatchers()
         reloadTask?.cancel()
         reloadTask = nil
@@ -259,7 +281,7 @@ public final class SettingsController {
     }
 
     /// Writes `window.titlebar` through `setSetting`; the default
-    /// ("standard") removes the key, and the `window` object when it empties.
+    /// ("minimal") removes the key, and the `window` object when it empties.
     public func setTitlebar(_ style: TitlebarStyle) async throws {
         try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue), by: .currentRun())
     }
@@ -294,13 +316,13 @@ public final class SettingsController {
 
     private func loadOnce() async {
         let (file, reader, team, lastGood, builds) = (file, managedReader, teamPolicy, fileRoot, buildDefaults)
-        let valid = Self.validValues
+        let (valid, lastTheme) = (Self.validValues, lastGoodThemeFile)
         adopt(await Task.detached {
             let managed = reader.read()
             let source: Result<String, any Error>
             do { source = .success(try await file.source()) } catch { source = .failure(error) }
             return Self.loaded(source, managed: managed, team: team, lastGood: lastGood, valid: valid,
-                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds)
+                               configDirectory: file.url.deletingLastPathComponent(), buildDefaults: builds, lastGoodTheme: lastTheme)
         }.value)
     }
 
@@ -313,7 +335,8 @@ public final class SettingsController {
         }
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
-                          configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults))
+                          configDirectory: file.url.deletingLastPathComponent(), buildDefaults: buildDefaults,
+                          lastGoodTheme: lastGoodThemeFile, listingThemes: false))
     }
 
     /// The launch's first load, read before the controller exists so the
@@ -332,11 +355,13 @@ public final class SettingsController {
     ) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
         return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults),
+                                         configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults,
+                                         listingThemes: false),
                           fileURL: fileURL, buildDefaults: buildDefaults)
     }
 
-    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
+    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot,
+                                    themes: ThemeFilesRead)
     private static var validValues: (densities: Set<String>, metrics: Set<String>) {
         (SettingsApplier.validDensities, SettingsApplier.validMetrics)
     }
@@ -344,7 +369,8 @@ public final class SettingsController {
     /// Parses the file's text and merges the managed layers.
     private nonisolated static func loaded(_ read: Result<String, any Error>, managed: ManagedPreferences, team: TeamPolicyLayer,
                                            lastGood: JSONValue, valid: (densities: Set<String>, metrics: Set<String>),
-                                           configDirectory: URL, buildDefaults: SettingsBuildDefaults) -> Loaded {
+                                           configDirectory: URL, buildDefaults: SettingsBuildDefaults,
+                                           lastGoodTheme: ThemeFileInput? = nil, listingThemes: Bool = true) -> Loaded {
         var source = ""
         var problem: String?
         var root = lastGood
@@ -360,16 +386,24 @@ public final class SettingsController {
         // file is broken (spec/enterprise.md 5.2).
         var effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
         effective.root = buildDefaults.filling(effective.root)
+        // The theme file applies over the user's file and under managed values (ThemeFileOverlay).
+        let themes = ThemeFilesRead(effective.root, configDirectory: configDirectory, managed: Set(effective.managedKeys.keys),
+                                    lastGood: lastGoodTheme, listing: listingThemes)
+        effective.root = themes.applied
         var snapshot = CmuxConfigSnapshot.parse(
             effective.root, validDensities: valid.densities, validMetrics: valid.metrics, configDirectory: configDirectory
         )
         if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
-        snapshot.diagnostics += effective.diagnostics
-        return (LoadInputs(source: source, managed: managed, team: team), effective, snapshot)
+        snapshot.diagnostics += effective.diagnostics + themes.diagnostics
+        var inputs = LoadInputs(source: source, managed: managed, team: team)
+        inputs.themeFile = themes.overlay.map { ThemeFileInput(name: $0.name, source: themes.activeSource) }
+        return (inputs, effective, snapshot, themes)
     }
 
     private func adopt(_ loaded: Loaded) {
         loadHooks.forEach { $0() }
+        if themeFileSources != loaded.themes.sources { themeFileSources = loaded.themes.sources }
+        if let name = loaded.themes.overlay?.name, let good = loaded.themes.goodSource { lastGoodThemeFile = ThemeFileInput(name: name, source: good) }
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             // A file change ends a preview: the loaded values apply.
@@ -378,6 +412,9 @@ public final class SettingsController {
             diagnostics = applier.apply(loaded.snapshot)
             let effective = loaded.effective
             snapshot = loaded.snapshot
+            themeFile = loaded.themes.overlay
+            rootUnderThemeFile = loaded.themes.base
+            if watcher != nil, themeWatchers?.name != loaded.themes.overlay?.name { watchThemeFiles(named: loaded.themes.overlay?.name) }
             fileRoot = effective.fileRoot
             managedKeys = effective.managedKeys
             managedChatRoots = effective.managedChatRoots
@@ -398,5 +435,86 @@ public final class SettingsController {
         let ready = loadWaiters.filter { $0.count <= loadCount }
         loadWaiters.removeAll { $0.count <= loadCount }
         ready.forEach { $0.continuation.resume() }
+    }
+}
+
+extension SettingsController {
+    /// The theme files one load read: every file in the folder, and the active one applied.
+    fileprivate nonisolated struct ThemeFilesRead: Sendable {
+        /// The root under the theme file.
+        let base: JSONValue
+        /// The root with the theme file applied.
+        let applied: JSONValue
+        let overlay: ThemeFileOverlay?
+        let activeSource: String?
+        /// The text the applied overlay was read from: the active file's, or its last good text while
+        /// the file does not parse. Nil when no file applies.
+        let goodSource: String?
+        let sources: [String: String]
+        /// The overlay's, a name that is no theme file name, and a note at each key the file sets.
+        let diagnostics: [SettingsDiagnostic]
+        /// At most this many files are read for the list; the active one always is.
+        static let listLimit = 200
+
+        /// Reads the active theme file and, `listing`, every file in the folder (for the palette and
+        /// previews). File I/O: off the main thread, except the launch read, which reads only the
+        /// active file (as it reads cmux-next.json) so the first window draws in its look.
+        init(_ root: JSONValue, configDirectory: URL, managed: Set<String>, lastGood: ThemeFileInput?, listing: Bool) {
+            base = root
+            var sources: [String: String] = [:]
+            if listing {
+                for name in ThemeFileSetting.names(configDirectory: configDirectory).prefix(Self.listLimit) {
+                    if let text = try? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)?.get() { sources[name] = text }
+                }
+            }
+            self.sources = sources
+            let settingPath = ThemeFileSetting.path.joined(separator: ".")
+            guard let name = ThemeFileSetting.name(in: root) else {
+                overlay = nil
+                activeSource = nil
+                goodSource = nil
+                applied = root
+                diagnostics = root.value(at: ThemeFileSetting.path).map { _ in
+                    [SettingsDiagnostic(kind: .invalidValue, path: settingPath,
+                                        message: "expected a theme file name, such as \"tokyo\" for themes/tokyo.json")]
+                } ?? []
+                return
+            }
+            let source = sources[name].map { Result<String, any Error>.success($0) }
+                ?? ThemeFileOverlay.source(named: name, configDirectory: configDirectory)
+            var overlay = ThemeFileOverlay(name: name, source: source, base: root)
+            activeSource = try? source?.get()
+            var good = overlay.isLoaded ? activeSource : nil
+            // A save that does not parse keeps the file's last good text, with the problem noted.
+            if overlay.isUnparsable, let lastGood, lastGood.name == name, let text = lastGood.source {
+                let problems = overlay.diagnostics
+                overlay = ThemeFileOverlay(name: name, source: .success(text), base: root)
+                overlay.diagnostics += problems
+                good = text
+            }
+            goodSource = good
+            self.overlay = overlay
+            applied = overlay.applied(to: root, managed: managed)
+            // Each row the file sets says where its value comes from.
+            let file = "\(ThemeFileSetting.folderName)/\(name).\(ThemeFileSetting.fileExtension)"
+            diagnostics = overlay.diagnostics + overlay.values.map { $0.path.joined(separator: ".") }
+                .filter { id in !managed.contains { $0 == id || id.hasPrefix($0 + ".") || $0.hasPrefix(id + ".") } }
+                .map { SettingsDiagnostic(kind: .setByThemeFile, path: $0, message: "set by the theme file; change it there, or unset Theme File", file: file) }
+        }
+    }
+
+    /// Watches the theme file `name` (every save style, as cmux-next.json) and the folder (a file
+    /// added, renamed or removed); either reloads. Nil watches the folder only.
+    private func watchThemeFiles(named name: String?) {
+        themeWatchers?.watchers.forEach { $0.stop() }
+        let directory = file.url.deletingLastPathComponent()
+        let urls = [ThemeFileSetting.folder(configDirectory: directory)] + (name.map { [ThemeFileSetting.url(named: $0, configDirectory: directory)] } ?? [])
+        let watchers = urls.map { url in
+            ConfigFileWatcher(url: url) { [weak self] in
+                Task { @MainActor in self?.requestReload() }
+            }
+        }
+        watchers.forEach { $0.start(reportInitialChange: false) }
+        themeWatchers = (name, watchers)
     }
 }

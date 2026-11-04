@@ -165,7 +165,9 @@ const RAW_COMMANDS = [
  * on (session-info/commandRulePresets.ts: Leo asked that our own tools not be built in), and a rule
  * of one's own. */
 const FLEET_COMMANDS = [
-  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  // The preset's CI-wait rule is covered by test/command-rules.test.ts; a gallery fixture names no fleet tool
+  // (scripts/cmux-next/check-fixture-host-names.py), so the scene starts a session instead.
+  "sessions new -n 'Tray command labels' --brief brief.md",
   'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
   "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
   "deploy staging --wait",
@@ -395,8 +397,17 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
   await ctx.click({ selector: ".acpmux-running-tray__head" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list"));
   const moved = latestTop(ctx) - before;
-  if (placement === "composer" && Math.abs(moved) > 0.5)
+  if (placement !== "composer") return;
+  // Over the running turn's live line the tray takes only half its rest gap, and the rows go up by
+  // the rest so the line stays in sight (Leo, 2026-11-04: "why does it not display Thinking or
+  // anything here???"); any other last row stays where it was.
+  const line = ctx.document.querySelector<HTMLElement>(".acpmux-row--below .cv-worked--live");
+  if (!line && Math.abs(moved) > 0.5)
     throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
+  if (line && moved > 0.5) throw new Error(`opening the tray drew the transcript down ${moved.toFixed(1)}px`);
+  const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!.getBoundingClientRect();
+  if (line && line.getBoundingClientRect().bottom > tray.top + 0.5)
+    throw new Error("opening the tray on the composer covered the running turn's live line");
 };
 
 /** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
@@ -649,11 +660,11 @@ export default agentPaneEntry({
       ),
     },
     "one-command": {
-      note: "One background command: its line says Command before it, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
+      note: "One background command: its line leads with its kind's mark (a test run's check, trayCommandKinds.ts) in place of the word Command, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
       play: async (ctx) => {
         await trayLines(1)(ctx);
-        if (ctx.document.querySelector(".acpmux-agent-line__kind")?.textContent !== "Command")
-          throw new Error("a command's line says Command first");
+        if (ctx.document.querySelector(".acpmux-agent-line__kind"))
+          throw new Error("a command's line leads with its kind's mark, not the word Command");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
@@ -681,7 +692,7 @@ export default agentPaneEntry({
       }),
     },
     "command-words-preset": {
-      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
+      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the session and cmux-ci lines (Starting Tray command labels, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
       height: 480,
       display: {
         "agentPane.display.commandLabels": [
@@ -695,7 +706,7 @@ export default agentPaneEntry({
           (name) => name.textContent,
         );
         for (const want of [
-          "Waiting on cmux checks",
+          "Starting Tray command labels",
           "Fleet tests · Playwright",
           "Fleet run for #34769",
           "Deploying staging",
@@ -735,7 +746,7 @@ export default agentPaneEntry({
       ),
     },
     "expand-on-composer": {
-      note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",
+      note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end). The running turn's live line is never covered (Leo, 2026-11-04: \"why does it not display Thinking or anything here???\"): over it the tray takes half the line's rest gap and the rows go up by the rest.",
       height: 420,
       snapshot: panel(3, 2, EARLIER),
       play: expandTray("composer"),
@@ -825,6 +836,96 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    // Tucked away (Settings > Agent Chat > Tuck Away Running Tray, TrayPullTab.tsx): the tab on the
+    // composer's top edge still flags what needs the person (Leo said "Yes", 2026-11-04, to "the
+    // tucked state, the hover tab with its dot or count"), and sits at the middle, left or right
+    // (agentPane.display.trayHandle; Leo: "maybe the left… or the right…").
+    ...Object.fromEntries(
+      (
+        [
+          [
+            "tucked-count",
+            "middle",
+            false,
+            "Tucked with three running: the grabber in the accent and a small 3 at its end.",
+          ],
+          [
+            "tucked-waiting",
+            "middle",
+            true,
+            "Tucked while a chat it started waits on you: a dot in the needs-you colour replaces the count.",
+          ],
+          [
+            "tucked-left",
+            "left",
+            false,
+            "Running Tray Handle: Left. The tab sits 12 px in from the composer's left corner.",
+          ],
+          [
+            "tucked-right",
+            "right",
+            true,
+            "Running Tray Handle: Right, with a chat waiting on you: the dot at the right.",
+          ],
+        ] as const
+      ).map(([id, side, waits, note]) => [
+        id,
+        {
+          note,
+          display: { "agentPane.display.trayTucked": true, "agentPane.display.trayHandle": side },
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".acpmux-tray-pull__tab"));
+            const pull = ctx.document.querySelector(".acpmux-tray-pull")!;
+            if (pull.getAttribute("data-side") !== side)
+              throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
+            if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
+              throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
+            if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              throw new Error("the tab counts the three that run");
+          },
+          snapshot: (() => {
+            const base = chat(
+              [
+                user(prompt, 2),
+                group(
+                  [
+                    agent("Read the updater", 1.9, "running", {
+                      kind: "Explore",
+                      action: "Read Sources/Updater.swift",
+                    }),
+                    agent("Check the docs", 1.9, "running", {
+                      kind: "general-purpose",
+                      action: "Read docs/updates.md",
+                    }),
+                  ],
+                  1.9,
+                ),
+                devServer,
+                assistant("Two subagents are on it, and the dev server is up.", 1.2),
+              ],
+              { isWorking: true },
+            );
+            return waits
+              ? {
+                  ...base,
+                  sessions: [
+                    ...base.sessions,
+                    session({
+                      sessionId: "child-asks",
+                      title: "Pick the release channel",
+                      spawnedBy: SESSION_ID,
+                      startedBy: SESSION_ID,
+                      indicator: "input",
+                      status: "waiting",
+                      createdAt: minutesAgo(1.5),
+                    }),
+                  ],
+                }
+              : base;
+          })(),
+        },
+      ]),
+    ),
     "command-and-subagent": {
       note: "A turn with a subagent and a background command: a header with both counts, then a line each; the working line counts nothing, the tray is the count.",
       play: async (ctx) => {
@@ -841,12 +942,12 @@ export default agentPaneEntry({
       ),
     },
     "one-agent-two-commands": {
-      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 2 commands` above its lines (folded, it names them: agent-pane.subagent-tray-names).",
+      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
+        if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
       },
       snapshot: chat(
         [
@@ -937,7 +1038,7 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, a test run and a build), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -945,7 +1046,7 @@ export default agentPaneEntry({
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
         // the list counts after what runs.
-        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+        if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
           throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {

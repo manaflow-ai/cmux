@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -31,6 +32,96 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
     ["Apple System Colors Light", "light"],
     ["Catppuccin Mocha", "dark"],
   ]) {
+    for (const density of ["compact", "comfortable"])
+      for (const interfaceScale of [1, 1.25])
+        for (const variant of ["codex-turn-command-under-messages", "codex-turn-raw-commands"]) {
+          test(`${variant} passes live-line gallery play (${label}, ${density}, ${interfaceScale})`, async () => {
+            const context = await browser.newContext({ viewport: { width: 900, height: 650 }, deviceScaleFactor: 2 });
+            const page = await context.newPage();
+            try {
+              const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+              await page.goto(
+                base +
+                  galleryFrame("agent-pane.transcript", {
+                    variant,
+                    theme,
+                    density,
+                    interfaceScale,
+                    reducedMotion: "true",
+                  }),
+              );
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined);
+              expect(
+                await page.getAttribute("html", "data-gallery-ready"),
+                await page.locator("body").innerText(),
+              ).toBe("1");
+              if (process.env.FAST_CHECKS_OUT) {
+                await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
+                await page.screenshot({
+                  path: path.join(
+                    process.env.FAST_CHECKS_OUT,
+                    `thinking-gap-existing-${variant}-${label}-${density}-${interfaceScale}.png`,
+                  ),
+                });
+              }
+            } finally {
+              await context.close();
+            }
+          });
+        }
+    for (const density of ["compact", "comfortable"])
+      for (const interfaceScale of [1, 1.25])
+        for (const variant of ["live-peers", "live-tools", "live-status"]) {
+          test(`${variant} separates live state (${label}, ${density}, ${interfaceScale})`, async () => {
+            const context = await browser.newContext({ viewport: { width: 900, height: 650 }, deviceScaleFactor: 2 });
+            const page = await context.newPage();
+            try {
+              const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+              await page.goto(
+                base + galleryFrame(ENTRY, { variant, theme, density, interfaceScale, reducedMotion: "true" }),
+                {
+                  waitUntil: "networkidle",
+                },
+              );
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+              await page.locator(".acpmux-thinking .cv-worked").waitFor();
+              await page.evaluate(() => document.fonts.ready);
+              const measured = await page.evaluate(() => {
+                const live = document.querySelector(".acpmux-thinking .cv-worked")!;
+                let previous = live.closest(".acpmux-row")!.previousElementSibling;
+                while (previous && previous.getBoundingClientRect().height === 0)
+                  previous = previous.previousElementSibling;
+                if (!previous) throw new Error("The live state has no preceding activity row");
+                return {
+                  gap: live.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+                  // Read a resolved token rather than parsing a calc() or var() expression.
+                  scale: Number.parseFloat(
+                    getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"),
+                  ),
+                  wholeTurnFolds: document.querySelectorAll(".acpmux-worked").length,
+                };
+              });
+              const phase = process.env.CMUX_GAP_PHASE ?? "after";
+              console.log(
+                `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
+              );
+              if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
+                expect(measured.gap).toBeCloseTo(16 * interfaceScale, 1);
+              expect(measured.wholeTurnFolds).toBe(0);
+              if (process.env.FAST_CHECKS_OUT) {
+                await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
+                await page.screenshot({
+                  path: path.join(
+                    process.env.FAST_CHECKS_OUT,
+                    `thinking-gap-${phase}-${variant}-${label}-${density}-${interfaceScale}.png`,
+                  ),
+                });
+              }
+            } finally {
+              await context.close();
+            }
+          });
+        }
     test(`a paused closing fold keeps layout gap validation (${label})`, async () => {
       const context = await browser.newContext({ viewport: { width: 760, height: 800 } });
       const page = await context.newPage();

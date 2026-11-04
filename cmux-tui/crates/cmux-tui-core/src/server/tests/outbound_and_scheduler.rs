@@ -922,8 +922,11 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
     }
     let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
     assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
-    let identify = json!({"id":"identify","cmd":"identify"}).to_string();
-    assert!(handle_connection_message(&mux, client, &identify, &writer, &scheduler));
+    // A request that goes through the connection's queue, as the waits do: a plain `identify`
+    // is answered on the reader before the queue (#33273), so it would race the refusal and
+    // prove nothing about the queue.
+    let later = json!({"id":"later","cmd":"list-workspaces"}).to_string();
+    assert!(handle_connection_message(&mux, client, &later, &writer, &scheduler));
 
     let refused = pop_json(&outbound);
     assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
@@ -932,9 +935,9 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
         refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
         "the refusal does not name wait-for: {refused}"
     );
-    let identified = pop_json(&outbound);
-    assert_eq!(identified["id"], "identify", "identify waited behind pending waits");
-    assert_eq!(identified["ok"], true, "{identified}");
+    let answered = pop_json(&outbound);
+    assert_eq!(answered["id"], "later", "a queued request waited behind pending waits");
+    assert_eq!(answered["ok"], true, "{answered}");
     assert!(outbound.try_pop().is_none(), "a wait answered before its pattern or timeout");
     // A one-shot check does not wait: it runs in request order and is not
     // refused for want of a worker.
@@ -1016,21 +1019,62 @@ fn scheduler_retains_connection_permit_until_dispatcher_exit() {
     assert_eq!(active.active(), 0);
 }
 
+/// On both arms of the budget: the mutex counts, and the input lane's atomics (R-DAEMON-STATE stage S1).
 #[test]
 fn surface_worker_limit_is_mux_wide_across_connections() {
-    assert!(
-        active_clear_lanes_across_connections(17, 0) <= 16,
-        "per-connection limits allowed more than 16 mux-wide clear workers"
-    );
+    for lock_free in [false, true] {
+        assert!(
+            active_clear_lanes_across_connections(17, 0, lock_free) <= 16,
+            "per-connection limits allowed more than 16 mux-wide clear workers (lock-free {lock_free})"
+        );
+    }
 }
 
 #[test]
 fn active_surface_request_bytes_count_toward_mux_budget() {
     const FOUR_MIB: usize = 4 * 1024 * 1024;
-    assert!(
-        active_clear_lanes_across_connections(5, FOUR_MIB) <= 4,
-        "active first requests bypassed the 16 MiB mux-wide byte budget"
-    );
+    for lock_free in [false, true] {
+        assert!(
+            active_clear_lanes_across_connections(5, FOUR_MIB, lock_free) <= 4,
+            "active first requests bypassed the 16 MiB mux-wide byte budget (lock-free {lock_free})"
+        );
+    }
+}
+
+/// The input lane's atomic budget admits what the mutex counts admit and refuses what they refuse: the 17th worker,
+/// a byte reservation over 16 MiB or one whose sum would overflow, and gives a released reservation back.
+#[test]
+fn the_lock_free_budget_has_the_same_limits_as_the_mutex_counts() {
+    for lock_free in [false, true] {
+        let admission = Arc::new(ServerSurfaceOperationAdmission::new(lock_free));
+        let workers = (0..SERVER_SURFACE_WORKER_CAPACITY)
+            .map(|_| admission.try_reserve_worker())
+            .collect::<Option<Vec<_>>>()
+            .expect("the capacity's workers are admitted");
+        assert!(admission.try_reserve_worker().is_none(), "lock-free {lock_free}: a 17th worker");
+        drop(workers);
+        assert!(
+            admission.try_reserve_worker().is_some(),
+            "lock-free {lock_free}: released workers"
+        );
+
+        let all = admission.try_reserve_bytes(SERVER_SURFACE_RETAINED_BYTE_CAPACITY).ok();
+        assert!(all.is_some(), "lock-free {lock_free}: the whole byte budget");
+        assert!(admission.try_reserve_bytes(1).is_err(), "lock-free {lock_free}: a byte over");
+        assert!(admission.try_reserve_bytes(0).is_ok(), "lock-free {lock_free}: zero bytes");
+        drop(all);
+        let one = admission.try_reserve_bytes(1).ok();
+        assert!(one.is_some(), "lock-free {lock_free}: one byte");
+        assert!(
+            admission.try_reserve_bytes(usize::MAX).is_err(),
+            "lock-free {lock_free}: a sum that overflows"
+        );
+        drop(one);
+        assert!(
+            admission.try_reserve_bytes(SERVER_SURFACE_RETAINED_BYTE_CAPACITY).is_ok(),
+            "lock-free {lock_free}: released bytes"
+        );
+    }
 }
 
 #[test]

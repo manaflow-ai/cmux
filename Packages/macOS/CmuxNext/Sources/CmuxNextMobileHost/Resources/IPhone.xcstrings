@@ -4586,6 +4586,137 @@
         }
       }
     },
+    "iphone.status.keychainLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the login keychain to unlock. iPhones connect once it does."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار فتح سلسلة مفاتيح تسجيل الدخول. تتصل أجهزة iPhone بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka se otključavanje login keychaina. iPhone uređaji se tada povezuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at login-nøgleringen låses op. iPhones forbinder derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Warten auf das Entsperren des Anmeldeschlüsselbunds. Danach verbinden sich iPhones."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que se desbloquee el llavero de inicio de sesión. Los iPhone se conectarán entonces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du déverrouillage du trousseau de session. Les iPhone se connecteront ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa dello sblocco del portachiavi di login. Poi gli iPhone si collegheranno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ログインキーチェーンのロック解除を待っています。解除されると iPhone が接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំការដោះសោ login keychain។ បន្ទាប់មក iPhone នឹងភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 키체인 잠금 해제를 기다리는 중입니다. 해제되면 iPhone이 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at påloggingsnøkkelringen låses opp. Deretter kobler iPhone til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oczekiwanie na odblokowanie pęku kluczy logowania. Potem iPhone’y się połączą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o desbloqueio das chaves de login. Os iPhones se conectam em seguida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание разблокировки связки ключей входа. После этого iPhone подключатся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้พวงกุญแจเข้าสู่ระบบปลดล็อก จากนั้น iPhone จะเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giriş anahtar zincirinin kilidinin açılması bekleniyor. Ardından iPhone’lar bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування розблокування в’язки ключів входу. Після цього iPhone під’єднаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mở khóa chuỗi khóa đăng nhập. Sau đó iPhone sẽ kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登录钥匙串解锁。解锁后 iPhone 即可连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登入鑰匙圈解鎖。解鎖後 iPhone 即可連線。"
+          }
+        }
+      }
+    },
     "iphone.status.unavailable": {
       "extractionState": "manual",
       "localizations": {

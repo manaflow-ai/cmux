@@ -1,5 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeups
 public import Foundation
 
 /// Only a native, target/team-scoped confirmation may call this. A repeat reuses the explicit
@@ -7,7 +8,7 @@ public import Foundation
 @MainActor public struct CloudCredentialTransfer {
     public enum Provider: String, Sendable, Equatable, Hashable { case claude, codex }
     public enum Failure: LocalizedError, Equatable {
-        case consentRequired, scopeChanged, sharedMachine, incompatibleConfiguration, copyTurnedOff
+        case consentRequired, scopeChanged, sharedMachine, machineNotReady, incompatibleConfiguration, copyTurnedOff
         case localLoginUnavailable, loginFailed, invalidCredential, storeFailed, deliveryFailed
 
         public var errorDescription: String? {
@@ -16,6 +17,7 @@ public import Foundation
             case .copyTurnedOff: "Copying your login to Cloud machines is off; sign in on the machine instead."
             case .scopeChanged: "The signed-in account or Cloud team changed; start the transfer again."
             case .sharedMachine: "Personal credentials can only be transferred to a Cloud machine you own."
+            case .machineNotReady: "The Cloud machine is still setting up, so cmux can't confirm it's yours yet. Try again in a minute."
             case .incompatibleConfiguration: "The target's provider configuration conflicts with own login."
             case .localLoginUnavailable: "Open a local terminal to finish provider sign-in."
             case .loginFailed: "Provider sign-in did not complete; retry setup in cmux."
@@ -46,6 +48,20 @@ public import Foundation
     /// The guest check this transfer runs before and after the login.
     var preflight: String { allowsCreatorTeamGuest ? CloudCredentialInstaller.creatorTeamPreflight : CloudCredentialInstaller.preflight }
 
+    /// Exits 0 only while the guest has no kind record: its cmux-host writes /etc/cmux/vm-kind once it
+    /// binds (`record_owner_kind`), which can land after the machine reads running and takes its first exec.
+    nonisolated static let kindMissing = "[ ! -s /etc/cmux/vm-kind ]"
+    /// How many times a guest check runs while the kind record is missing, ``guestCheckPause`` apart (3 s), and
+    /// for how long at most, slow execs included: about 90 s, the journey's `waitPreflight` budget.
+    public nonisolated static let guestCheckTries = 30
+    public nonisolated static let guestCheckBudget: Duration = .seconds(90)
+    /// No event says the guest has bound, so the checks are spaced as retries after a failure.
+    @Sendable public nonisolated static func guestCheckPause() async throws {
+        var backoff = Backoff(initial: .seconds(3), maximum: .seconds(3), multiplier: 1)
+        // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+        try await backoff.wait(owner: "cloud-credential-transfer.guest-bind")
+    }
+
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
     /// the kinds the transfer installs on, an owner guest, or with ``allowsCreatorTeamGuest`` (DEV and
     /// dogfood builds, cloud.startChat's own gate; production keeps requiring an owner guest) a team
@@ -70,6 +86,7 @@ public import Foundation
             effects: Effects(
                 callerOwnsVM: callerOwnsVM,
                 stillAllowed: stillAllowed,
+                pause: Self.guestCheckPause,
                 exec: { try await pinned.exec(machineID, command: $0, timeoutMs: 20_000).exitCode },
                 write: { try await Self.stage($1, at: $0, on: pinned, machineID: machineID) },
             // Codex auth.json is never reused as a seed: its refresh token is VM-bound and may
@@ -107,6 +124,9 @@ public import Foundation
     nonisolated struct Effects: Sendable {
         var callerOwnsVM: @Sendable () async throws -> Bool
         var stillAllowed: @Sendable () async -> Bool = { true }
+        /// Between guest checks while the guest has not bound yet (``guestCheckPause``). No default: a
+        /// default async closure is a crash class.
+        var pause: @Sendable () async throws -> Void
         var exec: @Sendable (String) async throws -> Int
         var write: @Sendable (String, Data) async throws -> Void
         var load: @Sendable () async throws -> Data?
@@ -135,7 +155,7 @@ public import Foundation
         // No credential is acquired or read until the platform says the caller owns the machine and
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        guard try await effects.exec(preflight) == 0 else { throw Failure.sharedMachine }
+        try await waitForGuest(effects: effects, checkScope: checkScope)
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -169,6 +189,21 @@ public import Foundation
             // API/CLI output may contain a provider diagnostic with a secret. Never surface it.
             throw Failure.deliveryFailed
         }
+    }
+
+    /// The first guest check, run again while the guest has no kind record yet (it has not bound). A kind
+    /// record that fails the check is the guest's answer (a team guest, an image without the launchers):
+    /// refused at once. A record that never comes is ``Failure/machineNotReady``.
+    private func waitForGuest(effects: Effects, checkScope: () throws -> Void) async throws {
+        let deadline = ContinuousClock.now + Self.guestCheckBudget
+        for attempt in 1...Self.guestCheckTries {
+            if try await effects.exec(preflight) == 0 { return }
+            guard try await effects.exec(Self.kindMissing) == 0 else { throw Failure.sharedMachine }
+            guard attempt < Self.guestCheckTries, ContinuousClock.now < deadline else { break }
+            try await effects.pause()
+            try checkScope()
+        }
+        throw Failure.machineNotReady
     }
 
     nonisolated static func validate(_ data: Data, provider: Provider) throws {

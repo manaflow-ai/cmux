@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -804,13 +805,44 @@ def rust_sources(repo: str, ref: str, paths: dict[str, str]) -> dict[str, str]:
     return sources
 
 
-def merge_base_of(repo: str, pr: dict) -> str:
-    """The commit the pull request's patches are relative to; the base tip if it can't be read."""
+def merge_base_of(repo: str, pr: dict, repo_dir: str | None = None) -> str:
+    """The commit the pull request's patches are relative to; the base tip if it can't be read.
+    From git when `repo_dir` has both ends (risk-tier.yml fetches the head there), else `compare`."""
+    if repo_dir:
+        try:
+            sha = subprocess.run(["git", "-C", repo_dir, "merge-base", pr["base"]["sha"], pr["head"]["sha"]],
+                                 check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            if re.fullmatch(r"[0-9a-f]{40}", sha):
+                return sha
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            pass
     try:
         return gh_json("api", f"repos/{repo}/compare/{pr['base']['sha']}...{pr['head']['sha']}",
                        "--jq", "{sha: .merge_base_commit.sha}")["sha"] or pr["base"]["sha"]
     except (subprocess.CalledProcessError, json.JSONDecodeError, KeyError, TypeError):
         return pr["base"]["sha"]
+
+
+def event_pull_request(path: str | None, number: str, attempt: str | None = None) -> dict | None:
+    """The pull request as the triggering event delivered it ($GITHUB_EVENT_PATH), or None when there
+    is no such file or it is about another pull request. It is the same object `GET pulls/N` returns
+    (body, labels, user, author_association, head and base), as of the event, and saves that REST
+    call on every first attempt. A later event runs this again, and its run cancels this one.
+    A re-run (GITHUB_RUN_ATTEMPT above 1) gets the original event's payload, frozen at that event,
+    so it reads the pull request live instead: re-running an old run must grade today's head,
+    description and labels, as it always did."""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "1") if attempt is None else attempt
+    if not path or attempt.strip() not in ("", "1"):
+        return None
+    try:
+        pull = json.loads(Path(path).read_text()).get("pull_request")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if not isinstance(pull, dict) or str(pull.get("number")) != str(number):
+        return None
+    if not ((pull.get("head") or {}).get("sha") and (pull.get("base") or {}).get("sha")):
+        return None
+    return pull
 
 
 def pr_mode(args: argparse.Namespace) -> int:
@@ -820,7 +852,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     patches = {f["filename"]: f.get("patch") or "" for f in entries}
     # A rename moves the old path too: grade both ends.
     files += [f["previous_filename"] for f in entries if f.get("previous_filename")]
-    pr = gh_json("api", base)
+    pr = event_pull_request(getattr(args, "event", None), args.number) or gh_json("api", base)
     # Rust product files that add or remove a delete: read on that side, they place each line in or
     # out of a test module.
     rust = {e["filename"]: e for e in entries if e["filename"].endswith(".rs") and in_delete_scope(e["filename"])}
@@ -828,7 +860,7 @@ def pr_mode(args: argparse.Namespace) -> int:
     removes = {path: e.get("previous_filename") or path for path, e in rust.items()
                if e.get("status") != "added" and delete_lines(patches[path], "-")}
     # The patches' line numbers are relative to the merge base, not the base branch's tip.
-    merge_base = merge_base_of(args.repo, pr) if removes or args.repo_dir else pr["base"]["sha"]
+    merge_base = merge_base_of(args.repo, pr, args.repo_dir) if removes or args.repo_dir else pr["base"]["sha"]
     grade = classify(files, patches, rust_sources(args.repo, pr["head"]["sha"], adds),
                      rust_sources(args.repo, merge_base, removes))
     undone: dict[int, list[str]] = {}
@@ -1039,6 +1071,8 @@ def main(argv: list[str] | None = None) -> int:
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
     p.add_argument("--summary")
+    p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
+                   "GET pulls/N call")
     args = parser.parse_args(argv)
 
     if args.mode == "classify":
