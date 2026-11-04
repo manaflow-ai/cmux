@@ -41,6 +41,24 @@ export const withAgentLabels = (principal: Principal, requested: CreateVmRequest
  * A caller on a run cap (a CI trust row) creates only VMs that pause within the cap and are deleted as soon as they
  * stop: a smaller run cap it asks for stands, no cap or a longer one becomes the cap, and auto-delete is always 0.
  */
+/**
+ * A caller on a run cap (a CI trust row) creates only VMs of at most maxUsdPerHour / maxVms each. Its team quota is
+ * maxVms and the tenant ledger admits creates atomically, so even concurrent creates stay within the dollar budget,
+ * which the read-then-create check in agentBudgetAllows alone cannot promise.
+ */
+export const ciSizeAllowed = (principal: Principal, size: SizeRequest | undefined) =>
+  Effect.gen(function* () {
+    const budget = principal.agent;
+    if (principal.maxRunSeconds === undefined || budget === undefined) return;
+    const next = sizeOfCreate(size);
+    const perVm = budget.maxUsdPerHour / budget.maxVms;
+    if (estimatedUsdPerHour(next.vcpus, next.memoryMib) > perVm + 1e-9) {
+      return yield* Effect.fail(
+        new QuotaExceeded({ message: `A CI job's VM may cost at most ${perVm.toFixed(2)} USD/h; ask for a smaller size`, budget: "agent_usd_per_hour" }),
+      );
+    }
+  });
+
 export const withRunCap = (principal: Principal, requested: CreateVmRequest): CreateVmRequest => {
   const cap = principal.maxRunSeconds;
   if (cap === undefined) return requested;

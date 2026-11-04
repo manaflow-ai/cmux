@@ -32,7 +32,7 @@ const ROW = {
 const CLAIMS = {
   repository: "manaflow-ai/cmux",
   environment: "cmux-vm-production",
-  job_workflow_ref: WORKFLOW,
+  workflow_ref: WORKFLOW,
   sub: "repo:manaflow-ai/cmux:environment:cmux-vm-production",
 };
 const IMAGE = { id: "cloud-native", revision: "r1" };
@@ -116,6 +116,20 @@ describe("a trusted job", () => {
     expect((await t.request(`/v1/vms/${id}/fork`, bearer(token), { method: "POST", body: {} })).status).toBe(403);
   });
 
+  it("accepts a token that also names the same file as job_workflow_ref", async () => {
+    const t = await harness();
+    expect((await create(t, await t.githubToken({ ...CLAIMS, job_workflow_ref: WORKFLOW }))).status).toBe(201);
+  });
+
+  it("refuses a VM costing more than maxUsdPerHour / maxVms, so concurrent creates stay within the budget", async () => {
+    const t = await harness({ ciTrust: JSON.stringify([{ ...ROW, maxVms: 2, maxUsdPerHour: 1 }]) });
+    const token = await t.githubToken(CLAIMS);
+    const response = await create(t, token, { resources: { vcpus: 16, memoryMib: 8192 } });
+    expect(response.status).toBe(429);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
+    expect((await create(t, token)).status).toBe(201);
+  });
+
   it("may not grow a VM past what it was created with", async () => {
     const t = await harness();
     const token = await t.githubToken(CLAIMS);
@@ -146,9 +160,11 @@ describe("tokens that match no row", () => {
   const refused: ReadonlyArray<readonly [string, (t: Harness) => Promise<string>]> = [
     ["another repository", (t) => t.githubToken({ ...CLAIMS, repository: "someone/cmux" })],
     ["another environment", (t) => t.githubToken({ ...CLAIMS, environment: "cmux-vm-staging" })],
-    ["no environment", (t) => t.githubToken({ repository: CLAIMS.repository, job_workflow_ref: WORKFLOW })],
-    ["another branch", (t) => t.githubToken({ ...CLAIMS, job_workflow_ref: WORKFLOW.replace("feat-cmux-next", "lane/evil") })],
-    ["another workflow", (t) => t.githubToken({ ...CLAIMS, job_workflow_ref: WORKFLOW.replace("cmux-vm.yml", "other.yml") })],
+    ["no environment", (t) => t.githubToken({ repository: CLAIMS.repository, workflow_ref: WORKFLOW })],
+    ["no workflow_ref", (t) => t.githubToken({ repository: CLAIMS.repository, environment: CLAIMS.environment, job_workflow_ref: WORKFLOW })],
+    ["another branch", (t) => t.githubToken({ ...CLAIMS, workflow_ref: WORKFLOW.replace("feat-cmux-next", "lane/evil") })],
+    ["another workflow", (t) => t.githubToken({ ...CLAIMS, workflow_ref: WORKFLOW.replace("cmux-vm.yml", "other.yml") })],
+    ["a job from another reusable workflow", (t) => t.githubToken({ ...CLAIMS, job_workflow_ref: "manaflow-ai/cmux/.github/workflows/other.yml@refs/heads/feat-cmux-next" })],
     ["another audience", (t) => t.githubToken(CLAIMS, { audience: "https://elsewhere.test" })],
     ["an expired token", (t) => t.githubToken(CLAIMS, { issuedAt: Math.floor(Date.now() / 1000) - 600, expiresIn: "-120s" })],
     ["an old token", (t) => t.githubToken(CLAIMS, { issuedAt: Math.floor(Date.now() / 1000) - 3600, expiresIn: "1h" })],
@@ -163,7 +179,7 @@ describe("tokens that match no row", () => {
   }
 
   it("refuses every GitHub token when no row is configured", async () => {
-    const t = await harness({ ciTrust: undefined });
+    const t = await harness({ ciTrust: "" });
     expect((await create(t, await t.githubToken(CLAIMS))).status).toBe(401);
   });
 

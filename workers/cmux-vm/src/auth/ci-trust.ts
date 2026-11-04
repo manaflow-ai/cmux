@@ -14,8 +14,9 @@
  *
  * A token matches a row only when GitHub signed it (RS256, GitHub's own JWKS,
  * never a key the token names), it is unexpired and at most 15 minutes old,
- * and its audience, repository, environment and job_workflow_ref (the
- * workflow file and the ref it ran from) all equal the row's. The row maps it
+ * and its audience, repository, environment and workflow_ref (the workflow
+ * file and the ref it ran from; job_workflow_ref too when GitHub sends one)
+ * all equal the row's. The row maps it
  * to a service principal of its own id: one team, the row's scopes (VM read,
  * write and exec only), confined to VMs carrying the row's labels, at most
  * `maxVms` live VMs within `maxUsdPerHour`, and every VM it creates pauses
@@ -45,7 +46,7 @@ const CiTrustEntry = Schema.Struct({
   audience: Schema.String.pipe(Schema.pattern(/^https:\/\/[a-z0-9.-]+$/u)),
   repository: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u)),
   environment: NonEmpty,
-  /** job_workflow_ref: `<owner>/<repo>/<workflow path>@<ref>`. */
+  /** workflow_ref (and job_workflow_ref when present): `<owner>/<repo>/<workflow path>@<ref>`. */
   workflowRef: Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/\.github\/workflows\/[A-Za-z0-9_./-]+\.ya?ml@refs\/[A-Za-z0-9_./-]+$/u)),
   team: TenantId,
   scopes: Schema.Array(Schema.Literal(...CI_TRUST_SCOPES)).pipe(Schema.minItems(1)),
@@ -145,7 +146,7 @@ export const makeCiTrust = (
               clockTolerance: 60,
               maxTokenAge: MAX_TOKEN_AGE,
               currentDate: now,
-              requiredClaims: ["exp", "iat", "repository", "environment", "job_workflow_ref"],
+              requiredClaims: ["exp", "iat", "repository", "environment", "workflow_ref"],
             }),
           catch: (error) =>
             isTokenRejection(error) || error instanceof joseErrors.JWTClaimValidationFailed
@@ -158,7 +159,9 @@ export const makeCiTrust = (
             tokenAudiences.includes(candidate.audience) &&
             payload["repository"] === candidate.repository &&
             payload["environment"] === candidate.environment &&
-            payload["job_workflow_ref"] === candidate.workflowRef,
+            payload["workflow_ref"] === candidate.workflowRef &&
+            // A job from a reusable workflow names that file here; the row's file must define the job itself too.
+            (payload["job_workflow_ref"] === undefined || payload["job_workflow_ref"] === candidate.workflowRef),
         );
         if (row === undefined || payload.exp === undefined) return yield* Effect.fail(new CiTokenRejected({ reason: "no-match" }));
         return Option.some({ row, expiresAt: new Date(payload.exp * 1000) });
