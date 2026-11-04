@@ -61,6 +61,10 @@ PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
 AFTER_RENDER = None
 # A caller's preparation of the fresh home before the app starts: prepare(env) (None for the nightly smoke).
 PREPARE_HOME = None
+# A caller whose ready state is not Home (scripts/cmux-next/idle_cpu.py: any visible window) sets this to
+# ready(snapshot) -> bool; it replaces only the Home-tab check, never the first_window_frame_committed mark.
+# None (the nightly smoke): Home's tab selected in a visible window.
+READY = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
 
@@ -433,7 +437,8 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 break
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
-                if home_tab(snap) and RENDER_MARK in read_marks(marks_path):
+                shown = READY(snap) if READY is not None else home_tab(snap)
+                if shown and RENDER_MARK in read_marks(marks_path):
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
