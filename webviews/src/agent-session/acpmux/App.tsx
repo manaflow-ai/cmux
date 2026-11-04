@@ -334,6 +334,9 @@ import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
 import { noteReaderScroll, releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import { WorkflowSideTab } from "./summary/WorkflowSideTab";
+import { ContextViewer, type ContextPart as ContextViewerPart, type ContextOverrideScope } from "./ContextViewer";
+import { isContextPane, openContextPane } from "./contextPane";
+import { contextInventory } from "./contextInventory";
 import {
   showSubagent as showSubagentIn,
   revealedSubagent,
@@ -6487,6 +6490,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
   /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
   const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
+  const [ownContextPane, setOwnContextPane] = useState(false);
   if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
     setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
   const backgroundOpen = backgroundPanel !== undefined;
@@ -6660,6 +6664,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (agent === undefined) return void revealTurnWhenShown(value);
     if (isBackgroundPane(agent)) {
       setOwnBackgroundPane(true);
+      return;
+    }
+    if (isContextPane(agent)) {
+      setOwnContextPane(true);
       return;
     }
     subagentPane.current = true;
@@ -7597,6 +7605,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [snapshot.sessions, shownSessionId],
   );
   const [workflowSideTabId, setWorkflowSideTabId] = useState<string>();
+  const [contextViewerOpen, setContextViewerOpen] = useState(false);
+  const [contextViewerParts, setContextViewerParts] = useState<ContextViewerPart[]>([]);
+  const [contextViewerTotalTokens, setContextViewerTotalTokens] = useState<number>();
+  const [contextViewerMaxTokens, setContextViewerMaxTokens] = useState<number>();
+  const [contextViewerCmuxTokens, setContextViewerCmuxTokens] = useState<number>();
+  const [contextViewerSettings, setContextViewerSettings] = useState<ReturnType<typeof contextInventory>["settings"]>();
+  const [contextViewerLoading, setContextViewerLoading] = useState(false);
+  const [contextViewerError, setContextViewerError] = useState<string>();
+  const [contextViewerSessionId, setContextViewerSessionId] = useState<string>();
+  const contextRequest = useRef(0);
   const workflowSideTabOpener = useRef<HTMLElement | undefined>(undefined);
   const workflowSideTabFocusOnClose = useRef(false);
   const workflowSideTab = useMemo(
@@ -7608,6 +7626,86 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     workflowSideTabOpener.current = undefined;
     setWorkflowSideTabId(undefined);
   }, []);
+  const closeContextViewer = useCallback(() => {
+    contextRequest.current += 1;
+    setContextViewerOpen(false);
+    setContextViewerLoading(false);
+    setContextViewerError(undefined);
+  }, []);
+  const loadContextViewer = useCallback(async () => {
+    const sessionId = shownSessionId ?? snapshot.sessionId;
+    if (!sessionId) return;
+    const request = ++contextRequest.current;
+    setContextViewerSessionId(sessionId);
+    setContextViewerParts([]);
+    setContextViewerSettings(undefined);
+    setContextViewerTotalTokens(undefined);
+    setContextViewerMaxTokens(undefined);
+    setContextViewerCmuxTokens(undefined);
+    setContextViewerOpen(true);
+    setContextViewerLoading(true);
+    setContextViewerError(undefined);
+    try {
+      const client = directClient.current;
+      if (!client) throw new Error("Session is disconnected");
+      const inventory = contextInventory(await client.contextInventory(sessionId));
+      if (request !== contextRequest.current) return;
+      setContextViewerParts(inventory.parts);
+      setContextViewerTotalTokens(inventory.totalTokens);
+      setContextViewerMaxTokens(inventory.maxTokens);
+      setContextViewerCmuxTokens(inventory.cmuxTokens);
+      setContextViewerSettings(inventory.settings);
+    } catch (error) {
+      if (request !== contextRequest.current) return;
+      setContextViewerError(error instanceof Error ? error.message : "Could not read context");
+    } finally {
+      if (request === contextRequest.current) setContextViewerLoading(false);
+    }
+  }, [shownSessionId, snapshot.sessionId]);
+  const saveContextOverride = useCallback(
+    async (scope: ContextOverrideScope, text: string) => {
+      const sessionId = shownSessionId ?? snapshot.sessionId;
+      if (!sessionId) throw new Error("No session is selected");
+      const client = directClient.current;
+      if (!client) throw new Error("Session is disconnected");
+      const request = contextRequest.current;
+      const next = contextInventory(
+        await client.setContextOverride(sessionId, scope, text, contextViewerSettings?.cwd),
+      );
+      if (request === contextRequest.current) setContextViewerSettings(next.settings);
+    },
+    [shownSessionId, snapshot.sessionId, contextViewerSettings?.cwd],
+  );
+  const resetContextOverride = useCallback(
+    async (scope: ContextOverrideScope) => {
+      const sessionId = shownSessionId ?? snapshot.sessionId;
+      if (!sessionId) throw new Error("No session is selected");
+      const client = directClient.current;
+      if (!client) throw new Error("Session is disconnected");
+      const request = contextRequest.current;
+      const next = contextInventory(
+        await client.setContextOverride(sessionId, scope, null, contextViewerSettings?.cwd),
+      );
+      if (request === contextRequest.current) setContextViewerSettings(next.settings);
+    },
+    [shownSessionId, snapshot.sessionId, contextViewerSettings?.cwd],
+  );
+  useEffect(() => {
+    closeContextViewer();
+  }, [shownSessionId, closeContextViewer]);
+  useEffect(() => {
+    if (ownContextPane) void loadContextViewer();
+    return () => {
+      contextRequest.current += 1;
+    };
+  }, [ownContextPane, loadContextViewer]);
+  const openContextViewer = useCallback(() => {
+    if (ownContextPane) return void loadContextViewer();
+    const request = contextRequest.current;
+    void openContextPane(callNative).then((opened) => {
+      if (!opened && request === contextRequest.current) void loadContextViewer();
+    });
+  }, [ownContextPane, loadContextViewer]);
   // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
   // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
   // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
@@ -12870,6 +12968,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...replay,
       ...(instructions ? [instructions] : []),
       ...(projectFiles ? [projectFiles] : []),
+      ...(snapshot.sessionId
+        ? [
+            {
+              key: "context",
+              label: t("context.viewer.title"),
+              icon: "context.usage",
+              onSelect: openContextViewer,
+            },
+          ]
+        : []),
       {
         key: "inspector",
         label: t("inspector.title"),
@@ -14683,6 +14791,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
         data-background-pane={ownBackgroundPane ? "" : undefined}
+        data-context-pane={ownContextPane ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
@@ -15341,6 +15450,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 onOpenWorkflowAgent={showWorkflowAgent}
               />
             </SubagentClockContext.Provider>
+          )}
+        {contextViewerOpen &&
+          !harnessesOpen &&
+          !showNewTab &&
+          !replaying &&
+          !inspectorOpen &&
+          !artifact &&
+          !imageView && (
+            <ContextViewer
+              parts={contextViewerSessionId === shownSessionId ? contextViewerParts : []}
+              totalTokens={contextViewerSessionId === shownSessionId ? contextViewerTotalTokens : undefined}
+              maxTokens={contextViewerSessionId === shownSessionId ? contextViewerMaxTokens : undefined}
+              cmuxTokens={contextViewerSessionId === shownSessionId ? contextViewerCmuxTokens : undefined}
+              settings={contextViewerSessionId === shownSessionId ? contextViewerSettings : undefined}
+              harness={snapshot.summary?.harness}
+              sessionId={shownSessionId}
+              loading={contextViewerLoading || contextViewerSessionId !== shownSessionId}
+              onRefresh={loadContextViewer}
+              error={contextViewerSessionId === shownSessionId ? contextViewerError : undefined}
+              onClose={ownContextPane ? undefined : closeContextViewer}
+              onSaveOverride={saveContextOverride}
+              onResetOverride={resetContextOverride}
+            />
           )}
       </section>
     </ShortcutsContext.Provider>

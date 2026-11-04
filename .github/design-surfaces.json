@@ -2,6 +2,15 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "context-viewer": {
+      "spec": "leo-workspace design/context-viewer.md",
+      "aliases": ["Context tab", "prompt viewer", "effective context"],
+      "paths": [
+        "webviews/src/agent-session/acpmux/ContextViewer.tsx",
+        "webviews/src/agent-session/acpmux/contextViewer.css",
+        "webviews/src/agent-session/acpmux/contextPane.ts"
+      ]
+    },
     "onboarding": {
       "spec": "leo-workspace design/onboarding.md",
       "aliases": ["onboarding", "bring your history", "memory import"],

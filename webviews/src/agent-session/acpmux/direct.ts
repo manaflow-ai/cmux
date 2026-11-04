@@ -8400,6 +8400,26 @@ export class AcpmuxDirectClient {
   async forumRules(): Promise<unknown> {
     return this.request("_acpmux/forum/rules", {});
   }
+  /// The source-labelled effective context snapshot for the selected chat. Provider-owned text
+  /// stays redacted by acpmux; cmux-owned parts are safe for the Context viewer to disclose.
+  async contextInventory(sessionId = this.selectedSessionId): Promise<unknown> {
+    if (!sessionId) return { parts: [], totalTokens: 0, overrides: {} };
+    return this.request("_acpmux/context", { sessionId });
+  }
+  /// Save or clear a cmux-owned Context override. It is captured when a new session is created.
+  async setContextOverride(
+    sessionId: string,
+    scope: "user" | "project",
+    text: string | null,
+    cwd?: string,
+  ): Promise<unknown> {
+    return this.request("_acpmux/context_override", {
+      sessionId,
+      scope,
+      text,
+      ...(cwd ? { cwd } : {}),
+    });
+  }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and
   /// returns unknown when no current credential evidence exists. Never use cached harness health.
   /// Whether this acpmux runs an agent's own login on its machine (`agent_login` in `initialize`'s

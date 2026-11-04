@@ -1,0 +1,4 @@
+title: See and customize your session context
+category: new
+
+Open Context from a session’s menu to inspect its prompt sources and token counts in a new tab. Edit cmux guidance for yourself or a project, then start a new session to use it.

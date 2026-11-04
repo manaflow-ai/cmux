@@ -10,7 +10,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -38,14 +40,41 @@ afterEach(async () => {
 });
 
 const parts: ContextPart[] = [
-  { id: "base", label: "Harness base", source: "Claude Code", text: "Read first and work concurrently.", tokenCount: 7 },
-  { id: "cmux", label: "cmux guidance", source: "cmux", text: "Use parallel tool calls.", tokenCount: 5, editable: true, scope: "user" },
+  {
+    id: "base",
+    label: "Harness base",
+    source: "Claude Code",
+    text: "Read first and work concurrently.",
+    tokenCount: 7,
+    measurement: "measured",
+  },
+  {
+    id: "cmux",
+    label: "cmux guidance",
+    source: "cmux",
+    text: "Use parallel tool calls.",
+    tokenCount: 5,
+    measurement: "estimated",
+    scope: "user",
+  },
 ];
 
-async function renderViewer(container: HTMLElement, onSaveOverride?: (part: ContextPart, text: string, scope: ContextOverrideScope) => void | Promise<void>) {
+async function renderViewer(
+  container: HTMLElement,
+  onSaveOverride?: (scope: ContextOverrideScope, text: string) => void | Promise<void>,
+  settings = { user: null, project: null, defaultText: "Use parallel tool calls." },
+) {
   await act(async () => {
     root = createRoot(container);
-    root.render(<ContextViewer parts={parts} harness="Claude" onSaveOverride={onSaveOverride} />);
+    root.render(
+      <ContextViewer
+        parts={parts}
+        harness="Claude"
+        totalTokens={12}
+        settings={settings}
+        onSaveOverride={onSaveOverride}
+      />,
+    );
   });
 }
 
@@ -54,30 +83,66 @@ test("labels each effective part and token total, expanding exact text", async (
   await renderViewer(container);
   expect(container.querySelector(".acpmux-context-viewer__heading")?.textContent).toContain("12 tokens");
   expect(container.querySelectorAll("[data-part-id]")).toHaveLength(2);
-  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__source')?.textContent).toBe("Claude Code");
-  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__tokens')?.textContent).toBe("7 tokens");
+  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__source')?.textContent).toBe(
+    "Claude Code",
+  );
+  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__tokens')?.textContent).toBe(
+    "7 tokens · measured",
+  );
   expect(container.textContent).not.toContain("Read first and work concurrently.");
   await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="base"] button')!.click());
   expect(container.textContent).toContain("Read first and work concurrently.");
   expect(container.querySelector('[data-part-id="base"] button')?.getAttribute("aria-expanded")).toBe("true");
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="cmux"] button')!.click());
+  expect(container.querySelector('[data-part-id="base"] button')?.getAttribute("aria-expanded")).toBe("false");
+  expect(container.querySelector('[data-part-id="cmux"] button')?.getAttribute("aria-expanded")).toBe("true");
 });
 
-test("saves an editable cmux part with the selected project scope", async () => {
+test("keeps effective rows read-only and saves a separate next-session project override", async () => {
   const container = installDom();
   const saved: { id: string; text: string; scope: ContextOverrideScope }[] = [];
-  await renderViewer(container, (part, text, scope) => { saved.push({ id: part.id, text, scope }); });
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="cmux"] button')!.click());
-  const editor = container.querySelector<HTMLTextAreaElement>('[data-part-id="cmux"] textarea')!;
-  await act(async () => {
-    editor.value = "Prefer concurrent reads.";
-    editor.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  await renderViewer(container, (scope, text) => {
+    saved.push({ id: "cmux", text, scope });
   });
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="cmux"] button')!.click());
+  expect(container.querySelector('[data-part-id="cmux"] textarea')).toBeNull();
+  const editor = container.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")!;
   await act(async () => {
-    const select = container.querySelector<HTMLSelectElement>('[data-part-id="cmux"] select')!;
+    const select = container.querySelector<HTMLSelectElement>("[data-context-editor] select")!;
     select.value = "project";
     select.dispatchEvent(new dom!.window.Event("change", { bubbles: true }));
   });
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="cmux"] .acpmux-context-part__save')!.click());
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), "value")!.set!;
+    set.call(editor, "Prefer concurrent reads.");
+    editor.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("[data-context-editor] .acpmux-context-part__save")!.click(),
+  );
   expect(saved).toEqual([{ id: "cmux", text: "Prefer concurrent reads.", scope: "project" }]);
   expect(container.textContent).toContain("Saved for the next session");
+});
+
+test("does not invent a provider total or raw text", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ContextViewer
+        parts={[
+          {
+            ...parts[0]!,
+            tokenCount: undefined,
+            measurement: "unavailable",
+            text: "",
+            textAvailable: false,
+          },
+        ]}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-context-viewer__heading")?.textContent).toContain("Token count unavailable");
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="base"] button')!.click());
+  expect(container.textContent).toContain("Text is not exposed by this provider.");
 });
