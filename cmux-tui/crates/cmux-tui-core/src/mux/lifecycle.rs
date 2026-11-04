@@ -68,9 +68,9 @@ impl Mux {
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly, and
-        // the snapshot persists so a restart does not resurrect it. Without
-        // waiting for a fold another thread runs (cmux-ad m11 2): that fold
-        // retires it before it lets go (`agent_roster_fold.rs`).
+        // the snapshot persists so a restart does not resurrect it. The
+        // roster's owner thread does both; the close only records it
+        // (cmux-ad m11 2, `agent_roster_worker.rs`).
         self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
@@ -124,6 +124,9 @@ impl Mux {
         if !self.journal_hook_runtime.shutdown_until(hook_deadline) {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
+        // The roster's owner saves what closes and hooks asked of it while
+        // the journal writer still runs; then it ends.
+        self.stop_agent_roster_worker();
         self.finalize_terminal_journal("shutdown", screen_checkpoint);
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {

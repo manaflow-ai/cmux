@@ -50,7 +50,7 @@ pub(super) fn restore_agent_roster(
     let (mut host, mut needs_repair) = match state {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
             match AgentRoster::restore(&snapshot) {
-                Some(roster) => (AgentRosterHost { roster, cursor, ..Default::default() }, false),
+                Some(roster) => (AgentRosterHost { roster, cursor }, false),
                 // The cursor is meaningful only with the snapshot that was
                 // captured at the same fold boundary. Replaying from zero
                 // is the safe recovery path for malformed persisted state.

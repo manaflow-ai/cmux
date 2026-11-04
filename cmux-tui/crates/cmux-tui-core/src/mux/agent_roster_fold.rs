@@ -2,20 +2,14 @@
 
 use super::*;
 
-/// Roster work a request asked for while another thread held the fold
-/// (`Mux::request_roster_work`). Kept in the roster host, whose lock is
-/// short-held and never across I/O.
-#[derive(Debug, Default)]
-pub(super) struct RosterRequests {
-    /// The highest journal sequence a request asked the roster to reach.
-    pub(super) wanted: u64,
-    /// Terminals closed since, retired once the roster has folded the head.
-    pub(super) retire: Vec<String>,
-}
+// The roster's one owner thread: every fold and snapshot save runs there.
+#[path = "agent_roster_worker.rs"]
+mod agent_roster_worker;
+pub(super) use agent_roster_worker::AgentRosterWorker;
 
-/// What the roster fold lock guards: it orders folds and roster snapshot
-/// saves (`Mux::run_roster_work`, terminal retirement), and holds the
-/// fold's own journal reader.
+/// The roster owner's fold state ([`AgentRosterWorker`]): its own journal
+/// reader. Only the owner's passes take it, so it orders folds and snapshot
+/// saves.
 #[derive(Default)]
 pub(super) struct AgentRosterFold {
     /// A read-only connection to the registry file, opened at the first
@@ -27,6 +21,14 @@ pub(super) struct AgentRosterFold {
     /// Pauses the next fold after it reads one journal page (test seam).
     #[cfg(test)]
     page_hook: Option<(SyncSender<()>, Receiver<()>)>,
+    /// Pauses the next fold after it took the requests and read the journal
+    /// head, before it reads the roster cursor (test seam).
+    #[cfg(test)]
+    head_hook: Option<(SyncSender<()>, Receiver<()>)>,
+    /// The thread of each journal read (head or page) and snapshot save of
+    /// the roster, by name (test seam: only the roster's owner may do them).
+    #[cfg(test)]
+    io_threads: Vec<Option<String>>,
 }
 
 impl AgentRosterFold {
@@ -56,6 +58,19 @@ impl AgentRosterFold {
             let _ = release.recv();
         }
     }
+
+    #[cfg(test)]
+    fn pause_after_head_for_test(&mut self) {
+        if let Some((entered, release)) = self.head_hook.take() {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
+    }
+
+    #[cfg(test)]
+    fn note_io_for_test(&mut self) {
+        self.io_threads.push(std::thread::current().name().map(str::to_owned));
+    }
 }
 
 impl Mux {
@@ -67,8 +82,34 @@ impl Mux {
         entered: SyncSender<()>,
         release: Receiver<()>,
     ) {
-        self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
+        self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
             Some((entered, release));
+    }
+
+    /// The next roster fold signals `entered` after it took the requests and
+    /// read the journal head, and waits for `release` before it goes on.
+    #[cfg(test)]
+    pub(crate) fn pause_agent_roster_fold_after_head_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner).head_hook =
+            Some((entered, release));
+    }
+
+    /// The names of the threads that read the journal for the roster or
+    /// saved its snapshot since the last call, in order.
+    #[cfg(test)]
+    pub(crate) fn take_agent_roster_io_threads_for_test(&self) -> Vec<Option<String>> {
+        std::mem::take(
+            &mut self
+                .agent_roster_worker
+                .fold
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .io_threads,
+        )
     }
 
     /// Committed agent hook events double as the live agent-status feed:
@@ -298,10 +339,10 @@ impl Mux {
     /// effort by design: a hook may outlive its terminal, and a journal
     /// append must never start failing because a view cannot update.
     ///
-    /// On a request path: it never waits for the fold. When another thread
-    /// folds (a maintenance catch-up reading the journal tail), that thread
-    /// folds this commit too before it lets go (cmux-ad m11 2: one request
-    /// waiting here held every later request of its connection).
+    /// On a request path, so it only records the fold for the roster's owner
+    /// (`agent_roster_worker.rs`) and returns: the owner folds right after,
+    /// on its own thread (cmux-ad m11 2: a request that waited for a fold or
+    /// did one held every later request of its connection).
     pub(super) fn fold_agent_roster(
         &self,
         ingress: &crate::JournalIngress,
@@ -319,93 +360,63 @@ impl Mux {
     /// A closed terminal's roster entry goes once the roster has folded the
     /// journal head, so none of its earlier events brings it back; then the
     /// snapshot is saved, so a restart does not resurrect it either. On a
-    /// request path: it never waits for the fold ([`Mux::fold_agent_roster`]).
+    /// request path: it records the retirement for the roster's owner and
+    /// returns. `list_agents` hides the terminal at once, since it lists only
+    /// terminals in the catalog, which the close already left.
     pub(super) fn retire_roster_terminal(&self, terminal_id: &TerminalPublicId) {
         self.request_roster_work(None, Some(terminal_id.to_string()));
     }
 
-    /// Records the work, then does it unless another thread holds the fold.
-    fn request_roster_work(&self, through: Option<u64>, retire: Option<String>) {
-        {
-            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(through) = through {
-                host.requests.wanted = host.requests.wanted.max(through);
-            }
-            if let Some(terminal) = retire {
-                host.requests.retire.push(terminal);
-            }
-        }
-        self.drain_roster_requests();
-    }
-
-    /// Does the recorded roster work while no other thread holds the fold.
-    /// A thread that finds the fold held returns at once: the holder checks
-    /// the requests again after it lets go, so none is left behind.
-    fn drain_roster_requests(&self) {
-        loop {
-            let fold = match self.agent_roster_fold.try_lock() {
-                Ok(fold) => fold,
-                Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-                Err(std::sync::TryLockError::WouldBlock) => return,
-            };
-            let (deltas, progressed) = self.run_roster_work(fold, false);
-            for (delta, kind) in deltas {
-                self.apply_roster_delta(delta, &kind);
-            }
-            if !progressed || !self.roster_work_pending() {
-                return;
-            }
-        }
-    }
-
-    /// Whether a request asked for a fold past the roster's cursor, or a
-    /// retirement waits.
-    fn roster_work_pending(&self) -> bool {
-        let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-        host.requests.wanted > host.cursor || !host.requests.retire.is_empty()
-    }
-
-    /// The roster work, with `fold` held: fold the journal through what was
-    /// asked (the head for a catch-up or when a retirement waits, read again
-    /// after each page for requests that came meanwhile), retire the closed
-    /// terminals, and save the snapshot with its cursor. Returns the plugin
-    /// deltas, each with its record's kind, and whether it did anything.
+    /// One pass of the roster's owner, on its thread: fold the journal through
+    /// what was asked (the head for a catch-up, or when a retirement waits;
+    /// read again after each page for requests that came meanwhile), retire
+    /// the closed terminals once the roster has folded that head, save the
+    /// snapshot with its cursor when the pass changed either, and apply the
+    /// plugin deltas. Returns the retirements it could not do (the head or a
+    /// page could not be read), for the next pass.
     ///
-    /// The fold orders folds and snapshot saves, so only this fold moves the
-    /// cursor until it returns. Every record through the target is committed
-    /// (a live fold's own commit, or the head), and the single journal
-    /// writer commits sequences in order, so a reader of committed data
-    /// sees every record the startup replay would fold. The tail is read
-    /// with no daemon lock a request takes (STATUS 6460: the read under the
-    /// registry lock held it 1.378 s under load; cmux-ad m11 2: under the
-    /// fold, which request paths took, 5-8 s); the roster lock is taken only
-    /// to apply each page that was read.
-    fn run_roster_work(
-        &self,
-        mut fold: MutexGuard<'_, AgentRosterFold>,
-        from_head: bool,
-    ) -> (Vec<(crate::journal_reducers::RosterDelta, String)>, bool) {
+    /// Only the owner folds and saves, so only it moves the cursor. Every
+    /// record through the target is committed (a request's own commit, or the
+    /// head), and the single journal writer commits sequences in order, so a
+    /// reader of committed data sees every record the startup replay would
+    /// fold. The tail is read with no lock a request takes (STATUS 6460: the
+    /// read under the registry lock held it 1.378 s under load; cmux-ad m11 2:
+    /// under the fold lock, which request paths took, 5-8 s); the roster lock
+    /// is taken only to apply each page that was read.
+    fn run_roster_pass(&self, pass: agent_roster_worker::RosterPass) -> Vec<String> {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
-        let (mut target, retire) = {
-            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            (host.requests.wanted, std::mem::take(&mut host.requests.retire))
-        };
-        if from_head || !retire.is_empty() {
-            let head = match fold.reader(&self.journal_kernel) {
+        let mut fold = self.agent_roster_worker.fold.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut target = pass.wanted;
+        // The head a retirement waits for. It is read after the close
+        // recorded the retirement, so every event of the closed terminal is at
+        // or before it.
+        let mut head = None;
+        if pass.head || !pass.retire.is_empty() {
+            #[cfg(test)]
+            fold.note_io_for_test();
+            let read = match fold.reader(&self.journal_kernel) {
                 Some(reader) => reader.head(),
                 None => self.session_journal_head(),
             };
-            match head {
-                Ok(head) => target = target.max(head),
+            match read {
+                Ok(read) => {
+                    head = Some(read);
+                    target = target.max(read);
+                }
                 Err(error) => eprintln!("cmux-tui: reading the journal head failed: {error}"),
             }
         }
+        #[cfg(test)]
+        fold.pause_after_head_for_test();
         let start = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         let mut cursor = start;
         let mut deltas = Vec::new();
+        let mut changed = false;
         while cursor < target {
+            #[cfg(test)]
+            fold.note_io_for_test();
             // Terminal output between agent events is skipped by the read:
             // the roster ignores it.
             let page = match fold.reader(&self.journal_kernel) {
@@ -426,6 +437,7 @@ impl Mux {
             let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             for record in &records {
                 let changes = host.roster.apply(&RosterEvent::from_record(record));
+                changed |= !changes.is_empty();
                 // Hooks already use the durable projector, which decides
                 // events with the same session fence as this fold.
                 // Applying their reducer delta again would duplicate its
@@ -441,56 +453,55 @@ impl Mux {
             }
             host.cursor = reached;
             cursor = reached;
+            drop(host);
             // A request that came meanwhile is folded in the same pass.
-            target = target.max(host.requests.wanted);
+            target = target.max(self.wanted_roster_sequence());
         }
-        let (cursor, retired, snapshot) = {
+        let mut retired = false;
+        let (left, saved) = {
             let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            let mut retired = false;
-            for terminal in &retire {
-                retired |= host.roster.retire_terminal(terminal);
-            }
-            (host.cursor, retired, host.roster.snapshot().to_string())
+            // Only after a head read and a fold that reached it: otherwise a
+            // closed terminal's earlier event, folded later, would bring its
+            // entry back.
+            let left = match head {
+                Some(head) if host.cursor >= head => {
+                    for terminal in &pass.retire {
+                        retired |= host.roster.retire_terminal(terminal);
+                    }
+                    Vec::new()
+                }
+                _ => pass.retire,
+            };
+            // The snapshot and its cursor are read together. A pass that
+            // changed neither saves nothing and serializes nothing.
+            let saved = (host.cursor != start || retired)
+                .then(|| (host.cursor, host.roster.snapshot().to_string()));
+            (left, saved)
         };
-        let progressed = cursor != start || retired;
-        if !progressed {
-            return (deltas, false);
-        }
-        // The connection alone, never the workspace registry lock, so state
-        // commits do not wait behind the snapshot write (issue 23038).
-        if let Err(error) = self.registry_connection.put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            cursor,
-            &snapshot,
-        ) {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+        if let Some((cursor, snapshot)) = saved {
+            #[cfg(test)]
+            fold.note_io_for_test();
+            // The connection alone, never the workspace registry lock, so
+            // state commits do not wait behind the snapshot write (issue 23038).
+            if let Err(error) = self.registry_connection.put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                cursor,
+                &snapshot,
+            ) {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+            }
         }
         drop(fold);
-        (deltas, true)
-    }
-
-    /// Fold the journal tail into the roster and save its cursor at the
-    /// head, so a start replays at most one maintenance tick of records.
-    /// Shutdown does not call it: it takes the registry lock, which a commit
-    /// stuck in admission can hold, and shutdown must stay bounded.
-    ///
-    /// Lawrence 2026-10-30: the cursor moved only with agent events, so a
-    /// quiet stretch left it 9,821 records behind on a nightly registry and
-    /// each start decoded 13 sealed segments (about 300 ms cold) to fold
-    /// records that change nothing. Same fold, locks and save as an agent
-    /// event's ([`Mux::fold_agent_roster`]); a plugin delta it meets first is
-    /// applied here, since the live fold then finds the record behind the
-    /// cursor. The maintenance worker's background thread: it may wait for
-    /// the fold, which a request path never does.
-    pub(super) fn catch_up_agent_roster(&self) {
-        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
-        let (deltas, _) = self.run_roster_work(fold, true);
         for (delta, kind) in deltas {
             self.apply_roster_delta(delta, &kind);
         }
-        // What requests asked for while this fold ran and after its last check.
-        self.drain_roster_requests();
+        // The live agent count reads the roster; an activity event sent
+        // between the request and this pass read the old count.
+        if changed || retired {
+            self.activity.note_roster_changed();
+        }
+        left
     }
 
     /// Repair public projections whose plugin roster event was folded before
