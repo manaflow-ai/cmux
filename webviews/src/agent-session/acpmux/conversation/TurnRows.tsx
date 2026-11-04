@@ -97,11 +97,7 @@ export function WorkedFor({
           <TurnTokens split={row.tokens} />
         </span>
       )}
-      <ChevronRight
-        size={14}
-        strokeWidth={1.2}
-        className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`}
-      />
+      <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
     </button>
   );
 }
@@ -724,12 +720,7 @@ function TurnFailure({
             {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
             <summary className="cv-turn-note__summary">
               {t("turn.failure.details")}
-              <ChevronRight
-                size={12}
-                strokeWidth={1.2}
-                aria-hidden="true"
-                className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
-              />
+              <ChevronRight size={12} aria-hidden="true" className={`cv-rotor${detailsOpen ? " is-open" : ""}`} />
             </summary>
             <span className="cv-turn-error__raw">
               <span className="block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>

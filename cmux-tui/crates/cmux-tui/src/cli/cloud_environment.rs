@@ -218,6 +218,35 @@ mod tests {
         }
     }
 
+    /// The `cloud env` lines of `cmux cloud --help` parse here, each named environment of
+    /// `set`'s `a|b|c` alternatives included.
+    #[test]
+    fn the_help_env_lines_parse() {
+        for japanese in [false, true] {
+            let help = crate::cli::cloud_help::overview(japanese);
+            let lines = help
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("cmux cloud env "))
+                .collect::<Vec<_>>();
+            assert_eq!(lines.len(), 2, "{lines:?}");
+            for line in lines {
+                let line = line.trim_end_matches(" --json");
+                let (verb, names) = line.split_once(' ').unwrap_or((line, ""));
+                if names.is_empty() {
+                    assert_eq!(parse(&words(&[verb])).unwrap(), Command::Get, "{line}");
+                    continue;
+                }
+                for name in names.split('|') {
+                    let name = if name == "preview-N" { "preview-7" } else { name };
+                    assert!(
+                        matches!(parse(&words(&[verb, name])), Ok(Command::Set(_))),
+                        "{line}: {name}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn live_apply_checks_bundle_before_sending_mutation() {
         use std::io::{BufRead, BufReader, Write};

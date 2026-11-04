@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { claudeLoginPrograms, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { cliExecWithFallback, nativeProofSkip, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -71,5 +72,55 @@ describe("cloud journey", () => {
     expect(team.preflight).toContain("owner|team");
     expect(team.install("/p.json")).toContain("'/p.json' owner,team <<");
     expect(claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8")).install("/p.json")).toContain("'/p.json' owner <<");
+  });
+  test("Codex: the made-up sign-in passes the app's validation and the installer gets the codex provider", () => {
+    const auth = stubCodexAuth("ab".repeat(16), new Date("2026-11-04T00:00:00Z"));
+    expect(validLogin("codex", auth)).toBe(true);
+    expect(validLogin("codex", JSON.stringify({ OPENAI_API_KEY: "sk-x", tokens: {} }))).toBe(false);
+    expect(validLogin("claude", auth)).toBe(false);
+    expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
+    expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
+  });
+});
+
+describe("cloud journey: link_token on a Native machine", () => {
+  const refusal = (code: string, reason?: string) => ({ ok: false, error: { code, message: "m", ...(reason ? { details: { reason } } : {}) } });
+  test("skips only a refusal for want of a Native device enrollment", () => {
+    for (const reason of ["host_missing", "host_unconfirmed", "proof_missing"])
+      expect(nativeProofSkip(refusal("auth.forbidden", reason))).toContain(`needs a Native device proof (app-only): link_token refused ${reason}`);
+  });
+  test("keeps every other answer red", () => {
+    expect(nativeProofSkip(refusal("auth.forbidden"))).toBeNull(); // an older backend names no check
+    expect(nativeProofSkip(refusal("auth.forbidden", "vm_services"))).toBeNull();
+    expect(nativeProofSkip(refusal("auth.forbidden", "host_grant"))).toBeNull();
+    expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
+    expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
+    expect(nativeProofSkip(undefined)).toBeNull();
+  });
+  test("the login preflight waits for the guest's bind, then names the failing check", async () => {
+    const noPause = async () => {};
+    let calls = 0;
+    const late = async (command: string) => ({ code: command === "pre" && ++calls >= 3 ? 0 : 1, stdout: "", stderr: "" });
+    expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
+    const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
+    await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+});
+
+describe("cloud journey: exec on a VM API machine", () => {
+  test("falls back to the machine exec route once the CLI answers cloud.provider.unsupported", async () => {
+    const calls: string[] = [];
+    const cli = async (c: string) => (calls.push(`cli ${c}`), { code: 1, stdout: "", stderr: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" });
+    const direct = async (c: string) => (calls.push(`direct ${c}`), { code: 0, stdout: "ok", stderr: "" });
+    const journey = { meta: {} as Record<string, string> };
+    const exec = cliExecWithFallback(cli, direct, journey);
+    expect((await exec("a")).stdout).toBe("ok");
+    expect((await exec("b")).stdout).toBe("ok");
+    expect(calls).toEqual(["cli a", "direct a", "direct b"]);
+    expect(journey.meta.exec_route).toContain("CLI gap");
+  });
+  test("keeps every other CLI failure as the step's own", async () => {
+    const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
+    expect((await exec("a")).code).toBe(2);
   });
 });
