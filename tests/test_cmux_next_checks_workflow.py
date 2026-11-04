@@ -1487,6 +1487,8 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
                 # Always, unless the job reused a pass (JobsReuseAPassOnTheSameInputs) and wrote none, or
                 # the fast tier only reports its build-fleet client's verdict (GatewayRunsOnlyTheFleetClient).
                 guard = f"(always()) && {REUSE_GUARD}"
+                if name == "fast-tier-cargo":
+                    guard += " && steps.planner-reuse.outputs.hit != 'true'"
                 if name == "fast-tier":
                     guard = f"env.CMUX_FAST_TIER_FLEET != 'report' && ({guard})"
                 self.assertEqual(upload.get("if"), f"${{{{ {guard} }}}}")
@@ -1677,8 +1679,14 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
 
     def test_cargo_planner_reuse_requires_the_promoted_mode_and_trusted_push(self):
         steps = self.steps("fast-tier-cargo")
+        evidence = steps[index_of(steps, lambda s: s.get("id") == "planner-evidence")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", evidence["if"])
+        self.assertIn("verify-evidence", evidence["run"])
+        self.assertIn(".github/rebuild-mirror-evidence.json", evidence["run"])
+        self.assertIs(evidence.get("continue-on-error"), True)
         lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
         self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])
+        self.assertIn("steps.planner-evidence.outputs.eligible == 'true'", lookup["if"])
         self.assertIn("steps.reuse-key.outputs.candidate_key != ''", lookup["if"])
         self.assertIn("--trusted-branch feat-cmux-next --trusted-event push", lookup["run"])
         self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])

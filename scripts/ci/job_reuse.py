@@ -39,19 +39,47 @@ class Miss(Exception):
 
 
 def pick(artifacts: list[dict], key: str, repository_id: str,
-         trusted_branch: str | None = None, trusted_event: str | None = None) -> dict | None:
+         trusted_branch: str | None = None, trusted_event: str | None = None,
+         run_reader=None) -> dict | None:
     """The newest unexpired artifact from a trusted producer run."""
     trusted = []
     for item in artifacts:
         run = item.get("workflow_run") or {}
         if item.get("name") != key or item.get("expired"):
             continue
-        if str(run.get("repository_id")) != repository_id or str(run.get("head_repository_id")) != repository_id:
+        repository = run.get("repository_id")
+        head_repository = run.get("head_repository_id")
+        if (repository is not None and str(repository) != repository_id) or \
+                (head_repository is not None and str(head_repository) != repository_id):
             continue
-        if trusted_branch is not None and run.get("head_branch") != trusted_branch:
+        if trusted_branch is not None and run.get("head_branch") not in (None, trusted_branch):
             continue
-        if trusted_event is not None and run.get("event") != trusted_event:
-            continue
+        # The artifact-list response commonly omits ``event`` (and can omit
+        # other producer identity fields).  A narrowed planner lookup must
+        # resolve the authoritative workflow-run record instead of treating a
+        # missing field as a trusted push.  Tests and offline callers provide a
+        # run_reader; production uses the Actions API below.
+        if trusted_event is not None:
+            event = run.get("event")
+            details = run_reader(run.get("id")) if run_reader is not None else None
+            if details is not None:
+                event = details.get("event")
+                if details.get("head_branch") != trusted_branch:
+                    continue
+                repo = details.get("repository") or {}
+                head_repo = details.get("head_repository") or {}
+                if str(repo.get("id", details.get("repository_id"))) != repository_id:
+                    continue
+                if str(head_repo.get("id", details.get("head_repository_id"))) != repository_id:
+                    continue
+                if details.get("status") not in (None, "completed"):
+                    continue
+            elif repository is None or head_repository is None:
+                # With no authoritative run and no repository identity in the
+                # artifact listing, this candidate cannot be trusted.
+                continue
+            if event != trusted_event:
+                continue
         trusted.append(item)
     return max(trusted, key=lambda item: item.get("created_at") or "", default=None)
 
@@ -106,14 +134,57 @@ def listing(key: str, path: str | None) -> list[dict]:
     return artifacts
 
 
+def run_listing(path: str | None) -> dict[int, dict] | None:
+    """Read an optional fixture of authoritative workflow-run records."""
+    if not path:
+        return None
+    data = json.loads(open(path, encoding="utf-8").read())
+    rows = data.get("workflow_runs", data) if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        raise Miss("the workflow-run listing has no list")
+    result = {}
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") is not None:
+            result[int(row["id"])] = row
+    return result
+
+
+def producer_run(run_id: object, fixture: dict[int, dict] | None) -> dict | None:
+    if run_id is None:
+        return None
+    if fixture is not None:
+        return fixture.get(int(run_id))
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    repo = os.environ.get("GITHUB_REPOSITORY")
+    if not token or not repo:
+        return None
+    api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    path = f"/repos/{repo}/actions/runs/{int(run_id)}"
+    request = urllib.request.Request(f"{api}{path}", headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            note_call(response.headers, "GET", path)
+            value = json.loads(response.read().decode())
+    except OSError as error:
+        if isinstance(error, urllib.error.HTTPError):
+            note_call(error.headers, "GET", path)
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def lookup(key: str, path: str | None, trusted_branch: str | None = None,
-           trusted_event: str | None = None) -> dict[str, str]:
+           trusted_event: str | None = None, runs_path: str | None = None) -> dict[str, str]:
     if not KEY.match(key):
         raise Miss(f"{key!r} is not a pass key")
     repository_id = os.environ.get("GITHUB_REPOSITORY_ID", "").strip()
     if not repository_id:
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no pass can be checked")
-    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event)
+    fixture = run_listing(runs_path)
+    reader = (lambda run_id: producer_run(run_id, fixture)) if trusted_event is not None else None
+    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event, reader)
     if found is None:
         return {"hit": "false"}
     run = found["workflow_run"]
@@ -130,9 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--artifacts-json", help="read the artifact listing from this file")
     find.add_argument("--trusted-branch", help="require the producer run's head branch")
     find.add_argument("--trusted-event", help="require the producer run's event")
+    find.add_argument("--runs-json", help="authoritative workflow-run records for offline tests")
     args = parser.parse_args(argv)
     try:
-        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event)
+        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event, args.runs_json)
     except Miss as why:
         print(f"::notice title=No reused pass::{why}", file=sys.stderr)
         outputs = {"hit": "false"}

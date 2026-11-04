@@ -22,6 +22,7 @@ import job_input_fingerprint as inputs
 import job_reuse
 
 TABLE = ".github/warm-sources.json"
+EVIDENCE = ".github/rebuild-mirror-evidence.json"
 SCRIPT = "scripts/ci/rebuild_mirror.py"
 SCHEMA = "ci-rebuild-mirror/v1"
 
@@ -32,6 +33,15 @@ def digest(value: object) -> str:
 
 def under(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
+
+
+def policy_identity(root: str, rev: str, job: str) -> str:
+    """Identity of the declarations and planner code used by mirror evidence."""
+    table = json.loads(inputs.git(root, "show", f"{rev}:{TABLE}"))
+    policy = table["jobs"][f"cmux-next.yml:{job}"]["rebuild_mirror"]
+    return digest({"policy": policy, "script": inputs.git(root, "rev-parse", f"{rev}:{SCRIPT}"),
+                   "fingerprint": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_input_fingerprint.py"),
+                   "graph": inputs.git(root, "rev-parse", f"{rev}:{inputs.GRAPH}")})
 
 
 def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
@@ -64,6 +74,11 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
             continue
         meta, path_bytes = entry.split(b"\t", 1)
         path = path_bytes.decode("utf-8", errors="strict")
+        # Promotion evidence is control-plane metadata.  It is deliberately
+        # excluded from the job's candidate closure so recording a completed
+        # mirror day cannot invalidate the key it is meant to promote.
+        if path == EVIDENCE:
+            continue
         if any(under(path, p) for p in independent) and not any(under(path, p) for p in keep):
             omitted.append(path)
         else:
@@ -71,9 +86,7 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
     value = {key: val for key, val in full.items() if key != "tree"}
     value.update(schema=SCHEMA, inputs=selected)
     # Bind evidence to the actual planner and declarations, never a mutable version label.
-    policy_key = digest({"policy": policy, "script": inputs.git(root, "rev-parse", f"{rev}:{SCRIPT}"),
-                         "fingerprint": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_input_fingerprint.py"),
-                         "graph": inputs.git(root, "rev-parse", f"{rev}:{inputs.GRAPH}")})
+    policy_key = policy_identity(root, rev, job)
     value["policy"] = policy_key
     return digest(value), {"policy": policy_key, "omitted_paths": len(omitted),
                            "input_paths": len(selected)}
@@ -185,6 +198,27 @@ def report(records: list[dict]) -> dict:
             "note": "Execution-step estimate only; reconcile runner minutes and merged PRs separately."}
 
 
+def verify_evidence(root: str, rev: str, job: str, evidence: Path) -> tuple[bool, str]:
+    """Fail closed unless committed promotion evidence proves a full mirror day."""
+    try:
+        value = json.loads(evidence.read_text(encoding="utf-8"))
+        if value.get("schema") != "ci-rebuild-evidence/v1" or value.get("enabled") is not True:
+            return False, "evidence is not enabled"
+        if value.get("policy") != policy_identity(root, rev, job):
+            return False, "evidence policy does not match this checkout"
+        if float(value.get("window_seconds", 0)) < 86400:
+            return False, "evidence window is shorter than 24 hours"
+        if value.get("false_skip_rate") != 0 and value.get("false_skip_rate") != 0.0:
+            return False, "evidence false-skip rate is not zero"
+        if int(value.get("complete", 0)) <= 0:
+            return False, "evidence has no complete observations"
+        if not value.get("measured_at"):
+            return False, "evidence has no measurement timestamp"
+        return True, "eligible"
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+        return False, f"evidence unavailable: {error}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -195,11 +229,20 @@ def main() -> int:
     end.add_argument("--execution-receipt", type=Path, required=True)
     summary = commands.add_parser("report")
     summary.add_argument("receipts", type=Path, nargs="+")
+    verify = commands.add_parser("verify-evidence")
+    verify.add_argument("--root", default=".")
+    verify.add_argument("--rev", default="HEAD")
+    verify.add_argument("--job", default="fast-tier-cargo")
+    verify.add_argument("--evidence", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "finish":
         finish(args.plan, args.outcome, args.output, args.execution_receipt)
-    else:
+    elif args.command == "report":
         print(json.dumps(report([json.loads(p.read_text()) for p in args.receipts]), indent=2))
+    else:
+        eligible, reason = verify_evidence(args.root, args.rev, args.job, args.evidence)
+        print(f"eligible={'true' if eligible else 'false'}")
+        print(f"reason={reason}")
     return 0
 
 

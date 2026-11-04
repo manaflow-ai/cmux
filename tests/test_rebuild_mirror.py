@@ -100,6 +100,12 @@ class CandidateInputs(unittest.TestCase):
         self.commit()
         self.assertNotEqual(before, self.key())
 
+    def test_promotion_evidence_does_not_invalidate_the_candidate_key(self):
+        before = self.key()
+        self.write(mirror.EVIDENCE, '{"schema":"ci-rebuild-evidence/v1","enabled":false}\n')
+        self.commit()
+        self.assertEqual(before, self.key())
+
     def test_deleted_input_invalidates_candidate(self):
         before = self.key()
         (self.root / "other/input.txt").unlink()
@@ -165,6 +171,23 @@ class CandidateInputs(unittest.TestCase):
             mirror.start(str(self.root), "HEAD", "release-compile", self.full(), plan)
         record = json.loads(plan.read_text())
         self.assertIn(f"candidate_key={record['candidate_key']}", stdout.getvalue())
+
+    def test_promotion_evidence_requires_matching_policy_and_a_full_day(self):
+        evidence = self.root / "evidence.json"
+        base = {"schema": "ci-rebuild-evidence/v1", "enabled": True,
+                "policy": mirror.policy_identity(str(self.root), "HEAD", "release-compile"),
+                "window_seconds": 86400, "false_skip_rate": 0,
+                "complete": 1, "measured_at": "2026-11-04T00:00:00Z"}
+        evidence.write_text(json.dumps(base))
+        self.assertEqual(mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence),
+                         (True, "eligible"))
+        for field, value in (("policy", "wrong"), ("window_seconds", 86399),
+                             ("false_skip_rate", 0.01), ("complete", 0), ("enabled", False)):
+            with self.subTest(field=field):
+                changed = dict(base, **{field: value})
+                evidence.write_text(json.dumps(changed))
+                eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
 
     def test_pr_job_keeps_both_actions_head_and_built_merge_commit(self):
         plan = self.root / "plan.json"

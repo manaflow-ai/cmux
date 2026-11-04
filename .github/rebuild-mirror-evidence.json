@@ -1,0 +1,8 @@
+{
+  "schema": "ci-rebuild-evidence/v1",
+  "enabled": false,
+  "window_seconds": 0,
+  "false_skip_rate": null,
+  "complete": 0,
+  "measured_at": null
+}
