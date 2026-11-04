@@ -1,5 +1,16 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-03: a machine's name drawn in its colour reads in every theme. The user, verbatim: "we need to make sure
+  every single theme, all the UI elements are colored properly". A priority row's place tag and a workspace hover
+  card's host drew the raw machine colour as text: a person's `#FFFF00` read 1.1:1 on a light theme, `#000080` 1.6:1
+  on a dark one. The text keeps the colour's hue and is raised to 4.5:1 on the bare, hovered, selected and pressed row
+  (`MachineColor.rowTextColor`), or on the overlay card for the hover card (`pickedCardTextColor`); a colour that
+  already reads is unchanged. Dots, icons and layout are unchanged. Regression: `MachineColorTextEveryThemeTests`.
+
+- 2026-11-04: the Home list header follows `sidebar.density` and `sidebar.textSize` (HomeSidebarHeaderMetrics, from `SidebarRowTokens.band`, so Expanded is Comfortable's):
+  the filter circle and search field (30 pt at Compact/default), the Unread chip (24 pt, 12 pt text) and the empty
+  list's No Unread Chats and Show All grow by the row tokens' extraHeight and textStep, live. Compact/default keeps
+  its sizes. The user: the playground's Home filter columns all looked the same. Regression: HomeHeaderDensityTests.
 - 2026-11-04: at Expanded, the bands above the list (Home, pinned rows) and the workspace hover card use the
   Comfortable tokens (`SidebarRowTokens.band`): pinned row 28 pt (was 24), card 207×187 (was 203×167). List rows
   and the footer keep the app row. Lawrence: pinned rows were too short. Regression: SidebarBandTokensTests.
