@@ -30,6 +30,8 @@ mod client_log;
 #[cfg(unix)]
 mod cloud_conversations_backend;
 #[cfg(unix)]
+mod cloud_environment;
+#[cfg(unix)]
 mod coderouter_usage;
 #[cfg(unix)]
 mod codex_wrapper;

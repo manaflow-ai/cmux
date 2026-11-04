@@ -25,6 +25,7 @@ mod journal_roster;
 mod kitty_budget;
 mod kitty_reservation;
 mod layout_apply_focus;
+mod layout_sizes;
 mod layout_undo;
 mod layout_undo_commit;
 mod lone_dock;
