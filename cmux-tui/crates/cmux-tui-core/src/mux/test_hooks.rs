@@ -164,6 +164,29 @@ impl Mux {
         self.next_id()
     }
 
+    /// Commits host terminal `terminal_id` to `lifecycle` with `incarnation`,
+    /// as adoption does (Adopting, then Running once its runtime is live).
+    #[cfg(all(test, unix))]
+    pub(crate) fn commit_terminal_lifecycle_for_test(
+        &self,
+        terminal_id: &str,
+        lifecycle: TerminalLifecycle,
+        incarnation: &str,
+    ) -> anyhow::Result<()> {
+        let event_kind = match lifecycle {
+            TerminalLifecycle::Adopting => "terminal-adopting",
+            _ => "terminal-ready",
+        };
+        self.transition_terminal_lifecycle(
+            event_kind,
+            "test-terminal-lifecycle",
+            terminal_id,
+            lifecycle,
+            Some(incarnation),
+        )
+        .map(drop)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_terminal_close_failure_for_test(&self, enabled: bool) -> anyhow::Result<()> {
         self.workspace_registry.lock().unwrap().set_terminal_close_failure(enabled)

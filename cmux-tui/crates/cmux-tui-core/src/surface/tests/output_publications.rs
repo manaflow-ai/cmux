@@ -216,6 +216,11 @@ fn a_host_loss_commits_the_directory_the_shell_reported_last() {
     attachment.record.terminal_id = TERMINAL.into();
     attachment.record.incarnation = INCARNATION.into();
     attachment.record.workspace_key = workspace.key.clone();
+    // A live reader for the running terminal, as adoption makes one: the terminal is adopting while its reader
+    // starts, then running.
+    use crate::workspace_registry::TerminalLifecycle;
+    mux.commit_terminal_lifecycle_for_test(TERMINAL, TerminalLifecycle::Adopting, INCARNATION)
+        .unwrap();
     let surface = Surface::spawn_hosted(
         mux.next_surface_id_for_test(),
         SurfaceOptions::default(),
@@ -227,12 +232,16 @@ fn a_host_loss_commits_the_directory_the_shell_reported_last() {
             terminate_on_error: false,
             defer_launch_activation: false,
             lifetime: PtyLifetime::SessionOwned,
-            terminal_public_id: Some(terminal.clone()),
+            terminal_public_id: Some(terminal),
             resource_identity: None,
         },
     )
     .unwrap();
+    let terminal = surface.terminal_public_id().cloned().expect("the live runtime's public id");
     mux.install_live_terminal_runtime_for_test(&terminal, surface.clone()).unwrap();
+    surface.release_pending_terminal_host_binding();
+    mux.commit_terminal_lifecycle_for_test(TERMINAL, TerminalLifecycle::Running, INCARNATION)
+        .unwrap();
     host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
     let lifecycle = || {
         mux.workspace_registry
@@ -243,7 +252,7 @@ fn a_host_loss_commits_the_directory_the_shell_reported_last() {
             .expect("the seeded terminal's record")
             .lifecycle
     };
-    assert_eq!(lifecycle(), crate::workspace_registry::TerminalLifecycle::Running);
+    assert_eq!(lifecycle(), TerminalLifecycle::Running);
     let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
     let dir_text = dir.to_string_lossy().into_owned();
     {
@@ -257,7 +266,7 @@ fn a_host_loss_commits_the_directory_the_shell_reported_last() {
         );
         drop(host);
         let deadline = Instant::now() + Duration::from_secs(10);
-        while lifecycle() == crate::workspace_registry::TerminalLifecycle::Running {
+        while lifecycle() == TerminalLifecycle::Running {
             assert!(
                 Instant::now() < deadline,
                 "the reader did not handle the lost host connection"
