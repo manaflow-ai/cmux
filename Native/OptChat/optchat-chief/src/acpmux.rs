@@ -1659,3 +1659,18 @@ mod whole_list_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod wait_start_tests {
+    use super::{SessionSpec, chief_tags, session_meta};
+
+    #[test]
+    fn a_chiefs_own_session_waits_on_its_harness_and_no_other_does() {
+        let chief = SessionSpec {
+            tags: chief_tags("home", "turn"),
+            ..SessionSpec::default()
+        };
+        assert_eq!(session_meta(&chief, None)["waitStart"], true);
+        assert!(session_meta(&SessionSpec::default(), None).get("waitStart").is_none());
+    }
+}
