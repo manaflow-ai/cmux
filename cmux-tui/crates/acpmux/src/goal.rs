@@ -4,7 +4,7 @@
 //! daemon stores one typed shape so clients can render Codex goals and Claude
 //! loops through the same projection while retaining fields from newer agents.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
@@ -201,6 +201,16 @@ impl GoalState {
         normalized.insert("objective".to_owned(), Value::String(objective.to_owned()));
         normalized.insert("status".to_owned(), Value::String(status.as_str().to_owned()));
         normalized.insert("provider".to_owned(), Value::String(provider.as_str().to_owned()));
+        // Older daemons stored the goal as an untyped JSON value.  Ignore malformed
+        // typed fields instead of letting one stale field make SessionMeta unloadable.
+        for key in ["tokenBudget", "tokensUsed", "timeUsedSeconds", "elapsedSeconds"] {
+            if normalized.get(key).is_some_and(|value| value.as_u64().is_none()) {
+                normalized.remove(key);
+            }
+        }
+        if normalized.get("steps").is_some_and(|value| !value.is_array()) {
+            normalized.remove("steps");
+        }
         serde_json::from_value(Value::Object(normalized)).ok()
     }
 
@@ -263,6 +273,19 @@ impl GoalState {
     pub fn to_value(&self) -> Value {
         serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()))
     }
+}
+
+/// Migration hook for the persisted `SessionMeta.goal` field.
+///
+/// Before goals were typed, any JSON object could be stored there.  A malformed
+/// legacy value should be dropped like the web parser drops malformed metadata,
+/// rather than preventing the whole session from loading after a daemon restart.
+pub fn deserialize_option<'de, D>(deserializer: D) -> Result<Option<GoalState>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.as_ref().and_then(|value| GoalState::from_value(value, None)))
 }
 
 #[cfg(test)]
@@ -335,5 +358,44 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(stalled.lifecycle(), "stalled");
+    }
+
+    #[test]
+    fn drops_malformed_legacy_fields_without_failing_the_session() {
+        let goal = GoalState::from_value(
+            &json!({
+                "objective": "Keep going",
+                "status": 42,
+                "provider": null,
+                "tokenBudget": -1,
+                "tokensUsed": "unknown",
+                "steps": "not-a-list"
+            }),
+            Some("codex"),
+        )
+        .unwrap();
+        assert_eq!(goal.provider, GoalProvider::Codex);
+        assert_eq!(goal.lifecycle(), "running");
+        assert_eq!(goal.token_budget, None);
+        assert_eq!(goal.steps, None);
+    }
+
+    #[test]
+    fn persisted_goal_migration_drops_invalid_objects() {
+        #[derive(Deserialize)]
+        struct Stored {
+            #[serde(default, deserialize_with = "crate::goal::deserialize_option")]
+            goal: Option<GoalState>,
+        }
+
+        let stored: Stored = serde_json::from_value(json!({
+            "goal": {
+                "objective": "Keep going",
+                "status": "running",
+                "tokenBudget": "old-format"
+            }
+        }))
+        .unwrap();
+        assert_eq!(stored.goal.unwrap().objective, "Keep going");
     }
 }
