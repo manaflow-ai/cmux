@@ -147,7 +147,8 @@ struct ParkedPageWindowResizeLayoutTests {
             perStep.append(counts.calls.filter { $0.key != "hosting" })
         }
         #expect(page.frame == parkedFrame, "the parked page followed the window: \(parkedFrame) -> \(page.frame)")
-        #expect(perStep.dropFirst().allSatisfy(\.isEmpty), "the parked page's AppKit views laid out on resize steps: \(perStep)")
+        let laidOutAfterFirst = perStep.dropFirst().contains { !$0.isEmpty }
+        #expect(!laidOutAfterFirst, "the parked page's AppKit views laid out on resize steps: \(perStep)")
 
         // Shown again: at the size the pane shows it at now, laid out there.
         counts.reset()
