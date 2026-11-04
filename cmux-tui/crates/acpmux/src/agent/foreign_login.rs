@@ -144,11 +144,16 @@ fn canonical(label: &str) -> Option<String> {
 }
 
 /// A command line that starts acpmux harnesses under itself, in the exact
-/// shape acpmux gives it: the Chief brain (`<cli> chief acp`,
-/// `config/discover.rs`) or uniichat (`<acpmux argv> uniichat-agent`).
+/// shape acpmux gives it (`config/discover.rs`): acpmux's own multicall
+/// binary (`cmux-tui`, `cmux`, `acpmux`) running the Chief brain (`<cli>
+/// chief acp`) or uniichat (`<own argv> uniichat-agent`). The same words
+/// after any other program (`codex exec uniichat-agent`) are no host.
 fn is_host(argv: &[String]) -> bool {
-    matches!(argv, [_, chief, acp, ..] if chief == "chief" && acp == "acp")
-        || argv.len() > 1 && argv.last().is_some_and(|a| a == "uniichat-agent")
+    let Some(program) = argv.first().map(|p| program_name(p)) else { return false };
+    let own =
+        ["cmux", "acpmux"].iter().any(|p| program == *p || program.starts_with(&format!("{p}-")));
+    own && (matches!(argv, [_, chief, acp, ..] if chief == "chief" && acp == "acp")
+        || argv.len() > 1 && argv.last().is_some_and(|a| a == "uniichat-agent"))
 }
 
 /// The distinct leaf families a command line names by exact program name:
@@ -294,6 +299,16 @@ mod tests {
         assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
         assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
         assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "codex"), Runs::Host);
+        assert_eq!(
+            classify_command(&argv(&["/App/bin/cmux", "acp", "uniichat-agent"]), "unii"),
+            Runs::Host
+        );
+        // The host words after another program are no host.
+        assert_eq!(
+            classify_command(&argv(&["codex", "exec", "uniichat-agent"]), "x"),
+            agent("codex")
+        );
+        assert_eq!(classify_command(&argv(&["/opt/x", "chief", "acp"]), "x"), Runs::Unknown);
         assert_eq!(classify_command(&argv(&["/opt/x"]), "custom"), Runs::Unknown);
         // A runner's agent, wherever it stands among the runner's arguments.
         for words in [
