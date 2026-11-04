@@ -301,7 +301,7 @@
   group drew its pin only on an expanded row's hover (pinning-DESIGN.md), so it looked like the other members.
   New setting `sidebar.groupPinMark` (Settings > Appearance, palette, CLI, MCP): `trailing` a
   small filled pin among the trailing marks in the tertiary ink, left of the status column; `leading` a small
-  filled pin before the name in the group's color (the machine mark's slot); `shelf` a faint wash of the group's
+  filled pin before the name in the group's color (one leading mark, as an agent mark beside the title); `shelf` a faint wash of the group's
   color behind the pinned members at rest (hover, selection and on-screen fills still win); `off` the old look.
   The trailing column, the icon column and the row gaps are unchanged; the pin gives way to the hover controls as
   the other marks do. The row's label says "Pinned in group" whatever the look. Aziz picked `leading` (2026-11-03: "i like pin before the name"), the

@@ -100,7 +100,7 @@ final class SidebarRows {
         if let showAppStore { self.showAppStore = showAppStore }
         let sameElsewhere = elsewhere == nil || elsewhere == self.elsewhere
         if let elsewhere { self.elsewhere = elsewhere }
-        let reprojected = model.rowMarksMoved() || live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
+        let reprojected = model.rowMarksMoved(document()?.shown?.rowMarks) || live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
         if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }

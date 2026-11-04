@@ -11,9 +11,9 @@ extension WorkspaceRowView {
     /// The look this row draws now: its setting while the workspace is pinned inside its group, else off.
     var shownGroupPin: SidebarGroupPinMark { isPinnedInGroup ? groupPinLook : .off }
 
-    /// Sets the pin for a workspace pinned (`pinned`) inside its group; a placeholder row draws none.
+    /// Sets the pin for a workspace pinned (`pinned`) inside its group; a pending row (a placeholder, titled or not) draws none.
     func configureGroupPin(pinned: Bool) {
-        isPinnedInGroup = pinned && !isShowingPlaceholder
+        isPinnedInGroup = pinned && !isPlaceholderRow
         groupPin.imageScaling = .scaleProportionallyDown
         groupPin.setAccessibilityElement(false)
         let look = shownGroupPin
