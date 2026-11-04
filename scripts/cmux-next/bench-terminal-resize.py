@@ -366,7 +366,7 @@ elif not os.environ.get("BENCH_LAUNCH_KEEP_STATE"):
     bench_launch.start_fresh_state(TAG)
 # An empty session is a first run: the app would put its Bring your history page in front of the first window
 # (OnboardingService.showHistoryAtFirstRun, once per app channel). This tag's own defaults domain says it showed.
-if sys.platform == "darwin" and info.get("CFBundleIdentifier"):
+if sys.platform == "darwin" and info.get("CFBundleIdentifier") and not bench_launch.is_shipped_state_tag(TAG):
     subprocess.run(["defaults", "write", info["CFBundleIdentifier"], "home.firstRun.historyImportShown", "-bool", "YES"],
                    capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
 scratch = tempfile.mkdtemp(prefix=f"bench-terminal-resize-{TAG}-")

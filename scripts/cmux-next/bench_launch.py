@@ -195,6 +195,11 @@ def account_home():
 SHIPPED_STATE_TAGS = frozenset({"nightly", "rc", "staging", "cmux-next"})
 
 
+def is_shipped_state_tag(tag):
+    """Whether `tag` names a shipped channel's own state folder, in any case (``SHIPPED_STATE_TAGS``)."""
+    return (tag or "").lower() in SHIPPED_STATE_TAGS
+
+
 def tag_state_root(tag):
     """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
     daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces).
@@ -210,7 +215,8 @@ def start_fresh_state(tag):
     only while no process of the tag runs: its state must not be in use. A shipped channel's tag (``SHIPPED_STATE_TAGS``:
     NIGHTLY and the others keep their daemon's state under `tags/<channel>`) is never moved: a bench of such a bundle
     would move the person's own sessions."""
-    if tag in SHIPPED_STATE_TAGS:
+    # Case-blind: on the default disk `tags/NIGHTLY` is `tags/nightly`.
+    if is_shipped_state_tag(tag):
         note(f"bench-launch: {tag} is a shipped channel's state: it stays (no empty session for this run)")
         return
     root = tag_state_root(tag)

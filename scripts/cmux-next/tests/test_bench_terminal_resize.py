@@ -69,7 +69,7 @@ class FreshState(unittest.TestCase):
 
     def test_a_shipped_channels_state_never_moves(self):
         tags = self.base / "tags"
-        for channel in ("nightly", "rc", "staging", "cmux-next"):
+        for channel in ("nightly", "rc", "staging", "cmux-next", "NIGHTLY", "Staging"):
             write(tags / channel / "tui/sessions/mine.json", "mine")
             bl.start_fresh_state(channel)
             self.assertEqual((tags / channel / "tui/sessions/mine.json").read_text(), "mine", f"{channel}'s state moved")
