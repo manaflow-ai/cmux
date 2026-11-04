@@ -173,7 +173,7 @@ export default agentPaneEntry({
       play: openFirstSend,
     },
     single: {
-      note: "The default (Leo, 2026-11-03: \"just doing it directly in the same line\"): the verb, the recipient chip whole, the count and the message's first line on one line, the first line cut first, then the chevron. The live send line has the envelope and no token counts.",
+      note: 'The default (Leo, 2026-11-03: "just doing it directly in the same line"): the verb, the recipient chip whole, the count and the message\'s first line on one line, the first line cut first, then the chevron. The live send line has the envelope and no token counts.',
       theme: { messageLineLook: "single" },
       snapshot: coordinatorTurn(),
     },
