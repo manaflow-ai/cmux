@@ -111,6 +111,39 @@ for (const [harness, call] of [
     expect(text?.querySelector(".cv-tool__failed")).toBeNull();
   });
 
+  test(`${harness}: a described call opens to its outcome, with its original arguments one Raw click away`, async () => {
+    await render([
+      call(
+        "detail",
+        "pr_state",
+        { repo: "manaflow-ai/cmux", pr: 33316, description: "Check the condensed PR details" },
+        envelope("#33316 merged at 4c1e9a0", "ok"),
+      ),
+    ]);
+    const row = host.querySelector<HTMLButtonElement>("button.cv-tool")!;
+    await act(async () => {
+      row.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    expect(host.querySelector(".cv-tool-output")?.textContent).toContain("#33316 merged at 4c1e9a0");
+    expect(host.textContent).not.toContain('"repo"');
+    expect(host.textContent).not.toContain('"description"');
+    expect(host.querySelector(".cv-mcp-call__name")).toBeNull();
+    const raw = host.querySelector<HTMLButtonElement>("button.cv-subsession__toggle")!;
+    expect(raw.textContent?.trim()).toBe("Raw");
+    expect(raw.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => {
+      raw.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    const original = host.querySelector(".cv-subsession__raw .cv-mcp-call")!;
+    expect(original.querySelector(".cv-mcp-call__body")?.textContent).toContain('"repo": "manaflow-ai/cmux"');
+    expect(original.querySelector(".cv-mcp-call__body")?.textContent).toContain('"pr": 33316');
+    expect(original.querySelector(".cv-mcp-call__body")?.textContent).toContain(
+      '"description": "Check the condensed PR details"',
+    );
+    expect(original.querySelector(".cv-tool-output")?.textContent).toContain("#33316 merged at 4c1e9a0");
+    expect(original.querySelector("button.cv-subsession__toggle")).toBeNull();
+  });
+
   test(`${harness}: a condensed tool's failed status shows the Failed mark`, async () => {
     await render([
       call(
