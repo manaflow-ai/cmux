@@ -362,6 +362,9 @@ test("the rail is one height, the Codex rail's, whatever the prompt count or the
   // never be affected by anything". Past 24 prompts the rail's own list scrolls.
   for (const count of [1, 4, 12, 24, 70, 1000])
     for (const view of [400, 720, 1100, 2100]) expect(railHeight(count, view, view)).toBe(240);
+  // Nor the prompts on screen: a view showing 50 short prompts at once keeps 240, and its list
+  // scrolls to keep them in view (railScrollTop).
+  for (const band of [1, 24, 50, 1000]) expect(railHeight(1000, 1000, 1000, 1000, band)).toBe(240);
 });
 
 test("wheel browsing belongs to the rail and is not snapped back by transcript scrolling", async () => {
