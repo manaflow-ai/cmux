@@ -63,5 +63,5 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const same = fingerprint === JSON.stringify(again) && aclFingerprint === JSON.stringify(currentAcl);
     const finished = yield* Clock.currentTimeMillis;
     if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= expiresAt || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
-    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(() => unavailable()));
+    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(unavailable));
   }).pipe(Effect.timeoutFail({ duration: Duration.seconds(15), onTimeout: unavailable }));
