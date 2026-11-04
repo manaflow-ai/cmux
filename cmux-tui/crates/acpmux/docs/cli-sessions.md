@@ -15,8 +15,21 @@ with examples; `--json` on any command prints the raw response.
 | Get a session by name, creating it when missing | `acpmux ensure coord -m claude` |
 | Send a brief to the least-loaded allowed machine | `acpmux dispatch ~/notes/brief.md --machine auto` |
 | Run one prompt on several harnesses and compare | `acpmux compare -m claude -m codex "Why does this test flake?"` |
+| Race implementations in separate worktrees with a reviewer | `acpmux race new --parent CHAT -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "Fix the flaky test"` |
 
 Running the same `new --worktree ... --prompt-file ...` again reuses the session and sends nothing.
+
+`race new` starts candidates under a local parent chat and returns a race id. The daemon
+continues the race after the CLI exits; candidates inherit the parent's permission rules and
+sub-session limits. Inside an agent, omit `--parent` to use its own chat. Each candidate works
+in its own Git worktree. The reviewer chooses a winner after the candidate turns finish;
+that choice does not certify passing tests or authorize a merge.
+
+Use `acpmux race show RACE --parent CHAT` to read the replies, paths and decision,
+`race ls --parent CHAT` to list races, and `race stats --parent CHAT` for wins per model.
+`race stop RACE --parent CHAT` cancels the race's sessions. Losing sessions close after
+a successful review; their worktrees remain recoverable under normal retention. A failed
+review keeps the candidates available for inspection.
 
 ## Talk to one
 

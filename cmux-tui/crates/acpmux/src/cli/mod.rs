@@ -49,6 +49,7 @@ pub mod pairing;
 pub mod peer_status;
 pub mod place;
 pub mod process;
+pub mod race;
 pub mod resolve;
 pub mod retry;
 pub mod run;

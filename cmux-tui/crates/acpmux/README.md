@@ -370,6 +370,10 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+acpmux race new --parent CHAT -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE --parent CHAT                            # candidate replies, worktrees and reviewer choice
+acpmux race stats --parent CHAT                                # each model's wins / completed races
+acpmux race stop RACE --parent CHAT                             # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
 
