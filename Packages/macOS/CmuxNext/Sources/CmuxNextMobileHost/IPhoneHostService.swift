@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextAgentPane
 public import CmuxNextCompat
 import CmuxNextKeepAwake
+import CmuxNextWakeups
 public import CmuxNextMobile
 public import Foundation
 public import Observation
@@ -191,10 +192,12 @@ public final class IPhoneHostService {
     /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)``).
     @ObservationIgnored private var identityRetry: Task<Void, Never>?
     @ObservationIgnored private var identityRefusals = 0
-    /// The wait between those tries (tests inject their own).
+    /// The spacing of those tries (1 s doubling to 30 s), and the clock it waits on (tests inject their own).
+    @ObservationIgnored private var identityBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
     @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
-    /// Waits before each new try; after the last, a build that can never read its item makes a file key.
-    static let identityRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(30)]
+    /// Refused reads in a row after which a build that can never read its item (a re-signed DEV app)
+    /// makes a file key, as before (about a minute of tries).
+    static let identityRefusalsBeforeFileKey = 6
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
@@ -473,15 +476,16 @@ public final class IPhoneHostService {
         await pairedFile?.drained()
     }
 
-    /// Starts hostd again after a refused identity read, after the next of ``identityRetryDelays``.
+    /// Starts hostd again after a refused identity read, after the next ``identityBackoff`` wait.
     private func retryIdentity() {
-        let index = min(identityRefusals, Self.identityRetryDelays.count - 1)
         identityRefusals += 1
         identityRetry?.cancel()
-        let delay = Self.identityRetryDelays[index]
         // task-owner: stored in `identityRetry`; stop() and the next refusal cancel it
         identityRetry = Task { [weak self, clock = identityRetryClock] in
-            do { try await clock.sleep(for: delay) } catch { return }
+            guard var backoff = self?.identityBackoff else { return }
+            // concurrency-allow: Backoff.wait is an async sleep after a failure (a refused Keychain read), not a blocking wait.
+            do { try await backoff.wait(owner: "iphone-host.identity", clock: clock) } catch { return }
+            self?.identityBackoff = backoff
             self?.reconcile()
         }
     }
@@ -525,9 +529,10 @@ public final class IPhoneHostService {
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
-                let mint = (self?.identityRefusals ?? 0) >= Self.identityRetryDelays.count
+                let mint = (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey
                 let identity = try await Task.detached { try store.loadOrCreate(mintOnRefusal: mint) }.value
                 self?.identityRefusals = 0
+                self?.identityBackoff.reset()
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
