@@ -57,9 +57,7 @@ final class HistoryService {
     }
 
     /// Launch: keeps each daemon's command recording and closed-history
-    /// retention in step with the settings. Retention prunes what no first
-    /// frame shows: with feature `launchStartDeferral` it waits for startup to
-    /// complete (`LaunchStart.historyRetention`).
+    /// retention in step with the settings (`LaunchStart.historyRetention`).
     func startDaemonSync(settings: SettingsController) {
         commands.start(settings: settings)
         services?.runLaunchStart(.historyRetention) { [weak self] in self?.closedRetention.start(settings: settings) }

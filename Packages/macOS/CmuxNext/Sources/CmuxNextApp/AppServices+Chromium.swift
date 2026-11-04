@@ -38,7 +38,7 @@ extension AppServices {
     }
 
     /// Starts the launch preload and the pages spare's engine follow; the likelihood hint is its own launch start
-    /// (``LaunchStart/chromiumLikely``), after the reveal with feature `launchStartDeferral`. With the Chromium Host,
+    /// (``LaunchStart/chromiumLikely``). With the Chromium Host,
     /// Chromium's start holds the main thread only for its shim calls (the host spawns and attaches off main, the
     /// start's disk reads run off main), so once the launch's restore finished, one startup post starts it where
     /// ``ChromiumHostLaunchStart`` puts it, with no idle wait (``ChromiumHostLaunchSlot``); the warm-up, armed in
@@ -95,7 +95,7 @@ extension AppServices {
         postChromiumLikely()
     }
 
-    /// The Chromium likelihood hint (``LaunchStart/chromiumLikely``): after startup with feature `launchStartDeferral`.
+    /// The Chromium likelihood hint (``LaunchStart/chromiumLikely``).
     func postChromiumLikely() { runLaunchStart(.chromiumLikely) { [weak self] in self?.followChromiumLikely() } }
 
     /// The Chromium likelihood hint: a Chromium tab in any window, and the palette's Chromium entries.

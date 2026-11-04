@@ -93,10 +93,10 @@ extension AppServices {
     }
 
     /// Runs one launch start by its class (p06-scheduler-049, `LaunchStart`): a first-frame start now, in its launch-turn
-    /// signpost; another as an afterStartup post on ``launchStartup`` with feature `launchStartDeferral`, else now.
-    /// With no launch scheduler (a test's services) it runs now and reads no feature.
+    /// signpost; another now, where it ran before its class existed. With no launch scheduler (a test's services)
+    /// it runs now.
     func runLaunchStart(_ start: LaunchStart, _ work: @escaping @MainActor @Sendable () -> Void) {
         guard let launchStartup else { return work() }
-        start.run(on: launchStartup, deferring: start.startClass == .afterReveal && features.isEnabled(.launchStartDeferral), work)
+        start.run(on: launchStartup, work)
     }
 }

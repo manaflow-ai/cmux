@@ -68,7 +68,7 @@ extension AppDelegate {
     /// Bookmarks, history, the first-party page schemes and the page host's statics.
     func registerBrowserData(services: AppServices, profilesDirectory: URL) {
         LaunchStart.bookmarks.runNow(on: order.startup) { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) }
-        services.bookmarks.startSync()  // Chromium's bookmark models and the imports' migration: after startup with launchStartDeferral
+        services.bookmarks.startSync()  // Chromium's bookmark models and the imports' migration
         LaunchStart.historyPages.runNow(on: order.startup) { services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) }
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))

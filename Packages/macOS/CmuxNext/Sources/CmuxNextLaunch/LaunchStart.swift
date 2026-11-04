@@ -13,9 +13,8 @@ public import CmuxNextWakeups
 ///   signpost, `priority=launchTurn`, as the watchdog's current task (``runNow(on:_:)``).
 /// - A ``LaunchStartClass/afterReveal`` start is a ``StartupScheduler`` post at
 ///   ``StartupPriority/afterStartup``: the background class, which the startup phase opens only at the
-///   reveal, released once startup completes. So none runs, or shows as a `launch.startup_task`
-///   signpost, before `launch.revealed`. Cloud is always posted (``CloudStartPost``); the others are
-///   posted with feature `launchStartDeferral` and run where they ran before without it.
+///   reveal, released once startup completes. Cloud is posted (``CloudStartPost``); the others run at
+///   once where they ran before their class existed (``run(on:_:)``).
 ///
 /// A start the launch posts through ``LaunchServicePosts`` (SSH, the updater, the platform services,
 /// the service starts, the browser follows) or as its own ``StartupScheduler`` post (`Settings.start`,
@@ -29,7 +28,7 @@ public import CmuxNextWakeups
 ///
 /// ```swift
 /// LaunchStart.energy.runNow(on: order.startup) { services.startEnergy() }
-/// LaunchStart.historyRetention.run(on: order.startup, deferring: true) { retention.start(settings: settings) }
+/// LaunchStart.historyRetention.run(on: order.startup) { retention.start(settings: settings) }
 /// ```
 public enum LaunchStart: CaseIterable, Sendable {
     /// The energy monitor and its consumers (WebKit's render rate, KeepAwake, the video wallpaper):
@@ -81,13 +80,13 @@ public enum LaunchStart: CaseIterable, Sendable {
     /// visible need (a restored Cloud window).
     case cloud
     /// Closed-history retention: each daemon prunes its closed workspaces to the settings' limits.
-    /// Without the feature it runs in the `History.startDaemonSync` post, after the first frame.
+    /// It runs in the `History.startDaemonSync` post, after the first frame.
     case historyRetention
     /// The Chromium likelihood hint: the walk of every tab for a Chromium one, and the palette's
-    /// Chromium entries. Without the feature it runs in the `ChromiumWarmup.start` post.
+    /// Chromium entries. It runs in the `ChromiumWarmup.start` post.
     case chromiumLikely
     /// Bookmark sync: Chromium's bookmark models follow cmux's trees, and the one-time migration of
-    /// earlier browser imports into bookmarks. Without the feature it runs after ``bookmarks``.
+    /// earlier browser imports into bookmarks. It runs after ``bookmarks``.
     case bookmarkSync
 
     /// When this start runs.
@@ -132,18 +131,16 @@ public enum LaunchStart: CaseIterable, Sendable {
         }
     }
 
-    /// Runs this start by its class: a first-frame start now (``runNow(on:_:)``); another one posted
-    /// (``post(on:_:)``) when `deferring`, else now, where it ran before its class existed.
+    /// Runs this start by its class: a first-frame start now (``runNow(on:_:)``); another one now too,
+    /// where it ran before its class existed.
     ///
     /// - Parameters:
-    ///   - startup: The launch's scheduler; nil (an `AppServices` a test builds) runs every start now.
-    ///   - deferring: Feature `launchStartDeferral`; false runs every start now.
+    ///   - startup: The launch's scheduler; nil (an `AppServices` a test builds) runs it unsignposted.
     ///   - work: The start.
     @MainActor
-    public func run(on startup: StartupScheduler?, deferring: Bool, _ work: @escaping @MainActor @Sendable () -> Void) {
+    public func run(on startup: StartupScheduler?, _ work: @escaping @MainActor @Sendable () -> Void) {
         guard startClass == .afterReveal else { return runNow(on: startup) { work() } }
-        guard deferring, let startup else { return work() }
-        post(on: startup, work)
+        work()
     }
 
     /// Posts this start at its class's priority under its name; a first-frame start runs now.
@@ -167,7 +164,7 @@ public enum LaunchStart: CaseIterable, Sendable {
     /// - Returns: What the start returns.
     @MainActor @discardableResult
     public func runNow<T>(on startup: StartupScheduler?, _ work: () -> T) -> T {
-        assert(startClass == .firstFrame, "\(name) is not a first-frame start: run it with run(on:deferring:_:)")
+        assert(startClass == .firstFrame, "\(name) is not a first-frame start: run it with run(on:_:)")
         guard let startup else { return work() }
         return startup.log.runInLaunchTurn(name, work)
     }

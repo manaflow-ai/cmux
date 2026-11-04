@@ -125,9 +125,8 @@ final class BookmarkService {
     }
 
     /// Chromium's bookmark models follow the trees, and earlier browser imports
-    /// become bookmarks after the file read: no first frame needs either, so with
-    /// feature `launchStartDeferral` they wait for startup to complete
-    /// (`LaunchStart.bookmarkSync`). After ``start(directory:importStore:)``.
+    /// become bookmarks after the file read (`LaunchStart.bookmarkSync`). After
+    /// ``start(directory:importStore:)``.
     func startSync() {
         guard let services else { return syncStart.finish() }
         services.runLaunchStart(.bookmarkSync) { [weak self] in
