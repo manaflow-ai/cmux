@@ -111,6 +111,9 @@ pub fn enter(role: Role) {
         return;
     }
     match tier(role) {
+        // Scratch A/B only (fix/r-durability-iopol-daemon-nomerge, never lands):
+        // `ACPMUX_TEST_DAEMON_IO=default` keeps the daemon at the default disk tier.
+        Tier::Serving if std::env::var("ACPMUX_TEST_DAEMON_IO").is_ok_and(|v| v == "default") => {}
         Tier::Serving => imp::disk_utility(),
         // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
         // drag lag), at the cost of agent speed (module docs).
