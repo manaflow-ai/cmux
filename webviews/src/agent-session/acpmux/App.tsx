@@ -13376,8 +13376,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
-  const onCloudMachinePicked = useCallback((machine: CloudMachine) => {
-    cloudDraftMachineID.current = machine.id;
+  const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
+    cloudDraftMachineID.current = machine?.id;
   }, []);
   const newTabSnapshot = useMemo(
     () =>
