@@ -166,6 +166,7 @@ mod tests {
             "updatedAt": 1,
         }))
         .unwrap();
+        hub.store.save(&meta).unwrap();
         let session = hub.make_session(meta);
 
         hub.append(
