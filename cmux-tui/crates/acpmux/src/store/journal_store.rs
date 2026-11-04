@@ -216,7 +216,13 @@ impl JournalStore {
         let worker = Arc::clone(&inner);
         let checkpointer = std::thread::Builder::new()
             .name("acpmux-journal-checkpoint".into())
-            .spawn(move || worker.run_checkpointer())
+            .spawn(move || {
+                // Its syncs and retirements are background work: they yield the disk to the
+                // person's apps (`qos::background_thread`), while replies wait only on the
+                // journal writer, which keeps the daemon's tier.
+                crate::qos::background_thread();
+                worker.run_checkpointer()
+            })
             .context("start the event journal's checkpointer")?;
         Ok(Self {
             inner,
