@@ -14,14 +14,17 @@ thread_local! {
 /// `F_FULLFSYNC`), counted.
 #[cfg(test)]
 pub(crate) static FULL_SYNCS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-/// Tests: every sync of a log segment, a folder or a store file, full or ordered, counted.
 #[cfg(test)]
-pub(crate) static ALL_SYNCS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+thread_local! {
+    /// Tests: every sync of a log segment, a folder or a store file, full or ordered, that this
+    /// thread made (the open's own syncs, not those of the checkpointer's thread).
+    pub(crate) static ALL_SYNCS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 #[cfg(test)]
 fn counted(result: &std::io::Result<()>) {
     if result.is_ok() {
-        ALL_SYNCS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        ALL_SYNCS.with(|syncs| syncs.set(syncs.get().saturating_add(1)));
     }
 }
 

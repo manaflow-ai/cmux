@@ -405,7 +405,6 @@ fn an_open_that_replays_many_chats_flushes_the_drive_a_bounded_number_of_times()
 #[test]
 fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durable() {
     use super::log_sync::ALL_SYNCS;
-    use std::sync::atomic::Ordering;
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(71);
     let store = open(home.path(), &journal);
@@ -425,9 +424,10 @@ fn an_open_after_a_kill_syncs_nothing_per_chat_and_the_checkpoint_makes_it_durab
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let killed = journal.restart(Crash::Process);
     drop(store);
-    let before = ALL_SYNCS.load(Ordering::SeqCst);
+    // This thread's syncs: the open's own (the daemon binds its socket on this thread after it).
+    let before = ALL_SYNCS.with(std::cell::Cell::get);
     let store = open(home.path(), &killed);
-    let syncs = ALL_SYNCS.load(Ordering::SeqCst).saturating_sub(before);
+    let syncs = ALL_SYNCS.with(std::cell::Cell::get).saturating_sub(before);
     for chat in 0..chats {
         let id = format!("chat-{chat}");
         assert_eq!(seqs(store.as_ref(), &id), vec![1, 2], "{id} lost a line");
