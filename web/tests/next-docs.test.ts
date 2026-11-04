@@ -96,6 +96,8 @@ describe("cmux-next docs", () => {
     // Commands of the Rust CLI itself, not app actions (cmux --help).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
+      "cmux mcp ls", "cmux mcp audit", "cmux mcp rm", "cmux mcp auth", "cmux mcp key", "cmux mcp policy",
+      "cmux mcp approve-tools",
       "cmux settings set", "cmux version",
     ]);
     const unknown: string[] = [];

@@ -33,6 +33,8 @@ enum AppActions {
         BookmarkIconHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
         TasksHandlers.bind(into: registry, context: context)
+        services.pages.register(services.mcpServers)
+        services.mcpServers.bind(into: registry)
         TaskManagerHandlers.bind(into: registry, context: context)
         KeybindingHandlers.bind(into: registry, context: context)
         PageCommandHandlers.bind(into: registry, context: context)

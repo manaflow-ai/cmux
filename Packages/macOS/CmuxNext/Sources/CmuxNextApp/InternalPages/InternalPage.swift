@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextIcons
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
@@ -89,4 +90,13 @@ extension InternalPageProvider {
     func restore(_ route: String, for key: String) {}
     func title(forRoute route: String) -> String? { nil }
     func makeTopBar(for key: String) -> NSView? { nil }
+}
+
+/// Settings > MCP Servers: the page and its model live in CmuxNextAgentPane.
+extension McpServersCoordinator: InternalPageProvider {
+    var page: InternalPageID { InternalPageID(rawValue: Self.pageID) }
+    var title: String { pageTitle }
+    var symbol: String { pageSymbol }
+    func makeView(for key: String, in window: WindowController?) -> NSView { makePageView() }
+    func tabClosed(_ key: String) { pageClosed() }
 }
