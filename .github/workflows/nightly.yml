@@ -3465,6 +3465,8 @@ jobs:
       notary_pending: ${{ steps.notarize-nightly.outputs.submission_pending }}
       # The 6 h stapled-app fallback (notarize-nightly-dmg.sh) shipped the first DMG.
       stapled_app_fallback_id: ${{ steps.notarize-nightly.outputs.stapled_app_fallback == 'true' && steps.notarize-nightly.outputs.stapled_app_pending_id || '' }}
+      # This older build handed its sign slot to a newer one (nightly_sign_yield.py); report-nightly-failure skips it.
+      yielded: ${{ steps.sign-yield.outputs.yielded }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -3547,6 +3549,15 @@ jobs:
       # Before any secret: the same check again, and a signing keychain a killed job left is removed.
       - name: Claim the whole Mac for signing
         run: bash .nightly-signing-control/scripts/ci/signing-runner-claim.sh
+
+      # Before any secret: a newer nightly-next run whose sign job is already queued, running or
+      # signed takes this slot (cmuxterm-hq#7079); the newest never yields. scripts/ci/nightly_sign_yield.py.
+      - name: Yield the sign slot to a newer build
+        id: sign-yield
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_NEXT_SIGN_YIELD: ${{ vars.NIGHTLY_NEXT_SIGN_YIELD }}
+        run: python3 .nightly-signing-control/scripts/ci/nightly_sign_yield.py
 
       - name: Install the current signing keychain controls
         if: inputs.nightly_next_unsigned_run != ''
@@ -7118,9 +7129,16 @@ jobs:
                 core.warning(`Could not read this run's jobs (${error.message}); reporting the cancelled build.`);
               }
             }
+            // An older build that handed its sign slot to a newer one (nightly_sign_yield.py) is not a failure.
+            const yielded = results['build-sign-notarize-nightly']?.outputs?.yielded === 'true';
             const failed = Object.entries(results)
-              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app'))
+              .filter(([k, v]) => (v.result === 'failure' || v.result === 'cancelled') && !(replaced && k === 'build-nightly-app')
+                && !(yielded && k === 'build-sign-notarize-nightly'))
               .map(([k, v]) => `${k} (${v.result})`);
+            if (yielded && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
+              core.info('build-sign-notarize-nightly gave its sign slot to a newer nightly-next build; nothing else failed.');
+              return;
+            }
             if (replaced && failed.length === 0 && !process.env.REFUSAL_REASON && process.env.TAG_STATUS !== 'stale') {
               core.info('build-nightly-app was replaced in its slot by a newer nightly-next push before it started; nothing else failed.');
               return;
