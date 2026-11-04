@@ -497,6 +497,7 @@ impl Hub {
     /// open sessions in its activity report (`daemon/cloud_activity.rs`), so it is never paused
     /// for idleness mid-turn or under a command a turn left running. Reads each chat's
     /// background-task and process records, so call it off the async workers.
+    #[cfg(test)]
     pub(crate) fn sessions_at_work(&self) -> usize {
         self.sessions().iter().filter(|s| self.at_work(s).is_some()).count()
     }
