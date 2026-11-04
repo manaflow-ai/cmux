@@ -791,7 +791,7 @@ fn queued_same_surface_clears_do_not_reserve_worker_permits() {
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut clear, 0, writer.clone()), Some(true));
     }
 
-    let reserved_workers = admission.state.lock().unwrap().workers;
+    let reserved_workers = admission.reserved_workers();
     let _ = scheduler.close_and_wait(Duration::from_secs(1));
     mux.close_surface(surface.id).unwrap();
 
@@ -844,7 +844,7 @@ fn queued_wait_releases_clear_worker_permit_after_clear_settles() {
         );
     }
     drop(state);
-    let active_clear_workers = admission.state.lock().unwrap().workers;
+    let active_clear_workers = admission.reserved_workers();
     let drained = scheduler.close_and_wait(Duration::from_secs(1));
     mux.close_surface(surface.id).unwrap();
 

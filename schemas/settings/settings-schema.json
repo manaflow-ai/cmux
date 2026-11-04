@@ -1478,7 +1478,8 @@
             "rows" : [
               "feed.mirrorNotifications.agents",
               "feed.mirrorNotifications.terminal",
-              "feed.agentPermissionPrompts"
+              "feed.agentPermissionPrompts",
+              "feed.needsYouInChief"
             ],
             "title" : {
               "key" : "settings.group.feedMirror",
@@ -1652,7 +1653,8 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
-              "cloud.useMyClaudeLoginOnMyCloudMachines"
+              "cloud.useMyClaudeLoginOnMyCloudMachines",
+              "cloud.agentsStartWithoutAsking"
             ],
             "title" : {
               "key" : "settings.group.cloudWorkspaces",
@@ -12548,6 +12550,143 @@
       "title" : {
         "key" : "settings.cloud.useMyClaudeLogin",
         "text" : "Use My Claude Login on My Own Cloud Machines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking.help",
+        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.agentsStartWithoutAsking",
+      "keywords" : [
+        "cloud",
+        "vm",
+        "machine",
+        "agent",
+        "start",
+        "session",
+        "ask",
+        "approve",
+        "permission",
+        "without asking",
+        "delegate"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "agentsStartWithoutAsking"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.agentsStartWithoutAsking"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.agentsStartWithoutAsking",
+        "text" : "Let Agents Start Cloud Sessions Without Asking"
       },
       "validation" : "portable"
     },
@@ -85633,6 +85772,139 @@
       "title" : {
         "key" : "settings.feed.agentPermissionPrompts",
         "text" : "Send Agent Permission Requests to the Feed"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.feedMirror",
+        "text" : "Feed"
+      },
+      "help" : {
+        "key" : "settings.feed.needsYouInChief.help",
+        "text" : "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.needsYouInChief",
+      "keywords" : [
+        "chief",
+        "home",
+        "needs you",
+        "requests",
+        "permissions",
+        "approve",
+        "pinned"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "feed",
+        "needsYouInChief"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:feed.needsYouInChief"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.feed.needsYouInChief",
+        "text" : "Pin Needs You in Chief"
       },
       "validation" : "portable"
     },

@@ -18,6 +18,11 @@ struct Away {
 
 /// A Claude chat with `turns` finished turns, shown by its client, on a manual clock.
 async fn chat(turns: usize, env: &[(&str, &str)]) -> Away {
+    chat_viewed(turns, env, true).await
+}
+
+/// The same, `viewed` by a person's client (`_acpmux/view`) or only driven, as an agent drives one.
+async fn chat_viewed(turns: usize, env: &[(&str, &str)], viewed: bool) -> Away {
     let root = std::env::temp_dir().join(format!("acpmux-recap-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
@@ -32,7 +37,9 @@ async fn chat(turns: usize, env: &[(&str, &str)]) -> Away {
     hub.set_idle_child(None);
     let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
-    c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
+    if viewed {
+        c.request("_acpmux/view", json!({"sessionId": id, "visible": true})).await.unwrap();
+    }
     for n in 0..turns {
         let text = format!("step {n}");
         c.request(
@@ -235,4 +242,16 @@ async fn an_idle_chat_is_asked_before_its_process_hibernates() {
     let recaps = a.recaps();
     assert_eq!(recaps.len(), 1, "{recaps:?}");
     assert_eq!(recaps[0]["text"], ANSWER);
+}
+
+#[tokio::test]
+async fn a_chat_only_an_agent_drove_gets_no_recap() {
+    // Its `session/new` and prompts subscribed the agent's connection; no person attached or
+    // viewed it. The agent letting go is no person leaving.
+    let mut a = chat_viewed(3, &[], false).await;
+    a.c.request("_acpmux/detach", json!({"sessionId": a.id})).await.unwrap();
+    a.advance(Duration::from_secs(6 * 60), 1).await;
+    assert_eq!(a.asked(), 0, "never asked");
+    a.c.request("_acpmux/attach", json!({"sessionId": a.id})).await.unwrap();
+    assert!(a.recaps().is_empty());
 }
