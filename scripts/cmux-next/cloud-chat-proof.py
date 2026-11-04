@@ -484,15 +484,17 @@ if args.credentials_file:
                    "--env", "CMUX_DEV_AUTH_PROFILE=agent",
                    "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"])
 launch.extend([app_path, "--args", "--cloud-backend", args.cloud_backend])
-try:
-    app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-except OSError as error:
-    record("launch app", 1, "", str(error))
-    finish("fail: launch app")
-record("launch app", 0, "", "", launch_flag=args.cloud_backend)
-identity = wait_for("launched app ready", ("app", "identify", "--json"),
-                    lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
-owned_app = True
+launchable_cleanup = not args.cleanup_machine or Path(app_path, "Contents", "Info.plist").is_file()
+if launchable_cleanup:
+    try:
+        app_launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        record("launch app", 1, "", str(error))
+        finish("fail: launch app")
+    record("launch app", 0, "", "", launch_flag=args.cloud_backend)
+    wait_for("launched app ready", ("app", "identify", "--json"),
+             lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
+    owned_app = True
 
 if args.cleanup_machine:
     machine = args.cleanup_machine
