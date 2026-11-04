@@ -724,8 +724,9 @@ fn block_key(t: &str) -> Option<String> {
     plain.then(|| key.to_owned())
 }
 
-/// The root keys of an inline mapping `{a: {...}, "b": x}`, or `None` when it
-/// does not close.
+/// The root keys of an inline mapping `{a: {...}, "b": x}`, comments (`#`
+/// after whitespace, to the end of the line) skipped, or `None` when it does
+/// not close or anything but comments follows it.
 fn flow_keys(s: &str) -> Option<Vec<String>> {
     let body = s.strip_prefix('{')?;
     let mut keys = Vec::new();
@@ -738,7 +739,16 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
         key.clear();
     };
     let mut chars = body.chars();
+    let mut after_space = true;
     while let Some(c) = chars.next() {
+        let was_after_space = std::mem::replace(&mut after_space, c.is_whitespace());
+        if quote.is_none() && c == '#' && was_after_space {
+            if chars.by_ref().all(|c| c != '\n') {
+                return None;
+            }
+            after_space = true;
+            continue;
+        }
         if let Some(q) = quote {
             if c == q {
                 quote = None;
@@ -758,7 +768,8 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
                     if in_key {
                         push(&mut key, &mut keys);
                     }
-                    return chars.as_str().trim().is_empty().then_some(keys);
+                    let mut rest = chars.as_str().lines().map(str::trim);
+                    return rest.all(|t| t.is_empty() || t.starts_with('#')).then_some(keys);
                 }
                 ':' if depth == 0 && in_key => {
                     push(&mut key, &mut keys);
@@ -1627,6 +1638,8 @@ mod tests {
             "\tgithub.com:\n\t\tuser: me\n",
             "{github.com: {user: me, oauth_token: gho_x}}\n",
             "{\"ghe.example.com\": {user: a}, github.com: {user: b}}\n",
+            "{ # comment\n  github.com: {user: me}\n}\n",
+            "{ghe.example.com: {user: a}, # work\n github.com: {user: b}} # end\n",
             "github.com: {user: me, oauth_token: gho_x}\n",
             "github.com: # personal\n    user: me\n",
             "---\n\"github.com\":\n  user: me\n",
