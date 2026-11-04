@@ -34,6 +34,9 @@ usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0";
 die() { echo "side-instance: $*" >&2; exit 1; }
 
 root="${CMUX_SIDE_ROOT:-$HOME/Library/Application Support/cmux-side}"
+# The physical path (/tmp and /var are links to /private/...): a process started through
+# Launch Services reports its executable by its physical path, and the pid checks compare paths.
+mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
 buddy=/usr/libexec/PlistBuddy
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
@@ -146,8 +149,11 @@ sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
     open "${open_args[@]}" "$app" ${args[@]+--args "${args[@]}"}
     exe="$app/Contents/MacOS/$("$buddy" -c "Print :CFBundleExecutable" "$app/Contents/Info.plist")"
     pid=""
-    for _ in $(seq 1 100); do
-      pid="$(pgrep -nf "^$exe( |$)" || true)"; [[ -n "$pid" ]] && break
+    # The newest process whose executable is exactly the copy's (a plain comparison: the path holds
+    # spaces and #). Up to 30 s: a first launch waits on the system's scan of the new bundle.
+    for _ in $(seq 1 300); do
+      pid="$(ps -axo pid=,comm= | awk -v e="$exe" '{ p = $1; sub(/^ *[0-9]+ /, ""); if ($0 == e) last = p } END { if (last) print last }')"
+      [[ -n "$pid" ]] && break
       /bin/sleep 0.1
     done
     [[ -n "$pid" ]] || die "$name did not start"
