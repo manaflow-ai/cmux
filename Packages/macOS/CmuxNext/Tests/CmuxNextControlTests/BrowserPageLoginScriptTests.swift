@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -9,7 +10,7 @@ import WebKit
 /// https://github.com/manaflow-ai/cmux/issues/25830): which fields a login lands in on real login
 /// shapes (one step, two steps, a header search box, a sign-up form), that a page on another host
 /// gets nothing, and that the answer names no value.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct BrowserPageLoginScriptTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct BrowserPageLoginScriptTests {
     static let host = "login.cmux.test"
     static let username = "ada@example.com"
     static let password = "hunter2-SECRET-pw"
@@ -88,6 +89,7 @@ import WebKit
           <button type="button">Show</button><button type="submit">Sign in</button>
         </form>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["username"] == true)
         #expect(answer["value"]?["password"] == true)
@@ -109,6 +111,7 @@ import WebKit
           <button type="submit">Next</button>
         </form>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["username"] == true)
         #expect(answer["value"]?["password"] == false)
@@ -122,6 +125,7 @@ import WebKit
         let page = await page("""
         <form><p>ada@example.com</p><input id="p" type="password" name="Passwd"><button>Next</button></form>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["username"] == false)
         #expect(answer["value"]?["password"] == true)
@@ -134,6 +138,7 @@ import WebKit
         <form><input id="n" type="text" autocomplete="name"><input id="a" type="password" autocomplete="new-password">
         <input id="b" type="password" autocomplete="new-password"></form>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["username"] == false)
         #expect(answer["value"]?["password"] == false)
@@ -145,6 +150,7 @@ import WebKit
         let page = await page("""
         <form><input id="u" type="email"><input id="p" type="password"></form>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page, host: "linkedin.com")
         #expect(answer["value"]?["reason"] == "navigated")
         #expect(try await page.value("u") == "")
@@ -159,6 +165,7 @@ import WebKit
           root.innerHTML = '<form><input id="u" type="email" autocomplete="username"><input id="p" type="password"></form>';
         </script>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["username"] == true)
         #expect(answer["value"]?["password"] == true)
@@ -169,6 +176,7 @@ import WebKit
 
     @Test func aPlainHttpPageGetsNothingEvenOnTheRightHost() async throws {
         let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>", scheme: "http")
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["reason"] == "not_https")
         #expect(try await page.value("u") == "")
@@ -177,6 +185,7 @@ import WebKit
 
     @Test func anotherOriginGetsNothing() async throws {
         let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>")
+        defer { page.window.closeAfterTest() }
         let script = BrowserPageScripts.fillLogin(host: Self.host, origin: "https://elsewhere.test", username: Self.username, password: Self.password)
         #expect(try await page.readIsolated(script)["value"]?["reason"] == "navigated")
         #expect(try await page.value("p") == "")
@@ -194,6 +203,7 @@ import WebKit
             get() { return d.get.call(this); }, set(v) { window.caught.push(v); d.set.call(this, v); } });
         </script>
         """)
+        defer { page.window.closeAfterTest() }
         let answer = try await fill(page)
         #expect(answer["value"]?["password"] == true)
         #expect(try await page.read("window.caught") == [])
@@ -202,6 +212,7 @@ import WebKit
 
     @Test func theProbeReadsTheOriginAPageCannotFake() async throws {
         let page = await page("<p>one</p>")
+        defer { page.window.closeAfterTest() }
         #expect(try await page.origin() == "https://\(Self.host)")
         #expect(try await page.readIsolated(BrowserPageScripts.originProbe)["opener"] == false)
     }
@@ -212,6 +223,7 @@ import WebKit
         let page = await page("""
         <form><input id="u" type="email" autocomplete="username"><input id="p" type="password"></form>
         """)
+        defer { page.window.closeAfterTest() }
         _ = try await fill(page)
         _ = try await page.read("""
         (() => { const old = document.getElementById('p'); const n = document.createElement('input');
@@ -226,6 +238,7 @@ import WebKit
     @Test func aHiddenOrFrozenPageKeepsNoPassword() async throws {
         for event in ["new PageTransitionEvent('pagehide', { persisted: true })", "new Event('freeze')"] {
             let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>")
+            defer { page.window.closeAfterTest() }
             _ = try await fill(page)
             #expect(try await page.value("p") == Self.password)
             let target = event.contains("pagehide") ? "window" : "document"
@@ -240,6 +253,7 @@ import WebKit
         <form><input id="u" type="email" autocomplete="username"><input id="p" type="password">
         <button type="button" id="show" onclick="document.getElementById('p').type = 'text'">Show</button></form>
         """)
+        defer { page.window.closeAfterTest() }
         _ = try await fill(page)
         #expect(try await page.value("p") == Self.password)
         // The value script never answers a filled password field, even once its type changes.
