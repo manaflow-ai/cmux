@@ -66,11 +66,13 @@ enum PhoneLogs {
         ]
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let since = store.position(date: Date().addingTimeInterval(-3600))
-            let entries = try store.getEntries(at: since, matching: NSPredicate(format: "subsystem == %@", "dev.cmux.mobile"))
+            // Every entry of this process, filtered here: a store predicate dropped every entry on
+            // the iOS 26.5 simulator (live run of this batch).
+            let since = Date().addingTimeInterval(-3600)
             var kept: [String] = []
             let stamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-            for case let entry as OSLogEntryLog in entries {
+            for case let entry as OSLogEntryLog in try store.getEntries()
+            where entry.subsystem == "dev.cmux.mobile" && entry.date >= since {
                 kept.append("\(entry.date.formatted(stamp)) [\(entry.category)] \(entry.composedMessage)")
                 if kept.count > limit { kept.removeFirst(kept.count - limit) }
             }

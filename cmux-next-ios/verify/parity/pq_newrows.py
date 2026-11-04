@@ -110,10 +110,14 @@ def tab(j, name):
 
 
 def settings_row(j, label, ident=None, tries=10):
-    """A Settings row, scrolled to."""
+    """A Settings row, scrolled to from the top of the page."""
     tab(j, "Settings")
+    for _ in range(4):
+        j.sim.swipe(200, 250, 200, 700, 0.3)
+        time.sleep(0.3)
     for _ in range(tries):
-        e = (j.sim.find(ident=ident) if ident else []) or j.sim.find(label=label, kind="Button") or j.sim.find(prefix=label, kind="Button")
+        e = (j.sim.find(ident=ident) if ident else []) or j.sim.find(label=label, kind="Button") or \
+            j.sim.find(label=label, kind="Switch") or j.sim.find(prefix=label, kind="Button")
         e = [x for x in e if 90 < x.frame[1] < 760]
         if e:
             return e[0]
@@ -373,18 +377,26 @@ def newchaton(j, label):
     time.sleep(1.5)
     pq.shot(f"newchaton-{label}-menu")
     out = {"menu": [x.label for x in j.sim.find(kind="Button") if x.label][:30]}
-    on = j.sim.find(ident="workspaces.newAgentChatOn")
+    on = j.sim.find(ident="workspaces.newAgentChatOn") or j.sim.find(label="New Agent Chat on…", kind="Button")
+    if not on:
+        # The menu scrolls: its last sections sit below the fold.
+        j.sim.swipe(270, 520, 270, 200, 0.4)
+        time.sleep(0.8)
+        on = j.sim.find(ident="workspaces.newAgentChatOn") or j.sim.find(label="New Agent Chat on…", kind="Button")
+        pq.shot(f"newchaton-{label}-menu-end")
     out["offered"] = bool(on)
     if label == "before" or not on:
         r.dismiss(j)
         return out
     j.sim.tap_el(on[0]); time.sleep(1.2)
-    macs = [x for x in j.sim.find() if (x.ident or "").startswith("workspaces.newAgentChatOn.") and x.ident.count(".") == 2]
-    check(macs, "no Mac under New Agent Chat on…")
+    pq.shot("newchaton-after-macs")
+    mac_name = pq.load().get("mac_name") or ""
+    macs = j.sim.find(label=mac_name, kind="Button") or j.sim.find(contains="Mac mini", kind="Button")
+    check(macs, f"no Mac under New Agent Chat on…: {labels(j)[:20]}")
     j.sim.tap_el(macs[0]); time.sleep(1.2)
     pq.shot("newchaton-after-folders")
-    folders = [x for x in j.sim.find() if (x.ident or "").startswith("workspaces.newAgentChatOn.") and x.ident.count(".") >= 3]
-    check(folders, "no folder under the Mac")
+    folders = [x for x in j.sim.find(kind="Button") if (x.label or "").startswith("proj")]
+    check(folders, f"no folder under the Mac: {labels(j)[:20]}")
     out["folder"] = folders[0].label
     j.sim.tap_el(folders[0])
     pq.wait_opened(j, timeout=120)
@@ -402,7 +414,10 @@ def moves(j, label):
     w.make_workspaces(names)
     order0 = [n for n in w.mac_order() if n in names]
     mover, target = order0[-1], order0[0]
-    w.row_menu(j, mover)
+    e = find_row(j, mover)
+    x, y = e.center
+    j.sim.long_press(x, y, 1.2)
+    time.sleep(1.2)
     if j.sim.wait(label="Move", timeout=4):
         w.menu_item(j, "Move")
     pq.shot(f"moves-{label}-menu")
@@ -439,7 +454,7 @@ def reveal(j, label):
         p.close_menu(j)
         return out
     p.tap_row(j, "Reveal in Workspaces List")
-    time.sleep(0.9)
+    time.sleep(0.2)
     pq.shot("reveal-after-flash")
     out["flash"] = bool(j.sim.find(ident="workspaces.revealed"))
     row = j.sim.find(prefix=target, kind="Button")
@@ -508,12 +523,15 @@ def menus(j, label):
         return out
     j.sim.tap_el(row); time.sleep(1.5)
     pq.shot("menus-after-page")
-    j.sim.tap_q(ident="settings.menus.workspaceRow.rename", timeout=6)
+    j.sim.tap_q(label="Rename", kind="Switch", timeout=6)
     time.sleep(0.8)
     pq.shot("menus-after-rename-off")
     seed = pq.load()["ws_name"]
     tab(j, "Workspaces")
-    w.row_menu(j, seed)
+    e = find_row(j, seed)
+    x, y = e.center
+    j.sim.long_press(x, y, 1.2)
+    time.sleep(1.2)
     out["menu_without"] = [x.label for x in j.sim.find(kind="Button") if x.label][:30]
     pq.shot("menus-after-row-menu")
     r.dismiss(j)
