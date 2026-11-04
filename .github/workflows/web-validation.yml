@@ -51,9 +51,9 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           JOBS: web-validation
-          FLEET_LINUX: ${{ vars.LINUX_RUNNER }}
+          FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           REQUIRE_LIVE_CAPACITY: '1'
-          SIDE_LABEL: ${{ vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
+          SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER }}
           SNAPSHOT_TOKEN: ${{ github.token }}
         run: python3 scripts/ci/portable_job_placement.py
 
