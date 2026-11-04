@@ -13371,7 +13371,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // recovery, but its authenticated machine is still safe to wake.
       if (sessionId) postTyping(text, sessionId);
       if (!handshaken) return;
-      const machineID = cloudChatIdentity?.id ?? cloudDraftMachineID.current;
+      // An explicit picker choice belongs to this draft and wins over any identity carried by a
+      // previous Cloud chat until the selected machine's own handshake arrives.
+      const machineID = cloudDraftMachineID.current ?? cloudChatIdentity?.id;
       if (!machineID) return;
       cloudTypingPrewarm.typed(text, { machineID, ...(sessionId ? { sessionID: sessionId } : {}) });
     },
