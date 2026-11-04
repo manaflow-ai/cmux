@@ -62,6 +62,7 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     glyph: number | null;
     received: Line | null;
     run: Line | null;
+    worked: number | null;
     sender: { text: string; height: number; top: number; bottom: number } | null;
   };
 
@@ -120,6 +121,10 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
         glyph: glyph ? (glyph.top + glyph.bottom) / 2 : null,
         received: line(receivedRow, ".cv-received__preview", ".cv-received__mark > *"),
         run: line(runRow, ".cv-tool__summary", ".cv-tool__icon > *"),
+        worked: (() => {
+          const label = [...document.querySelectorAll(".cv-worked .cv-worked__label")].find(shown);
+          return label ? (textCentre(label)?.centre ?? null) : null;
+        })(),
         sender:
           tag && tagBox
             ? {
