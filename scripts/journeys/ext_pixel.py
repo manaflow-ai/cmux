@@ -1122,7 +1122,23 @@ def _divider_centers(j):
 
 
 def step_px_divider_hover(j, step):
-    """The resize cursor follows a divider that moves under the real pointer (see the module doc)."""
+    """The resize cursor follows a divider that moves under the real pointer (see the module doc). Outside a film no
+    motion trace runs: the step starts one (it samples every display frame) and stops it at the end."""
+    own_trace = getattr(j, "video", None) is None
+    if own_trace:
+        V._motion(j, "trace_start", window=0)
+        time.sleep(HOVER_SETTLE_S)  # a few display frames of samples
+    try:
+        return _divider_hover(j, step)
+    finally:
+        if own_trace:
+            try:
+                V._motion(j, "trace_stop")
+            except D.StepError:
+                pass
+
+
+def _divider_hover(j, step):
     target = dict(step.get("target") or {"divider": 0})
     vertical = "row_divider" not in target
     index = int(target.get("divider", target.get("row_divider", 0)))

@@ -1963,6 +1963,12 @@ class HoverApp(SpringApp):
 
 
 class HoverJourney(SpringJourney):
+    """No film runs (the journey's video is None, as ext_video leaves it between films)."""
+
+    def __init__(self, app, config_dir, clock):
+        super().__init__(app, config_dir, clock)
+        self.video = None
+
     def step_hid_move(self, step):
         self.log.append(("move", self.clock.t, dict(step)))
         self.app.pointer = tuple(step["window_point"])
@@ -2005,6 +2011,9 @@ class DividerHoverTests(unittest.TestCase):
         self.assertAlmostEqual(new[0] - old[0], app.S, delta=0.5)
         self.assertEqual(app.moves, [tuple(old), tuple(new), tuple(old)])
         self.assertEqual([e[0] for e in j.log], ["move", "key", "move", "move"])
+        # Outside a film no trace runs: the step starts one first and stops it last.
+        motion = [p.get("action") for m, p in app.calls if m == "debug.motion"]
+        self.assertEqual((motion[0], motion[-1]), ("trace_start", "trace_stop"))
 
     def test_a_cursor_left_at_the_old_place_fails(self):
         with self.assertRaises(X.D.StepError) as caught:
