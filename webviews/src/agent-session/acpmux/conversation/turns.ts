@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import { TURN_RETRY, type AcpmuxActivity, type AcpmuxRow } from "../model";
+import { TURN_RETRY, type AcpmuxActivity, type AcpmuxPlanEntry, type AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
@@ -780,9 +780,11 @@ function shapeTurn(
   const body = turn.slice(0, end).filter((row) => !isVisiblyEmptyMessage(row));
   // Each harness family ends a turn as its own app does (Leo, 2026-11-01: "separate it per
   // harness/model family. claude gets claude behaviour, codex gets codex"). Codex and ChatGPT fold
-  // the whole turn's work under one "Worked for". Claude, as Claude desktop: no "Worked for"; each
-  // run of calls, the short notes inside it with it, folds into its own summary line, and a longer
-  // message between runs stays in place.
+  // the whole turn's work under one "Worked for". Claude Code has no "Worked for" of its own, but
+  // its turn takes one at the top too (Leo, 2026-11-04: "ofc claude code doesn't actually have the
+  // worked for... but i think we should be able to do that replacing the top level thingy maybe"):
+  // opened, each run of calls, the short notes inside it with it, folds into its own summary line,
+  // and a longer message between runs stays in place, as Claude desktop draws them.
   const claudeGroups = agentFamily?.startsWith("claude") === true;
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
@@ -804,7 +806,7 @@ function shapeTurn(
   const steerDialogue = steerDialogueIn(body);
   let folded = false;
   // Where the sub-sessions a folded turn started stay in sight (taskLine.experiment.ts).
-  const taskLook = claudeGroups ? undefined : experimentArm(finishedTaskLook);
+  const taskLook = experimentArm(finishedTaskLook);
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
@@ -815,8 +817,7 @@ function shapeTurn(
     // Work after the last answer folds with the work before it, so the answer stays last.
     // Edits after it join the card too, so its Undo covers the whole turn.
     const id = `${WORKED}-${segment.anchor.id}`;
-    // Claude's runs fold on their own lines, so its turn draws as an open "Worked for" without the line.
-    const open = claudeGroups || foldOpen || expanded.has(id);
+    const open = foldOpen || expanded.has(id);
     // A call still waiting for its permission stays in sight: beside the closed fold, and in its
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     const out = (row: AcpmuxRow) =>
@@ -838,7 +839,7 @@ function shapeTurn(
       ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
       : undefined;
     if (work.length && !dialogue) {
-      folded = !claudeGroups;
+      folded = true;
       const from = segment.anchor.at;
       // Its label counts the fold's messages (`previous`), which can change while the summary's and
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
@@ -859,7 +860,7 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
       };
-      if (!claudeGroups) shaped.push(worked);
+      shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
       // Open, each run of its work folds into its summary line between the commentary, as in a
       // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
@@ -1099,6 +1100,26 @@ const staysOut = (row: AcpmuxRow) =>
 
 /// A turn's todo list (an ACP `plan` update's row, direct.ts) that has its entries.
 const isPlan = (row: AcpmuxRow) => row.kind === "plan" && row.plan !== undefined;
+
+/// The running turn's todo list, if it has one: the last plan row whose turn has not ended, which
+/// App.tsx moves into the hat over the composer (subagents/SubagentTray.tsx `plan`).
+export function liveTurnPlan(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  for (let at = rows.length - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "plan" && row.plan?.length && !row.turnEnded) return row;
+  }
+  return undefined;
+}
+
+/// Whether two todo lists read the same (each step's words and state).
+export function samePlanEntries(
+  a: readonly AcpmuxPlanEntry[] | undefined,
+  b: readonly AcpmuxPlanEntry[] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every((entry, index) => entry.content === b[index]!.content && entry.status === b[index]!.status);
+}
 
 /// The latest todo list with entries among a turn's rows, if any.
 const latestPlan = (rows: readonly AcpmuxRow[]) => {
@@ -1392,7 +1413,7 @@ function codexLiveTurn(
     // Past the streaming text's pause the line says the agent writes, never "Thinking".
     line.liveState = "writing";
   }
-  // Past the turn's first step its clock reads as the turn's whole time ("4m total"), so a long wait
+  // Past the turn's first step its clock reads as the turn's whole time ("2s · 4m" after a step's own time, else "4m" beside the label), so a long wait
   // never reads as that long a think, call or step (Leo, 2026-11-03: "i think the "thinking"
   // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that waited on
   // its subagents).
@@ -1421,7 +1442,7 @@ function codexLiveTurn(
       line.doing = lifted.doing;
       line.doingShell = lifted.shell;
       line.doingDone = true;
-      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m total").
+      // The step's own time, not the turn's ("Opened 1 agent session 3m 27s · 1h 22m").
       if (lifted.ms !== undefined) line.doingForMs = lifted.ms;
     }
   }
