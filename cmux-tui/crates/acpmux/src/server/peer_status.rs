@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 const PEER_BUDGET: Duration = Duration::from_secs(5);
 
 /// The next step an unreachable or unknown peer's row names.
-const NEXT: &str = "acpmux host doctor";
+const NEXT: &str = "acpmux machine doctor";
 
 /// The `host_pressure` keys a caller of `_acpmux/host_health` gets: the
 /// verdict and this daemon's turns, without the formula, the sessions' names
@@ -105,7 +105,7 @@ pub(super) async fn peer_status(
         && !listed.iter().any(|p| p["name"] == name)
     {
         return Err(RpcError::invalid_params(format!(
-            "no peer named {name:?}: `acpmux host ls` lists the peers"
+            "no peer named {name:?}: `acpmux machine ls` lists the peers"
         )));
     }
     let mut hosts = Vec::new();
@@ -165,7 +165,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             row.set("latencyMs", json!(started.elapsed().as_millis() as u64));
             row.set("healthUnsupported", json!(true));
             row.set("error", json!(format!(
-                "{}; peer target is unknown: run `acpmux host update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
+                "{}; peer target is unknown: run `acpmux machine update {name}` only with a matching build, or rebuild acpmux on {name} for its OS and architecture (see docs/remote-agents-and-cloud.md)",
                 e.message
             )));
         }
