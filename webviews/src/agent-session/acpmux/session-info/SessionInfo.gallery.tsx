@@ -21,7 +21,7 @@ import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../.
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { createWorkflowAdapter } from "../summary/foldWorkflows";
-import { sessionSummary } from "../summary/sessionSummary";
+import { sessionSummary, type SummaryWakeup } from "../summary/sessionSummary";
 import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
 import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
@@ -726,6 +726,84 @@ const full: Props = {
   // Every section in view: the variants below compare the sections themselves. The default view
   // (Show more closed) is `compact-more`.
   more: true,
+};
+
+/// Wakeups and cron jobs as a coordinator schedules them (Leo, 2026-11-03: "expired waits like 'Wake
+/// at ~03:37Z' stay listed forever ... one shows a raw cron string '17 * * * *'"): two waits still
+/// ahead, three whose time has passed, an hourly pass, a five-minute poll a CronDelete removed, a
+/// recurring job past its 7 days and a failed call. Times are relative to the gallery's load.
+const MINUTE = 60_000;
+const scheduledMix: SummaryWakeup[] = [
+  {
+    id: "w-ahead",
+    kind: "wakeup",
+    text: "Wake when the nightly finishes",
+    startedAt: started - 2 * MINUTE,
+    dueAt: started + 25 * MINUTE,
+  },
+  {
+    id: "w-merge",
+    kind: "wakeup",
+    text: "Waiting on the merge retries, then re-check",
+    startedAt: started - MINUTE,
+    dueAt: started + 40 * MINUTE,
+  },
+  {
+    id: "w-done-1",
+    kind: "wakeup",
+    text: "Wake at ~03:37Z when cmux#32865's checks land",
+    startedAt: started - 64 * MINUTE,
+    dueAt: started - 60 * MINUTE,
+  },
+  {
+    id: "w-done-2",
+    kind: "wakeup",
+    text: "Production promote: check the run",
+    startedAt: started - 30 * MINUTE,
+    dueAt: started - 18 * MINUTE,
+  },
+  {
+    id: "w-done-3",
+    kind: "wakeup",
+    text: "Waiting on the three stuck merges",
+    startedAt: started - 9 * MINUTE,
+    dueAt: started - 4 * MINUTE,
+  },
+  {
+    id: "c-hourly",
+    kind: "cron",
+    cron: "17 * * * *",
+    text: "Hourly coordinator pass",
+    startedAt: started - 90 * MINUTE,
+  },
+  {
+    id: "c-poll",
+    kind: "cron",
+    cron: "*/5 * * * *",
+    text: "Poll the webview verdicts",
+    startedAt: started - 50 * MINUTE,
+    cancelledAt: started - 12 * MINUTE,
+  },
+  {
+    id: "c-old",
+    kind: "cron",
+    cron: "0 9 * * 1-5",
+    text: "Morning stand-up summary",
+    startedAt: started - 8 * 24 * 60 * MINUTE,
+  },
+  {
+    id: "w-failed",
+    kind: "wakeup",
+    text: "Fallback heartbeat while pinned merges run",
+    startedAt: started - 3 * MINUTE,
+    failed: true,
+  },
+];
+const scheduledProps: Props = {
+  ...full,
+  processes: processes.filter((process) => process.state === "running" && !/vite|dev/.test(process.command)),
+  transcriptTasks: [],
+  made: { ...full.made!, scheduled: scheduledMix },
 };
 
 /// A busy coordinator, as in Leo's 2026-10-21 screenshot: twelve subagents and five chats it started
@@ -1590,6 +1668,14 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /4 finished/ });
         await ctx.waitFor(() => /cargo build/.test(text(ctx)));
+      },
+    },
+    "tasks-scheduled": {
+      note: "Background tasks with mixed kinds: the running command (terminal), the two waits still ahead (clock, with the time each wakes) and the hourly pass (repeat, 'hourly at :17', not '17 * * * *'). The waits whose time passed, the removed poll, the job past its 7 days and the failed call fold into 6 finished, latest first: Failed, Done · 5m, Cancelled, Done · 12m, Done · 4m, Expired.",
+      props: scheduledProps,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /6 finished/ });
+        await ctx.waitFor(() => /Expired/.test(text(ctx)));
       },
     },
     "cloud-empty": {

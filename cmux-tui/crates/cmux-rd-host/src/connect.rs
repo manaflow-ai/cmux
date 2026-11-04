@@ -20,8 +20,8 @@ use crate::wire::{write_frame, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
 use crate::Res;
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
+use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
-use serde_json::json;
 use std::io::{self, BufRead, Read, Write};
 use std::net::SocketAddr;
 use std::os::fd::AsRawFd;
@@ -53,9 +53,10 @@ struct Later {
     stop: bool,
 }
 
-fn say(line: serde_json::Value) {
+/// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
+fn say(line: AppLine) {
     let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{line}");
+    let _ = writeln!(out, "{}", line.to_json());
     let _ = out.flush();
 }
 
@@ -73,7 +74,10 @@ fn unhex32(text: &str) -> Option<[u8; 32]> {
 
 pub fn run() -> Res<()> {
     let keys = KeyPair::generate()?;
-    say(json!({"key": keys.public.iter().map(|b| format!("{b:02x}")).collect::<String>()}));
+    say(AppLine {
+        key: Some(keys.public.iter().map(|b| format!("{b:02x}")).collect::<String>()),
+        ..AppLine::default()
+    });
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
     let answer: Answer = serde_json::from_str(&line).map_err(|e| format!("answer line: {e}"))?;
@@ -101,7 +105,7 @@ pub fn run() -> Res<()> {
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
     }
-    say(json!({"listening": true}));
+    say(AppLine { listening: true, ..AppLine::default() });
     // SAFETY: fcntl on our own stdin, after the blocking answer read.
     unsafe {
         libc::fcntl(
@@ -112,7 +116,7 @@ pub fn run() -> Res<()> {
     }
     let reason = bridge(&net, &listener).unwrap_or_else(|e| format!("failed: {e}"));
     let _ = std::fs::remove_file(&answer.socket);
-    say(json!({"ended": reason}));
+    say(AppLine { ended: Some(reason), ..AppLine::default() });
     drop(net);
     Ok(())
 }
@@ -190,15 +194,20 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
         }
         for event in net.events() {
             match event {
-                NetEvent::Candidate(c) => say(json!({"candidate": c.to_wire()})),
+                NetEvent::Candidate(c) => {
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
-                    say(json!({"connected": true}));
+                    say(AppLine { connected: true, ..AppLine::default() });
                 }
                 NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
-                    say(json!({"path": {
-                        "kind": kind.map(|k| k.wire_name()),
-                        "rtt_ms": rtt_us.map(|us| us as f64 / 1000.0),
-                    }}));
+                    say(AppLine {
+                        path: Some(LinePath {
+                            kind: kind.map(|k| k.wire_name().to_owned()),
+                            rtt_ms: rtt_us.map(|us| us as f64 / 1000.0),
+                        }),
+                        ..AppLine::default()
+                    });
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     if let Some(stream) = &mut pane {

@@ -34,6 +34,8 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+#[cfg(unix)]
+pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
@@ -41,8 +43,6 @@ mod event_bus;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
-#[cfg(unix)]
-pub mod blob_fetch;
 #[cfg(unix)]
 pub mod git_seed;
 mod history_ops;

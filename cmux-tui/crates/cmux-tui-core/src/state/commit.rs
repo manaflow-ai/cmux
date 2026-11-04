@@ -127,6 +127,15 @@ impl Mux {
         )
     }
 
+    /// Write registry metadata under its lock ([`WorkspaceRegistry::write_meta`]).
+    #[track_caller]
+    pub(crate) fn write_registry_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.workspace_registry.lock().unwrap().write_meta(write)
+    }
+
     /// Read the registry under its lock.
     #[track_caller]
     pub(crate) fn read_registry_state<T>(

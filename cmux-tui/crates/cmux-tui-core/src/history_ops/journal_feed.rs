@@ -67,7 +67,15 @@ fn page(mux: &Mux, cursor: u64) -> anyhow::Result<(Vec<(HistoryKind, Value)>, u6
         }
         Ok(())
     };
-    match mux.shared_journal_after(cursor, PAGE) {
+    // The ring trails the writer's commit by the tailer's pass: a commit already acknowledged
+    // (an agent hook the caller just sent) can be missing from it, and a page that stops at
+    // the ring's head would end this fold "complete" without it. Read the database then.
+    let ring = if mux.shared_journal_handle().ring_is_current() {
+        mux.shared_journal_after(cursor, PAGE)
+    } else {
+        SharedJournalRead::Unavailable
+    };
+    match ring {
         SharedJournalRead::Page(page) => {
             for document in &page.records {
                 take(&document.record)?;
