@@ -569,10 +569,13 @@ class NegativeFrameTests(unittest.TestCase):
 
     W, X = "with-234567-42", "gone-234567-42"
 
-    def run_journey(self, frames_with_x):
+    def run_journey(self, frames_with_x=(), show=None):
+        """Journey.run of one expect step with frame_marker_lacks {X, with W}. Check snapshot n shows show(n): "W" (the
+        proof), "X" (the forbidden token), "U" (an unreadable marker); by default W, and X on FRAMES_WITH_X."""
         sys.path.insert(0, str(HERE.parent / "cmux-next"))
         import driver as D
         W, X = self.W, self.X
+        show = show or (lambda n: "WX" if n in frames_with_x else "W")
 
         class App:
             snapshot_window = None
@@ -581,11 +584,18 @@ class NegativeFrameTests(unittest.TestCase):
             def snapshot(self, path):
                 # Only the check's own snapshots (check-NN.png) count; the driver's clip recorder takes others.
                 frame = Frame(400, 120, (30, 30, 30))
-                draw_marker(frame, W, 8, 10, 8, 17)
+                what = ""
                 if Path(path).name.startswith("check-"):
                     App.shots += 1
-                    if App.shots in frames_with_x:
-                        draw_marker(frame, X, 8, 50, 8, 17)
+                    what = show(App.shots)
+                if "W" in what:
+                    draw_marker(frame, W, 8, 10, 8, 17)
+                if "X" in what:
+                    draw_marker(frame, X, 8, 50, 8, 17)
+                if "U" in what:
+                    cells = list(M.marker_cells(X))
+                    cells[10] = (128, 128, 128)  # a cell of no class: an unreadable marker
+                    draw_marker(frame, X, 8, 80, 8, 17, cells=cells)
                 return frame.png(path)
 
             def panes(self):
@@ -609,6 +619,26 @@ class NegativeFrameTests(unittest.TestCase):
         self.assertFalse(check["pass"], check)
         self.assertTrue(check["detail"]["seen"], check)
         self.assertEqual(shots, 1, "no later snapshot is read once T showed")
+
+    def test_the_token_on_a_frame_without_the_proof_does_not_fail_at_once(self):
+        # A snapshot taken before the window draws the step's output still shows the old screen: T, and no W. That
+        # frame is not this step's: it is tried again (review 4 of #34071, finding 1).
+        result, shots = self.run_journey(show=lambda n: "W" if n >= 2 else "X")
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertTrue(check["pass"], check)
+        self.assertEqual(shots, 2)
+
+    def test_a_frame_before_the_proof_shows_is_tried_again(self):
+        result, shots = self.run_journey(show=lambda n: "W" if n >= 2 else "")
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertTrue(check["pass"], check)
+        self.assertEqual(shots, 2)
+
+    def test_a_frame_with_an_unreadable_marker_is_tried_again(self):
+        result, shots = self.run_journey(show=lambda n: "WU" if n == 1 else "W")
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertTrue(check["pass"], check)
+        self.assertEqual(shots, 2)
 
     def test_no_token_on_any_snapshot_passes(self):
         result, _ = self.run_journey(frames_with_x=set())
