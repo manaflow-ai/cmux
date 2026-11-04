@@ -4674,7 +4674,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         try:
             light_rescue = hosted_light_rescue.from_env(env, repository, now=clock, log=light_log)
         except (OSError, ValueError) as error:
-            light_log(f"hosted light rescue policy unavailable ({error}); independent recovery remains enabled")
+            light_log(f"hosted light rescue policy unavailable ({error}); primary owned-pool rescue continues")
             light_rescue = None
         outcomes = sweep(client, repository, seconds=seconds, queue_rounds=env.get("QUEUE_ROUNDS"),
                          now=clock, log=light_log, side_seconds=side_seconds, light_rescue=light_rescue)

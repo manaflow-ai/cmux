@@ -5192,6 +5192,18 @@ class Sweeper(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("swept: 1 done, 4 stopped", text)
 
+    def test_unavailable_light_policy_still_starts_the_primary_sweep(self):
+        import hosted_light_rescue
+        clock = Clock()
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "POOL_OWNED": "1", "SWEEP": "1"}
+        with unittest.mock.patch.object(hosted_light_rescue, "from_env", side_effect=FileNotFoundError("policy")), \
+                unittest.mock.patch.object(rescue, "sweep", return_value={}) as sweep, \
+                unittest.mock.patch("sys.stdout", io.StringIO()):
+            code = rescue.main([], env, api=SweepAPI([]), now=clock.now, sleep=clock.sleep)
+        self.assertEqual(code, 0)
+        sweep.assert_called_once()
+        self.assertIsNone(sweep.call_args.kwargs["light_rescue"])
+
 class Tokens(unittest.TestCase):
     """Reads may use the App's token; writes always use GITHUB_TOKEN."""
 

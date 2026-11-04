@@ -10,7 +10,8 @@ assignment pass waits 30 minutes and needs a newer job on the same labels taken.
 failover is about 3 minutes.
 
 The existing owned-pool sweeper runs this on a separate workflow-token client every minute.
-An independent scheduled workflow is a recovery path when that sweeper is not running. Each pass:
+An independent scheduled workflow wakes that same concurrency owner when it is not running; it never
+cancels or re-runs target jobs itself. Each pass:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
   light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
@@ -116,12 +117,13 @@ class GitHub:
 
         self.etags: dict[str, tuple[str, Any]] = {}
 
-    def request(self, method: str, path: str) -> Any:
+    def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Any:
         token = self.token if method == "GET" else self.write_token
         request = urllib.request.Request(
             f"https://api.github.com/repos/{self.repo}{path}", method=method,
-            data=b"" if method != "GET" else None,
+            data=json.dumps(payload).encode() if payload is not None else b"" if method != "GET" else None,
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                     "Content-Type": "application/json",
                      "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-hosted-light-rescue"})
         cached = self.etags.get(path) if method == "GET" else None
         if cached:
@@ -164,6 +166,11 @@ class GitHub:
 
     def rerun_failed(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
+
+    def wake_sweeper(self) -> None:
+        # The workflow's owned-pool-sweeper concurrency group is the one mutation owner. Repeated
+        # wakes only refresh its pending handover; they cannot run a second cancellation pass.
+        self.request("POST", "/actions/workflows/ci-owned-pool-rescue.yml/dispatches", {"ref": "main"})
 
 
 def at_head(run: Mapping[str, Any]) -> bool:
@@ -355,21 +362,37 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
          now: dt.datetime | None = None, sleep: Callable[[float], None] = time.sleep) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--runners", type=Path, required=True,
-                        help="the .github/runners.json whose hosted_light_jobs scope the pass")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--runners", type=Path,
+                      help="the .github/runners.json whose hosted_light_jobs scope the pass")
+    mode.add_argument("--wake-sweeper", action="store_true",
+                      help="wake the existing single concurrency owner without cancelling or rerunning any job")
     parser.add_argument("--workflows", type=Path, default=None,
                         help="the .github/workflows directory whose callers of reusable declared workflows are listed too")
     parser.add_argument("--dry-run", action="store_true",
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
     args = parser.parse_args(argv)
     now = now or dt.datetime.now(UTC)
+    repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+    if args.wake_sweeper and args.dry_run:
+        print("would dispatch the owned-pool-sweeper on main (dry run)")
+        return 0
+    if args.wake_sweeper:
+        if client is None:
+            token = (env.get("GH_TOKEN") or "").strip()
+            if not token or not repo:
+                print("::warning title=Hosted light rescue::no GH_TOKEN or repository; nothing to do")
+                return 0
+            client = GitHub(token, repo, token)
+        client.wake_sweeper()
+        print("dispatched the single owned-pool-sweeper on main")
+        return 0
     try:
         workflows = with_callers(declared_workflows(json.loads(args.runners.read_text(encoding="utf-8"))),
                                  args.workflows)
     except (OSError, ValueError) as error:
         print(f"::warning title=Hosted light rescue::could not read {args.runners} ({error}); nothing to do")
         return 0
-    repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     if client is None:
         write = (env.get("GH_TOKEN") or "").strip()
         read = (env.get("READ_TOKEN") or "").strip() or write
