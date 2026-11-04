@@ -20,6 +20,7 @@ extension IconName {
         .actionMoreVertical,
         .actionPause,
         .actionPin,
+        .actionQuote,
         .actionReload,
         .actionRemove,
         .actionReset,

@@ -45,6 +45,7 @@ export const SaveTray = glyph("action.save");
 export const Retry = glyph("action.retry");
 export const AlertCircle = glyph("status.failure");
 export const DoubleCheck = glyph("message.delivered");
+export const Quote = glyph("action.quote");
 export const StopReading = glyph("media.stop.circle");
 export const Clock = glyph("time.waiting");
 export const SummaryToggle = glyph("transcript.summary");

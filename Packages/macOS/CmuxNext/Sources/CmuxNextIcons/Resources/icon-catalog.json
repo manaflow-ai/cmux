@@ -103,6 +103,12 @@
    "family": "action"
   },
   {
+   "name": "action.quote",
+   "meaning": "Quote selected text",
+   "sf": "questionmark.square.dashed",
+   "family": "action"
+  },
+  {
    "name": "action.reload",
    "meaning": "Reload / refresh / reconnect",
    "sf": "arrow.clockwise",
