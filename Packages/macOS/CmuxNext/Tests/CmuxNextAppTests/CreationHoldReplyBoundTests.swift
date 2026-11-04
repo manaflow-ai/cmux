@@ -178,23 +178,24 @@ struct CreationHoldReplyBoundTests {
     }
 
     /// A close's read opened while a creation waits for its reply (a person's Cmd-W) does not restart that creation's reply
-    /// bound: the hold still ends one bound after the creation began (review of #35275: the close moved its start).
+    /// bound: the creation's own 1 s bound still ends the hold (review of #35275: the close moved the creation's start and
+    /// armed the bound again on its own ticket). A bound armed after the close is 60 s here, so only the creation's can end
+    /// the hold within the wait, whatever the main thread's delays.
     @Test func aCloseDuringAPendingCreationKeepsTheCreationsReplyBound() async throws {
         let buffer = CreationInputBuffer(began: .now)
         buffer.replyWaitLimit = .seconds(1)
         let ended = BoundEnd()
-        buffer.onBound = { _, bound in if bound == .reply, ended.at == nil { ended.at = .now } }
-        let opened = ContinuousClock.now
-        _ = buffer.open(generation: 1, at: opened)
+        buffer.onBound = { _, bound in if bound == .reply { ended.byReply = true } }
+        _ = buffer.open(generation: 1)
         try await Task.sleep(for: .milliseconds(600))
+        buffer.replyWaitLimit = .seconds(60)
         _ = buffer.openClose(closing: ["closing_tab"], machine: nil)
         #expect(buffer.waitedPastReplyBound(.milliseconds(500)), "the close restarted the creation's reply bound")
-        let deadline = ContinuousClock.now + .seconds(3)
-        while ended.at == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
-        let end = try #require(ended.at, "the reply bound never ended the hold")
-        #expect(end - opened < .milliseconds(1400), "the hold ended \(end - opened) after the creation began, past its 1 s bound")
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !ended.byReply, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(ended.byReply, "the creation's 1 s reply bound did not end the hold once a close opened")
     }
 }
 
-/// When a hold's reply bound ended it (``CreationInputBuffer/onBound``).
-@MainActor private final class BoundEnd { var at: ContinuousClock.Instant? }
+/// Whether a hold's reply bound ended it (``CreationInputBuffer/onBound``).
+@MainActor private final class BoundEnd { var byReply = false }
