@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Whether a loaded Cloud machine list still answers for `account`: loaded for it, less than `age` ago.
 public nonisolated enum CloudListFreshness {
