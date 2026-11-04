@@ -60,6 +60,20 @@ struct AgentPaneNativeSessionInfoTests {
         #expect(AgentPaneSessionInfoModel.decode(["open": true]) == nil)
     }
 
+    /// A short pane's popover lies over the transcript and sends no `foot`: it still gets the glass,
+    /// so the chat and the panel's sections never show through each other (the faint copy of Session
+    /// Info over the transcript). Over the gutter it stands on nothing, as before.
+    @Test func aPanelOverTheChatGetsItsGlassEvenWithoutAFoot() throws {
+        var popover = Self.info()
+        popover["overChat"] = true
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(popover)))
+        var aboveComposer = Self.info()
+        aboveComposer["foot"] = 120
+        #expect(AgentPaneSessionInfoPanel.liesOverChat(try Self.model(aboveComposer)))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(try Self.model(Self.info())))
+        #expect(!AgentPaneSessionInfoPanel.liesOverChat(nil))
+    }
+
     @Test func fractionalRowIndentAndRevealRevisionAreAcceptedAndRounded() throws {
         var raw = Self.info()
         raw["reveal"] = ["section": "subagents", "at": 3.6]
