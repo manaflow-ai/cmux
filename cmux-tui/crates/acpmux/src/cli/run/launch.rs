@@ -64,7 +64,7 @@ impl Launch {
                 if let Some(host) = &args.host {
                     bail!(
                         "--worktree makes the worktree on this machine only: run \
-                         `ssh {host} acpmux new ...` there instead of --host {host}"
+                         `ssh {host} acpmux new ...` there instead of --machine {host}"
                     );
                 }
                 if args.cwd.is_some() {
@@ -82,7 +82,7 @@ impl Launch {
         if let (Some(host), Some(from)) = (&args.host, &args.harness_from) {
             bail!(
                 "--harness-from copies a session on this machine only: run \
-                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --host {host}"
+                 `ssh {host} acpmux new --harness-from {from} ...` there instead of --machine {host}"
             );
         }
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;

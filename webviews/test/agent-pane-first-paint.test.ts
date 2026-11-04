@@ -19,6 +19,7 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
+import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -91,6 +92,8 @@ class Daemon {
   status = { peers: [{ name: "remote-box", connected: true }] };
   /// The turn opener's own read answers these records of the chat.
   readonly prompts = new Map<string, Step[]>();
+  /// Asks the attach lists as still pending, per chat (`detail.pending`).
+  readonly pending = new Map<string, Record<string, unknown>[]>();
   holding?: (message: Message) => boolean;
   private held: Message[] = [];
 
@@ -171,7 +174,10 @@ class Daemon {
       const page = this.pages.get(sessionId) ?? { steps: [] };
       const events = this.records(sessionId, page.steps, page.from);
       result = {
-        session: this.summary(sessionId),
+        session: {
+          ...this.summary(sessionId),
+          ...(this.pending.has(sessionId) ? { pending: this.pending.get(sessionId) } : {}),
+        },
         lastSeq: events.at(-1)?.seq ?? 0,
         events,
         hasMore: page.hasMore === true,
@@ -241,6 +247,71 @@ const settlesWithin = (promise: Promise<unknown>, ms: number) =>
 
 const sideRead = (message: Message) =>
   message.method === PERMISSION_GROUP_OPS.groups || message.method === HANDOFF_OPS.get;
+
+test("a cold tail draws before the full prompt index is read, then fills its labels after paint", async () => {
+  const daemon = new Daemon("index-after-paint");
+  const A = daemon.sessionA;
+  daemon.pages.set(A, { steps: [prompt("Latest"), reply(A, "Tail ready.")], from: 101, hasMore: true });
+  daemon.prompts.set(A, [prompt("Earlier")]);
+  const frames = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  const savedFrame = scope.requestAnimationFrame;
+  const savedCancel = scope.cancelAnimationFrame;
+  const visibility = Object.getOwnPropertyDescriptor(dom.window.document, "visibilityState");
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+  scope.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    frames.set(++frameId, callback);
+    return frameId;
+  };
+  scope.cancelAnimationFrame = (id: number) => frames.delete(id);
+  const { client, last } = await paneOn(daemon);
+  const indexReads = () => daemon.sent.filter((message) => message.params?.promptIndex === true);
+  try {
+    expect(text(last())).toContain("Tail ready.");
+    expect(indexReads()).toHaveLength(0);
+    expect(last().promptCount).toBe(1);
+    const due = Array.from(frames.values());
+    frames.clear();
+    for (const callback of due) {
+      callback(performance.now());
+    }
+    // rAF still precedes the frame: even an immediate daemon must not parse history here.
+    expect(indexReads()).toHaveLength(0);
+    await turns();
+    expect(indexReads()).toHaveLength(1);
+    expect(last().earlierPrompts?.map((row) => row.text)).toEqual(["Earlier"]);
+    expect(text(last())).toContain("Tail ready.");
+  } finally {
+    client.close();
+    scope.requestAnimationFrame = savedFrame;
+    scope.cancelAnimationFrame = savedCancel;
+    if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
+    else Reflect.deleteProperty(dom.window.document, "visibilityState");
+  }
+});
+
+test("a hidden tail starts no whole-history read, and closing cancels its deferred read", async () => {
+  const daemon = new Daemon("hidden-index");
+  const A = daemon.sessionA;
+  daemon.pages.set(A, { steps: [prompt("Latest"), reply(A, "Tail ready.")], from: 101, hasMore: true });
+  const visibility = Object.getOwnPropertyDescriptor(dom.window.document, "visibilityState");
+  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
+  const { client, last } = await paneOn(daemon);
+  try {
+    expect(text(last())).toContain("Tail ready.");
+    await turns();
+    expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
+    client.close();
+    Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+    dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    await turns();
+    expect(daemon.sent.some((message) => message.params?.promptIndex === true)).toBe(false);
+  } finally {
+    client.close();
+    if (visibility) Object.defineProperty(dom.window.document, "visibilityState", visibility);
+    else Reflect.deleteProperty(dom.window.document, "visibilityState");
+  }
+});
 
 test("a cold switch draws the chat's rows with its permission and handoff reads still out", async () => {
   const daemon = new Daemon("side-reads");
@@ -389,5 +460,98 @@ test("a remote connection still settles peer status before completing its open",
   } finally {
     daemon.release();
     (await opening).client.close();
+  }
+});
+
+test("a grouped ask draws on the card at once while its group read is out, then the group takes it", async () => {
+  // Leo, 2026-11-03, on a peer chat's Run command card: "it needed to load the permissions
+  // settings/the permissions pop itself for like 10 seconds before it loaded". The ask waited, undrawn,
+  // for `_acpmux/permission_groups`, which on a peer waits on its attach and the shared read queue.
+  const daemon = new Daemon("grouped-ask");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, { steps: [prompt("Retry path"), reply(A, "Retry added.")] });
+  daemon.pages.set(B, { steps: [prompt("Check disk"), reply(B, "Running du.")] });
+  daemon.pending.set(B, [
+    {
+      permissionId: `perm-${B}`,
+      groupId: `group-${B}`,
+      request: {
+        toolCall: { toolCallId: "t1", title: "Run du -sh .", kind: "execute", rawInput: { command: "du -sh ." } },
+        options: [
+          { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          { optionId: "deny", name: "Deny", kind: "reject_once" },
+        ],
+      },
+    },
+  ]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    daemon.holding = (message) => message.method === PERMISSION_GROUP_OPS.groups && message.params?.sessionId === B;
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    // The first frame of B has its ask on the card the pane draws, with the group read still out.
+    expect(last().permission?.permissionId).toBe(`perm-${B}`);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(true);
+    daemon.release();
+    await turns();
+    // The read landed: the group's card holds the ask, and no single card repeats it.
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
+    // Back to A, then B again: B's groups come back from its last read while the refresh is out, and
+    // its ask is the group's card only, never a single card beside it.
+    expect(await settlesWithin(client.select(A), 1_000)).toBe(true);
+    await turns();
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
+    daemon.release();
+    await turns();
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
+  } finally {
+    client.close();
+  }
+});
+
+test("a reopened chat's restored group keeps its ask, and an ungrouped ask behind it draws at once", async () => {
+  // Codex review of #34386 (F2): on reopen the restored groups list the grouped ask while their
+  // refresh is out; that ask headed the single card's queue, hidden as the panel's, and the ungrouped
+  // ask behind it waited for the refresh.
+  const daemon = new Daemon("restored-group-queue");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, { steps: [prompt("Retry path"), reply(A, "Retry added.")] });
+  daemon.pages.set(B, { steps: [prompt("Check disk"), reply(B, "Running du.")] });
+  const ask = (permissionId: string, title: string, groupId?: string) => ({
+    permissionId,
+    ...(groupId ? { groupId } : {}),
+    request: {
+      toolCall: { toolCallId: permissionId, title, kind: "execute", rawInput: { command: title } },
+      options: [
+        { optionId: "allow", name: "Allow once", kind: "allow_once" },
+        { optionId: "deny", name: "Deny", kind: "reject_once" },
+      ],
+    },
+  });
+  daemon.pending.set(B, [ask(`perm-${B}`, "du -sh .", `group-${B}`), ask(`perm2-${B}`, "ls")]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(await settlesWithin(client.select(A), 1_000)).toBe(true);
+    await turns();
+    daemon.holding = (message) => message.method === PERMISSION_GROUP_OPS.groups && message.params?.sessionId === B;
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    // The restored group holds its ask; the ungrouped one is the single card, not hidden behind it.
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(last().permission?.permissionId).toBe(`perm2-${B}`);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(true);
+    daemon.release();
+  } finally {
+    client.close();
   }
 });

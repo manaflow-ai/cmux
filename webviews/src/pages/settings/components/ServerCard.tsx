@@ -3,6 +3,7 @@
 // Recommended" row when a restart would turn on new features, the local control socket, and the
 // Tailscale address with Pair. Restart… opens the host's own confirm (the toast's); the page never
 // restarts anything itself (plans/cmux-next/server-updates-DESIGN.md section 10).
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { ServerHostState } from "../ops";
 import { ActionRow } from "./ActionRow";
@@ -26,31 +27,31 @@ function ServerSection({ state, server }: { state: ServerHostState; server: Serv
         </ActionRow>
         {server.restart && (
           <ActionRow title={server.restart.title} help={server.restart.help}>
-            <button
+            <Button
               type="button"
               className="button"
               data-server-restart={server.id}
               onClick={() => void store.restartServer(server.kind, server.host)}
             >
               {server.restart.button}
-            </button>
+            </Button>
           </ActionRow>
         )}
         {server.socket !== null && (
           <ActionRow title={state.socket_title} help={server.socket}>
-            <button type="button" className="button" data-server-copy="socket" onClick={copy(server.socket)}>
+            <Button type="button" className="button" data-server-copy="socket" onClick={copy(server.socket)}>
               {state.copy_title}
-            </button>
+            </Button>
           </ActionRow>
         )}
         {server.tailnet !== null && (
           <ActionRow title={state.tailnet_title} help={server.tailnet}>
-            <button type="button" className="button" data-server-pair="" onClick={() => void store.pairServer()}>
+            <Button type="button" className="button" data-server-pair="" onClick={() => void store.pairServer()}>
               {state.pair_title}
-            </button>
-            <button type="button" className="button" data-server-copy="tailnet" onClick={copy(server.tailnet)}>
+            </Button>
+            <Button type="button" className="button" data-server-copy="tailnet" onClick={copy(server.tailnet)}>
               {state.copy_title}
-            </button>
+            </Button>
           </ActionRow>
         )}
       </div>

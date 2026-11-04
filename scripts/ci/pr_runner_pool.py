@@ -520,6 +520,37 @@ def retry_wait(error: "urllib.error.HTTPError", cap: float) -> float | None:
     except ValueError:
         return None
     return max(0.0, min(after, cap))
+
+
+class RateLimited(RuntimeError):
+    """A runner read was refused because the token's GitHub quota is spent.
+
+    It stays a RuntimeError so callers that already fall back on a failed
+    census keep doing so; a caller that polls can tell that waiting a few
+    seconds and asking again will only be refused again.
+    """
+
+
+def rate_limited(error: BaseException | None) -> bool:
+    """True when this error, or one it was raised from, is GitHub's quota refusal.
+
+    That is a 429, or a 403 whose X-RateLimit-Remaining is 0 or that carries
+    Retry-After (a secondary limit). A 403 without those headers is a missing
+    permission, which this does not claim.
+    """
+    seen = 0
+    while error is not None and seen < 8:
+        if isinstance(error, RateLimited):
+            return True
+        if isinstance(error, urllib.error.HTTPError):
+            headers = error.headers or {}
+            if error.code == 429 or (error.code == 403 and (
+                    str(headers.get("X-RateLimit-Remaining") or "").strip() == "0"
+                    or headers.get("Retry-After") is not None)):
+                return True
+        error = error.__cause__ or error.__context__
+        seen += 1
+    return False
 # The org runner group holding the glaeda minis (glaeda#1222 moved them there).
 RUNNER_GROUP = "glaeda-minis"
 # The approved GCP Linux pool is an organization runner group as well. Keep
@@ -2229,6 +2260,14 @@ def runner_state(repository: str, *, raw: str | None = None,
     arbitrary scopes, partial pages or a timestamp refreshed after a source error.
     A workflow's input is not a document source: callers use repository context.
     """
+    return _runner_state_document(repository, raw=raw, now=now,
+                                  max_age_seconds=RUNNER_STATE_MAX_AGE_SECONDS)
+
+
+def _runner_state_document(repository: str, *, max_age_seconds: float,
+                           raw: str | None = None,
+                           now: dt.datetime | None = None) -> Mapping[str, Any] | None:
+    """Validate the shared envelope; each consumer retains its own source expiry."""
     raw = os.environ.get("CI_RUNNER_STATE", "") if raw is None else raw
     if not raw or len(raw) > 48 * 1024 or repository != "manaflow-ai/cmux":
         return None
@@ -2245,7 +2284,7 @@ def runner_state(repository: str, *, raw: str | None = None,
         generated = parse_time(str(doc.get("generated_at") or ""))
         clock = now or dt.datetime.now(dt.timezone.utc)
         if (generated is None or generated.tzinfo is None
-                or not -RUNNER_STATE_CLOCK_SKEW_SECONDS <= (clock - generated).total_seconds() <= RUNNER_STATE_MAX_AGE_SECONDS):
+                or not -RUNNER_STATE_CLOCK_SKEW_SECONDS <= (clock - generated).total_seconds() <= max_age_seconds):
             return None
         groups = doc.get("runner_groups")
         if (not isinstance(groups, dict) or RUNNER_GROUP not in groups
@@ -2388,6 +2427,12 @@ class GitHub:
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted janitor snapshot, preferring the census document."""
         document = runner_state(self.repo, now=now)
+        if document is None:
+            # Queued jobs may outlive the roster's five-minute capacity reading.
+            # Its queue evidence keeps its own existing expiry and timestamps;
+            # the older runner statuses are never handed to a capacity reader.
+            document = _runner_state_document(self.repo, now=now,
+                                              max_age_seconds=MAX_SNAPSHOT_MINUTES * 60)
         if document is not None:
             embedded = document_queue_snapshot(document, now=now, branch=branch)
             if embedded is not None:
@@ -2498,11 +2543,16 @@ class GitHub:
                 return "ephemeral"
         return None
 
-    def runners(self, *, use_state: bool = True) -> list[Mapping[str, Any]]:
+    def runners(self, *, use_state: bool = True, include_repository: bool = True) -> list[Mapping[str, Any]]:
         """The repository runners plus explicitly approved organization groups.
 
         Capacity rechecks after a wait use use_state=False: the workflow's
         document retains the same observation throughout that run.
+
+        Organization-only fallback tokens use include_repository=False: they
+        cannot list repository registrations, but can still read the approved
+        organization groups visible to this repository. A trusted shared census
+        remains usable with either token.
 
         The glaeda minis and GCP Linux pool are organization runners, which
         the repository endpoint does not list. Listing those groups needs the
@@ -2518,7 +2568,8 @@ class GitHub:
             print("Runner state: trusted repository document (no runner API requests)", file=sys.stderr)
             return [*document["repository_runners"],
                     *(runner for runners in document["runner_groups"].values() for runner in runners)]
-        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        found = ({runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+                 if include_repository else {})
         owner, _, name = self.repo.partition("/")
         try:
             groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
@@ -2542,6 +2593,10 @@ class GitHub:
                     raise RuntimeError(f"no runner group {group_name} is visible to {self.repo}")
                 org.extend(self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners"))
         except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                raise RateLimited(f"approved org runner groups unread: the routing token's GitHub quota is "
+                                  f"spent (HTTP {error.code}, X-RateLimit-Reset="
+                                  f"{(error.headers or {}).get('X-RateLimit-Reset')})") from error
             raise RuntimeError(f"approved org runner group unreadable (HTTP {error.code}); the routing "
                                "App needs the organization permission Self-hosted runners: read") from error
         found.update((runner.get("id"), runner) for runner in org)

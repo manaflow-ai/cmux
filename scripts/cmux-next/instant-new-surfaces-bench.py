@@ -11,8 +11,9 @@ Two phases: `idle`, then `load` (every core busy with `yes`, plus `--storm` work
 tag's CLI against its daemon). With `--budget-frames N` (which times the warm arm alone unless `--arms` says otherwise) the run fails when any command's p95
 display frame of visibility (1 = the first frame drawn after the key) is above N or a key's main-thread time is above `--budget-key-ms`.
 
-`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split, and
-`split_browser`, Split Browser Right, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
+`--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
+`link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
+and `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, run only when named, warm arm); `--workspaces 10,100` runs every phase again at
 each workspace count (the app holds that many terminal workspaces; the bench's is the shown one).
 
 Three arms of each command (`--arms`, default all; bench_arms.py), each reported with p50/p95/p99/max of
@@ -37,6 +38,12 @@ Fleet: cmux-ci run --class exclusive --measurement --label measure --script scri
        --ref SHA --artifact artifacts/instant-new-surfaces.json [--arg=--runs=12]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+
+# `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh passes it through): the fleet entry
+# runs scripts/cmux-next/new-pane-start-state-bench.py on the same tagged app instead, with the same arguments.
+if "--bench=new-pane-start-state" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
@@ -159,12 +166,29 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command == "new_workspace":
+    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
+    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+        rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
+        wait(lambda: len(panes()) <= before_panes, 10)
+        return
     rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
     wait(lambda: len(panes()) <= before_panes and (focused() or {}).get("kind") == "terminal", 10)
+
+
+def home_dock():
+    """Home shown with its dock alone and focused (`link_home`): `home.show` from a script, as the sidebar's Home row."""
+    if len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True
+    rpc("action.run", {"action": "home.show", "wait": True})
+    return wait(lambda: len(panes()) == 1 and (focused() or {}).get("kind") != "terminal", 10)
+
+
+def ready(command, settle=True):
+    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    return home_dock() if command == "link_home" else ensure_terminal(settle)
 
 
 def focused():
@@ -186,9 +210,10 @@ def ensure_terminal(settle=True):
 
 def timed(command, phase, index, arm=None):
     """One timed `bench_create` of `command` (the key goes through the real key path in the app), printed."""
-    result = rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=20) or {}
-    result.update({"phase": phase, "run": index})
-    result.setdefault("command", command)
+    # `link_home` is the app's `link_right` from Home's dock (LinkOpener reads the source, not the command).
+    sent = "link_right" if command == "link_home" else command
+    result = rpc("debug.new_tab", {"action": "bench_create", "command": sent}, timeout=20) or {}
+    result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
@@ -240,8 +265,8 @@ def arm_cold(relaunch):
                 print(f"cold {command} #{index}: launch failed: {error}", flush=True)
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
                 continue
-            if command != "new_workspace" and not ensure_terminal(settle=False):
-                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused terminal"})
+            if command != "new_workspace" and not ready(command, settle=False):
+                rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
             rows.append(timed(command, "cold", index, arm="cold"))
     return rows
@@ -267,8 +292,8 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ensure_terminal():
-                sys.exit("no focused terminal: " + json.dumps(panes())[:800])
+            if command != "new_workspace" and not ready(command):
+                sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
                 rpc("debug.hangs", {"clear": True})

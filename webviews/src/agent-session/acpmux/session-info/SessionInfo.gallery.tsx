@@ -367,6 +367,9 @@ const ownUsage = spent({
   subagents24h: 11,
   tokens24h: 38_400_000,
   costUsd24h: 61.2,
+  calls24h: 182,
+  cacheReadShare24h: 0.981,
+  costPerCallUsd24h: 0.3363,
 });
 const summary = {
   ...local.summary!,
@@ -449,6 +452,22 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
   const icon = head.querySelector(".acpmux-session-info-section__icon");
   if (icon && handle.getBoundingClientRect().right > icon.getBoundingClientRect().left + 0.5)
     throw new Error("The grip overlaps the head's icon");
+  // Leo, 2026-11-03: "just align the draggable. in fact, make it a more horizontally wide symbol". The
+  // dots are wider than tall, centred on the head's left edge (where its hover pill starts) and on its
+  // middle line.
+  const dots = handle.querySelector("svg")!.getBoundingClientRect();
+  const pill = head.getBoundingClientRect();
+  if (!(dots.width > dots.height)) throw new Error(`The grip is ${dots.width}x${dots.height}, not wider than tall`);
+  if (Math.abs(dots.left + dots.width / 2 - pill.left) > 0.5)
+    throw new Error("The grip is not centred on its head's left edge");
+  if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
+    throw new Error("The grip is not on its head's middle line");
+};
+
+/// Shows a compared grip placement: the pointer rests on the first foldable section head.
+const hoverFirstHead: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(FOLDABLE_HEAD));
+  await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
 /// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
@@ -934,10 +953,18 @@ const sharedRows = [
   assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
 ];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
-/// card shows whole.
+/// card shows whole. It compacts at 400k (its acpmux cap and /context agree), so Context reads the
+/// window /context names: the smaller of the two (usageStats.ts `compactingUsage`, #32665), never
+/// the 200k cap of this file's other chat.
+const breakdownUsage: SessionUsageStats = { ...ownUsage, autocompactCap: 400_000 };
 const breakdownProps: Props = {
   ...full,
-  summary: { ...summary, usage: { used: 171_400, size: 400_000 }, contextBreakdown: CONTEXT_BREAKDOWN },
+  summary: {
+    ...summary,
+    usage: { used: 171_400, size: 400_000 },
+    usageStats: breakdownUsage,
+    contextBreakdown: CONTEXT_BREAKDOWN,
+  },
   sections: { ...DEFAULT_SECTIONS, environment: false, context: true, changes: false, subagents: false, tasks: false },
 };
 /// A gallery-only palette for the breakdown's used categories, largest first.
@@ -1142,6 +1169,97 @@ export default componentEntry<Props>({
         },
       },
     },
+    "usage-cache-1h": {
+      note: 'Chosen: the prompt cache\'s numbers as two rows right after the 24h cost they explain. A chat on the hour-long cache: Cache reads 98.1%, Cost per call $0.34. Leo, 2026-11-03, on the 1h cache: "such a big win that cmux-next/acpmux can get"; the coordinator relayed: show the cache-read share and estimated cost per call, so users can see the win.',
+      props: {
+        ...full,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-5m": {
+      note: "The same chat's numbers on the 5-minute cache, gaps between calls letting it go cold: Cache reads 94.3%, Cost per call $0.43. Set beside usage-cache-1h, the win reads at a glance.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, cacheReadShare24h: 0.943, costPerCallUsd24h: 0.4313, costUsd24h: 78.5 },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-combined": {
+      note: "Alternative: one Prompt cache row reading 98.1% read · $0.34/call. Shorter, but the cost per call hides inside a sentence and no longer lines up with the other dollar values in the value column, so the two rows ship.",
+      props: {
+        ...full,
+        usageCacheLayout: "combined" as const,
+        summary: { ...summary, usageStats: ownUsage },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-small": {
+      note: "A cheap chat whose calls cost under a cent: the cost keeps two significant digits ($0.0042), never a rounded $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: {
+            ...ownUsage,
+            cacheReadShare24h: 0.72,
+            costPerCallUsd24h: 0.0042,
+            costUsd24h: 0.21,
+            calls24h: 50,
+          },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
+    "usage-cache-unknown": {
+      note: "Before acpmux has read the whole day (or a chat with no calls yet): both rows read the em dash, never 0% or $0.00.",
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          usageStats: { ...ownUsage, calls24h: undefined, cacheReadShare24h: undefined, costPerCallUsd24h: undefined },
+        },
+        sections: {
+          ...DEFAULT_SECTIONS,
+          environment: false,
+          usage: true,
+          changes: false,
+          subagents: false,
+          tasks: false,
+        },
+      },
+    },
     "usage-no-cap": {
       note: "Usage for a chat acpmux says runs with no autocompact cap: Autocompact reads No cap, with Restart with cap beside it, disabled until acpmux can restart a session with a cap. A cap acpmux could not read reads as an em dash and offers nothing.",
       props: {
@@ -1321,7 +1439,12 @@ export default componentEntry<Props>({
       note: "Shipped (Leo, 2026-11-02: \"whatever a user set their compact window to it should be that instead of always showing the defautl (e.g. we should be seieng 400k)\"): a 1M model whose chat compacts at 400K reads 43% with 171.4K / 400K, the window Claude Code's /context names, not the model's 1M.",
       props: {
         ...breakdownProps,
-        summary: { ...summary, contextBreakdown: CONTEXT_BREAKDOWN, usage: { used: 171_400, size: 1_000_000 } },
+        summary: {
+          ...summary,
+          usageStats: breakdownUsage,
+          contextBreakdown: CONTEXT_BREAKDOWN,
+          usage: { used: 171_400, size: 1_000_000 },
+        },
       },
       play: async (ctx) => {
         await ctx.waitFor(() => /171\.4K\s*\/\s*400K/.test(text(ctx)));
@@ -1377,6 +1500,17 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector("a.acpmux-session-info-source__link") !== null);
         await ctx.hover({ selector: "a.acpmux-session-info-source__link" });
+      },
+    },
+    "sources-folders": {
+      note: "A chat started with two folders beside its own (acpmux additionalDirectories): Sources lists them first, by name with the path on hover, then what it read.",
+      props: {
+        ...full,
+        summary: { ...summary, additionalDirectories: ["/Users/you/notes", "/Users/you/design/specs"] },
+      },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector('[data-kind="folder"]') !== null);
+        ctx.document.querySelector('[data-section="sources"]')?.scrollIntoView({ block: "center" });
       },
     },
     "subagents-open": {
@@ -1531,6 +1665,21 @@ export default componentEntry<Props>({
       note: "A section head under the pointer: the six-dot grip shows left of the title, in the head's leading padding (Leo, 2026-11-03: \"why dont we have the drag grabber to the left of the title\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
+    },
+    "header-grip-inside": {
+      note: "Compared, not chosen: the wide grip inside the head's pill, in its leading padding. It crowds the icon or title it ends at.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:var(--grid-base)" },
+      play: hoverFirstHead,
+    },
+    "header-grip-gutter": {
+      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+      play: hoverFirstHead,
+    },
+    "header-grip-tall": {
+      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it, half on the pill's edge.",
+      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
+      play: hoverFirstHead,
     },
     "header-grip-left": {
       note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",

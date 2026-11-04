@@ -5,7 +5,7 @@
 // a lone ended line drew no surface over the transcript. In real Chromium (Playwright; CI fails the
 // file when it cannot launch, requireBrowserLane), on gallery `agent-pane.subagent-row-anatomy`:
 // - the line's title is its task, not "Subagent";
-// - its state word comes before its time ("Done · 36s");
+// - its state word comes before its time ("Done · 36s"); a running line shows its time alone;
 // - the tray draws a surface (a fill, or the composer's frost), settled or running;
 // - that surface spans the composer card's width, edge to edge.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -77,8 +77,10 @@ await requireBrowserLane("subagent-tray-row.test.ts", async () => {
               ? "Review the subagent tray row"
               : "Audit the bottom stack for motion that skips the tokens",
           );
-          // The state word, then its time: "Done · 36s".
-          expect(row.stateText).toBe(variant === "done-task-label" ? "Done" : "Running");
+          // The state word, then its time: "Done · 36s". A running line shows its time alone, with
+          // no Running word (Leo, 2026-11-03: "do we really need a running symbol vs just having the
+          // time and a square stop button?").
+          expect(row.stateText).toBe(variant === "done-task-label" ? "Done" : "");
           expect(row.timeText).not.toBe("");
           expect(row.state.right).toBeLessThanOrEqual(row.time.left + 0.5);
           // A surface the transcript never shows through: a fill, a frost, or both.

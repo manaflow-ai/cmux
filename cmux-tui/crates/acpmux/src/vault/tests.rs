@@ -27,7 +27,7 @@ fn body(value: serde_json::Value) -> Vec<u8> {
 }
 
 fn active(name: &str, revision: u64, value: &str) -> EnvItem {
-    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())) }
+    EnvItem { name: name.into(), revision, value: Some(Zeroizing::new(value.into())), proxy: None }
 }
 
 fn salted() -> State {
@@ -125,8 +125,8 @@ fn plan_stores_new_and_changed_keeps_current_and_deletes_revoked_and_gone() {
             active("KEEP", 1, "same"),
             active("CHANGED", 1, "after"),
             active("NEW", 5, SECRET_A),
-            EnvItem { name: "REVOKED".into(), revision: 2, value: None },
-            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKED".into(), revision: 2, value: None, proxy: None },
+            EnvItem { name: "NEVER_HAD".into(), revision: 2, value: None, proxy: None },
         ],
     );
     let text = format!("{steps:?}");
@@ -197,7 +197,7 @@ fn settle_stores_values_and_the_state_file_is_private_and_holds_no_value() {
     let again = Answer::Granted {
         env: vec![
             active("OPENAI_API_KEY", 2, SECRET_A),
-            EnvItem { name: "MULTI".into(), revision: 2, value: None },
+            EnvItem { name: "MULTI".into(), revision: 2, value: None, proxy: None },
         ],
         refused: 0,
     };
@@ -353,7 +353,10 @@ async fn a_fake_hub_answers_200_403_and_401() {
     assert_eq!(env[0].revision, 7);
     assert_eq!(env[0].value.as_deref().map(String::as_str), Some(SECRET_A));
     let request = seen.await.unwrap();
-    assert!(request.starts_with("GET /v1/vault/machine HTTP/1.1\r\n"), "{request}");
+    assert!(
+        request.starts_with("GET /v1/vault/machine?delivery=proxy.v1 HTTP/1.1\r\n"),
+        "{request}"
+    );
     assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {credential}")));
 
     let (hub, _) = fake_hub(403, body(json!({"error": {"code": "vault.not_granted"}}))).await;
@@ -528,7 +531,7 @@ struct RacingStore<'a> {
 
 impl SecretStore for RacingStore<'_> {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.inner.put(name, value)
@@ -595,7 +598,7 @@ struct SwitchingStore<'a> {
 
 impl SecretStore for SwitchingStore<'_> {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.inner.put(name, value)
@@ -651,7 +654,7 @@ fn with_no_secret_store_removals_still_leave_the_delivered_set() {
     let away = MemoryStore { unavailable: true, ..MemoryStore::default() };
     let answer = Answer::Granted {
         env: vec![
-            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None },
+            EnvItem { name: "REVOKE_ME".into(), revision: 2, value: None, proxy: None },
             active("NEW_KEY", 1, SECRET_B),
         ],
         refused: 0,
@@ -675,7 +678,7 @@ struct GatedStore {
 
 impl SecretStore for GatedStore {
     fn kind(&self) -> &'static str {
-        "memory"
+        "test"
     }
     fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
         self.entered.send(()).unwrap();
@@ -925,4 +928,405 @@ async fn the_initial_pull_is_bounded() {
     };
     assert_eq!(super::bounded(super::INITIAL_WAIT, slow).await, None);
     assert_eq!(super::bounded(super::INITIAL_WAIT, async { "ok" }).await, Some("ok"));
+}
+
+#[test]
+fn entries_a_spawn_cannot_carry_are_refused() {
+    let item = |name: &str, len: usize| json!({"name": name, "revision": 1, "state": "active", "valueBase64": b64(&"x".repeat(len))});
+    // One string over Linux's per-string limit with its `NAME=`: E2BIG.
+    let answer =
+        wire::parse(200, &body(json!({"env": [item("BIG_VALUE", 131_070), item("OK", 10)]})));
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 1);
+    assert_eq!(env.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["OK"]);
+    assert_eq!(wire::env_string_bytes("OK", "abc"), 7);
+
+    // Together over the vault's share of the exec space: the last by name goes.
+    let answer = wire::parse(
+        200,
+        &body(
+            json!({"env": [item("A_KEY", 100_000), item("B_KEY", 100_000), item("C_KEY", 100_000)]}),
+        ),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 1);
+    assert_eq!(env.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["A_KEY", "B_KEY"]);
+    let total: usize = env
+        .iter()
+        .map(|e| wire::env_string_bytes(&e.name, e.value.as_deref().map_or("", String::as_str)))
+        .sum();
+    assert!(total <= wire::MAX_VAULT_ENV_BYTES);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_refused_oversize_entry_is_removed_from_the_store() {
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let answer = Answer::Granted { env: vec![active("BIG", 1, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    // The hub now sends a value too large to spawn with: parse refuses it,
+    // so the answer no longer lists it and the stored one goes.
+    let big = json!({"name": "BIG", "revision": 2, "state": "active",
+        "valueBase64": b64(&"x".repeat(131_070))});
+    let answer = wire::parse(200, &body(json!({"env": [big]})));
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 2).unwrap();
+    assert_eq!(outcome.deleted, ["BIG"]);
+    assert!(store.get("BIG").unwrap().is_none());
+}
+
+#[test]
+fn a_load_reads_nothing_past_its_deadline() {
+    let mut state = salted();
+    let store = MemoryStore::default();
+    store.put("API_TOKEN", SECRET_A).unwrap();
+    state.env.insert(
+        "API_TOKEN".into(),
+        plan::EnvRecord {
+            revision: 1,
+            fingerprint: state.fingerprint("API_TOKEN", SECRET_A),
+            ..Default::default()
+        },
+    );
+    let past = std::time::Instant::now();
+    let (vars, skipped) = super::load_values_by(&state, &store, past);
+    assert!(vars.is_empty());
+    assert_eq!(skipped, [("API_TOKEN".to_owned(), "vault.load_timeout")]);
+    let (vars, skipped) = super::load_values(&state, &store);
+    assert_eq!(vars.len(), 1);
+    assert!(skipped.is_empty());
+}
+
+#[test]
+fn the_store_probe_needs_a_write_a_read_and_a_delete() {
+    use super::store::{probe, probe_as, probe_name};
+    let usable = MemoryStore::default();
+    assert!(probe(&usable));
+    assert!(usable.items.lock().unwrap().is_empty(), "the probe item is removed");
+    // A headless Mac over ssh: the store is there but takes no write.
+    let name = probe_name();
+    let no_write = MemoryStore { fail_put: Some(name.clone()), ..MemoryStore::default() };
+    assert!(!probe_as(&no_write, &name));
+    let none = MemoryStore { unavailable: true, ..MemoryStore::default() };
+    assert!(!probe(&none));
+    assert!(!crate::login_env::machine_env_name_allowed(&name), "never a vault name");
+    // Each probe has an item of its own: concurrent probes never collide.
+    assert_ne!(probe_name(), probe_name());
+}
+
+#[test]
+#[cfg(unix)]
+fn the_daemon_memory_store_keeps_and_drops_values_like_the_os_store() {
+    use super::store::ProcessMemory;
+    let home = tempfile::tempdir().unwrap();
+    let store = ProcessMemory;
+    assert_eq!(store.kind(), "memory");
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 1, SECRET_A)], refused: 0 };
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    assert_eq!(outcome.env, ["MEMORY_ONLY_KEY"]);
+    assert_eq!(
+        store.get("MEMORY_ONLY_KEY").unwrap().as_deref().map(String::as_str),
+        Some(SECRET_A)
+    );
+    // No value on disk: only the state file, which holds none.
+    for entry in std::fs::read_dir(home.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_file() {
+            assert_no_value(&std::fs::read_to_string(&path).unwrap_or_default());
+        }
+    }
+    // The CLI's reply from the daemon: names and `store`, never a value.
+    let reply = crate::server::vault_reply("memory", &Ok(outcome));
+    assert_eq!(reply["store"], "memory");
+    assert_eq!(reply["outcome"]["env"][0], "MEMORY_ONLY_KEY");
+    assert_no_value(&reply.to_string());
+
+    // A withdrawal drops it from memory too.
+    pull::settle(home.path(), "https://hub.test", CRED, Answer::NotGranted, &store, &live, 2)
+        .unwrap();
+    assert!(store.get("MEMORY_ONLY_KEY").unwrap().is_none());
+
+    // A restarted daemon has an empty memory: a grant at the same revision
+    // puts the value back (the entry is checked, not trusted).
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 3, SECRET_A)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 3).unwrap();
+    store.delete("MEMORY_ONLY_KEY").unwrap();
+    let answer = Answer::Granted { env: vec![active("MEMORY_ONLY_KEY", 3, SECRET_A)], refused: 0 };
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 4).unwrap();
+    assert_eq!(outcome.stored, ["MEMORY_ONLY_KEY"]);
+    pull::forget(home.path(), &store).unwrap();
+    assert!(store.get("MEMORY_ONLY_KEY").unwrap().is_none());
+}
+
+#[test]
+fn a_failed_reply_carries_the_code_and_no_value() {
+    let failure = pull::Failure {
+        code: "vault.revoked".into(),
+        deleted: vec!["A_KEY".into()],
+        outcome: None,
+    };
+    let reply = crate::server::vault_reply("memory", &Err(failure));
+    assert_eq!(reply["failure"]["code"], "vault.revoked");
+    assert_eq!(reply["failure"]["deleted"][0], "A_KEY");
+    assert!(reply["outcome"].is_null());
+}
+
+#[test]
+#[cfg(unix)]
+fn switching_to_memory_keeps_cleaning_up_the_os_store() {
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap();
+    // A headless Mac over ssh: the OS store's deletes fail too.
+    let os = MemoryStore { fail_delete: true.into(), ..MemoryStore::default() };
+    let mem =
+        MemoryStore { memory_mode: true, leftovers: Some(Box::new(os)), ..MemoryStore::default() };
+    let os = mem.os_leftovers().unwrap();
+    let answer = || Answer::Granted { env: vec![active("API_TOKEN", 1, SECRET_A)], refused: 0 };
+    // Pulled while the OS store took writes.
+    pull::settle(home.path(), "https://hub.test", CRED, answer(), os, &live, 1).unwrap();
+    assert!(os.get("API_TOKEN").unwrap().is_some());
+
+    // Now the daemon keeps values in memory: the OS item is tracked for
+    // cleanup, and the entry is stored again in memory.
+    let outcome =
+        pull::settle(home.path(), "https://hub.test", CRED, answer(), &mem, &live, 2).unwrap();
+    assert_eq!(outcome.stored, ["API_TOKEN"]);
+    assert!(mem.get("API_TOKEN").unwrap().is_some());
+    let state = pull::read_state(home.path());
+    assert_eq!(state.backend, "memory");
+    assert!(state.os_pending.contains("API_TOKEN"));
+    assert_eq!(state.delivered_names(Some((CRED, false))), ["API_TOKEN"]);
+
+    // Forget can't delete the OS item yet: it fails and keeps the state file.
+    let failure = pull::forget(home.path(), &mem).unwrap_err();
+    assert_eq!(failure.code, pull::PARTIAL);
+    assert!(mem.get("API_TOKEN").unwrap().is_none(), "the memory value goes at once");
+    assert!(pull::state_path(home.path()).exists());
+    assert!(pull::read_state(home.path()).os_pending.contains("API_TOKEN"));
+    assert!(pull::read_state(home.path()).env.is_empty());
+
+    // Once the OS store takes the delete, forget finishes.
+    mem.leftovers.as_ref().unwrap().fail_delete.store(false, Ordering::SeqCst);
+    pull::forget(home.path(), &mem).unwrap();
+    assert!(os.get("API_TOKEN").unwrap().is_none());
+    assert!(!pull::state_path(home.path()).exists());
+}
+
+#[test]
+fn back_on_the_os_store_leftovers_become_cleanup_records() {
+    let mut state = salted();
+    state.backend = "memory".into();
+    state.os_pending.insert("OLD_KEY".into());
+    state.env.insert("MEM_KEY".into(), plan::EnvRecord::default());
+    state.switch_backend("keychain");
+    assert_eq!(state.backend, "os");
+    assert!(state.env.is_empty(), "values in another process's memory are gone");
+    assert!(state.os_pending.is_empty());
+    assert!(state.pending_delete.contains("OLD_KEY"));
+    assert!(!state.pending_delete.contains("MEM_KEY"), "never in the OS store");
+
+    // A state from before `backend` was saved is the OS store's.
+    let mut legacy = salted();
+    legacy.env.insert("A_KEY".into(), plan::EnvRecord::default());
+    legacy.switch_backend("memory");
+    assert!(legacy.os_pending.contains("A_KEY"));
+    assert!(legacy.env.is_empty());
+}
+
+/// Reads of `fail` fail; every read's deadline is recorded.
+#[derive(Default)]
+struct PickyStore {
+    inner: MemoryStore,
+    fail: std::sync::Mutex<Option<String>>,
+    deadlines: std::sync::Mutex<Vec<std::time::Instant>>,
+}
+
+impl SecretStore for PickyStore {
+    fn kind(&self) -> &'static str {
+        "test"
+    }
+    fn put(&self, name: &str, value: &str) -> Result<(), &'static str> {
+        self.inner.put(name, value)
+    }
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<String>>, &'static str> {
+        if self.fail.lock().unwrap().as_deref() == Some(name) {
+            return Err("vault.secret_store_read_failed");
+        }
+        self.inner.get(name)
+    }
+    fn get_by(
+        &self,
+        name: &str,
+        deadline: std::time::Instant,
+    ) -> Result<Option<Zeroizing<String>>, &'static str> {
+        self.deadlines.lock().unwrap().push(deadline);
+        self.get(name)
+    }
+    fn delete(&self, name: &str) -> Result<(), &'static str> {
+        self.inner.delete(name)
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_retry_reads_only_what_was_missing_and_keeps_the_rest() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    super::reset_loaded();
+    let home = tempfile::tempdir().unwrap();
+    let store = PickyStore::default();
+    let answer = Answer::Granted {
+        env: vec![active("A_KEY", 1, SECRET_A), active("B_KEY", 1, SECRET_B)],
+        refused: 0,
+    };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    let path = pull::state_path(home.path());
+    let start = std::time::Instant::now();
+    *store.fail.lock().unwrap() = Some("B_KEY".into());
+    super::refresh_at(&path, &store, start);
+    assert_eq!(super::loaded_names(), ["A_KEY"]);
+    // Now A cannot be read, B can: the retry reads B only and keeps A.
+    *store.fail.lock().unwrap() = Some("A_KEY".into());
+    store.deadlines.lock().unwrap().clear();
+    super::refresh_at(&path, &store, start + super::RETRY_INCOMPLETE);
+    let mut names = super::loaded_names();
+    names.sort();
+    assert_eq!(names, ["A_KEY", "B_KEY"]);
+    assert_eq!(store.deadlines.lock().unwrap().len(), 1, "one read: B");
+}
+
+#[test]
+fn every_store_read_gets_the_load_deadline() {
+    let mut state = salted();
+    let store = PickyStore::default();
+    store.put("API_TOKEN", SECRET_A).unwrap();
+    state.env.insert(
+        "API_TOKEN".into(),
+        plan::EnvRecord {
+            revision: 1,
+            fingerprint: state.fingerprint("API_TOKEN", SECRET_A),
+            ..Default::default()
+        },
+    );
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let (vars, _) = super::load_values_by(&state, &store, deadline);
+    assert_eq!(vars.len(), 1);
+    assert_eq!(*store.deadlines.lock().unwrap(), [deadline]);
+}
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_crossing_the_deadline_is_stopped_there() {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "sleep 5"]).stdout(std::process::Stdio::piped());
+    let start = std::time::Instant::now();
+    let deadline = start + std::time::Duration::from_millis(200);
+    let result = super::store::capture_until(cmd, false, deadline);
+    assert_eq!(result.err(), Some("vault.secret_store_timeout"));
+    assert!(start.elapsed() < std::time::Duration::from_secs(3), "stopped at the deadline");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_whose_child_keeps_the_pipe_stops_at_the_deadline() {
+    // The command exits at once; the `sleep` it started holds stdout open.
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "sleep 20 & exit 0"]).stdout(std::process::Stdio::piped());
+    let start = std::time::Instant::now();
+    let deadline = start + std::time::Duration::from_millis(300);
+    let result = super::store::capture_until(cmd, false, deadline);
+    assert_eq!(result.err(), Some("vault.secret_store_timeout"));
+    assert!(start.elapsed() < std::time::Duration::from_secs(3), "stopped at the deadline");
+}
+
+#[test]
+#[cfg(unix)]
+fn a_store_command_that_exits_gives_its_whole_output() {
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args(["-c", "printf done"]).stdout(std::process::Stdio::piped());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let (status, out) = super::store::capture_until(cmd, false, deadline).expect("ran");
+    assert!(status.success());
+    assert_eq!(out.as_slice(), b"done");
+}
+
+#[test]
+fn an_older_daemon_is_told_apart_and_the_refusal_says_to_restart_it() {
+    use crate::cli::host_vault::{DAEMON_OUTDATED, method_not_found};
+    let old: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::method_not_found("_acpmux/vault_pull"))
+            .into();
+    assert!(method_not_found(&old));
+    let other: anyhow::Error =
+        crate::client::DaemonError(crate::rpc::RpcError::new(-32000, "busy")).into();
+    assert!(!method_not_found(&other));
+    assert!(!method_not_found(&anyhow::anyhow!("connection closed")));
+    let shown = format!(
+        "{:#}",
+        crate::cli::host_vault::failure_for_test(pull::Failure {
+            code: DAEMON_OUTDATED.into(),
+            deleted: Vec::new(),
+            outcome: None,
+        })
+    );
+    assert!(shown.contains("acpmux daemon restart"), "{shown}");
+}
+
+#[test]
+fn delivery_and_allowed_hosts_are_read_and_withheld_entries_are_not_delivered() {
+    let answer = wire::parse(
+        200,
+        &body(json!({"env": [
+            {"name": "PROXIED", "revision": 3, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "proxy", "allowedHosts": ["api.github.com", "*.example.com:8443", "API.EVIL", "https://x.y", "api.github.com"]},
+            {"name": "OPTED_OUT", "revision": 4, "state": "active", "valueBase64": b64(SECRET_A),
+             "delivery": "env", "allowedHosts": []},
+            {"name": "OLD_HUB", "revision": 5, "state": "active", "valueBase64": b64(SECRET_A)},
+            {"name": "WITHHELD", "revision": 6, "state": "withheld", "delivery": "proxy", "allowedHosts": []},
+            {"name": "ODD", "revision": 7, "state": "active", "valueBase64": b64(SECRET_A), "delivery": "mail"},
+        ]})),
+    );
+    let Answer::Granted { env, refused } = answer else { panic!("not granted") };
+    assert_eq!(refused, 2, "withheld and an unknown delivery are refused");
+    let by: BTreeMap<_, _> = env.iter().map(|e| (e.name.as_str(), e)).collect();
+    assert_eq!(
+        by["PROXIED"].proxy.as_deref(),
+        Some(&["api.github.com".to_owned(), "*.example.com:8443".to_owned()][..])
+    );
+    assert_eq!(by["OPTED_OUT"].proxy, None);
+    assert_eq!(by["OLD_HUB"].proxy, None, "a hub before delivery means env");
+    assert_no_value(&format!("{env:?}"));
+}
+
+#[test]
+#[cfg(unix)]
+fn a_policy_change_at_the_same_revision_reaches_the_next_spawn() {
+    let _one = LOADED_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let home = tempfile::tempdir().unwrap();
+    let store = MemoryStore::default();
+    let item = |proxy: Option<Vec<String>>| EnvItem { proxy, ..active("API_TOKEN", 1, SECRET_A) };
+    let answer = Answer::Granted { env: vec![item(None)], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 1).unwrap();
+    super::reset_loaded();
+    let at = std::time::Instant::now();
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].proxy, None);
+
+    // env -> proxy without a new revision: the record and the next spawn follow.
+    let hosts = vec!["api.github.com".to_owned()];
+    let answer = Answer::Granted { env: vec![item(Some(hosts.clone()))], refused: 0 };
+    pull::settle(home.path(), "https://hub.test", CRED, answer, &store, &live, 2).unwrap();
+    assert_eq!(pull::read_state(home.path()).env["API_TOKEN"].proxy, Some(hosts.clone()));
+    let given = super::deliver_at(home.path(), &store, &live, at);
+    assert_eq!(given[0].proxy, Some(hosts));
+    let env = super::egress::child_env_with(given, None, &|_| None);
+    assert_eq!(env, vec![("API_TOKEN".to_owned(), "cmux-secret://API_TOKEN".to_owned())]);
+
+    // The state file names the delivery, never a value.
+    let saved = std::fs::read_to_string(pull::state_path(home.path())).unwrap();
+    assert!(saved.contains("api.github.com"));
+    assert_no_value(&saved);
 }

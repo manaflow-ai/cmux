@@ -36,7 +36,7 @@ fn port_mismatch(host: &str, name: &str, whose: &str, listening: u16, port: u16)
         Step::Daemon,
         format!("{whose} listens on port {listening}, the peer uses port {port}"),
         format!(
-            "Point the peer at the daemon with `acpmux host add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
+            "Point the peer at the daemon with `acpmux machine add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
             hosts::REMOTE_HOME
         ),
     )
@@ -134,7 +134,7 @@ pub(super) fn judge_daemon(
                         format!("the daemon runs build {b}, this is {build}"),
                     )
                     .with_fix(format!(
-                        "Run `acpmux host doctor {name} --fix` to restart the daemon on {host}."
+                        "Run `acpmux machine doctor {name} --fix` to restart the daemon on {host}."
                     ))
                     .with_reason("peer_version_skew"),
                     Some(result) => result,
@@ -143,9 +143,9 @@ pub(super) fn judge_daemon(
                         StepState::Warn,
                         format!("the daemon runs build {b}, this is {build}"),
                     )
-                    .with_fix(format!("Run `acpmux host update {name}`."))
+                    .with_fix(format!("Run `acpmux machine update {name}`."))
                     .with_reason("peer_version_skew")
-                    .with_try(format!("acpmux host update {name}")),
+                    .with_try(format!("acpmux machine update {name}")),
                 };
                 Verdict::OtherBuild(result)
             }
@@ -169,9 +169,57 @@ pub(super) fn daemon(
     want: Option<u16>,
     fix: bool,
 ) -> (StepResult, u16) {
+    let bwrap = std::cell::RefCell::new(None);
+    let (result, port) = daemon_only(r, name, want, fix, &bwrap);
+    (sandbox(r, result, bwrap.into_inner().as_deref(), fix), port)
+}
+
+/// Installs bubblewrap where sudo needs no password, then checks it makes a sandbox.
+const SANDBOX_INSTALL: &str = "sudo -n apt-get install -y bubblewrap >/dev/null 2>&1 && /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true";
+
+/// The daemon step with the host's sandbox (`bwrap`, [`PROBE_BWRAP`]): a Linux
+/// host that cannot make one refuses every session another machine starts
+/// there, so a passing step warns with the fix; `fix` installs a missing
+/// bubblewrap when sudo needs no password. A failed step stays as it is.
+fn sandbox(r: &dyn Remote, result: StepResult, bwrap: Option<&str>, fix: bool) -> StepResult {
+    let passed = matches!(result.state, StepState::Ok | StepState::Fixed | StepState::Warn);
+    let Some(state) = bwrap.filter(|s| passed && *s != "ok") else { return result };
+    if fix && state == "missing" && hosts::run(r, SANDBOX_INSTALL).is_ok() {
+        let detail = format!(
+            "{}; installed bubblewrap, so sessions from other machines run sandboxed here",
+            result.detail
+        );
+        return StepResult { state: StepState::Fixed, detail, ..result };
+    }
+    let why = if state == "missing" {
+        "bwrap is not installed"
+    } else {
+        "bwrap is installed but cannot make a sandbox (older than 0.9, or user namespaces are off)"
+    };
+    let detail = format!(
+        "{}; {why}: sessions another machine starts here are refused until it works",
+        result.detail
+    );
+    let fix = format!(
+        "On {} run `sudo apt-get install -y bubblewrap` (--fix does it when sudo needs no password).",
+        r.host()
+    );
+    StepResult { state: StepState::Warn, detail, fix: Some(fix), ..result }
+}
+
+fn daemon_only(
+    r: &dyn Remote,
+    name: &str,
+    want: Option<u16>,
+    fix: bool,
+    bwrap: &std::cell::RefCell<Option<String>>,
+) -> (StepResult, u16) {
     let host = r.host();
     let judge = |r: &dyn Remote| match probe(r) {
-        Ok(p) => judge_daemon(host, name, &p, want),
+        Ok(p) => {
+            bwrap.replace(p.bwrap.clone());
+            judge_daemon(host, name, &p, want)
+        }
         Err(e) => (Verdict::Repair(format!("{e:#}")), want.unwrap_or(crate::peer::SSH_PEER_PORT)),
     };
     let (verdict, port) = judge(r);
