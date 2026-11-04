@@ -134,7 +134,7 @@
 /* WebKit treats the transparent pixels of a CSS mask as outside the hit-test region. Keep the
    shared edge-fade on other scroll surfaces, but leave this action menu fully pressable through
    its bottom fade (composer-chip-press.test.ts probes the row's last pixel). */
-.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none;mask-image:none}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){-webkit-mask-image:none!important;mask-image:none!important}
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
    60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
 .acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
