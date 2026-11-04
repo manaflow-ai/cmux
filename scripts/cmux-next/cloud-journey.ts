@@ -17,7 +17,7 @@
  * cmux-platform):
  *
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
- *   -> first exec -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
+ *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
  *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> delete
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
@@ -28,9 +28,27 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Secrets are read from the environment or files, sent only in headers, and never printed.
+ * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
+ * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
+ * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
+ * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
+ * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
+ * token the step is skipped and the reply fails "Not logged in".
+ *
+ * --model stub makes the model endpoint the only stand-in: the shared model stub (tests/fixtures/model-stub) runs on
+ * the machine's loopback
+ * and Claude Code's settings point there (after the login copy, whose installer refuses a custom endpoint). The login
+ * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
+ * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
+ * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
+ *
+ * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
+ * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
+ *
+ * Secrets are read from the environment or files, sent only in headers or request bodies, and never printed.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -284,6 +302,55 @@ async function startHeadlessLink(cmux: string, host: string, install: { id: stri
   };
 }
 
+/**
+ * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
+ * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
+ */
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date()): Record<string, unknown> {
+  const send = steps.find((s) => s.step === "send chat");
+  const reply = steps.find((s) => s.step === "reply");
+  const failed = steps.find((s) => s.status === "fail");
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
+  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
+}
+
+/** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
+export function swiftRawString(source: string, name: string): string {
+  const m = new RegExp(`static let ${name} = #"""\\n([\\s\\S]*?)\\n([ \\t]*)"""#`).exec(source);
+  if (!m) throw new Error(`no ${name} in the installer source`);
+  const indent = m[2];
+  return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
+}
+
+/** The model stub --model stub runs on the machine. */
+/** The shared model stub (tests/fixtures/model-stub, #35332): Anthropic Messages and OpenAI Responses, scripted. */
+export const MODEL_STUB_PY = fileURLToPath(new URL("../../tests/fixtures/model-stub/model_stub.py", import.meta.url));
+/**
+ * The journey's stub script: one Bash call whose output (printf joins it, so neither the command nor an error that
+ * quotes it carries it) the reply then repeats, so the reply shows the tool round trip.
+ */
+export const JOURNEY_STUB_SCRIPT = { version: 1, steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }] };
+
+/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
+
+/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
+/**
+ * The Mac's login copy programs. `creatorTeamGuest` is the DEV and dogfood creator allowance (nightly builds,
+ * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
+ */
+export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
+  const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
+  const script = swiftRawString(installerSwift, "script");
+  return {
+    preflight,
+    install: (payloadPath) =>
+      "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n" +
+      `python3 - ${shq("claude")} ${shq(payloadPath)} ${creatorTeamGuest ? "owner,team" : "owner"} <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
+  };
+}
+
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -422,9 +489,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const keep = argv.includes("--keep");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
+  // --model stub: the model endpoint is the only stand-in (the shared model stub on the machine). The login the
+  // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
+  const modelStub = argValue("--model", argv) === "stub";
+  const nonce = randomBytes(6).toString("hex");
+  const claudeLogin = modelStub
+    ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
+    : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+  const probeOut = argValue("--probe-out", argv);
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
-  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session" });
+  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
   if (password) J.secrets.push(password);
+  if (claudeLogin) J.secrets.push(claudeLogin);
   const appCli = argValue("--app-cli", argv);
   if (appCli) {
     J.meta.exec = `app CLI ${appCli}`;
@@ -460,10 +537,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: target };
     }).catch(() => undefined);
   };
+  // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
+  const writeProbe = () => {
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+  };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
     void cleanup().finally(() => {
       J.flush();
+      writeProbe();
       process.exit(signal === "SIGINT" ? 130 : 143);
     });
   };
@@ -540,6 +622,64 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
 
+    if (agent !== "claude" || only.has("chat") || only.has("login")) {
+      J.skip("pass Claude login", agent !== "claude" ? `agent ${agent}` : "--skip");
+    } else if (!claudeLogin) {
+      J.skip("pass Claude login", "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+    } else {
+      // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
+      // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
+      await J.step("pass Claude login", async () => {
+        // CloudCredentialTransfer.validate: a setup-token login, printable ASCII, at most 12,000 bytes.
+        if (!/^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(claudeLogin)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+        // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
+        // only to an owner machine).
+        const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), Boolean(team));
+        const pre = await exec(programs.preflight);
+        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
+        const folder = "/home/cmux/.cmux/credential-transfer";
+        const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
+        if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
+        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+        try {
+          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(claudeLogin).toString("base64"), mode: 0o644 });
+          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+          const done = await exec(programs.install(file));
+          if (done.code !== 0) throw new Error(`installer exit ${done.code}`); // its output is never shown: it may name the token
+        } catch (error) {
+          // As the transfer does: a failed delivery leaves no second readable copy on the machine.
+          await exec(`rm -f -- ${shq(file)}`).catch(() => null);
+          throw error;
+        }
+        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+        if (!own.stdout.includes("own-login")) throw new Error("installed, but the image's launcher does not see an own Claude login");
+        return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
+      });
+    }
+
+    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
+    if (modelStub && agent === "claude" && !only.has("chat")) {
+      // The stub listens on the machine's loopback only; Claude Code's own settings point it there, after the login
+      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub.
+      await J.step("model stub on the machine", async () => {
+        const file = "/home/cmux/.cmux/journey-model-stub.py";
+        const script = "/home/cmux/.cmux/journey-model-stub.json";
+        const ready = "/home/cmux/.cmux/journey-model-stub.ready";
+        for (const [path, data] of [[file, readFileSync(MODEL_STUB_PY)], [script, Buffer.from(JSON.stringify(JOURNEY_STUB_SCRIPT))]] as const) {
+          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
+          if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+        }
+        const port = 18000 + Math.floor(Math.random() * 1000);
+        const r = await exec(
+          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port ${port} --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
+            `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
+            `curl -fsS -m 2 "http://127.0.0.1:${port}/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
+            `python3 - ${port} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
+        );
+        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one Bash tool round trip` };
+      });
+    }
     const session = `journey-${tag}`;
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
@@ -561,7 +701,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; echo "@@lastexit $?"`, 45_000);
           const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
-          if (wait === "0" && last) return { value: last, detail: last.slice(0, 280) };
+          if (wait === "0" && last) {
+            // The stub repeats the Bash output in its reply, so this also proves the tool ran and its output came back.
+            if (modelStub && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) throw new Error(`the reply does not carry the stub's nonce ${nonce} and the tool output: ${last.slice(-200)}`);
+            return { value: last, detail: last.slice(0, 280) };
+          }
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
           if (wait && wait !== "3" && wait !== "0") {
             // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
@@ -572,6 +716,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
       });
+      if (modelStub && agent === "claude") {
+        await J.step("stub: forwarded login and a tool round trip", async () => {
+          const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
+          const rows = r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+          // Every model request Claude Code made (streamed or not, count_tokens too); the journey's own readiness
+          // pings send an empty body, so they name no model.
+          // Every model request Claude Code made: streamed or not, count_tokens and title side requests too.
+          const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith("/v1/messages"));
+          const want = createHash("sha256").update(claudeLogin).digest("hex");
+          if (!turns.some((x: any) => x.stream && !x.side)) throw new Error("Claude Code sent the stub no streamed /v1/messages turn");
+          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error("a model request did not carry the login the journey passed (the forwarded credential did not reach Claude Code)");
+          if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the Bash call's result");
+          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); Bash ran and its output came back` };
+        });
+      }
     }
 
     await J.step("connect (connect_info + link_token)", async () => {
@@ -605,7 +764,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
-    await J.step("sync push/pull (folder round trip)", async () => {
+    if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
+    else await J.step("sync push/pull (folder round trip)", async () => {
       if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");
       const local = mkdtempSync(path.join(tmpdir(), `cmux-journey-sync-${tag}-`));
@@ -657,6 +817,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await cleanup();
   }
   const failed = J.steps.filter((s) => s.status === "fail");
+  writeProbe();
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }

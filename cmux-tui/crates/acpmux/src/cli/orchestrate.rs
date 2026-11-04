@@ -595,11 +595,13 @@ pub(crate) async fn ensure(
             }
             meta["argv"] = json!(crate::cli::entry::original_args());
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            match (&host, cwd) {
-                (Some(_), Some(c)) => p["cwd"] = json!(c),
-                (Some(_), None) => {}
-                (None, Some(c)) => p["cwd"] = json!(c),
-                (None, None) => p["cwd"] = json!(default_ensure_cwd(std::env::current_dir()?)),
+            let cwd = match (&host, cwd) {
+                (_, Some(c)) => Some(c),
+                (Some(_), None) => None,
+                (None, None) => Some(default_ensure_cwd(std::env::current_dir()?)),
+            };
+            if let Some(c) = cwd {
+                p.set("cwd", json!(c));
             }
             let v = client.request(method::SESSION_NEW, p).await?;
             crate::cli::run::launch::print_new_warnings(&v);
