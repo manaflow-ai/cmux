@@ -614,5 +614,81 @@ class RecoverCancelled(unittest.TestCase):
         self.assertEqual(pending, {7})
 
 
+class Quota(unittest.TestCase):
+    """The pass shares the repository's one GITHUB_TOKEN pool (1,000 requests an hour) with every workflow."""
+
+    def test_no_overflow_page_is_read_when_the_newest_page_is_not_full(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("build", status="in_progress", runner_id=7)]})
+        sweep(fake, dry_run=True, cursor=rescue.ScanState())
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertEqual(listings, [("runs", "pr-checks.yml", "queued", 1), ("runs", "pr-checks.yml", "in_progress", 1)])
+
+    def test_a_pool_at_its_reserve_makes_no_listing_or_job_read(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        fake.remaining, fake.reset = rescue.POOL_RESERVE, NOW.timestamp() + 600
+        fake.spare = lambda now: now.timestamp() >= fake.reset or fake.remaining > rescue.POOL_RESERVE
+        lines = sweep(fake)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("reserve", lines[-1])
+
+    def test_job_reads_stop_once_the_pool_reaches_its_reserve(self):
+        rows = [run(index) for index in range(1, 11)]
+        fake = Fake({"pr-checks.yml": rows}, {item["id"]: [job("build", status="in_progress", runner_id=7)]
+                                              for item in rows})
+        fake.remaining, fake.reset = rescue.POOL_RESERVE + 3, NOW.timestamp() + 600
+        reads = fake.jobs
+
+        def jobs(run_id):
+            fake.remaining -= 1
+            return reads(run_id)
+
+        fake.jobs = jobs
+        fake.spare = lambda now: fake.remaining > rescue.POOL_RESERVE
+        lines = sweep(fake, dry_run=True, cursor=rescue.ScanState())
+        self.assertEqual(len(fake.job_reads), 3)
+        self.assertTrue(any("7 job reads left to a later pass" in line for line in lines), lines)
+
+    def test_the_client_reads_the_pool_from_every_response_and_spares_it_after_the_reset(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        answer = mock.MagicMock()
+        answer.__enter__.return_value = answer
+        answer.read.return_value = b'{"jobs": []}'
+        answer.headers = {"ETag": '"v1"', "X-RateLimit-Remaining": "900", "X-RateLimit-Reset": str(int(NOW.timestamp()) + 60)}
+        refused = urllib.error.HTTPError("url", 403, "rate limited",
+                                         {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": str(int(NOW.timestamp()) + 60)},
+                                         None)
+        self.assertTrue(client.spare(NOW))
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[answer, refused]):
+            client.jobs(7)
+            self.assertEqual(client.remaining, 900)
+            self.assertTrue(client.spare(NOW))
+            with self.assertRaises(RuntimeError):
+                client.run(8)
+        self.assertEqual(client.remaining, 0)
+        self.assertFalse(client.spare(NOW))
+        self.assertTrue(client.spare(NOW + dt.timedelta(seconds=60)))
+
+    def test_an_unreadable_journal_is_read_again_only_after_the_retry_interval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy = Path(tmp)
+            (policy / "runners.json").write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#size": {}}}))
+            (policy / "workflows").mkdir()
+            env = {"HOSTED_LIGHT_TOKEN": "workflow-token", "HOSTED_LIGHT_POLICY": str(policy)}
+            clock = [NOW]
+            with mock.patch.object(rescue, "GitHub") as client, mock.patch.object(rescue, "sweep", return_value=[]):
+                journal = client.return_value.pending_cancellations
+                journal.side_effect = RuntimeError("2500 rescue runs in the window, more than 10 pages")
+                callback = rescue.from_env(env, "o/r", now=lambda: clock[0], log=lambda text: None)
+                callback()
+                clock[0] = NOW + dt.timedelta(minutes=14)
+                callback()
+                self.assertEqual(journal.call_count, 1)
+                clock[0] = NOW + rescue.JOURNAL_RETRY
+                journal.side_effect, journal.return_value = None, set()
+                callback()
+                callback()
+                self.assertEqual(journal.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
