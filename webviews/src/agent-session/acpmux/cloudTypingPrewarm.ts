@@ -17,6 +17,20 @@ export function cloudTypingMachineID(draft: string | null | undefined, identity?
   return draft === undefined ? identity : (draft ?? undefined);
 }
 
+/** What the pane shows: its chat, and which New Tab page (`newTabGeneration`) it shows. */
+export type CloudIdentityView = { session?: string; generation: number };
+
+/**
+ * Whether the Cloud identity the last handshake gave still names this pane's chat. A send from a
+ * fresh draft adopts its new session and keeps it; another chat or New Tab page drops it until that
+ * page's own handshake, so a fresh local draft never hints the previous chat's machine.
+ */
+export function cloudIdentityKept(previous: CloudIdentityView, next: CloudIdentityView): boolean {
+  return (
+    previous.generation === next.generation && (previous.session === undefined || previous.session === next.session)
+  );
+}
+
 const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarget) =>
   left?.machineID === right.machineID && left?.sessionID === right.sessionID;
 

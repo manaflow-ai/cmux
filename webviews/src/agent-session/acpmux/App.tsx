@@ -184,7 +184,12 @@ import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
-import { CloudTypingPrewarm, cloudTypingMachineID } from "./cloudTypingPrewarm";
+import {
+  CloudTypingPrewarm,
+  cloudIdentityKept,
+  cloudTypingMachineID,
+  type CloudIdentityView,
+} from "./cloudTypingPrewarm";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -6541,6 +6546,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // explicit picker choice; never guess a machine from the account inventory. Null records a
   // non-Cloud destination and suppresses the previous identity while its handshake catches up.
   const cloudDraftMachineID = useRef<string | null | undefined>(undefined);
+  // Whether `cloudChatIdentity` still names the chat shown (cloudIdentityKept): set by the
+  // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
+  const cloudIdentityBound = useRef(false);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
@@ -9044,6 +9052,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxWake = useRef<ComposerWake | undefined>(undefined);
   /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
   const newTabSandboxSent = useRef(false);
+  const shownView = useRef<CloudIdentityView>({
+    ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}),
+    generation: newTabGeneration,
+  });
   useEffect(() => {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
@@ -9053,6 +9065,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setCloudStart(undefined);
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
+    const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
+    if (!cloudIdentityKept(shownView.current, view)) cloudIdentityBound.current = false;
+    shownView.current = view;
   }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
@@ -11248,6 +11263,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
         );
+        cloudIdentityBound.current = true;
         setCloudChatIdentity(
           typeof host.cloudMachineID === "string" &&
             Array.isArray(host.cloudAccount) &&
@@ -13698,7 +13714,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
-      const machineID = cloudTypingMachineID(cloudDraftMachineID.current, cloudChatIdentity?.id);
+      const machineID = cloudTypingMachineID(
+        cloudDraftMachineID.current,
+        cloudIdentityBound.current ? cloudChatIdentity?.id : undefined,
+      );
       if (machineID && handshaken && !reconnectingRef.current) cloudTypingPrewarm.typed(text, { machineID });
       newChatPrewarm.typed(
         text,
@@ -13716,7 +13735,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!handshaken || reconnectingRef.current) return;
       // An explicit picker choice belongs to this draft and wins over any identity carried by a
       // previous Cloud chat until the selected machine's own handshake arrives.
-      const machineID = cloudTypingMachineID(cloudDraftMachineID.current, cloudChatIdentity?.id);
+      const machineID = cloudTypingMachineID(
+        cloudDraftMachineID.current,
+        cloudIdentityBound.current ? cloudChatIdentity?.id : undefined,
+      );
       if (!machineID) return;
       cloudTypingPrewarm.typed(text, { machineID, ...(sessionId ? { sessionID: sessionId } : {}) });
     },
