@@ -96,9 +96,15 @@ impl Supervisor {
                     outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "warn", message));
                 }
             }
+            let declared_before = inner
+                .catalog
+                .packages
+                .get(CUSTOMIZE_APP)
+                .map(|package| package.facts().requested);
             inner.catalog = catalog;
             if changed.iter().any(|id| id == CUSTOMIZE_APP) {
                 self.seed_customize_locked(&mut inner);
+                self.grant_new_customize_reads_locked(&mut inner, declared_before.as_ref());
             }
             for app in &changed {
                 outs.extend(self.regrant_locked(&mut inner, app));
@@ -138,6 +144,43 @@ impl Supervisor {
             if self.persist(&mirror).is_ok() {
                 inner.mirror = mirror;
             }
+        }
+    }
+}
+
+impl Supervisor {
+    /// The read scopes a save of the customization app declares for the first
+    /// time, granted as its first install would have (read scopes need no
+    /// prompt). Scopes it already declared keep whatever the person set, so a
+    /// read scope they turned off stays off; other scopes wait for them.
+    fn grant_new_customize_reads_locked(
+        &self,
+        inner: &mut super::supervisor::Inner,
+        declared_before: Option<&std::collections::BTreeSet<String>>,
+    ) {
+        let Some(facts) = inner.catalog.packages.get(CUSTOMIZE_APP).map(Package::facts) else {
+            return;
+        };
+        let Some(record) = inner.mirror.apps.get(CUSTOMIZE_APP).filter(|r| r.installed) else {
+            return;
+        };
+        let (reads, _) = facts.install_defaults();
+        let new: Vec<String> = reads
+            .into_iter()
+            .filter(|scope| mirror::is_read_scope(scope))
+            .filter(|scope| !declared_before.is_some_and(|before| before.contains(scope)))
+            .filter(|scope| !record.grants.contains(scope))
+            .collect();
+        if new.is_empty() {
+            return;
+        }
+        let mut next = inner.mirror.clone();
+        if let Some(record) = next.apps.get_mut(CUSTOMIZE_APP) {
+            record.grants.extend(new);
+        }
+        next.revision += 1;
+        if self.persist(&next).is_ok() {
+            inner.mirror = next;
         }
     }
 }
