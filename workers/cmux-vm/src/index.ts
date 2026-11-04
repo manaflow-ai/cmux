@@ -150,8 +150,10 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
  * "preview" (and its slugs) with the others, so one preview's sweep could see another's VMs as orphans.
  */
 const runOrphanSweep = async (env: Env) => {
-  const environment = parseEnvironment(env.ENVIRONMENT);
-  if (environment !== "staging" && environment !== "production") return;
+  // The exact configured value: parseEnvironment reads a missing or unknown one as production.
+  const raw = env.ENVIRONMENT;
+  if (raw !== "staging" && raw !== "production") return;
+  const environment = parseEnvironment(raw);
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment };
   const report = await Effect.runPromise(
     withRequestConnection(sweepOrphanVms(config, { nowMs: Date.now(), dryRun: false, recorded: recordedVmIds })).pipe(

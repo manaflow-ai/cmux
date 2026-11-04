@@ -34,8 +34,17 @@ const config = { baseUrl: need("UPSTREAM_API_URL"), apiKey: Redacted.make(need("
 const sql = hyperdriveSqlLayer(need("CMUX_VM_DATABASE_URL"));
 const remove = process.argv.includes("--delete");
 
-const run = (dryRun: boolean) =>
-  Effect.runPromise(sweepOrphanVms(config, { nowMs: Date.now(), dryRun, maxDeletes: 2000, recorded: recordedVmIds }).pipe(Effect.provide(sql)));
+/** A failure prints only its tag, operation and HTTP status: a driver message can name the database host. */
+const run = async (dryRun: boolean) => {
+  const outcome = await Effect.runPromise(Effect.either(
+    sweepOrphanVms(config, { nowMs: Date.now(), dryRun, maxDeletes: 2000, recorded: recordedVmIds }).pipe(Effect.provide(sql)),
+  ));
+  if (outcome._tag === "Right") return outcome.right;
+  const error = outcome.left;
+  const status = "status" in error ? ` HTTP ${String(error.status ?? "none")}` : "";
+  console.error(`::error title=sweep-orphans::${error._tag} ${error.operation}${status}`);
+  process.exit(1);
+};
 
 /** Freestyle list price while running (web/services/billing/chiefPricing.ts FREESTYLE_COST_USD). */
 const VCPU_HOUR_USD = 0.04032;
