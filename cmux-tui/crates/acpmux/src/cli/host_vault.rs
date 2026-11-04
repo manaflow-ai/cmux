@@ -327,7 +327,15 @@ pub fn status_json(
         "pulledAt": state.pulled_at,
         "lastResult": state.last_result,
         "secretStore": store_kind,
-        "env": state.env.iter().map(|(name, r)| json!({"name": name, "revision": r.revision})).collect::<Vec<_>>(),
+        // Delivery, never a value: `proxy` agents get `cmux-secret://NAME`
+        // (filled by the egress proxy toward `allowedHosts` only); `env` is
+        // the value itself in the agent env, the weaker opt-out.
+        "env": state.env.iter().map(|(name, r)| json!({
+            "name": name,
+            "revision": r.revision,
+            "delivery": if r.proxy.is_some() { "proxy" } else { "env" },
+            "allowedHosts": r.proxy.clone().unwrap_or_default(),
+        })).collect::<Vec<_>>(),
         // Subscription logins are never in the vault: each machine signs in itself.
         "harnesses": [
             harness("claude", claude, "run `claude`, then /login"),
@@ -361,14 +369,18 @@ pub async fn status_cmd(json_out: bool) -> Result<()> {
         state.last_result.as_deref().unwrap_or("none")
     );
     println!("secret store: {kind}");
-    println!(
-        "env: {}",
-        if state.env.is_empty() {
-            "none".to_owned()
-        } else {
-            state.env.keys().cloned().collect::<Vec<_>>().join(", ")
+    if state.env.is_empty() {
+        println!("env: none");
+    }
+    for (name, record) in &state.env {
+        match &record.proxy {
+            Some(hosts) if hosts.is_empty() => {
+                println!("env {name}: proxy: no hosts (placeholder only)")
+            }
+            Some(hosts) => println!("env {name}: proxy: {}", hosts.join(", ")),
+            None => println!("env {name}: env (weaker: agents can read the value)"),
         }
-    );
+    }
     for h in out.get("harnesses").and_then(Value::as_array).into_iter().flatten() {
         let (id, step) = (text_at(h, "harness"), text_at(h, "signIn"));
         match h.get("signedIn").and_then(Value::as_str).unwrap_or("unknown") {

@@ -331,6 +331,7 @@ extension IconName {
         .unreadDot,
         .viewGrid,
         .viewList,
+        .viewListShort,
         .windowNew,
         .workspace,
         .workspaceNew

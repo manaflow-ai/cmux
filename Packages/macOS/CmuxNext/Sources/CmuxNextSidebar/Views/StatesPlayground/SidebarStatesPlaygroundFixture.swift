@@ -84,7 +84,8 @@ struct SidebarStatesPlaygroundFixture {
         func browser(_ id: WorkspaceID, _ title: String, _ image: CGImage?) -> SidebarWorkspace {
             var row = row(id, title)
             row.kind = .browser
-            row.icon = image.map { .favicon(SidebarFavicon($0)) }
+            // A site with no favicon draws the placeholder globe, as `SidebarMapping.row` maps it.
+            row.icon = image.map { .favicon(SidebarFavicon($0)) } ?? .pagePlaceholder
             return row
         }
         var archived = row(Self.archived, "Archived workspace")
