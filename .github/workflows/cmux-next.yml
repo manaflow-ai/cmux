@@ -2295,6 +2295,11 @@ jobs:
           python3 tests/test_cmux_next_pr_changed_paths.py
           python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
+          python3 tests/test_ci_github_token_budget.py
+          # Warn-only, exit 0 always: a ::warning for each step that calls the API with the repository
+          # GITHUB_TOKEN (1,000 requests an hour, shared by every workflow) and has no line in
+          # .github/github-token-budget.json.
+          python3 scripts/ci/github_token_budget_lint.py
 
       # "Red on the base, so not ours" is judged per failing test, and a crash or a cut-short
       # run is never the base's (scripts/ci/test_reds.py, after cmux#26346 landed with its own
