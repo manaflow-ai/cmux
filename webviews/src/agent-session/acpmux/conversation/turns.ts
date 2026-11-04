@@ -18,6 +18,7 @@ import { isRunGroup, isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagen
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import { chosenAnswer, nextStepAsk } from "./nextStepAsk";
+import { lastWrapUp, withoutWrapUp } from "./wrapUp";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
@@ -620,8 +621,7 @@ function shapedTurn(
     );
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
-    const messaged =
-      liveRuns || turnFoldStyle(agentFamily).runs ? foldMessageRuns(shapedBody, expanded) : shapedBody;
+    const messaged = liveRuns || turnFoldStyle(agentFamily).runs ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
@@ -778,7 +778,10 @@ function shapeTurn(
         ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
-  const body = turn.slice(0, end).filter((row) => !isVisiblyEmptyMessage(row));
+  // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
+  const worked = turn.slice(0, end);
+  const wrapUp = summary.status === "completed" ? lastWrapUp(worked) : undefined;
+  const body = withoutWrapUp(worked).filter((row) => !isVisiblyEmptyMessage(row));
   // Each harness family ends a turn as its own app does (Leo, 2026-11-01: "separate it per
   // harness/model family. claude gets claude behaviour, codex gets codex"). Codex and ChatGPT fold
   // the whole turn's work under one "Worked for". Claude Code has no "Worked for" of its own, but
@@ -798,8 +801,13 @@ function shapeTurn(
   // the last turn and nothing follows it, answered once a prompt does. Read once per ended turn,
   // never while the turn runs. A turn that stopped or failed, or that another agent's message
   // follows, keeps the ask in its prose.
-  const ask = !live && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
-  const nextStep = ask && (reply !== undefined || retryable) ? ask : undefined;
+  // The agent's wrap-up call goes before a tagged ask in its prose, and stays as the turn's recap
+  // once a prompt follows. A recap alone needs no reply to wait for.
+  const tagged = !live && !wrapUp && summary.status === "completed" ? nextStepAsk(answer?.text) : undefined;
+  const ask = live ? undefined : (wrapUp ?? tagged);
+  // Where nothing can answer it (another agent's message follows), a wrap-up keeps its recap alone.
+  const answerable = ask && (reply !== undefined || retryable || !ask.question);
+  const nextStep = answerable ? ask : wrapUp?.recap ? { ...wrapUp, question: "", options: [] } : undefined;
   const shaped: AcpmuxRow[] = [];
   // A derived row's version must change whenever what it draws does: the memoized rows and the
   // height cache compare versions only. Answer versions stay far below VERSION_SPAN.
@@ -894,20 +902,28 @@ function shapeTurn(
         isPlan(row) ? [] : out(row) ? [endedPlan(row)] : dialogue ? [row] : renderRows([row], version),
       );
     shaped.push(...outside(before));
-    if (said && nextStep && said === answer) {
-      // The answer without the ask's lines, which the card draws; a new version, so its memo redraws.
-      if (nextStep.rest) shaped.push({ ...said, text: nextStep.rest, version: said.version * 2 + 1 });
-      const answered = reply === undefined ? undefined : chosenAnswer(nextStep, reply);
-      shaped.push({
+    const card = (at: number): AcpmuxRow => {
+      const answered = reply === undefined || !nextStep!.question ? undefined : chosenAnswer(nextStep!, reply);
+      return {
         id: `${NEXT_STEP}-${segment.anchor.id}`,
         version: version * 2 + (answered === undefined ? 0 : 1),
-        at: said.at,
+        at,
         kind: NEXT_STEP,
-        nextStep: { ask: nextStep, ...(answered !== undefined && { answer: answered }) },
-      });
+        nextStep: { ask: nextStep!, ...(answered !== undefined && { answer: answered }) },
+      };
+    };
+    const underAnswer = Boolean(said && nextStep && said === answer);
+    if (underAnswer) {
+      // A wrap-up's answer stays whole. A tagged ask's answer drops the ask's lines, which the
+      // card draws; a new version, so its memo redraws.
+      if (wrapUp) shaped.push(said!);
+      else if (nextStep!.rest) shaped.push({ ...said!, text: nextStep!.rest, version: said!.version * 2 + 1 });
+      shaped.push(card(said!.at));
     } else if (said) shaped.push(said);
     shaped.push(...outside(after));
     shaped.push(...[...before, ...after].filter(isPlan).map(endedPlan));
+    // A wrap-up in a turn with no answer to hang under goes after the turn's last row.
+    if (nextStep && wrapUp && !underAnswer) shaped.push(card(summary.at));
     if (taskLine && taskLook === "after-reply") shaped.push(taskLine);
   }
   shaped.push(...editsCard(edits));
@@ -1375,8 +1391,7 @@ function shapeLiveTurn(
 /// (the turn's time) while the agent thinks, "Running <what the call does> 13s" while a call runs.
 /// Nothing draws over the turn's work (Leo 2026-10-21: a "Working for" there sat far above the
 /// line, past his steers). The line keeps the Thinking line's id from send to the turn's end, so it never leaves and
-/// comes back. While text streams it waits, quiet (`quietKey`, Thinking.tsx): the words are the
-/// motion then. With a todo list (`sessionStatus`) the list sits just over the line.
+/// comes back. While text streams it stays and reads "Writing" (`quietKey`, Thinking.tsx). With a todo list (`sessionStatus`) the list sits just over the line.
 function codexLiveTurn(
   user: AcpmuxRow,
   drawn: AcpmuxRow[],

@@ -30,6 +30,7 @@ def status(**sections):
 class FakeGitHub:
     def __init__(self, check_runs, comments, base_runs=None, steps=None, annotations=None, env=None, pr_head="a" * 40):
         self.check_runs, self.writes, self.gets, self.env = check_runs, [], [], env or {}
+        self.graphql = []  # GraphQL queries: the status comment reads (a separate pool from REST)
         self.pr_head = pr_head  # the pull request's head now (HEAD_SHA is "a" * 40)
         self.base_runs, self.steps, self.annotations = base_runs, steps or {}, annotations or {}
         self.comments = {c["id"]: dict(c, user=c.get("user", BOT)) for c in comments}
@@ -69,6 +70,13 @@ class FakeGitHub:
 
             def do_POST(self):
                 payload = self.body()
+                if self.path == "/graphql":
+                    fake.graphql.append(payload["variables"])
+                    nodes = [{"fullDatabaseId": str(c["id"]), "body": c["body"],
+                              "author": {"__typename": "Bot", "login": c["user"]["login"].removesuffix("[bot]")}}
+                             for c in sorted(fake.comments.values(), key=lambda c: c["id"])]
+                    return self.reply({"data": {"repository": {"issueOrPullRequest": {"comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}}}})
                 fake.writes.append(("POST", self.path, payload["body"]))
                 fake.comments[99] = {"id": 99, "body": payload["body"], "user": BOT}
                 self.reply(fake.comments[99])
@@ -90,8 +98,11 @@ class FakeGitHub:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def run(self):
-        env = dict(os.environ, GITHUB_API_URL=f"http://127.0.0.1:{self.server.server_port}", GITHUB_REPOSITORY="o/r",
-                   GITHUB_TOKEN="t", PR_NUMBER="7", HEAD_SHA="a" * 40, PR_STATUS_SETTLE_SECONDS="0.01")
+        url = f"http://127.0.0.1:{self.server.server_port}"
+        # PR_HEAD_REMOTE: no such remote, so the head is read over REST unless a test gives a real one.
+        env = dict(os.environ, GITHUB_API_URL=url, GITHUB_GRAPHQL_URL=url + "/graphql", GITHUB_REPOSITORY="o/r",
+                   GITHUB_TOKEN="t", GH_TOKEN="t", PR_NUMBER="7", HEAD_SHA="a" * 40, PR_STATUS_SETTLE_SECONDS="0.01",
+                   PR_HEAD_REMOTE="/nonexistent/pr-head-remote")
         env.pop("BASE_SHA", None)
         env.pop("OWN_CHECKS_GREEN", None)
         if self.base_runs is not None:
@@ -316,9 +327,19 @@ GREEN = {"OWN_CHECKS_GREEN": "true"}
 
 
 def test_a_green_caller_with_no_red_line_reads_only_the_comments():
+    # The common call: one GraphQL comment read and no REST call (the repository's REST budget is shared).
     fake = FakeGitHub([run("web / react-apps-check", "success")], [], env=GREEN)
     assert fake.run() == []
-    assert fake.gets and all("/issues/7/comments" in path for path in fake.gets), fake.gets
+    assert fake.gets == [], fake.gets
+    assert len(fake.graphql) == 1 and fake.graphql[0]["number"] == 7, fake.graphql
+
+
+def test_the_status_comment_is_read_over_graphql_not_rest():
+    fake = FakeGitHub([run("web / react-apps-check", "failure")], [{"id": 5, "body": status(checks="web and size checks: green")}])
+    writes = fake.run()
+    assert writes and writes[0][0] == "PATCH" and RED_LINE in writes[0][2], writes
+    assert fake.graphql, "the comment reads go over GraphQL"
+    assert not any("/issues/7/comments" in path for path in fake.gets), fake.gets
 
 
 def test_a_green_caller_still_turns_a_red_line_green():
@@ -360,6 +381,38 @@ def test_a_call_for_the_current_head_still_writes_its_red():
     fake = FakeGitHub([run("web / react-apps-check", "failure")], [])
     writes = fake.run()
     assert len(writes) == 1 and RED_LINE in writes[0][2]
+
+
+def head_remote(tmp, sha_holder):
+    """A local git repository whose refs/pull/7/head is a real commit; its sha goes in sha_holder."""
+    repo = Path(tmp) / "remote"
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-C", str(repo)]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "head"], check=True)
+    sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    subprocess.run(git + ["update-ref", "refs/pull/7/head", sha], check=True)
+    sha_holder.append(sha)
+    return str(repo)
+
+
+def test_the_head_is_read_with_git_not_the_api():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        sha = []
+        remote = head_remote(tmp, sha)
+        fake = FakeGitHub([run("web / react-apps-check", "failure")], [], env={"PR_HEAD_REMOTE": remote, "HEAD_SHA": sha[0]})
+        writes = fake.run()
+    assert len(writes) == 1 and RED_LINE in writes[0][2], writes
+    assert "/repos/o/r/pulls/7" not in fake.gets, fake.gets
+
+
+def test_a_head_git_says_moved_on_writes_nothing():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        remote = head_remote(tmp, [])
+        fake = FakeGitHub([run("web / react-apps-check", "failure")], [], env={"PR_HEAD_REMOTE": remote})
+        assert fake.run() == []
+    assert "/repos/o/r/pulls/7" not in fake.gets, fake.gets
 
 
 def test_nothing_to_change_reads_no_head():

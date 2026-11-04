@@ -179,6 +179,10 @@ path = "tests/test_ci_package_bisect.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tap_test_health.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
@@ -1293,6 +1297,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_send_path_caps.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_cloud_routes.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2563,4 +2571,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_owned_minis_only.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
