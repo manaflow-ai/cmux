@@ -610,6 +610,10 @@ export function NewTabScreen(props: Props) {
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
+        // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
+        // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
+        // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
+        if (envFolder) props.onProjectPicked?.(envFolder);
       }
       props.runMode?.onMode(mode);
     },

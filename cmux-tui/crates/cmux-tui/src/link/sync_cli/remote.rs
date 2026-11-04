@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead as _, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
@@ -21,6 +21,13 @@ const SEND_SLICE_BYTES: usize = 256 * 1024;
 /// How long one socket read or write may block. A caller that times out a
 /// silent transfer waits longer than this (CloudAccessCLI's upload idle).
 pub(super) const IO_DEADLINE: Duration = Duration::from_secs(60);
+/// The slowest link a request's answer is still waited for on. The machine
+/// link's forwarder takes a whole `fs.write` part into its own buffer at
+/// once, so the request's last byte "reaches the socket" long before it
+/// reaches the machine, and the answer only starts once all of it has
+/// crossed: a part of [`PART_BYTES`] (about 11 MB of base64) needs about
+/// 6 minutes at this rate before [`IO_DEADLINE`] of silence counts.
+const MIN_LINK_BYTES_PER_SECOND: u64 = 32 * 1024;
 /// Bytes per `fs.read` answer asked for.
 const READ_BYTES: u64 = 8 * 1024 * 1024;
 /// Entries per `fs.list` page (the daemon's maximum).
@@ -98,7 +105,10 @@ impl Remote {
     /// of the request reach the socket and once more when its answer comes:
     /// a slow link that is still taking bytes is heard from while a part of
     /// [`PART_BYTES`] is in flight, so only a link silent past
-    /// [`IO_DEADLINE`] stalls.
+    /// [`IO_DEADLINE`] stalls. The answer is waited for as long as the
+    /// request could still be crossing the link ([`answer_budget`]), not
+    /// one socket timeout: a timed-out read (EAGAIN, os error 35 on macOS)
+    /// within that budget is read again, never the call's failure.
     fn call_with_progress(
         &mut self,
         cmd: &str,
@@ -112,15 +122,39 @@ impl Remote {
         let mut line = params.to_string();
         line.push('\n');
         for slice in line.as_bytes().chunks(SEND_SLICE_BYTES) {
-            self.reader.get_mut().write_all(slice)?;
+            self.reader.get_mut().write_all(slice).map_err(|error| {
+                stalled(error, "the machine took no bytes of the request", self.write_timeout())
+            })?;
             progress();
         }
+        let silence = self.read_timeout();
+        let budget = answer_budget(silence, line.len());
+        let answer_by = Instant::now().checked_add(budget);
         // The machine is not trusted: an answer line has a size limit, and
         // only so many answers for other requests are skipped.
         for _ in 0..=MAX_OTHER_ANSWERS {
             let mut answer = Vec::new();
-            let read = Read::take(&mut self.reader, MAX_ANSWER_BYTES + 1)
-                .read_until(b'\n', &mut answer)?;
+            let mut limited = Read::take(&mut self.reader, MAX_ANSWER_BYTES + 1);
+            let read = loop {
+                // `read_until` keeps what it read before an error in
+                // `answer`, and `limited` keeps its count, so a read again
+                // goes on where the timed-out one stopped.
+                match limited.read_until(b'\n', &mut answer) {
+                    Ok(_) => break answer.len(),
+                    // Still within the budget: the caller hears of it, so an
+                    // upload's idle deadline does not end a part in flight.
+                    Err(error)
+                        if timed_out(&error) && answer_by.is_none_or(|by| Instant::now() < by) =>
+                    {
+                        progress();
+                    }
+                    Err(error) => {
+                        let what =
+                            format!("the machine did not answer within {} s", budget.as_secs());
+                        return Err(stalled(error, &what, None));
+                    }
+                }
+            };
             if read == 0 {
                 bail!("the machine daemon closed the connection");
             }
@@ -210,6 +244,16 @@ impl Remote {
             Err(error) if refusal_code(&error) == Some("fs.exists") && self.is_dir(path)? => Ok(()),
             Err(error) => Err(error),
         }
+    }
+
+    /// The socket's read timeout: how long one read waits with nothing
+    /// coming ([`IO_DEADLINE`] from [`Remote::connect`]).
+    fn read_timeout(&self) -> Option<Duration> {
+        self.reader.get_ref().read_timeout().ok().flatten()
+    }
+
+    fn write_timeout(&self) -> Option<Duration> {
+        self.reader.get_ref().write_timeout().ok().flatten()
     }
 
     fn is_dir(&mut self, path: &str) -> anyhow::Result<bool> {
@@ -367,6 +411,34 @@ pub(super) fn refusal_code(error: &anyhow::Error) -> Option<&str> {
     error.downcast_ref::<FsRefusal>().map(|refusal| refusal.code.as_str())
 }
 
+/// How long a request of `request_bytes` may wait for its answer: one
+/// `silence` (the socket's read timeout) plus the time the request takes to
+/// cross a link at [`MIN_LINK_BYTES_PER_SECOND`].
+fn answer_budget(silence: Option<Duration>, request_bytes: usize) -> Duration {
+    let bytes = u64::try_from(request_bytes).unwrap_or(u64::MAX);
+    let crossing = Duration::from_millis(bytes.saturating_mul(1000) / MIN_LINK_BYTES_PER_SECOND);
+    silence.unwrap_or(IO_DEADLINE).saturating_add(crossing)
+}
+
+/// Whether `error` is a socket timeout: SO_RCVTIMEO and SO_SNDTIMEO end a
+/// blocking read or write with EAGAIN (`WouldBlock`; os error 35 on macOS,
+/// 11 on Linux), and some platforms answer `TimedOut`.
+fn timed_out(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut)
+}
+
+/// A socket error as the person reads it: a timeout says what stalled and
+/// for how long instead of "Resource temporarily unavailable (os error 35)".
+fn stalled(error: std::io::Error, what: &str, silence: Option<Duration>) -> anyhow::Error {
+    if !timed_out(&error) {
+        return error.into();
+    }
+    match silence {
+        Some(silence) => anyhow!("{what} (nothing moved for {} s)", silence.as_secs()),
+        None => anyhow!("{what}"),
+    }
+}
+
 /// Up to [`PART_BYTES`] from `reader`; empty at its end.
 fn read_part(reader: &mut dyn Read) -> anyhow::Result<Vec<u8>> {
     let mut part = Vec::with_capacity(PART_BYTES.min(1 << 20));
@@ -436,6 +508,49 @@ mod tests {
             .unwrap();
         assert_eq!(revision, "r1");
         assert!(machine.join().unwrap(), "no progress while the part was in flight");
+    }
+
+    /// A part the link's forwarder took whole is still crossing to the
+    /// machine, so its answer comes later than one socket timeout. Machine
+    /// update copied the cmux-tui build this way and failed with "Resource
+    /// temporarily unavailable (os error 35)": the socket's read timeout
+    /// (EAGAIN) was taken for the call's failure. The machine here takes the
+    /// whole request at once, then answers after five read timeouts.
+    #[test]
+    fn an_answer_slower_than_one_read_timeout_is_still_waited_for() {
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let timeout = Duration::from_millis(100);
+        client.set_read_timeout(Some(timeout)).unwrap();
+        client.set_write_timeout(Some(Duration::from_secs(20))).unwrap();
+        let machine = std::thread::spawn(move || {
+            let mut line = Vec::new();
+            BufReader::new(server.try_clone().unwrap()).read_until(b'\n', &mut line).unwrap();
+            let request: Value = serde_json::from_slice(&line).unwrap();
+            std::thread::sleep(timeout * 5);
+            let answer =
+                json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
+            server.write_all(format!("{answer}\n").as_bytes()).unwrap();
+        });
+        let mut remote = Remote { reader: BufReader::new(client), next_id: 1 };
+        let data = vec![7u8; 256 * 1024];
+        let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
+        assert_eq!(revision, "r1");
+        machine.join().unwrap();
+    }
+
+    /// A machine that never answers still fails, once the request's budget
+    /// is spent, and says so instead of "os error 35".
+    #[test]
+    fn a_machine_that_never_answers_fails_with_what_stalled() {
+        let mut remote = hostile(|requests, _| {
+            requests.next();
+        });
+        remote.reader.get_ref().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let started = std::time::Instant::now();
+        let error = remote.stat("/work").unwrap_err().to_string();
+        assert!(error.contains("did not answer"), "{error}");
+        assert!(!error.contains("os error"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(5), "waited {:?}", started.elapsed());
     }
 
     /// A [`Remote`] whose machine is `serve`: it gets each request and the
