@@ -63,11 +63,16 @@ reply preview gray (outline 20 %/22 %, text 44 %), reply preview blue
   contiguous 4 pt within a run), and the line runs on from the quote past my
   replies to the block's last one. It stops above a reply of theirs (7 pt)
   and starts again level with the next bubble's top, 10 pt under theirs.
-- A reply to a reply joins the root's thread and quotes the root.
+- A reply to a reply joins the root's thread and quotes the root; a reply to
+  any message of the block (or to one the block answers) joins it.
 - A plain message, another thread or a timestamp section ends the block.
 - "N Replies" is caption2 semibold (as "Delivered"), 7.33 pt under the quote.
   Under a quote of mine it ends 12 pt inside the quote's edge; under a quote
   of theirs it starts 12 pt right of the line, and the line passes beside it,
-  its ink 6.33 pt under the quote.
+  its ink 6.33 pt under the quote; my reply starts 11 pt under its glyphs.
+- Simulator captures for these rules: `threads/scen5.py` (thread blocks with
+  both senders), `threads/scen3.py` (reply to a reply), `threads/scen7.py`
+  (a recorded reply joining a block); `threads/seed5.sh` and `seed3.sh` seed
+  the same conversations into conversation-sim for Chief.
 - The quote outline is 27.33 pt tall in the simulator and 29.33 pt on the
   2026-10-30 device screenshot; Chief keeps the device's.
