@@ -299,6 +299,9 @@ jobs:
           # workspace shells (and the agents they run) inherit it.
           if [ "$MODEL" = real ]; then
             [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] || { echo "::error::model=real needs CLAUDE_CODE_OAUTH_TOKEN"; exit 1; }
+            # No stub routing left from an earlier job on a reused runner.
+            launchctl unsetenv ANTHROPIC_BASE_URL 2>/dev/null || true
+            launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
             launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN"
           else
             # The shared model stub on loopback, for as long as this step runs.
@@ -307,6 +310,7 @@ jobs:
             nohup python3 tests/fixtures/model-stub/model_stub.py --port 0 \
               --ready-file "$STUB_DIR/ready.json" --log "$STUB_DIR/requests.jsonl" \
               > "$STUB_DIR/out.txt" 2>&1 < /dev/null &
+            echo $! > "$STUB_DIR/pid"
             for _ in $(seq 600); do [ -s "$STUB_DIR/ready.json" ] && break; sleep 0.2; done
             [ -s "$STUB_DIR/ready.json" ] || { echo "::error::the model stub did not start ($(command -v python3))"; cat "$STUB_DIR/out.txt"; exit 1; }
             STUB_URL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$STUB_DIR/ready.json")"
@@ -370,3 +374,7 @@ jobs:
           rm -f "$HOME/.secrets/cmuxterm-dev.env"
           rmdir "$HOME/.secrets" 2>/dev/null || true
           launchctl unsetenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_BASE_URL 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
+          # The model stub this job started (its own pid, recorded at start).
+          if [ -s "$RUNNER_TEMP/model-stub/pid" ]; then kill "$(cat "$RUNNER_TEMP/model-stub/pid")" 2>/dev/null || true; fi
