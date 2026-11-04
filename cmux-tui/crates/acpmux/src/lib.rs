@@ -140,6 +140,8 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+#[cfg(feature = "sim")]
+pub mod sim_agent;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
