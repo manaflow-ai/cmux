@@ -18,7 +18,8 @@ import { stackServer, type StackServer } from "./stack-server.ts"
  * most 15 minutes old, and its audience, repository (and repository_id when the row names one), ref,
  * workflow_ref and job_workflow_ref all equal the row's. A token from another repository, ref or
  * workflow (a fork, a branch's copy of the file, a reusable workflow called from elsewhere) matches
- * nothing. The answer is a Stack session for the row's one user that Stack ends after `ttlSeconds`
+ * nothing. Each token signs in once: its jti is recorded until it expires, and a second use is refused.
+ * The answer is a Stack session for the row's one user that Stack ends after `ttlSeconds`
  * (at most an hour), so it dies with the run; only the access token is returned, never the refresh token.
  * Every refusal is the same 401: a caller learns nothing about the rows.
  *
@@ -78,7 +79,7 @@ export const parseCiSessionTrust = (raw: string | undefined): { readonly ok: boo
   return { ok: true, rows: json }
 }
 
-export type CiSessionRefusal = "not-github" | "no-trust" | "invalid" | "no-match"
+export type CiSessionRefusal = "not-github" | "no-trust" | "invalid" | "no-match" | "replay"
 
 /** The row a GitHub Actions token matches, or why it matches none. Claims come from jwtVerify only. */
 export const matchCiSessionToken = async (
@@ -86,7 +87,7 @@ export const matchCiSessionToken = async (
   rows: ReadonlyArray<CiSessionRow>,
   getKey: JWTVerifyGetKey,
   now: Date = new Date()
-): Promise<{ ok: true; row: CiSessionRow; runId?: string } | { ok: false; reason: CiSessionRefusal }> => {
+): Promise<{ ok: true; row: CiSessionRow; jti: string; expiresAt: number; runId?: string } | { ok: false; reason: CiSessionRefusal }> => {
   try {
     if (decodeJwt(raw).iss !== GITHUB_ACTIONS_ISSUER) return { ok: false, reason: "not-github" }
   } catch {
@@ -102,7 +103,7 @@ export const matchCiSessionToken = async (
       clockTolerance: 60,
       maxTokenAge: MAX_TOKEN_AGE,
       currentDate: now,
-      requiredClaims: ["exp", "iat", "repository", "ref", "workflow_ref", "job_workflow_ref"]
+      requiredClaims: ["exp", "iat", "jti", "repository", "ref", "workflow_ref", "job_workflow_ref"]
     }))
   } catch (error) {
     if (error instanceof joseErrors.JOSEError) return { ok: false, reason: "invalid" }
@@ -119,8 +120,8 @@ export const matchCiSessionToken = async (
       // The job itself must be defined in the row's file: a reusable workflow names its own file here.
       payload.job_workflow_ref === r.workflowRef
   )
-  if (!row) return { ok: false, reason: "no-match" }
-  return { ok: true, row, ...(typeof payload.run_id === "string" ? { runId: payload.run_id } : {}) }
+  if (!row || typeof payload.jti !== "string" || payload.jti.length === 0 || typeof payload.exp !== "number") return { ok: false, reason: "no-match" }
+  return { ok: true, row, jti: payload.jti, expiresAt: payload.exp * 1000, ...(typeof payload.run_id === "string" ? { runId: payload.run_id } : {}) }
 }
 
 let githubKeys: JWTVerifyGetKey | undefined
@@ -137,6 +138,17 @@ export interface CiSessionDeps {
   readonly getKey?: JWTVerifyGetKey
   readonly stack?: StackServer
   readonly now?: () => Date
+  /** True the first time a token id is seen before `expiresAt` (default: WireTicketDO.claimOnce on its own object). */
+  readonly claimOnce?: (jti: string, expiresAt: number, now: number) => Promise<boolean>
+}
+
+const sha256Hex = async (s: string) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s))), (b) => b.toString(16).padStart(2, "0")).join("")
+
+const claimInDo = (env: Env) => async (jti: string, expiresAt: number, now: number) => {
+  const ns = env.WIRE_TICKET_DO
+  // Past exp plus the verifier's clock tolerance, so an unexpired token can never be seen as new again.
+  return ns.get(ns.idFromName("ci-session-jti")).claimOnce(`ci-jti:${await sha256Hex(jti)}`, expiresAt + 120_000, now)
 }
 
 export const handleCiSession = async (request: Request, env: Env, deps: CiSessionDeps = {}): Promise<Response> => {
@@ -151,6 +163,9 @@ export const handleCiSession = async (request: Request, env: Env, deps: CiSessio
   } catch {
     // GitHub's JWKS could not be read: says nothing about the caller.
     return json({ error: "GitHub's signing keys are unavailable; try again" }, 503)
+  }
+  if (match.ok && !(await (deps.claimOnce ?? claimInDo(env))(match.jti, match.expiresAt, (deps.now?.() ?? new Date()).getTime()))) {
+    match = { ok: false, reason: "replay" }
   }
   if (!match.ok) {
     console.warn(JSON.stringify({ event: "ci_session.refused", reason: match.reason }))

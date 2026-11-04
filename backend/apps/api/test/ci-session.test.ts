@@ -40,7 +40,7 @@ const github = await generateKeyPair("RS256", { extractable: true })
 const getKey = createLocalJWKSet({ keys: [{ ...(await exportJWK(github.publicKey)), kid: "gh1", alg: "RS256" }] })
 
 const token = (claims: Record<string, unknown> = {}, opts: { iss?: string; aud?: string; key?: CryptoKey; iat?: number; exp?: number } = {}) =>
-  new SignJWT({ ...CLAIMS, ...claims })
+  new SignJWT({ jti: crypto.randomUUID(), ...CLAIMS, ...claims })
     .setProtectedHeader({ alg: "RS256", kid: "gh1" })
     .setIssuer(opts.iss ?? GITHUB_ACTIONS_ISSUER)
     .setAudience(opts.aud ?? ROW.audience)
@@ -55,11 +55,16 @@ const fakeStack = () => {
   return { stack: { createSession } as unknown as StackServer, createSession }
 }
 
+const memoryClaims = () => {
+  const seen = new Set<string>()
+  return async (jti: string) => (seen.has(jti) ? false : (seen.add(jti), true))
+}
+
 const call = (bearer: string | undefined, trust: unknown = [ROW], stack = fakeStack().stack) =>
   handleCiSession(
     new Request(`https://cloud-api.cmux.dev${CI_SESSION_PATH}`, { method: "POST", headers: bearer ? { authorization: `Bearer ${bearer}` } : {} }),
     { ...testEnv, CI_SESSION_TRUST: JSON.stringify(trust) } as Env,
-    { getKey, stack }
+    { getKey, stack, claimOnce: memoryClaims() }
   )
 
 describe("CI_SESSION_TRUST rows", () => {
@@ -106,7 +111,8 @@ describe("matching a GitHub Actions token", () => {
       { workflow_ref: other, job_workflow_ref: other },
       // A job defined in another (reusable) workflow, called from the trusted file.
       { job_workflow_ref: "manaflow-ai/cmux/.github/workflows/reusable.yml@refs/heads/main" },
-      { job_workflow_ref: undefined }
+      { job_workflow_ref: undefined },
+      { jti: undefined }
     ]) {
       expect(await matchCiSessionToken(await token(claims), [ROW], getKey), JSON.stringify(claims)).toMatchObject({ ok: false })
     }
@@ -148,6 +154,21 @@ describe(`POST ${CI_SESSION_PATH}`, () => {
     expect((await call(undefined, [ROW], stack)).status).toBe(401)
     expect((await call(await token(), [{ ...ROW, ttlSeconds: 86_400 }], stack)).status).toBe(401)
     expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it("refuses a replayed token, also through the Durable Object store", async () => {
+    const { stack, createSession } = fakeStack()
+    const once = memoryClaims()
+    const t = await token()
+    const req = () => new Request(`https://cloud-api.cmux.dev${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${t}` } })
+    const e = { ...testEnv, CI_SESSION_TRUST: JSON.stringify([ROW]) } as Env
+    expect((await handleCiSession(req(), e, { getKey, stack, claimOnce: once })).status).toBe(200)
+    expect((await handleCiSession(req(), e, { getKey, stack, claimOnce: once })).status).toBe(401)
+    expect(createSession).toHaveBeenCalledTimes(1)
+    // The real store: the first claim of an id wins, a second is refused until it expires.
+    const t2 = await token()
+    expect((await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${t2}` } }), e, { getKey, stack })).status).toBe(200)
+    expect((await handleCiSession(new Request(`https://x${CI_SESSION_PATH}`, { method: "POST", headers: { authorization: `Bearer ${t2}` } }), e, { getKey, stack })).status).toBe(401)
   })
 
   it("is routed by the Worker and trusts no job without CI_SESSION_TRUST", async () => {
