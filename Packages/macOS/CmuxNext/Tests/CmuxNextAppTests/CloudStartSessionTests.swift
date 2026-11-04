@@ -111,6 +111,19 @@ struct CloudStartSessionTests {
         }
     }
 
+    /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
+    @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() {
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: true),
+                    "a \(origin) start would wait on the create card")
+            #expect(!CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: origin), delegated: false),
+                    "asking turned on, a \(origin) start still asks")
+        }
+        #expect(CloudStartSession.startsAsPerson(Self.invocation(["agent": .string("claude")], origin: .user), delegated: false), "the person's own run never asks")
+    }
+
     // MARK: Refusals before anything starts
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {

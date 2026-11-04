@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: The prompt the Cloud chat gets
+        description: Extra context for the Cloud chat; the browser proof is always required
         required: false
-        default: "Reply with one short sentence that names the planet you are on."
+        default: "After the browser proof, mention the result in one short sentence."
         type: string
       agent:
         description: The harness the chat starts (claude or codex)
@@ -135,7 +135,7 @@ jobs:
           set -euo pipefail
           file="$RUNNER_TEMP/cloud-chat-proof/evidence.json"
           [ -s "$file" ] || { echo "::warning::no evidence was written"; exit 0; }
-          if grep -Eq 'cmvm_|cmk_|eyJ[A-Za-z0-9_-]{8,}\.|[Bb]earer ' "$file"; then
+          if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
             echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
             exit 1
           fi
