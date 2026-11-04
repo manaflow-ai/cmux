@@ -35,7 +35,7 @@ final class Workspace {
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
     let sidebarProcessTitleObservation = Observation()
     @discardableResult func setPanelCustomTitle(panelId: UUID, title: String?, source: CustomTitleSource,
-        propagateToRemoteTmux: Bool, propagateToCloud: Bool) -> Bool {
+        propagateToRemoteTmux: Bool, propagateToCloud: Bool, reconcileWorkspaceTitle: Bool) -> Bool {
         panelCustomTitles[panelId] = title
         panelCustomTitleSources[panelId] = title == nil ? nil : source
         return true

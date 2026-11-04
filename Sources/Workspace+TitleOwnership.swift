@@ -111,7 +111,14 @@ extension Workspace {
         let previousTitle = title
         // A custom panel name is authored metadata even when it supplies the
         // workspace's automatic display tier. Preserve it and non-terminal titles.
-        if panelCustomTitles[panelId] != nil || panels[panelId]?.panelType != .terminal {
+        if let customTitle, effectiveCustomTitleSource == .user,
+           panelCustomTitles[panelId] == customTitle,
+           panelCustomTitleSources[panelId] == .user,
+           let processTitle = panelTitles[panelId], panels[panelId]?.panelType == .terminal {
+            // A tab inheriting the workspace name must retain the actual process
+            // title underneath it, so clearing the shared name restores it.
+            applyProcessTitle(processTitle)
+        } else if panelCustomTitles[panelId] != nil || panels[panelId]?.panelType != .terminal {
             applyResolvedProcessTitle(resolvedTitle)
         } else {
             applyProcessTitle(resolvedTitle)
@@ -268,7 +275,8 @@ extension Workspace {
             if followsWorkspace, !trimmed.isEmpty || inherited {
                 setPanelCustomTitle(
                     panelId: terminal.id, title: trimmed.isEmpty ? nil : trimmed,
-                    source: .user, propagateToRemoteTmux: false, propagateToCloud: false
+                    source: .user, propagateToRemoteTmux: false, propagateToCloud: false,
+                    reconcileWorkspaceTitle: false
                 )
             }
         }
