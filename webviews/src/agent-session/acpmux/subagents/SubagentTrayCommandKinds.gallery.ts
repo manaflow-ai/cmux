@@ -55,7 +55,7 @@ const everyKind = scene(
     command("router-review manaflow-ai/app 4210 --post", "Review the PR at its head", 6),
     command("cmux-ci test -- bun test test/subagent-tray.test.tsx", "Run the tray tests on the fleet", 5),
     command("cmux-ci compile-check --ref 1f2e3d4 --app", "Compile the app", 3),
-    command("glaeda-gh wait pr 4210 --sha 1f2e3d4c5b6a", "Wait for the PR's checks", 12),
+    command("gh pr checks 4210 --watch", "Wait for the PR's checks", 12),
     command("gh run watch 9911223344", undefined, 2),
     command("cd ~/Projects/app && bun run dev", "Run the dev server", 11),
     command('acpmux send review-lane "The header counts by kind now: check the narrow width"', undefined, 1),
@@ -67,7 +67,7 @@ const everyKind = scene(
 // The usual small case: a subagent and a wait.
 const twoKinds = scene(
   [running("Explore how the daemon updates itself", 2, "Read update.rs")],
-  [command("glaeda-gh wait run 9911223344 --sha 1f2e3d4c5b6a", "Wait for CI", 7)],
+  [command("gh run watch 9911223344 --exit-status", "Wait for CI", 7)],
 );
 
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
