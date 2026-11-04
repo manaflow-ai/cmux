@@ -2487,6 +2487,10 @@ def journey(base):
                             f"probe {LIVE_READ['hist_ext']} (1 shown, 0 refused, -1 no probe)", "seed"))
         turn = start_turn_in_flight(variant) if variant in DAEMON_VARIANTS else None
         sampler = RecoverySampler() if variant in DAEMON_VARIANTS else None
+        if opts.record_launch and variant == "update" and not opts.update_to:
+            # A real update relaunch opens a newer build, which shows the "cmux Updated!" card: the same build
+            # relaunched shows it only when its last seen version is older (WhatsNewCenter.debugPretendUpdated).
+            say(f"  update: last seen version 0.0.1 -> {json.dumps(rpc('debug.updater', {'action': 'updated', 'previous': '0.0.1'}))}")
         started = SINCE = time.time()
         if sampler:
             sampler.start(started)
