@@ -106,3 +106,22 @@ full relevant license texts are also in the generated third-party notices.
 The first-party fill-ins are recorded in `scripts/icons/build_pack.py` and generated into
 `nekoCandidate.json`, imported only by the gallery. They are not derived from the surveyed third-party
 sets. `neko-candidates/NOTICE.md` records the representative artwork and modifications.
+
+### Round 2 provisional score (before device capture)
+
+The round 2 gallery is wired for the same default comparison, but its fleet capture was interrupted by
+GitHub's shared quota after the catalog repair. To keep the hill-climb honest, these are provisional
+source-and-gallery scores, explicitly not release scores; the final 1x/2x capture can only lower them.
+Each direction covers 3/6 semantic actions (copy, retry, speak); More, bookmark, pin and status remain
+shared. Visual fit uses the same stroke/size, contrast and restrained-cue tuple as round 1; recognition
+is scored separately.
+
+| Direction | Coverage | Visual fit (provisional /6) | Action recognition (provisional /2) | Release decision |
+| --- | ---: | --- | ---: | --- |
+| Ear folds | 3/6 | 4/6 (2, 1, 1) | 1/2 | Gallery only; capture required |
+| Tail terminals | 3/6 | 4/6 (2, 2, 0) | 2/2 | Gallery only; capture required |
+| Whisker edges | 3/6 | 3/6 (1, 1, 1) | 1/2 | Gallery only; capture required |
+
+The provisional read is that tail terminals preserve the utility silhouette best, but none has earned
+production status. No round 2 drawing is in a shipped resource, and no Neko DEV action row or spinner
+exists until a later captured round passes at both device scales in both themes.
