@@ -24,7 +24,8 @@ final class NotificationService: UNNotificationServiceExtension {
             ?? service.opened(request.content, keys: keys)
             ?? service.inert(request.content, trust: keys?.trust())
             ?? request.content
-        contentHandler(content)
+        // A chat muted on this phone (Mute Chat Notifications) arrives quietly.
+        contentHandler(PushChatMutes.live().quieted(content) ?? content)
         self.contentHandler = nil
     }
 

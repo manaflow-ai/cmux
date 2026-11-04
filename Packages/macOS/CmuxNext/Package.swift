@@ -1277,6 +1277,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBridge",
             dependencies: [
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -1555,7 +1556,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextSidebar"],
+            dependencies: ["CmuxNextSidebar", "CmuxNextWakeups"],
             exclude: ["Fixtures"],
             swiftSettings: uiSwiftSettings
         ),

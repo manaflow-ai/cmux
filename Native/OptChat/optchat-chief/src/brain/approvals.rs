@@ -463,14 +463,14 @@ impl Brain {
         self.unanswered = keep;
         for u in due {
             let p = &u.pending;
-            // A subagent whose workspace opened after it asked: the person
-            // sees the prompt with a working Allow button now.
+            // A subagent whose workspace opened, or whose Home card arrived,
+            // after it asked: the person has a working Allow button now.
             if u.why != NOT_DELIVERED
                 && let Some(id) = self.state.sub_by_session(&p.session_id)
                 && self
                     .state
                     .sub(&id)
-                    .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
+                    .is_some_and(|(_, s)| self.approval_shown(s))
             {
                 continue;
             }

@@ -22,7 +22,7 @@ public struct HomeDebugActions {
     }
 
     /// Binds `home.saveFlightRecording`, `debug.allThemesPlayground` and, in DEV builds, `home.agentMessagePlayground` (its `style`,
-    /// `expanded` and `team` arguments switch the playground; none opens it as it is) and
+    /// `expanded`, `team`, `open`, `peer` and `dark` arguments switch the playground; none opens it as it is) and
     /// `home.chiefTeleportPlayground` (its `state` picks the menu shown beside the chips).
     public func bind(into registry: ActionRegistry) {
         let off = flightRecorderOff
@@ -37,7 +37,8 @@ public struct HomeDebugActions {
         #if DEBUG
         registry.bindEffect("home.agentMessagePlayground", effect: { invocation in
             HomeAgentMessagePlayground.show(style: invocation["style"]?.intValue, expanded: invocation["expanded"]?.boolValue,
-                                            team: invocation["team"]?.boolValue)
+                                            team: invocation["team"]?.boolValue, open: invocation["open"]?.intValue,
+                                            peer: invocation["peer"]?.stringValue, dark: invocation["dark"]?.boolValue)
             return .done
         })
         registry.bindEffect("home.mcpConnectPlayground", effect: { invocation in
