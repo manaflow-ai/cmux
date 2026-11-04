@@ -1228,6 +1228,7 @@ export function Composer({
   // `<3`) lists its face with no row chosen, so Return still sends it as typed (emojiShortcodes.ts).
   // The table loads in its own chunk once the composer is idle after its first paint.
   const [emojiData, setEmojiData] = useState<EmojiShortcodes | undefined>();
+  // mount-read: the emoji table is a static bundled chunk, cached per page, so a remount reads no data.
   useEffect(() => {
     let alive = true;
     const load = () =>
@@ -2551,6 +2552,7 @@ export function Composer({
                   look={emojiLook}
                   matches={emojiRows}
                   active={emojiSelected}
+                  back={emojiAt.token.length}
                   onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
                   onPick={pickEmoji}
                 />

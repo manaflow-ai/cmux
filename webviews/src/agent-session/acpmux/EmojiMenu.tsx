@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { PickerOption, PickerOptionList } from "../../ui/PickerPrimitives";
 import { useComposerListBox } from "./backdropLayer";
@@ -20,10 +20,13 @@ export function EmojiMenu({
   look,
   matches,
   active,
+  back,
   onHover,
   onPick,
 }: {
   look: Look;
+  /** How many characters before the caret the typed token starts (its `:` or emoticon). */
+  back: number;
   matches: readonly EmojiMatch[];
   active: number;
   onHover(index: number): void;
@@ -33,6 +36,8 @@ export function EmojiMenu({
   const box = useComposerListBox();
   const escape = useEscapingList("top", 6, undefined, box);
   const list = useRef<HTMLDivElement | null>(null);
+  // Composer keys the menu by the token's start, so the mount's offset names the token's `:`.
+  const [startBack] = useState(back);
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
@@ -40,17 +45,18 @@ export function EmojiMenu({
     },
     [escape],
   );
-  // Over the typed `:` (caret and strip looks): the caret's x in the box, clamped inside it.
+  // Over the typed `:` (caret and strip looks): the token's first character in the box, clamped
+  // inside it. Read once at mount, when the token is `back` characters behind the caret.
   useLayoutEffect(() => {
     const node = list.current;
     if (!node || look === "wide") return;
     const frame = (box ?? node.offsetParent ?? node.parentElement)?.getBoundingClientRect();
     if (!frame) return;
-    const caret = caretRect(node.ownerDocument);
+    const anchor = tokenStartRect(node.ownerDocument, startBack);
     const width = node.offsetWidth || CARET_MENU_PX;
-    const left = caret ? caret.left - frame.left - 14 : 0;
+    const left = anchor ? anchor.left - frame.left - 14 : 0;
     node.style.left = `${Math.round(Math.max(0, Math.min(left, frame.width - width)))}px`;
-  }, [box, look]);
+  }, [box, look, startBack]);
   useEffect(() => {
     list.current?.querySelector(`#acpmux-emoji-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -115,10 +121,17 @@ function codeText(match: EmojiMatch) {
 }
 
 /// The prompt's caret on screen, or undefined (no selection, or one the engine gives no box for).
-function caretRect(document: Document): DOMRect | undefined {
+function tokenStartRect(document: Document, back: number): DOMRect | undefined {
   const selection = document.getSelection();
   if (!selection || selection.rangeCount === 0) return undefined;
-  const range = selection.getRangeAt(0);
+  const range = selection.getRangeAt(0).cloneRange();
+  const node = range.startContainer;
+  // The token's first character, when it sits in the caret's text node (it does while typing);
+  // otherwise the caret itself.
+  if (node.nodeType === Node.TEXT_NODE && range.startOffset >= back && back > 0) {
+    range.setStart(node, range.startOffset - back);
+    range.setEnd(node, range.startOffset + 1);
+  }
   const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
   return rect && (rect.width || rect.height || rect.left) ? rect : undefined;
 }

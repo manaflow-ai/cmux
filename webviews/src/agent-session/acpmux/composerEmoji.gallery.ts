@@ -37,7 +37,11 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/EmojiMenu.tsx#EmojiMenu"],
   keywords: ["emoji", "shortcode", "emoticon", "colon", "autocomplete"],
   checks: {
-    layoutShiftMax: { value: 0, reason: "The menu draws in the composer's list layer; nothing under it moves." },
+    layoutShiftMax: {
+      value: 0.003,
+      reason:
+        "The menu draws in the composer's list layer and moves nothing. The first letter of a draft brings in Send, moving the mic one slot left (composer.gallery.ts SEND_ARRIVES): 0.0002 here.",
+    },
   },
   variants: {
     tedd: variant("Play: `:tedd` lists the teddy bear first, its typed letters bold, over the typed `:`.", (ctx) =>
