@@ -104,8 +104,8 @@ export function liveLead(label: string, leads: boolean, call: boolean): { lead: 
 /// repo: repo grep 3m 2s · 47.4K tokens", as Claude Code desktop's live line reads, with no mark
 /// before it: the shimmer is its only working sign (Leo, 2026-11-03: "we don't want the claude
 /// symbol ellipsis thing btw we just keep the shimmer ONLY"). Past the turn's first step
-/// (`turnTotal`) that clock reads "· 4m" after the dot, behind a finished step's own time, so a long wait
-/// never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
+/// (`turnTotal`) that clock follows a finished step's own time after a dot ("2s · 4m"), so a long
+/// wait never reads as that long a think or call. All shimmer. While text streams (`quietKey` moves) the
 /// line keeps its height but draws nothing.
 export function Thinking({
   starting = false,
@@ -152,7 +152,7 @@ export function Thinking({
   liveAgents?: number;
   /// "Thinking" past the first step: the turn's summed thinking time, shown beside the word.
   thoughtMs?: number;
-  /// Past the turn's first step the clock reads as the turn's whole time ("· 4m"), after the
+  /// Past the turn's first step the clock reads as the turn's whole time ("2s · 4m"), after the
   /// finished step's own time when it has one, so no wait reads as that long a think or call.
   turnTotal?: boolean;
   untimed?: boolean;
@@ -203,17 +203,19 @@ export function Thinking({
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
-  // Past the first step the turn's time stands after a dot, behind the finished step's own time
-  // when it has one: "Ran grep -n x 2s · 15s", "Waiting on 2 subagents · 1h 24m" (Leo, 2026-11-03:
-  // "i think the "thinking" accounting is also off pretty frequently"). The step's time is attached
-  // to its words and the turn's follows the dot, so the two read apart with no word for either
-  // (Leo, 2026-11-03, on "Thinking · 1m 51s total": "the total is redundant").
-  const total = Boolean(turnTotal && turnTime !== undefined);
+  // Past the first step a finished step's own time stands beside the label, and the turn's clock
+  // follows it after a dot: "Ran grep -n x 2s · 15s" (Leo, 2026-11-03: "i think the "thinking"
+  // accounting is also off pretty frequently"). With no own time the turn's clock stands beside the
+  // label alone, "Waiting on 2 subagents 1h 24m", never after a dot, and no line says "total" (Leo,
+  // 2026-11-04: "the total is redundant", "there's no point to say total", and on the dot's gap:
+  // "same here it's annoying to look at"). The turn's clock stays its own element (`cv-worked__time`)
+  // that keeps ticking from the prompt.
+  const total = turnTotal && turnTime !== undefined;
   // What stands beside the label then, never a clock that starts again at a call (Leo, 2026-11-01:
   // "it should just keep going"): a finished step's own start to end, or the turn's summed thinking.
   const ownMs = doing === undefined ? (waitsOnAgents || writing ? undefined : thoughtMs) : done ? doneMs : undefined;
   const own = total && ownMs !== undefined ? formatDuration(ownMs) : undefined;
-  const elapsed = total ? own : turnTime;
+  const elapsed = own ?? turnTime;
   // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
@@ -301,10 +303,10 @@ export function Thinking({
               }
             />
           </output>
-          {elapsed && <span className={total ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
+          {elapsed && <span className={own ? "cv-worked__own" : "cv-worked__time"}>{elapsed}</span>}
         </span>
       )}
-      {total && !waiting && (
+      {own && !waiting && (
         <span className="cv-worked__count cv-worked__total">
           <span className="cv-worked__sep" aria-hidden="true">
             ·

@@ -3,9 +3,7 @@
 // 2026-11-03: "i think the "thinking" accounting is also off pretty frequently", on a 1.5 h turn
 // whose live line read "Thinking 1h 24m 7s"). The live line names what the turn does now (Thinking.tsx,
 // turns.ts `codexLiveTurn`): "Waiting on 3 subagents", a finished step with its own time, or
-// "Writing", and past the first step the turn's clock stands after a dot with no word ("· 1h 24m 7s";
-// Leo, 2026-11-03: "the total is redundant"): a step's own time sits on its words, the turn's after
-// the dot, each dot one gap from both sides and every count in one dim tone.
+// "Writing", and past the first step the turn's clock follows a step's own time after a dot.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -36,7 +34,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking"],
   variants: {
     "waiting-on-subagents": {
-      note: "Three foreground subagents still run: the line reads Waiting on 3 subagents, and the turn's clock follows the dot, never a 1h 24m think.",
+      note: "Three foreground subagents still run: the line reads Waiting on 3 subagents, and its clock is the turn's whole time, never a 1h 24m think.",
       snapshot: chat(
         [
           prompt(),
@@ -53,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps the line holds the last finished step with its own time (3m 27s) on its words, then the turn's clock after the dot.",
+      note: "Between steps the line holds the last finished step with its own time (3m 27s), then the turn's clock after a dot.",
       snapshot: chat(
         [
           prompt(),
@@ -72,7 +70,7 @@ export default agentPaneEntry({
       ),
     },
     thinking: {
-      note: "Past the first step with nothing streaming: Thinking · 1h 24m 7s. The dot stands one gap from Thinking and from the time, all in one dim tone, with no word total (Leo, 2026-11-03).",
+      note: "Past the first step with nothing streaming and no own time: Thinking 1h 24m 7s, the turn's clock beside the word, no dot and no word total (#34866).",
       snapshot: chat(
         [
           prompt(),
@@ -83,7 +81,7 @@ export default agentPaneEntry({
       ),
     },
     "ran-command": {
-      note: "A command that just finished: its own 0s on its words, then the turn's clock after the dot, as in Leo's capture of the running-step line (2026-11-03: \"same here it's annoying to look at\").",
+      note: "A command that just finished: its own 0s on its words, then the turn's clock after the dot, 4px each side and one dim tone, as in Leo's capture of the running-step line (2026-11-03: \"same here it's annoying to look at\").",
       snapshot: chat(
         [
           prompt(),
@@ -103,7 +101,7 @@ export default agentPaneEntry({
       ),
     },
     writing: {
-      note: "The reply paused mid-stream a moment ago: Writing, then the turn's clock after the dot. (One that paused past 5 s reads Thinking again.)",
+      note: "The reply paused mid-stream a moment ago: Writing, with the turn's clock. (One that paused past 5 s reads Thinking again.)",
       snapshot: chat(
         [
           prompt(),

@@ -8,9 +8,9 @@
 //   chevron lifts, and only when the line is a button that opens something.
 // - A line with no action behind it (the live "Thinking" line, a `div.cv-worked`) never lifts: only
 //   the "Worked for" button's own hover may.
-// - The live line's counts ("Ran cat x 0s · 39s · 1K tokens") keep one gap on each side of every
-//   dot and one dim tone, and no word "total" (Leo, 2026-11-03: "this aint aligned also the total
-//   is redundant", "same here it's annoying to look at").
+// - The live line's counts ("Ran cat x 0s · 39s · 1K tokens") read in one dim tone, and no word
+//   "total" (Leo, 2026-11-03: "same here it's annoying to look at"; the dot gap is #34866's,
+//   webviews/test/transcript-live-line-dot-gap-css.test.ts).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -95,15 +95,10 @@ test("a clicked activity row's focus never lights its words", () => {
   expect(found).toEqual([]);
 });
 
-test("the live line's counts keep one gap and one dim tone, and no word says total", () => {
+test("the live line's counts read in one dim tone, and no word says total", () => {
   const css = rules("conversation.css");
-  const body = (selector: string) => css.find((rule) => rule.selector === selector)?.body ?? "";
-  // The line's own gap is the count's gap, so no dot stands wider from what comes before it.
-  expect(body(".cv-worked.cv-worked--live")).toMatch(/(?<![\w-])gap\s*:\s*var\(--cv-worked-count-gap\)/);
-  const count = body(".cv-worked--live > .cv-worked__count");
-  expect(count).toMatch(/margin-left\s*:\s*0\b/);
-  expect(count).toMatch(/(?<![\w-])gap\s*:\s*var\(--cv-worked-count-gap\)/);
-  expect(count).toMatch(/(?<![\w-])color\s*:\s*var\(--cv-text-dim\)/);
-  // "· 1m 51s total": the step's time sits on its words, the turn's after the dot (Thinking.tsx).
+  const count = css.find((rule) => rule.selector === ".cv-worked--live > .cv-worked__count:not(:has(.cv-worked__open))");
+  expect(count?.body).toMatch(/(?<![\w-])color\s*:\s*var\(--cv-text-dim\)/);
+  // The turn's clock follows the step's own time after a dot, with no word (#34866).
   expect(readFileSync(join(DIR, "Thinking.tsx"), "utf8")).not.toContain("turn.live.total");
 });

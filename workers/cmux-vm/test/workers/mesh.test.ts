@@ -308,6 +308,19 @@ describe("ACL", () => {
     expect(await json(third)).toMatchObject({ budget: "aclApply.perMeshPerMinute", retryAfterSeconds: expect.any(Number) });
   });
 
+  it("commits no version when the apply fails partway, so the same apply sent again completes it", async () => {
+    const { key, meshId } = await meshWithPeers();
+    const rules = [{ src: ["device:*"], dst: ["vm:*"], allow: ["icmp", "tcp:22"] }];
+    h.mesh.failRuleCreates(503);
+    expect((await putAcl(key, meshId, 0, rules)).status).toBe(503);
+    expect(await json(await call(`/v1/meshes/${meshId}/acl`, key))).toMatchObject({ version: 0 });
+    h.mesh.failRuleCreates(null);
+    const retried = await putAcl(key, meshId, 0, rules);
+    expect(retried.status).toBe(200);
+    expect(await json(retried)).toMatchObject({ version: 1, ruleCount: 2 });
+    expect(h.mesh.rules.size).toBe(2);
+  });
+
   it("maps the provider's account rule limit to firewallRule.account", async () => {
     const { key, meshId } = await meshWithPeers();
     h.mesh.failRuleCreates(409);
