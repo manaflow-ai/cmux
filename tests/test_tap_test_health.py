@@ -309,6 +309,36 @@ class BaseRedConsumer(unittest.TestCase):
             with self.subTest(other=other), self.assertRaises(excuse.Refused):
                 excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
 
+    def test_raw_actions_job_logs_use_unambiguous_recorded_step_times(self):
+        def timed():
+            github = self.fake()
+            for step, (start, end) in zip(github.jobs[1]["steps"], [(0, 5), (5, 30), (31, 45)]):
+                step.update(started_at=f"2026-10-07T02:10:{start:02}Z",
+                            completed_at=f"2026-10-07T02:10:{end:02}Z")
+            github.logs[1] = "\n".join("2026-10-07T02:10:37.8032610Z " + line for line in HEAD.splitlines())
+            return github
+        github = timed()
+        self.assertIn(ISSUE, excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github,
+                                        flake_state=state())[0])
+        for change in ["other failed step", "passed step", "boundary second", "missing time", "duplicate name"]:
+            github = timed()
+            steps = github.jobs[1]["steps"]
+            if change == "other failed step":
+                steps.append({"name": "Other tests", "conclusion": "failure",
+                              "started_at": "2026-10-07T02:10:46Z", "completed_at": "2026-10-07T02:10:50Z"})
+                github.logs[1] += "\n2026-10-07T02:10:49Z ##[error]Process completed with exit code 1."
+            elif change == "passed step":
+                github.logs[1] = github.logs[1].replace("02:10:37.", "02:10:20.")
+            elif change == "boundary second":
+                steps[1]["completed_at"] = "2026-10-07T02:10:37Z"
+                steps[2]["started_at"] = "2026-10-07T02:10:37Z"
+            elif change == "missing time":
+                del steps[1]["completed_at"]
+            else:
+                steps[1]["name"] = steps[2]["name"]
+            with self.subTest(change=change), self.assertRaises(excuse.Refused):
+                excuse.judge(base.REPO, "feat-cmux-next", base.HEAD, [10], github, flake_state=state())
+
     def test_red_base_window_combines_exact_and_quarantined_test_failures(self):
         github = self.fake()
         other = FAIL.replace("sometimes()", "other()")

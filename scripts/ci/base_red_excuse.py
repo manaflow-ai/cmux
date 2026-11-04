@@ -1119,13 +1119,40 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     if (not found.failed or found.crashes or found.truncated or found.failed - known.keys()
             or not steps or any(not re.search(r"\btests?\b", step, re.I) for step in steps)):
         return False
-    # A generic failed test-named step must not borrow a quarantined test from another step. Only labelled
-    # logs prove which named failures belong to each failed step; raw job logs keep the normal base comparison.
+    # A generic failed test-named step must not borrow a quarantined test from another step. gh run view labels
+    # steps, while the live job-log endpoint has only timestamps: use its step windows, refusing ambiguous lines.
+    metadata = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
+    names = [step.get("name") for step in metadata]
+    if len(set(names)) != len(names):
+        return False
     by_step: dict[str, list[str]] = {}
     for line in head_log.splitlines():
         parts = line.split("\t", 2)
         if len(parts) == 3 and STAMP.match(parts[2]):
             by_step.setdefault(parts[1], []).append(parts[2])
+    if not by_step:
+        def timestamp(value):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed if parsed.tzinfo else None
+            except (AttributeError, TypeError, ValueError):
+                return None
+        windows = []
+        for step in metadata:
+            start, end = timestamp(step.get("started_at")), timestamp(step.get("completed_at"))
+            if start is None or end is None or end < start:
+                return False
+            # Actions step metadata rounds to seconds. A line in a shared boundary second cannot identify its
+            # step, so match every possible window and retain it only when there is exactly one owner.
+            windows.append((step["name"], start, end + timedelta(seconds=1)))
+        for line in head_log.splitlines():
+            stamp = STAMP.match(line)
+            when = timestamp(stamp.group().strip()) if stamp else None
+            if when is None:
+                continue
+            owners = [name for name, start, end in windows if start <= when < end]
+            if len(owners) == 1:
+                by_step.setdefault(owners[0], []).append(line)
     for step in steps:
         result = test_reds.read("\n".join(by_step.get(step, [])))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
