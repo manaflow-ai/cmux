@@ -52,7 +52,13 @@ describe("replay logs", () => {
   });
 
   test("slope reads growth per x", () => {
-    expect(slope([{ x: 0, y: 1 }, { x: 1, y: 3 }, { x: 2, y: 5 }])).toBe(2);
+    expect(
+      slope([
+        { x: 0, y: 1 },
+        { x: 1, y: 3 },
+        { x: 2, y: 5 },
+      ]),
+    ).toBe(2);
     expect(slope([{ x: 1, y: 1 }])).toBe(0);
   });
 });

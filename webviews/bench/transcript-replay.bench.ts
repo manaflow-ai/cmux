@@ -256,7 +256,10 @@ export function shiftSources(shifts: readonly Shift[], top = 3): string[] {
   return [...sum.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, top)
-    .map(([source, value]) => `${source} ${value.toFixed(4)} in ${shifts.filter((s) => s.sources.includes(source)).length} shifts`);
+    .map(
+      ([source, value]) =>
+        `${source} ${value.toFixed(4)} in ${shifts.filter((s) => s.sources.includes(source)).length} shifts`,
+    );
 }
 
 type Open = { log: string; cls: number; moved: number; movedRow: string; shiftNotes: string[] };
@@ -409,13 +412,10 @@ async function liveRound(ctx: Ctx, log: ReplayLog, measureIdle: boolean): Promis
       idleMsPerS = (((await metric(cdp, "TaskDuration")) - idleBefore) * 1000) / 3;
     }
     const heapAfter = await heapMb(cdp);
-    const { shifts, long } = await page.evaluate(
-      (since) => {
-        const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
-        return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
-      },
-      since,
-    );
+    const { shifts, long } = await page.evaluate((since) => {
+      const w = window as unknown as { __shifts: Shift[]; __long: { at: number; ms: number }[] };
+      return { shifts: w.__shifts.filter((shift) => !shift.input && shift.at >= since), long: w.__long };
+    }, since);
     const burstLong = long.filter((task) => burstWindows.some(([from, to]) => task.at >= from && task.at <= to));
     return {
       log: log.name,
@@ -451,11 +451,25 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
     const worstCls = opens.reduce((a, b) => (b.cls > a.cls ? b : a));
     const worstMove = opens.reduce((a, b) => (b.moved > a.moved ? b : a));
     row(
-      { name: "transcript_replay.open.cls", p50: median(cls), p95: worst(cls), unit: "score", target: BUDGET.cls, floor: 0.001 },
+      {
+        name: "transcript_replay.open.cls",
+        p50: median(cls),
+        p95: worst(cls),
+        unit: "score",
+        target: BUDGET.cls,
+        floor: 0.001,
+      },
       `opening ${worstCls.log} shifted the layout after its first paint (${worstCls.shiftNotes.join("; ") || "no sources"})`,
     );
     row(
-      { name: "transcript_replay.open.moved_px", p50: median(moved), p95: worst(moved), unit: "px", target: BUDGET.movedPx, floor: 1 },
+      {
+        name: "transcript_replay.open.moved_px",
+        p50: median(moved),
+        p95: worst(moved),
+        unit: "px",
+        target: BUDGET.movedPx,
+        floor: 1,
+      },
       `opening ${worstMove.log}, row ${worstMove.movedRow} moved after the first frame: the first frame was not the final frame`,
     );
   }
@@ -463,38 +477,79 @@ export function judge(opens: Open[], lives: Live[]): { rows: PerfRow[]; misses: 
     const cls = lives.map((l) => l.cls);
     const worstCls = lives.reduce((a, b) => (b.cls > a.cls ? b : a));
     row(
-      { name: "transcript_replay.live.cls", p50: median(cls), p95: worst(cls), unit: "score", target: BUDGET.cls, floor: 0.001 },
+      {
+        name: "transcript_replay.live.cls",
+        p50: median(cls),
+        p95: worst(cls),
+        unit: "score",
+        target: BUDGET.cls,
+        floor: 0.001,
+      },
       `streaming ${worstCls.log} shifted rows already painted (${worstCls.shiftNotes.join("; ") || "no sources"})`,
     );
     const long = lives.map((l) => l.longTasks);
     row(
-      { name: "transcript_replay.live.long_tasks", p50: median(long), p95: worst(long), unit: "count", target: BUDGET.longTasks, floor: 0.5 },
+      {
+        name: "transcript_replay.live.long_tasks",
+        p50: median(long),
+        p95: worst(long),
+        unit: "count",
+        target: BUDGET.longTasks,
+        floor: 0.5,
+      },
       `a streamed token or tool update took a task over 50 ms (longest ${worst(lives.map((l) => l.longestTaskMs))} ms)`,
     );
   }
   const longLive = lives.find((l) => l.log === "long");
   if (longLive) {
     for (const kind of ["token", "tool_output"] as const) {
-      const points = longLive.bursts.filter((b) => b.kind === kind).map((b) => ({ x: b.rows / 1000, y: b.msPerRecord }));
+      const points = longLive.bursts
+        .filter((b) => b.kind === kind)
+        .map((b) => ({ x: b.rows / 1000, y: b.msPerRecord }));
       if (!points.length) continue;
       const ms = points.map((p) => p.y);
       row(
-        { name: `transcript_replay.long.${kind}_ms`, p50: median(ms), p95: worst(ms), target: TARGET_MS.frameWork, floor: 0.5 },
+        {
+          name: `transcript_replay.long.${kind}_ms`,
+          p50: median(ms),
+          p95: worst(ms),
+          target: TARGET_MS.frameWork,
+          floor: 0.5,
+        },
         `one ${kind === "token" ? "reply token" : "tool output update"} costs more main-thread time than a frame's work`,
       );
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
-        { name: `transcript_replay.long.${kind}_slope_ms_per_krow`, p50: growth, p95: growth, target: BUDGET.slope, floor: 0.05 },
+        {
+          name: `transcript_replay.long.${kind}_slope_ms_per_krow`,
+          p50: growth,
+          p95: growth,
+          target: BUDGET.slope,
+          floor: 0.05,
+        },
         `each ${kind === "token" ? "token" : "tool output update"} costs ${growth} ms more per 1000 rows already in the ` +
           `transcript (${points.map((p) => `${Math.round(p.x * 1000)} rows: ${p.y} ms`).join(", ")}): O(rows) work per update`,
       );
     }
     row(
-      { name: "transcript_replay.long.heap_mb", p50: longLive.heapMb, p95: longLive.heapMb, unit: "MB", target: BUDGET.heapMb, floor: 4 },
+      {
+        name: "transcript_replay.long.heap_mb",
+        p50: longLive.heapMb,
+        p95: longLive.heapMb,
+        unit: "MB",
+        target: BUDGET.heapMb,
+        floor: 4,
+      },
       `the long chat holds ${longLive.heapMb} MB of JS heap after GC`,
     );
     row(
-      { name: "transcript_replay.long.idle_ms_per_s", p50: longLive.idleMsPerS, p95: longLive.idleMsPerS, target: BUDGET.idleMsPerS, floor: 0.5 },
+      {
+        name: "transcript_replay.long.idle_ms_per_s",
+        p50: longLive.idleMsPerS,
+        p95: longLive.idleMsPerS,
+        target: BUDGET.idleMsPerS,
+        floor: 0.5,
+      },
       `the pane keeps working (${longLive.idleMsPerS} ms each second) after the replay settled: idle CPU`,
     );
   }
@@ -591,7 +646,10 @@ if (import.meta.main) {
                 (log.name === "long" ? ` idle ${live.idleMsPerS} ms/s` : "")
               : ""),
         );
-        for (const note of [...open.shiftNotes.map((n) => `open shift: ${n}`), ...(live?.shiftNotes ?? []).map((n) => `live shift: ${n}`)])
+        for (const note of [
+          ...open.shiftNotes.map((n) => `open shift: ${n}`),
+          ...(live?.shiftNotes ?? []).map((n) => `live shift: ${n}`),
+        ])
           if (!note.includes(" 0.0000 ")) console.log(`  ${note}`);
         for (const burst of live?.bursts ?? [])
           console.log(`  ${burst.kind} at ${burst.rows} rows: ${burst.msPerRecord} ms per record`);

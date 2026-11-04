@@ -33,7 +33,9 @@ export type ReplayLog = {
   bursts: Burst[];
 };
 
-type Step = { update: Record<string, unknown>; meta?: Record<string, unknown> } | { mux: string; msg?: Record<string, unknown> };
+type Step =
+  | { update: Record<string, unknown>; meta?: Record<string, unknown> }
+  | { mux: string; msg?: Record<string, unknown> };
 
 /// One record, as acpmux logs it (and mock.ts's `record` builds it).
 export function toRecord(sessionId: string, seq: number, at: number, step: Step): EventRecord {
@@ -137,8 +139,10 @@ export function longLog(
   opts: { turns?: number; checkpoints?: number[]; tokenCount?: number; outputUpdates?: number } = {},
 ): ReplayLog {
   const turns = opts.turns ?? 600;
-  const checkpoints = new Set(opts.checkpoints ?? [2, Math.floor(turns / 4), Math.floor(turns / 2), turns - 1]);
-  const tokenCount = opts.tokenCount ?? 40;
+  const checkpoints = new Set(
+    opts.checkpoints ?? [2, ...[1, 2, 3, 4].map((fifth) => Math.floor((turns * fifth) / 5)), turns - 1],
+  );
+  const tokenCount = opts.tokenCount ?? 80;
   const outputUpdates = opts.outputUpdates ?? 30;
   const sessionId = "replay-long";
   const start = Date.UTC(2026, 10, 3, 9, 0, 0);
@@ -229,7 +233,10 @@ export function parseLog(name: string, text: string): ReplayLog {
       ? (parsed as { events: EventRecord[] }).events
       : trimmed.startsWith("[")
         ? (JSON.parse(trimmed) as EventRecord[])
-        : trimmed.split("\n").filter(Boolean).map((line) => JSON.parse(line) as EventRecord)
+        : trimmed
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as EventRecord)
   ).sort((a, b) => a.seq - b.seq);
   const sessionId = events[0]?.sessionId ?? name;
   return {
