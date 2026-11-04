@@ -57,7 +57,7 @@ test("inline audio is never treated as a screenshot", () => {
   expect(html).not.toContain("cv-tool-visual");
 });
 
-test("a new capture keeps the focused preview open and updates both images", async () => {
+test.each(["inline", "file"])("a new %s capture keeps its preview open and updates both images", async (kind) => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
   const scope = globalThis as Record<string, unknown>;
   const replacements: Record<string, unknown> = {
@@ -92,19 +92,42 @@ test("a new capture keeps the focused preview open and updates both images", asy
         </ImageViewerContext.Provider>,
       ),
     );
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetLinkStore, seedLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const nextImage = `${image}AAAA`;
+  const first = kind === "file" ? "/Volumes/Fixtures/capture-preview-first.png" : image;
+  const next = kind === "file" ? "/Volumes/Fixtures/capture-preview-next.png" : nextImage;
+  const loads: string[] = [];
+  if (kind === "file") {
+    resetLinkStore();
+    seedLinkStore({
+      paths: {
+        [first]: { place: "outside", folder: false },
+        [next]: { place: "outside", folder: false },
+      },
+      policy: { outsideRoots: "open", remoteImages: "click", clickFreeImageHosts: [] },
+    });
+    setChipHost(async (method, params) => {
+      if (method !== "image.load") return {};
+      loads.push(String(params.src));
+      return { src: params.src === first ? image : nextImage };
+    });
+  }
   try {
-    await render(image);
+    await render(first);
     const trigger = dom.window.document.querySelector<HTMLElement>(".cv-tool-visual button")!;
     expect(trigger).not.toBeNull();
     await act(async () => trigger.focus());
     expect(dom.window.document.querySelector(".cv-tool-visual-card__body img")).not.toBeNull();
-    const next = `${image}AAAA`;
     await render(next);
-    expect(dom.window.document.activeElement).toBe(trigger);
-    expect(dom.window.document.querySelector(".cv-tool-visual img")?.getAttribute("src")).toBe(next);
-    expect(dom.window.document.querySelector(".cv-tool-visual-card__body img")?.getAttribute("src")).toBe(next);
+    if (kind === "inline") expect(dom.window.document.activeElement).toBe(trigger);
+    else expect(loads).toEqual([first, next]);
+    expect(dom.window.document.querySelector(".cv-tool-visual img")?.getAttribute("src")).toBe(nextImage);
+    expect(dom.window.document.querySelector(".cv-tool-visual-card__body img")?.getAttribute("src")).toBe(nextImage);
   } finally {
     await act(async () => root.unmount());
+    setChipHost(undefined);
+    resetLinkStore();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;

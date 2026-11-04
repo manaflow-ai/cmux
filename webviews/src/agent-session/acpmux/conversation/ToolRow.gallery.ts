@@ -63,6 +63,33 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-visual-card"));
       },
     },
+    grouped: {
+      note: "An image-bearing step preserves the opened group's quiet icon and disclosure treatment.",
+      play: async (ctx) => {
+        const group = ctx.document.querySelector(".cv-tool.is-run");
+        if (group?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: ".cv-tool.is-run" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-steps .cv-tool-with-visual"));
+        const icons = ctx.document.querySelectorAll(".cv-steps .cv-step .cv-tool__icon");
+        if (
+          icons.length !== 2 ||
+          [...icons].some((icon) => ctx.document.defaultView!.getComputedStyle(icon).visibility !== "hidden")
+        )
+          throw new Error("Capture step must preserve its group's hidden icon treatment");
+      },
+      snapshot: chat([
+        user("Read the captures", 3),
+        activity(
+          [
+            tool("Read first capture", "read", "completed", {
+              images: [CAPTURE],
+              output: "Captured page",
+            }),
+            tool("Read second capture", "read", "completed", { output: "Read the page metadata" }),
+          ],
+          2,
+        ),
+      ]),
+    },
     running: {
       note: "A running capture shows the image from its actual partial result envelope.",
       snapshot: chat([user("Capture the page", 3), activity([capture("in_progress")], 2)]),

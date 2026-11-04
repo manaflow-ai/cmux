@@ -3087,8 +3087,7 @@ button.cv-video-frames__frame:focus-visible {
    the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
    transcript row because paint containment clips any outside guide. */
 :root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
-  .cv-steps
-  > .cv-step
+  :is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual)
   > .cv-tool
   > .cv-tool__icon {
   visibility: hidden;
@@ -3108,11 +3107,11 @@ button.cv-video-frames__frame:focus-visible {
 /* Inner calls in an opened group keep their disclosure slot, but the quiet chevron only appears
    when that row is under the pointer (Leo, 2026-11-01). The group header keeps its own disclosure.
    A focused or opened row stays revealed while its menu or body is open. */
-.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :hover,
   :focus-within,
   [aria-expanded="true"],
@@ -3122,7 +3121,7 @@ button.cv-video-frames__frame:focus-visible {
 ) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:is(
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(
   :hover,
   :focus-within,
   [aria-expanded="true"],
@@ -3133,9 +3132,9 @@ button.cv-video-frames__frame:focus-visible {
   > :is(.cv-tool__icon, .cv-tool__text, .cv-command__text, .cv-tool__chevron) {
   color: var(--cv-text);
 }
-.cv-steps > .cv-step > .cv-tool:hover > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
-.cv-steps > .cv-step > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:hover > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:has([data-popup-open]) > .cv-tool__chevron,
+:is(.cv-steps > .cv-step, .cv-steps > .cv-step > .cv-tool-with-visual) > .cv-tool:is(:focus-within, [aria-expanded="true"], [data-popup-open], :has([aria-expanded="true"]))
   > .cv-tool__chevron {
   opacity: 1;
   transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);

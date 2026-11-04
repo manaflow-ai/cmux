@@ -30,7 +30,7 @@ function ToolVisualPreview({ source, label }: { source: string; label: string })
     source.startsWith("data:image/") ? (
       <OpenableImage src={source} alt={label} thumb={thumb} />
     ) : (
-      <ReplyImage src={source} alt={label} thumb={thumb} hideMissing fallback={null} />
+      <ReplyImage key={source} src={source} alt={label} thumb={thumb} hideMissing fallback={null} />
     );
   return (
     <>
