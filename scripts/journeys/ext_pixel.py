@@ -1191,7 +1191,7 @@ def _divider_hover(j, step):
     wrong = [r for r in readings if not r["ok"]]
     if wrong:
         raise D.StepError("px_divider_hover: " + "; ".join(f"{r['label']}: cursor {r['app']} (want {r['want']}; "
-                                                         f"{json.dumps(r['report'])[:300]})" for r in wrong))
+                                                         f"{json.dumps(r['report'])[:3000]})" for r in wrong))
     return {"divider_hover": info}
 
 
