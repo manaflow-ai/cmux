@@ -38,6 +38,7 @@ test("omits loaded-tools and empty waiting protocol rows", () => {
 test("does not classify substrings in tool names as kinds", () => {
   expect(homeToolKind(tool({ name: "prune_branches", input: {} }))).toBe("tool");
   expect(homeToolKind(tool({ name: "TodoWrite", input: {} }))).toBe("tool");
+  expect(homeToolKind(tool({ name: "execute", input: {} }))).toBe("command");
 });
 
 test("labels a group with only protocol rows as having no visible calls", () => {
