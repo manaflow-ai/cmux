@@ -1402,7 +1402,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--ds-space-2);
-  cursor: pointer;
+  cursor: default;
   color: var(--page-text);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
