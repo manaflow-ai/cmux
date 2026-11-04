@@ -10,7 +10,7 @@ struct ComputerUseHelperV2PeerTests {
         #expect(environment["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == own)
         for bundleID in [nil, "com.cmuxterm.app", "com.cmuxterm.app.nightly",
                          "com.cmuxterm.app.debug", "com.cmuxterm.app.debug.", "com.apple.Terminal"] {
-            #expect(ComputerUseHelperV2.environment(mode: .ask, client: bundleID, bundleID: bundleID)["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == "")
+            #expect(ComputerUseHelperV2.environment(mode: .ask, client: own, bundleID: bundleID)["CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS"] == "")
         }
     }
 
