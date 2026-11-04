@@ -2,7 +2,6 @@
 import AppKit
 import CmuxNextPages
 import CmuxNextPagesTestSupport
-import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -12,7 +11,7 @@ import Testing
 /// spare shows in Chromium, whose page draws in its own window: moved into a pane, that window must be
 /// told to follow it in the first layout there, and a page parked at another size must not show until
 /// it drew at the pane's size.
-@Suite(.serialized, .closesItsWindows)
+@Suite(.serialized)
 @MainActor
 struct AgentPaneChromiumMoveTests {
     private actor NoHost: AgentPaneHostProviding {

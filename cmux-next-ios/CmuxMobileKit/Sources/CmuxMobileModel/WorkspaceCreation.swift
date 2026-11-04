@@ -18,53 +18,11 @@ public struct NewWorkspaceRequest: Hashable, Sendable {
     /// The working directory, or nil for the Mac's default (its home).
     public var directory: String?
     public var start: NewWorkspaceStart
-    /// Where it goes in the Mac's sidebar once the Mac lists it (nil: where the Mac puts it).
-    public var placement: NewWorkspacePlacement?
 
-    public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal,
-                placement: NewWorkspacePlacement? = nil) {
+    public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal) {
         self.macID = macID
         self.directory = directory
         self.start = start
-        self.placement = placement
-    }
-}
-
-/// The Mac's New Workspace Above / Below / at Top / at Bottom (`WorkspaceVerbActionCatalog`) and
-/// New Workspace in Group (`workspaceGroup.newWorkspace`): where a new workspace goes in the
-/// Mac's sidebar. The phone makes it, then places it with the moves its row menu already sends
-/// (`workspace.place` into the group, `set-personal-workspace {index}` beside the row).
-public enum NewWorkspacePlacement: Hashable, Sendable {
-    /// Right above the workspace with this id, in its group when it has one.
-    case above(String)
-    /// Right below it.
-    case below(String)
-    /// The first place of the Mac's sidebar (after its pinned rows).
-    case top
-    /// The last place.
-    case bottom
-    /// At the end of this group.
-    case inGroup(MacWorkspaceGroup)
-
-    /// The Mac's menu title.
-    public var title: String {
-        switch self {
-        case .above: "New Workspace Above"
-        case .below: "New Workspace Below"
-        case .top: "New Workspace at Top"
-        case .bottom: "New Workspace at Bottom"
-        case .inGroup: "New Workspace in Group"
-        }
-    }
-
-    public var systemImage: String {
-        switch self {
-        case .above: "arrow.up.square"
-        case .below: "arrow.down.square"
-        case .top: "arrow.up.to.line"
-        case .bottom: "arrow.down.to.line"
-        case .inGroup: "plus.rectangle.on.folder"
-        }
     }
 }
 
@@ -380,9 +338,6 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Close Screen: its tabs close and their terminals end, as a tab closed on the phone ends
     /// its terminal (`close-screen {end_terminals}`).
     func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws
-    /// Duplicate Screen: a new screen named as this one, its terminal in the folder of the
-    /// screen's shown tab (`new-screen`, `rename-screen`). Returns its tab once the Mac lists it.
-    func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab
 }
 
 extension WorkspaceCreationBackend {
@@ -468,9 +423,6 @@ extension WorkspaceCreationBackend {
     public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
-    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
-        throw WorkspaceCreationError("Duplicating screens isn't available on this Mac")
-    }
     public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected to this Mac")
     }
@@ -514,9 +466,6 @@ public final class WorkspaceCreator {
 
     /// By placeholder id.
     public private(set) var phases: [String: Phase] = [:]
-    /// Bumped when a group with no workspace is made or deleted from here: the list reads it, since
-    /// such a change leaves the workspaces as they were (an empty group shows as its own header).
-    public internal(set) var groupsRevision = 0
     public var backend: any WorkspaceCreationBackend
     /// The Mac the next workspace goes to, when it can take one.
     public private(set) var preferredMacID: String?
@@ -529,9 +478,6 @@ public final class WorkspaceCreator {
     /// A rename or close the Mac refused: the workspace, what failed
     /// ("Couldn't close cmux") and the reason. The change is already undone.
     @ObservationIgnored public var onManageFailure: (@MainActor (Workspace, String, String) -> Void)?
-    /// A group change with no workspace to name (New Workspace Group, an empty group's Delete
-    /// Group) the Mac refused: its Mac, what failed and the reason.
-    @ObservationIgnored public var onGroupFailure: (@MainActor (String, String, String) -> Void)?
     @ObservationIgnored let store: AppStore
     @ObservationIgnored private let recents: RecentDirectories
     /// A Mac's workspace folders by activity, kept until the workspaces change
@@ -616,8 +562,7 @@ public final class WorkspaceCreator {
     /// already in the list, to push. Nil when no Mac can take it or the
     /// start is not supported there.
     @discardableResult
-    public func create(start: NewWorkspaceStart = .terminal, directory: String? = nil, macID: String? = nil,
-                       placement: NewWorkspacePlacement? = nil) -> Workspace? {
+    public func create(start: NewWorkspaceStart = .terminal, directory: String? = nil, macID: String? = nil) -> Workspace? {
         guard let mac = macID.flatMap({ id in availableMacs.first { $0.id == id } }) ?? targetMac else { return nil }
         let options = options(on: mac.id)
         switch start {
@@ -626,7 +571,7 @@ public final class WorkspaceCreator {
         case .browser: guard options.browser else { return nil }
         }
         let dir = options.directories ? (directory ?? defaultDirectory(on: mac.id)) : nil
-        let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start, placement: placement)
+        let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
         store.insertPending(placeholder)
         store.requestFocusOnOpen(placeholder.id)
@@ -748,7 +693,6 @@ public final class WorkspaceCreator {
                 store.noteOpened(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
-            if let placement = request.placement { await place(real, placement) }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             store.removePending(placeholder.id)

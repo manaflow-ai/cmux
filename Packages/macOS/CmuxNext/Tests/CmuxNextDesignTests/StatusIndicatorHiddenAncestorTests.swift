@@ -1,12 +1,11 @@
 import AppKit
 @testable import CmuxNextDesign
-import CmuxNextTestSupport
 import Testing
 
 /// A pane that parks is hidden in place (PaneContentView+Parking, WindowRootView.withdraw), and an
 /// indicator inside it kept its Core Animation loop running on a hidden layer: the window was still
 /// visible, and only the sidebar list and tab strip tell their indicators when they hide (hq#3716).
-@MainActor @Suite(.serialized, .closesItsWindows) struct StatusIndicatorHiddenAncestorTests {
+@MainActor @Suite(.serialized) struct StatusIndicatorHiddenAncestorTests {
     private struct Fixture {
         let window: NSWindow
         let pane: NSView
@@ -38,7 +37,6 @@ import Testing
     @Test func parkingThePaneStopsTheLoopAndShowingItStartsItAgain() throws {
         try moving {
             let fixture = Fixture(paneHidden: false)
-            defer { fixture.window.closeAfterTest() }
             try #require(fixture.indicator.indicator.runningAnimation != nil, "a working indicator on screen should loop")
             fixture.pane.isHidden = true
             #expect(fixture.indicator.indicator.runningAnimation == nil, "a parked pane's indicator keeps looping")
@@ -50,7 +48,6 @@ import Testing
     @Test func anIndicatorConfiguredWhileParkedLoopsOnceShown() {
         moving {
             let fixture = Fixture(paneHidden: true)
-            defer { fixture.window.closeAfterTest() }
             #expect(fixture.indicator.indicator.runningAnimation == nil)
             #expect(fixture.indicator.showsGlyph, "the mark still shows; only its loop waits")
             fixture.pane.isHidden = false

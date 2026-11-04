@@ -157,10 +157,8 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
                     return button
                 }()
                 button.frame = frame.offsetBy(dx: margin, dy: 0)
-                // Built when opened, not per configure. The deferred element takes the menu's
-                // own rows: handed the menu itself, it drew one untitled row that opened it
-                // as a submenu (the timestamp section and every action one tap further).
-                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion(more().children) }])
+                // Built when opened, not per configure.
+                button.menu = UIMenu(children: [UIDeferredMenuElement.uncached { completion in completion([more()]) }])
                 button.isHidden = false
             }
             accessibilityElements = accessibilityTree(usedLabels: usedLabels, usedScrollers: usedScrollers)

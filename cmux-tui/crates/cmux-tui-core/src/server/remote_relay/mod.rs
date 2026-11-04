@@ -177,7 +177,7 @@ impl Mux {
         } else {
             None
         };
-        match relay.peers_checked() {
+        match lock_checked(&relay.peers, RelayLock::Peers) {
             Ok(mut peers) => {
                 peers.insert(client, peer.clone());
                 if let Some(clients) = cloud_clients.as_deref_mut() {

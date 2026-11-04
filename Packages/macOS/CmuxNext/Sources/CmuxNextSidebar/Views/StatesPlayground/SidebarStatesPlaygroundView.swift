@@ -11,9 +11,8 @@ final class SidebarStatesPlaygroundView: NSView {
     private let document = FlippedDocument()
     /// The sheets, light then dark.
     private(set) var sheets: [SidebarStatesPlaygroundAppearance: SidebarStatesPlaygroundSheetView] = [:]
-    /// The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869) below the sheets: per appearance, light
-    /// then dark, one sheet per style in `SidebarFaviconStyle.allCases` order, each at every density and text size.
-    private(set) var faviconSheets: [SidebarStatesPlaygroundAppearance: [SidebarStatesPlaygroundSheetView]] = [:]
+    /// The favicon styles sheets (`sidebar.faviconStyle`, Lawrence msg 19869), light then dark, below the sheets.
+    private(set) var faviconSheets: [SidebarStatesPlaygroundAppearance: SidebarStatesPlaygroundSheetView] = [:]
 
     /// Draws every sheet with `renderer`.
     init(renderer: SidebarStatesPlaygroundRenderer) {
@@ -59,7 +58,7 @@ final class SidebarStatesPlaygroundView: NSView {
     @objc private func drawAgain() { drawSheets() }
 
     /// Draws every column of both appearances again and stacks the sheets, light on top, then the favicon styles
-    /// sheets (one sheet per `sidebar.faviconStyle`, every density and text size, the favicon rows only), light on top.
+    /// sheets (one column per `sidebar.faviconStyle`, the favicon rows only), light on top.
     func drawSheets() {
         document.subviews.forEach { $0.removeFromSuperview() }
         sheets = [:]
@@ -80,10 +79,8 @@ final class SidebarStatesPlaygroundView: NSView {
             sheets[appearance] = add(appearance, SidebarStatesPlaygroundColumn.all, states: SidebarStatesPlaygroundState.allCases, title: nil)
         }
         for appearance in SidebarStatesPlaygroundAppearance.allCases {
-            faviconSheets[appearance] = SidebarFaviconStyle.allCases.map { style in
-                add(appearance, SidebarStatesPlaygroundColumn.favicons(style), states: SidebarStatesPlaygroundState.favicons,
-                    title: Strings.statesPlaygroundFaviconStyle(SidebarStatesPlaygroundColumn.title(style), appearance: appearance.title))
-            }
+            faviconSheets[appearance] = add(appearance, SidebarStatesPlaygroundColumn.faviconStyles, states: SidebarStatesPlaygroundState.favicons,
+                                            title: Strings.statesPlaygroundFaviconStyles(appearance.title))
         }
         document.frame = NSRect(x: 0, y: 0, width: width, height: y)
     }

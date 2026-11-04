@@ -812,15 +812,6 @@
    "replaces": [
     "list.bullet"
    ]
-  },
-  {
-   "name": "view.list.short",
-   "meaning": "Two-row list: the chat header's Session Info panel toggle",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 9h10.5M9.5 15h10.5'/><g fill='currentColor' stroke='none'><circle cx='5' cy='9' r='1.5'/><circle cx='5' cy='15' r='1.5'/></g></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 9h10.5M9.5 15h10.5'/><g fill='currentColor' stroke='none'><circle cx='5' cy='9' r='1.9'/><circle cx='5' cy='15' r='1.9'/></g></svg>",
-   "alts": [],
-   "note": "view.list with two rows centred on the grid (Leo 2026-11-04: \"make our session info button 2 rows too\").",
-   "replaces": []
   }
  ]
 }

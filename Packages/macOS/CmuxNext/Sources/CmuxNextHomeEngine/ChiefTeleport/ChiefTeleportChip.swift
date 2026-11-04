@@ -120,7 +120,7 @@ public final class ChiefTeleportChip: NSView {
         chevron.isHidden = !style.showsChevron
         dot.isHidden = style != .dot
         setAccessibilityLabel(ChiefTeleportStrings.label(text))
-        themedToolTip = style.showsText ? ChiefTeleportStrings.help : text
+        toolTip = style.showsText ? ChiefTeleportStrings.help : text
         invalidateIntrinsicContentSize()
         needsLayout = true
         needsDisplay = true

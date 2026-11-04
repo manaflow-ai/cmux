@@ -352,7 +352,6 @@ extension TabStripView {
             trailing = max(trailing, place.maxX)
         }
         updateOcclusion()
-        layoutPinnedDivider(mapping: mapping, tabY: tabY, tabHeight: tabHeight, pixel: pixel)
         for group in groups.chips.keys {
             guard let place = placed[.groupChip(group)] else { continue }
             trailing = max(trailing, place.maxX)

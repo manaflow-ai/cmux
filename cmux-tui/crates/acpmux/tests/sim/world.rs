@@ -309,7 +309,7 @@ fn simulate(seed: u64, plan: &Plan, resend: bool) -> Outcome {
                 Heal::Repair => sim.repair(app::DAEMON, APP),
                 Heal::Release => sim.release(app::DAEMON, APP),
             }
-            cut = heals.iter().any(|(_, h)| !matches!(h, Heal::Restart));
+            cut = matches!(heals.iter().find(|(_, h)| !matches!(h, Heal::Restart)), Some(_));
         }
     }
     let simulated = sim.elapsed();

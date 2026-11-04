@@ -11,7 +11,6 @@
 //! the turn failed, as before.
 
 use super::*;
-use cmux_json::JsonSet as _;
 
 /// The fields of Claude Code's raw `system/api_retry` line a client shows.
 pub(super) fn claude_retry(line: &Value) -> Value {
@@ -99,7 +98,7 @@ impl Hub {
         // Held while it logs, as `watch_silent_turn` does, so a sign the tap counts meanwhile
         // finds the retry to end.
         let mut silent = session.silent_turn.lock().unwrap_or_else(|e| e.into_inner());
-        retry.set("turnId", json!(turn.turn_id));
+        retry["turnId"] = json!(turn.turn_id);
         self.append(session, "mux", "turn_retrying", retry);
         *silent = Some(turn.turn_id);
     }

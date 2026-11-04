@@ -155,15 +155,6 @@ fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
     hold();
 }
 
-fn hold_link_peers(mux: &Arc<Mux>, hold: &dyn Fn()) {
-    let _held = mux.remote_relay().peers.lock().unwrap_or_else(|e| e.into_inner());
-    hold();
-}
-
-fn hold_proxy_authors(mux: &Arc<Mux>, hold: &dyn Fn()) {
-    mux.control_clients.agent_sessions.hold_proxy_authors_for_test(hold);
-}
-
 /// How long two keys took to reach their PTY while another thread held one lock (the later key's arrival from the
 /// first key's submit; `Duration::MAX` when a key never arrived), on a connection that `connection` is.
 fn key_wait_while_held(connection: &TypingConnection, index: usize, holder: Holder) -> Duration {
@@ -258,22 +249,6 @@ fn a_key_waits_for_no_surface_admission_lock() {
     let name = "surface admission (ServerSurfaceOperationAdmission)";
     assert_old_path_waits_for(name, hold_surface_admission);
     assert_keys_wait_for_none(&[(name, hold_surface_admission as Holder)]);
-}
-
-/// Stage S1 step 2: the key line asks whether its connection has a link peer record (the remote-client check and the
-/// request's actor) and whether it is a host proxy's link for a teammate. It reads both from published values, never
-/// through the link peers lock (every remote bind, disconnect and revocation sweep holds it) or the proxy authors lock
-/// (every proxy bind and every client's disconnect holds it).
-#[test]
-fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
-    let peers = "link peers (RemoteRelayState.peers)";
-    let authors = "host proxy authors (AgentSessions.proxy_authors)";
-    assert_old_path_waits_for(peers, hold_link_peers);
-    assert_old_path_waits_for(authors, hold_proxy_authors);
-    assert_keys_wait_for_none(&[
-        (peers, hold_link_peers as Holder),
-        (authors, hold_proxy_authors as Holder),
-    ]);
 }
 
 /// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.

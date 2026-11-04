@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextCookieImport
 import CmuxNextDesign
-import CmuxNextTestSupport
 import Testing
 
 /// The consent panel before an agent's cookie import reads another browser
@@ -10,7 +9,7 @@ import Testing
 /// of screen capture and screen sharing), and no automation can press Allow:
 /// not an Accessibility press, not a programmatic click, not Return. Deny and
 /// Escape stay easy.
-@MainActor @Suite(.serialized, .closesItsWindows) struct CookieImportConsentPanelTests {
+@MainActor @Suite(.serialized) struct CookieImportConsentPanelTests {
     static let request = CookieImportRequest(requester: CookieImportRequester(kind: .agentChat, name: "a49 · cookies"),
                                              reason: "Sign in to GitHub for the pull request", source: "Google Chrome · Work",
                                              sourceIsSafari: false, domains: ["github.com"], target: "Default")
@@ -42,7 +41,6 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil)
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
-        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         #expect(panel.sharingType == .none, "a screenshot, a recording or an agent's capture never holds Allow")
         consent.answer(.deny)
@@ -54,7 +52,6 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil)
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
-        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         let allow = try #require(Self.find(panel.contentView, id: CookieImportConsentPanel.accessibilityID + ".allow") as? NSButton)
         let deny = try #require(Self.find(panel.contentView, id: CookieImportConsentPanel.accessibilityID + ".deny") as? NSButton)
@@ -80,7 +77,6 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: {})
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
-        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         let panel = try await Self.shown(consent, on: parent)
         let id = CookieImportConsentPanel.accessibilityID
         let allow = try #require(Self.find(panel.contentView, id: id + ".allow") as? CmuxDialogButtonView)
@@ -105,7 +101,6 @@ import Testing
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil,
                                                isPersonEvent: { genuine.contains($0.eventNumber) })
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
-        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         _ = try await Self.shown(consent, on: parent)
         let window = consent.panel
         let allow = try #require(consent.allowButton)
@@ -160,7 +155,6 @@ import Testing
         let parent = Self.parent()
         let consent = CookieImportConsentPanel(request: Self.request, onShowRequester: nil, isPersonEvent: { _ in true })
         let answer = Task { await consent.ask(on: parent, limit: .seconds(30)) }
-        defer { consent.panel.closeAfterTest(); parent.closeAfterTest() }
         _ = try await Self.shown(consent, on: parent)
         let window = consent.panel
         let allow = try #require(consent.allowButton)

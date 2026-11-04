@@ -392,17 +392,6 @@ impl Hub {
                     breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
                     m.usage_limits = Some(merged);
                 }
-                // Codex's, as cmux-codex-acp passes `account/rateLimits/updated` on: each is
-                // every window it knows, so it replaces the last, and one that reports nothing
-                // clears it (`codex_app_server`). Another limit's snapshot changes nothing.
-                if let Some(snapshot) = update
-                    .pointer("/_meta/codexAppServer/rateLimits")
-                    .filter(|s| crate::codex_app_server::is_plan_snapshot(s))
-                {
-                    let limits = crate::codex_app_server::usage_limits(snapshot);
-                    breakdown_changed |= m.usage_limits != limits;
-                    m.usage_limits = limits;
-                }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
                     .pointer("/_meta/claude")

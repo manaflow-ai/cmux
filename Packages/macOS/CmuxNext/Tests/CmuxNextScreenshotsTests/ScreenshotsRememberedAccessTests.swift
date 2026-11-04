@@ -1,7 +1,6 @@
 import AppKit
 import CmuxNextFileGrid
 @testable import CmuxNextScreenshots
-import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,7 +9,7 @@ import Testing
 /// now remembered across launches: a later page lists as soon as it is on screen, with no card, and reads
 /// nothing while it is not (a tab restored at launch: LAUNCH-NO-TCC-PROMPTS). The card comes back only when
 /// access is really missing: every folder fails to read.
-@MainActor @Suite(.serialized, .closesItsWindows) struct ScreenshotsRememberedAccessTests {
+@MainActor @Suite(.serialized) struct ScreenshotsRememberedAccessTests {
     private static func defaults() throws -> UserDefaults {
         let name = "ScreenshotsRememberedAccessTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))

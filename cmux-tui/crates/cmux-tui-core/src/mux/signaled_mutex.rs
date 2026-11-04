@@ -237,8 +237,6 @@ pub(crate) struct StateGuard<'a> {
     /// The routing snapshot this guard replaced. It drops after `guard` (fields drop in order), so the tables and
     /// surfaces it may hold last are freed after the lock is released, never under it.
     retired: Option<std::sync::Arc<crate::route_table::RouteSnapshot>>,
-    /// Whether this thread was already unwinding when it took the lock, as `std::sync::MutexGuard` records it.
-    panicking_at_lock: bool,
 }
 
 impl<'a> StateGuard<'a> {
@@ -271,7 +269,6 @@ impl<'a> StateGuard<'a> {
             acquired_at: Instant::now(),
             _rank: HeldRank::record(LockRank::MuxState, STATE_LOCK_NAME),
             retired: None,
-            panicking_at_lock: std::thread::panicking(),
         }
     }
 }
@@ -293,13 +290,9 @@ pub(crate) fn state_locks_taken_on_this_thread() -> u64 {
 impl Drop for StateGuard<'_> {
     fn drop(&mut self) {
         // Publish the routing tables a change replaced, while the lock is still held, so publications follow the
-        // order of the changes (R-DAEMON-STATE stage S1). A guard that changed no route compares three pointers. A
-        // panic that began while this guard held the lock cut its change short: the `MutexGuard` field poisons the
-        // mutex right after this (the same test std makes), and the half-made tables are never published.
+        // order of the changes (R-DAEMON-STATE stage S1). A guard that changed no route compares three pointers.
         let owner = self.owner;
-        let cut_short = std::thread::panicking() && !self.panicking_at_lock;
-        if !cut_short
-            && owner.publish_routes.load(std::sync::atomic::Ordering::Relaxed)
+        if owner.publish_routes.load(std::sync::atomic::Ordering::Relaxed)
             && !owner.routes.load().is_current(&self.guard)
         {
             let published = std::sync::Arc::new(crate::route_table::RouteSnapshot::of(&self.guard));
@@ -353,11 +346,6 @@ impl StateMutex {
         };
         self.routes.store(std::sync::Arc::new(snapshot));
         self.publish_routes.store(on, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Whether a writer panicked while it held the session state.
-    pub(crate) fn is_poisoned(&self) -> bool {
-        self.value.is_poisoned()
     }
 
     /// The routing tables as of the last finished change: one atomic load, never a wait (R-DAEMON-STATE stage S1).

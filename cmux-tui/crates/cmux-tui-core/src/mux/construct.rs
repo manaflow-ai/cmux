@@ -202,11 +202,9 @@ impl Mux {
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
             registry.session_journal_database_path().as_deref().and_then(Path::parent),
         );
-        // One stage S1 switch for the mux (R-DAEMON-STATE): on, the values a person's key reads are published (the
-        // state's routes, the client registry's facts, the link peers, the host proxy authors) and the surface
-        // admission budget reserves with atomics.
+        // One stage S1 switch for the mux (R-DAEMON-STATE): the state's routes and the client registry's facts.
         let input_lane = crate::rds_switch::InputLaneSwitch::from_env();
-        let lane_on = input_lane.on();
+        let publish_routes = input_lane.on();
         let mux = Arc::new(Mux {
             launch_identity,
             registry_connection: registry.connection.clone(),
@@ -218,7 +216,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
-            state: signaled_mutex::StateMutex::new(state, lane_on),
+            state: signaled_mutex::StateMutex::new(state, publish_routes),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
             config_reload_changed: Condvar::new(),
@@ -235,10 +233,7 @@ impl Mux {
             client_sizing: Mutex::new(ClientSizingState::default()),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
-            conversations: crate::conversation_store::ConversationHost {
-                remote: crate::remote_relay_state::RemoteRelayState::new(lane_on),
-                ..Default::default()
-            },
+            conversations: Default::default(),
             chiefs: Default::default(),
             cloud: Default::default(),
             history_search: OnceLock::new(),
@@ -442,7 +437,7 @@ impl Mux {
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             history: crate::history_ops::HistoryHost::default(),
             surface_operation_admission: Arc::new(
-                crate::server::ServerSurfaceOperationAdmission::new(lane_on),
+                crate::server::ServerSurfaceOperationAdmission::new(publish_routes),
             ),
             pairing: PairingBroker::new(),
             #[cfg(test)]

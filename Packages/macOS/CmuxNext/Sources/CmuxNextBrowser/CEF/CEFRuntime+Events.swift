@@ -103,8 +103,8 @@ extension CEFRuntime {
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
             if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
-        case .pageResource(let browser, let token, let url, let range):
-            answerPageResource(token: token, url: url, range: range.isEmpty ? nil : range, tab: tabsByBrowser[browser])
+        case .pageResource(let browser, let token, let url):
+            answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
         case .pageMessage(let browser, let mainFrame, let channel, let payload):
             // Untrusted: a compromised renderer can post anything (`CEFPageMessage`).
             if let tab = tabsByBrowser[browser], let message = CEFPageMessage(channel: channel, payload: payload, mainFrame: mainFrame) {
@@ -442,7 +442,7 @@ extension CEFShimEvent {
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
-             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
+             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
              .pageMessage(let b, _, _, _), .statusMessage(let b, _):
             b

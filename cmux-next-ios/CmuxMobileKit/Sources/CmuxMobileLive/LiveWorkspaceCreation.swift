@@ -898,44 +898,6 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// Duplicate Screen, as the Mac's `ScreenCommands.duplicate`: a new screen (`new-screen`) with
-    /// the same name (`rename-screen`), its terminal in the folder of the screen's shown tab
-    /// (`cd '<folder>' && clear` typed, as New Workspace in a folder; the phone sends no `cwd`).
-    /// The Mac also gives the copy the screen's color, icon and place right after it: a phone
-    /// may not set those (`new-screen` takes only the workspace from a phone), so the copy goes
-    /// at the end with the Mac's default look.
-    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
-        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else { throw WorkspaceCreationError("Not connected") }
-        guard let number = tree.workspaceNumbers[workspace.id] else { throw WorkspaceCreationError("The Mac doesn't list this workspace") }
-        let folder = Self.duplicateFolder(of: screen, in: workspace, directories: tree.directories)
-        do {
-            let reply = try await client.request("new-screen", params: ["workspace": number])
-            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
-                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
-            }
-            if let folder, let line = Self.changeDirectoryLine(folder) {
-                _ = try? await client.request("send", params: ["surface": surface, "text": line])
-            }
-            let tab = try await listedTab(surface)
-            let name = screen.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty, let copy = sync.tree?.workspaces.first(where: { $0.id == workspace.id })?.screen(ofTab: tab.id)?.screen {
-                // The copy stands either way: a refused name leaves the Mac's default.
-                try? await run(client, "rename-screen", ["screen": copy.id, "name": name])
-            }
-            return tab
-        } catch let error as DaemonReplyError {
-            throw WorkspaceCreationError(error.message)
-        }
-    }
-
-    /// The folder Duplicate Screen opens its terminal in: the shown tab of the screen's active
-    /// pane (else its first tab), as the Mac reads the default pane's tab.
-    nonisolated static func duplicateFolder(of screen: MacScreen, in workspace: Workspace, directories: [String: String]) -> String? {
-        let pane = screen.activePane ?? screen.panes.first
-        let shown = pane.flatMap { pane in workspace.layout?.pane(pane)?.activeTabID } ?? screen.tabIDs.first
-        return shown.flatMap { directories[$0] }
-    }
-
     public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
         try await run(client, "rename-screen", ["screen": screen.id, "name": name])

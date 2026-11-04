@@ -97,8 +97,7 @@ struct ChatRowView: View {
             let turnID = row.turnID
             UserBubble(prompt: text, attachments: attachments, promptAt: at, isLast: isLast,
                        editAndResend: { context.editAndResend(turnID: turnID) },
-                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
-                       polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
+                       editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         case .block(let messageID, let block):
             MarkdownBlockRow(block: block) { context.messageText(messageID) }
@@ -152,8 +151,7 @@ struct ChatRowView: View {
                 if let turn { store.retryFailedTurn(turn) }
             }
         case .actions(let turn, let isLast):
-            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
-                            polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {
+            AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn)) {
                 store.retry(turn)
             }
         }

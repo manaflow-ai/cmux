@@ -57,20 +57,6 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     private var measured: [String: RowHeights] = [:]
     private var dirtyFrom: Int? = 0
     private var width: CGFloat = 0
-    /// The collection view's width the column was laid out in (the column is `width`).
-    private var boundsWidth: CGFloat = 0
-    /// The widest the chat's column draws, with its 20 pt margins inside (Text and Width's
-    /// Standard width, as the Mac's chat column); nil fills the screen.
-    var columnCap: CGFloat? {
-        didSet { if columnCap != oldValue { invalidateLayout() } }
-    }
-    /// The column's width in a collection view `boundsWidth` wide.
-    func columnWidth(in boundsWidth: CGFloat) -> CGFloat {
-        guard let columnCap else { return boundsWidth }
-        return min(boundsWidth, columnCap + 40)
-    }
-    /// The column's width now (rows lay out at it less their margins).
-    var columnWidth: CGFloat { columnWidth(in: collectionView?.bounds.width ?? 0) }
     private(set) var contentHeight: CGFloat = 0
     /// Space under the last row.
     var trailingGap: CGFloat = 24 { didSet { if trailingGap != oldValue { markDirty(max(items.count - 1, 0)) } } }
@@ -173,8 +159,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     // MARK: Layout
 
     private func prepareIfNeeded() {
-        boundsWidth = collectionView?.bounds.width ?? 0
-        let width = columnWidth(in: boundsWidth)
+        let width = collectionView?.bounds.width ?? 0
         if width != self.width {
             self.width = width
             heights = items.map(height(for:))
@@ -206,10 +191,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
         return .init(revision: items[row].revision, fold: items[row].fold)
     }
 
-    override var collectionViewContentSize: CGSize { CGSize(width: boundsWidth, height: contentHeight) }
+    override var collectionViewContentSize: CGSize { CGSize(width: width, height: contentHeight) }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        newBounds.width != boundsWidth
+        newBounds.width != width
     }
 
     private func firstIndex(bottomAfter y: CGFloat) -> Int {
@@ -240,8 +225,7 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
 
     private func attributes(_ row: Int) -> UICollectionViewLayoutAttributes {
         let attributes = ChatRowAttributes(forCellWith: IndexPath(item: row, section: 0))
-        // A capped column sits in the middle of a wider screen.
-        attributes.frame = CGRect(x: ((boundsWidth - width) / 2).rounded(), y: tops[row], width: width, height: heights[row])
+        attributes.frame = CGRect(x: 0, y: tops[row], width: width, height: heights[row])
         return attributes
     }
 
@@ -582,19 +566,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         environmentChanged()
     }
 
-    /// Text and Width's width: the column's cap (nil: the whole screen).
-    func setColumnCap(_ cap: CGFloat?) {
-        guard layout.columnCap != cap else { return }
-        let width = layout.columnWidth
-        layout.columnCap = cap
-        // On a screen narrower than the cap the column keeps its width: nothing to measure again.
-        guard layout.columnWidth != width else { return }
-        layout.forgetHeights()
-        environmentChanged()
-    }
-
     private func environmentChanged() {
-        let width = layout.columnWidth - 40
+        let width = collectionView.bounds.width - 40
         guard width > 0 else { return }
         let environment = ChatNativeEnvironment(width: width, category: collectionView.traitCollection.preferredContentSizeCategory,
                                                 wrapCode: CmuxMobilePreferences.wrapCode())
@@ -710,7 +683,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var items: [ChatTranscriptLayout.Item] = []
         ids.reserveCapacity(shownIDs.count + 4)
         items.reserveCapacity(shownIDs.count + 4)
-        let width = max(layout.columnWidth - 40, 100)
+        let width = max(collectionView.bounds.width - 40, 100)
         let wrap = CmuxMobilePreferences.wrapCode()
         if lookup.layouts.environment?.wrapCode != wrap, lookup.layouts.environment != nil {
             environmentChanged()
@@ -913,7 +886,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
                 let id = self.warmQueue.removeFirst()
                 if self.lookup.rows[id] != nil, self.lookup.isNative(id) {
                     let cell = self.warmCell
-                    let width = self.layout.columnWidth
+                    let width = self.collectionView.bounds.width
                     cell.frame = CGRect(x: 0, y: 0, width: width, height: max(self.layout.knownHeight(of: id)?.height ?? 120, 44))
                     cell.overrideUserInterfaceStyle = self.collectionView.traitCollection.userInterfaceStyle
                     self.lookup.configureNative(cell, id: id)

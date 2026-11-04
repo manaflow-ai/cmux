@@ -1504,8 +1504,6 @@ impl Hub {
             if stopped_early.is_some() {
                 result = Ok(stopped_answer());
             }
-            // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
-            let wrap_up_answer = crate::wrap_up_suggestion::take(&session.id);
             match &result {
                 Ok(v) => {
                     self.note_reply_refusal(session);
@@ -1535,11 +1533,6 @@ impl Hub {
                         }
                     }
                     self.write_turn_result(session, msg, git);
-                    if status == "completed"
-                        && let Some(answer) = wrap_up_answer
-                    {
-                        self.offer_wrap_up_suggestion(session, &answer);
-                    }
                     // The chat works again: agent messages a failed turn held go in (`digest.rs`).
                     // Not while a person's Stop that came after this turn began holds them
                     // (`cancel.rs`): only a turn begun under that hold, or a resume, ends it.

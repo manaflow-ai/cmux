@@ -3,7 +3,7 @@
 // 2026-11-03: "i think the "thinking" accounting is also off pretty frequently", on a 1.5 h turn
 // whose live line read "Thinking 1h 24m 7s"). The live line names what the turn does now (Thinking.tsx,
 // turns.ts `codexLiveTurn`): "Waiting on 3 subagents", a finished step with its own time, or
-// "Writing", and past the first step the turn's clock follows a step's own time after a dot.
+// "Writing", and past the first step the clock reads as the turn's total.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -34,7 +34,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/Thinking.tsx#Thinking"],
   variants: {
     "waiting-on-subagents": {
-      note: "Three foreground subagents still run: the line reads Waiting on 3 subagents, and its clock is the turn's whole time, never a 1h 24m think.",
+      note: "Three foreground subagents still run: the line reads Waiting on 3 subagents, and its clock is the turn's total, never a 1h 24m think.",
       snapshot: chat(
         [
           prompt(),
@@ -51,7 +51,7 @@ export default agentPaneEntry({
       ),
     },
     "finished-step": {
-      note: "Between steps the line holds the last finished step with its own time (3m 27s), then the turn's clock after a dot.",
+      note: "Between steps the line holds the last finished step with its own time (3m 27s), then the turn's total.",
       snapshot: chat(
         [
           prompt(),
@@ -70,7 +70,7 @@ export default agentPaneEntry({
       ),
     },
     writing: {
-      note: "The reply paused mid-stream a moment ago: Writing, with the turn's clock. (One that paused past 5 s reads Thinking again.)",
+      note: "The reply paused mid-stream a moment ago: Writing, with the turn's total. (One that paused past 5 s reads Thinking again.)",
       snapshot: chat(
         [
           prompt(),

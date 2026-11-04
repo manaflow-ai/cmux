@@ -71,7 +71,7 @@ mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
-use cmux_tui_util::published;
+mod published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;

@@ -21,8 +21,6 @@
 //! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
 //! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
 //! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
-//! An invite and `-list` answer `invite_url`, the link the owner hands out (`<room origin>/i/<share_id>`,
-//! no secret in it; null without a room).
 //!
 //! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
 //! the room first (`provisioning` until it answers) and answers the guest link; a revoke or kick
@@ -254,13 +252,6 @@ impl LinkShare {
         self.room.as_ref()?.get(field)?.as_str()
     }
 
-    /// The link an invitee opens: the room's origin, then `/i/<share_id>` (no secret in it, the
-    /// room signs the account in). Null while the share has no room.
-    fn invite_url(&self) -> Value {
-        self.room_str("url")
-            .map_or(Value::Null, |origin| json!(format!("{origin}/i/{}", self.share_id)))
-    }
-
     /// The room's `DELETE` is already queued.
     fn delete_queued(&self) -> bool {
         self.pending_room_ops.iter().any(|op| op_of(op) == Some("delete"))
@@ -294,7 +285,7 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "invite_url": self.invite_url(), "guests": guests, "invitees": invitees})
+            "guests": guests, "invitees": invitees})
     }
 }
 
@@ -828,7 +819,7 @@ impl LinkShares {
                 share.live()?;
             }
             let answer = json!({"share_id": share.share_id, "account": account, "role": role,
-                "state": InviteState::Invited, "invite_url": share.invite_url()});
+                "state": InviteState::Invited});
             if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
                 if invitee.state == InviteState::Invited {
                     return if invitee.role == role {

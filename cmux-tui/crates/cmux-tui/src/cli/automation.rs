@@ -16,7 +16,6 @@ use cmux_automations::{
     Automation, AutomationSpec, Body, CatchUp, Run, RunState, RunnerLock, Store, StoreError,
     Trigger, Zone, recover_orphans, start_manual, tick,
 };
-use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::OutputMode;
@@ -1336,10 +1335,10 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
                 Ok(id) => {
                     let mut params = json!({"automation": id});
                     if let Some(name) = a.value("name") {
-                        params.set("name", json!(name));
+                        params["name"] = json!(name);
                     }
                     if a.flag("paused") {
-                        params.set("enabled", json!(false));
+                        params["enabled"] = json!(false);
                     }
                     team_fields(&a, &mut params)?;
                     cloud_out(
@@ -1378,9 +1377,7 @@ fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Out
             match a.words.as_slice() {
                 [] => {}
                 [_] => match target(&a)? {
-                    Ok(id) => {
-                        params.set("automation", json!(id));
-                    }
+                    Ok(id) => params["automation"] = json!(id),
                     Err(done) => return done,
                 },
                 [_, extra, ..] => {
