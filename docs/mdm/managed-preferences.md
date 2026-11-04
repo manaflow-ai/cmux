@@ -20,7 +20,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `history.commandRetentionDays` | real | `30` | 1 to 3650 | Keep Terminal Commands For. Each machine deletes recorded commands that are older. |
 | `history.closed.maxGroups` | real | `0` | 0 to 10000 | Recently Closed Items to Keep. Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all. |
 | `history.closed.maxAgeDays` | real | `0` | 0 to 3650 | Keep Recently Closed Items For. Each machine deletes closed items that are older. 0 keeps them however old they are. |
-| `window.titlebar` | string | `"minimal"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
+| `window.titlebar` | string | `"standard"` | `minimal`, `standard` | Titlebar. Minimal has no titlebar strip; the top row moves the window. |
 | `window.titlebarButtons` | string | `"hover"` | `hover`, `always` | Titlebar Buttons. With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show. |
 | `app.globalHotKey` | boolean | `false` |  | Global Hot Key. Show/Hide All Windows (⌃⌥⌘.) works while another app is in front. |
 | `app.startAgentGlobalHotKey` | boolean | `false` |  | Start Agent from Any App. Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts. |
@@ -271,6 +271,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.width` | real | `800` | 480 to 4000 | Chat Text Width. The widest the chat's column gets. On a wider pane the chat stays centered. |
 | `agentPane.display.fullWidth` | boolean | `false` |  | Chat Full Width. The chat fills the whole pane instead of the text width. |
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll. |
+| `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. While the agent works, its task list stays under the latest message instead of in the bar over the composer. |
 | `agentPane.display.font.preset` | string | `"markdown"` | `markdown`, `system`, `serif`, `mono` | Chat Font |
 | `agentPane.display.font.size` | real | `14` | 10 to 28 | Chat Font Size |
 | `agentPane.display.font.lineHeight` | real | `1.625` | 1.2 to 2.4 | Chat Line Height |
