@@ -211,7 +211,7 @@ pub fn validate_override(text: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     #[test]
     fn inventory_preserves_harness_counts_and_marks_cmux_text_editable() {
