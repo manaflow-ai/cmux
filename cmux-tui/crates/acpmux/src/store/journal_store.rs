@@ -190,7 +190,7 @@ fn open_journal(
     config: cmux_journal::Config,
     from: Lsn,
 ) -> Result<(Journal, cmux_journal::OpenReport, Replay)> {
-    let deadline = Instant::now() + LOCK_WAIT;
+    let deadline = Instant::now().checked_add(LOCK_WAIT);
     loop {
         let mut replay = Replay::default();
         let opened =
@@ -199,7 +199,9 @@ fn open_journal(
             });
         match opened {
             Ok((journal, report)) => return Ok((journal, report, replay)),
-            Err(OpenError::Locked) if Instant::now() < deadline => {
+            Err(OpenError::Locked)
+                if deadline.is_some_and(|deadline| Instant::now() < deadline) =>
+            {
                 std::thread::sleep(Duration::from_millis(50));
             }
             Err(error) => anyhow::bail!("open the event journal: {error}"),
