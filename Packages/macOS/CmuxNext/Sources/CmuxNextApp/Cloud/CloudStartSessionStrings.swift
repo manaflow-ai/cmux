@@ -123,7 +123,7 @@ enum CloudStartSessionStrings {
 
     /// An agent's Start on an ask the person did not delegate.
     static func personRequired(_ dialog: String) -> String {
-        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Start Cloud Sessions Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
+        String(format: String(localized: "cloud.startSession.personRequired", defaultValue: "Only the person can choose Start: on the card in the chat, or with `cmux agents dialog answer %1$@ --selection start` in their own terminal. To let agents start Cloud sessions without asking, they can turn on Let Agents Use Cloud Without Asking in Settings > Machines. `--selection notNow` declines.", table: "CloudSessions", bundle: .module), dialog)
     }
 
     static func unknownChoice(_ dialog: String) -> String {

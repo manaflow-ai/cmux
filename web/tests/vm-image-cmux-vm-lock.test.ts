@@ -51,7 +51,7 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     const lock = readInputsLock();
     expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
