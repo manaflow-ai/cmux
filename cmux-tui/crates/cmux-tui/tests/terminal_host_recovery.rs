@@ -3634,6 +3634,16 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
         None,
     );
     assert_eq!(first_resolution["state"], "created");
+    if first_resolution["revision"] != "1" {
+        let snap = resource_request(
+            &harness.socket,
+            "diag-snapshot",
+            "session.snapshot",
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        panic!("DIAG resolution={first_resolution:#}\nDIAG snapshot={snap:#}");
+    }
     assert_eq!(first_resolution["revision"], "1");
     let created_path = first_resolution["created_path"].clone();
     for field in ["workspace_id", "screen_id", "pane_id", "tab_id", "terminal_id"] {
