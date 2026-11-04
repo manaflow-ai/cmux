@@ -4,10 +4,10 @@ public import AppKit
 /// S7; the window's overlay layer owns one). AppKit applies each drag of a live resize with a `setFrame` that lays the
 /// window's tree out inside it: the requests of one applied drag (the layout's overlay sync, a page window the fork
 /// moved, the window's didResize) reach the pages once, when that `setFrame` returns, with the final geometry. A window
-/// layout pass inside the `setFrame` (AppKit displays the new frame in it) sends nothing: the window's didResize comes
-/// after it. A layout pass after the `setFrame` sends what it held. Each request reaches every page of the window, and
-/// each page works its geometry, clip and occlusion out again. Through the resize the window's divider catcher panels
-/// stay where they are: nothing clicks or hovers a divider while AppKit tracks it.
+/// layout pass inside the `setFrame` sends nothing, as the `setFrame` is not done (its didResize can still come); a
+/// layout pass after it sends what it held. Each request reaches every page of the window, and each page works its
+/// geometry, clip and occlusion out again. Through the resize the window's divider catcher panels stay where they are:
+/// nothing clicks or hovers a divider while AppKit tracks it.
 @MainActor
 public final class LiveResizePageUpdates {
     /// What the held update asks: `force` (every page re-applies, changed or not) when any request forced it;
