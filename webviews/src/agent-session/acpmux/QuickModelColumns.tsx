@@ -10,6 +10,7 @@ import { AgentMark } from "../shared/AgentMark";
 import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
 import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
@@ -979,7 +980,7 @@ function Columns({
             new CustomEvent("cmux-composer-popover-switch", { detail: event.currentTarget }),
           );
           press.onPointerDown(event);
-          if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
+          if (isMousePress(event)) event.preventDefault();
         }}
         // The closed chip opens on ArrowDown too, as the list menu's did.
         onKeyDown={(event) => {
