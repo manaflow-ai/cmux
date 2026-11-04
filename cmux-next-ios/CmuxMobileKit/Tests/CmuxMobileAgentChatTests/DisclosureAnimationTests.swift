@@ -170,6 +170,46 @@ import UIKit
         return try #require(ids.last, "a \(kind) row on screen")
     }
 
+    /// A row whose disclosure changes while a spring runs but that the spring does not lay out
+    /// (off screen here) takes its measured height for the new state when the spring ends, not
+    /// the height it was held at.
+    @Test func anOffscreenRowChangedDuringASpringTakesItsMeasuredHeight() async throws {
+        let chat = try await chat()
+        defer { chat.window.isHidden = true }
+        let layout = chat.list.layout
+        let disclosures = chat.surface.disclosures
+        let hold = chat.list.context.foldHold
+        let x = try lowest(chat, "group")
+        let keyX = try #require(chat.key(x))
+        // Open and close it once on screen, so both states are measured.
+        _ = try await fold(chat, x) { toggleDisclosure(hold, key: keyX, in: disclosures) { disclosures.set(keyX, true) } }
+        await chat.frames(10)
+        let open = try #require(layout.height(of: x))
+        _ = try await fold(chat, x) { toggleDisclosure(hold, key: keyX, in: disclosures) { disclosures.set(keyX, false) } }
+        await chat.frames(10)
+        let closed = try #require(layout.height(of: x))
+        try #require(open > closed + 40, "the group opened: \(closed) -> \(open)")
+
+        // Scrolled up until it is off screen, then opened along with a group on screen.
+        chat.surface.following = false
+        chat.scroll.contentOffset.y -= chat.scroll.bounds.height * 2.5
+        await chat.frames(20)
+        // Off screen: no visible cell (UIKit may keep a hidden one parked for reuse).
+        let parked = chat.list.cell(for: x)
+        try #require(!chat.scroll.visibleCells.contains { $0 === parked }, "the first group is off screen")
+        let y = try lowest(chat, "group")
+        let keyY = try #require(chat.key(y))
+        _ = try await fold(chat, y) {
+            toggleDisclosure(hold, key: keyY, in: disclosures) {
+                disclosures.set(keyY, true)
+                disclosures.set(keyX, true)
+            }
+        }
+        await chat.frames(10)
+        let after = try #require(layout.height(of: x))
+        #expect(abs(after - open) <= 1, "the off-screen group is laid out at its open height \(open), not \(after) (held at \(closed))")
+    }
+
     /// A second tap inside the spring starts a second settle: the first one's completion leaves
     /// the row settling (SwiftUI) until the second one ends, so it does not swap back to native
     /// mid-animation.
