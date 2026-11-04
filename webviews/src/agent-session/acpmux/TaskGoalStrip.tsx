@@ -128,7 +128,7 @@ function GoalStrip({
   const start = goal.startedAt;
   const elapsed =
     goal.elapsedMs !== undefined
-      ? goal.elapsedMs + (live ? Math.max(0, current - (goal.updatedAt ?? goal.startedAt ?? current)) : 0)
+      ? goal.elapsedMs + (live && goal.updatedAt !== undefined ? Math.max(0, current - goal.updatedAt) : 0)
       : start !== undefined
         ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
         : undefined;
