@@ -81,9 +81,12 @@ holds every later request of that connection (head-of-line). cmux-ad m11 item 2 
 waited for the agent roster's fold lock while a maintenance tick read the journal tail under it (5-8 s on #34628's
 nightly registry), and five unrelated app requests behind it timed out together; #35075 raised the app's deadline
 from 2 s to 30 s for it. No request waits for or runs a roster fold now (R-DURABILITY, `mux/agent_roster_worker.rs`), but
-any request that waits in the daemon still holds its connection. Data for the decision: an `identify` sharing a connection
-with terminal churn under agent load, against the same `identify` on a connection of its own (the bench of #35329 is
-being repaired: its head-of-line scenario measured the bench's own lock). Options: keep in-order dispatch and keep every request path off waiting
+any request that waits in the daemon still holds its connection. Data for the decision: the `head-of-line` scenario of the
+bench (#35329) sends a `list-workspaces` right after a `close-surface` on the same connection (pipelined: one reader matches
+the replies by id), against the same request on a connection of its own, under agent load; `identify` is the control (the
+reader answers a plain `identify` before the queue, so it shows no queue wait). cmux18-perf, ms p50/p95/p99/max:
+`list-workspaces` behind the close 9.7/54/87/305, on its own connection 2.7/15/34/65; `identify` the same on both
+(0.24/3.3/9-12) (fleet ce07a34858265193980f9cdf). Options: keep in-order dispatch and keep every request path off waiting
 locks; or dispatch independent requests per request (ordering only within an object), as the terminal pool and
 `wait-for` already do for their requests.
 
