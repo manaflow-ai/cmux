@@ -6,6 +6,8 @@ use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+pub(super) mod peer;
+
 pub(super) async fn dispatch(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -24,7 +26,14 @@ async fn handle(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let parent = super::subsessions::start_parent(hub, conn, params)?;
+    if let Some(reply) = peer::forward(hub, conn, m, params).await {
+        return reply;
+    }
+    let parent = peer::parent(hub, conn, m, params)?;
+    if m == method::MUX_RACE_START {
+        // A race starts agents of its own; an already-running parent does not bypass trust.
+        super::trust_gate::check(hub, conn.origin, method::MUX_BTW, params, Some(&parent)).await?;
+    }
     match m {
         method::MUX_RACE_START => {
             let candidates: Vec<Target> = serde_json::from_value(params["candidates"].clone())
