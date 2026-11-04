@@ -398,6 +398,93 @@ struct AgentShareTests {
         #expect(model.rows.isEmpty && model.status == nil)
     }
 
+    /// The sheet offers the chat's invite link (its invite share's, from the daemon) and Copy Invite
+    /// Link puts it on the pasteboard, then reads Copied for a moment in place.
+    @Test func theSheetCopiesTheInviteLinkAndSaysCopiedInPlace() async {
+        @MainActor final class Pasteboard { var copied: [String] = [] }
+        let pasteboard = Pasteboard()
+        let link = "https://room.example/i/s"
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1, inviteUrl: link,
+                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])] },
+            invite: { _, _ in },
+            remove: { _ in },
+            copy: { pasteboard.copied.append($0) }))
+        #expect(model.inviteLink == nil, "no link before the shares are read")
+        await model.load()
+        #expect(model.inviteLink == link)
+        model.copiedFor = .milliseconds(20)
+        model.copyLink()
+        #expect(pasteboard.copied == [link])
+        #expect(model.copied)
+        for _ in 0..<200 where model.copied { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(!model.copied, "Copied goes back to Copy Invite Link")
+        // A chat with only a guest link (no invitees) has no invite link to copy.
+        let none = AgentShareInvites.inviteLink(of: Self.session, in: [
+            AgentSessionShare(shareId: "g", state: "active", session: Self.session, surface: 1, inviteUrl: "https://room.example/i/g"),
+        ])
+        #expect(none == nil)
+    }
+
+    /// While the sheet shows it reads the shares again each time the daemon says they changed (a join,
+    /// a leave, an expiry), with no timer; it stops listening when it closes.
+    @Test func theSheetReadsAgainWhenTheDaemonsSharesChange() async {
+        @MainActor final class Daemon {
+            var shares: [AgentSessionShare] = []
+            var onChange: (@MainActor () -> Void)?
+            var stopped = 0
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { daemon.shares },
+            invite: { _, _ in },
+            remove: { _ in },
+            changes: { onChange in
+                daemon.onChange = onChange
+                return { daemon.stopped += 1 }
+            }))
+        await model.load()
+        #expect(model.rows.isEmpty)
+        model.startWatching()
+        daemon.shares = [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1,
+                                           guests: [AgentSessionShareGuest(guestId: "g", name: "Theo", joinedAt: 2, state: "active", account: "@theo", role: "view")],
+                                           invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])]
+        daemon.onChange?()
+        for _ in 0..<200 where model.rows.isEmpty { await Task.yield() }
+        #expect(model.rows == [AgentShareInviteSheetModel.Row(account: "@theo", role: "view", joined: true)])
+        model.stopWatching()
+        model.stopWatching()
+        #expect(daemon.stopped == 1)
+    }
+
+    /// Invite and Remove run one after the other, in the order pressed: a Remove pressed while an
+    /// Invite of the same account runs waits for it, so the account ends removed.
+    @Test func anInviteAndARemoveOfOneAccountRunInTheOrderPressed() async {
+        @MainActor final class Daemon {
+            var calls: [String] = []
+            var release: CheckedContinuation<Void, Never>?
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [] },
+            invite: { account, _ in
+                daemon.calls.append("invite \(account) starts")
+                await withCheckedContinuation { daemon.release = $0 }
+                daemon.calls.append("invite \(account) ends")
+            },
+            remove: { account in daemon.calls.append("remove \(account)") }))
+        model.account = "@theo"
+        let invite = Task { await model.invite() }
+        for _ in 0..<200 where daemon.release == nil { await Task.yield() }
+        let remove = Task { await model.remove("@theo") }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(daemon.calls == ["invite @theo starts"], "the Remove waits for the Invite")
+        daemon.release?.resume()
+        await invite.value
+        await remove.value
+        #expect(daemon.calls == ["invite @theo starts", "invite @theo ends", "remove @theo"])
+    }
+
     /// Invite People… with no account: the owner's own run opens the sheet and makes nothing; an
     /// agent's or script's run must name the account.
     @Test func invitePeopleWithNoAccountOpensTheSheetForTheOwnerOnly() {
