@@ -3,6 +3,8 @@
 // latency harness's diff page. `#files-sidebar` has a transform and `contain: strict`, so it is the
 // containing block of the `position: fixed` anchor (FilesSidebar.tsx); viewport coordinates put the
 // anchor (and the menu the host draws at it) one sidebar offset away from the click.
+// The harness's host refuses the native popup, as an older app does: the page menu shows instead,
+// with its icon at the menu icon size, and its row marks the file viewed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
@@ -50,7 +52,7 @@ await requireBrowserLane("files-tree-context-anchor.test.ts", async () => {
   });
 
   describe("diff tree context menu", () => {
-    test("the anchor sits at the right-click point", async () => {
+    test("the anchor sits at the right-click point and a refused popup falls back to the page menu", async () => {
       const browser = await chromium.launch({ headless: true });
       try {
         const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -72,7 +74,7 @@ await requireBrowserLane("files-tree-context-anchor.test.ts", async () => {
         );
         // The panel sits at the right, so a viewport-placed anchor would land a sidebar offset away.
         expect(sidebar).toBeGreaterThan(100);
-        // The anchor's place is read as it mounts: the page fallback may close the menu right after.
+        // The anchor's place is read as it mounts, before the host's refusal arrives.
         await page.evaluate(() => {
           const record = window as unknown as { anchorAt?: { x: number; y: number } };
           const observer = new MutationObserver(() => {
@@ -90,6 +92,20 @@ await requireBrowserLane("files-tree-context-anchor.test.ts", async () => {
         });
         const anchor = await page.evaluate(() => (window as unknown as { anchorAt?: unknown }).anchorAt);
         expect(anchor).toEqual(point!);
+
+        const row = page.locator(".file-tree-context-menu [role=menuitem]");
+        await row.waitFor({ state: "visible", timeout: 10_000 });
+        expect(await row.textContent()).toBe("Mark as viewed");
+        const icon = await row.locator("svg").boundingBox();
+        expect(icon && { width: Math.round(icon.width), height: Math.round(icon.height) }).toEqual({
+          width: 14,
+          height: 14,
+        });
+        await row.click();
+        await row.waitFor({ state: "hidden", timeout: 10_000 });
+        await page.mouse.click(point!.x, point!.y, { button: "right" });
+        await row.waitFor({ state: "visible", timeout: 10_000 });
+        expect(await row.textContent()).toBe("Mark as not viewed");
       } finally {
         await browser.close();
       }
