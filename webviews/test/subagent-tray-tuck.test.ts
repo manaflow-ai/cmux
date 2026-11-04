@@ -103,12 +103,12 @@ await requireBrowserLane("subagent-tray-tuck.test.ts", async () => {
     try {
       await page.mouse.move(5, 5);
       expect((await state(page)).pill).toBe(0);
-      await page.hover(".acpmux-running-tray > .acpmux-tray-grabber");
+      await page.hover(".acpmux-tray-band > .acpmux-tray-grabber");
       await page.waitForFunction(
         () => getComputedStyle(document.querySelector(".acpmux-tray-grabber__pill")!).opacity === "1",
       );
       expect((await state(page)).label).toBe("Tuck running tray away");
-      await page.click(".acpmux-running-tray > .acpmux-tray-grabber");
+      await page.click(".acpmux-tray-band > .acpmux-tray-grabber");
       await page.locator(".acpmux-tray-tucked").waitFor({ state: "attached" });
       await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray"));
     } finally {

@@ -68,9 +68,10 @@
   border-radius: 50%;
   background: var(--agent-accent, var(--agent-text));
 }
-/* The tucked tray: no glass, no height, only the grabber on the composer's top edge. It lies over
-   the composer's top so the band reaches into the card the pointer is already on. */
-.acpmux-dock > .acpmux-tray-tucked {
+/* The grabber's band: no glass and no height, before the tray (its top edge) or, tucked, before the
+   composer (its top edge). It lies over that top so the band reaches into the card the pointer is
+   already on, and the tray's own children stay its header, then its fold. */
+.acpmux-dock > :is(.acpmux-tray-tucked, .acpmux-tray-band) {
   position: relative;
   z-index: 2;
   flex: none;
@@ -80,22 +81,16 @@
   overflow: visible;
   animation: none;
 }
-.acpmux-tray-tucked {
+:is(.acpmux-tray-tucked, .acpmux-tray-band) {
   position: relative;
   height: 0;
 }
-.acpmux-tray-tucked > .acpmux-tray-grabber {
-  top: 0;
-}
-/* A showing tray's grabber sits over its top edge: the band is drawn only while the pointer is in
-   it, so the header under it keeps its words. */
-.acpmux-running-tray:has(> .acpmux-tray-grabber) {
-  position: relative;
-}
-.acpmux-running-tray > .acpmux-tray-grabber {
+/* A showing tray's grabber sits over its header's top: the pill is drawn only while the pointer is
+   in the band, so the header under it keeps its words. */
+.acpmux-tray-band > .acpmux-tray-grabber {
   --acpmux-grabber-height: 8px;
 }
-.acpmux-running-tray > .acpmux-tray-grabber > .acpmux-tray-grabber__pill {
+.acpmux-tray-band > .acpmux-tray-grabber > .acpmux-tray-grabber__pill {
   height: 8px;
 }
 @media (prefers-reduced-motion: reduce) {

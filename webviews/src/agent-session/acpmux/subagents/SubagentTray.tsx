@@ -476,6 +476,12 @@ export const SubagentTray = memo(function SubagentTray({
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
   return (
+    <>
+      {/* The grabber that tucks the tray, on its top edge: a band of no height before it, as the
+          tucked tray's, so the tray's own children stay its header, then its fold. */}
+      <div className="acpmux-tray-band">
+        <TrayGrabber tucked={false} side={grabberSide} onToggle={() => changeChatDisplay(TRAY_TUCKED_KEY, true)} />
+      </div>
     <section
       ref={setTrayRef}
       className="acpmux-running-tray"
@@ -506,7 +512,6 @@ export const SubagentTray = memo(function SubagentTray({
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
       {/* Its top edge's grabber tucks it away; Settings, the palette and the CLI do the same. */}
-      <TrayGrabber tucked={false} side={grabberSide} onToggle={() => changeChatDisplay(TRAY_TUCKED_KEY, true)} />
       {headed && (
         <button
           type="button"
@@ -625,6 +630,7 @@ export const SubagentTray = memo(function SubagentTray({
         </button>
       )}
     </section>
+    </>
   );
 
   /// A line in its context menu's host. The host stays when there is nothing to stop (no items, so a
