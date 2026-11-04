@@ -134,6 +134,21 @@
   z-index: calc(var(--layer-raised, 1) + 1);
 }
 
+/* Send's Codex disc fills arrive from the look's follow-up style. The shared focus wash is
+   intentionally transparent for Send/Stop, whose own focus rule paints it; keep that keyboard
+   signal after the disc fills above composerStates.css in specificity. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send:focus-visible {
+  --acpmux-focus-pill: transparent;
+  background: var(--acpmux-row-hover, var(--acpmux-composer-hover));
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"]
+  .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):focus-visible {
+  /* The gallery's filled-disc alternate uses --agent-text as its rest fill. Keep the
+     shared solid-control focus step (12% of the opaque base over that fill) in the
+     focus image, while the control keeps its existing soft row-hover background. */
+  --acpmux-focus-pill: color-mix(in srgb, var(--acpmux-base, Canvas) 12%, transparent);
+}
+
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
 :is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));

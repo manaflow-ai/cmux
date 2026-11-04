@@ -191,6 +191,43 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
         }
       });
 
+  // The Codex disc fills arrive from the look's follow-up style, but both the current Stop slot and
+  // the existing gallery disc use the same Send focus contract. Keep keyboard focus visible when
+  // the pointer is elsewhere; the shared focus pill is transparent for this control by design.
+  test("Codex Send and Stop keep a visible keyboard focus wash", async () => {
+    const page = await browser.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      const focusFill = async (variant: string) => {
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.mouse.move(0, 0);
+        await settle(page);
+        const send = page.locator(".acpmux-composer-box .acpmux-send");
+        const rest = await send.evaluate((el) => getComputedStyle(el).backgroundColor);
+        await page.keyboard.press("Tab");
+        await send.focus();
+        await settle(page);
+        return page.evaluate((rest) => {
+          const el = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-send")!;
+          return {
+            focusVisible: el.matches(":focus-visible"),
+            fill: getComputedStyle(el).backgroundColor,
+            rest,
+          };
+        }, rest);
+      };
+      const stop = await focusFill("send-one-slot-codex-running");
+      expect(stop.focusVisible).toBe(true);
+      expect(stop.fill).not.toBe(stop.rest);
+      const send = await focusFill("send-alt-filled-disc");
+      expect(send.focusVisible).toBe(true);
+      expect(send.fill).not.toBe(send.rest);
+    } finally {
+      await page.close();
+    }
+  });
+
   // New Tab in Codex's look splits as Claude's: + before the field, the mic and Send after it, the
   // mode and model in the quiet row under the box; a narrow pane steps the labels down there.
   for (const width of [1200, 720, 480, 420, 280])
