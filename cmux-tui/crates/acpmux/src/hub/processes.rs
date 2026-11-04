@@ -66,6 +66,10 @@ pub(super) struct Process {
     task_id: String,
     harness: String,
     command: String,
+    /// What the call that started it says it does (Claude's Bash
+    /// `description`); none from Codex.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     cwd: String,
     /// Unix ms.
     started_at: u64,
@@ -185,6 +189,7 @@ impl ProcessTable {
                     task_id: text("taskId").unwrap_or("").to_owned(),
                     harness: crate::web_modes::family_of(&meta),
                     command: text("command").unwrap_or("").to_owned(),
+                    description: text("description").map(str::to_owned),
                     cwd: meta.cwd.to_string_lossy().into_owned(),
                     started_at: at,
                     ended_at: None,

@@ -25,8 +25,11 @@ short). It reads only what the steps printed, never the runner's echo of a step'
 
     test_reds.py classify --head HEAD.log [--base BASE.log] [--job NAME] [--base-name feat-cmux-next] [--json]
 
-prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2 when
-the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
+    test_reds.py runner --job JOB.json [--annotations ANNOTATIONS.json] [--log LOG]
+
+says whether a failed job lost its runner (lost_runner: infra, no verdict, re-run it; exit 0) or has a verdict (exit 1).
+`classify` prints one line per reason and exits 0 when the job's red is the base's, 1 when it is the head's own and 2
+when the log names no failing test, crash or cut-short run (not a test red: the caller judges it as before).
 
 Gallery health (scripts/gallery-matrix/health.ts) is judged the same way, per state, from the health.json a shard
 writes: a broken state (it errors, never readies, or its play cannot reach it) or one over its ready-time budget
@@ -179,6 +182,14 @@ STARTED = re.compile(r"◇ Test (?:case passing .+? to )?(\w+)\((.*?)\) started\
 # A test's end (Swift Testing; a case of a parameterized test ends with its test), and XCTest's start and end.
 # ━ is a test that passed with a known issue (withKnownIssue): it finished.
 FINISHED = re.compile(r"[✔✘━] Test (\w+)\(.*?\)(?: with \d+ test cases?)? (?:passed|failed)\b")
+# A pass whose line another stream cut into: Swift Testing prints ✔ only for a test that passed, so
+# "✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash ..." (run 41665450504, the helper killed
+# with the rest of the line unwritten) is that test's pass. spliced_pass matches a started name followed by anything
+# but more of a test name and its "(": foo is not taken for fooBar().
+def spliced_pass(name: str, text: str) -> bool:
+    return re.search(rf"✔ Test {re.escape(name)}(?!\w*\()", text) is not None
+
+
 XC_STARTED = re.compile(r"Test Case '-\[(\S+ \S+)\]' started")
 XC_FINISHED = re.compile(r"Test Case '-\[(\S+ \S+)\]' (?:passed|failed|skipped)")
 CARGO_RUNNING = re.compile(r"^running \d+ tests?$")
@@ -252,6 +263,30 @@ def lines_of(log: str) -> list[str]:
     return [text for n, text in enumerate(lines) if n not in skip]
 
 
+# A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
+# `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
+# `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
+CRASH_RULES = ("objc-selectors", "cef-objc-contract")
+CRASH_RULE = re.compile(r"^(?:##\[error\])?(" + "|".join(CRASH_RULES) + r"): (.+?)\s*$")
+CRASH_RULE_SITE = re.compile(r"^(\S+?:\d+): (.+?)(?:: probe needed.*|; .*)?$")
+
+
+def crash_rule_failure(text: str) -> str | None:
+    """The failure key of a crash-class rule line: `rule file:line detail` (rule, site, selector) when the line
+    carries a site, else `rule detail`; the trailing advice (`probe needed; run ...`) is not part of the key."""
+    if not (match := CRASH_RULE.match(text)):
+        return None
+    rule, detail = match.groups()
+    if site := CRASH_RULE_SITE.match(detail):
+        return f"{rule} {site.group(1)} {site.group(2)}"
+    return f"{rule} {detail}"
+
+
+def is_crash_rule_failure(name: str) -> bool:
+    """Whether a failure name came from crash_rule_failure (a rule line, not a test)."""
+    return name.split(" ", 1)[0] in CRASH_RULES
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
@@ -269,6 +304,8 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
+        if rule := crash_rule_failure(text):
+            found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
@@ -551,6 +588,12 @@ def read(log: str | None, bun: bool = True) -> Result:
         result.failed |= names
         result.ran = True
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}
+    # Each cut-into pass closes one start, the longest name it fits (fooBar(), not foo() too); a run's own
+    # summary ("✔ Test run with 1 test ...") is never one, so it does not close a test named run().
+    for text in lines:
+        if unfinished and "✔ Test " in text and not FINISHED.search(text) and not RUN_ENDED.search(text):
+            if fits := [name for name in unfinished if spliced_pass(name, text)]:
+                unfinished.discard(max(fits, key=len))
     unfinished |= ({m.group(1) for text in lines for m in [XC_STARTED.search(text)] if m}
                    - {m.group(1) for text in lines for m in [XC_FINISHED.search(text)] if m})
     if unfinished:
@@ -590,6 +633,46 @@ def read(log: str | None, bun: bool = True) -> Result:
         signal = f"signal {signals[0]}" if signals else "no signal named"
         result.crashes = [f"{name} crashed ({signal})" for name in dict.fromkeys(who)]
     return result
+
+
+# A job the runner went away under (2026-11-03: cmux#33162's `web / react-apps-base-check (3)`, job 126154996598, on a
+# Blacksmith runner): GitHub fails it about 10 minutes later with this failure annotation, keeps no log (its logs
+# endpoint answers BlobNotFound) and leaves the step it was in "in_progress". Its red is the infrastructure's, not a
+# verdict about the change: like a cancelled job it has nothing to compare, is never the PR's own red, and needs a
+# re-run (ci-failure-attribution.yml re-runs it once; cmuxterm-hq's next-autoland rerun_infra once a head).
+LOST_RUNNER = re.compile(r"lost communication with the server|The runner has received a shutdown signal|"
+                         r"The hosted runner encountered an error")
+BLOB_NOT_FOUND = re.compile(r"\bBlobNotFound\b|The specified blob does not exist")
+
+
+def lost_runner(job, annotations=(), log=None):
+    """Why failed JOB (an Actions job or check run) is infra and no verdict, or None. ANNOTATIONS are its check run's
+    annotations (dicts with "message" and "annotation_level", or plain messages); LOG, when the caller read it, is
+    its log text or the error its read gave. Any one is enough: a failure annotation that says the runner was lost;
+    a job that completed with a step still unfinished and no step failed (the runner stopped reporting mid-step); or
+    a log GitHub never stored (BlobNotFound) with no step failed. A job with a failed step keeps its verdict."""
+    if (job or {}).get("conclusion") != "failure":
+        return None
+    for note in annotations or ():
+        if isinstance(note, dict):
+            if (note.get("annotation_level") or "failure") != "failure":
+                continue
+            message = str(note.get("message") or "")
+        else:
+            message = str(note)
+        if LOST_RUNNER.search(message):
+            return "its runner was lost: " + " ".join(message.split())[:200]
+    steps = [step for step in (job or {}).get("steps") or [] if isinstance(step, dict)]
+    if any(step.get("conclusion") == "failure" for step in steps):
+        return None
+    unfinished = [step for step in steps if step.get("status") != "completed"
+                  and (step.get("status") == "in_progress" or step.get("started_at"))]
+    if unfinished:
+        return (f"it completed with step {unfinished[0].get('name')!r} still {unfinished[0].get('status')} and no "
+                "step failed: its runner stopped reporting mid-step")
+    if isinstance(log, str) and BLOB_NOT_FOUND.search(log):
+        return "GitHub stored no log for it (BlobNotFound) and no step failed: its runner went away"
+    return None
 
 
 def is_test_red(found: Result, job: str = "") -> bool:
@@ -855,6 +938,44 @@ def classify_web(head_logs: list, base_logs: list, job: str = "", base: str = "t
     return Verdict(bool(reasons), reasons, shared)
 
 
+# A coalesced feat-cmux-next web run (cmux-next-web.yml runs its web checks at most once every 30 minutes, on the
+# newest push, routed from the last run's commit) covers several commits. When its webview tests go red, its
+# `web bisect` job (scripts/ci/web_coalesce.py bisect) re-runs only the new red files, only on those commits, and
+# prints one line a file. bisect_report reads them, so a reader of push verdicts (HQ's base-red-watch) still names the
+# first red commit and its pull request rather than the run's whole range:
+#   web bisect: first red at SHA (#N|a direct push) after GREEN_SHA: FILE[ (TESTS)]
+#   web bisect: red before the range at BASE_SHA: FILE       (red at the run before: not this range's)
+#   web bisect: flaky on the base: FILE                      (flips by itself on the base, or no input changed)
+#   web bisect: unresolved between LO_SHA and HI_SHA: FILE   (first red somewhere in (LO, HI])
+BISECT_LINE = re.compile(
+    r"web bisect: (?:first red at (?P<first>[0-9a-f]{40}) \((?:#(?P<pr>\d+)|a direct push)\) after (?P<green>[0-9a-f]{40})"
+    r"|red before the range at (?P<base>[0-9a-f]{40})|(?P<flaky>flaky on the base)"
+    r"|unresolved between (?P<lo>[0-9a-f]{40}) and (?P<hi>[0-9a-f]{40})): (?P<file>\S+?)(?: \(.*\))?$")
+
+
+def bisect_report(log: str | None) -> dict[str, dict]:
+    """{webview test file: {"kind": first|base|flaky|unresolved, "first_red", "green", "pr"}} from a `web bisect` job's
+    log (its echoed script is never read). first: FIRST_RED is the file's first red commit, GREEN the commit before
+    it, PR its pull request number or None for a direct push. unresolved: the first red is after GREEN, at or before
+    FIRST_RED. base and flaky name no commit of the range."""
+    found: dict[str, dict] = {}
+    for text in lines_of(log or ""):
+        match = BISECT_LINE.search(text)
+        if not match:
+            continue
+        if match["first"]:
+            got = {"kind": "first", "first_red": match["first"], "green": match["green"],
+                   "pr": int(match["pr"]) if match["pr"] else None}
+        elif match["base"]:
+            got = {"kind": "base", "first_red": None, "green": None, "pr": None}
+        elif match["flaky"]:
+            got = {"kind": "flaky", "first_red": None, "green": None, "pr": None}
+        else:
+            got = {"kind": "unresolved", "first_red": match["hi"], "green": match["lo"], "pr": None}
+        found.setdefault(match["file"], got)
+    return found
+
+
 # Gallery health's health.json: a shard's broken states and its states over their ready-time budget.
 GALLERY_KEYS = ("fresh", "known", "slow")
 # A render the browser lost: a crash, never a state the base can share.
@@ -986,9 +1107,23 @@ def main(argv: list[str] | None = None) -> int:
     gallery.add_argument("--states", action="store_true", help="print the red states (entry#variant) to replay on the base")
     gallery.add_argument("--annotate", action="store_true", help="GitHub annotations: base reds warn, own reds fail")
     gallery.add_argument("--json", action="store_true")
+    runner = sub.add_parser("runner", help="whether a failed job's red is a lost runner (infra, no verdict)")
+    runner.add_argument("--job", required=True, type=Path, help="the job as the Actions jobs API gives it")
+    runner.add_argument("--annotations", type=Path, help="its check run's annotations (JSON list)")
+    runner.add_argument("--log", type=Path, help="its log, or what its read answered")
     args = parser.parse_args(argv)
     if args.command == "gallery":
         return gallery_main(args)
+    if args.command == "runner":
+        job = json.loads(args.job.read_text())
+        notes = json.loads(args.annotations.read_text()) if args.annotations else ()
+        why = lost_runner(job, notes, args.log.read_text(errors="replace") if args.log else None)
+        name = job.get("name") or job.get("id")
+        if why:
+            print(f"infra, not a verdict: '{name}' (job {job.get('id')}) {why}; never the PR's own red; re-run it")
+            return 0
+        print(f"a verdict: '{name}' (job {job.get('id')}) is {job.get('conclusion')}, not a lost runner")
+        return 1
     head = args.head.read_text(errors="replace")
     base = args.base.read_text(errors="replace") if args.base else None
     verdict = classify(head, base, args.job, args.base_name)

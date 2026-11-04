@@ -48,6 +48,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import "../../../ui/controls.css";
+import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
@@ -58,8 +60,8 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
-import { compactingUsage } from "../usageStats";
+import { transcriptColumn, transcriptColumnSpan, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { compactingUsage, type UsageCacheLayout } from "../usageStats";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -75,6 +77,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { useIMessage, type IMessageView } from "./imessage";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
@@ -91,6 +94,7 @@ import {
 } from "./subagentScope";
 import {
   bindSessionInfoPane,
+  claimSessionInfoIMessageReveal,
   SESSION_INFO_WIDTH,
   sessionInfoPaneKey,
   setSessionInfoMore,
@@ -111,6 +115,7 @@ import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
@@ -132,6 +137,8 @@ export const PUSH_MIN_CHAT = 440;
 export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
+/// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
+const NO_FOLDERS: readonly string[] = [];
 
 /// Whether Settings Push always is on: Session Info then always takes a column.
 export const pushes = (placement: SessionInfoPlacement) => placement === "push";
@@ -236,7 +243,7 @@ export const sessionInfoStage = (
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
 };
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
@@ -267,10 +274,20 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
   paneWidth <= 0 ||
   room <= 0 ||
-  (room < paneWidth && transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width);
+  (room < paneWidth &&
+    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
+    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
+    // Default placement still steps in 8s and keeps its existing exact-width guard.
+    (allowGridRounding
+      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
+      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
+    // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
+    // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
+    // 2026-11-03: "if it would need to be then session info should be an overlay").
+    transcriptColumnSpan(paneWidth - room, column) === transcriptColumnSpan(paneWidth, column));
 
 /// Whether Session Info pushes the chat aside (sessionInfoStage `push`).
 export const sessionInfoPushes = (
@@ -286,10 +303,8 @@ export const sessionInfoPushes = (
 /// moves right as the chat widens.
 const columnEnd = (chatWidth: number, column?: ChatColumn) => chatWidth - transcriptColumn(chatWidth, column).inset;
 
-/// A room of an even number of pixels: the column centered in the chat beside it then starts on a
-/// whole pixel and keeps the width it has in the whole pane (pushKeepsColumn), never a pixel less.
-const even = (room: number) => Math.ceil(room / 2) * 2;
-
+/// A room stepped in 8px increments while the column needs only part of the panel: the column's inset is
+/// on the 4 grid (model.ts transcriptColumn, design/grid.md 5.5), so the centered column keeps its width.
 /// The room a pushed panel `panel` wide (pushedWidth) takes from the chat's right end: by default only
 /// what the gutter lacks, so the chat narrows gradually from the pane width where the gutter stops
 /// holding the panel (0 there) to the panel and its margin (Leo, 2026-11-03: "gradually pushing into the
@@ -298,22 +313,21 @@ const even = (room: number) => Math.ceil(room / 2) * 2;
 export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn, overflow = 0, full = false) => {
   const all = panel + FLOAT_MARGIN;
   if (paneWidth <= 0) return all;
-  if (full) return even(all);
+  // Panel widths are user-controlled and may be any pixel value. Keep the panel's own 8px inset exact
+  // instead of rounding the whole room up: an odd drag width must not leave a gap (#33865).
+  if (full) return all;
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
-  let fits = paneWidth - all;
-  if (fits <= 0 || columnEnd(fits, column) > end) return even(all);
-  // The widest chat whose column still ends by `end`: columnEnd only grows with the chat's width.
-  let over = paneWidth;
-  while (over - fits > 1) {
-    const mid = Math.floor((fits + over) / 2);
-    if (columnEnd(mid, column) <= end) fits = mid;
-    else over = mid;
-  }
+  if (paneWidth - all <= 0 || columnEnd(paneWidth - all, column) > end) return all;
+  // The least room, in steps of 8 (the column's inset is on the 4 grid, so each step moves the column's
+  // end in by about 4), whose column still ends by `end`. Rounding a pixel search up to 8 instead could
+  // land 1-3 px past it: columnEnd does not grow steadily with the chat's width. At most about 70 steps,
+  // run once per layout of the panel.
+  let room = 8;
+  while (room < all && columnEnd(paneWidth - room, column) > end) room += 8;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  const room = paneWidth - fits;
-  return even(room >= panel ? all : room);
+  return room >= panel ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -650,7 +664,7 @@ export function useSessionInfo({
     });
   }, [on, label, onBeforeOpen]);
   // Esc closes it while the keyboard is in it or on its toggle (not in a text field there), before a
-  // diff in place takes it (DiffPanel listens on the window, after the document). Anywhere else Esc
+  // popup in the page takes it (they listen on the window, after the document). Anywhere else Esc
   // keeps its own meaning: with nothing focused and a turn running it is the composer's double press
   // that stops the turn (escapeStop.ts), which an Esc claimed here never reaches. An open popover,
   // menu or dialog takes Esc first (as WidgetEditing.tsx): they listen on the document too, but after this.
@@ -1148,7 +1162,10 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           <div
             className="acpmux-session-info-room"
             aria-hidden="true"
-            style={{ width: Math.max(0, room - FLOAT_MARGIN), marginRight: Math.min(room, FLOAT_MARGIN) }}
+            style={{
+              width: Math.max(0, room - FLOAT_MARGIN),
+              marginRight: Math.min(room, FLOAT_MARGIN),
+            }}
           />
         )}
         <NativeSessionInfo
@@ -1158,6 +1175,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           top={nativeTop(shell, tabRowHeight)}
           side={side}
           foot={stopsAboveComposer ? dockHeight : undefined}
+          overChat={overChat}
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}
@@ -1353,6 +1371,10 @@ export function SessionInfoPanel({
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
   // or in the gutter, it covers nothing.
   useSeeThroughBlur(frame, glass, chatUnderGlass, chatGlass);
+  // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
+  // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
+  // flicker EVER when im scrolling"). Its place re-measures when it moves.
+  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   const [footSettled, setFootSettled] = useState(false);
@@ -1544,6 +1566,7 @@ export function SessionInfo({
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
+  usageCacheLayout,
   banner,
   agent,
   layout = RAIL_LAYOUT,
@@ -1552,6 +1575,7 @@ export function SessionInfo({
   more,
   onMore,
   compactLook = "more",
+  imessage: imessageFixture,
 }: {
   summary?: Summary;
   machineName?: string;
@@ -1629,6 +1653,8 @@ export function SessionInfo({
   onShowUsage?: () => void;
   /// Gallery-only alternatives for the Usage section's own-metrics leading column.
   usageOwnRowLayout?: UsageOwnRowLayout;
+  /// Gallery-only alternatives for Usage's prompt cache numbers (two rows, or one).
+  usageCacheLayout?: UsageCacheLayout;
   /// Opens the chat's project folder in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -1649,8 +1675,12 @@ export function SessionInfo({
   onMore?: (more: boolean) => void;
   /// How the default view stays short (SessionInfoGroup.tsx); the gallery shows the others.
   compactLook?: SessionInfoCompactLook;
+  /// Gallery fixtures; false suppresses the Mac-only connector.
+  imessage?: IMessageView | false;
 }) {
   const t = useT();
+  const liveIMessage = useIMessage(imessageFixture === undefined);
+  const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
   const sessionInfoState = useSessionInfoState();
   const showMore = more ?? sessionInfoState.more;
@@ -1658,6 +1688,14 @@ export function SessionInfo({
   const stored = sessionInfoState.sections;
   const state = sections ?? stored;
   const fold = (id: SessionInfoSectionId) => (next: boolean) => (onSection ?? setSessionInfoSection)(id, next);
+  const imessageStatus = imessage?.data.status;
+  useEffect(() => {
+    if (!imessageStatus || imessageStatus === "connected" || !claimSessionInfoIMessageReveal()) return;
+    (onSection ?? setSessionInfoSection)("connectors", true);
+  }, [imessageStatus, onSection]);
+  useEffect(() => {
+    if (imessage?.expanded) (onSection ?? setSessionInfoSection)("connectors", true);
+  }, [imessage?.expanded, onSection]);
   const [gallery, setGallery] = useState(false);
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const known = usage !== undefined && usage.size > 0;
@@ -1728,6 +1766,7 @@ export function SessionInfo({
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
+  const folders = summary?.additionalDirectories ?? NO_FOLDERS;
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1739,6 +1778,23 @@ export function SessionInfo({
   const limitSet =
     limits !== undefined && limits.maxRunningSource !== undefined && limits.maxRunningSource !== "default";
   const chatId = summary?.sessionId;
+  const appPanels = useAppPanelSections(
+    chatId
+      ? { session_id: chatId, cwd: summary?.cwd ?? "", branch: summary?.branch, harness: summary?.harness }
+      : undefined,
+  );
+  const [appOpen, setAppOpen] = useState<Record<string, boolean>>({});
+  const appNodes = Object.fromEntries(
+    appPanels.map((section) => [
+      section.id,
+      <AppPanelSection
+        key={section.id}
+        section={section}
+        open={appOpen[section.id] ?? true}
+        onOpenChange={(open) => setAppOpen((current) => ({ ...current, [section.id]: open }))}
+      />,
+    ]),
+  );
   // A chat on another machine: its sub-sessions live on that machine's acpmux, which takes the
   // limit only from its own person, so the line only reads.
   const setRunningLimit =
@@ -1802,7 +1858,7 @@ export function SessionInfo({
       />
     )
   );
-  const connectors = mcp.length > 0 && (
+  const connectors = (mcp.length > 0 || imessage) && (
     <SessionInfoSection
       id="connectors"
       title={t("rail.connectors")}
@@ -1813,12 +1869,16 @@ export function SessionInfo({
       meta={value(
         reconnect > 0
           ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-          : t("rail.connected", {
-              count: mcp.filter((server) => server.status === "connected").length,
-            }),
+          : mcp.length === 0 && imessage && imessage.data.status !== "connected"
+            ? t("imessage.connect")
+            : t("rail.connected", {
+                count:
+                  mcp.filter((server) => server.status === "connected").length +
+                  (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
+              }),
       )}
     >
-      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
+      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
     </SessionInfoSection>
   );
   const changes = pullRequests.length > 0 && (
@@ -1834,16 +1894,17 @@ export function SessionInfo({
       )}
     </SessionInfoSection>
   );
-  const sourcesSection = sources.length > 0 && (
+  const sourcesSection = sources.length + folders.length > 0 && (
     <SessionInfoSection
       id="sources"
       title={t("summary.sources")}
       open={state.sources}
       onOpenChange={fold("sources")}
-      meta={value(String(sources.length))}
+      meta={value(String(sources.length + folders.length))}
     >
       <SourcesSection
         sources={sources}
+        folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
         onOpenBeside={onOpenUrl}
@@ -1946,6 +2007,7 @@ export function SessionInfo({
         onShowSubagents={subagentsSection ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
+        cacheLayout={usageCacheLayout}
       />
     </SessionInfoSection>
   );
@@ -1973,6 +2035,7 @@ export function SessionInfo({
           outputs: outputsSection,
           subagents: subagentsSection,
           tasks,
+          ...appNodes,
         }}
       />
       {gallery && (

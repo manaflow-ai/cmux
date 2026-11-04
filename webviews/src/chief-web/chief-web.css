@@ -1,0 +1,95 @@
+/* design/chief-web.md. Phone first; shared transcript, theme and glass. */
+.chief-web{--chief-touch-target:44px;--chief-header-height:56px;--chief-inset:max(16px,calc((100% - 760px)/2));--chief-type:max(16px,var(--text-body));position:fixed;inset:var(--chief-top,0px) 0 auto;height:var(--chief-height,100%);display:flex;flex-direction:column;overflow:hidden;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--chief-type);line-height:1.5;overscroll-behavior:none}
+.chief-web__header{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--chief-header-height);padding:max(8px,env(safe-area-inset-top)) max(var(--chief-inset),env(safe-area-inset-right)) 8px max(var(--chief-inset),env(safe-area-inset-left));box-sizing:border-box}
+.chief-web__header h1{margin:0;font-size:var(--chief-type);font-weight:600}
+.chief-web__connection{display:flex;align-items:center;gap:8px;color:var(--agent-muted);font-size:var(--text-detail)}
+.chief-web button,.chief-web a{touch-action:manipulation}
+.chief-web__connection button,.chief-web__pending button{border:0;background:none;color:inherit;font:inherit;min-height:var(--chief-touch-target);padding:0 8px;text-decoration:underline}
+.chief-web__connection a,.chief-web__action{color:var(--agent-text)}
+.chief-web__transcript{position:relative;display:flex;flex-direction:column;flex:1;min-height:0;--cv-inset:max(16px,calc((100% - 760px)/2))}
+.chief-web__transcript .cv{--cv-font-size:var(--chief-type);--cv-line-height:calc(var(--chief-type)*1.6);font-size:var(--chief-type)}
+.chief-web__transcript a{overflow-wrap:anywhere}
+.chief-web__empty{display:flex;flex:1;min-height:0;flex-direction:column;justify-content:center;align-items:center;gap:16px;padding:24px;text-align:center}
+.chief-web__empty h2{max-width:280px;margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
+.chief-web__empty p{margin:0;color:var(--agent-muted)}
+.chief-web__action{padding:8px 16px;min-height:var(--chief-touch-target);box-sizing:border-box;border:1px solid var(--agent-border);border-radius:12px;background:var(--agent-surface);font:inherit}
+.chief-web__dock{flex:none;padding:8px max(var(--chief-inset),env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(var(--chief-inset),env(safe-area-inset-left));display:flex;flex-direction:column;gap:8px}
+.chief-web .guest-composer{gap:4px;padding:8px;border:1px solid var(--agent-border);border-radius:16px;align-items:flex-end}
+.chief-web .guest-composer__field{min-height:var(--chief-touch-target);max-height:min(40dvh,320px);padding:12px 8px;border:0;border-radius:0;background:transparent;font-size:var(--chief-type);line-height:1.5}
+.chief-web .guest-composer .guest-join__button{display:grid;place-items:center;min-width:44px;height:var(--chief-touch-target);padding:0;border-radius:12px;background:transparent;color:var(--agent-text)}
+.chief-web .guest-composer__note{padding:0 8px}
+.chief-web__outbox{max-height:25dvh;overflow-y:auto}
+.chief-web__pending{margin:0 0 8px auto;max-width:85%;padding:8px 12px;border-radius:16px;background:var(--agent-surface);overflow-wrap:anywhere}
+.chief-web__pending p{margin:0;white-space:pre-wrap}
+.chief-web__pending span{font-size:var(--text-detail);color:var(--agent-muted)}
+.chief-machine-login {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--agent-border);
+  border-radius: 16px;
+  background: var(--agent-surface);
+  max-height: 40dvh;
+  overflow-y: auto;
+  font-size: var(--chief-type);
+}
+.chief-machine-login__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.chief-machine-login p {
+  margin: 0;
+  color: var(--agent-muted);
+}
+.chief-machine-login a {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--chief-touch-target);
+  color: inherit;
+  text-decoration: underline;
+}
+.chief-machine-login label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.chief-machine-login input {
+  min-height: var(--chief-touch-target);
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--agent-page-bg);
+  color: inherit;
+  font: inherit;
+}
+.chief-machine-login__actions,
+.chief-machine-login__device {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chief-machine-login__device code {
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.chief-machine-login button {
+  min-height: var(--chief-touch-target);
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+.chief-machine-login button.chief-web__action {
+  border: 1px solid var(--agent-border);
+}
+.chief-machine-login button:disabled {
+  opacity: 0.5;
+}

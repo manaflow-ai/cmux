@@ -98,6 +98,7 @@ extension WorkspaceRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // one diameter for every status dot (Lawrence msg 19696)
         let full = layoutBounds
         layoutColorRail(in: full)
         // The name lines and the trailing cluster center in the head; the
@@ -124,7 +125,7 @@ extension WorkspaceRowView {
         switch iconKind {
         case nil: side = railSlot ? SidebarStyle.dotSize + Metrics.space1 : 0 // text only: no kind glyph (WORKSPACE-ROWS-NO-DEFAULT-ICON)
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?, .emoji?, .favicon?: side = SidebarStyle.iconColumnBox
+        case .symbol?, .emoji?, .favicon?, .pagePlaceholder?: side = SidebarStyle.iconColumnBox
         }
         // The icon's box starts on lead (where an iconless title would start) and its glyph's ink starts there too, as
         // the pins' and Home's do (`SidebarStyle.iconColumnGlyphX`, Lawrence msg 19643); the text column is the
@@ -202,7 +203,7 @@ extension WorkspaceRowView {
         // the count takes the next slot, a small glyph centered in it.
         if badge.state.isUnread, columnMark?.view !== badge {
             let w = badge.preferredWidth
-            let h = badge.state == .dot ? SidebarStyle.unreadDotSize : SidebarStyle.badgeHeight
+            let h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: w, height: h))
             badgeEdge = columns.trailingEdge(before: badge.frame)
         }

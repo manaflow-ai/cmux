@@ -65,6 +65,31 @@ const devServer = activity(
   1.5,
 );
 
+// The raw assignment from Leo's 2026-11-04 running-strip screenshot. Synthetic paths and data;
+// the executed SHA lookup stays named, while flags and interpolation live in the tooltip/output.
+const glyphCheck =
+  "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script scripts/check-glyphs.sh";
+const glyphCheckScene = (description?: string) =>
+  chat(
+    [
+      user("Check the glyphs on the fleet", 9),
+      activity(
+        [
+          tool(glyphCheck, "execute", "completed", {
+            inputSummary: JSON.stringify({
+              command: glyphCheck,
+              ...(description ? { description } : {}),
+              run_in_background: true,
+            }),
+            startedAt: minutesAgo(8.75),
+          }),
+        ],
+        8.75,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 /** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
  * command or a subagent?"). */
 const testRun = activity(
@@ -101,6 +126,27 @@ const described = activity(
     }),
   ],
   1.4,
+);
+
+/** The shell lines in Leo's screenshot of the tray (2026-11-03: "we should be able to parse these
+ * more... like instead of raw things, we should be able to deterministically/heuristically have
+ * stuff"), with no description, so each reads by its rule (session-info/commandRules.ts). */
+const RAW_COMMANDS = [
+  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
+  'python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 34769',
+  "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
+  "gh pr merge 34769 -R manaflow-ai/cmux --squash --match-head-commit 0123abcd",
+  "cd ~/Projects/cmux && git push -q origin HEAD:lane/hat-command-labels 2>&1 | tail -3",
+];
+const rawCommands = activity(
+  RAW_COMMANDS.map((command, index) =>
+    tool(command, "execute", "completed", {
+      inputSummary: JSON.stringify({ command, run_in_background: true }),
+      startedAt: minutesAgo(6 - index),
+    }),
+  ),
+  6,
 );
 
 /** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
@@ -313,6 +359,42 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
     throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
 };
 
+/** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
+ *  time and a square stop button?"): opens the tray, gives it one trayStopLook arm, and checks each
+ *  running line with a time shows no spinner and no Running word, only its time and a filled Stop. */
+const runningStop = (arm: "solid" | "muted" | "boxed") => async (ctx: PlayContext) => {
+  await trayLines(2)(ctx);
+  ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!.dataset.stop = arm;
+  const running = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line[data-timed]"),
+  ];
+  if (running.length !== 2) throw new Error(`two running lines with a time, not ${running.length}`);
+  for (const line of running) {
+    if (line.querySelector(".acpmux-lineage__icon .cv-spinner, .acpmux-lineage__icon [data-spinner]"))
+      throw new Error("a running line with its time draws no spinner");
+    if (line.querySelector(".acpmux-summary-agent__state")) throw new Error("a running line shows no Running word");
+    if (!line.querySelector(".acpmux-agent-line__time")?.textContent) throw new Error("a running line shows its time");
+    if (!line.querySelector(".acpmux-agent-line__stop-slot > button svg"))
+      throw new Error("a running subagent's line keeps its Stop");
+  }
+};
+
+/** Two subagents still running and one done, for the running line's Stop arms. */
+const runningStopChat = chat(
+  [
+    user("Fan the review out", 40),
+    group(
+      [
+        agent("Make autoland land again", 39, "running", { action: "Read land_ready.py" }),
+        agent("Run Codex review via router", 24, "running", { action: "Bash" }),
+        agent("Check the docs", 12, "completed", { ran: 0.6 }),
+      ],
+      39,
+    ),
+  ],
+  { isWorking: true },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -457,6 +539,21 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "running-stop-solid": {
+      note: 'The default running line (Leo, 2026-11-03: "do we really need a running symbol vs just having the time and a square stop button?"): its own mark, its task, its ticking time and a filled square Stop in the text colour, as Claude Desktop\'s Background tasks rows read; no spinner, no Running word. The done line keeps Done · its time.',
+      play: runningStop("solid"),
+      snapshot: runningStopChat,
+    },
+    "running-stop-muted": {
+      note: "The same running lines with the filled square Stop muted, the time's tone.",
+      play: runningStop("muted"),
+      snapshot: runningStopChat,
+    },
+    "running-stop-boxed": {
+      note: "The same running lines with the filled square Stop on a faint 10% box, as the Background tasks panel draws its Stop.",
+      play: runningStop("boxed"),
+      snapshot: runningStopChat,
+    },
     "row-menu": {
       note: "A running subagent has a fixed Stop square in its row track and the same action in its context menu. A right-click opens the menu on the click, and the line stays lit under it.",
       play: async (ctx) => {
@@ -519,6 +616,55 @@ export default agentPaneEntry({
           throw new Error("a command's line says Command first");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "command-words": {
+      note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): a wait reads Waiting on cmux checks, cmux-ci reads Fleet tests · Playwright or Fleet run for #34769, a sleep reads Waiting 9m 20s. The shell line is the tooltip; a line about a run or a pull request links to it from its tail.',
+      height: 560,
+      play: async (ctx) => {
+        await trayLines(RAW_COMMANDS.length)(ctx);
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")].map(
+          (name) => name.textContent,
+        );
+        for (const want of [
+          "Waiting on cmux checks",
+          "Fleet tests · Playwright",
+          "Waiting 9m 20s",
+          "Fleet run for #34769",
+        ])
+          if (!names.includes(want)) throw new Error(`a command reads "${want}", got ${names.join(" | ")}`);
+        if (names.some((name) => name?.includes("--"))) throw new Error("no line shows a raw shell line");
+      },
+      snapshot: chat([user("Wait on the checks, run the fleet tests and land it", 7), rawCommands], {
+        isWorking: true,
+      }),
+    },
+    "command-substitution": {
+      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · Fleet run: the setup's substitution stays named, the cmux-ci step reads by its rule (session-info/commandRules.ts). Shell flags and interpolation remain in the full-command tooltip.",
+      snapshot: glyphCheckScene(),
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        const name = ctx.document.querySelector(".acpmux-running-tray .acpmux-summary-agent__name");
+        if (name?.textContent !== "git rev-parse HEAD · Fleet run")
+          throw new Error("the command needs a readable title");
+        const line = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__button");
+        if (line?.title !== glyphCheck) throw new Error("the full command stays available in the tooltip");
+      },
+    },
+    "command-substitution-described": {
+      note: "The same shell line with a human description: the tray uses that title unchanged.",
+      snapshot: glyphCheckScene("Check the glyphs on the fleet"),
+      play: trayLines(1),
+    },
+    "command-substitution-folded": {
+      note: "The command shares the tray with a reviewer. Its readable title also appears in the folded name arm; no malformed assignment leaks into the strip.",
+      snapshot: chat(
+        [
+          user("Check the glyphs on the fleet", 9),
+          group([agent("Review glyph changes", 9)], 9),
+          ...glyphCheckScene().rows.slice(1),
+        ],
+        { isWorking: true },
+      ),
     },
     "expand-on-composer": {
       note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",
@@ -684,13 +830,16 @@ export default agentPaneEntry({
       })(),
     },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "4 subagents running · 2 commands") throw new Error(`the header must count the rows: ${title}`);
+        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
+        // the list counts after what runs.
+        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+          throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {
         const base = chat(

@@ -94,18 +94,19 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
   },
   {
-    id: "step-to-live",
-    between: 'a one-line row and the live line under it ("Sending message to …"), centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "the live line is a one-line row",
-  },
-  {
-    id: "live-to-step",
-    between: 'the live line and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
+    id: "step-to-waiting",
+    between: 'a one-line row and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
+  },
+  {
+    id: "step-to-live",
+    between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row, and the running turn\'s last (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad")',
   },
 ];
 
@@ -203,8 +204,10 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
  * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
  * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to"
  * sit flush on the 22 pitch (rule 3), 16 from the prose around them (rule 4). Measured over gallery
- * variants `working-bottom` and `reply-received` by test/transcript-spacing-kinds.test.ts. */
-export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-bottom" | "reply-received" })[] = [
+ * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
+export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
+  variant: "working-bottom" | "reply-received" | "notes-live" | "status-prompt";
+})[] = [
   {
     id: "work-to-subagent",
     variant: "working-bottom",
@@ -214,20 +217,20 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-
     source: "one-line rows sit flush (rule 3)",
   },
   {
-    id: "subagent-to-live",
+    id: "subagent-to-waiting",
     variant: "working-bottom",
-    between: '"Subagent finished" and the live "Thinking" line under it, centre to centre',
+    between: '"Subagent finished" and "1 message from 1 session" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the waiting group's head is a one-line row (rule 3, step-to-waiting)",
+  },
+  {
+    id: "waiting-to-live",
+    variant: "working-bottom",
+    between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row (rule 3, step-to-live)",
-  },
-  {
-    id: "live-to-waiting",
-    variant: "working-bottom",
-    between: 'the live "Thinking" line and "1 message from 1 session" under it, centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "the waiting group's head is a one-line row (rule 3, live-to-step)",
   },
   {
     id: "reply-footer-to-received",
@@ -252,6 +255,32 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & { variant: "working-
     value: 22,
     tolerance: 0.5,
     source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+  {
+    id: "note-to-live",
+    variant: "notes-live",
+    between:
+      'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row (rule 3, step-to-live); Leo, 2026-11-03: "this feels like too awkward of a gap :("',
+  },
+  {
+    id: "status-to-prompt",
+    variant: "status-prompt",
+    between: "a turn's last status row (\"Subagent finished\") and the next prompt bubble's top edge",
+    value: 43,
+    tolerance: 1,
+    source: 'step-to-prompt: 11 + 32 (rule 5); Leo, 2026-11-03: "why is the spacing like this it\'s weird"',
+  },
+  {
+    id: "prompt-to-sent",
+    variant: "status-prompt",
+    between: "a prompt bubble's bottom edge and the centre of its turn's first status row (\"Sent to …\")",
+    value: 43,
+    tolerance: 1,
+    source: "prompt-to-step: 32 + 11 (rule 5)",
   },
 ];
 
@@ -284,10 +313,10 @@ export const RUN_CHILD = {
 export const FOOTER = {
   /** Icon glyph box, CSS px: Claude 16 (chatgpt.com 20). */
   glyph: 16,
-  /** Button hit box: grid transcript-action-control 28 (chatgpt.com 32, Claude 24). */
-  button: 28,
+  /** Button hit box: Claude Code desktop's 24 (chatgpt.com 32; Leo, 2026-11-04, beside Claude's: "spaing bad"). */
+  button: 24,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
-  pitch: 28,
+  pitch: 24,
   pending: undefined as string | undefined,
 } as const;
 

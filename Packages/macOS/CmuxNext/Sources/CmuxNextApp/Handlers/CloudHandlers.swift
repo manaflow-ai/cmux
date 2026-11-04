@@ -61,7 +61,7 @@ enum CloudHandlers {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
-                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
@@ -164,7 +164,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
+                return ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))
             }
         }
         context.services.registry.track(task)

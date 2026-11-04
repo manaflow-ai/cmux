@@ -1,8 +1,10 @@
-//! `cmux share chat|list|revoke|kick`: guest links to an agent chat (design chat-multiplayer.md 6).
-//! The app's `agent.share` family runs them (CLI names `share chat`, `share list`, `share revoke`,
-//! `share kick`), because the app holds the owner's cmux sign-in that a link's room needs. This
-//! only turns the positional ids of `share revoke ID` and `share kick ID GUEST` into the actions'
-//! `--share-id` and `--guest-id`, and prints `share chat`'s link alone for a person.
+//! `cmux share chat|list|revoke|kick|invite|uninvite`: guest links to an agent chat and the cmux
+//! accounts invited to it (design chat-multiplayer.md 6). The app's `agent.share` family runs them
+//! (CLI names `share chat`, `share list`, `share revoke`, `share kick`, `share invite`, `share
+//! uninvite`), because the app holds the owner's cmux sign-in that a link's room needs. This only
+//! turns the positional words of `share revoke ID`, `share kick ID GUEST`, `share invite ACCOUNT`
+//! and `share uninvite ACCOUNT` into the actions' `--share-id`, `--guest-id` and `--account`, and
+//! prints `share chat`'s link (and an invite's one line) for a person.
 
 use serde_json::Value;
 
@@ -19,6 +21,7 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
     let names: &[&str] = match verb.as_str() {
         "revoke" => &["--share-id"],
         "kick" => &["--share-id", "--guest-id"],
+        "invite" | "uninvite" => return Some(account_action(verb, rest)),
         _ => return None,
     };
     let positional = rest.iter().take(names.len()).take_while(|arg| !is_flag(arg)).count();
@@ -46,6 +49,44 @@ pub(super) fn action(command_args: &[String]) -> Option<Result<(String, Vec<Stri
         names.iter().zip(ids).map(|(name, id)| format!("{name}={id}")).collect();
     args.extend(flags.iter().cloned());
     Some(Ok((format!("share {verb}"), args)))
+}
+
+/// `share invite|uninvite <account> [flags]`: the account (an email or `@handle`, never dash-led) is
+/// the one word that is neither a flag nor a flag's value, wherever it stands, so `share invite
+/// --surface 3 leo@cmux.com --role view` and `share invite leo@cmux.com --surface 3` agree. An
+/// account given twice (`share invite a@x.com --account b@x.com`) is refused; with none the words
+/// go on as typed, and the app answers that the account is missing.
+fn account_action(verb: &str, rest: &[String]) -> Result<(String, Vec<String>), String> {
+    let mut accounts = Vec::new();
+    let mut flags = Vec::new();
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        if word == "--" {
+            accounts.extend(words.by_ref().cloned());
+            break;
+        }
+        if !word.starts_with('-') {
+            accounts.push(word.clone());
+            continue;
+        }
+        flags.push(word.clone());
+        // `--name value`: the next word is the flag's, not the account (switches take none).
+        if !SWITCHES.contains(&word.as_str())
+            && !ACTION_SWITCHES.contains(&word.as_str())
+            && !word.contains('=')
+            && let Some(value) = words.next()
+        {
+            flags.push(value.clone());
+        }
+    }
+    let named = argument_keys(&flags).iter().filter(|key| *key == "account").count();
+    if accounts.len() + named > 1 {
+        return Err(format!("share {verb}: name one account (an email or @handle)"));
+    }
+    let mut args: Vec<String> =
+        accounts.iter().map(|account| format!("--account={account}")).collect();
+    args.extend(flags);
+    Ok((format!("share {verb}"), args))
 }
 
 /// The action argument each of `args` sets, in every spelling the action parser takes:
@@ -100,6 +141,9 @@ pub(super) fn take_output_switches(args: &mut Vec<String>) -> Vec<String> {
     taken
 }
 
+/// The action parser's own valueless switches (`app::run_action`): never followed by a value.
+const ACTION_SWITCHES: &[&str] = &["--wait", "--no-wait", "--interactive", "--focus"];
+
 /// The switches `share revoke` and `share kick` take besides their ids.
 const SWITCHES: &[&str] = &["--json", "--jsonl", "--quiet", "--help", "-h", "--"];
 
@@ -113,14 +157,30 @@ fn is_flag(arg: &str) -> bool {
                 || matches!(argument_key(arg).as_str(), "shareId" | "guestId" | "arg")))
 }
 
-/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works.
-/// None for every other run (and a link-less share, whose fields print as a table).
+/// What a person sees for `share chat`: the link alone, so `cmux share chat | pbcopy` works; for
+/// `share invite` and `share uninvite`, one line naming the account (an invite's followed by its
+/// invite link, when the share has a room). None for every other run (and
+/// a link-less share, whose fields print as a table).
 pub(super) fn human_line(params: &Value, result: &Value) -> Option<String> {
     let action = params.get("action")?.as_str()?;
-    if action != "share chat" && action != "agent.share" {
-        return None;
+    let result = result.get("result")?;
+    match action {
+        "share chat" | "agent.share" => result.get("url")?.as_str().map(|url| format!("{url}\n")),
+        "share invite" | "agent.share.invite" => {
+            let account = result.get("account")?.as_str()?;
+            let can = if result.get("role")?.as_str()? == "view" { "view" } else { "talk" };
+            let mut line = format!("Invited {account} (can {can})\n");
+            // The link the owner sends the invitee (none without a room).
+            if let Some(link) = result.get("invite_url").and_then(Value::as_str) {
+                line.push_str(&format!("Invite link: {link}\n"));
+            }
+            Some(line)
+        }
+        "share uninvite" | "agent.share.uninvite" => {
+            Some(format!("Removed {}\n", result.get("account")?.as_str()?))
+        }
+        _ => None,
     }
-    result.get("result")?.get("url")?.as_str().map(|url| format!("{url}\n"))
 }
 
 #[cfg(test)]
@@ -211,6 +271,107 @@ mod tests {
         ] {
             assert_eq!(action(&words(text)), None, "{text}");
         }
+    }
+
+    #[test]
+    fn invite_and_uninvite_name_the_account_wherever_it_stands() {
+        assert_eq!(
+            action(&words("share invite leo@cmux.com --role view --json")),
+            Some(Ok((
+                "share invite".to_owned(),
+                words("--account=leo@cmux.com --role view --json")
+            )))
+        );
+        assert_eq!(
+            action(&words("share invite --surface 3 @theo --role talk")),
+            Some(Ok(("share invite".to_owned(), words("--account=@theo --surface 3 --role talk"))))
+        );
+        assert_eq!(
+            action(&words("share uninvite @theo --surface=3")),
+            Some(Ok(("share uninvite".to_owned(), words("--account=@theo --surface=3"))))
+        );
+        // No positional account: the flags go on as typed, and the app asks for one.
+        assert_eq!(
+            action(&words("share invite --account leo@cmux.com")),
+            Some(Ok(("share invite".to_owned(), words("--account leo@cmux.com"))))
+        );
+        assert_eq!(action(&words("share invite")), Some(Ok(("share invite".to_owned(), vec![]))));
+        // The action parser's valueless switches take no value: the account after one is still it.
+        assert_eq!(
+            action(&words("share invite --wait @theo")),
+            Some(Ok(("share invite".to_owned(), words("--account=@theo --wait"))))
+        );
+        assert_eq!(
+            action(&words("share uninvite --focus --no-wait @theo")),
+            Some(Ok(("share uninvite".to_owned(), words("--account=@theo --focus --no-wait"))))
+        );
+    }
+
+    #[test]
+    fn an_invite_names_one_account() {
+        for text in [
+            "share invite a@cmux.com b@cmux.com",
+            "share invite a@cmux.com --account b@cmux.com",
+            "share uninvite a@cmux.com --arg account=b@cmux.com",
+        ] {
+            assert!(matches!(action(&words(text)), Some(Err(_))), "{text}");
+        }
+    }
+
+    /// The rewritten words go through the action parser, and the account and role arrive whole.
+    #[test]
+    fn the_action_parser_reads_the_invite() {
+        let Some(Ok((name, args))) =
+            action(&words("share invite --role view leo@cmux.com --ttl 7d"))
+        else {
+            panic!("share invite names its account")
+        };
+        let command =
+            super::super::app::run_action(&name, &args, super::super::app::ActionName::Cli)
+                .expect("the rewritten flags parse");
+        let super::super::app::AppCommand::Call { params, timeout, .. } = command else {
+            panic!("share invite is an action call")
+        };
+        assert_eq!(params["action"], "share invite", "{params}");
+        let expected = json!({"account": "leo@cmux.com", "role": "view", "ttl": "7d"});
+        assert_eq!(params["args"], expected, "{params}");
+        // An agent's or script's invite waits for the owner's Allow in the app (#30263).
+        assert_eq!(timeout, Some(super::super::app::PERSON_RUN_TIMEOUT));
+    }
+
+    #[test]
+    fn an_invite_prints_one_line_for_a_person() {
+        let params = json!({"action": "share invite"});
+        let result = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com", "role": "view", "state": "invited"}});
+        assert_eq!(
+            human_line(&params, &result).as_deref(),
+            Some("Invited leo@cmux.com (can view)\n")
+        );
+        let talk = json!({"ran": true, "result": {"share_id": "s1", "account": "@theo", "role": "talk", "state": "invited"}});
+        assert_eq!(human_line(&params, &talk).as_deref(), Some("Invited @theo (can talk)\n"));
+        let removed = json!({"ran": true, "result": {"account": "@theo", "state": "removed", "share_ids": ["s1"]}});
+        assert_eq!(
+            human_line(&json!({"action": "share uninvite"}), &removed).as_deref(),
+            Some("Removed @theo\n")
+        );
+    }
+
+    /// With a room, an invite's line is followed by the link the owner sends the invitee.
+    #[test]
+    fn an_invite_prints_the_invite_link() {
+        let params = json!({"action": "share invite"});
+        let result = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com",
+            "role": "talk", "state": "invited", "invite_url": "https://room.example/i/s1"}});
+        assert_eq!(
+            human_line(&params, &result).as_deref(),
+            Some("Invited leo@cmux.com (can talk)\nInvite link: https://room.example/i/s1\n")
+        );
+        let roomless = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com",
+            "role": "talk", "state": "invited", "invite_url": null}});
+        assert_eq!(
+            human_line(&params, &roomless).as_deref(),
+            Some("Invited leo@cmux.com (can talk)\n")
+        );
     }
 
     #[test]

@@ -383,27 +383,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "8ac30a41729f3077c322bfef383de33a56048238",
-      "url": "https://files.cmux.com/cmux-tui/8ac30a41729f3077c322bfef383de33a56048238/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "9589e74487a1ebe41b0ce67b66440377e29184d9f31d64074f12f4a2986849ed",
-      "size": 148374336,
+      "version": "0ae1413031d461ef95bb2913d1857af1e0738506",
+      "url": "https://files.cmux.com/cmux-tui/0ae1413031d461ef95bb2913d1857af1e0738506/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "81f6403015bfd89c12ee68ecc24b6f08ecb7fd14cc1e673257c42a50e9c89b63",
+      "size": 153685712,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/8ac30a41729f3077c322bfef383de33a56048238/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41589424847; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/0ae1413031d461ef95bb2913d1857af1e0738506/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41771300516; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "8ac30a41729f3077c322bfef383de33a56048238",
-      "url": "https://files.cmux.com/cmux-tui/8ac30a41729f3077c322bfef383de33a56048238/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "84ee794a9a496ad700c0b0c2def3f76820dc4efface9dd7e5257e85de619963d",
-      "size": 4244624,
+      "version": "0ae1413031d461ef95bb2913d1857af1e0738506",
+      "url": "https://files.cmux.com/cmux-tui/0ae1413031d461ef95bb2913d1857af1e0738506/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "d039bfaa2ec63c77f4ff017257bcb5fb5c8fd021ea6aed1f24f689bbf44a778a",
+      "size": 4242656,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/8ac30a41729f3077c322bfef383de33a56048238/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41589424847; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/0ae1413031d461ef95bb2913d1857af1e0738506/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/41771300516; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "coderouter",
@@ -421,15 +421,15 @@
     },
     {
       "name": "claude",
-      "version": "2.1.267",
-      "url": "https://downloads.claude.ai/claude-code-releases/2.1.267/linux-x64/claude",
-      "sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
-      "size": 217013744,
+      "version": "2.1.299",
+      "url": "https://downloads.claude.ai/claude-code-releases/2.1.299/linux-x64/claude",
+      "sha256": "2d894a4b1bfaaa9aab72aeff7803e3c73bc2510f279a171f6b8f59f72d17d077",
+      "size": 265342136,
       "format": "raw",
       "fileName": "claude",
       "bin": { "claude": "claude" },
       "versionArgs": ["--version"],
-      "expect": "2.1.267"
+      "expect": "2.1.299"
     },
     {
       "name": "codex",

@@ -528,6 +528,9 @@ struct ShellView: View {
         .sheet(item: $shell.messagingChief) { subject in
             ChiefMessageAboutSheet(subject: subject, sending: shell.sendingToChief) { text in shell.sendToChief(text, about: subject) }
         }
+        .sheet(item: $shell.messagingChiefText) { draft in
+            ChiefMessageAboutSheet(subject: nil, initialText: draft.text, sending: shell.sendingToChief) { text in shell.sendToChief(text) }
+        }
         .sheet(item: $shell.editingTeam) { team in
             TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
         }
@@ -752,11 +755,13 @@ private struct LiveCallHost: ViewModifier {
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
+                ChiefMessenger.shared.composeText = { [weak shell] text in shell?.messagingChiefText = ChiefTextDraft(text: text) }
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
                 AgentChatLauncher.shared.handler = nil
                 ChiefMessenger.shared.compose = nil
+                ChiefMessenger.shared.composeText = nil
             }
     }
 }
@@ -812,6 +817,9 @@ struct ShellTabs: View {
         .tabBarMinimizeBehavior(.never)
         .tint(theme.colors.label.color)
         .cmuxMobileSensoryFeedback(.selection, trigger: shell.tab)
+        // A closed ask's notification leaves Notification Center; only when an ask opens or
+        // closes, or the Feed finishes reading its Macs.
+        .task(id: NeedsYouNotices.key(FeedStore.shared)) { await NeedsYouNotices.sync(FeedStore.shared) }
     }
 }
 
