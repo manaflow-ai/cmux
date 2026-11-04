@@ -78,6 +78,13 @@ public struct HomeAgentThread: Hashable, Sendable {
         self.workspaceLink = workspaceLink
     }
 
+    /// The agent's acpmux session id, from the Chief's link (``workspaceLink``); nil without a link.
+    public var session: String? {
+        guard let link = workspaceLink?.absoluteString, let slash = link.lastIndex(of: "/") else { return nil }
+        let token = link[link.index(after: slash)...]
+        return token.isEmpty ? nil : String(token)
+    }
+
     /// How long it worked: from its first message to its end, or to `now` while it works.
     ///
     /// - Parameter now: The current time (injected so tests and redraws agree).
