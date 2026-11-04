@@ -90,8 +90,16 @@ pub struct Inputs {
 #[serde(rename_all = "camelCase")]
 pub struct Configuration {
     pub backend: Backend,
-    /// The web API origin: the team API, the classic machine routes and Stack's `apiBaseURL`.
+    /// The web API origin: the team API, account, billing, CodeRouter, Stack's `apiBaseURL`, and
+    /// Sandboxed runs (`/api/runs`) until they move to cmux-platform's hand-offs.
     pub api_base_url: String,
+    /// The Cloud API base the app's machine client (`CloudAPIClient`) talks to. Production keeps
+    /// `cmux.com`; DEV, NEXT DEV and every other development build use the development owner API
+    /// Worker (NEXT Cloud, which forwards to cmux-platform), never the classic staging web app
+    /// (Leo, 2026-11-04: "were doing new cloud with cmux-platform and stuff"). A debug build that
+    /// names an origin (`CMUX_VM_API_BASE_URL`, `CMUX_API_BASE_URL`, `CMUX_DEV_BACKEND_URL`, local
+    /// mode) keeps it.
+    pub cloud_api_base_url: String,
     /// Origin of the web sign-in pages (`handler/native-sign-in`).
     pub auth_web_origin: String,
     pub stack_base_url: String,
@@ -141,8 +149,9 @@ pub fn resolve(inputs: &Inputs) -> Configuration {
     // endpoints are fixed so inherited environment variables cannot redirect its credentials.
     if is_next_dev(bundle_id.as_deref(), is_debug_build) {
         return Configuration {
-            backend: Backend::Development(STAGING_WEB_ORIGIN.to_owned()),
+            backend: Backend::Development(DEVELOPMENT_WORKER_ORIGIN.to_owned()),
             api_base_url: STAGING_WEB_ORIGIN.to_owned(),
+            cloud_api_base_url: DEVELOPMENT_WORKER_ORIGIN.to_owned(),
             auth_web_origin: STAGING_WEB_ORIGIN.to_owned(),
             stack_base_url: STACK_ORIGIN.to_owned(),
             stack_project_id: DEVELOPMENT_PROJECT_ID.to_owned(),
@@ -184,6 +193,7 @@ pub fn resolve(inputs: &Inputs) -> Configuration {
         return Configuration {
             backend: Backend::Production,
             api_base_url: PRODUCTION_ORIGIN.to_owned(),
+            cloud_api_base_url: PRODUCTION_ORIGIN.to_owned(),
             auth_web_origin: PRODUCTION_ORIGIN.to_owned(),
             stack_base_url: stack_base,
             stack_project_id: PRODUCTION_PROJECT_ID.to_owned(),
@@ -205,7 +215,7 @@ pub fn resolve(inputs: &Inputs) -> Configuration {
         .is_some_and(|v| v.eq_ignore_ascii_case("local"));
     let origin_of = |key: &str| value(key).filter(|url| wants_local || !origin::is_loopback(url));
     let dev_backend = origin_of("CMUX_DEV_BACKEND_URL");
-    let api = origin_of("CMUX_VM_API_BASE_URL")
+    let named = origin_of("CMUX_VM_API_BASE_URL")
         .or_else(|| origin_of("CMUX_API_BASE_URL"))
         .or_else(|| dev_backend.clone())
         .or_else(|| {
@@ -215,19 +225,21 @@ pub fn resolve(inputs: &Inputs) -> Configuration {
                     value("CMUX_PORT").unwrap_or_else(|| "3777".to_owned())
                 )
             })
-        })
-        .unwrap_or_else(|| STAGING_WEB_ORIGIN.to_owned());
+        });
+    let api = named.clone().unwrap_or_else(|| STAGING_WEB_ORIGIN.to_owned());
+    let cloud_api = named.unwrap_or_else(|| DEVELOPMENT_WORKER_ORIGIN.to_owned());
     let web = origin_of("CMUX_AUTH_WWW_ORIGIN")
         .or_else(|| dev_backend.clone())
         .unwrap_or_else(|| api.clone());
-    let backend = if origin::is_loopback(&api) && dev_backend.is_none() {
-        Backend::LocalOnly(api.clone())
+    let backend = if origin::is_loopback(&cloud_api) && dev_backend.is_none() {
+        Backend::LocalOnly(cloud_api.clone())
     } else {
-        Backend::Development(api.clone())
+        Backend::Development(cloud_api.clone())
     };
     Configuration {
         backend,
         api_base_url: api,
+        cloud_api_base_url: cloud_api,
         auth_web_origin: web,
         stack_base_url: stack_base,
         stack_project_id: value("CMUX_STACK_PROJECT_ID")

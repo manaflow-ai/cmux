@@ -46,7 +46,9 @@ fn signed_dev_uses_the_development_cloud_without_launch_overrides() {
         keychain_service(&identity),
         "com.cmuxterm.app.debug.next.auth.454ecd03-1db2-4050-845e-4ce5b0cd9895"
     );
-    assert_eq!(config.backend, Backend::Development(config.api_base_url.clone()));
+    // The Cloud API is NEXT Cloud's development Worker, never the classic staging web app.
+    assert_eq!(config.cloud_api_base_url, "https://cmux-api-development.debussy.workers.dev");
+    assert_eq!(config.backend, Backend::Development(config.cloud_api_base_url.clone()));
     assert_eq!(vm_api_base_url(&config.backend), "https://vm-staging.cmux.dev");
 }
 
@@ -86,6 +88,7 @@ fn other_release_channels_keep_production() {
         assert_eq!(config.link_source, LinkSource::AppServer, "{bundle_id}");
         assert!(config.is_production_auth, "{bundle_id}");
         assert_eq!(config.api_base_url, "https://cmux.com", "{bundle_id}");
+        assert_eq!(config.cloud_api_base_url, "https://cmux.com", "{bundle_id}");
         assert_eq!(owner_api_base_url(&config.identity(), &none()), "https://cloud-api.cmux.dev");
         assert_eq!(vm_api_base_url(&config.backend), "https://vm.cmux.dev");
         assert_eq!(keychain_service(&config.identity()), format!("{bundle_id}.auth"));
@@ -225,7 +228,8 @@ fn a_debug_build_signs_in_on_staging_and_takes_only_asked_for_loopback_origins()
     let tagged = [("CMUX_TAG", "My Tag!"), ("CMUX_API_BASE_URL", "http://localhost:4000")];
     let plain = config("com.cmuxterm.app.debug.my-tag", &tagged, &[], true);
     assert_eq!(plain.api_base_url, STAGING_WEB_ORIGIN);
-    assert_eq!(plain.backend, Backend::Development(STAGING_WEB_ORIGIN.to_owned()));
+    assert_eq!(plain.cloud_api_base_url, DEVELOPMENT_WORKER_ORIGIN);
+    assert_eq!(plain.backend, Backend::Development(DEVELOPMENT_WORKER_ORIGIN.to_owned()));
     assert_eq!(plain.callback_scheme, "cmux-dev-my-tag");
     assert!(!plain.is_production_auth);
     let local = config(
@@ -235,6 +239,7 @@ fn a_debug_build_signs_in_on_staging_and_takes_only_asked_for_loopback_origins()
         true,
     );
     assert_eq!(local.api_base_url, "http://localhost:4000");
+    assert_eq!(local.cloud_api_base_url, "http://localhost:4000");
     assert_eq!(local.backend, Backend::LocalOnly("http://localhost:4000".to_owned()));
     let port = config(
         "com.cmuxterm.app.debug",
@@ -261,6 +266,7 @@ fn a_debug_build_signs_in_on_staging_and_takes_only_asked_for_loopback_origins()
         true,
     );
     assert_eq!(bundled.api_base_url, "https://a.example");
+    assert_eq!(bundled.cloud_api_base_url, "https://a.example");
     let blank = config("com.cmuxterm.app.debug", &[("CMUX_STACK_PROJECT_ID", "  ")], &[], true);
     assert_eq!(blank.stack_project_id, DEVELOPMENT_PROJECT_ID);
     let production =
@@ -314,4 +320,17 @@ fn scheme_tags_are_lowercase_runs_joined_by_single_hyphens() {
     assert_eq!(sanitized_scheme_tag("My__Tag 2").as_deref(), Some("my-tag-2"));
     assert_eq!(sanitized_scheme_tag("--x--").as_deref(), Some("x"));
     assert_eq!(sanitized_scheme_tag("!!!"), None);
+}
+
+#[test]
+fn no_development_build_uses_the_classic_staging_web_app_as_its_cloud_api() {
+    for (bundle_id, debug) in [
+        (NEXT_DEV_BUNDLE_ID, false),
+        ("com.cmuxterm.app.debug", true),
+        ("com.cmuxterm.app.debug.my-tag", true),
+    ] {
+        let config = config(bundle_id, &[], &[], debug);
+        assert_ne!(config.cloud_api_base_url, STAGING_WEB_ORIGIN, "{bundle_id}");
+        assert_eq!(config.cloud_api_base_url, DEVELOPMENT_WORKER_ORIGIN, "{bundle_id}");
+    }
 }

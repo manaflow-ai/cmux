@@ -35,8 +35,14 @@ fn signed_dev_resolves_to_the_development_cloud_with_its_names() {
     let configuration = &body["configuration"];
     assert_eq!(
         configuration["backend"],
-        json!({"kind": "development", "url": "https://cmux-staging.vercel.app"})
+        json!({"kind": "development", "url": "https://cmux-api-development.debussy.workers.dev"})
     );
+    // NEXT Cloud's Worker, never the classic staging web app; sign-in and teams stay on the web app.
+    assert_eq!(
+        configuration["cloudApiBaseUrl"],
+        "https://cmux-api-development.debussy.workers.dev"
+    );
+    assert_eq!(configuration["apiBaseUrl"], "https://cmux-staging.vercel.app");
     assert_eq!(configuration["linkSource"], "appServer");
     assert_eq!(configuration["callbackScheme"], "cmux-next-dev");
     assert_eq!(configuration["isProductionAuth"], false);
