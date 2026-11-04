@@ -320,6 +320,7 @@ class ScanState:
     """Process-local discovery and progress; expired candidates are removed on every pass."""
 
     cursor: tuple[str, int] | None = None
+    recovery_cursor: int | None = None
     pages: dict[tuple[str, str], int] = field(default_factory=dict)
     candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
 
@@ -348,19 +349,30 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     lines: list[str] = []
     pending = set() if pending is None else pending
     recovering = set(pending)
+    state = scan_state if scan_state is not None else ScanState()
     rescued, attempted = 0, 0
-    deadline = clock() + SETTLE_BUDGET_S
-    for run_id in sorted(recovering)[:MAX_RESCUES]:
+    started = clock()
+    deadline = started + SETTLE_BUDGET_S
+    recovery_deadline = started + SETTLE_BUDGET_S / 2
+    # A broken receipt must not consume every slot every minute. Rotate owned recovery IDs and reserve
+    # half the mutation and settle budgets for fresh stalled work, even while old reads keep failing.
+    ordered = sorted(recovering)
+    offset = next((index for index, run_id in enumerate(ordered)
+                   if state.recovery_cursor is None or run_id > state.recovery_cursor), 0)
+    ordered = ordered[offset:] + ordered[:offset]
+    for run_id in ordered[:max(1, MAX_RESCUES // 2)]:
+        if not dry_run and clock() >= recovery_deadline:
+            break
+        state.recovery_cursor = run_id
         if dry_run:
             lines.append(f"run {run_id}: would resume its owned cancellation (dry run)")
             continue
         attempted += 1
-        reran, outcome = finish_cancel(client, run_id, workflows, pending=pending, deadline=deadline,
+        reran, outcome = finish_cancel(client, run_id, workflows, pending=pending, deadline=recovery_deadline,
                                        sleep=sleep, clock=clock, log=log)
         rescued += int(reran)
         lines.append(f"run {run_id}: {outcome}")
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
-    state = scan_state if scan_state is not None else ScanState()
     # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
     # disappearing from the next listing cannot discard candidates before their turn. Metadata never
     # authorizes a mutation: the run, PR head and jobs are still re-read immediately before cancellation.

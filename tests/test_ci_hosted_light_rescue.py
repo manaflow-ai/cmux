@@ -526,6 +526,25 @@ class RecoverCancelled(unittest.TestCase):
         self.assertEqual(serviced, {12: 1, 11: 3})
         self.assertEqual(pending, set(range(1, 11)))
 
+    def test_slow_unreadable_receipts_leave_settle_time_for_fresh_work(self):
+        fake = Fake({"pr-checks.yml": [run(12)]}, {12: [job("PR size")]})
+        elapsed = [0.0]
+        previous = fake.run
+        def current(run_id):
+            if run_id <= 10:
+                elapsed[0] += 20
+                raise RuntimeError(f"GET /actions/runs/{run_id}: HTTP 403")
+            return previous(run_id)
+        fake.run = current
+        pending = set(range(1, 11))
+
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     scan_state=rescue.ScanState(), log=lambda _: None, sleep=lambda _: None,
+                     clock=lambda: elapsed[0])
+
+        self.assertEqual(mutations(fake), [("cancel", 12), ("rerun", 12)])
+        self.assertEqual(pending, set(range(1, 11)))
+
     def test_closed_or_advanced_pending_runs_are_not_retried(self):
         for closed in (False, True):
             fake = self.fake(failures=0)
