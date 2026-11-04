@@ -63,8 +63,12 @@ import Testing
 
         harness.flow.beginSignIn()
         await harness.waitForSession()
+        // Hold back the fake's own cancel completion so the user-close
+        // results below are the ones that reach the flow.
+        harness.factory.sessions[0].deliverCancelCompletion = false
         let retry = harness.flow.beginSignIn()
         await harness.waitForSession(count: 2)
+        harness.factory.sessions[1].deliverCancelCompletion = false
         // ASWebAuthenticationSession reports an app-side cancel as a user
         // cancel; the replaced attempt already ended, so it must not count.
         harness.factory.sessions[0].deliver(.cancelled(reason: HostBrowserAuthSessionResult.userClosedWindowReason))

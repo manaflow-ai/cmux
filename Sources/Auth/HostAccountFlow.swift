@@ -19,7 +19,7 @@ import Observation
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
-    private let browserSignIn: HostBrowserSignInFlow
+    let browserSignIn: HostBrowserSignInFlow
     private let billingPlanClient: BillingPlanClient
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { hasLoadedBillingPlan && billingPlanState.isPro }
@@ -178,13 +178,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func startSignIn() {
-        noteSignInStarted(.app)
-        browserSignIn.beginSignIn()
+        withSignInRequest(.app) { _ = browserSignIn.beginSignIn() }
     }
 
     func startSignInForPane() -> URL? {
-        noteSignInStarted(.pane)
-        browserSignIn.beginSignIn()
+        withSignInRequest(.pane) { _ = browserSignIn.beginSignIn() }
         return browserSignIn.activeAttemptSignInURL
     }
 
@@ -195,7 +193,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
     /// allowing socket callers to await a bounded result.
     func signIn(timeout: TimeInterval) async -> Bool {
-        noteSignInStarted(.socket)
+        // The flow opens its attempt before its first suspension, which
+        // consumes the request; an already signed-in call opens none.
+        analyticsState.signInRequested(.socket)
+        defer { analyticsState.signInRequestEnded() }
         return await browserSignIn.signIn(timeout: timeout)
     }
 
@@ -266,7 +267,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // starting one would race the sign-out.
         if isSwitchingAccount {
             if switchAttempt != nil {
-                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+                switchAttempt = withSignInRequest(.switchAccount) { browserSignIn.beginSignIn(selectAccount: true) }
             }
             return
         }
@@ -276,8 +277,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             switchAttempt = nil
         }
         await signOut()
-        noteSignInStarted(.switchAccount)
-        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        var attempt = withSignInRequest(.switchAccount) { browserSignIn.beginSignIn(selectAccount: true) }
         switchAttempt = attempt
         // Stay switching until the newest attempt settles: a replaced one
         // ends early, cancelled, while its replacement is still open.

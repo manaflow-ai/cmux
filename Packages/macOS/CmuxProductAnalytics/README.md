@@ -22,9 +22,9 @@ let analytics = ProductAnalytics(
     ledger: ProductAnalyticsLedger(defaults: UserDefaults(suiteName: "test")!),
     context: ProductAnalyticsContext(appVersion: "1.0", appBuild: "1", channel: "dev", osVersion: "15.0")
 )
-analytics.track(.signInStarted)
+analytics.track(.signedOut)
 await analytics.drain()
-#expect(sink.events.map(\.name).contains("cmux_sign_in_started"))
+#expect(sink.events.map(\.name).contains("cmux_signed_out"))
 ```
 
 `ProductAnalytics(isEnabled: false, ...)` and `ProductAnalytics.disabled`

@@ -34,8 +34,13 @@ extension HostAccountFlow {
         analytics.identify(userID: userID)
     }
 
-    func noteSignInStarted(_ entrypoint: SignInEntrypoint) {
-        reportAnalytics(analyticsState.signInStarted(entrypoint))
+    /// Runs `open` (a synchronous `beginSignIn` or the start of `signIn`) as
+    /// a user sign-in request from `entrypoint`; the browser attempt it opens,
+    /// if any, becomes the started sign-in.
+    func withSignInRequest<Result>(_ entrypoint: SignInEntrypoint, _ open: () -> Result) -> Result {
+        analyticsState.signInRequested(entrypoint)
+        defer { analyticsState.signInRequestEnded() }
+        return open()
     }
 
     /// Captures `cmux_signed_out` before the sign-out runs and ends any open

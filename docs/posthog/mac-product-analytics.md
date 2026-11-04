@@ -99,7 +99,7 @@ Enable's result is `cmux_cloud_enable_completed`. Upgrade continues as
 
 | Event | Fires when | Properties |
 | --- | --- | --- |
-| `cmux_sign_in_started` | The user starts a sign-in (Sign In, pane sign-in, Switch Account, socket `auth` sign-in) | `attempt_id`, `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `replaced_pending` (bool), `replaced_attempt_id` (only when an earlier started sign-in had no result yet; that attempt's id) |
+| `cmux_sign_in_started` | A user request opens a browser sign-in attempt (Sign In, pane sign-in, Switch Account, socket `auth` sign-in); see [What counts as a start](#what-counts-as-a-start) | `attempt_id`, `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `replaced_pending` (bool), `replaced_attempt_id` (only when an earlier started sign-in had no result yet; that attempt's id) |
 | `cmux_sign_in_callback_received` | An auth callback URL was handed to the app's sign-in completion. Receipt only: its payload, state and tokens are not validated yet, so it does not prove the browser or provider sign-in succeeded. Once per attempt. | `attempt_id`, `delivery` (`sign_in_window`, `external`, `embedded_browser`), `attempt_link` (`state`, `none`) |
 | `cmux_sign_in_window_closed` | The user closes the sign-in window before a callback, which ends the window. Not a result: a callback from the same attempt can still arrive. Once per attempt. | `attempt_id` |
 | `cmux_sign_in_succeeded` | That sign-in completes, including one that ends on the account already signed in. A session restore does not count. | `attempt_id`, `attempt_link` |
@@ -218,7 +218,7 @@ until they sign in to the app with that account.
 
 | Stage | Source | Measured |
 | --- | --- | --- |
-| Sign-in started, by entrypoint | `cmux_sign_in_started` (app) | Yes |
+| Sign-in started, by entrypoint | `cmux_sign_in_started` (app) | Yes, when a user request opens a sign-in window. See [What counts as a start](#what-counts-as-a-start). |
 | Hosted page shown; provider or method chosen; provider sign-in finished or failed | The hosted sign-in page | **No.** See [Hosted page](#hosted-page). |
 | Callback handed to the app (receipt, not yet validated) | `cmux_sign_in_callback_received` (app) | Yes |
 | App finished the sign-in | `cmux_sign_in_succeeded` (app) | Yes |
@@ -229,6 +229,33 @@ until they sign in to the app with that account.
 The app opens the browser before the person picks a provider, so no app event
 says which provider or method was used, and a start without a callback does
 not show where on the page the person stopped.
+
+### What counts as a start
+
+`cmux_sign_in_started` is sent when a user request (Sign In in Settings or a
+pane, Switch Account, `auth.begin_sign_in` on the socket) opens a browser
+sign-in attempt. These open none and send no start:
+
+- A socket sign-in while the app is already signed in (it returns at once).
+- Sign In again while an attempt already continues in the default browser
+  (the app shows that attempt again).
+
+A browser attempt that no such request opened is not measured, and none of
+its steps are sent. Today that is the browser-app link handoff
+(`BrowserAppLinkHandoffCoordinator`), which starts a sign-in when an
+embedded-browser link needs one.
+
+### One result per attempt
+
+An attempt gets at most one `cmux_sign_in_succeeded` or `cmux_sign_in_failed`:
+the first. If an attempt failed (for example `timed_out`) and its kept state
+later signs the app in, the sign-in succeeds and the account is identified,
+but no success is sent for that attempt; it stays `failed`.
+
+A failure the app records outside a callback (a timeout, a browser failure)
+is not sent again when it has the same reason as the failure just sent for
+another attempt's callback. This is rare: it needs an old tab's failed
+callback and then the newer attempt failing with the same reason.
 
 ### Hosted page
 
@@ -326,21 +353,29 @@ steps AS (
       AND properties.replaced_attempt_id IS NOT NULL
       AND timestamp >= now() - INTERVAL 15 DAY
 ),
-per_attempt AS (
-    SELECT s.attempt_id AS attempt_id, any(s.entrypoint) AS entrypoint,
-           countIf(st.event = 'cmux_sign_in_succeeded') > 0 AS succeeded,
-           anyIf(st.reason, st.event = 'cmux_sign_in_failed') AS failed_reason,
-           countIf(st.event = 'replaced') > 0 AS replaced,
-           countIf(st.event = 'cmux_sign_in_callback_received') > 0 AS callback,
-           countIf(st.event = 'cmux_sign_in_window_closed') > 0 AS window_closed
+joined AS (
+    -- Window conditions stay out of the JOIN: equality only in ON.
+    SELECT s.attempt_id AS attempt_id, s.entrypoint AS entrypoint,
+           st.event AS event, st.reason AS reason,
+           st.timestamp >= s.started_at
+               AND st.timestamp < s.started_at + INTERVAL 1 HOUR AS in_window
     FROM starts s
     LEFT JOIN steps st ON st.attempt_id = s.attempt_id
-        AND st.timestamp >= s.started_at AND st.timestamp < s.started_at + INTERVAL 1 HOUR
-    GROUP BY s.attempt_id
+),
+per_attempt AS (
+    SELECT attempt_id, any(entrypoint) AS entrypoint,
+           countIf(in_window AND event = 'cmux_sign_in_succeeded') > 0 AS succeeded,
+           countIf(in_window AND event = 'cmux_sign_in_failed') > 0 AS failed,
+           anyIf(reason, in_window AND event = 'cmux_sign_in_failed') AS failed_reason,
+           countIf(in_window AND event = 'replaced') > 0 AS replaced,
+           countIf(in_window AND event = 'cmux_sign_in_callback_received') > 0 AS callback,
+           countIf(in_window AND event = 'cmux_sign_in_window_closed') > 0 AS window_closed
+    FROM joined
+    GROUP BY attempt_id
 )
 SELECT
     multiIf(succeeded, 'succeeded',
-            failed_reason != '', concat('failed:', failed_reason),
+            failed, concat('failed:', coalesce(failed_reason, 'unknown')),
             replaced, 'replaced',
             callback, 'callback_without_result',
             window_closed, 'closed_without_callback',

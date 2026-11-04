@@ -37,12 +37,28 @@ struct AccountAnalyticsState: Equatable {
     private var attempts: [Attempt] = []
     private static let maximumAttempts = 8
 
+    /// The entrypoint of a user request whose browser attempt has not opened
+    /// yet. Set and cleared around the synchronous `beginSignIn` call.
+    private var requestedEntrypoint: SignInEntrypoint?
+
     private(set) var userID: String?
     /// The user-started sign-in that has no result yet. Session restore never
     /// sets it.
     private(set) var pendingAttempt: SignInAttemptID?
     var isSignInPending: Bool { pendingAttempt != nil }
     private var reportedFailure: SignInFailureReason?
+
+    /// The user asked for a sign-in from `entrypoint`. It becomes a started
+    /// sign-in only when the browser flow opens an attempt for it (an
+    /// already signed-in socket call or a reused handed-off window opens none).
+    mutating func signInRequested(_ entrypoint: SignInEntrypoint) {
+        requestedEntrypoint = entrypoint
+    }
+
+    /// The synchronous request is over; an unconsumed request is dropped.
+    mutating func signInRequestEnded() {
+        requestedEntrypoint = nil
+    }
 
     /// Starts a new attempt. A still-pending earlier attempt is replaced: it
     /// gets no result of its own unless its browser state later completes.
@@ -109,10 +125,14 @@ struct AccountAnalyticsState: Equatable {
     ) -> [Action] {
         switch event {
         case let .attemptStarted(browserAttempt):
-            if let pending = pendingAttempt, let index = index(of: pending) {
-                attempts[index].browserAttempts.insert(browserAttempt)
-            }
-            return []
+            // Only a browser attempt the user asked for through this flow is
+            // measured; one opened by another caller stays unmeasured rather
+            // than joining a stale pending sign-in.
+            guard let entrypoint = requestedEntrypoint else { return [] }
+            requestedEntrypoint = nil
+            let actions = signInStarted(entrypoint)
+            attempts[attempts.count - 1].browserAttempts.insert(browserAttempt)
+            return actions
         case let .callbackReceived(source, browserAttempt):
             guard let (index, link) = credit(browserAttempt), !attempts[index].reportedCallback else { return [] }
             attempts[index].reportedCallback = true

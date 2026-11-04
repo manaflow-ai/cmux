@@ -169,18 +169,21 @@ struct HostAccountSignInAnalyticsTests {
 
         harness.flow.startSignIn()
         let window = await harness.sessions.session(0)
-        let embedded = URL(string: "cmux://auth-callback?stack_refresh=refresh-2&stack_access=access-2")!
-        #expect(await harness.flow.handleCallbackURL(embedded, delivery: .trustedEmbeddedBrowser))
-        // The still-open window closed afterwards is no longer a pending sign-in.
+        // The window closes (an open window refuses a stateless callback);
+        // the sign-in stays pending and finishes in the embedded browser.
         window.deliver(.cancelled(reason: HostBrowserAuthSessionResult.userClosedWindowReason))
         await harness.waitForAttemptToEnd()
+        let embedded = URL(string: "cmux://auth-callback?stack_refresh=refresh-2&stack_access=access-2")!
+        #expect(await harness.flow.handleCallbackURL(embedded, delivery: .trustedEmbeddedBrowser))
+        harness.flow.syncAnalytics()
 
         let events = await harness.signInEvents()
         #expect(events.map(\.name) == [
-            "cmux_sign_in_started", "cmux_sign_in_callback_received", "cmux_sign_in_succeeded",
+            "cmux_sign_in_started", "cmux_sign_in_window_closed",
+            "cmux_sign_in_callback_received", "cmux_sign_in_succeeded",
         ])
-        #expect(events[1].string("delivery") == "embedded_browser")
-        #expect(events[1...].allSatisfy { $0.string("attempt_link") == "none" })
+        #expect(events[2].string("delivery") == "embedded_browser")
+        #expect(events[2...].allSatisfy { $0.string("attempt_link") == "none" })
         #expect(Set(events.compactMap { $0.string("attempt_id") }).count == 1)
         harness.tearDown()
     }
@@ -188,6 +191,8 @@ struct HostAccountSignInAnalyticsTests {
     @Test("a rejected callback fails once with a bounded reason for its attempt")
     func rejectedCallbackFailsOnce() async throws {
         let harness = try await SignInAnalyticsHarness.make()
+        // A socket sign-in opens a window only while signed out.
+        await harness.flow.signOut()
 
         let signedIn = Task { await harness.flow.signIn(timeout: 60) }
         let session = await harness.sessions.session(0)
@@ -203,6 +208,23 @@ struct HostAccountSignInAnalyticsTests {
         #expect(events[0].string("entrypoint") == "socket")
         #expect(events[2].string("reason") == "invalid_link")
         #expect(Set(events.compactMap { $0.string("attempt_id") }).count == 1)
+        harness.tearDown()
+    }
+
+    @Test("a socket sign-in on a signed-in app, and a browser attempt no user request opened, start nothing")
+    func unrequestedAttemptsStartNothing() async throws {
+        let harness = try await SignInAnalyticsHarness.make()
+
+        // Already signed in: the flow returns at once and opens no window.
+        #expect(await harness.flow.signIn(timeout: 60))
+        // A caller outside the account flow's entrypoints opens a window.
+        harness.flow.browserSignIn.beginSignIn()
+        let session = await harness.sessions.session(0)
+        session.deliver(harness.callback(for: session))
+        await harness.waitForAttemptToEnd()
+        harness.flow.syncAnalytics()
+
+        #expect(await harness.signInEvents().isEmpty)
         harness.tearDown()
     }
 
