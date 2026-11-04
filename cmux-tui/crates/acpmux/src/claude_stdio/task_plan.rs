@@ -45,7 +45,12 @@ fn acp_status(status: &str) -> Option<&'static str> {
 }
 
 fn text(input: &Value, key: &str) -> Option<String> {
-    input.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
+    input
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 impl TaskPlan {
@@ -62,10 +67,9 @@ impl TaskPlan {
                 None => return,
             },
             "TaskUpdate" => {
-                let Some(id) = input
-                    .get("taskId")
-                    .and_then(|v| v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string())))
-                else {
+                let Some(id) = input.get("taskId").and_then(|v| {
+                    v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string()))
+                }) else {
                     return;
                 };
                 let status = input.get("status").and_then(Value::as_str);
@@ -91,9 +95,9 @@ impl TaskPlan {
         match call {
             Call::Create { subject } => {
                 // Claude's own id, which its later updates name.
-                let id = result
-                    .and_then(|r| r.pointer("/task/id"))
-                    .and_then(|v| v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string())))?;
+                let id = result.and_then(|r| r.pointer("/task/id")).and_then(|v| {
+                    v.as_str().map(str::to_owned).or_else(|| v.as_u64().map(|n| n.to_string()))
+                })?;
                 if self.tasks.iter().any(|task| task.id == id) {
                     return None;
                 }

@@ -9,13 +9,21 @@ fn entries(plan: Option<Value>) -> Value {
 }
 
 fn create(plan: &mut TaskPlan, tool: &str, subject: &str, id: &str) -> Option<Value> {
-    plan.call("TaskCreate", tool, &json!({"subject": subject, "description": format!("Run {subject}")}));
+    plan.call(
+        "TaskCreate",
+        tool,
+        &json!({"subject": subject, "description": format!("Run {subject}")}),
+    );
     plan.result(tool, false, Some(&json!({"task": {"id": id, "subject": subject}})))
 }
 
 fn update(plan: &mut TaskPlan, tool: &str, id: &str, status: &str) -> Option<Value> {
     plan.call("TaskUpdate", tool, &json!({"taskId": id, "status": status}));
-    plan.result(tool, false, Some(&json!({"success": true, "taskId": id, "updatedFields": ["status"]})))
+    plan.result(
+        tool,
+        false,
+        Some(&json!({"success": true, "taskId": id, "updatedFields": ["status"]})),
+    )
 }
 
 #[test]
@@ -78,10 +86,7 @@ fn a_deleted_task_leaves_the_list_and_a_new_subject_renames_it() {
     create(&mut plan, "c1", "echo a", "1");
     create(&mut plan, "c2", "echo b", "2");
     plan.call("TaskUpdate", "u1", &json!({"taskId": "2", "subject": "echo bee"}));
-    assert_eq!(
-        entries(plan.result("u1", false, None))[1]["content"],
-        json!("echo bee")
-    );
+    assert_eq!(entries(plan.result("u1", false, None))[1]["content"], json!("echo bee"));
     assert_eq!(
         entries(update(&mut plan, "u2", "1", "deleted")),
         json!([{"content": "echo bee", "status": "pending", "priority": "medium"}])
