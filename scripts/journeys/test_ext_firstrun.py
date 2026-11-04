@@ -9,6 +9,10 @@ then found no focused terminal pane (STATUS 10288). The step leaves the page as 
 pressed by a trusted Chromium click at its center (debug.page hover gives it in CSS px, debug.page press native: true),
 because the page's finish checks a user gesture (a socket `call` cannot skip it). It waits until no import-history page is
 left. With no such page within APPEAR_S it does nothing. A page that does not close fails the step with its record.
+
+The lead's rule (STATUS 10405, 10562, 10641): the first-run page eating Ctrl-` is itself a product P0 (P0 FIRST-RUN KEYS,
+#34547), so only resize films (px-, rk-, rv-, rkd-: their subject is not the first window) skip it, and never an open P0
+journey (handoff/open-p0-journeys.txt; a fixed copy of its ids below).
 """
 import json
 import os
@@ -142,19 +146,80 @@ class SkipFirstRunHistoryTests(unittest.TestCase):
         self.assertIn("another element is at its center", str(caught.exception))
 
 
+# The lead's rule (STATUS 10405, 10562, 10641): the first-run page eating Ctrl-` is a product P0 (P0 FIRST-RUN KEYS, fix
+# #34547), so the skip may never hide it. It is allowed ONLY in resize films (their subject is not the first window), and
+# never in an open P0 journey.
+FILM_PREFIXES = ("px-", "rk-", "rv-", "rkd-")
+OPEN_P0_FILE = Path("/Users/lawrence/fun/wt/handoff/open-p0-journeys.txt")
+# The open P0 journeys of that file on 2026-11-04 (cmux-ad 12:35Z), so the test runs without it.
+OPEN_P0 = frozenset({"r3-new-tab-panel", "tipred-1193-stand-in", "focus-corner-drag", "r3-after-switch", "close-then-type",
+                     "ctrlbt-real-palette", "r3-e2-reattach", "quit-reopen-restore", "typing-load-l6", "resize-keyboard"})
+
+
+def open_p0_ids():
+    """OPEN_P0 and, where the handoff file is, its ids: the first field of each non-comment line (a|b: any of them)."""
+    ids = set(OPEN_P0)
+    if OPEN_P0_FILE.is_file():
+        for line in OPEN_P0_FILE.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                ids.update(i for i in line.split()[0].split("|") if i)
+    return ids
+
+
+def skips(spec):
+    return "skip_first_run_history" in [st.get("do") for st in spec.get("steps") or []]
+
+
+def kit_journeys():
+    return [(path, json.loads(path.read_text())) for path in sorted((HERE / "journeys").rglob("*.json"))]
+
+
+class FirstRunRuleTests(unittest.TestCase):
+    """The checked-in journeys follow the lead's rule: the skip only in resize films (px-, rk-, rv-, rkd-), right after
+    the launch's smoke_make_key, never in an open P0 journey; and every resize film that launches has it."""
+
+    def test_no_open_p0_journey_skips_the_page(self):
+        ids = open_p0_ids()
+        found = [spec["id"] for _, spec in kit_journeys() if spec["id"] in ids and skips(spec)]
+        self.assertEqual(found, [])
+
+    def test_only_resize_films_skip_the_page(self):
+        found = [str(path.relative_to(HERE)) for path, spec in kit_journeys() if skips(spec) and not spec["id"].startswith(FILM_PREFIXES)]
+        self.assertEqual(found, [])
+
+    def test_every_resize_film_skips_it_after_the_launch(self):
+        ids = open_p0_ids()
+        missing = []
+        for path, spec in kit_journeys():
+            dos = [st.get("do") for st in spec.get("steps") or []]
+            if not spec["id"].startswith(FILM_PREFIXES) or spec["id"] in ids or "smoke_make_key" not in dos:
+                continue
+            if dos[dos.index("smoke_make_key") + 1:][:1] != ["skip_first_run_history"] or dos.count("skip_first_run_history") != 1:
+                missing.append(str(path.relative_to(HERE)))
+        self.assertEqual(missing, [])
+
+    def test_the_fixed_list_matches_the_handoff_file(self):
+        if not OPEN_P0_FILE.is_file():
+            self.skipTest("no handoff/open-p0-journeys.txt on this host")
+        self.assertTrue(OPEN_P0 <= open_p0_ids())
+
+
 class GeneratorTests(unittest.TestCase):
-    """Every generator whose journeys start with smoke_make_key adds the step right after the first smoke_make_key (the
-    launch's), once: never after a relaunch's own smoke_make_key, so a relaunch keeps the profile that saw the page."""
+    """Each generator applies the rule itself: the resize-film generators (gen_pixel px-, gen_cases rv-, gen_keys rk- and
+    rkd-) put the step right after the launch's smoke_make_key, except in an open P0 journey (gen_keys' resize-keyboard);
+    typing/gen.py, typing/gen_load.py and routing/gen.py never do."""
 
     def check(self, specs):
         self.assertTrue(specs)
+        ids = open_p0_ids()
         for s in specs:
             dos = [st["do"] for st in s["steps"]]
-            if "smoke_make_key" not in dos:
-                continue
-            first = dos.index("smoke_make_key")
-            self.assertEqual(dos[first + 1], "skip_first_run_history", s["id"])
-            self.assertEqual(dos.count("skip_first_run_history"), 1, s["id"])
+            if s["id"].startswith(FILM_PREFIXES) and s["id"] not in ids and "smoke_make_key" in dos:
+                self.assertEqual(dos[dos.index("smoke_make_key") + 1], "skip_first_run_history", s["id"])
+                self.assertEqual(dos.count("skip_first_run_history"), 1, s["id"])
+            else:
+                self.assertNotIn("skip_first_run_history", dos, s["id"])
 
     def run_gen(self, script, *args):
         out = tempfile.mkdtemp(prefix="gen-firstrun-")
@@ -163,37 +228,44 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr[-2000:])
         return [json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))]
 
+    def checked(self, script):
+        """A generator that writes the kit's own folder: its --check proves those files are its output."""
+        done = subprocess.run([sys.executable, str(HERE / script), "--check"], capture_output=True, text=True, timeout=180)
+        self.assertEqual(done.returncode, 0, done.stdout[-2000:] + done.stderr[-2000:])
+
     def test_gen_pixel(self):
-        self.check(self.run_gen("video-cases/gen_pixel.py", "--out", "{out}"))
+        specs = self.run_gen("video-cases/gen_pixel.py", "--out", "{out}")
+        self.check(specs)
+        self.assertTrue(all(skips(s) for s in specs))
 
     def test_gen_cases(self):
-        self.check(self.run_gen("video-cases/gen_cases.py", "--out", "{out}"))
+        specs = self.run_gen("video-cases/gen_cases.py", "--out", "{out}")
+        self.check(specs)
+        self.assertTrue(all(s["id"].startswith("rv-") and skips(s) for s in specs))
+
+    def test_gen_keys(self):
+        out = tempfile.mkdtemp(prefix="gen-firstrun-keys-")
+        for script in ("video-cases/gen_cases.py", "video-cases/gen_keys.py"):  # gen_keys derives rkd- from gen_cases' rv-
+            done = subprocess.run([sys.executable, str(HERE / script), "--out", out], capture_output=True, text=True, timeout=180)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        specs = [json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json")) if not p.name.startswith("rv-")]
+        self.check(specs)
+        by_id = {s["id"]: s for s in specs}
+        self.assertFalse(skips(by_id["resize-keyboard"]))  # an open P0: it meets the page as a person does
+        self.assertTrue(any(i.startswith("rkd-") for i in by_id))
 
     def test_gen_load(self):
-        # gen_load.py writes the kit's own folder (its --out is for --switch only): its --check proves those files are its
-        # output, and they are read here.
-        done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--check"], capture_output=True, text=True,
-                              timeout=180)
-        self.assertEqual(done.returncode, 0, done.stdout[-2000:] + done.stderr[-2000:])
+        self.checked("typing/gen_load.py")
         specs = [json.loads(p.read_text()) for p in sorted((HERE / "journeys" / "video").glob("typing-load-l[0-9]*.json"))]
         self.check(specs)
-        # The typing round relaunches (probe_relaunch) and makes the new window key again: that one stays as it was.
-        l6 = next(s for s in specs if s["id"] == "typing-load-l6")
-        dos = [st["do"] for st in l6["steps"]]
-        self.assertEqual(dos.count("smoke_make_key"), 2)
-        second = dos.index("smoke_make_key", dos.index("smoke_make_key") + 1)
-        self.assertNotEqual(dos[second + 1], "skip_first_run_history")
+        self.assertFalse([s["id"] for s in specs if skips(s)])
 
-    def test_every_journey_in_the_kit(self):
-        """The checked-in journeys: every one whose steps have smoke_make_key has the step right after the first."""
-        files = sorted((HERE / "journeys").rglob("*.json"))
-        missing = []
-        for path in files:
-            spec = json.loads(path.read_text())
-            dos = [st.get("do") for st in spec.get("steps") or []]
-            if "smoke_make_key" in dos and dos[dos.index("smoke_make_key") + 1:][:1] != ["skip_first_run_history"]:
-                missing.append(str(path.relative_to(HERE)))
-        self.assertEqual(missing, [])
+    def test_typing_and_routing(self):
+        for script in ("typing/gen.py", "routing/gen.py"):
+            self.checked(script)
+        specs = [spec for _, spec in kit_journeys() if spec.get("id", "").startswith(("typing-", "routing-"))]
+        self.assertTrue(specs)
+        self.check(specs)
 
 
 if __name__ == "__main__":
