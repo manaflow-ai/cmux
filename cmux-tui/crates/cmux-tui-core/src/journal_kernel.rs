@@ -195,6 +195,9 @@ pub(crate) enum SharedJournalRead {
 struct JournalFanoutState {
     epoch: u64,
     requested_epoch: u64,
+    /// The `requested_epoch` the tailer last read through and published: while it is behind,
+    /// a commit already acknowledged to its writer may be missing from the ring.
+    published_epoch: u64,
     shutdown_requested: bool,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
@@ -274,6 +277,7 @@ impl JournalKernel {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    published_epoch: 0,
                     shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
@@ -298,6 +302,7 @@ impl JournalKernel {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence,
                 records: VecDeque::new(),
@@ -352,6 +357,15 @@ impl JournalKernel {
         let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    /// Whether the ring holds every commit acknowledged so far: false while the tailer has
+    /// not yet read through the last [`Self::notify_commit`]. A reader that must see a
+    /// commit its caller already saw acknowledged (`history.entries.list` after an agent
+    /// hook) reads the database instead of the ring until then.
+    pub(crate) fn ring_is_current(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.published_epoch == state.requested_epoch
     }
 
     /// Tests: hold the tailer before its next read pass until the returned guard drops.
@@ -675,6 +689,8 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
             publish_journal_batch(&mut state, appended, last_sequence);
             last_sequence = candidate_sequence;
             state.head_sequence = candidate_sequence;
+            // Every commit requested before this pass's read is in the ring now.
+            state.published_epoch = requested_epoch;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
@@ -861,6 +877,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence: 0,
                 records: VecDeque::new(),
@@ -893,6 +910,7 @@ mod performance_tests {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    published_epoch: 0,
                     shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
@@ -994,6 +1012,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
+                published_epoch: 1,
                 shutdown_requested: false,
                 head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
                 records,

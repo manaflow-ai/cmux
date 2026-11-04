@@ -253,6 +253,7 @@ fn a_fold_right_after_an_acknowledged_hook_includes_it_while_the_ring_trails() {
     let kernel = mux.shared_journal_handle();
     let hold = kernel.hold_tailer_for_test();
     append_agent_hook(&mux, &terminal, "history-feed-trailing-agent");
+    assert!(!kernel.ring_is_current(), "the held tailer has not published the hook");
     let caught = catch_up(&mux, None).unwrap();
     drop(hold);
     assert!(caught.complete);
