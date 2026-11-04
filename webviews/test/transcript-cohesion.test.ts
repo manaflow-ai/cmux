@@ -31,6 +31,34 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
     ["Apple System Colors Light", "light"],
     ["Catppuccin Mocha", "dark"],
   ]) {
+    test(`a paused closing fold keeps layout gap validation (${label})`, async () => {
+      const context = await browser.newContext({ viewport: { width: 760, height: 800 } });
+      const page = await context.newPage();
+      try {
+        const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+        await page.goto(base + galleryFrame("agent-pane.transcript", { variant: "worked-for-closing", theme }), {
+          waitUntil: "networkidle",
+        });
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        const read = () =>
+          page.evaluate(() => ({
+            paused: document.getAnimations().filter((animation) => animation.playState === "paused").length,
+            gaps: window.cmuxGalleryInvariants?.().filter((item) => item.rule === "gap-token") ?? [],
+          }));
+        const held = await read();
+        expect(held.paused).toBeGreaterThan(0);
+        expect(held.gaps).toEqual([]);
+        // A real layout error must still fail while the fold is paused: the check does not skip
+        // moving rows or widen their token budget.
+        await page.evaluate(() => {
+          const reply = document.querySelector<HTMLElement>('[data-row-id="gallery-turnfold-answer"]')!;
+          reply.style.marginTop = `${Number.parseFloat(getComputedStyle(reply).marginTop) + 3}px`;
+        });
+        expect((await read()).gaps.some((item) => item.key.includes("gallery-turnfold-answer"))).toBe(true);
+      } finally {
+        await context.close();
+      }
+    });
     for (const variant of ["codex-closed", "codex-open", "claude"]) {
       test(`${variant} keeps the activity rhythm (${label})`, async () => {
         const context = await browser.newContext({
