@@ -918,11 +918,13 @@ jobs:
   # manifest it split by. Its own job, outside the required react-apps-check:
   # a stalled download or cache save must not time out the gate. A missing
   # manifest only means the next run splits by path hash. A pull request's
-  # entry stays in its own ref's scope; fork pull requests save none.
+  # entry stays in its own ref's scope; fork pull requests save none. A declared light
+  # job on the same route as web-subarea-scope (hosted Ubuntu on attempt 1), so the
+  # manifest is saved to the cache store the router restores it from.
   webviews-test-durations:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ always() && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' && needs.react-apps-check-shard.result != 'skipped' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
     timeout-minutes: 5
     steps:
       - name: Checkout the shard helper
