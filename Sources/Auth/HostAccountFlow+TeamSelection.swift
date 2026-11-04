@@ -24,6 +24,7 @@ extension HostAccountFlow {
             _ = coordinator.isLoading
             _ = coordinator.isRestoringSession
             _ = lastSignInFailure
+            _ = isRetryingAfterRateLimit
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }

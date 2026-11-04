@@ -1,6 +1,7 @@
 import CMUXAuthCore
 import CmuxCloud
 import CmuxAuthRuntime
+import CmuxProductAnalytics
 import Foundation
 import Testing
 
@@ -100,7 +101,9 @@ extension HostAccountFlow {
     /// A signed-in flow over `client`, with `team-a` confirmed.
     static func makeForTeamChangeTests(
         client: TeamChangeAuthClient,
-        billingPlanClient: BillingPlanClient = BillingPlanClient()
+        billingPlanClient: BillingPlanClient = BillingPlanClient(),
+        sessionFactory: (any HostBrowserAuthSessionFactory)? = nil,
+        analytics: ProductAnalytics = .app
     ) async throws -> HostAccountFlow {
         let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
         let anchor = AuthPresentationContextProvider()
@@ -128,23 +131,23 @@ extension HostAccountFlow {
         await coordinator.awaitBootstrapped()
         try #require(coordinator.isAuthenticated)
         try #require(coordinator.availableTeams.map(\.id) == ["team-a", "team-b"])
-        let signInURL = try #require(URL(string: "http://127.0.0.1:1/sign-in"))
         let browserSignIn = HostBrowserSignInFlow(
             coordinator: coordinator,
             tokenStore: FileStackTokenStore(
                 directory: FileManager.default.temporaryDirectory
                     .appendingPathComponent("HostAccountFlowTeamChangeTests-\(UUID())", isDirectory: true)
             ),
-            sessionFactory: ASWebBrowserAuthSessionFactory(anchor: anchor),
+            sessionFactory: sessionFactory ?? ASWebBrowserAuthSessionFactory(anchor: anchor),
             callbackRouter: AuthCallbackRouter(),
-            makeSignInURL: { _ in signInURL },
+            makeSignInURL: { URL(string: "http://127.0.0.1:1/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-test" },
             openExternalURL: { _ in false }
         )
         let flow = HostAccountFlow(
             coordinator: coordinator,
             browserSignIn: browserSignIn,
-            billingPlanClient: billingPlanClient
+            billingPlanClient: billingPlanClient,
+            analytics: analytics
         )
         try #require(flow.confirmedTeamID == "team-a")
         return flow

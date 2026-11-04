@@ -68,6 +68,12 @@ public final class HostBrowserSignInFlow {
     /// Bumped per rate-limit wait and per cancellation, so a stale completion
     /// cannot clear ``isRetryingAfterRateLimit`` for a newer wait.
     @ObservationIgnored private var rateLimitEpoch: UInt64 = 0
+    /// Receives each countable sign-in step. Set by the host; never given the
+    /// callback URL, tokens or error text.
+    @ObservationIgnored public var onEvent: (@MainActor (HostBrowserSignInEvent) -> Void)?
+    /// Which attempt issued each callback state still accepted, so a callback
+    /// is reported for the attempt it came from. In memory only.
+    @ObservationIgnored private var callbackStateAttempts: [String: UInt64] = [:]
 
     /// Creates the flow.
     public init(
@@ -181,7 +187,10 @@ public final class HostBrowserSignInFlow {
                    callbackRouter.callbackPayload(from: url) != nil,
                    issuedCallbackStates.consume(state) {
                     log.log("auth.callback.external.routeToIssuedState attempt=\(attemptID)")
-                    let signedIn = await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
+                    let signedIn = await completeCallback(
+                        url: url, attemptID: nil, source: Self.callbackSource(delivery),
+                        origin: callbackStateAttempts[state], acceptedExternalState: state
+                    )
                     if signedIn {
                         resumeActiveSessionContinuation(
                             returning: .cancelled(reason: "external_callback"),
@@ -193,6 +202,7 @@ public final class HostBrowserSignInFlow {
                 }
                 log.log("auth.callback.external.reject reason=stateMismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
+                onEvent?(.callbackRefused(attempt: issuingAttempt(of: state)))
                 return false
             }
             log.log("auth.callback.external.routeToActive attempt=\(attemptID)")
@@ -203,7 +213,9 @@ public final class HostBrowserSignInFlow {
             // resuming then would end the attempt and drop these tokens as
             // raced.
             let continuation = takeActiveSessionContinuation()
-            let signedIn = await completeCallback(url: url, attemptID: attemptID)
+            let signedIn = await completeCallback(
+                url: url, attemptID: attemptID, source: Self.callbackSource(delivery), origin: attemptID
+            )
             log.log("auth.browser.session.resume reason=externalCallback attempt=\(attemptID)")
             continuation?.resume(returning: .cancelled(reason: "external_callback"))
             return signedIn
@@ -214,6 +226,7 @@ public final class HostBrowserSignInFlow {
             guard callbackRouter.callbackPayload(from: url) != nil else {
                 log.log("auth.callback.external.reject reason=invalidPayload")
                 lastFailure = .invalidCallback
+                onEvent?(.callbackRefused(attempt: issuingAttempt(of: state)))
                 return false
             }
             guard issuedCallbackStates.consume(state) else {
@@ -221,12 +234,15 @@ public final class HostBrowserSignInFlow {
                 return false
             }
             log.log("auth.callback.external.routeToIssuedState")
-            return await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
+            return await completeCallback(
+                url: url, attemptID: nil, source: Self.callbackSource(delivery),
+                origin: callbackStateAttempts[state], acceptedExternalState: state
+            )
         }
         switch delivery {
         case .trustedEmbeddedBrowser:
             log.log("auth.callback.external.routeToTrustedEmbedded")
-            return await completeCallback(url: url, attemptID: nil)
+            return await completeCallback(url: url, attemptID: nil, source: .embeddedBrowser, origin: nil)
         case .external:
             return await completeUnsolicitedCallbackIfApproved(url)
         }
@@ -237,6 +253,7 @@ public final class HostBrowserSignInFlow {
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback.unsolicited.reject reason=invalidPayload")
             lastFailure = .invalidCallback
+            onEvent?(.callbackRefused(attempt: nil))
             return false
         }
         guard !isAwaitingCallbackApproval else {
@@ -263,7 +280,7 @@ public final class HostBrowserSignInFlow {
             return false
         }
         log.log("auth.callback.unsolicited.approved")
-        return await completeCallback(url: url, attemptID: nil)
+        return await completeCallback(url: url, attemptID: nil, source: .external, origin: nil)
     }
 
     /// Sign out and prevent a late callback from resurrecting the session.
@@ -319,6 +336,10 @@ public final class HostBrowserSignInFlow {
         let callbackState = manualCallbackState ?? callbackStateGenerator.make()
         activeAttemptID = attemptID
         activeCallbackState = callbackState
+        if callbackStateAttempts.count >= Self.maximumTrackedCallbackStates {
+            callbackStateAttempts.removeAll()
+        }
+        callbackStateAttempts[callbackState] = attemptID
         // The CLI's manual fallback shares this attempt's state so a late
         // callback remains valid after the popup ends (#6158).
         if let manualCallbackState {
@@ -329,6 +350,7 @@ public final class HostBrowserSignInFlow {
         log.log("auth.browser.attempt.start id=\(attemptID) generation=\(signOutGeneration) state=\(redactedAuthState(callbackState))")
         scheduleAttemptTimeout(attemptID)
         scheduleSlowSignInHint(attemptID)
+        onEvent?(.attemptStarted(HostBrowserSignInAttempt(attemptID)))
         let task = Task { @MainActor [weak self] in
             guard let self else { return false }
             defer { self.finishAttempt(attemptID) }
@@ -342,9 +364,16 @@ public final class HostBrowserSignInFlow {
                 guard self.activeAttemptID == attemptID else { return false }
                 self.cancelAttemptTimeout()
                 self.cancelSlowSignInHint()
-                return await self.completeCallback(url: callbackURL, attemptID: attemptID)
+                return await self.completeCallback(
+                    url: callbackURL, attemptID: attemptID, source: .signInWindow, origin: attemptID
+                )
             case let .cancelled(reason):
                 self.log.log("auth.browser.attempt.cancelled id=\(attemptID) reason=\(reason) signedIn=\(self.coordinator.isAuthenticated)")
+                // Only the user's own close; a replaced attempt, a sign-out or
+                // an external callback that took over end with other reasons.
+                if reason == HostBrowserAuthSessionResult.userClosedWindowReason {
+                    self.onEvent?(.windowClosedByUser(HostBrowserSignInAttempt(attemptID)))
+                }
                 return self.coordinator.isAuthenticated
             case let .failed(reason):
                 self.recordBrowserSessionFailure(reason: reason, attemptID: attemptID)
@@ -471,6 +500,7 @@ public final class HostBrowserSignInFlow {
         activeCallbackState = nil
         if !keepingCallbackStates {
             issuedCallbackStates.removeAll()
+            callbackStateAttempts.removeAll()
         }
         activeSession?.cancel()
         activeSession = nil
@@ -559,23 +589,34 @@ public final class HostBrowserSignInFlow {
 
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
-    private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
+    private func completeCallback(
+        url: URL,
+        attemptID: UInt64?,
+        source: HostBrowserCallbackSource,
+        origin: UInt64?,
+        acceptedExternalState: String? = nil
+    ) async -> Bool {
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
+        let originAttempt = origin.map(HostBrowserSignInAttempt.init)
+        onEvent?(.callbackReceived(source, attempt: originAttempt))
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
             lastFailure = .invalidCallback
+            onEvent?(.callbackFailed(attempt: originAttempt))
             return false
         }
         if let attemptID {
             guard HostBrowserIssuedCallbackStates.constantTimeEquals(authCallbackState(from: url), activeCallbackState) else {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
+                onEvent?(.callbackFailed(attempt: originAttempt))
                 return false
             }
         } else if let state = authCallbackState(from: url),
                   !HostBrowserIssuedCallbackStates.constantTimeEquals(state, acceptedExternalState) {
             log.log("auth.callback rejected: stateful external callback without active attempt")
             lastFailure = .invalidCallback
+            onEvent?(.callbackFailed(attempt: originAttempt))
             return false
         }
         let generation = signOutGeneration
@@ -660,6 +701,7 @@ public final class HostBrowserSignInFlow {
                     lastFailure = displaySafe
                     lastFailureDetail = coordinator.lastExternalSignInFailureDetail
                         ?? AuthError.failureDetail(for: error)
+                    onEvent?(.callbackFailed(attempt: originAttempt))
                 } else if rateLimitRetries > 0, lastFailure == .rateLimited {
                     // This loop set the rate-limit state; a cancelled retry
                     // must not leave it on screen.
@@ -688,8 +730,25 @@ public final class HostBrowserSignInFlow {
         // Single use, and retire every other kept state too: an older tab
         // finished after this sign-in must not switch accounts unasked.
         issuedCallbackStates.removeAll()
+        callbackStateAttempts.removeAll()
         lastFailure = nil
+        onEvent?(.signInCompleted(attempt: originAttempt))
         return true
+    }
+
+    /// Bounds ``callbackStateAttempts``; far above the states one sign-in keeps.
+    private static let maximumTrackedCallbackStates = 32
+
+    /// The attempt that issued `state`, if this flow still tracks it.
+    private func issuingAttempt(of state: String?) -> HostBrowserSignInAttempt? {
+        state.flatMap { callbackStateAttempts[$0] }.map(HostBrowserSignInAttempt.init)
+    }
+
+    private static func callbackSource(_ delivery: AuthCallbackDelivery) -> HostBrowserCallbackSource {
+        switch delivery {
+        case .external: .external
+        case .trustedEmbeddedBrowser: .embeddedBrowser
+        }
     }
 
     /// Register an app-issued state for use after the popup ends. It lives

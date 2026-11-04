@@ -20,7 +20,7 @@ public import Foundation
 ///     ledger: ProductAnalyticsLedger(defaults: UserDefaults(suiteName: #function)!),
 ///     context: ProductAnalyticsContext(appVersion: "1.0", appBuild: "1", channel: "dev", osVersion: "15.0")
 /// )
-/// analytics.track(.signInStarted)
+/// analytics.track(.signedOut)
 /// await analytics.drain()
 /// ```
 public final class ProductAnalytics: Sendable {
