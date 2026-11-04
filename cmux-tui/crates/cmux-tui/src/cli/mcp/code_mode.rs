@@ -89,20 +89,7 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
-    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
-    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
-    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
-    in_progress, retry with the key from the error; another server's call that fails \
-    in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
-    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
-    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
+pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
 /// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
 pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
@@ -124,6 +111,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
+        WRAP_UP_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -203,7 +195,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}"
         ),
         "inputSchema": {
             "type": "object",
@@ -226,7 +218,10 @@ const BG_START: &str = "acpmux_bg_start";
 const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
-    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it. \
+    Work in parallel: at the start of a task, read the files and run the searches you already \
+    know you need as one batch of independent tool calls, not one after another, and while that \
+    task runs, go on with the parts that do not need its result.";
 
 /// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
 const GITHUB_STATUS: &str = "acpmux_github_status";
@@ -235,6 +230,26 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
     see for this chat and how cmux checked each, with no token. Answer with those logins and say \
     they are connected through cmux; an organization account is the one their cmux team \
     connected, not the person.";
+
+/// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
+/// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
+/// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`). The steer goes in
+/// `cmux_exec`'s description and in the server's instructions: Claude Code defers MCP tools, so
+/// a description is seen only after a tool search, and a DEV chat asked for "your next-step box"
+/// reached for AskUserQuestion instead (2026-11-04).
+pub(super) const WRAP_UP: &str = "acpmux_wrap_up";
+/// The acpmux upstream that serves [`WRAP_UP`] (acpmux `agent_tools.rs`).
+pub(super) const WRAP_UP_SERVER: &str = "acpmux";
+/// The server instructions' line: Claude Code may cut instructions past 2048 characters, so it
+/// stays short and the full steer is [`WRAP_UP_STEER`] in `cmux_exec`'s description.
+pub(super) const WRAP_UP_INSTRUCTION: &str = " End a turn that did work with cmux.acpmux_wrap_up({recap, ask, actions}), not AskUserQuestion.";
+pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
+    `cmux.acpmux_wrap_up({recap, ask, actions})` from cmux_exec as its last step: it draws the \
+    next-step box under your answer. recap says in two or three plain sentences what changed and \
+    where things stand, including what is not done or not verified. Add ask (one short question) \
+    and actions (one or two answers, your pick first) only when a decision waits on the person, \
+    in place of AskUserQuestion or a question in prose; their click comes back as their next \
+    message. Then end the turn without repeating the recap.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -567,6 +582,14 @@ fn exec_mode(
                         }
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
+                        }
+                        // The wrap-up's box, for the agent pane to draw from the transcript.
+                        if ok
+                            && name == WRAP_UP
+                            && let Some(shown) =
+                                answered.get("value").filter(|value| value.is_object())
+                        {
+                            record.set("shown", shown.clone());
                         }
                         records.push(record);
                     }
@@ -1192,6 +1215,7 @@ mod bg_steer_tests {
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
+        assert!(text.contains("as one batch of independent tool calls"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
     }
@@ -1210,6 +1234,22 @@ mod github_steer_tests {
         assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
+    }
+}
+
+#[cfg(test)]
+mod wrap_up_steer_tests {
+    use super::*;
+
+    /// A chat with acpmux's `wrap_up` is told to end a turn with it in `cmux_exec`'s own
+    /// description, since code mode shows no other tool; one without it is not.
+    #[test]
+    fn the_exec_description_names_wrap_up_only_where_it_is() {
+        let with = descriptors(&[json!({"name": WRAP_UP})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
     }
 }
 

@@ -17,7 +17,7 @@ enum BrowserHandlers {
         bindLinkHints(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
-        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
+        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.shownPage(invocation).chrome.toggleOmnibar() })
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -46,7 +46,7 @@ enum BrowserHandlers {
             let target = try DevToolsHandlers.target(invocation, context)
             WebInspector.toggle(target)
             // WebKit's inspector visibility is not observable; Chromium's is.
-            if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
+            if case .browser = target { (try? context.page(invocation))?.chrome?.toolbarButtons.refresh() }
         })
         registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
             WebInspector.showConsole(try DevToolsHandlers.target($0, context))
@@ -57,12 +57,12 @@ enum BrowserHandlers {
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", unavailable: {
-            let alreadyOn = context.services.cache.browsers.values.contains { $0.chrome.toolbarButtons.modes.designMode }
+            let alreadyOn = context.services.cache.browsers.values.contains { $0.state.modes.designMode }
             return BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
                 "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
         }, run: { invocation in
             let entry = try context.page(invocation)
-            guard BrowserPageTunables.uiPointer.value || entry.chrome.toolbarButtons.modes.designMode else {
+            guard BrowserPageTunables.uiPointer.value || entry.state.modes.designMode else {
                 throw ActionFailure(message: "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.")
             }
             guard let key = context.services.cache.key(of: entry.tab) else { return }
@@ -73,12 +73,12 @@ enum BrowserHandlers {
         registry.bind("toggleReactGrab", run: { invocation in
             let entry = try context.page(invocation)
             let tab = entry.tab, grab = context.services.reactGrab, logger = context.daemon.logger
-            Task { [weak chrome = entry.chrome] in
+            Task { [state = entry.state] in
                 do {
                     try await grab.toggle(tab)
                 } catch {
                     logger.error("react-grab toggle failed: \(String(describing: error), privacy: .public)")
-                    chrome?.showNotice(MiscHandlerStrings.reactGrabFailed)
+                    state.showNotice(MiscHandlerStrings.reactGrabFailed)
                 }
             }
         })
@@ -93,7 +93,7 @@ enum BrowserHandlers {
         registry.bind("browserTheme", run: { invocation in
             let entry = try context.page(invocation)
             let scheme = BrowserToolbarHandlers.colorScheme(invocation)
-            entry.chrome.toolbarButtons.modes.colorScheme = scheme
+            entry.state.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
         registry.bind("browserPrint", run: { invocation in
@@ -234,15 +234,15 @@ enum BrowserHandlers {
                 services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
                     guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
                     return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
-                }, openInSplit: { [weak chrome = entry.chrome] url in
+                }, openInSplit: { [state = entry.state] url in
                     // A refused split (no room, cx-yihq) says why on the page instead of doing nothing.
                     do {
                         let effect = try splitBrowser(from: pane, direction: .right, url: url, profile: profile, byPerson: true, context: context)
                         context.registry.settle(effect, of: "browserLinkHintsNewSplit", ActionInvocation())
                     } catch let failure as ActionFailure {
-                        chrome?.showNotice(failure.message)
+                        state.showNotice(failure.message)
                     } catch {}
-                }, noLinks: { [weak chrome = entry.chrome] in chrome?.showNotice(LinkHintStrings.noLinks) })
+                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintStrings.noLinks) })
             })
         }
     }

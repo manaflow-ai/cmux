@@ -70,6 +70,9 @@ pub struct LinuxPlatform {
     epoll: Epoll,
     clock: TimerFd,
     clock_armed: bool,
+    /// `realtime - boottime` when the clock was last armed or set: how far a
+    /// clock set moved realtime tells a resume from a sync.
+    clock_offset_ns: i128,
     netlink: Netlink,
     inotify: Inotify,
     wd_run: i32,
@@ -134,6 +137,7 @@ impl LinuxPlatform {
             epoll: Epoll::new()?,
             clock: TimerFd::new(Clock::Realtime)?,
             clock_armed: false,
+            clock_offset_ns: realtime_minus_boottime_ns(),
             netlink: Netlink::new()?,
             inotify,
             wd_run,
@@ -491,6 +495,19 @@ fn interface_addresses() -> Vec<(String, IpAddr)> {
     out
 }
 
+/// `CLOCK_REALTIME - CLOCK_BOOTTIME` in nanoseconds. A snapshot restore
+/// stops the boot clock while the machine is stopped, so this grows by the
+/// stopped time once realtime is set again; a sync moves it only by drift.
+fn realtime_minus_boottime_ns() -> i128 {
+    fn read(clock: libc::clockid_t) -> i128 {
+        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: `ts` is a valid, writable timespec for the call.
+        unsafe { libc::clock_gettime(clock, &mut ts) };
+        i128::from(ts.tv_sec) * 1_000_000_000 + i128::from(ts.tv_nsec)
+    }
+    read(libc::CLOCK_REALTIME) - read(libc::CLOCK_BOOTTIME)
+}
+
 impl Platform for LinuxPlatform {
     fn invalidate_remote_authority(&self) {
         if let Some(bootstrap) = &self.bootstrap {
@@ -513,7 +530,10 @@ impl Platform for LinuxPlatform {
                     T_CLOCK => {
                         self.clock.drain();
                         self.arm_clock();
-                        wakes.push(Wake::ClockSet);
+                        let offset = realtime_minus_boottime_ns();
+                        let wake = crate::agent::clock_set_wake(self.clock_offset_ns, offset);
+                        self.clock_offset_ns = offset;
+                        wakes.push(wake);
                     }
                     T_NET => {
                         // Act only when the set of global addresses changed:
