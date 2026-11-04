@@ -378,6 +378,10 @@ extension MessageCellLayout {
     /// label; simulator Messages 27.0).
     static let quoteRepliesGap: CGFloat = 17.0 / 3
     static let quoteRepliesInset: CGFloat = 12
+    /// Under a quote of mine the label's glyphs end 11.67 pt inside the
+    /// quote's edge (simulator Messages 27.0); the label's own trailing
+    /// bearing takes the rest.
+    static let quoteRepliesTrailingInset: CGFloat = 31.0 / 3
     /// Under a quote of theirs with "N Replies", the line's ink starts
     /// 6.33 pt under the quote (simulator Messages 27.0): `quoteGap` plus this.
     static let lineDropBesideReplies: CGFloat = 7
@@ -467,7 +471,7 @@ extension MessageCellLayout {
             if quote.replyCount >= 1 {
                 let h = t.footerHeight
                 quoteRepliesFrame = quote.isOutgoing
-                    ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
+                    ? CGRect(x: frame.maxX - Self.quoteRepliesTrailingInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                     : CGRect(x: max(bodyMinX, column + ConversationReplyThread.lineWidth / 2) + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                 y += Self.quoteRepliesGap + h
                 y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
