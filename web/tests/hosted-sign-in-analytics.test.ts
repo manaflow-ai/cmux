@@ -11,6 +11,7 @@ const {
   hostedSignInCapture,
   oauthMethod,
   reportHostedSignInStep,
+  startHostedSignInPage,
 } = await import("../app/handler/sign-in-analytics");
 const { GET: startNativeSignIn } = await import("../app/handler/native-sign-in/route");
 
@@ -97,6 +98,31 @@ describe("hosted sign-in events", () => {
       $geoip_disable: true,
       $lib: "cmux-hosted-sign-in",
     });
+  });
+
+  test("a page load reports once, then only its first interaction, with no target or value", () => {
+    const calls = recordFetches();
+    const page = new EventTarget();
+    const shown = { event: "cmux_sign_in_page_shown", page: "sign-in", entry: "form", returningFromProvider: false } as const;
+    const pageAttempt = "1b4e28ba-2fa1-41d2-883f-0016d3cca427";
+
+    startHostedSignInPage(null, shown, page);
+    page.dispatchEvent(new Event("pointerdown"));
+    expect(calls).toHaveLength(0);
+
+    startHostedSignInPage(pageAttempt, shown, page);
+    // Strict Mode runs the effect twice; the page load is reported once.
+    startHostedSignInPage(pageAttempt, shown, page);
+    expect(calls.map((call) => JSON.parse(String(call.init.body)).event)).toEqual(["cmux_sign_in_page_shown"]);
+
+    page.dispatchEvent(new Event("keydown"));
+    page.dispatchEvent(new Event("pointerdown"));
+    page.dispatchEvent(new Event("keydown"));
+    const events = calls.map((call) => JSON.parse(String(call.init.body)));
+    expect(events.map((event) => event.event)).toEqual(["cmux_sign_in_page_shown", "cmux_sign_in_page_interacted"]);
+    expect(Object.keys(events[1].properties).sort()).toEqual(
+      ["$geoip_disable", "$lib", "$process_person_profile", "attempt_id", "distinct_id", "source"],
+    );
   });
 
   test("every step's properties are allowlisted and bounded", () => {
