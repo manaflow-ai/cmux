@@ -76,14 +76,28 @@ fn configured() -> Option<&'static Config> {
     CONFIG.get()
 }
 
-/// Whether a push to the machine at `socket` goes through the store.
-pub(super) fn usable(socket: &std::path::Path) -> bool {
-    configured().is_some()
-        && super::super::machine_gate::identify(socket).is_some_and(|identity| {
-            super::super::machine_gate::served(&identity).is_some_and(|served| {
-                served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY)
-            })
-        })
+/// Whether the machine at `socket` serves `blob-fetch-v1`: a fetch job of an
+/// earlier push may still be running there.
+pub(super) fn fetch_served(socket: &std::path::Path) -> bool {
+    super::super::machine_gate::identify(socket).is_some_and(|identity| {
+        super::super::machine_gate::served(&identity)
+            .is_some_and(|served| served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY))
+    })
+}
+
+/// Whether a push goes through the store, given [`fetch_served`].
+pub(super) fn usable(fetch_served: bool) -> bool {
+    configured().is_some() && fetch_served
+}
+
+/// Cancels every fetch job still running under `remote_root` on the machine,
+/// and returns once none of them can write: whatever this push writes next,
+/// over the link or through a new job, no earlier job overwrites it.
+pub(super) fn fence(remote: &mut Remote, remote_root: &str) -> anyhow::Result<()> {
+    remote
+        .call("blob.fetch.cancel", json!({ "target": remote_root }))
+        .context("cannot stop the machine's earlier store fetch")?;
+    Ok(())
 }
 
 /// One piece of a file: where it is in the file and its hash.
@@ -115,10 +129,11 @@ pub(super) struct Sent {
     pub written: BTreeMap<String, String>,
 }
 
-/// The machine's fetch started and its end is not known (a status read
-/// failed, or the deadline passed while it ran): a copy over the link now
-/// could race the job's later writes, so the push fails instead. The next
-/// push of the same plan picks the job up while it runs.
+/// The machine's fetch may have started and could not be stopped (a start or
+/// status answer was lost and the cancel failed too, or the deadline passed
+/// while it ran): a copy over the link now could race the job's later
+/// writes, so the push fails instead. The next push fences the job off
+/// ([`fence`]) before it writes anything.
 #[derive(Debug)]
 pub(super) struct Unsettled(pub String);
 
@@ -248,6 +263,7 @@ fn read_piece(file: &LocalFile, piece: &Piece) -> anyhow::Result<Vec<u8>> {
 /// machine fetch and write every file. `progress` hears the bytes done.
 pub(super) fn send(
     remote: &mut Remote,
+    remote_root: &str,
     pending: &[Pending<'_>],
     progress: &mut dyn FnMut(u64),
 ) -> anyhow::Result<Sent> {
@@ -303,32 +319,55 @@ pub(super) fn send(
     }
     let grant = client.grant()?;
 
-    // The machine fetches and writes.
+    // The machine fetches and writes. A refusal means no job; any other
+    // failure may have started one, which is stopped before the link writes.
     let started = remote.call(
         "blob.fetch.start",
         json!({
             "store": {"origin": config.origin, "grant": grant},
             "plan": plan_sha,
             "plan_size": plan.len(),
+            "target": remote_root,
         }),
-    )?;
+    );
+    let started = match started {
+        Ok(started) => started,
+        Err(error) if error.is::<super::remote::FsRefusal>() => return Err(error),
+        Err(error) => {
+            return Err(match fence(remote, remote_root) {
+                Ok(()) => error.context("blob.fetch.start was not answered"),
+                Err(fenced) => {
+                    Unsettled(format!("{error:#}; and the cancel failed: {fenced:#}")).into()
+                }
+            });
+        }
+    };
     let job = started
         .get("job")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("blob.fetch.start answered no job"))?
         .to_string();
     let deadline = Instant::now() + FETCH_DEADLINE;
+    // A job whose end is not known is stopped before the link writes; one
+    // that cannot be stopped fails the push.
+    let unsettled = |remote: &mut Remote, why: String| -> anyhow::Error {
+        match fence(remote, remote_root) {
+            Ok(()) => anyhow!("the machine's store fetch was stopped: {why}"),
+            Err(fenced) => Unsettled(format!("{why}; and the cancel failed: {fenced:#}")).into(),
+        }
+    };
     let status = loop {
-        let status = remote
-            .call("blob.fetch.status", json!({ "job": job }))
-            .map_err(|error| Unsettled(format!("{error:#}")))?;
+        let status = match remote.call("blob.fetch.status", json!({ "job": job })) {
+            Ok(status) => status,
+            Err(error) => return Err(unsettled(remote, format!("{error:#}"))),
+        };
         match status.get("state").and_then(Value::as_str) {
             Some("running") if Instant::now() < deadline => {
                 std::thread::sleep(STATUS_EVERY);
             }
-            Some("running") => return Err(Unsettled("it did not finish in time".into()).into()),
+            Some("running") => return Err(unsettled(remote, "it did not finish in time".into())),
             Some("done" | "failed") => break status,
-            _ => return Err(Unsettled("its state is not known".into()).into()),
+            _ => return Err(unsettled(remote, "its state is not known".into())),
         }
     };
     if status.get("state").and_then(Value::as_str) != Some("done") {

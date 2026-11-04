@@ -126,13 +126,16 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
 }
 
 /// A machine: the real fs and blob-fetch owners over `home` behind
-/// `socket`. Returns the bytes the Mac sent it over the link.
-fn serve_machine(socket: &Path, home: &Path) -> &'static AtomicU64 {
+/// `socket`. Returns the bytes the Mac sent it over the link, and a count of
+/// `blob.fetch.start` answers still to lose: such a start runs its job, then
+/// the connection closes with no answer.
+fn serve_machine(socket: &Path, home: &Path) -> (&'static AtomicU64, &'static AtomicU64) {
     let listener = UnixListener::bind(socket).unwrap();
     let roots = Roots::new([home.to_path_buf()]);
     let fs: &'static FsService = Box::leak(Box::new(FsService::new(roots.clone())));
     let fetch: &'static BlobFetchService = Box::leak(Box::new(BlobFetchService::new(roots)));
     let sent: &'static AtomicU64 = Box::leak(Box::default());
+    let lose_starts: &'static AtomicU64 = Box::leak(Box::default());
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
@@ -149,7 +152,17 @@ fn serve_machine(socket: &Path, home: &Path) -> &'static AtomicU64 {
                             "capabilities": ["fs-v1", blob_fetch::BLOB_FETCH_CAPABILITY],
                             "build_id": "machine-build", "session_id": "machine"}})
                     } else if blob_fetch::frame_command(&line).is_some() {
-                        blob_fetch::answer_line(Some(fetch), true, &line)
+                        let answer = blob_fetch::answer_line(Some(fetch), true, &line);
+                        if cmd == "blob.fetch.start"
+                            && lose_starts
+                                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |left| {
+                                    left.checked_sub(1)
+                                })
+                                .is_ok()
+                        {
+                            return;
+                        }
+                        answer
                     } else {
                         stream::answer(&id, fs.call("local", &cmd, request))
                     };
@@ -162,7 +175,7 @@ fn serve_machine(socket: &Path, home: &Path) -> &'static AtomicU64 {
             });
         }
     });
-    sent
+    (sent, lose_starts)
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -220,6 +233,7 @@ struct Machine {
     home: PathBuf,
     socket: PathBuf,
     sent: &'static AtomicU64,
+    lose_starts: &'static AtomicU64,
     _sockets: tempfile::TempDir,
 }
 
@@ -228,8 +242,8 @@ fn machine(root: &Path, name: &str) -> Machine {
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("fs.sock");
-    let sent = serve_machine(&socket, &home);
-    Machine { home, socket, sent, _sockets: sockets }
+    let (sent, lose_starts) = serve_machine(&socket, &home);
+    Machine { home, socket, sent, lose_starts, _sockets: sockets }
 }
 
 /// One push, with the store when `origin` is given. Returns its summary,
@@ -239,6 +253,23 @@ fn push(machine: &Machine, repo: &Path, origin: Option<&str>, store: &Store) -> 
     let (link_before, up_before) =
         (machine.sent.load(Ordering::SeqCst), store.uploaded.load(Ordering::SeqCst));
     let started = Instant::now();
+    let output = run_push(machine, repo, origin);
+    assert!(
+        output.status.success(),
+        "sync push failed: {}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Measured {
+        summary: serde_json::from_slice(&output.stdout).expect("one JSON summary"),
+        link: machine.sent.load(Ordering::SeqCst) - link_before,
+        uploaded: store.uploaded.load(Ordering::SeqCst) - up_before,
+        millis: started.elapsed().as_millis(),
+    }
+}
+
+/// One push's process output, success or not.
+fn run_push(machine: &Machine, repo: &Path, origin: Option<&str>) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
     command
         .env("CMUX_TUI_STATE_DIR", machine.socket.parent().unwrap().join("state"))
@@ -258,19 +289,7 @@ fn push(machine: &Machine, repo: &Path, origin: Option<&str>, store: &Store) -> 
         writeln!(stdin, "{CREDENTIAL}").unwrap();
     }
     drop(stdin);
-    let output = child.wait_with_output().unwrap();
-    assert!(
-        output.status.success(),
-        "sync push failed: {}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    Measured {
-        summary: serde_json::from_slice(&output.stdout).expect("one JSON summary"),
-        link: machine.sent.load(Ordering::SeqCst) - link_before,
-        uploaded: store.uploaded.load(Ordering::SeqCst) - up_before,
-        millis: started.elapsed().as_millis(),
-    }
+    child.wait_with_output().unwrap()
 }
 
 struct Measured {
@@ -409,4 +428,30 @@ fn the_store_moves_each_blob_from_the_mac_once_and_the_link_copy_stays_the_fallb
     row("second machine", &second_direct, &second);
     row("one-file edit", &edit_direct, &edit);
     row("24 MiB file, 1 byte edited", &big_direct, &big_edit);
+}
+
+#[test]
+fn a_lost_fetch_start_answer_fails_the_push_and_the_next_push_fences_its_job() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = root.join("app");
+    std::fs::create_dir_all(repo.join("assets")).unwrap();
+    std::fs::write(repo.join("assets/big.bin"), noise(5, 3 * 1024 * 1024)).unwrap();
+    std::fs::write(repo.join("readme.md"), b"hello\n").unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let (origin, store) = serve_store();
+    let machine = machine(&root, "lost");
+    // The start's answer is lost and the link with it: the job may be
+    // writing, and it cannot be stopped, so nothing goes over the link.
+    machine.lose_starts.store(1, Ordering::SeqCst);
+    let failed = run_push(&machine, &repo, Some(&origin));
+    let stdout = String::from_utf8_lossy(&failed.stdout);
+    assert!(!failed.status.success(), "the push went on: {stdout}");
+    assert!(stdout.contains("store fetch has not finished"), "{stdout}");
+    // The next push stops that job first, then writes the whole tree.
+    let again = push(&machine, &repo, Some(&origin), &store);
+    assert_eq!(again.summary["store"]["used"], true, "{}", again.summary);
+    same_tree(&repo, &machine.home.join("work/app"));
 }

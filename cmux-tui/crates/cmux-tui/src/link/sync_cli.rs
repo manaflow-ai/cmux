@@ -616,6 +616,12 @@ fn push_inner(
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
     let mut remote = Remote::connect(socket)?;
     remote.mkdir_all(remote_root)?;
+    // A store fetch of an earlier push may still be running there: it stops
+    // before this push deletes or writes anything.
+    let fetch_served = store::fetch_served(socket);
+    if fetch_served {
+        store::fence(&mut remote, remote_root)?;
+    }
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
         .read(&manifest_path)?
@@ -666,7 +672,7 @@ fn push_inner(
     let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
     // Through the store, the files to write are gathered and the machine
     // fetches them after the loop; otherwise each is written here.
-    let via_store = store::usable(socket);
+    let via_store = store::usable(fetch_served);
     let mut deferred: Vec<(&String, &LocalFile, String, u64)> = Vec::new();
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
@@ -836,7 +842,7 @@ fn push_through_store(
     let sent = if pending.is_empty() {
         Ok(store::Sent::default())
     } else {
-        store::send(remote, &pending, &mut |bytes| {
+        store::send(remote, remote_root, &pending, &mut |bytes| {
             if let Some(report) = progress.as_mut() {
                 report(Progress { bytes_done: base.bytes_done + bytes, ..base });
             }
