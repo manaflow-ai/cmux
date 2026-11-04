@@ -206,9 +206,22 @@ type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 function directExec(api: Api, machine: string, journey: Journey): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
+  let guestRoute = false;
+  const guestExec: Exec = async (command, timeoutMs = 60_000) => {
+    // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
+    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: Math.min(timeoutMs, 300_000) });
+    const v: any = g.body?.value ?? g.body;
+    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
+    return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
+  };
   return async (command, timeoutMs = 60_000) => {
+    if (guestRoute) return guestExec(command, timeoutMs);
     if (!session || session.expires_at - Date.now() < 60_000) {
       const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+      if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+        guestRoute = true;
+        return guestExec(command, timeoutMs);
+      }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
       session = r.body.value;
       journey.secrets.push(session!.token);
@@ -234,7 +247,7 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
 }
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
-const GUEST = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
@@ -476,7 +489,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
           if (wait === "0" && last) return { value: last, detail: last.slice(0, 280) };
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
-          if (wait && wait !== "3" && wait !== "0") throw new Error(`acp wait exit ${wait}: ${last.slice(-300)}`);
+          if (wait && wait !== "3" && wait !== "0") {
+            // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
+            const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+            const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+            throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          }
         }
         throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
       });
