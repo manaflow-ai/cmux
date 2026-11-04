@@ -90,14 +90,67 @@ pub(super) fn usable(fetch_served: bool) -> bool {
     configured().is_some() && fetch_served
 }
 
+/// What earlier fetch jobs under a folder left: the jobs, and each file they
+/// wrote, by its path there, with the revision that write left.
+#[derive(Default)]
+pub(super) struct Left {
+    pub jobs: Vec<String>,
+    pub written: BTreeMap<String, String>,
+}
+
 /// Cancels every fetch job still running under `remote_root` on the machine,
 /// and returns once none of them can write: whatever this push writes next,
-/// over the link or through a new job, no earlier job overwrites it.
-pub(super) fn fence(remote: &mut Remote, remote_root: &str) -> anyhow::Result<()> {
-    remote
+/// over the link or through a new job, no earlier job overwrites it. Answers
+/// what every job kept there wrote: a push that failed after its fetch wrote
+/// (or never learned it did) has no manifest naming those files, so the
+/// caller does, then [`forget`]s the jobs once its manifest is saved.
+pub(super) fn fence(remote: &mut Remote, remote_root: &str) -> anyhow::Result<Left> {
+    let answer = remote
         .call("blob.fetch.cancel", json!({ "target": remote_root }))
         .context("cannot stop the machine's earlier store fetch")?;
-    Ok(())
+    let mut left = Left::default();
+    for job in answer.get("jobs").and_then(Value::as_array).into_iter().flatten() {
+        let Some(job) = job.as_str() else { continue };
+        written_by(remote, job, &mut left.written)
+            .context("cannot read what the machine's earlier store fetch wrote")?;
+        left.jobs.push(job.to_owned());
+    }
+    Ok(left)
+}
+
+/// Lets the machine drop `jobs`, whose files a saved manifest now names. A
+/// failure only keeps them for the next push to read again.
+pub(super) fn forget(remote: &mut Remote, jobs: &[String]) {
+    if !jobs.is_empty() {
+        let _ = remote.call("blob.fetch.forget", json!({ "jobs": jobs }));
+    }
+}
+
+/// Every file job `job` committed, with its revision, a page at a time.
+fn written_by(
+    remote: &mut Remote,
+    job: &str,
+    into: &mut BTreeMap<String, String>,
+) -> anyhow::Result<()> {
+    let mut from = 0u64;
+    loop {
+        let page =
+            remote.call("blob.fetch.status", json!({ "job": job, "written_from": from }))?;
+        let entries = page.get("written").and_then(Value::as_array).cloned().unwrap_or_default();
+        for entry in &entries {
+            if let (Some(path), Some(revision)) = (
+                entry.get("path").and_then(Value::as_str),
+                entry.get("revision").and_then(Value::as_str),
+            ) {
+                into.insert(path.to_owned(), revision.to_owned());
+            }
+        }
+        from += entries.len() as u64;
+        let total = page.get("written_count").and_then(Value::as_u64).unwrap_or(0);
+        if entries.is_empty() || from >= total {
+            return Ok(());
+        }
+    }
 }
 
 /// One piece of a file: where it is in the file and its hash.
@@ -349,7 +402,7 @@ pub(super) fn send(
         Err(error) if error.is::<super::remote::FsRefusal>() => return Err(error),
         Err(error) => {
             return Err(match fence(remote, remote_root) {
-                Ok(()) => error.context("blob.fetch.start was not answered"),
+                Ok(_) => error.context("blob.fetch.start was not answered"),
                 Err(fenced) => {
                     Unsettled(format!("{error:#}; and the cancel failed: {fenced:#}")).into()
                 }
@@ -366,7 +419,7 @@ pub(super) fn send(
     // that cannot be stopped fails the push.
     let unsettled = |remote: &mut Remote, why: String| -> anyhow::Error {
         match fence(remote, remote_root) {
-            Ok(()) => anyhow!("the machine's store fetch was stopped: {why}"),
+            Ok(_) => anyhow!("the machine's store fetch was stopped: {why}"),
             Err(fenced) => Unsettled(format!("{why}; and the cancel failed: {fenced:#}")).into(),
         }
     };
@@ -394,27 +447,8 @@ pub(super) fn send(
         }
         bail!("the machine's fetch failed ({code}): {error}");
     }
-    // What the job wrote, a page at a time.
-    let mut from = 0u64;
-    loop {
-        let page = remote
-            .call("blob.fetch.status", json!({ "job": job, "written_from": from }))
-            .context("cannot read what the machine's fetch wrote")?;
-        let entries = page.get("written").and_then(Value::as_array).cloned().unwrap_or_default();
-        for entry in &entries {
-            if let (Some(path), Some(revision)) = (
-                entry.get("path").and_then(Value::as_str),
-                entry.get("revision").and_then(Value::as_str),
-            ) {
-                sent.written.insert(path.to_owned(), revision.to_owned());
-            }
-        }
-        from += entries.len() as u64;
-        let total = page.get("written_count").and_then(Value::as_u64).unwrap_or(0);
-        if entries.is_empty() || from >= total {
-            break;
-        }
-    }
+    written_by(remote, &job, &mut sent.written)
+        .context("cannot read what the machine's fetch wrote")?;
     Ok(sent)
 }
 

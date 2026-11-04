@@ -282,10 +282,11 @@ fn bad_requests_are_refused_before_any_fetch() {
 }
 
 #[test]
-fn only_the_three_ops_are_blob_fetch_frames() {
+fn only_the_four_ops_are_blob_fetch_frames() {
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.start"}"#), Some("blob.fetch.start"));
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.status"}"#), Some("blob.fetch.status"));
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.cancel"}"#), Some("blob.fetch.cancel"));
+    assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.forget"}"#), Some("blob.fetch.forget"));
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.list"}"#), None);
     assert_eq!(frame_command(r#"{"id":1,"cmd":"blob.fetch.start","protocol":"x"}"#), None);
     assert!(is_sha256(&sha(b"")));
@@ -469,6 +470,26 @@ fn a_newer_start_or_a_cancel_fences_off_a_running_job_that_has_not_written() {
     // A cancel with nothing running cancels nothing.
     let again = answer_line(Some(&service), true, &line);
     assert_eq!(again["data"]["cancelled"], 0, "{again}");
+    // Both answers name every job kept there, so the caller can read back
+    // what each committed, until it forgets them.
+    let named = |answer: &Value| -> Vec<String> {
+        let mut jobs: Vec<String> = answer["data"]["jobs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|job| job.as_str().unwrap().to_string())
+            .collect();
+        jobs.sort();
+        jobs
+    };
+    let mut kept = vec![first.clone(), second.clone(), third.clone()];
+    kept.sort();
+    assert_eq!(named(&cancelled), kept, "{cancelled}");
+    assert_eq!(named(&again), kept, "{again}");
+    let forget = json!({"id": 5, "cmd": "blob.fetch.forget", "jobs": [first, third]}).to_string();
+    let forgot = answer_line(Some(&service), true, &forget);
+    assert_eq!(forgot["data"]["forgotten"], 2, "{forgot}");
+    assert_eq!(named(&answer_line(Some(&service), true, &line)), vec![second]);
 }
 
 #[test]

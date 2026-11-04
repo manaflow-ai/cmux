@@ -619,9 +619,7 @@ fn push_inner(
     // A store fetch of an earlier push may still be running there: it stops
     // before this push deletes or writes anything.
     let fetch_served = store::fetch_served(socket);
-    if fetch_served {
-        store::fence(&mut remote, remote_root)?;
-    }
+    let left = if fetch_served { store::fence(&mut remote, remote_root)? } else { Default::default() };
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
         .read(&manifest_path)?
@@ -631,6 +629,24 @@ fn push_inner(
     // parts) names nothing this push made: it is dropped, never deleted.
     previous.files.retain(|relative, _| plain_relative(relative));
     previous.links.retain(|relative, _| plain_relative(relative));
+    // A file an earlier store fetch wrote may be in no manifest (its push
+    // failed after the fetch wrote): it counts as this push's, at the
+    // revision the fetch left, so one gone from the tree is deleted below and
+    // one still in it is rewritten. One the manifest has at that revision is
+    // already recorded.
+    let prefix = format!("{remote_root}/");
+    for (path, revision) in &left.written {
+        let Some(relative) = path.strip_prefix(&prefix) else { continue };
+        if !plain_relative(relative)
+            || previous.files.get(relative).is_some_and(|pushed| &pushed.revision == revision)
+        {
+            continue;
+        }
+        previous.files.insert(
+            relative.to_owned(),
+            Pushed { sha256: String::new(), permissions: 0, revision: revision.clone() },
+        );
+    }
     let mut listings = Listings::default();
     let mut links = LinkSync::default();
 
@@ -797,6 +813,7 @@ fn push_inner(
     remote
         .write(&manifest_path, &mut manifest.as_slice(), 0o600)
         .context("cannot save the sync manifest")?;
+    store::forget(&mut remote, &left.jobs);
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
     // What this push left, for `cmux link sync undo`: every file's blob this

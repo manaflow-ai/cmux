@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use cmux_tui_core::blob_fetch::{self, BlobFetchService};
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
@@ -478,6 +478,37 @@ fn a_lost_fetch_start_answer_fails_the_push_and_the_next_push_fences_its_job() {
     // The next push stops that job first, then writes the whole tree.
     let again = push(&machine, &repo, Some(&origin), &store);
     assert_eq!(again.summary["store"]["used"], true, "{}", again.summary);
+    same_tree(&repo, &machine.home.join("work/app"));
+}
+
+#[test]
+fn a_file_only_a_failed_pushs_fetch_wrote_goes_once_the_tree_drops_it() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = root.join("app");
+    std::fs::create_dir_all(repo.join("assets")).unwrap();
+    std::fs::write(repo.join("assets/big.bin"), noise(8, 3 * 1024 * 1024)).unwrap();
+    std::fs::write(repo.join("readme.md"), b"hello\n").unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let (origin, store) = serve_store();
+    let machine = machine(&root, "stray");
+    // The push fails, but its fetch goes on and writes the file: no
+    // manifest names it.
+    machine.lose_starts.store(1, Ordering::SeqCst);
+    assert!(!run_push(&machine, &repo, Some(&origin)).status.success());
+    let stray = machine.home.join("work/app/assets/big.bin");
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !stray.exists() {
+        assert!(Instant::now() < deadline, "the fetch never wrote");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The next push's tree has no such file: it goes from the machine.
+    git(&repo, &["rm", "-q", "assets/big.bin"]);
+    git(&repo, &["commit", "-q", "-m", "drop"]);
+    push(&machine, &repo, Some(&origin), &store);
+    assert!(!stray.exists(), "the fetched file stayed");
     same_tree(&repo, &machine.home.join("work/app"));
 }
 

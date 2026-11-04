@@ -41,8 +41,8 @@ pub const BLOB_FETCH_CAPABILITY: &str = "blob-fetch-v2";
 
 /// The ops of `blob-fetch-v2`, exactly. The link's remote gate admits these
 /// beside the `fs-v1` ops.
-pub const BLOB_FETCH_COMMANDS: [&str; 3] =
-    ["blob.fetch.start", "blob.fetch.status", "blob.fetch.cancel"];
+pub const BLOB_FETCH_COMMANDS: [&str; 4] =
+    ["blob.fetch.start", "blob.fetch.status", "blob.fetch.cancel", "blob.fetch.forget"];
 
 /// The largest plan a job reads.
 const MAX_PLAN_BYTES: u64 = 64 * 1024 * 1024;
@@ -140,6 +140,7 @@ pub fn answer_line(
     let result = match cmd {
         "blob.fetch.start" => service.start(&request),
         "blob.fetch.cancel" => service.cancel(&request),
+        "blob.fetch.forget" => Ok(service.forget(&request)),
         _ => service.status(&request),
     };
     envelope(&id, result)
@@ -455,7 +456,9 @@ impl BlobFetchService {
     }
 
     /// `blob.fetch.cancel {target}`: cancels every running job under a folder
-    /// that overlaps `target`, and answers once none of them can commit.
+    /// that overlaps `target`, and answers once none of them can commit, with
+    /// every kept job there (`jobs`): what each committed is readable with
+    /// `blob.fetch.status` and `written_from` until the caller forgets it.
     fn cancel(&self, request: &Value) -> Result<Value, Refusal> {
         let target = request
             .get("target")
@@ -466,30 +469,56 @@ impl BlobFetchService {
         let cancelled = self.cancel_overlapping(&jobs, &target);
         drop(jobs);
         self.retire_finished();
-        Ok(json!({ "cancelled": cancelled }))
+        let (cancelled, kept) = cancelled;
+        Ok(json!({ "cancelled": cancelled, "jobs": kept }))
+    }
+
+    /// `blob.fetch.forget {jobs}`: drops each named job that is no longer
+    /// running, once the caller has recorded what it wrote.
+    fn forget(&self, request: &Value) -> Value {
+        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut forgotten = 0;
+        for id in request.get("jobs").and_then(Value::as_array).into_iter().flatten() {
+            let Some(id) = id.as_str() else { continue };
+            let running = jobs.by_id.get(id).is_some_and(|job| {
+                job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
+            });
+            if !running && jobs.by_id.remove(id).is_some() {
+                jobs.finished.retain(|kept| kept != id);
+                forgotten += 1;
+            }
+        }
+        json!({ "forgotten": forgotten })
     }
 
     /// Marks each running job whose folder overlaps `target` cancelled and
-    /// failed, then waits out a commit one of them may be in.
-    fn cancel_overlapping(&self, jobs: &Jobs, target: &str) -> usize {
+    /// failed, then waits out a commit one of them may be in. Answers how
+    /// many it stopped, and every job kept there (stopped, failed or done
+    /// and not yet forgotten).
+    fn cancel_overlapping(&self, jobs: &Jobs, target: &str) -> (usize, Vec<String>) {
         let mut cancelled = 0;
+        let mut kept = Vec::new();
         for job in jobs.by_id.values() {
             if !overlaps(&job.target, target) {
                 continue;
             }
             let mut status = job.status.lock().unwrap_or_else(PoisonError::into_inner);
-            if status.state != State::Running {
-                continue;
+            match status.state {
+                State::Done | State::Failed => {}
+                State::Running => {
+                    job.cancelled.store(true, Ordering::SeqCst);
+                    status.state = State::Failed;
+                    status.error =
+                        Some(("blob.superseded", "a newer push to this folder took over".into()));
+                    cancelled += 1;
+                }
             }
-            job.cancelled.store(true, Ordering::SeqCst);
-            status.state = State::Failed;
-            status.error = Some(("blob.superseded", "a newer push to this folder took over".into()));
-            cancelled += 1;
+            kept.push(job.id.clone());
         }
         if cancelled > 0 {
             drop(self.commits.lock().unwrap_or_else(PoisonError::into_inner));
         }
-        cancelled
+        (cancelled, kept)
     }
 
     fn status(&self, request: &Value) -> Result<Value, Refusal> {
