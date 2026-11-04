@@ -22,6 +22,10 @@ concurrency:
   group: pr-perf-section-check-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["perf","performance"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   perf-section:
     name: pr-perf-section-check
