@@ -1167,6 +1167,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           top={nativeTop(shell, tabRowHeight)}
           side={side}
           foot={stopsAboveComposer ? dockHeight : undefined}
+          overChat={overChat}
           label={t("sessionInfo.title")}
           title={scope ? `${t("sessionInfo.subagent")} · ${scope.agent.name}` : undefined}
           onBack={scope?.onBack}

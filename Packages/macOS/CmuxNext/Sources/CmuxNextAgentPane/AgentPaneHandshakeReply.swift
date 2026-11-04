@@ -57,6 +57,7 @@ enum AgentPaneHandshakeReply {
             }
             if model.sessionId == nil, let folderNeeded = model.seed?.folderNeeded { handshake.folderNeeded = AgentPaneHandshake.FolderNeeded(reason: folderNeeded.reason) }
             handshake.linkScheme = model.linkScheme
+            handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
             if handshake.machineName == nil { handshake.machineName = localName }
