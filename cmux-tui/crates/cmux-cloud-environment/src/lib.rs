@@ -184,6 +184,8 @@ pub struct Selection {
     pub bundle_id: String,
     pub mutable: bool,
     pub auth_namespace: String,
+    /// Untouched default: keep existing sign-in and pairing storage on update.
+    pub legacy_storage: bool,
     pub state_path: String,
 }
 
@@ -230,7 +232,7 @@ impl Resolver {
         }
         let environment =
             seed.map(Environment::parse).transpose()?.unwrap_or_else(|| self.default_environment());
-        let revision = next_revision();
+        let revision = if environment == self.default_environment() { 0 } else { next_revision() };
         match self.persist_new(&environment, revision) {
             Ok(()) => self.selection(environment, revision),
             Err(error) if error.starts_with("state already exists:") => {
@@ -296,6 +298,7 @@ impl Resolver {
             ));
         }
         Ok(Selection {
+            legacy_storage: revision == 0 && environment == self.default_environment(),
             auth_namespace: format!("{}-{revision}", environment.name()),
             configuration: environment.configuration(),
             bundle_id: self.bundle_id.clone(),
@@ -468,8 +471,10 @@ mod tests {
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         let initial = resolver.resolve(None).unwrap();
         assert_eq!(initial.name, "dev");
+        assert!(initial.legacy_storage);
         assert_eq!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
         let staging = resolver.set(Environment::Staging).unwrap();
+        assert!(!staging.legacy_storage);
         assert_ne!(staging.auth_namespace, initial.auth_namespace);
         assert_eq!(resolver.resolve(None).unwrap().auth_namespace, staging.auth_namespace);
         assert_ne!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);

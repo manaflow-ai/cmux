@@ -175,7 +175,7 @@ extension AppServices {
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
         let selection = services.cloud.configuration.runtimeSelection
-        let hubBundle = selection.map { "\($0.bundleId).cloud.\($0.authNamespace)" } ?? services.environment.launch.bundleID
+        let hubBundle = selection?.storageNamespace.map { "\(selection?.bundleId ?? "cmux").cloud.\($0)" } ?? services.environment.launch.bundleID
         return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: hubBundle,
                                 loginKeychain: services.loginKeychain, selectedBaseURL: selection?.deviceHubOrigin)
     }

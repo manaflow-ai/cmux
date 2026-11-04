@@ -10,7 +10,7 @@ struct CloudRuntimeSelectionTests {
         "mobile_origin":"https://cmux-mobile-api-dev.debussy.workers.dev","device_hub_origin":"https://cmux-device-hub-dev.debussy.workers.dev",
         "share_room_origin":"https://cmux-platform-staging.debussy.workers.dev","share_api_origin":"https://cloud-api-staging.cmux.dev",
         "stack_origin":"https://api.stack-auth.com","stack_project_id":"staging-project","stack_client_key":"staging-key",
-        "bundle_id":"com.cmuxterm.app.debug.next","mutable":true,"auth_namespace":"staging-2"}
+        "bundle_id":"com.cmuxterm.app.debug.next","mutable":true,"auth_namespace":"staging-2","legacy_storage":false}
         """#.utf8)
         let selection = try CloudRuntimeSelection.decode(data)
         let baseline = CloudConfiguration.resolve(bundleID: selection.bundleId, bundled: [:], process: [:], isDebugBuild: false)
@@ -30,5 +30,12 @@ struct CloudRuntimeSelectionTests {
         #expect(configuration.apiBaseURL == selection.authWebOrigin)
         #expect(configuration.acceptsShareAPI(selection.shareApiOrigin))
         #expect(!configuration.acceptsShareAPI(URL(string: "https://cloud-api.cmux.dev") ?? selection.shareApiOrigin))
+        var untouched = selection
+        untouched.legacyStorage = true
+        let upgraded = baseline.applying(untouched)
+        #expect(untouched.storageNamespace == nil)
+        #expect(upgraded.keychainService == baseline.keychainService)
+        #expect(upgraded.credentialsDirectory == baseline.credentialsDirectory)
+        #expect(upgraded.authDefaultsKey("cmux.auth.hasTokens") == baseline.authDefaultsKey("cmux.auth.hasTokens"))
     }
 }
