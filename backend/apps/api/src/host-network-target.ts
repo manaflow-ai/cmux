@@ -18,6 +18,8 @@ type Deps = Omit<NetworkIdentityDeps, "origin" | "stream" | "submitSystem" | "ke
   /** UserDO readIdentity: the client's key and install authority version under its live read grant. */
   readonly identity: (user: string, install: string, grant: string) => Promise<NetworkIdentityView | null>
 }
+/** What the caller and owner checks read: no VM API connection and no HTTP client. */
+type Checks = Omit<Deps, "connection" | "http">
 export interface NetworkTargetOwner {
   readonly team: string
   readonly tenant: string
@@ -31,27 +33,27 @@ export type NetworkTargetOwnerResult =
 const Params = Schema.Struct({ mesh: Schema.optionalKey(NativeMeshId) })
 const pointOf = (identity: NetworkIdentityView | null): string | null => { try { return identity ? installPublicPoint(identity.key) : null } catch { return null } }
 /** The caller's current team membership incarnation; a leave and rejoin with the same role never matches. */
-const memberAuthority = (d: Deps, p: Principal): string | null => {
+const memberAuthority = (d: Checks, p: Principal): string | null => {
   const state = d.state(), role = roleOf(state, d.rows, p.user)
   return state.team && role ? teamAuthorityVersion(d.team, p.user!, role, state.team.kind, currentPolicy(state).version, d.rows) : null
 }
 /** The caller's install incarnation under a grant and token that are live now. */
-const installAuthority = (d: Deps, p: Principal, identity: NetworkIdentityView | null): string | null => {
+const installAuthority = (d: Checks, p: Principal, identity: NetworkIdentityView | null): string | null => {
   const now = d.now()
   if (!identity || !/^[0-9a-f]{64}$/.test(identity.authority_version) || !["mac", "ios", "cli"].includes(identity.kind)
     || (identity.expires_at !== null && identity.expires_at <= now) || (p.expires_at !== undefined && p.expires_at <= now)
     || (p.install_authority !== undefined && p.install_authority !== identity.authority_version)) return null
   return identity.authority_version
 }
-const tenantMatches = (d: Deps, t: VmApiTenant | null): t is VmApiTenant => t?.team === d.team && t.project === d.project
-const clientMayRead = (d: Deps, p: Principal): boolean => {
+const tenantMatches = (d: Checks, t: VmApiTenant | null): t is VmApiTenant => t?.team === d.team && t.project === d.project
+const clientMayRead = (d: Checks, p: Principal): boolean => {
   const state = d.state()
   return p.kind === "install" && !p.agent && ["mac", "ios", "cli"].includes(p.install_kind ?? "") && p.team === d.team
     && !!p.user && !!p.install && !!p.grant && state.team?.id === d.team && state.team.deleted_at === undefined
     && !state.server_revocations?.[p.install] && can(state, d.rows, p.user, "team.resources")
 }
 
-type OwnerDeps = Omit<Deps, "connection" | "http"> & {
+type OwnerDeps = Checks & {
   /** The VM API origin alone: the platform holds the creator key and reads the mesh itself. */
   readonly origin: () => string | null
 }
