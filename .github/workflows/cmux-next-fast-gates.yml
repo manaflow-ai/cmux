@@ -54,6 +54,10 @@ concurrency:
   group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   # Secretless placement bootstrap: it reads the fresh runner-state publication and
   # fails open to the existing hosted/Blacksmith route when state is stale.
