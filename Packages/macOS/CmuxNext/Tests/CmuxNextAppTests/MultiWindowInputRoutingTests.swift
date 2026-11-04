@@ -103,6 +103,30 @@ import CmuxNextTestSupport
         #expect(!keyGuard.dropsKey(eventWindow: nil, keyWindow: shellB), "a key with no window is not judged here")
     }
 
+    /// A key typed into cmux window A and run again later (a creation hold's held key) never reaches a window no cmux
+    /// window owns that became key since: a floating panel (the Quick Agent Chat, the Chief pet's reply box) or Settings.
+    /// A creation hold runs its held keys again with `NSApp.sendEvent`, which goes to the key window; a held line typed in
+    /// A went into the panel's field, and its Return sent it to an agent (review of #35275; the dogfood v2.2.3 class). A
+    /// key typed into that panel itself still goes on, and so do A's keys for a panel over A (A's own).
+    @Test func aHeldKeyNeverReachesAPanelNoCmuxWindowOwns() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let shellA = try #require(harness.a.window)
+        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
+                            backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        #expect(keyGuard.owner(panel) == nil, "the test's panel is owned by a cmux window")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "a held key typed in A reached a panel no cmux window owns")
+        #expect(!keyGuard.dropsKey(eventWindow: panel, keyWindow: panel), "a key typed into the panel did not reach it")
+        #expect(!keyGuard.dropsKey(eventWindow: nil, keyWindow: panel), "a key with no window is not judged here")
+        // A panel over A (a child window) is A's own: A's keys go on there.
+        shellA.addChildWindow(panel, ordered: .above)
+        defer { shellA.removeChildWindow(panel) }
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "A's own panel did not take A's keys")
+    }
+
     /// A workspace a person picks in window A's sidebar (a pinned item listing a workspace that
     /// window B shows) shows in window A; window B is left as it was.
     @Test func aSidebarPickInWindowAShowsTheWorkspaceInWindowA() throws {
