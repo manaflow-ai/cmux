@@ -2,6 +2,7 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import Observation
+import SwiftUI
 import UIKit
 
 /// Chief's page menu, the conversation header's trailing button: Invite to

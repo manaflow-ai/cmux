@@ -27,6 +27,12 @@ import Testing
         #expect(ConversationBubbleColors().resolvedSentText == nil && ConversationBubbleColors().resolvedReceivedText == nil)
     }
 
+    @Test func aPickedColourEqualsItselfAfterSaving() throws {
+        let picked = ConversationColor(red: 0.123456, green: 0.5, blue: 0.987654)
+        let read = try JSONDecoder().decode(ConversationColor.self, from: try JSONEncoder().encode(picked))
+        #expect(read == picked)
+    }
+
     @Test func savesAsHexAndSwatchesAreTheMacs() throws {
         let colors = ConversationBubbleColors(sent: ConversationColor(hex: "#34C759"))
         let json = String(decoding: try JSONEncoder().encode(colors), as: UTF8.self)
