@@ -6,6 +6,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { PageMenu } from "./PageMenu";
 import { installNativeMenu, type NativeMenuRequest } from "../../ui/nativeMenu";
+import { createPopupHost } from "../../ui/popupHost";
+import { UiProvider } from "../../ui/UiProvider";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -121,6 +123,39 @@ test.each([null, { ok: true, value: null }])(
     expect(ran).toEqual([]);
   },
 );
+
+test("a host that refuses the native popup rows still gets the actionable page menu", async () => {
+  const shows: string[] = [];
+  let closed = 0;
+  // A mock client (the gallery) or an older app: the popup call answers nothing, as `quiet` makes
+  // a rejected call answer.
+  const popupHost = createPopupHost(
+    async (call) => {
+      shows.push(call);
+      return undefined;
+    },
+    () => () => undefined,
+  );
+  installNativeMenu(async () => null);
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <UiProvider container={container} popupHost={popupHost}>
+        <PageMenu
+          x={12}
+          y={34}
+          items={[{ id: "remove", label: "Remove", destructive: true, run: () => undefined }]}
+          onClose={() => closed++}
+        />
+      </UiProvider>,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(shows).toContain("show");
+  expect(document.querySelector(".page-menu-item.destructive")).not.toBeNull();
+  expect(closed).toBe(0);
+});
 
 test("a native host cannot activate a disabled page action", async () => {
   const ran: string[] = [];
