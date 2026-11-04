@@ -256,6 +256,7 @@ impl Hub {
                 if let Some(link) = &m.subsession {
                     self.subsessions.note_status(&link.started_by, &session.id, m.status);
                 }
+                self.note_work_child(&m);
             }
             session.mark_waiting(false);
             if *loaded {

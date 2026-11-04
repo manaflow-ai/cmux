@@ -1171,6 +1171,8 @@ impl Hub {
         if let Some(link) = meta.subsession.as_ref() {
             self.subsessions.note_status(&link.started_by, &meta.id, meta.status);
         }
+        // Work below its parent's turn while it runs (`work_below.rs`).
+        self.note_work_child(&meta);
         let session = self.make_session(meta);
         session.caught_up.store(false, Ordering::SeqCst);
         *session.transfer_authority.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -2272,6 +2274,7 @@ impl Hub {
             if let Some(link) = &m.subsession {
                 self.subsessions.note_status(&link.started_by, &session.id, status);
             }
+            self.note_work_child(&m);
             (was, m.subsession.clone())
         };
         self.update_live_session_index(session);
@@ -2283,7 +2286,8 @@ impl Hub {
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);
-            // A sub-session that starts or ends a turn, or closes, changes its parent's work.
+            // A session an agent started that starts or ends a turn, or closes, changes the work
+            // below that agent's turn.
             self.refresh_parent_work_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
