@@ -14,9 +14,11 @@ import { TurnActionsContext, type TakeBack } from "./turnActions";
 /// 2026-10-20). An agent that cannot stop one step reads it when the step ends, as before. `send`
 /// is `_acpmux/queue_edit` `send_now` with the steer's own promptId; it answers false once the
 /// steer was read. The X is the page's `unsteer` (`takeBackSteer`), where the chat offers it.
-/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it;
-/// Copy stays after them, so a waiting steer can be copied as any message can (Leo, 2026-10-29:
-/// "i feel like im frequently missing the copy/whatever buttons on these steers").
+/// Queue controls replace normal hover actions until Send now is accepted or the agent reads it.
+/// Copy leads them and shows on hover, as a sent prompt's does, so a waiting steer can be copied as
+/// any message can (Leo, 2026-10-29: "i feel like im frequently missing the copy/whatever buttons on
+/// these steers"); Send now ends the row on the bubble's edge, the one control drawn at rest (Leo,
+/// 2026-11-03: "the copy is always showing for no reason... plus the order is wrong").
 /// A refusal keeps the controls available. Accepted delivery removes them in the same render.
 /// An X acpmux refuses never does nothing: the row says "Read after this step", so it says why the
 /// message stays (Leo, 2026-10-29: "this fucking edit message thing. It doesn't even fucking work").
@@ -65,6 +67,26 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
+        {row.text?.trim() && <MessageCopy text={row.text} className="cv-user__pending-copy" />}
+        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {promptId && unsteer && (
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            title={t("composer.queueEditMessage")}
+            disabled={busy}
+            onClick={() => {
+              setSending(true);
+              void unsteer(row)
+                .catch((): TakeBack => "failed")
+                .then((result) => setKept(result === "refused"))
+                .finally(() => setSending(false));
+            }}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        )}
         {promptId && offersSendNow && (
           <button
             type="button"
@@ -87,26 +109,6 @@ export function PendingSteer({
             {t("steer.sendNow")}
           </button>
         )}
-        {promptId && unsteer && (
-          <button
-            type="button"
-            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("composer.queueEditMessage")}
-            title={t("composer.queueEditMessage")}
-            disabled={busy}
-            onClick={() => {
-              setSending(true);
-              void unsteer(row)
-                .catch((): TakeBack => "failed")
-                .then((result) => setKept(result === "refused"))
-                .finally(() => setSending(false));
-            }}
-          >
-            <Close size={ROW_ICON} />
-          </button>
-        )}
-        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
-        {row.text?.trim() && <MessageCopy text={row.text} />}
       </MessageFooterRow>
     </div>
   );

@@ -5887,7 +5887,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
-/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
+/* An unread steer shows Send now and remove, and Copy on hover, with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
@@ -5901,9 +5901,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* Send now ends the row (Leo's reference: a queued prompt shows it alone under the bubble's right edge),
+   its text inset by the row's overhang so its last letter ends on the bubble's edge as a glyph does. */
 .cv-user__send-now {
   border: 0;
-  padding: 0;
+  padding: 0 var(--cv-action-overhang) 0 0;
   background: none;
   font: inherit;
   color: inherit;
@@ -5917,6 +5919,25 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__actions:has(.cv-user__pending) {
   opacity: 1;
   transition: none;
+}
+/* A waiting steer's Copy leads its row and shows as a sent prompt's actions do: on hover, on focus or
+   while its tooltip's popup is open. It keeps its slot when hidden, so pointing at the prompt moves
+   nothing (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */
+.cv-user__pending-copy {
+  opacity: 0;
+}
+.cv-user:hover .cv-user__pending-copy,
+.cv-user:has([data-popup-open]) .cv-user__pending-copy,
+.cv-user__pending-copy:focus-visible {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .cv-user__pending-copy {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+  }
+  .cv-user:hover .cv-user__pending-copy {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-ease) var(--cv-actions-in-delay);
+  }
 }
 /* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
    Send now's text, on the same centred line. */
@@ -5934,7 +5955,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);
 }
-/* What an X acpmux refused adds after it (PendingSteer.tsx): quiet text, spaced from the X and Copy
+/* What an X acpmux refused adds before it (PendingSteer.tsx): quiet text, spaced from Copy and the X
    as a glyph sits in its slot. */
 .cv-user__kept {
   padding-inline: calc((var(--cv-footer-control-slot) - var(--cv-glyph-slot)) / 2);

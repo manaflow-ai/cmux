@@ -79,10 +79,17 @@ export function MessageDot() {
 }
 
 /// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
-/// row's compact size.
-export function MessageCopy({ text }: { text: string }) {
+/// row's compact size. `className` adds a row's own hook (a waiting steer's hover-only Copy).
+export function MessageCopy({ text, className }: { text: string; className?: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
+  return (
+    <CopyButton
+      text={text}
+      label={t("turn.copy")}
+      className={["cv-iconbtn cv-iconbtn--compact", className].filter(Boolean).join(" ")}
+      size={ROW_ICON}
+    />
+  );
 }
 
 /// Use the live host action when the page has one: unlike the turn context's legacy callback, it
