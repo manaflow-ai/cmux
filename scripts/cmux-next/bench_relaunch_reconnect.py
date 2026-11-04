@@ -67,6 +67,10 @@ import idle_cost_load as load  # noqa: E402  (new_session, stream, open_workspac
 AGENT = os.path.join(HERE, "idle_cost_agent.py")
 # Every phase, in the order the relaunch reaches them: (column, source, mark).
 PHASES = [
+    # The previous daemon's stop, from its log: before the relaunched process starts (negative)
+    # in update and cold rounds, after it when a handoff stops it.
+    ("old daemon stopping (log)", "daemon", "stopping"),
+    ("old daemon shut down (log)", "daemon", "shutting_down"),
     ("app main", "app", "main_start"),
     ("did finish launching", "app", "did_finish_launching_end"),
     ("lookup start", "app", "acpmux.lookup_start"),
@@ -97,8 +101,8 @@ LOG_KEEP = re.compile(r"ready|stopping|shutting down|stopped|owner|adopt|replay|
 
 
 def daemon_log(home: str, since: float) -> tuple[dict, list[str]]:
-    """The daemon log since `since` (ms since 1970): the first `acpmux ready` and `shutting down`
-    times, and the lines LOG_KEEP matches (at most 300)."""
+    """The daemon log since `since` (ms since 1970): the first `stopping:`, `shutting down` and
+    `acpmux ready` times, and the lines LOG_KEEP matches (at most 300)."""
     found: dict[str, float] = {}
     kept: list[str] = []
     for path in sorted(glob.glob(os.path.join(home, "**", "*.log"), recursive=True)):
@@ -119,7 +123,8 @@ def daemon_log(home: str, since: float) -> tuple[dict, list[str]]:
                 continue
             if at < since:
                 continue
-            for name, needle in (("ready", "acpmux ready pid="), ("shutting_down", "shutting down")):
+            for name, needle in (("ready", "acpmux ready pid="), ("stopping", "stopping: "),
+                                 ("shutting_down", "shutting down")):
                 if needle in line and (name not in found or at < found[name]):
                     found[name] = at
             if LOG_KEEP.search(line) and len(kept) < 300:
@@ -297,7 +302,10 @@ def main(argv: list[str] | None = None):
                 page = wait_live(sock, args.live_timeout)
                 timings = bp.rpc(sock, "debug.timings") or {}
                 daemon, log_lines = daemon_log(acpmux_home, quit_at)
-                daemon = {name: at for name, at in daemon.items() if at >= started}
+                # The old daemon stops after the quit, often before the relaunched process
+                # starts; only the ready line must be the relaunch's own daemon.
+                if daemon.get("ready", started) < started:
+                    del daemon["ready"]
                 phases = round_phases(timings, page, daemon)
                 zero = timings.get("process_start_epoch_ms")
                 entry = {"mode": mode, "round": index + 1, "daemon_before": running,
