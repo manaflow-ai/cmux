@@ -53,7 +53,7 @@ export function WindowChromeShape({ variant, density, theme, menuScene }: Window
         <div className="chrome-window-agent-title">
           <ChromeHeaderMenus
             paneKind="agent"
-            openMenu={menuScene?.includes("title") ? "title" : menuScene?.includes("pane") || menuScene?.includes("developer") ? "pane" : null}
+            openMenu={menuScene?.includes("title") ? "title" : menuScene?.includes("developer") ? "developer" : menuScene?.includes("pane") ? "pane" : null}
             visibility={menuScene?.includes("visible") ? "always" : "zen"}
             tabs={menuScene?.includes("three") ? 3 : 1}
             tabMode={menuScene?.includes("always-strip") ? "always" : "auto"}
