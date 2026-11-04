@@ -280,6 +280,15 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["selected_tab"] = "tab_2"
         self.assertIsNone(smoke.home_tab(snap))
 
+    def test_a_first_run_top_page_over_home_counts_as_home(self):
+        # Fresh installs open Bring your history on top of Home (#33215): Home's pane then has no selected tab.
+        tab = {"id": "tab_1", "kind": "page", "page": "home-dock"}
+        snap = {"topology": {"windows": [{"visible": True, "workspace": "ws_1"}],
+                             "workspaces": [{"id": "ws_1", "screens": [{"panes": [{"selected_tab": None, "tabs": [tab]}]}]}]}}
+        self.assertEqual(smoke.home_tab(snap), tab)
+        snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"] = []
+        self.assertIsNone(smoke.home_tab(snap))
+
 
 if __name__ == "__main__":
     unittest.main()

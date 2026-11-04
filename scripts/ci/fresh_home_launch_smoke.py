@@ -286,7 +286,11 @@ def visible_windows(snap: dict | None) -> int:
 
 
 def home_tab(snap: dict | None) -> dict | None:
-    """Home's page tab, selected in a pane of a workspace a visible window shows; None otherwise."""
+    """Home's page tab, selected in a pane of a workspace a visible window shows; None otherwise.
+
+    A first-run top page over Home counts: on a fresh install the app shows the Bring your history page
+    (#33215) on top of Home, and the snapshot then names no selected tab in Home's pane (top pages are not
+    tabs). Another tab selected over Home still does not count."""
     topology = (snap or {}).get("topology") or {}
     shown = {window.get("workspace") for window in topology.get("windows") or []
              if isinstance(window, dict) and window.get("visible")}
@@ -296,7 +300,7 @@ def home_tab(snap: dict | None) -> dict | None:
         for screen in workspace.get("screens") or []:
             for pane in (screen or {}).get("panes") or []:
                 for tab in (pane or {}).get("tabs") or []:
-                    if isinstance(tab, dict) and tab.get("page") == HOME_PAGE and tab.get("id") == pane.get("selected_tab"):
+                    if isinstance(tab, dict) and tab.get("page") == HOME_PAGE and pane.get("selected_tab") in (tab.get("id"), None):
                         return tab
     return None
 
