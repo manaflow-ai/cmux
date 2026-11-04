@@ -963,6 +963,69 @@ mod tests {
         assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
     }
 
+    /// While one live chat streams, a list build reuses every closed row's bytes: a streamed
+    /// chunk changes only its own (live, never cached) row. Before, each chunk marked all closed
+    /// rows stale, so with ~40 chats streaming every list rebuilt all ~3,000 closed rows. A chunk
+    /// that reaches a closed chat still rebuilds its row.
+    #[tokio::test]
+    async fn a_live_chats_stream_keeps_closed_rows_cached() {
+        const CLOSED: u64 = 200;
+        const CHUNKS: u64 = 20;
+        let cfg: crate::config::Config =
+            serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+        let hub = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap(),
+        );
+        let meta = |id: String, status: &str| -> crate::store::SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+                "harness": "claude", "family": "claude", "cwd": "/w", "status": status,
+                "createdAt": 1, "updatedAt": 1, "preview": "earlier reply",
+            }))
+            .unwrap()
+        };
+        for n in 0..CLOSED {
+            hub.insert_test_session(meta(format!("closed-{n}"), "closed"));
+        }
+        let live = hub.insert_test_session(meta("live".into(), "running"));
+        let chunk = |text: &str| {
+            json!({"jsonrpc": "2.0", "method": "session/update", "params": {
+                "sessionId": "agent", "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": text}}}})
+        };
+
+        hub.visit_session_summaries(false, |_| {}); // warm the closed rows
+        let builds = || hub.closed_summary_builds.load(Ordering::SeqCst);
+        let warm = builds();
+        assert_eq!(warm, CLOSED);
+        let changes = hub.events.changes.load(Ordering::SeqCst);
+        for n in 0..CHUNKS {
+            hub.append(&live, "in", "agent_message_chunk", chunk(&format!("token {n} ")));
+            hub.visit_session_summaries(false, |_| {});
+        }
+        let rebuilt = builds() - warm;
+        assert_eq!(
+            rebuilt, 0,
+            "closed rows rebuilt while one live chat streamed: {rebuilt} for {CHUNKS} lists of \
+             {CLOSED} closed rows"
+        );
+        // The next list is still built anew: the live row changed.
+        assert!(hub.events.changes.load(Ordering::SeqCst) >= changes + CHUNKS);
+        cached_rows_equal_uncached(&hub);
+
+        // Any other record still marks the closed rows stale.
+        let before = builds();
+        hub.append(&live, "mux", "status", json!({"status": "running"}));
+        hub.visit_session_summaries(false, |_| {});
+        assert_eq!(builds() - before, CLOSED);
+
+        // A chunk that reaches a closed chat rebuilds the closed rows, its own included.
+        let closed = hub.sessions().into_iter().find(|s| s.id == "closed-0").unwrap();
+        hub.append(&closed, "in", "agent_message_chunk", chunk("late"));
+        cached_rows_equal_uncached(&hub);
+    }
+
     #[test]
     fn streamed_rows_preserve_all_fields_and_stable_ties() {
         let mut rows = vec![

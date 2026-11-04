@@ -531,6 +531,9 @@ pub struct Hub {
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
     pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
+    /// Closed rows built anew because their cached bytes were missing or stale (tests).
+    #[cfg(test)]
+    pub(super) closed_summary_builds: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -876,6 +879,8 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(HashMap::new()),
+            #[cfg(test)]
+            closed_summary_builds: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -1462,6 +1467,8 @@ impl Hub {
             self.session_list_summary(session)
         };
         if session.status() == SessionStatus::Closed {
+            #[cfg(test)]
+            self.closed_summary_builds.fetch_add(1, Ordering::SeqCst);
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
             // A summary may have been built while purge was unregistering the session. Recheck
             // the tombstone while holding the cache lock so a late reader cannot recreate it.
