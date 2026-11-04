@@ -812,10 +812,15 @@ class Journey:
         the keyboard (2026-11-04, DOGFOOD BENCH STATUS 11935: step 11 typed into stress-NONCE-59 on every round).
         Show the base terminal's workspace again, as the person's click on its row would, and wait until its pane
         has the focus; the STRESS-lite presses and the typing check then start from the same terminal as light."""
-        place = self.place_of(self.term)
-        if not place:
-            raise StepError(f"STRESS-lite: the base terminal {self.term} is not in the topology")
-        ws = place[0].get("id")
+        # debug.surfaces (base_terminal) names the app's terminal id, the topology the daemon's: find the base
+        # pane by its id, which both share (as focused_terminal does); the terminal id only as a second way.
+        topo = self.topology()
+        ws = next((w.get("id") for w, pane, tab, term in self.places(topo) if pane.get("id") == self.pane), None)
+        if ws is None:
+            place = self.place_of(self.term, topo)
+            ws = place[0].get("id") if place else None
+        if ws is None:
+            raise StepError(f"STRESS-lite: the base pane {self.pane} (terminal {self.term}) is not in the topology")
         self.app.cmux("workspace", ws, "focus")
         end, last = now() + timeout, None
         while now() < end:

@@ -22,7 +22,10 @@ import driver as D  # noqa: E402
 
 
 class FakeApp:
-    """Workspaces with one pane and one terminal each; a newTab is shown and focused, as the app does."""
+    """Workspaces with one pane and one terminal each; a newTab is shown and focused, as the app does. As in the app,
+    debug.surfaces names a terminal by the app's own id and snapshot.get by the daemon's (term_...): the two never
+    match (a390421b-cmux23-1104T155640, 15:58Z: "the base terminal 0db1dff2... is not in the topology"); the pane id
+    is the same in both."""
 
     def __init__(self, refocus_works=True):
         self.ws = [{"id": "ws_base", "name": "cmdn-base", "pane": "pane_base", "term": "term_base"}]
@@ -36,7 +39,7 @@ class FakeApp:
         if method == "snapshot.get":
             return {"topology": {"workspaces": [
                 {"id": w["id"], "name": w["name"], "screens": [{"panes": [{"id": w["pane"], "selected_tab": "t_" + w["id"],
-                 "tabs": [{"id": "t_" + w["id"], "selected": True, "terminal": w["term"]}]}]}]} for w in self.ws]}}
+                 "tabs": [{"id": "t_" + w["id"], "selected": True, "terminal": "term_" + w["term"]}]}]}]} for w in self.ws]}}
         if method == "action.run" and params["action"] == "newTab":
             n = len(self.ws)
             self.ws.append({"id": f"ws_{n}", "name": params["args"]["name"], "pane": f"pane_{n}", "term": f"term_{n}"})
