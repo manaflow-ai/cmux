@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextDesignTokens
 @testable import CmuxNextLayout
 import CmuxNextTestSupport
 import Testing
@@ -35,6 +36,7 @@ import Testing
 /// - a Shift release of the split and a new pane under c (a split of c) in the same layout pass while A's growth
 ///   carries c: the new pane stays in c's column, at c's place and speed across the axis (the release's fling does not
 ///   take it over);
+/// - a click on the divider during a release spring changes nothing (the press's catch is put back);
 /// - in every case the motion stops: within 2 s every pane and divider frame is at rest on its target.
 /// The test is the display clock (`driver.isManual`, 120 Hz) and checks every frame tick: the shared pane edges, the
 /// split divider against b1's edge, and that no pane or divider shows a negative size.
@@ -54,6 +56,9 @@ struct SharedEdgeDuringSpringTests {
         case shrinkDuringGrowth
         /// A Shift release of the split and a split of c land in one layout pass while A's key spring carries c.
         case newPaneAtRelease
+        /// A Shift release of the split springs onto a snap; a click on the divider while it springs (a press and a
+        /// release, no move) changes nothing: the release's value stays and the spring goes on.
+        case clickDuringReleaseSpring
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -205,7 +210,9 @@ struct SharedEdgeDuringSpringTests {
                     misses.append("\(label): the dragged edge shows \(Self.pt(shown)) pt from \(anchor)'s left edge, the pointer put it at \(Self.pt(want)) pt")
                 }
             }
+            let shownBefore = try shownFrames()
             view.mouseDown(with: event(.leftMouseDown, press, flags))
+            try expectUnmoved(shownBefore, "the press")
             frame(edges, "press frame")
             try expect(start, "press frame")
             var pointer = press
@@ -228,6 +235,26 @@ struct SharedEdgeDuringSpringTests {
             view.mouseUp(with: event(.leftMouseUp, pointer, flags))
             root.syncWithModel()
             check(edges, "release")
+        }
+
+        /// Every pane and divider frame as it shows now (their springs' values).
+        func shownFrames() throws -> [String: CGRect] {
+            let screen = try screen
+            var shown: [String: CGRect] = [:]
+            for (pane, frame) in screen.paneFrames { shown["pane \(pane)"] = frame.rect }
+            for (kind, frame) in screen.dividerFrames { shown["divider \(kind)"] = frame.rect }
+            return shown
+        }
+
+        /// Records every frame that shows elsewhere than in `before` (a press, a click: nothing may move on screen).
+        func expectUnmoved(_ before: [String: CGRect], _ label: String) throws {
+            for (key, now) in try shownFrames() {
+                guard let was = before[key] else { continue }
+                if abs(now.minX - was.minX) > 0.001 || abs(now.maxX - was.maxX) > 0.001 || abs(now.minY - was.minY) > 0.001
+                    || abs(now.maxY - was.maxY) > 0.001 {
+                    misses.append("\(label) moved \(key): \(was) -> \(now)")
+                }
+            }
         }
 
         /// Display frames until nothing moves (at most 2 s of them), each checked; then the motion must have stopped:
@@ -267,6 +294,8 @@ struct SharedEdgeDuringSpringTests {
 
     @Test(arguments: Overlap.allCases)
     func panesThatShareAnEdgeShowItAtOnePlaceInEveryFrame(_ overlap: Overlap) throws {
+        // The rule under test is on by default (`motion.frameOwner.sharedEdges`); a run with it off tests nothing here.
+        try #require(MotionTunables.frameOwnerSharedEdges.value, "motion.frameOwner.sharedEdges is off")
         let rig = Rig()
         defer { rig.window.closeAfterTest() }
         let edges = try rig.sharedEdges()
@@ -322,6 +351,23 @@ struct SharedEdgeDuringSpringTests {
             let minimum = rig.root.context.style.minimumPaneSize.width
             try rig.drag(.columnEdge("A"), dragged: "a", anchor: "a", moves: 16, step: -40, floor: minimum, edges: edges)
             rig.land(edges, "landing")
+        case .clickDuringReleaseSpring:
+            let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
+            try rig.drag(.split("x"), dragged: "b1", moves: 4, step: (room * 0.035).rounded(), flags: .shift, edges: edges)
+            for tick in 1...2 { rig.frame(edges, "release spring frame \(tick)") }
+            let landing = try #require(rig.model.screens.first?.layout.ratio(of: "x"))
+            let divider = try #require(try rig.screen.dividerFrames[.split("x")])
+            try #require(abs(divider.x.value - divider.x.target) > 8, "the release spring is nearly done")
+            let view = try rig.handle(.split("x")), press = try rig.center(.split("x"))
+            let shownBefore = try rig.shownFrames()
+            view.mouseDown(with: rig.event(.leftMouseDown, press))
+            view.mouseUp(with: rig.event(.leftMouseUp, press))
+            rig.root.syncWithModel()
+            try rig.expectUnmoved(shownBefore, "the click")
+            #expect(rig.model.screens.first?.layout.ratio(of: "x") == landing, "the click changed the split's ratio")
+            rig.land(edges, "release spring")
+            let ratio = try #require(rig.model.screens.first?.layout.ratio(of: "x"))
+            #expect(ratio == landing, "the split landed at \(ratio), its release put it at \(landing)")
         case .newPaneAtRelease:
             // Column A grows (a width change, not a key press: a key press trades width with B and C stays): B and C
             // slide on its spring. A Shift drag of the split, and in its release's turn a split of c (c2 under c):
