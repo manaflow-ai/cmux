@@ -51,3 +51,7 @@ impl Hub {
         saved
     }
 }
+
+#[cfg(test)]
+#[path = "meta_line_order_tests.rs"]
+mod meta_line_order_tests;
