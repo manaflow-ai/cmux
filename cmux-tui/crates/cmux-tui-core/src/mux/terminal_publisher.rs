@@ -23,9 +23,13 @@
 //! notifications itself (OSC 9, 777 and 99, OSC 7501 alerts, bell marks), at
 //! the output that asked for them; they queue one by one, in output order,
 //! each after the publication of the records it names. Adoption, the first
-//! view of an app terminal, a terminal read (`terminal.get`), the topology
-//! commits and a hosted terminal's exit (which must commit its last
-//! directory first) still publish directly on their own threads.
+//! view of an app terminal, a terminal read (`terminal.get`) and the topology
+//! commits still publish directly on their own threads. When a terminal's
+//! output ends (an exit, a lost host, a closed PTY), its reader or the exit
+//! takes the terminal's queued jobs back and runs them itself, in order,
+//! before the terminal leaves Running (`Mux::settle_terminal_publications`):
+//! an ended terminal commits no publication, and a notification posted after
+//! its tab closed names no terminal.
 //!
 //! The queue is unbounded, but bounded in practice: one publication per
 //! terminal, and a terminal's notifications are rate-limited (at most one a
@@ -45,7 +49,8 @@ pub(crate) struct TerminalPublisher {
 #[derive(Default)]
 struct PublisherShared {
     queue: Mutex<PublisherQueue>,
-    /// Wakes the worker (a job, or the close) and a finish waiting for it.
+    /// Wakes the worker (a job, or the close), a finish waiting for it, and a
+    /// settle waiting for the worker's job of its terminal.
     changed: Condvar,
 }
 
@@ -56,9 +61,11 @@ struct PublisherQueue {
     worker: Option<std::thread::ThreadId>,
     /// The worker runs a job it took off `jobs`.
     busy: bool,
-    /// The terminal whose publication the worker runs now, if it runs one: a
-    /// reader whose stream ended waits for it (`settle`).
-    publishing: Option<Arc<Surface>>,
+    /// The terminal runtime (its id) of the job the worker runs now, if it runs
+    /// one: a reader whose stream ended waits for it (`settle`). An id, not the
+    /// surface: the worker clears it under the queue lock, and dropping the last
+    /// reference to a surface there would run its teardown under that lock.
+    running: Option<SurfaceId>,
     /// The terminal readers stopped (shutdown or drop): no new job is
     /// queued. The worker still runs the jobs queued before, then exits.
     closed: bool,
@@ -85,22 +92,37 @@ impl PublisherJob {
         matches!(self, Self::Publish(queued) if queued.shares_terminal_runtime(surface))
     }
 
+    /// The terminal runtime this job is for (its id): the reader queues a
+    /// terminal's notifications and bell marks under its runtime's surface id.
+    fn runtime(&self) -> Option<SurfaceId> {
+        match self {
+            Self::Publish(surface) => surface.terminal_runtime_id(),
+            Self::Notify(surface, _) | Self::Bell(surface) => Some(*surface),
+        }
+    }
+
     fn run(self, mux: &Weak<Mux>) {
         match self {
             Self::Publish(surface) => {
                 surface.publish_pending_directory();
                 surface.publish_pending_state();
             }
+            other => {
+                if let Some(mux) = mux.upgrade() {
+                    other.post(&mux);
+                }
+            }
+        }
+    }
+
+    /// A notification's or a bell mark's post; nothing for a publication.
+    fn post(self, mux: &Mux) {
+        match self {
+            Self::Publish(_) => {}
             Self::Notify(surface, notifications) => {
-                if let Some(mux) = mux.upgrade() {
-                    mux.post_terminal_notifications(surface, notifications);
-                }
+                mux.post_terminal_notifications(surface, notifications);
             }
-            Self::Bell(surface) => {
-                if let Some(mux) = mux.upgrade() {
-                    mux.post_bell_notification(surface);
-                }
-            }
+            Self::Bell(surface) => mux.post_bell_notification(surface),
         }
     }
 }
@@ -170,22 +192,29 @@ impl TerminalPublisher {
 }
 
 impl TerminalPublisher {
-    /// Take the queued publication of `surface`'s terminal off the queue, and
-    /// wait while the worker runs one, so the caller publishes its latest state
-    /// itself, in order. On the worker itself it only takes the queued one.
-    fn settle(&self, surface: &Surface) {
+    /// Take every job of `surface`'s terminal off the queue (its publication,
+    /// notifications and bell marks, in queue order), and wait while the worker
+    /// runs one of them, so the caller runs them itself, in order. On the worker
+    /// itself it only takes the queued ones. The jobs are returned, not dropped
+    /// here: they hold surfaces, which must not be dropped under the queue lock.
+    fn settle(&self, surface: &Surface) -> Vec<PublisherJob> {
+        let Some(runtime) = surface.terminal_runtime_id() else { return Vec::new() };
         let mut queue = self.shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
-        queue.jobs.retain(|job| !job.publishes(surface));
-        if queue.worker == Some(std::thread::current().id()) {
-            return;
+        let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut queue.jobs)
+            .into_iter()
+            .partition(|job| job.publishes(surface) || job.runtime() == Some(runtime));
+        queue.jobs = kept.into();
+        if queue.jobs.is_empty() {
+            // A finish may wait for the queue to drain.
+            self.shared.changed.notify_all();
         }
-        while queue
-            .publishing
-            .as_ref()
-            .is_some_and(|running| running.shares_terminal_runtime(surface))
-        {
-            queue = self.shared.changed.wait(queue).unwrap_or_else(PoisonError::into_inner);
+        if queue.worker != Some(std::thread::current().id()) {
+            while queue.running == Some(runtime) {
+                queue = self.shared.changed.wait(queue).unwrap_or_else(PoisonError::into_inner);
+            }
         }
+        drop(queue);
+        taken
     }
 }
 
@@ -210,9 +239,7 @@ impl PublisherShared {
                     let held = false;
                     if !held && let Some(job) = queue.jobs.pop_front() {
                         queue.busy = true;
-                        if let PublisherJob::Publish(surface) = &job {
-                            queue.publishing = Some(surface.clone());
-                        }
+                        queue.running = job.runtime();
                         break job;
                     }
                     if queue.closed {
@@ -230,9 +257,9 @@ impl PublisherShared {
             }
             let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
             queue.busy = false;
-            // A settle waits for this terminal's publication, a finish for the
-            // queue to drain.
-            if queue.publishing.take().is_some() || queue.jobs.is_empty() {
+            // A settle waits for this terminal's job, a finish for the queue to
+            // drain.
+            if queue.running.take().is_some() || queue.jobs.is_empty() {
                 self.changed.notify_all();
             }
         }
@@ -265,17 +292,24 @@ impl Mux {
 
     /// `surface`'s output ended (its host exited or was lost, or its PTY
     /// closed): commit its pending directory, progress, activity and program
-    /// status now, on this thread, before its lifecycle leaves Running. An
+    /// status now, on this thread, before its lifecycle leaves Running, then
+    /// post the notifications and bell marks its output queued, in order. An
     /// ended or adopting terminal commits no publication, so one still queued
     /// for the publisher would be lost (`cd x; exit`, or a host lost just
     /// after a report, kept the old directory on the tab, its exit record and
-    /// its respawn). The output reader published inline before it read the
-    /// end of its stream; this keeps that order. No output frame waits behind
-    /// it: the stream has ended.
+    /// its respawn), and a notification posted after the exit removed the tab
+    /// names no terminal. The output reader published and posted inline
+    /// before it read the end of its stream; this keeps that order. No output
+    /// frame waits behind it: the stream has ended.
     pub(crate) fn settle_terminal_publications(&self, surface: &Arc<Surface>) {
-        self.terminal_publisher.settle(surface);
+        let jobs = self.terminal_publisher.settle(surface);
         surface.publish_pending_directory();
         surface.publish_pending_state();
+        // The latest state is published above: a queued publication of the
+        // terminal is part of it. Its notifications follow, in queue order.
+        for job in jobs {
+            job.post(self);
+        }
     }
 
     /// After the terminal readers stopped: let what they queued commit (until
