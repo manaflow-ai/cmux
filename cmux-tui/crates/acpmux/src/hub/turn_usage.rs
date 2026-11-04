@@ -62,10 +62,13 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
 /// `outputTokens`; accepting both keeps the adapter boundary provider-neutral.
 fn generic_usage(usage: Option<&Value>) -> TurnUsage {
     let Some(usage) = usage else { return TurnUsage::default() };
-    let number = |keys: &[&str]| keys.iter().find_map(|key| usage.get(*key).and_then(Value::as_u64));
+    let number =
+        |keys: &[&str]| keys.iter().find_map(|key| usage.get(*key).and_then(Value::as_u64));
     let input = number(&["inputTokens", "promptTokens", "input_tokens"]);
     let output = number(&["outputTokens", "output_tokens"]).or_else(|| {
-        number(&["totalTokens", "total_tokens"]).zip(input).map(|(total, input)| total.saturating_sub(input))
+        number(&["totalTokens", "total_tokens"])
+            .zip(input)
+            .map(|(total, input)| total.saturating_sub(input))
     });
     let cost = usage
         .get("costUsd")
@@ -76,8 +79,17 @@ fn generic_usage(usage: Option<&Value>) -> TurnUsage {
         cost_usd: cost,
         input_tokens: input,
         output_tokens: output,
-        cache_read_tokens: number(&["cacheReadTokens", "cachedReadTokens", "cachedTokens", "cache_read_input_tokens"]),
-        cache_write_tokens: number(&["cacheWriteTokens", "cachedWriteTokens", "cache_creation_input_tokens"]),
+        cache_read_tokens: number(&[
+            "cacheReadTokens",
+            "cachedReadTokens",
+            "cachedTokens",
+            "cache_read_input_tokens",
+        ]),
+        cache_write_tokens: number(&[
+            "cacheWriteTokens",
+            "cachedWriteTokens",
+            "cache_creation_input_tokens",
+        ]),
     }
 }
 
@@ -88,7 +100,9 @@ mod tests {
 
     #[test]
     fn maps_gemini_usage() {
-        let usage = generic_usage(Some(&json!({"inputTokens": 12, "outputTokens": 8, "thoughtsTokens": 3, "cachedTokens": 4})));
+        let usage = generic_usage(Some(
+            &json!({"inputTokens": 12, "outputTokens": 8, "thoughtsTokens": 3, "cachedTokens": 4}),
+        ));
         assert_eq!(usage.input_tokens, Some(12));
         assert_eq!(usage.output_tokens, Some(8));
         assert_eq!(usage.cache_read_tokens, Some(4));
@@ -96,7 +110,9 @@ mod tests {
 
     #[test]
     fn maps_muse_usage_and_derives_output_when_needed() {
-        let usage = generic_usage(Some(&json!({"promptTokens": 20, "totalTokens": 31, "cost": {"amount": 0.25, "currency": "USD"}})));
+        let usage = generic_usage(Some(
+            &json!({"promptTokens": 20, "totalTokens": 31, "cost": {"amount": 0.25, "currency": "USD"}}),
+        ));
         assert_eq!(usage.input_tokens, Some(20));
         assert_eq!(usage.output_tokens, Some(11));
         assert_eq!(usage.cost_usd, Some(0.25));

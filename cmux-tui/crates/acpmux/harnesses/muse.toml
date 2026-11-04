@@ -24,9 +24,10 @@ resume = true
 [auth]
 login = "muse login"
 docs = "https://dev.meta.ai/docs/muse-code"
-# `usage` is Muse's documented non-interactive subscription/account check. The
-# adapter's version is installation evidence only, not sign-in evidence.
-check = ["muse", "usage"]
+# Muse sign-in is established by the ACP adapter's `session/new` auth-required
+# response. The official CLI has no verified non-interactive status command,
+# so health remains unknown until ACP auth runs instead of claiming a false
+# signed-in state.
 
 [sessions]
 adapter = "muse"

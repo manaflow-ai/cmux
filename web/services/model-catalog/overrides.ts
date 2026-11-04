@@ -154,7 +154,7 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     // Muse publishes model ids through its own ACP config options rather than
     // the public models.dev feed. Identity-only rows keep these official Meta
     // models selectable before a Muse session supplies live options.
-    id: "muse", docsUrl: "https://dev.meta.ai/docs/models",
+    id: "muse", docsUrl: "https://dev.meta.ai/docs/muse-code",
     name: "Muse Code", brand: "meta", families: ["muse"], modelSource: "catalog",
     defaultModel: "muse-spark-1.3",
     familyNames: { "muse-spark": "Spark" },

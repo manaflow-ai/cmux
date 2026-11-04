@@ -623,6 +623,8 @@ fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, Stri
 ///   VERTEX_REGION_* (not secret); with only a profile's switch, the
 ///   non-secret ones of those.
 /// - Codex: OPENAI_*, CODEX_*.
+/// - Gemini: GEMINI_* and GOOGLE_* (the CLI/API and Vertex credentials).
+/// - Muse: MUSE_* and META_* (the official CLI and API credentials).
 /// - Not here: a name delivered in `~/.config/cmux/machine-secrets.env`
 ///   passes only on the local spawn paths (`pairs_for`), never through this
 ///   rule, so nested-session restoration (`nested_overrides`), `${env:VAR}`
@@ -682,6 +684,8 @@ pub fn allowed_with(
                 || vertex_allowed(key, value, profile)
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
+        Some("gemini") => key.starts_with("GEMINI_") || key.starts_with("GOOGLE_"),
+        Some("muse") => key.starts_with("MUSE_") || key.starts_with("META_"),
         _ => false,
     }
 }
@@ -718,9 +722,20 @@ fn storable(key: &str, value: &str) -> bool {
         || delivered(key)
         || allowed(key, value, None)
         || allowed(key, value, Some("codex"))
-        || ["ANTHROPIC_", "CLAUDE_", "DISABLE_", "AWS_", "GOOGLE_", "CLOUDSDK_", "GCLOUD_"]
-            .iter()
-            .any(|p| key.starts_with(p))
+        || [
+            "ANTHROPIC_",
+            "CLAUDE_",
+            "DISABLE_",
+            "AWS_",
+            "GOOGLE_",
+            "CLOUDSDK_",
+            "GCLOUD_",
+            "GEMINI_",
+            "MUSE_",
+            "META_",
+        ]
+        .iter()
+        .any(|p| key.starts_with(p))
         || key.ends_with("_TELEMETRY")
         || key == "CLOUD_ML_REGION"
         || (key.starts_with("VERTEX_REGION_") && !is_secret(key, value))
@@ -730,8 +745,12 @@ fn storable(key: &str, value: &str) -> bool {
 /// some harness may get (the allow-list or `loginEnvAllow`).
 pub fn allowed_var(key: &str) -> Option<String> {
     let v = var(key)?;
-    (allowed(key, &v, None) || allowed(key, &v, Some("claude")) || allowed(key, &v, Some("codex")))
-        .then_some(v)
+    (allowed(key, &v, None)
+        || allowed(key, &v, Some("claude"))
+        || allowed(key, &v, Some("codex"))
+        || allowed(key, &v, Some("gemini"))
+        || allowed(key, &v, Some("muse")))
+    .then_some(v)
 }
 
 /// Profile and route references must not recover a machine value from the
@@ -1400,6 +1419,18 @@ mod machine_file_tests {
         assert!(!allowed("DEMO_KEY", "dummy", Some("codex")));
         assert!(!allowed("CLAUDE_CODE_OAUTH_TOKEN", "dummy", None));
         *DELIVERED.write().unwrap() = before;
+    }
+
+    /// Gemini and Muse credentials follow their ACP harness across the
+    /// daemon-to-agent boundary, while staying scoped away from other agents.
+    #[test]
+    fn provider_credentials_are_scoped_to_gemini_and_muse() {
+        assert!(allowed("GEMINI_API_KEY", "secret", Some("gemini")));
+        assert!(allowed("GOOGLE_API_KEY", "secret", Some("gemini")));
+        assert!(allowed("MUSE_API_KEY", "secret", Some("muse")));
+        assert!(allowed("META_API_KEY", "secret", Some("muse")));
+        assert!(!allowed("MUSE_API_KEY", "secret", Some("gemini")));
+        assert!(!allowed("META_API_KEY", "secret", Some("claude")));
     }
 
     /// Only the names of a delivered file, in the receiver's format; a link
