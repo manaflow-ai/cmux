@@ -154,28 +154,51 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         self.assertEqual(len(parts), 2)
         return parts
 
-    def reset_state(self):
+    def reset_state(self, pane_owner=None, pane_surface=None):
         now = time.time()
         seconds, microseconds = self.worker_generation()
-        self.state_path.write_text(json.dumps({
-            "version": 1,
-            "sessions": {self.worker_session: {
+        sessions = {
+            self.worker_session: {
                 "sessionId": self.worker_session,
                 "workspaceId": self.worker_workspace, "surfaceId": self.worker_surface,
                 "pid": self.worker.pid,
                 "pidStartSeconds": seconds, "pidStartMicroseconds": microseconds,
                 "startedAt": now, "updatedAt": now,
-            }},
-            "activeSessionsBySurface": {self.worker_surface: {
-                "sessionId": self.launcher_session, "updatedAt": now}},
+            },
+            self.launcher_session: {
+                "sessionId": self.launcher_session,
+                "workspaceId": self.worker_workspace, "surfaceId": self.worker_surface,
+                "startedAt": now, "updatedAt": now,
+            },
+        }
+        surface_slots = {self.worker_surface: {
+            "sessionId": self.launcher_session, "updatedAt": now}}
+        if pane_owner is not None and pane_surface is not None:
+            sessions[pane_owner] = {
+                "sessionId": pane_owner,
+                "workspaceId": self.worker_workspace, "surfaceId": pane_surface,
+                "startedAt": now, "updatedAt": now,
+            }
+            surface_slots[pane_surface] = {
+                "sessionId": pane_owner, "updatedAt": now}
+        self.state_path.write_text(json.dumps({
+            "version": 1,
+            "sessions": sessions,
+            "activeSessionsBySurface": surface_slots,
             "activeSessionsByWorkspace": {self.worker_workspace: {
                 "sessionId": self.launcher_session, "updatedAt": now}},
         }))
 
-    def set_surface_owner(self, surface_id):
+    def set_surface_owner(self, owner_session, surface_id):
         state = json.loads(self.state_path.read_text())
+        now = time.time()
+        state.setdefault("sessions", {})[owner_session] = {
+            "sessionId": owner_session,
+            "workspaceId": self.worker_workspace, "surfaceId": surface_id,
+            "startedAt": now, "updatedAt": now,
+        }
         state.setdefault("activeSessionsBySurface", {})[surface_id] = {
-            "sessionId": self.launcher_session, "updatedAt": time.time()}
+            "sessionId": owner_session, "updatedAt": now}
         self.state_path.write_text(json.dumps(state))
 
     def tearDown(self):
@@ -199,7 +222,7 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
     def record(self):
         return json.loads(self.state_path.read_text())["sessions"][self.worker_session]
 
-    def assert_restored(self, workspace, surface, slot_surface):
+    def assert_restored(self, workspace, surface, slot_surface, owner_session):
         record = self.record()
         self.assertEqual(record["workspaceId"], self.worker_workspace)
         self.assertEqual(record["surfaceId"], self.worker_surface)
@@ -207,17 +230,18 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         seconds, microseconds = self.worker_generation()
         self.assertEqual(record.get("pidStartSeconds"), seconds)
         self.assertEqual(record.get("pidStartMicroseconds"), microseconds)
-        state = json.loads(self.state_path.read_text())
         if slot_surface is not None:
-            self.assertEqual(state["activeSessionsBySurface"][slot_surface]["sessionId"],
-                             self.launcher_session)
+            state = json.loads(self.state_path.read_text())
+            self.assertEqual(
+                state.get("activeSessionsBySurface", {}).get(slot_surface, {}).get("sessionId"),
+                owner_session)
 
     def test_same_pane_two_viewers_both_orders_restore_worker_route(self):
         for order in (("first", "second"), ("second", "first")):
             with self.subTest(order=order):
-                self.reset_state()
                 pane_surface = str(uuid.uuid4())
-                self.set_surface_owner(pane_surface)
+                pane_owner = str(uuid.uuid4())
+                self.reset_state(pane_owner, pane_surface)
                 first, _ = self.viewer(self.worker_workspace, pane_surface)
                 second, _ = self.viewer(self.worker_workspace, pane_surface)
                 first.run("attached")
@@ -227,24 +251,25 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
                 by_name[order[0]].run("detached")
                 self.assertEqual(self.record()["surfaceId"], pane_surface)
                 by_name[order[1]].run("detached")
-                self.assert_restored(self.worker_workspace, self.worker_surface, pane_surface)
+                self.assert_restored(self.worker_workspace, self.worker_surface, pane_surface, pane_owner)
                 first.close()
                 second.close()
 
     def test_cross_pane_viewers_restore_each_pane_owner(self):
         pane_a, pane_b = str(uuid.uuid4()), str(uuid.uuid4())
-        self.set_surface_owner(pane_a)
-        self.set_surface_owner(pane_b)
+        owner_a, owner_b = str(uuid.uuid4()), str(uuid.uuid4())
+        self.set_surface_owner(owner_a, pane_a)
+        self.set_surface_owner(owner_b, pane_b)
         first, _ = self.viewer(self.worker_workspace, pane_a)
         second, _ = self.viewer(self.worker_workspace, pane_b)
         first.run("attached")
         second.run("attached")
         second.run("detached")
         first.run("detached")
-        self.assert_restored(self.worker_workspace, self.worker_surface, pane_a)
+        self.assert_restored(self.worker_workspace, self.worker_surface, pane_a, owner_a)
         state = json.loads(self.state_path.read_text())
-        self.assertEqual(state["activeSessionsBySurface"][pane_b]["sessionId"],
-                         self.launcher_session)
+        self.assertEqual(state.get("activeSessionsBySurface", {}).get(pane_b, {}).get("sessionId"),
+                         owner_b)
         first.close()
         second.close()
 
@@ -266,10 +291,9 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
         viewer, _ = self.viewer(self.worker_workspace, pane_surface)
         viewer.run("attached")
         new_owner, new_route = str(uuid.uuid4()), str(uuid.uuid4())
+        self.set_surface_owner(new_owner, pane_surface)
         state = json.loads(self.state_path.read_text())
         state["sessions"][self.worker_session]["surfaceId"] = new_route
-        state.setdefault("activeSessionsBySurface", {})[pane_surface] = {
-            "sessionId": new_owner, "updatedAt": time.time()}
         self.state_path.write_text(json.dumps(state))
         viewer.run("detached")
         state = json.loads(self.state_path.read_text())
