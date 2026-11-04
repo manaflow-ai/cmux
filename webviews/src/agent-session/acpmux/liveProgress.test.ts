@@ -23,3 +23,15 @@ test("clearing a plan removes Progress", () => {
   const first = projectLiveProgress(undefined, plan, true);
   expect(projectLiveProgress(first, [], true)).toBeUndefined();
 });
+
+test("derives the completed count only when the checklist changes", () => {
+  const first = projectLiveProgress(undefined, plan, true);
+  expect(first?.completed).toBe(0);
+  expect(first?.total).toBe(1);
+  const changed = projectLiveProgress(first, [{ content: "Check", status: "completed" }], true);
+  expect(changed).not.toBe(first);
+  expect(changed?.completed).toBe(1);
+  expect(changed?.total).toBe(1);
+  expect(projectLiveProgress(changed, changed?.plan, false)).not.toBe(changed);
+  expect(projectLiveProgress(changed, changed?.plan, false)?.completed).toBe(1);
+});

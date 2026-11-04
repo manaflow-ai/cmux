@@ -347,8 +347,8 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             group: "running",
             title: t("sessionInfo.progress"),
             meta: t(props.progress.plan.length === 1 ? "plan.progress.one" : "plan.progress", {
-              done: props.progress.plan.filter((entry) => entry.status === "completed").length,
-              total: props.progress.plan.length,
+              done: props.progress.completed ?? 0,
+              total: props.progress.total ?? props.progress.plan.length,
             }),
             open: state.sections.progress,
             foldable: true,

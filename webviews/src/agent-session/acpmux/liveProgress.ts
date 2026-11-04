@@ -11,5 +11,10 @@ export function projectLiveProgress(
 ): LiveProgress | undefined {
   if (!plan || plan.length === 0) return undefined;
   if (previous && previous.plan === plan && Boolean(previous.ended) !== working) return previous;
-  return { plan: plan as AcpmuxPlanEntry[], ...(working ? {} : { ended: true }) };
+  return {
+    plan: plan as AcpmuxPlanEntry[],
+    completed: plan.filter((entry) => entry.status === "completed").length,
+    total: plan.length,
+    ...(working ? {} : { ended: true }),
+  };
 }

@@ -923,6 +923,8 @@ export type AcpmuxSnapshot = {
   /// without rescanning the transcript on every streamed token.
   progress?: {
     plan: AcpmuxPlanEntry[];
+    completed?: number;
+    total?: number;
     ended?: boolean;
   };
   /// Each subagent's own view by subagent id: its rows, opened from its line in a group

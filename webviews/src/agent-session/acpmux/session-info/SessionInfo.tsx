@@ -1870,8 +1870,8 @@ export function SessionInfo({
       onOpenChange={fold("progress")}
       meta={value(
         t(progress.plan.length === 1 ? "plan.progress.one" : "plan.progress", {
-          done: progress.plan.filter((entry) => entry.status === "completed").length,
-          total: progress.plan.length,
+          done: progress.completed ?? 0,
+          total: progress.total ?? progress.plan.length,
         }),
       )}
     >
