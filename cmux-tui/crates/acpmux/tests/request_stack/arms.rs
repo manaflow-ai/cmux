@@ -169,7 +169,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_INFO, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
         (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
-        // `text: null` clears the user override this hub never set: the saved config is unchanged.
+        // The test config has no file (`Config.path` is not read from JSON), so the save writes nothing.
         (
             method::MUX_CONTEXT_OVERRIDE,
             Run(json!({"sessionId": "$S", "scope": "user", "text": null})),
