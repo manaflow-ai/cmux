@@ -232,7 +232,7 @@ for (const family of ["gemini", "muse"]) {
       liveRuns: true,
       agentFamily: family,
     });
-    expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
+    expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", `${SUPERSEDED}-s1`, "s1", "b4", "answer", "sum"]);
   });
 }
 
@@ -242,5 +242,5 @@ test("a family the table does not name folds as Codex does", () => {
     liveRuns: true,
     agentFamily: "opencode",
   });
-  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", "s1", "answer", "sum"]);
+  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });
