@@ -41,8 +41,7 @@ pub(super) async fn handle(
         &env,
         &args,
     );
-    let takes_prompt =
-        profile.is_some_and(|h| h.kind == crate::config::HarnessKind::ClaudeStdio);
+    let takes_prompt = profile.is_some_and(|h| h.kind == crate::config::HarnessKind::ClaudeStdio);
     let own = presets::writes_command(conn);
     let preset = preset.map(|(name, p)| {
         let text = (own && p.system_prompt_sha256.is_some())

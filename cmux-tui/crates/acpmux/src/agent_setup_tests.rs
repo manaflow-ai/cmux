@@ -20,7 +20,8 @@ fn tools(names: &[&str]) -> crate::agent_tools::AgentTools {
 fn each_server_shows_the_text_its_own_server_gives() {
     let sub = server(crate::subsession_mcp::SERVER_NAME);
     assert_eq!(sub["instructions"], crate::subsession_mcp::instructions());
-    let names: Vec<&str> = sub["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
+    let names: Vec<&str> =
+        sub["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"start_session"), "{sub}");
     let cloud = server(crate::cloud_repo_mcp::SERVER_NAME);
     assert_eq!(cloud["instructions"], crate::cloud_repo_mcp::INSTRUCTIONS);

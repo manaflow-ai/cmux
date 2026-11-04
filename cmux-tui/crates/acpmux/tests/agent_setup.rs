@@ -126,7 +126,8 @@ async fn chat(hub: &Arc<Hub>) -> (Client, String) {
 }
 
 fn state(name: &str) -> State {
-    let dir = std::env::temp_dir().join(format!("acpmux-agent-setup-{name}-{}", uuid::Uuid::now_v7()));
+    let dir =
+        std::env::temp_dir().join(format!("acpmux-agent-setup-{name}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();
     State(dir)
 }
@@ -162,7 +163,8 @@ async fn the_persons_pane_saves_the_preset_prompt_for_new_sessions() {
     let file = state.0.join("presets").join("tuned").join("system.md");
     assert_eq!(std::fs::read_to_string(file).unwrap(), EDITED);
     // A plain string only: the prompt's text or null.
-    let bad = app.call("_acpmux/agent_setup/save", json!({"sessionId": id, "systemPrompt": 3})).await;
+    let bad =
+        app.call("_acpmux/agent_setup/save", json!({"sessionId": id, "systemPrompt": 3})).await;
     assert!(bad.get("error").is_some(), "{bad}");
 }
 
