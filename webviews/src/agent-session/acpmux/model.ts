@@ -1726,6 +1726,18 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
         next.incoming?.kind === "message" ||
         next.incoming?.kind === "notice" ||
         next.incoming?.kind === "inbox")));
+/// The footer whose actions show at rest (App.tsx `acpmux-row--final-footer`): the chat's last
+/// ended turn, as ChatGPT's and Claude's last reply keep Copy in sight, until the person's next
+/// prompt opens a turn. Another agent's message, a notice, a recap or a background line drawn under
+/// it leaves it shown (Leo, 2026-11-04: "we don't have ... the thing always showing at hte bottom").
+export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "turnSummary") return row.id;
+    if (row.kind === "user" && !row.incoming && row.received === undefined) return undefined;
+  }
+  return undefined;
+}
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
