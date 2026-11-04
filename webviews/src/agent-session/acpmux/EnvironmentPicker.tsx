@@ -488,12 +488,12 @@ export function EnvironmentPicker({
     listRows === "machines" && list === "main"
       ? machineChoices
       : machineList
-          ? machines
-          : listRows === "where" || listRows === "run"
-            ? listRows === "run"
-              ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
-              : where
-            : main;
+        ? machines
+        : listRows === "where" || listRows === "run"
+          ? listRows === "run"
+            ? [...ordered.filter(isLocal).map((environment) => environment.id), ...(cloudRow ? [cloudRow] : [])]
+            : where
+          : main;
   // Cloud's row shows Sandboxed instead while ⌥ is held (or, once picked, until it is).
   const sandboxFace = offersSandbox && sandboxed !== alternate;
 
@@ -602,9 +602,7 @@ export function EnvironmentPicker({
         >
           <EnvironmentIcon kind="cloud" />
           <span className="acpmux-menu-text acpmux-location-name">
-            <span className="acpmux-menu-label">
-              {t("composer.cloud")}
-            </span>
+            <span className="acpmux-menu-label">{t("composer.cloud")}</span>
             {listRows === "run" && runDetails && <span className="acpmux-menu-description">{runDetails.cloud}</span>}
           </span>
           <span className="acpmux-location-check" aria-hidden="true">
@@ -621,13 +619,7 @@ export function EnvironmentPicker({
         <span
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind}
-          data-action={
-            action === another
-              ? "another"
-              : action === addMachine
-                ? "addMachine"
-                : undefined
-          }
+          data-action={action === another ? "another" : action === addMachine ? "addMachine" : undefined}
           data-current={checked ? "" : undefined}
         >
           {action === another ? (
