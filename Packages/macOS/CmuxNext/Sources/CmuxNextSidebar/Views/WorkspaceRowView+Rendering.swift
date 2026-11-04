@@ -244,7 +244,7 @@ extension WorkspaceRowView {
             if !onColumn || shown < end { usageWarningMark.frame = statusGlyphFrame(trailing: shown, centerY: cy) }
             if !onColumn { trailing = usageWarningMark.frame.minX - Metrics.space2 }
         }
-        if audio != nil {
+        if audioSlot.made?.isHidden == false {
             audioSlot.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: control, height: control))
             trailing = columns.trailingEdge(before: audioSlot.frame)
         }

@@ -95,6 +95,7 @@ import Testing
         defer { window.close() }
         let key = SidebarRowKey.workspace(WorkspaceID("first-pass-\(Self.active)"))
         let row = try #require(sidebar.list.rowViews[key] as? WorkspaceRowView, "the active row has no view")
+        row.onMore = {} // the App's menu provider wires it (`WorkspaceRowView+Wiring`); this sidebar has none
         sidebar.list.setHovered(key)
         window.displayIfNeeded() // the hover's frame: no run loop turn between the hover and it
         let shown = row.subviews.filter { Self.isRowControl($0) && !$0.isHidden && $0.alphaValue > 0.99 }
