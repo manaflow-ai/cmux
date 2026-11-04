@@ -87,6 +87,7 @@ struct DividerDrag {
             if redraw { screen.reconcile(animated: false) }
         }
         model.cancelGesture(drag.transaction)
+        if let replaced = drag.replaced { putBack(replaced) }
         model.setGestureActive(false)
         screen.resizeGestureReleased()
     }

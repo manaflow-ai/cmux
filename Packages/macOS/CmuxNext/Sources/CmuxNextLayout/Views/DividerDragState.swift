@@ -8,8 +8,12 @@ struct DividerDragState {
     /// `motion.frameOwner.sharedEdges` (FRAME OWNER S2B) when the drag started (`DividerDrag.start`): a flip applies
     /// from the next drag.
     var sharedEdges = false
-    /// The press's catch (rule C, `DividerDrag.catchShown`), only for the pass that lays the caught value out.
-    var caught: SharedEdgeMotion.Catch?
+    /// The press's pass that lays out the value it caught (rule C, `DividerDrag.catchShown`): every frame keeps where
+    /// it shows.
+    var catching = false
+    /// The value the press's catch replaced (its key, and the local value it showed over the daemon's, if any): a
+    /// cancel puts it back.
+    var replaced: (key: DividerDragValueKey, override: LayoutModel.Override?)?
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis

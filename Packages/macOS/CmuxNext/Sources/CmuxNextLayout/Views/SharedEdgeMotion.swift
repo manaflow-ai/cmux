@@ -11,16 +11,19 @@ import CoreGraphics
 /// so the shell shows between them, or they overlap (SharedEdgeDuringSpringTests: 59 pt open, 47 pt overlap).
 ///
 /// The rule (rule C, an animation is interruptible from its current value): a grab takes over at what is on screen.
-/// - At the press (``Catch``, once), the drag's own value (a split's ratio, a column's width) is set to where its edge
-///   shows from its anchor (the edge on the other side of the pane or span the drag resizes), so its size spring stops
-///   where it shows; the edges on the dragged line then ride their anchor's translation spring. Every other edge the
-///   new value moves keeps where it shows and its velocity (its spring goes on to its new place). The press moves nothing.
+/// - At the press (`DividerDrag.catchShown`, once), the drag's own value (a split's ratio, a column's width) goes to
+///   where its edge shows from its anchor (the edge across the pane or span it resizes, found from the layout's panes).
+///   The screen lays that out in a pass that moves nothing: every frame keeps where it shows and its velocity, only its
+///   target changes (``place(_:at:keepsShown:)``). Then each edge gets the change of speed that stops the dragged line
+///   against its anchor, in proportion to how far that edge moves when the drag's value moves (``Influence``): the
+///   dragged line stops against its anchor, the panes after it move with it as one block, an edge the value does not
+///   move keeps its spring, and the two edges of a shared edge always get the same change.
 /// - On every move after it, an edge whose target the drag changes moves by as much as its target and keeps its
 ///   velocity, so the dragged pane changes 1:1 with the pointer; an edge whose target the drag does not change keeps
 ///   its spring. A component at rest lands on its new target exactly, so a drag with no spring running places frames
 ///   as before S2B.
-/// Both neighbours of a shared edge see the same change, so they move together, and no size ever goes past where it
-/// shows by a spring's leftover: nothing shows a negative width. A release's fling seeds only the edges it moved.
+/// The dragged pane's size then has no spring leftover, so a drag never shows it past its rest size by one: nothing
+/// shows a negative width. A release's fling seeds only the edges it moved.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
     private struct Edges {
@@ -45,26 +48,18 @@ enum SharedEdgeMotion {
         guard !animated, screen.activeDrag?.sharedEdges == true, screen.context.model.isGestureActive, !screen.context.reduceMotion else {
             return false
         }
-        place(&frame, at: target, caught: screen.activeDrag?.caught)
+        place(&frame, at: target, keepsShown: screen.activeDrag?.catching == true)
         return true
     }
 
-    /// Sets `frame`'s target to `target` during a pointer gesture that does not animate. The press's pass (`caught`):
-    /// every component keeps where it shows and its velocity, and an edge on the dragged line takes its anchor's
-    /// velocity. Every other pass: each component (x, y, width, height) moves by as much as its target and keeps its
-    /// velocity, so each edge moves by its own target's change. The alpha does as before S2B: opaque, at once for a
-    /// frame the gesture retargets.
-    static func place(_ frame: inout AnimatedFrame, at target: CGRect, caught: Catch? = nil) { // perf-hot: 4ms motion-frame
+    /// Sets `frame`'s target to `target` during a pointer gesture that does not animate. The press's pass
+    /// (`keepsShown`): every component keeps where it shows and its velocity. Every other pass: each component (x, y,
+    /// width, height) moves by as much as its target and keeps its velocity, so each edge moves by its own target's
+    /// change. The alpha does as before S2B: opaque, at once for a frame the gesture retargets.
+    static func place(_ frame: inout AnimatedFrame, at target: CGRect, keepsShown: Bool = false) { // perf-hot: 4ms motion-frame
         let retargeted = frame.targetRect != target
-        if let caught {
-            let horizontal = caught.axis == .horizontal
-            if horizontal {
-                caught.retarget(start: &frame.x, extent: &frame.width, low: target.minX, high: target.maxX)
-                (frame.y.target, frame.height.target) = (target.minY, target.height)
-            } else {
-                caught.retarget(start: &frame.y, extent: &frame.height, low: target.minY, high: target.maxY)
-                (frame.x.target, frame.width.target) = (target.minX, target.width)
-            }
+        if keepsShown {
+            frame.setTarget(target)
         } else {
             shift(&frame.x, to: target.minX)
             shift(&frame.y, to: target.minY)
@@ -82,30 +77,6 @@ enum SharedEdgeMotion {
         let resting = value.velocity == 0 && value.value == value.target
         value.target = target
         value.value = resting ? target : value.value + delta
-    }
-
-    /// The press of a drag that starts while its edge springs: the dragged line (its rest coordinate along `axis`
-    /// before the press, and `reach`, how far from it the edges on it lie: a pane's edge, the divider's, the next
-    /// pane's across the gap) and its anchor's motion (`offset`, where the anchor shows less its rest place, and
-    /// `velocity`). In the press's pass an edge on the line keeps where it shows less its new rest place, and runs at
-    /// `velocity`: from then on it rides the anchor.
-    struct Catch {
-        var axis: SplitAxis
-        var line: CGFloat
-        var reach: CGFloat
-        var offset: CGFloat
-        var velocity: CGFloat
-
-        /// One axis of the press's pass: both edges keep where they show; one on the line (before the press) whose
-        /// target moved shows at its new target plus the anchor's offset (the same place, on the pixel the anchor's
-        /// edges round to) and runs at the anchor's velocity.
-        func retarget(start: inout SpringValue, extent: inout SpringValue, low: CGFloat, high: CGFloat) {
-            var edges = Edges(start: start, extent: extent)
-            if low != edges.lowTarget, abs(edges.lowTarget - line) <= reach { (edges.low, edges.lowSpeed) = (low + offset, velocity) }
-            if high != edges.highTarget, abs(edges.highTarget - line) <= reach { (edges.high, edges.highSpeed) = (high + offset, velocity) }
-            (edges.lowTarget, edges.highTarget) = (low, high)
-            edges.write(start: &start, extent: &extent)
-        }
     }
 
     /// The edges a layout change moved for one frame, compared with its targets before the change. A release seeds only
@@ -140,77 +111,137 @@ enum SharedEdgeMotion {
 }
 
 extension SharedEdgeMotion {
-    /// What a press on `kind` catches on `screen` (rule C): the drag's value that puts its edge's rest place where the
-    /// edge shows from its anchor, and the ``Catch`` for the pass that lays it out. Nil when the edge shows at its rest
-    /// place from its anchor and moves with it (nothing to catch), and for a row edge (its drag lays out a preview of
-    /// rest rows).
-    static func caught(_ kind: DividerHandleView.Kind, on screen: ScreenContentView) -> (value: DividerDragValue, motion: Catch)? {
-        let geometry = screen.baseGeometry, style = screen.context.style, scale = screen.scale
+    /// What a press catches (rule C): the drag's value that puts the dragged line's rest place where it shows from its
+    /// anchor, the values a few points to either side (the probes, the longer way first: how far each edge moves with
+    /// the line), and the change of speed that stops the line against its anchor.
+    struct Caught {
+        var value: DividerDragValue
+        var probes: [DividerDragValue]
+        var axis: SplitAxis
+        var speedChange: CGFloat
+    }
+
+    /// What a press on `kind` catches on `screen`. Nil when the line shows at its rest distance from its anchor and moves
+    /// with it (nothing to catch), when the screen has no frame for it or its anchor, and for a row edge (its drag lays
+    /// out a preview of rest rows).
+    static func caught(_ kind: DividerHandleView.Kind, on screen: ScreenContentView) -> Caught? {
+        let geometry = screen.baseGeometry, style = screen.context.style
         guard let handle = screen.dividerFrames[kind] else { return nil }
-        let reach = max(style.dividerHitThickness, style.stripGap + style.dividerThickness) + 1
-        /// Where the screen shows a coordinate (`pixelEdges`).
-        func shown(_ value: CGFloat) -> CGFloat { scale > 0 ? (value * scale + 0.5).rounded(.down) / scale : value }
         switch kind {
         case let .split(id):
-            guard let divider = geometry.dividers.first(where: { $0.id == id }) else { return nil }
+            guard let divider = geometry.dividers.first(where: { $0.id == id }),
+                  let side = screen.layout.tree(containing: id)?.node(for: id)?.a else { return nil }
             let horizontal = divider.axis == .horizontal
-            let line = horizontal ? divider.frame.minX : divider.frame.minY
             let base = horizontal ? divider.container.minX : divider.container.minY
-            guard let anchor = anchor(at: base, high: false, axis: divider.axis, within: divider.container, panes: screen.paneFrames),
-                  let span = span(line: line, lineSpring: horizontal ? handle.x : handle.y, anchorAt: base, anchor: anchor, shown: shown) else {
-                return nil
+            let line = horizontal ? divider.frame.minX : divider.frame.minY
+            guard let anchor = anchor(nearest: base, high: false, axis: divider.axis, of: side.panes, in: screen.paneFrames),
+                  let span = span(line: line, spring: horizontal ? handle.x : handle.y, base: base, anchor: anchor) else { return nil }
+            func ratio(_ extent: CGFloat) -> DividerDragValue {
+                .ratio(id, SplitGeometry.ratio(forPointer: base + extent, container: divider.container, axis: divider.axis, style: style,
+                                               minimumA: divider.minimumA, minimumB: divider.minimumB))
             }
-            let ratio = SplitGeometry.ratio(forPointer: base + span, container: divider.container, axis: divider.axis, style: style,
-                                            minimumA: divider.minimumA, minimumB: divider.minimumB)
-            return (.ratio(id, ratio), Catch(axis: divider.axis, line: line, reach: reach, offset: anchor.offset, velocity: anchor.velocity))
+            return Caught(value: ratio(span.extent), probes: [ratio(span.extent + probeStep), ratio(span.extent - probeStep)], axis: divider.axis,
+                          speedChange: anchor.velocity - span.velocity)
         case let .columnEdge(id):
             guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return nil }
             let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
             let band = edge?.isBand == true, axis: SplitAxis = band ? .vertical : .horizontal
             // The dragged line, its anchor across the column, whether the anchor is the column's high edge, and which
-            // way the extent grows from the anchor.
+            // way the column's extent grows from the anchor.
             let (line, base, high, sign): (CGFloat, CGFloat, Bool, CGFloat) = switch edge {
             case .right?: (frame.minX, frame.maxX, true, -1)
             case .top?: (frame.maxY, frame.minY, false, 1)
             case .bottom?: (frame.minY, frame.maxY, true, -1)
             case .left?, nil: (frame.maxX, frame.minX, false, 1)
             }
-            guard let anchor = anchor(at: base, high: high, axis: axis, within: frame, panes: screen.paneFrames),
-                  let span = span(line: line, lineSpring: band ? handle.y : handle.x, anchorAt: base, anchor: anchor, shown: shown) else {
-                return nil
-            }
+            guard let anchor = anchor(nearest: base, high: high, axis: axis, of: column.root.panes, in: screen.paneFrames),
+                  let span = span(line: line, spring: band ? handle.y : handle.x, base: base, anchor: anchor) else { return nil }
             let minimum = band ? column.minimumSize(style: style).height : column.minimumSize(style: style).width
             let viewport = switch edge {
             case nil: geometry.stripWidth
             case .top?, .bottom?: screen.bounds.height
             case .left?, .right?: screen.bounds.width
             }
-            let width = ColumnStripGeometry.fraction(forPixelWidth: max(span * sign, minimum), viewportWidth: viewport, gap: style.stripGap)
-            return (.width(id, width), Catch(axis: axis, line: line, reach: reach, offset: anchor.offset, velocity: anchor.velocity))
+            func width(_ extent: CGFloat) -> DividerDragValue {
+                .width(id, ColumnStripGeometry.fraction(forPixelWidth: max(extent * sign, minimum), viewportWidth: viewport, gap: style.stripGap))
+            }
+            return Caught(value: width(span.extent), probes: [width(span.extent + probeStep * sign), width(span.extent - probeStep * sign)], axis: axis,
+                          speedChange: anchor.velocity - span.velocity)
         case .rowEdge:
             return nil
         }
     }
 
-    /// The motion of the pane edge at `coordinate` along `axis` (its high edge with `high`) of a pane inside `within`:
-    /// where it shows less its rest place, and its velocity.
-    private static func anchor(at coordinate: CGFloat, high: Bool, axis: SplitAxis, within: CGRect,
-                               panes: [PaneID: AnimatedFrame]) -> (offset: CGFloat, velocity: CGFloat)? {
-        let room = within.insetBy(dx: -0.5, dy: -0.5)
-        for frame in panes.values where room.contains(frame.targetRect) {
+    /// How far the probe moves the line from the caught value: past pixel rounding, short of any minimum it is not at.
+    private static let probeStep: CGFloat = 8
+
+    /// The motion of the edge nearest `coordinate` along `axis` (each pane's high edge with `high`) among `panes` (the
+    /// panes on the anchor's side, from the layout): where it shows less its rest place, and its velocity.
+    private static func anchor(nearest coordinate: CGFloat, high: Bool, axis: SplitAxis, of panes: [PaneID],
+                               in frames: [PaneID: AnimatedFrame]) -> (offset: CGFloat, velocity: CGFloat)? {
+        var best: (distance: CGFloat, offset: CGFloat, velocity: CGFloat)?
+        for pane in panes {
+            guard let frame = frames[pane] else { continue }
             let edges = axis == .horizontal ? Edges(start: frame.x, extent: frame.width) : Edges(start: frame.y, extent: frame.height)
             let (value, speed, target) = high ? (edges.high, edges.highSpeed, edges.highTarget) : (edges.low, edges.lowSpeed, edges.lowTarget)
-            if abs(target - coordinate) < 0.5 { return (value - target, speed) }
+            let distance = abs(target - coordinate)
+            if distance < (best?.distance ?? .infinity) { best = (distance, value - target, speed) }
         }
-        return nil
+        return best.map { ($0.offset, $0.velocity) }
     }
 
-    /// How far the dragged line shows from its anchor, signed along the axis, as the screen draws both (on their
-    /// pixels); nil when the line shows at its rest distance from the anchor and moves with it (nothing to catch).
-    private static func span(line: CGFloat, lineSpring: SpringValue, anchorAt base: CGFloat, anchor: (offset: CGFloat, velocity: CGFloat),
-                             shown: (CGFloat) -> CGFloat) -> CGFloat? {
-        let offset = lineSpring.value - lineSpring.target
-        guard abs(offset - anchor.offset) > 0.001 || abs(lineSpring.velocity - anchor.velocity) > 0.001 else { return nil }
-        return shown(line + offset) - shown(base + anchor.offset)
+    /// How far the dragged line shows from its anchor (signed along the axis, not rounded) and its velocity; nil when
+    /// the line shows at its rest distance from the anchor and moves with it.
+    private static func span(line: CGFloat, spring: SpringValue, base: CGFloat, anchor: (offset: CGFloat, velocity: CGFloat))
+        -> (extent: CGFloat, velocity: CGFloat)? {
+        let offset = spring.value - spring.target
+        guard abs(offset - anchor.offset) > 0.001 || abs(spring.velocity - anchor.velocity) > 0.001 else { return nil }
+        return ((line + offset) - (base + anchor.offset), spring.velocity)
+    }
+
+    /// How far each edge moved with the dragged line between the caught layout and the probe layout, as a fraction of
+    /// the line's move: 1 for an edge on the line or after it, 0 for an edge the value does not move, a part for an edge
+    /// a split shares out. The press gives each edge that fraction of the line's change of speed.
+    struct Influence {
+        var caught: ScreenGeometry
+        var probe: ScreenGeometry
+        var axis: SplitAxis
+        var lineMove: CGFloat
+
+        /// The influence of `kind`'s handle moving from `caught` to `probe` geometry; nil when the probe did not move it
+        /// (both values clamped): the press then changes no speed.
+        init?(_ kind: DividerHandleView.Kind, caught: ScreenGeometry, probe: ScreenGeometry, axis: SplitAxis) {
+            guard let from = Self.target(kind, in: caught), let to = Self.target(kind, in: probe) else { return nil }
+            let move = axis == .horizontal ? to.minX - from.minX : to.minY - from.minY
+            guard abs(move) >= 1 else { return nil }
+            (self.caught, self.probe, self.axis, lineMove) = (caught, probe, axis, move)
+        }
+
+        static func target(_ kind: DividerHandleView.Kind, in geometry: ScreenGeometry) -> CGRect? {
+            switch kind {
+            case let .split(id): geometry.dividers.first { $0.id == id }?.hitFrame
+            case let .columnEdge(id): geometry.columnEdges.first { $0.column == id }?.hitFrame
+            case let .rowEdge(column, upper): geometry.rowEdges.first { $0.column == column && $0.upper == upper }?.hitFrame
+            }
+        }
+
+        /// Adds `speedChange` to `frame`'s edges along the axis, each in proportion to how far it moves from `from` to
+        /// `to` (the frame's targets in the caught and the probe layout).
+        func apply(_ speedChange: CGFloat, to frame: inout AnimatedFrame, from: CGRect?, to: CGRect?) {
+            guard let from, let to else { return }
+            let horizontal = axis == .horizontal
+            let low = (horizontal ? to.minX - from.minX : to.minY - from.minY) / lineMove
+            let high = (horizontal ? to.maxX - from.maxX : to.maxY - from.maxY) / lineMove
+            guard low != 0 || high != 0 else { return }
+            if horizontal {
+                var edges = Edges(start: frame.x, extent: frame.width)
+                (edges.lowSpeed, edges.highSpeed) = (edges.lowSpeed + speedChange * low, edges.highSpeed + speedChange * high)
+                edges.write(start: &frame.x, extent: &frame.width)
+            } else {
+                var edges = Edges(start: frame.y, extent: frame.height)
+                (edges.lowSpeed, edges.highSpeed) = (edges.lowSpeed + speedChange * low, edges.highSpeed + speedChange * high)
+                edges.write(start: &frame.y, extent: &frame.height)
+            }
+        }
     }
 }
