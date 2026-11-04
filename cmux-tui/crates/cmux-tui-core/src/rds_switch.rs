@@ -14,7 +14,12 @@ pub(crate) struct InputLaneSwitch(AtomicBool);
 impl InputLaneSwitch {
     /// The switch as the daemon's environment sets it.
     pub(crate) fn from_env() -> Self {
-        Self(AtomicBool::new(std::env::var("CMUX_TUI_RDS_INPUT").is_ok_and(|value| value == "1")))
+        Self::from_value(std::env::var("CMUX_TUI_RDS_INPUT").ok().as_deref())
+    }
+
+    /// The switch for a value of `CMUX_TUI_RDS_INPUT` (`None`: unset).
+    fn from_value(value: Option<&str>) -> Self {
+        Self(AtomicBool::new(value == Some("1")))
     }
 
     /// Whether stage S1 is on for this mux.
@@ -26,5 +31,28 @@ impl InputLaneSwitch {
     #[cfg(test)]
     pub(crate) fn set_for_test(&self, on: bool) {
         self.0.store(on, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InputLaneSwitch;
+
+    /// R-DAEMON-STATE S1.7: the input lane is the default; `CMUX_TUI_RDS_INPUT=0` keeps the old path, the
+    /// fallback for one nightly before S1.8 deletes it.
+    #[test]
+    fn the_input_lane_is_on_unless_the_environment_turns_it_off() {
+        assert!(
+            InputLaneSwitch::from_value(None).on(),
+            "the input lane is off with no CMUX_TUI_RDS_INPUT"
+        );
+        assert!(
+            InputLaneSwitch::from_value(Some("1")).on(),
+            "CMUX_TUI_RDS_INPUT=1 did not turn the input lane on"
+        );
+        assert!(
+            !InputLaneSwitch::from_value(Some("0")).on(),
+            "CMUX_TUI_RDS_INPUT=0 did not turn the input lane off"
+        );
     }
 }
