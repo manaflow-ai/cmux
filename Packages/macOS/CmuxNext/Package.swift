@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-df4352d75349a4374f29caac31458c83d4a0c6dc/CCmuxAppFFI.xcframework.zip",
-    checksum: "f31f6634638a23e3720563a811af4578d225fcd80431ba63f48ba9e0186a9314"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b24aac2c507d072ac3b5cf35fb3c3b93bd039acf/CCmuxAppFFI.xcframework.zip",
+    checksum: "5aa92a5b76b173dce2a254ab9e437c0b086d3b4d07fd9754ab3d72b0f14b9481"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -217,7 +217,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudCredentials",
             // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CmuxNextWakeups", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1159,7 +1159,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
         .testTarget(
             name: "CmuxNextMacScreenTests",
-            dependencies: ["CmuxNextMacScreen"],
+            dependencies: ["CmuxNextMacScreen", "CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -1257,7 +1257,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

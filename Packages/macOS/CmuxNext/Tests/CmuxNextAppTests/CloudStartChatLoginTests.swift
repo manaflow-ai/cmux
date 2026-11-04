@@ -60,6 +60,48 @@ struct CloudStartChatLoginTests {
         #expect(start.reason == .guestNotOwner && !start.guestTakesLogin)
     }
 
+    /// A machine created just now has no guest kind until its guest binds: the start reads it again, as the
+    /// transfer does, instead of skipping the login. A recorded kind or a failed exec is read once.
+    @Test func aNewMachinesGuestKindIsReadAgainUntilItBinds() async throws {
+        var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        start.callerOwns = true
+        let guest = Guest(["vm-kind:\n", "vm-kind:\n", "vm-kind:owner\n"])
+        try await start.readGuest(exec: { _ in await guest.read() }, pause: { await guest.pause() })
+        let (reads, pauses) = await guest.counts
+        #expect(start.guestKind == "owner" && start.guestTakesLogin && reads == 3 && pauses == 2)
+        for answer in ["vm-kind:team\n", nil] {
+            var other = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+            other.callerOwns = true
+            let once = Guest([answer])
+            try await other.readGuest(exec: { _ in await once.read() }, pause: { await once.pause() })
+            let (onceReads, oncePauses) = await once.counts
+            #expect(onceReads == 1 && oncePauses == 0)
+        }
+    }
+
+    /// The kind read's budget holds in wall time: a guest whose exec is slow is cut off at the budget, not
+    /// after the read in flight finishes, and the start goes on without a kind (no login is copied).
+    @Test func aSlowGuestKindReadIsCutOffAtTheBudget() async throws {
+        var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        start.callerOwns = true
+        let started = ContinuousClock.now
+        try await start.readGuest(exec: { _ in try? await Task.sleep(for: .seconds(2)); return "vm-kind:\n" },
+                                  pause: {}, budget: .milliseconds(200))
+        #expect(ContinuousClock.now - started < .seconds(1) && !start.guestTakesLogin)
+    }
+
+    /// A scripted guest: its kind answers in order (the last repeats), and how many reads and pauses it saw.
+    actor Guest {
+        var answers: [String?], reads = 0, pauses = 0
+        init(_ answers: [String?]) { self.answers = answers }
+        var counts: (Int, Int) { (reads, pauses) }
+        func read() -> String? {
+            reads += 1
+            return answers.count > 1 ? answers.removeFirst() : answers.first ?? nil
+        }
+        func pause() { pauses += 1 }
+    }
+
     /// The decision's rules and their cases are Rust's (cmux-cloud-start-core `harness_login`); this
     /// checks only that the app reaches them in the one call and reads every field back.
     @Test func theDecisionComesFromTheRustRules() {
