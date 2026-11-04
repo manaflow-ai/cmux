@@ -91,6 +91,7 @@ public nonisolated enum PaneResize {
     @MainActor
     public static func press(_ pane: LayoutPaneID, _ direction: LayoutDirection, model: LayoutModel, view: LayoutRootView) -> Bool {
         guard let screen = model.screen(containing: pane) else { return true }
+        if view.mutationPressWaits { return true } // MUTATION (scratch, never lands): drop a press before the next tick
         guard let change = change(for: pane, direction: direction, in: screen.layout, shown: view.shownResizeRange(ofScreenContaining: pane)) else {
             return false
         }

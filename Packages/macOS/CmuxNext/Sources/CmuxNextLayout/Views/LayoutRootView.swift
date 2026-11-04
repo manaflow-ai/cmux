@@ -305,6 +305,9 @@ public final class LayoutRootView: NSView {
     /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`; a snap with no spring
     /// presents in its `presentWaiting`), and it is asked for. The key's own turn stays a model change. A root that runs
     /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does.
+    /// MUTATION (scratch, never lands).
+    public var mutationPressWaits: Bool { screenViews.values.contains(where: \.frameInput.presentationWaiting) }
+
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
