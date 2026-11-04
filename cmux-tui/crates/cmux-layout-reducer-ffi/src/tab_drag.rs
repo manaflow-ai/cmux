@@ -1,9 +1,8 @@
 //! Pure tab-drag rules exposed through the app FFI.
 //!
 //! The tab strip still owns the drag gesture and its string/UUID models.  It
-//! passes the resulting integer ids and facts to these small, allocation-free
-//! decisions (the index conversion uses temporary vectors, while reveal is
-//! scalar-only).
+//! passes the resulting integer ids and facts to these small pure decisions.
+//! Index conversion uses temporary vectors, while reveal is scalar-only.
 //! The numeric outcome values are part of the C ABI and deliberately mirror
 //! `TabDragOutcome` in the NEXT app; keep the match explicit when that enum
 //! grows.
@@ -79,6 +78,12 @@ pub extern "C" fn cmux_tab_move_wire_index(
 /// `display` and `pane` contain caller-owned UInt32 ids.  The moving id is
 /// removed from both lists before applying the same insertion and lookup
 /// rules as `TabMoveIndex.paneFinalIndex`.
+///
+/// # Safety
+///
+/// Each non-empty pointer must reference a readable array of the corresponding
+/// length for the duration of this call. A null pointer is valid only with a
+/// zero length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_tab_move_pane_final_index(
     display: *const u32,
@@ -107,6 +112,12 @@ pub unsafe extern "C" fn cmux_tab_move_pane_final_index(
 
 /// Convert a strip display index to the position inside a tab group.
 /// Returns `-1` when a non-empty array pointer is null.
+///
+/// # Safety
+///
+/// Each non-empty pointer must reference a readable array of the corresponding
+/// length for the duration of this call. A null pointer is valid only with a
+/// zero length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_tab_move_group_index(
     display: *const u32,
@@ -133,6 +144,7 @@ pub unsafe extern "C" fn cmux_tab_move_group_index(
 /// The boolean arguments are `uint8_t` for a stable C ABI (zero is false,
 /// any non-zero value is true).  A zero result means no reveal.  Otherwise
 /// the result is the OR of `CMUX_DROP_REVEAL_*` flags.
+#[allow(clippy::too_many_arguments, reason = "flat C ABI preserves the Swift policy inputs")]
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_drop_reveal_decide(
     outcome: u8,
