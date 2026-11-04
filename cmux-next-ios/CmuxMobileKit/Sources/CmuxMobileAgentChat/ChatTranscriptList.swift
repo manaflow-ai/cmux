@@ -120,6 +120,10 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
             if row < old.count, row < heights.count, old[row].id == new[row].id, old[row].revision == new[row].revision,
                old[row].fold != new[row].fold, !new[row].exact,
                holdsHeights || measured[new[row].id]?.height(fold: new[row].fold) == nil {
+                // Held although its new state has a height: `layOut` moves it there on the spring,
+                // or the hold's end does (a row the spring did not lay out: off screen, native, or
+                // changed by something other than a fold toggle while the spring ran).
+                if measured[new[row].id]?.height(fold: new[row].fold) != nil { heldStale.insert(new[row].id) }
                 height = heights[row]
             }
             if row < heights.count { heights[row] = height } else { heights.append(height) }
@@ -151,13 +155,33 @@ final class ChatTranscriptLayout: UICollectionViewLayout {
     /// taken still got its new size: it drew at its full new height at once, over rows that stayed
     /// where they were. Cleared when the spring ends; the cells then measure themselves once.
     var holdsHeights = false {
-        didSet { if holdsHeights != oldValue { invalidateLayout() } }
+        didSet {
+            guard holdsHeights != oldValue else { return }
+            if !holdsHeights { releaseHeldStale() }
+            invalidateLayout()
+        }
+    }
+
+    /// Rows `setItems` kept at their laid-out height under the hold although their new state was
+    /// measured, and that `layOut` has not moved yet.
+    private var heldStale: Set<String> = []
+
+    private func releaseHeldStale() {
+        var first: Int?
+        for id in heldStale {
+            guard let row = index[id], row < items.count, row < heights.count else { continue }
+            heights[row] = height(for: items[row])
+            first = min(first ?? row, row)
+        }
+        heldStale = []
+        if let first { markDirty(first) }
     }
 
     /// Lays row `id` out at `height` (a disclosure's spring, `ChatTranscriptList.resizeForFold`,
     /// measured its cell). Kept only as its laid-out height: its cell's next sizing pass records
     /// the measurement for the row's state. Whether the height changed.
     func layOut(_ id: String, at height: CGFloat) -> Bool {
+        heldStale.remove(id)
         guard let row = index[id], row < heights.count, abs(heights[row] - height) > 0.25 else { return false }
         heights[row] = height
         markDirty(row)
@@ -951,6 +975,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
         var resized = false
         for case let cell as ChatRowCell in cells {
             guard let id = rowID(of: cell) else { continue }
+            // The height its cell measured for this state before (a second open or close): the
+            // spring ends where the cell's own sizing will put it. A fresh fit can come up short
+            // while the body has not resolved yet, and the row would snap when the hold ends.
+            if let known = layout.knownHeight(of: id), abs(known.width - cell.bounds.width) < 0.5 {
+                if layout.layOut(id, at: known.height) { resized = true }
+                continue
+            }
             cell.contentView.setNeedsLayout()
             cell.contentView.layoutIfNeeded()
             let size = cell.contentView.systemLayoutSizeFitting(
