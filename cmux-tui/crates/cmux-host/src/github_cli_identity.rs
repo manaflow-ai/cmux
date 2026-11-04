@@ -58,14 +58,15 @@ fn github_host(host: Option<&String>) -> bool {
     host.is_some_and(|h| h.eq_ignore_ascii_case("github.com"))
 }
 
-/// Whether `hosts.yml` holds a login for any host: any top-level YAML key (`HOST:` with or
-/// without a value, a comment or an inline mapping after it), so a GitHub Enterprise login, or
-/// one written in any form gh reads, keeps gh's own answer. Unsure means yes.
+/// Whether `hosts.yml` may hold a login for any host: any content other than blank lines,
+/// comments and empty-document markers (`---`, `...`, `{}`), indented or not. So a GitHub
+/// Enterprise login, an indented root mapping, or a login in any other form gh reads keeps
+/// gh's own answer. Unsure means yes.
 pub fn hosts_has_any_login(hosts_yml: &str) -> bool {
     hosts_yml.lines().any(|line| {
-        let t = line.trim_end();
+        let t = line.trim();
         !t.is_empty()
-            && !t.starts_with(|c: char| c.is_whitespace() || c == '#')
+            && !t.starts_with('#')
             && t != "---"
             && t != "..."
             && t != "{}"
