@@ -76,10 +76,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_PERMISSION_RESPOND,
             method::MUX_PERMISSION_PENDING,
             method::MUX_SECRET_SUBMIT,
-            method::MUX_CONTEXT,
-            method::MUX_CONTEXT_OVERRIDE,
         ],
     },
+    Capability { id: "context-v1", wire: &[method::MUX_CONTEXT, method::MUX_CONTEXT_OVERRIDE] },
     // Server-side local/non-closed session-list filters used by native quit
     // census callers. Older daemons keep serving the unfiltered list.
     Capability { id: "session-list-filters-v1", wire: &[method::MUX_SESSIONS] },

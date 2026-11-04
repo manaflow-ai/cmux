@@ -147,7 +147,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
     }
 }
 
-fn verified_prompt_text(meta: &SessionMeta, cfg: &Config) -> Option<String> {
+pub(crate) fn verified_prompt_text(meta: &SessionMeta, cfg: &Config) -> Option<String> {
     let name = meta.preset.as_deref()?;
     let preset = cfg.presets.get(name)?;
     let sha = preset.system_prompt_sha256.as_deref()?;
@@ -164,12 +164,12 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         push_breakdown(&mut parts, breakdown);
     }
     let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
-    let preset = meta.preset.as_deref().and_then(|name| cfg.presets.get(name));
-    let user =
-        preset.and_then(|p| p.context_user.clone()).or_else(|| cfg.context_overrides.user.clone());
-    let project = preset
-        .and_then(|p| p.context_project.get(&project_key).cloned())
-        .or_else(|| cfg.context_overrides.projects.get(&project_key).cloned());
+    let user = cfg.context_overrides.user.clone();
+    let project = cfg.context_overrides.projects.get(&project_key).cloned();
+    let preset_text = verified_prompt_text(meta, cfg);
+    let preset = preset_text
+        .as_ref()
+        .and_then(|_| meta.preset.as_deref().and_then(|name| cfg.presets.get(name)));
     // These are the additions captured at creation, not settings edited since then.
     if let Some(snapshot) = &meta.cmux_context {
         parts.extend(snapshot.iter().cloned());
@@ -212,18 +212,20 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             project: project.clone(),
             project_key: project_key.clone(),
             cwd: meta.cwd.to_string_lossy().into_owned(),
-            default_text: verified_prompt_text(meta, cfg),
+            default_text: None,
             parts: {
                 let mut parts = BTreeMap::new();
-                parts.insert(
-                    "cmux-system-prompt".into(),
-                    ContextOverridePartView {
-                        label: "Preset system prompt".into(),
-                        default_text: verified_prompt_text(meta, cfg),
-                        user: user.clone(),
-                        project: project.clone(),
-                    },
-                );
+                if let (Some(text), Some(preset)) = (preset_text, preset) {
+                    parts.insert(
+                        "cmux-system-prompt".into(),
+                        ContextOverridePartView {
+                            label: "Preset system prompt".into(),
+                            default_text: Some(text),
+                            user: preset.context_user.clone(),
+                            project: preset.context_project.get(&project_key).cloned(),
+                        },
+                    );
+                }
                 parts
             },
         },
@@ -241,19 +243,7 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     let mut parts = Vec::new();
     let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
-    let selected = meta
-        .preset
-        .as_deref()
-        .and_then(|name| cfg.presets.get(name))
-        .and_then(|preset| {
-            preset
-                .context_project
-                .get(&project_key)
-                .map(|text| ("project", text.as_str()))
-                .or_else(|| preset.context_user.as_deref().map(|text| ("user", text)))
-        })
-        .or_else(|| cfg.context_overrides.for_project(&meta.cwd));
-    if let Some((scope, text)) = selected {
+    if let Some((scope, text)) = cfg.context_overrides.for_project(&meta.cwd) {
         parts.push(ContextPart {
             id: format!("cmux-{scope}-override"),
             source: format!("cmux-{scope}"),
@@ -266,7 +256,31 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
             text: Some(text.to_owned()),
         });
     }
-    if let Some(text) = verified_prompt_text(meta, cfg) {
+    if let (Some(text), Some(preset)) = (
+        verified_prompt_text(meta, cfg),
+        meta.preset.as_deref().and_then(|name| cfg.presets.get(name)),
+    ) {
+        if let Some((scope, guidance)) = preset
+            .context_project
+            .get(&project_key)
+            .map(|text| ("project", text.as_str()))
+            .or_else(|| preset.context_user.as_deref().map(|text| ("user", text)))
+        {
+            parts.push(ContextPart {
+                id: format!("cmux-preset-{scope}-override"),
+                source: format!("cmux-preset-{scope}"),
+                label: format!(
+                    "Preset {} override",
+                    if scope == "project" { "project" } else { "user" }
+                ),
+                tokens: estimated_tokens(guidance),
+                included: !guidance.is_empty(),
+                editable: true,
+                measurement: "estimated".into(),
+                source_bytes: Some(guidance.len() as u64),
+                text: Some(guidance.to_owned()),
+            });
+        }
         parts.push(ContextPart {
             id: "cmux-system-prompt".into(),
             source: "cmux-preset".into(),

@@ -56,6 +56,15 @@ pub(super) async fn handle(
                 .ok_or_else(|| RpcError::invalid_params("context part requires a preset"))?;
             let preset = cfg
                 .presets
+                .get(&preset_name)
+                .ok_or_else(|| RpcError::invalid_params("preset not found"))?;
+            if verified_prompt_text(&session.meta(), &cfg).is_none()
+                || preset.system_prompt_sha256.is_none()
+            {
+                return Err(RpcError::invalid_params("context part requires a verified preset"));
+            }
+            let preset = cfg
+                .presets
                 .get_mut(&preset_name)
                 .ok_or_else(|| RpcError::invalid_params("preset not found"))?;
             match scope {
