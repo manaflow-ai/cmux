@@ -23,7 +23,7 @@ const props: ComponentProps<typeof RacePanel> = {
   onOpenSession: () => undefined,
 };
 const start: Play = async (ctx) => {
-  await ctx.type("Improve the empty state", { role: "textbox", name: "Task" });
+  await ctx.type("Improve the empty state", { selector: ".race-field textarea" });
   await ctx.click({ role: "checkbox", name: "Codex · GPT-6.1 Sol" });
   await ctx.click({ role: "checkbox", name: "Claude · Opus" });
   await ctx.focus({ role: "combobox", name: "Reviewer" });
