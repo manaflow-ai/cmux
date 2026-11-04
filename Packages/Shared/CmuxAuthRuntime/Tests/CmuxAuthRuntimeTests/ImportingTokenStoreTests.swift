@@ -115,8 +115,13 @@ import Testing
         let nightly = CountingSource(ImportedTokenPair(accessToken: "access-n", refreshToken: "refresh-n"))
         let store = ImportingTokenStore(primary: FileStackTokenStore(directory: directory), sources: [{ await nightly.read() }])
 
+        // Nothing adopted yet: nothing is shared, and the question reads no source.
+        #expect(!(await store.isShared(refreshToken: "refresh-n")))
+        #expect(await nightly.reads == 0)
+        #expect(await store.getStoredRefreshToken() == "refresh-n")
         #expect(await store.isShared(refreshToken: "refresh-n"))
         #expect(!(await store.isShared(refreshToken: "refresh-own")))
+        #expect(await nightly.reads == 1)
     }
 
     @Test func aPairWithoutARefreshTokenIsNoSession() {
@@ -181,8 +186,10 @@ import Testing
         #expect(await store.getStoredRefreshToken() == refresh)
         await store.clearTokens()
         // AuthDebugLog's file sink in DEBUG macOS builds: the adoption wrote its line there.
-        let log = (try? String(contentsOfFile: "/tmp/cmux-auth-debug.log", encoding: .utf8)) ?? ""
-        #expect(log.contains("importing.store: adopted a session"))
+        let path = "/tmp/cmux-auth-debug.log"
+        let log = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        // Another user's file there takes no lines (AuthDebugLog refuses it); then only absence is checked.
+        if FileManager.default.isWritableFile(atPath: path) { #expect(log.contains("importing.store: adopted a session")) }
         #expect(!log.contains(refresh))
         #expect(!log.contains(access))
     }

@@ -2,6 +2,7 @@
 import CmuxNextSettings
 import Darwin
 import Foundation
+import Security
 import Testing
 
 /// `auth.session.handoff`: cmux NIGHTLY hands its session only to a same-user, team-signed cmux app,
@@ -137,5 +138,28 @@ import Testing
     @Test func nightlysSocketIsTheOneItsLaunchIdentityNames() {
         let home = URL(fileURLWithPath: "/Users/someone")
         #expect(SessionHandoffClient.nightlySocketPath(home: home) == "/Users/someone/.local/state/cmux/cmux-nightly.sock")
+    }
+
+    @Test func theRealCheckRefusesThisAdHocTestProcess() throws {
+        // The fleet's test bundle is ad hoc signed: the Security framework check finds no team for it.
+        var pair: [Int32] = [-1, -1]
+        #expect(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        defer { pair.forEach { close($0) } }
+        let peer = try #require(pair.first.flatMap(SessionHandoffPeer.init(connection:)))
+        #expect(peer.uid == getuid())
+        #expect(SessionHandoffCodeCheck().signingIdentifier(of: peer.auditToken, teamIdentifier: SessionHandoffPolicy.teamIdentifier) == nil)
+        #expect(!SessionHandoffPolicy().admitsClient(peer))
+        #expect(!SessionHandoffPolicy().admitsServer(peer))
+    }
+
+    @Test func onlyHardenedUndebuggableCodeCounts() {
+        let runtime = NSNumber(value: SecCodeSignatureFlags.runtime.rawValue)
+        let hardened: NSDictionary = [kSecCodeInfoFlags as String: runtime]
+        let plain: NSDictionary = [kSecCodeInfoFlags as String: NSNumber(value: 0)]
+        let debuggable: NSDictionary = [kSecCodeInfoFlags as String: runtime,
+                                        kSecCodeInfoEntitlementsDict as String: ["com.apple.security.get-task-allow": true]]
+        #expect(SessionHandoffCodeCheck.isHardened(hardened))
+        #expect(!SessionHandoffCodeCheck.isHardened(plain))
+        #expect(!SessionHandoffCodeCheck.isHardened(debuggable))
     }
 }

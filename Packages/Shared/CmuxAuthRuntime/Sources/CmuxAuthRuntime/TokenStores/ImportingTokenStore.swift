@@ -22,8 +22,7 @@ public struct ImportedTokenPair: Equatable, Sendable {
 /// app the session came from. The adopted refresh token is the other app's own Stack session, so a
 /// sign-out must not revoke it on the server: ``isShared(refreshToken:)`` says so for
 /// `StackAuthClient`'s `keepsServerSession`, from the tokens this process adopted (and the refreshes of
-/// them) and from what the sources hold now, so it still answers after the sign-out cleared `primary`
-/// and after the other app quit. A write (a sign-in, a sign-out) before the first use ends the import
+/// them), so it still answers after the sign-out cleared `primary` and after the other app quit. A write (a sign-in, a sign-out) before the first use ends the import
 /// for the process; the next launch with an empty `primary` adopts again.
 ///
 /// ```swift
@@ -74,11 +73,10 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     }
 
     /// Whether `refreshToken` is another app's session, which a sign-out here must leave alive on the
-    /// server: one this process adopted (or refreshed from one it adopted), or the one a source holds now.
+    /// server: one this process adopted, or refreshed from one it adopted. The sources are not asked
+    /// again, so a sign-out never fetches the other app's session.
     public func isShared(refreshToken: String) async -> Bool {
-        if adopted.contains(refreshToken) { return true }
-        for source in sources where await source()?.refreshToken == refreshToken { return true }
-        return false
+        adopted.contains(refreshToken)
     }
 
     public func getStoredAccessToken() async -> String? {

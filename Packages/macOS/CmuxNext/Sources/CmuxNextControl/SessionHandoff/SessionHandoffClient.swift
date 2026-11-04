@@ -51,14 +51,14 @@ public struct SessionHandoffClient: Sendable {
         SessionHandoffClient(socketPath: nightlySocketPath(), policy: SessionHandoffPolicy())
     }
 
-    /// Whether something listens on ``socketPath`` now: one non-blocking `connect`, no request. Who
-    /// listens is checked only by ``fetch()``.
+    /// Whether NIGHTLY listens on ``socketPath`` now: one non-blocking `connect` and the server check
+    /// (``SessionHandoffPolicy/admitsServer(_:)``), no request.
     public func isListening() -> Bool {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { return false }
         defer { close(descriptor) }
         _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
-        return connect(descriptor, to: socketPath)
+        return connect(descriptor, to: socketPath) && policy.admitsServer(SessionHandoffPeer(connection: descriptor))
     }
 
     /// NIGHTLY's session as plain tokens (for `CloudAuth`, which does not know this type), or nil.
