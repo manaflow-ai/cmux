@@ -1062,6 +1062,7 @@ CLI_AGENTS = {
     "codex": {"account": "CODEX_HOME", "flags": "-m gpt-5.5 --search"},
 }
 CHATS = []  # {"label", "harness", "session", "tab"}
+LONG_CHAT = {}  # --record-launch: the chat shown at each quit, with a long transcript (show_long_chat)
 TAGENTS = []  # {"label", "provider", "terminal", "tab", "session", "flags", "account"}
 ACPMUX = {}  # {"home", "client"}: the tag's acpmux, configured once for the run
 
@@ -1116,47 +1117,61 @@ def seed_chats():
     for harness in CHAT_PROFILES:
         for i in range(AGENTS_N):
             label = f"{harness}-{i}"
-            known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
-            action("palette.newAgentChat", focus=True)
-            fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
-                                       if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
-            if not fresh:
-                say(f"  {label}: no new chat tab")
+            chat = make_chat(client, label, harness)
+            if not chat:
                 continue
-            created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
-            sid = (created.get("result") or {}).get("sessionId")
-            if not sid:
-                say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
-                continue
-            _, pane = place_of(fresh["id"])
-            # The page learns of a new acpmux session a moment after it is made: select it until the
-            # tab's record names it.
-            for attempt in range(4):
-                # The new tab may not be the pane's shown tab yet; then the focused agent pane.
-                target = pane if attempt % 2 == 0 else None
-                say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
-                if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
-                    break
-            else:
-                say(f"  {label}: the tab never recorded session {sid}")
-            pick = CHAT_PICKS[harness]
-            if pick:
-                # The pick a person makes in the composer's menus; through acpmux when the page refuses.
-                for target in (pane, None):
-                    picked = page(target, "set_model", **pick)
-                    say(f"  {label}: set_model {pick} -> {json.dumps(picked)[:200]}")
-                    if isinstance(picked, dict) and "error" not in picked:
-                        break
-                if not isinstance(picked, dict) or "error" in picked:
-                    if pick.get("model"):
-                        client.request("session/set_model", {"sessionId": sid, "modelId": pick["model"]})
-                    if pick.get("effort"):
-                        client.request("session/set_config_option", {"sessionId": sid, "configId": "effort", "value": pick["effort"]})
+            sid = chat["session"]
             for turn in range(2):
                 client.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": f"rj chat turn {turn} {label} {RUN}"}],
                                                   "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{label}-{turn}"}}}, timeout=60)
             client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj draft {label} {RUN}"})
-            CHATS.append({"label": label, "harness": harness, "session": sid, "tab": fresh["id"]})
+            CHATS.append(chat)
+    if opts.record_launch:
+        # Its own chat, not a seeded one: its long transcript would push a seeded chat's turns out of the page's last
+        # rows (show_long_chat). Not in CHATS, so it adds no chat rows; it is the tab shown at the quit.
+        LONG_CHAT.update(make_chat(client, "long", CHAT_PROFILES[0]) or {})
+
+
+def make_chat(client, label, harness):
+    """A new agent chat tab in rj-chats bound to a new acpmux session, with the harness's picks:
+    {"label", "harness", "session", "tab"}, or None when a step failed."""
+    known = {t.get("id") for t in tabs_of(workspace_named("rj-chats"))}
+    action("palette.newAgentChat", focus=True)
+    fresh = wait(lambda: next((t for t in tabs_of(workspace_named("rj-chats"))
+                               if t.get("kind") == "conversation" and t.get("id") not in known), None), 30, 0.5)
+    if not fresh:
+        say(f"  {label}: no new chat tab")
+        return None
+    created = client.request("session/new", {"cwd": opts.out, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}})
+    sid = (created.get("result") or {}).get("sessionId")
+    if not sid:
+        say(f"  {label}: session/new -> {json.dumps(created)[:200]}")
+        return None
+    _, pane = place_of(fresh["id"])
+    # The page learns of a new acpmux session a moment after it is made: select it until the
+    # tab's record names it.
+    for attempt in range(4):
+        # The new tab may not be the pane's shown tab yet; then the focused agent pane.
+        target = pane if attempt % 2 == 0 else None
+        say(f"  {label}: select_session -> {json.dumps(page(target, 'select_session', session=sid))[:160]}")
+        if wait(lambda: any(t.get("agent_session") == sid for t in tabs_of(workspace_named("rj-chats"))), 15, 1):
+            break
+    else:
+        say(f"  {label}: the tab never recorded session {sid}")
+    pick = CHAT_PICKS[harness]
+    if pick:
+        # The pick a person makes in the composer's menus; through acpmux when the page refuses.
+        for target in (pane, None):
+            picked = page(target, "set_model", **pick)
+            say(f"  {label}: set_model {pick} -> {json.dumps(picked)[:200]}")
+            if isinstance(picked, dict) and "error" not in picked:
+                break
+        if not isinstance(picked, dict) or "error" in picked:
+            if pick.get("model"):
+                client.request("session/set_model", {"sessionId": sid, "modelId": pick["model"]})
+            if pick.get("effort"):
+                client.request("session/set_config_option", {"sessionId": sid, "configId": "effort", "value": pick["effort"]})
+    return {"label": label, "harness": harness, "session": sid, "tab": fresh["id"]}
 
 
 def screen_text(term):
@@ -1289,12 +1304,9 @@ def chat_items(label, items, raw):
                 current = shown.get("current") if isinstance(shown, dict) else None
                 ok = not pick.get("model") or current == pick["model"]
                 items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
-                # The seeded turns, by first line; for the long chat (--record-launch) its last long turns, which stay in the
-                # page's last rows (the seeded ones scroll out of them) while each round's live turns add two rows.
+                # The seeded turns, by first line (the long chat of --record-launch is its own chat, so these stay in the page's rows).
                 lines = [str(r.get("text")).split("\n")[0] for r in state.get("transcript") or []]
-                seeded_rows = [t for t in lines if "rj chat turn" in t or t.startswith("echo: rj chat turn")]
-                long_rows = [t for t in lines if t.startswith(("rj long turn", "echo: rj long turn"))]
-                items[f"{c}.page.transcript"] = seeded_rows + long_rows[-6:]
+                items[f"{c}.page.transcript"] = [t for t in lines if "rj chat turn" in t or t.startswith("echo: rj chat turn")]
                 # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
                 # the composer's draft stays as seeded.
                 text = f"rj live {chat['label']} {label} {RUN}"
@@ -2015,7 +2027,8 @@ def seeded(before):
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
                    and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "agents": [*[(f"chat {c['label']} bound, picked and answering", before.get(f"chat[{c['label']}].page.session") == c["session"]
-                       and before.get(f"chat[{c['label']}].live") is True and len(before.get(f"chat[{c['label']}].prompts") or []) == 2)
+                       and before.get(f"chat[{c['label']}].live") is True and len(before.get(f"chat[{c['label']}].prompts") or []) == 2
+                       and len(before.get(f"chat[{c['label']}].page.transcript") or []) >= 4)
                       for c in CHATS],
                    *[(f"terminal agent {t['label']} reports to its hook and answers", t["hook"] == "yes"
                       and before.get(f"tagent[{t['label']}].live") is True and before.get(f"tagent[{t['label']}].signed_in") is True)
@@ -2597,10 +2610,10 @@ def show_long_chat(turns=24):
     fake agent echoes) and is the shown tab of the front window at the quit, so each relaunch restores a chat with
     more rows than fit (Leo, 2026-11-04: the chats restoring are what shift). Stops at the first prompt that fails.
     False when there is no chat or it is not shown."""
-    chat = CHATS[0] if CHATS else None
+    chat = LONG_CHAT or None
     client = acpmux_client()
     if not chat or not client:
-        say("  long chat: no seeded chat (the agents part skipped or failed); the relaunch shows none")
+        say("  long chat: none (the agents part skipped or failed); the relaunch shows no chat")
         return False
     body = "\n".join(f"rj long line {k}: the quick brown fox jumps over the lazy dog, again and again" for k in range(10))
     sent = 0
@@ -2622,7 +2635,7 @@ def show_long_chat(turns=24):
 def focus_long_chat():
     """The long chat's tab selected in the front window, its page drawn (chat_items puts back each pane's shown tab, so
     it stays selected through every round's snapshots)."""
-    chat = CHATS[0] if CHATS else None
+    chat = LONG_CHAT or None
     if not chat:
         return False
     ws = workspace_named("rj-chats")
