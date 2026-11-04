@@ -30,6 +30,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
+  is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
+  before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
+  some reason? after i download... it got removed for some reason". The Restart to Update button ignores pointer
+  presses for 1 s after the card takes the slot (`SidebarUpdateButton.appearGuard`), after "i only clicked the
+  "download" button and it allegedly "updated" but i didnt restart the app/get a prompt to?". Regression:
+  `UpdateOneStepTests.aDownloadThePersonAskedForShowsItsProgress`, `theRestartButtonIgnoresAClickRightAfterTheCardAppears`.
 - 2026-11-03: a download shows no sidebar card; the staged update is the one Restart to Update card. Leo, verbatim, on
   the Downloading Update card: "also idk chatgpt's seems to be just like a one step "ok it's already downloaded you click
   this button to accept the button and restart" idk if we wanna follow that too". `UpdateFlow.card` returns nil while
