@@ -138,6 +138,34 @@ thread_local! {
     /// Tests: the next removal of a chat's folder in `Store::delete` on this thread fails.
     pub(crate) static FAIL_NEXT_FOLDER_REMOVAL: std::cell::Cell<bool> =
         const { std::cell::Cell::new(false) };
+    /// Tests: a failed sync on this thread stops right before it freezes the store.
+    pub(crate) static HOLD_BEFORE_FREEZE: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+    /// Tests: the next sync of the store's files on this thread (`Inner::counted_sync`) stops
+    /// once it is under way, before it syncs.
+    pub(crate) static HOLD_IN_SYNC: log_sync::HoldSlot = const { std::cell::RefCell::new(None) };
+    /// Tests: a checkpoint on this thread stops right after its start, where it read `frozen`,
+    /// the LSN and the chats to sync.
+    pub(crate) static HOLD_AFTER_START: log_sync::HoldSlot =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_AFTER_START`].
+#[cfg(test)]
+fn hold_after_start() {
+    log_sync::hold(&HOLD_AFTER_START);
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
+#[cfg(test)]
+fn hold_before_freeze() {
+    log_sync::hold(&HOLD_BEFORE_FREEZE);
+}
+
+/// Tests: the stop of [`HOLD_IN_SYNC`].
+#[cfg(test)]
+fn hold_in_sync() {
+    log_sync::hold(&HOLD_IN_SYNC);
 }
 
 /// Tests: the next append stops right after its log write, says so on the first channel and
@@ -198,6 +226,9 @@ struct Inner {
     new_folders: Arc<new_folders::NewFolders>,
     /// The store is being dropped: its writer's end is not a failure.
     dropping: Arc<AtomicBool>,
+    /// Syncs of the store's files under way that freeze it when they fail
+    /// (`Inner::counted_sync`): a checkpoint waits for those under way before it writes its LSN.
+    syncs: checkpoint::SyncsUnderWay,
     /// The checkpointer sleeps until a change (`Inner::touched`), with nothing to checkpoint.
     idle: AtomicBool,
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
@@ -322,6 +353,7 @@ impl JournalStore {
             durable,
             new_folders,
             dropping,
+            syncs: checkpoint::SyncsUnderWay::default(),
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
         });
@@ -529,12 +561,9 @@ impl Store for JournalStore {
     /// sync freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync
     /// may report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
-        self.inner.settle_meta(id)?;
-        Store::flush_session(&self.inner.local, id).inspect_err(|error| {
-            if error.chain().any(|cause| cause.is::<SyncFailed>()) {
-                self.inner.freeze(format!("an event log failed to sync: {error:#}"));
-            }
-        })
+        let inner = &self.inner;
+        inner.settle_meta(id)?;
+        inner.counted_sync("an event log failed to sync", || Store::flush_session(&inner.local, id))
     }
     // Every read of the logs ends with a fence on the appends' lock (`Inner::fenced`): a line
     // the read saw has its record appended, and its acknowledged LSN set, when the read returns,
