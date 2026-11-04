@@ -56,10 +56,14 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
     /// A Chief's state, each drawn its own way on its avatar (the Codex pet's states).
     public enum AvatarMotion: Hashable, Sendable {
         case idle
-        /// Its turn is running.
-        case working
-        /// A reply is unread: it waits for the person.
+        /// Its turn runs in the model (thinking, writing the reply).
+        case thinking
+        /// Its turn runs a tool.
+        case tool
+        /// It asked the person something (a question or an approval) and waits on them.
         case waiting
+        /// Its turn ended and the reply is unread.
+        case done
         /// A message to it failed to send.
         case failed
     }
@@ -113,8 +117,10 @@ public struct CmuxSidebarEntry: Hashable, Sendable {
         s.avatarMotion = own == nil ? nil : avatarMotion.map {
             switch $0 {
             case .idle: .idle
-            case .working: .working
+            case .thinking: .thinking
+            case .tool: .tool
             case .waiting: .waiting
+            case .done: .done
             case .failed: .failed
             }
         }
