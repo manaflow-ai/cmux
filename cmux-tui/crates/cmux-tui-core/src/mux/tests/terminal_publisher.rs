@@ -194,11 +194,9 @@ fn a_notification_queued_before_an_exit_posts_before_the_exit() {
                 level: NotificationLevel::Info,
             }],
         );
-        mux.surface(surface_id).unwrap().record_process_end_for_test(
-            crate::terminal_host_protocol::TerminalExit::now(
-                crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
-            ),
-        );
+        mux.surface(surface_id).unwrap().record_process_end_for_test(TerminalExit::now(
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        ));
         mux.surface_exited(surface_id);
         posted(&mux).len()
     };
