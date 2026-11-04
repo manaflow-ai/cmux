@@ -58,9 +58,18 @@ pub use reaper::tree_rss_bytes;
 #[cfg(test)]
 pub(super) use start::held_reports_full_access;
 
-/// Most a pooled start's `initialize` and harness session may take before
-/// it counts as failed (and its host is ended).
+/// Historical per-stage value kept in the forwarding envelope below. It is
+/// no longer used to end a live pooled start; [`start::wait_for_start`] uses
+/// process liveness and the long hazard bound instead.
 const START_BUDGET: Duration = Duration::from_secs(90);
+/// How often a pooled start reports that it is still waiting. This is a
+/// progress signal, not a deadline for a live harness.
+const START_PROGRESS: Duration = Duration::from_secs(10);
+/// A real hazard bound for a harness that has received CPU but never answers.
+/// A starved machine (no CPU available) therefore keeps waiting.
+// timeout: a live harness that has received CPU but has not answered for this
+// long is treated as wedged, so a prewarm cannot retain resources forever.
+const START_HAZARD: Duration = Duration::from_secs(30 * 60);
 // A pooled host waits longer for its first controller than this budget
 // gives the attach (`agent_host/host.rs`).
 #[cfg(unix)]
