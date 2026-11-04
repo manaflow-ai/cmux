@@ -379,7 +379,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
     /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
     func windowDidResize(_ notification: Notification) {
-        guard window?.inLiveResize != true else { return }
+        guard window?.inLiveResize != true else { (window as? ShellWindow)?.liveResizeInput.windowDidResize(); return }
         services.windows.recordSaver.geometryDidChange(state)
     }
     func windowDidChangeScreen(_ notification: Notification) {

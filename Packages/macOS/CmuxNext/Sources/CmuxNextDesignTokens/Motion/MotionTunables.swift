@@ -76,6 +76,22 @@ public nonisolated enum MotionTunables {
         help: "On: a window's live resize applies at most one drag per display frame: the frame's first drag at once, the newest later one at the next frame tick. Off: every drag event resizes and lays out the window in its own turn. A change applies from the next resize.",
         default: true, code: "MotionTunables.frameOwnerLiveResize")
 
+    /// DIAGNOSTIC for S7's films (goes with `frameOwnerLiveResize`): on (the default), a live resize on the frame tick
+    /// sends the window's Chromium page update once per applied drag, when its `setFrame` returns (`LiveResizePageUpdates`).
+    /// Off: page updates go as with the switch off. Latched with the switch.
+    public static let frameOwnerLiveResizePageHold = Tunable<Bool>.toggle(
+        "motion.frameOwner.liveResize.pageHold", .springs, "Live resize: one page update per drag (S7 diagnostic)",
+        help: "Diagnostic for the frame-owner S7 films. On: in a live resize on the frame tick, the window's Chromium pages get one update per applied drag, after it. Off: as with the live-resize switch off.",
+        default: true, code: "MotionTunables.frameOwnerLiveResizePageHold")
+
+    /// DIAGNOSTIC for S7's films (goes with `frameOwnerLiveResize`): on (the default), a live resize on the frame tick
+    /// holds the frame notices of the views Chromium's page tracker follows until its `setFrame` returns
+    /// (`FollowedViews`). Off: the tracker hears them during the layout, as with the switch off. Latched with the switch.
+    public static let frameOwnerLiveResizeTrackerHold = Tunable<Bool>.toggle(
+        "motion.frameOwner.liveResize.trackerHold", .springs, "Live resize: page tracker hears the final geometry (S7 diagnostic)",
+        help: "Diagnostic for the frame-owner S7 films. On: in a live resize on the frame tick, Chromium's page tracker hears each followed view once, after the drag's setFrame. Off: it hears them during the layout.",
+        default: true, code: "MotionTunables.frameOwnerLiveResizeTrackerHold")
+
     // MARK: Fades and loops
 
     /// Every timed fade is a `MotionScale` step (or 0, instant), so nothing reads slow (Leo
@@ -207,7 +223,8 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerLiveResize.descriptor]
+        MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerLiveResize.descriptor,
+                                                                           frameOwnerLiveResizePageHold.descriptor, frameOwnerLiveResizeTrackerHold.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,

@@ -37,6 +37,8 @@ public final class LiveResizeDragInput {
     private var waiting: (event: NSEvent, dx: CGFloat, dy: CGFloat)?
     /// The switch for the resize in progress, read at its first drag; nil between resizes.
     private var latched: Bool?
+    /// The S7 diagnostics read with the switch (`motion.frameOwner.liveResize.pageHold` and `.trackerHold`).
+    private var latchedHolds = (page: true, tracker: true)
     /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
     /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any. It is the frame's, not the
     /// resize's: a press and release do not clear it, so a new resize in the same display frame as the last applied drag
@@ -52,6 +54,10 @@ public final class LiveResizeDragInput {
     /// This live resize applies at most one drag per display frame: `motion.frameOwner.liveResize` read at its first
     /// drag and kept until the release. What else S7 changes in a live resize (``LiveResizePageUpdates``, ``FollowedViews``) follows it.
     public var isFramed: Bool { latched == true }
+    /// This live resize sends one page update per applied drag (``LiveResizePageUpdates``).
+    public var holdsPageUpdates: Bool { isFramed && latchedHolds.page }
+    /// This live resize holds the followed views' frame notices until each `setFrame` returns (``FollowedViews``).
+    public var holdsTrackerNotices: Bool { isFramed && latchedHolds.tracker }
 
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
     public private(set) var tickDeliveries = 0, replaced = 0
@@ -81,6 +87,9 @@ public final class LiveResizeDragInput {
             default: break
             }
             return false
+        }
+        if latched == nil {
+            latchedHolds = (MotionTunables.frameOwnerLiveResizePageHold.value, MotionTunables.frameOwnerLiveResizeTrackerHold.value)
         }
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
@@ -116,8 +125,15 @@ public final class LiveResizeDragInput {
         let frame = window.flatMap { probe.frameWillApply(in: $0, eventTime: applied?.eventTime, atTick: applied?.atTick == true) }
         defer { if let frame { probe.frameDidApply(frame) } }
         #endif
-        guard isFramed, let window else { return apply() }
+        guard holdsTrackerNotices, let window else { return apply() }
         FollowedViews.of(window).holdingFrameNotices(apply)
+    }
+
+    /// The window's didResize (its delegate): the probe notes whether AppKit already committed (DEBUG and bench builds).
+    public func windowDidResize() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        probe.windowDidResize()
+        #endif
     }
 
     /// The window closes: a waiting drag goes with it, and no more frames.

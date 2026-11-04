@@ -18,7 +18,11 @@ import CmuxNextWakeups
 ///   to that display time; below 0 the turn's commit came after it, and what the commit carried showed a refresh late;
 /// - `liveResize.layouts_inside`: window layout passes (`-[NSWindow layoutIfNeeded]`, any window) begun inside the
 ///   `setFrame` (AppKit's own tree layout there is not one). Above 0, the overlay's held page update can go out before
-///   the window's didResize, and the drag posts twice (Codex review of f9c15782c94).
+///   the window's didResize, and the drag posts twice (Codex review of f9c15782c94);
+/// - `liveResize.commit_inside`: 1 when a Core Animation commit happened inside the `setFrame` (AppKit flushed the new
+///   size there: what S7 sends when the `setFrame` returns misses that commit), else 0 (``CommitWitness``);
+/// - `liveResize.commit_before_didresize`: 1 when that commit happened before the window's didResize inside the
+///   `setFrame`, 0 when after it; -1 when no didResize came inside the `setFrame`.
 @MainActor
 final class LiveResizeFrameProbe {
     /// A `setFrame` of the resize: when it started and the display time it can first make (nil: no recent display link).
@@ -36,6 +40,11 @@ final class LiveResizeFrameProbe {
 
     /// The display times of the frames applied since the last commit.
     private var awaitingCommit: [CFTimeInterval] = []
+    private let witness = CommitWitness()
+    /// Whether a commit happened before the window's didResize in the `setFrame` running now (nil: no didResize yet).
+    private var committedBeforeResize: Bool?
+    /// A probed `setFrame` runs now.
+    private var applying = false
     private var observer: CFRunLoopObserver?
 
     /// A `setFrame` of the live resize starts in `window`; nil unless `debug.motion` records. `eventTime`: the drag
@@ -48,13 +57,26 @@ final class LiveResizeFrameProbe {
         if let eventTime { MotionTrace.sample("liveResize.wait_ms", (start - eventTime) * 1000) }
         MotionTrace.sample("liveResize.at_tick", atTick ? 1 : 0)
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
+        if let root = window.contentView?.layer { witness.attach(to: root) }
+        witness.arm()
+        (committedBeforeResize, applying) = (nil, true)
         return Frame(start: start, target: target, layoutsBegun: LayoutPassGuard.shared.windowLayoutsBegun)
+    }
+
+    /// The window's didResize (its delegate's, synchronous on the main thread): inside a `setFrame` of the resize, whether
+    /// a commit already happened.
+    func windowDidResize() {
+        guard applying, committedBeforeResize == nil else { return }
+        committedBeforeResize = witness.committed
     }
 
     /// That `setFrame` returned: its time now, its commit's when the turn commits.
     func frameDidApply(_ frame: Frame) {
         MotionTrace.sample("liveResize.setFrame_ms", (CACurrentMediaTime() - frame.start) * 1000)
         MotionTrace.sample("liveResize.layouts_inside", Double(LayoutPassGuard.shared.windowLayoutsBegun - frame.layoutsBegun))
+        applying = false
+        MotionTrace.sample("liveResize.commit_inside", witness.committed ? 1 : 0)
+        MotionTrace.sample("liveResize.commit_before_didresize", committedBeforeResize.map { $0 ? 1 : 0 } ?? -1)
         guard let target = frame.target else { return }
         awaitingCommit.append(target)
         guard observer == nil else { return }
