@@ -75,6 +75,10 @@ impl Hub {
         }
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
+        // The person's vault (`crate::vault`): a joined machine with no vault
+        // state pulls it before the first agent spawns (at most a few seconds),
+        // then every 15 minutes; its env goes to every local agent.
+        crate::vault::start_worker().await;
         self.startup_ready.send_replace(true);
         self.care_worker();
         tracing::info!("startup complete; agents may spawn");

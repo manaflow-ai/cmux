@@ -5,18 +5,19 @@
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { exactTime, relativeTime, replyTime } from "./relativeTime";
+import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
-import { TurnActionsContext } from "./turnActions";
+import { RowReplyButton } from "./SelectionReply";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
@@ -24,7 +25,7 @@ export const ROW_ICON = 16;
 
 /// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
-  const now = useMinuteClock();
+  const now = useLabelClock(at, nextRelativeTime);
   const language = usePaneLanguage();
   return (
     <time
@@ -46,7 +47,7 @@ export function MessageTime({ at, className }: { at: number; className: string }
 /// (conversation.css `.cv-turn-time`; Leo, 2026-11-02: "notice how on hover it reveals the exact
 /// timestamp. let's follow those."). `detail`, when given, is its tooltip (the turn's time and tokens).
 export function ReplyTime({ at, detail }: { at: number; detail?: string }) {
-  const now = useMinuteClock();
+  const now = useLabelClock(at, nextReplyTime);
   const language = usePaneLanguage();
   return (
     <time
@@ -307,16 +308,17 @@ export function PromptActions({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
+  const retry = <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />;
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+      {retry}
     </MessageFooterRow>
   );
-  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
+  return <div className="cv-user__actions">{pending ? pending(actions, { retry }) : actions}</div>;
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
@@ -366,6 +368,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
         <ReadAloudButton id={row.id} text={text} />
+        <RowReplyButton text={text} />
         <MessageMore rowId={row.id} />
       </span>
       <ReplyTime at={row.at} />

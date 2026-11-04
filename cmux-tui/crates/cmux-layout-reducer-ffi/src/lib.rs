@@ -33,9 +33,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub mod agent_cursor;
 pub mod close_focus;
 pub mod focus;
+mod imessage;
 pub mod scroll;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
+pub mod tab_drag;
 pub mod typed;
 use sidebar_mirror::Mirror;
 
@@ -112,6 +114,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
     let operation = unsafe { std::ffi::CStr::from_ptr(operation) }.to_bytes();
     let result = catch_unwind(AssertUnwindSafe(|| {
         let response = match operation {
+            b"imessage" => imessage::respond(request)?,
             b"base_y" => {
                 #[derive(serde::Deserialize)]
                 struct BaseY {

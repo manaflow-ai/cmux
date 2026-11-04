@@ -31,7 +31,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
     unowned let services: AppServices
-    unowned let state: WindowState
+    let state: WindowState  // strong: queued content work can run after WindowController.teardown let the state go (#34062)
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
     private var retiredPanes: [LayoutPaneID: PaneController] = [:] // closed, kept for their teardown (retainContentView)
@@ -49,7 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
-    var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
+    var gestureTransactions = GestureTransactionNumbers()
     /// The last key-turn pane create (Cmd-D's split, New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`, `PaneHandlers.split`).
     var pendingCreate: ActionWork?
@@ -140,6 +140,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         self.state = state
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
+        layoutModel.sendsNow = { [weak self] intent in self?.handles.sendsNow(intent) ?? false }
         _ = layoutView  // built here, then the bar and the content view, as before
         // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
         layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
@@ -400,8 +401,9 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // So does the App Store (S22: never a window of its own).
         if panes.count == 1, services.apps.isStoreWaiting { Task { [apps = services.apps] in apps.windowDidShowContent() } }
         // So does a link from another app that waited for a workspace made to hold it (#27897):
-        // the workspace shows before its first pane mounts.
+        // the workspace shows before its first pane mounts. And a Dock menu row picked with no window open.
         if panes.count == 1, !services.externalOpen.pending.isEmpty { Task { [open = services.externalOpen] in open.flush() } }
+        if panes.count == 1, services.dockMenu.isWaiting { Task { [dockMenu = services.dockMenu] in dockMenu.windowDidShowContent() } }
         return controller.view
     }
 

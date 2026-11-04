@@ -195,6 +195,38 @@ class DedicatedBuilder(unittest.TestCase):
         self.commit({'Prototypes/Lab/Package.swift': '// removed\n', 'Sources/a.swift': 'import Foundation\n'})
         self.assertEqual(self.build()[0], 'mode=clean')
 
+    def test_a_package_tests_import_or_structure_change_stays_incremental(self):
+        self.build()
+        self.commit({'Packages/Shared/Lab/Tests/LabTests/a.swift': 'import Testing\n#if DEBUG\n#endif\n',
+                     'Packages/macOS/App/Tests/Support/module.modulemap': 'module X {}\n'})
+        self.assertEqual(self.build()[0], 'mode=incremental')
+        self.commit({'Packages/Shared/Lab/Sources/Lab/a.swift': 'import Foundation\n'})
+        self.assertEqual(self.build()[0], 'mode=clean')
+
+    def test_package_tests_trees_feed_only_test_targets(self):
+        """PACKAGE_TESTS skips Packages/*/*/Tests/: no product and no non-test target outside Tests/ may
+        depend on a target whose sources live there, or a change there would reach the app."""
+        import re
+        for package in sorted(ROOT.glob('Packages/*/*/Package.swift')):
+            text = package.read_text()
+            pieces = re.split(r'\.(target|testTarget|executableTarget|binaryTarget|plugin|library|executable)\(', text)
+            in_tests, others = set(), []
+            for kind, body in zip(pieces[1::2], pieces[2::2]):
+                name = re.search(r'name:\s*"([^"]+)"', body)
+                path = re.search(r'path:\s*"([^"]+)"', body)
+                if name is None:
+                    continue
+                if kind in ('library', 'executable'):
+                    others.append((kind, name.group(1), body.split(')', 1)[0]))
+                elif path and re.match(r'(\./)?Tests(/|$)', path.group(1)):
+                    in_tests.add(name.group(1))
+                elif kind != 'testTarget':
+                    others.append((kind, name.group(1), body.split('swiftSettings')[0]))
+            for kind, name, body in others:
+                for target in in_tests:
+                    with self.subTest(package=str(package.relative_to(ROOT)), target=name, depends_on=target):
+                        self.assertNotRegex(body, rf'"{re.escape(target)}"')
+
     def test_an_import_change_makes_it_clean(self):
         for name, text in (('Sources/a.swift', 'import Foundation\nlet a = 1\n'),
                            ('Sources/b.swift', '@_exported import Bar\n'),
@@ -331,38 +363,46 @@ class DedicatedBuilder(unittest.TestCase):
                 self.assertFalse(state.dedicated(runner))
         self.assertFalse(state.mark_built(self.workspace, self.home, 'cmux15-glaeda'))
 
-    def test_only_the_nightly_only_builder_label_keeps_state(self):
-        # run 41340244486: cmux7s-mac-mini-glaeda-nightly-only-3 matched neither, so it restored Swift
-        # packages from R2 (282 s) and built from empty DerivedData.
+    def test_every_nightly_only_runner_keeps_state_without_the_builder_label(self):
+        # Runs 41586556429 and 41570134320: the picker could not read the runners (HTTP 403), so the build took
+        # the plain nightly-only label, prepare chose no mode, and the job restored the compilation cache and
+        # Swift packages from R2 (280-320 s) and compiled cold. No builder label is needed any more.
         nightly_only = 'cmux7s-mac-mini-glaeda-nightly-only-3'
         self.assertTrue(state.nightly_only(nightly_only))
         self.assertFalse(state.nightly_only('cmux15-glaeda-nightly-only-'))
-        self.assertFalse(state.keeps_state(nightly_only))
-        self.assertFalse(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6'))
-        self.assertTrue(state.keeps_state(nightly_only, builder=True))
-        self.assertFalse(state.dedicated(nightly_only))
-        self.assertTrue(state.dedicated(nightly_only, builder=True))
-        self.assertFalse(state.dedicated('blacksmith-6vcpu-macos-26-x', builder=True))
+        self.assertTrue(state.keeps_state(nightly_only))
+        self.assertTrue(state.dedicated(nightly_only))
+        self.assertFalse(state.dedicated('blacksmith-6vcpu-macos-26-x'))
         self.outputs.write_text('')
-        self.assertTrue(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6', builder=True))
+        self.assertTrue(state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6'))
         self.assertIn('mode=clean', self.outputs.read_text())
         self.assertTrue((self.workspace / 'build-universal').is_symlink())
         self.assertTrue((self.workspace / '.spm-cache').is_symlink())
-        # The build finished: the next build on this builder may be incremental.
+        # The build finished: the next build on this slot may be incremental.
         self.assertTrue(state.mark_built(self.workspace, self.home, nightly_only))
         self.outputs.write_text('')
-        state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6', builder=True)
+        state.prepare(self.workspace, self.home, nightly_only, 'nightly-next', 'Xcode 26.6')
         self.assertIn('mode=incremental', self.outputs.read_text())
-        # A plain nightly-only job never prepared kept DerivedData, so there is nothing to mark.
+        # A workspace prepare never linked has nothing to mark.
         plain = Path(tempfile.mkdtemp())
+        self.addCleanup(subprocess.run, ['rm', '-rf', str(plain)])
         self.assertFalse(state.mark_built(plain, self.home, nightly_only))
 
-    def test_the_builder_label_comes_from_the_environment(self):
-        with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': 'true'}):
-            self.assertTrue(state.builder_label())
-        for value in ('false', '', 'True'):
-            with mock.patch.dict(os.environ, {'NIGHTLY_ONLY_BUILDER': value}):
-                self.assertFalse(state.builder_label())
+    def test_prepare_offers_the_host_build_root_to_a_plain_nightly_only_slot(self):
+        """main() with no NIGHTLY_ONLY_BUILDER in the environment: a mode, and the Release build step may
+        take the Mac's one build root (app-host-build-root.sh)."""
+        github_env = self.root / 'env'
+        github_env.write_text('')
+        self.outputs.write_text('')
+        environ = {'RUNNER_NAME': 'cmux15-glaeda-nightly-only-2', 'GITHUB_ENV': str(github_env),
+                   'GITHUB_WORKSPACE': str(self.workspace), 'HOME': str(self.home)}
+        with mock.patch.dict(os.environ, environ), mock.patch.object(state, 'toolchain_identity',
+                                                                   return_value='Xcode 26.6'):
+            os.environ.pop('NIGHTLY_ONLY_BUILDER', None)
+            self.assertEqual(state.main(['nightly_build_state.py', 'prepare', 'nightly-next']), 0)
+        self.assertIn('mode=clean', self.outputs.read_text())
+        self.assertIn('CMUX_NIGHTLY_HOST_BUILD_ROOT=1', github_env.read_text())
+        self.assertIn('CMUX_NEXT_NOTICES_CACHE=', github_env.read_text())
 
     def test_kept_package_state_is_not_sanitized_away(self):
         """The warm builder skips the R2 package restore, so its kept workspace-state.json names this

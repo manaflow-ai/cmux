@@ -413,6 +413,41 @@ export default agentPaneEntry({
         );
       },
     },
+    "child-close-hover": {
+      note: "The pill's × closes the subagent's view; hovered, its highlight covers the × alone, not the pill.",
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__close"));
+        await ctx.hover({ selector: ".cv-subagent-of__close" });
+      },
+    },
+    "child-close": {
+      note: "The pill's × goes back to the chat's transcript, its group still open.",
+      height: 680,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        await ctx.click({ role: "button", name: "Close subagent" });
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+        );
+      },
+    },
+    "child-escape": {
+      note: "Escape closes the subagent's view, as the × does.",
+      height: 680,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        await openChild("Test coverage")(ctx);
+        (ctx.document.activeElement as HTMLElement | null)?.blur?.();
+        await ctx.press("Escape");
+        await ctx.waitFor(
+          () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
+        );
+      },
+    },
     "own-pane": {
       note: 'A pane the app opened on a subagent (a subagent: reveal): its view and a composer of its own, "Message Test coverage", never "Read only"; the line under it names the chat that passes the message on, as a subagent has no session of its own.',
       height: 640,

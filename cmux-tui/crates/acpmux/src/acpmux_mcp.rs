@@ -2,16 +2,21 @@
 //! (`agent_tools.rs`), the same on every harness: message another session (a lane, a
 //! coordinator, a chat on a peer) and read the sessions, instead of piping text into `acpmux
 //! send` in a shell, which a chat draws as a command block. Behind the `cmux` server its tools
-//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info` and the
-//! team mailbox tools (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
+//! are `acpmux_send`, `acpmux_ls`, `acpmux_last`, `acpmux_info`, `acpmux_search` (a
+//! session's messages holding some words, `session_search.rs`) and the team mailbox tools
+//! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
-//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent. With a cmux sign-in it also saves,
+//! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
+//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). `github_status` names the GitHub
+//! account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
 //! the session's caller token from this server's env (`hub/person.rs` (a)), on this daemon's
 //! socket only. So it can do nothing that CLI cannot, and the daemon records a message it sends
 //! as that session's (`session_message`, `prompt_provenance.rs`), never as the person's words.
+//! `pr_state` alone is not a daemon request: it runs the agent's own `gh` (one `gh pr view`),
+//! with this server's environment, which the agent gave it.
 //! A remote-origin session gets no tools at all (`agent_tools::left_out`).
 
 use std::sync::Arc;
@@ -39,6 +44,13 @@ const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long b
 run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
 agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
 keeps running, and bg_list and bg_output read it later by its id.";
+/// How every chat with the background tools is asked to pace its work: the reads and searches a
+/// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
+/// Some chats did read early and concurrently and others went one call at a time on the same
+/// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
+const PARALLEL_STEER: &str = "Work in parallel: at the start of a task, read the files and run \
+the searches you already know you need as one batch of independent tool calls, not one after \
+another, and while a bg_start task runs, go on with the parts that do not need its result.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -54,6 +66,8 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_pr.rs"]
+mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
 
@@ -61,6 +75,7 @@ fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
+        list.push(pr::tool());
     }
     all
 }
@@ -163,10 +178,25 @@ fn base_tools() -> Value {
                 },
                 "required": ["id"]
             }
+        },
+        {
+            "name": "search",
+            "description": "Find a session's messages (prompts, replies, tool titles) holding every word of a query, newest first, from acpmux's index of its log: use it instead of grepping a transcript. Your own session unless name says another; role assistant finds what you yourself wrote earlier.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "The words to find, in any case and order, within one message."},
+                    "name": {"type": "string", "description": "The session's name, id, or host/name (default: this chat)."},
+                    "role": {"type": "string", "enum": ["user", "assistant", "tool"], "description": "Only prompts, replies or tool titles."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": crate::session_search::MAX_LIMIT, "description": "At most this many hits (default 20)."}
+                },
+                "required": ["query"]
+            }
         }
     ]);
     if let Some(list) = all.as_array_mut() {
         list.insert(0, send::tool());
+        list.push(crate::github_status::definition());
     }
     all
 }
@@ -185,6 +215,20 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
     Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }
 
+/// The server's instructions: the background and parallel steers where the background tools are
+/// listed, and the GitHub one where `github_status` is.
+fn instructions(tools: &Value) -> Option<String> {
+    let mut parts = Vec::new();
+    if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
+        parts.push(BG_STEER);
+        parts.push(PARALLEL_STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == crate::github_status::TOOL) {
+        parts.push(crate::github_status::STEER);
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 /// Runs the server on stdin and stdout.
 pub async fn run() -> Result<()> {
     // Read once: a sign-in or `artifacts.enabled` change reaches the next chat's server.
@@ -196,8 +240,7 @@ pub async fn run() -> Result<()> {
         .is_some()
         .then(|| Arc::new(crate::mcp_hint::names(&tools).map(str::to_owned).collect()));
     // The background steer only where the background tools are listed.
-    let steer =
-        crate::mcp_hint::names(&tools).any(|n| bg::TOOLS.contains(&n)).then(|| BG_STEER.to_owned());
+    let steer = instructions(&tools);
     crate::secret_mcp::serve(
         SERVER_NAME,
         SESSION_ENV,
@@ -229,8 +272,19 @@ pub async fn run() -> Result<()> {
                 if bg::TOOLS.contains(&name) {
                     return bg::call(&daemon, &session, name, &args).await;
                 }
+                if name == pr::NAME {
+                    return pr::call(&daemon, &session, &args).await;
+                }
+                if name == crate::github_status::TOOL {
+                    let sources = crate::github_status::Sources::current();
+                    let status = crate::github_status::resolve(&sources).await;
+                    return crate::github_status::result(&status);
+                }
                 if matches!(name, "inbox_read" | "inbox_reply") {
                     return inbox_tool(&daemon, &session, name, &args).await;
+                }
+                if name == "search" {
+                    return search_tool(&daemon, &session, &args).await;
                 }
                 call(&daemon, &params).await
             }
@@ -345,6 +399,52 @@ fn team_result_text(result: &Value) -> String {
         result.as_str().unwrap_or_default().to_owned()
     } else {
         serde_json::to_string_pretty(result).unwrap_or_else(|_| result.to_string())
+    }
+}
+
+/// `search`: one session's messages holding every word of `query` (`session_search.rs`), this
+/// server's own chat unless `name` names another.
+pub(crate) async fn search_tool(daemon: &Arc<Client>, session: &str, args: &Value) -> Value {
+    let Some(query) = arg(args, "query") else {
+        return error_result("query is required".to_owned());
+    };
+    let id = match arg(args, "name") {
+        Some(name) => match crate::cli::run::resolve_id(daemon, name).await {
+            Ok(id) => id,
+            Err(e) => return refusal(e),
+        },
+        None if session.is_empty() => {
+            return error_result("this server runs in no acpmux chat: name a session".to_owned());
+        }
+        None => session.to_owned(),
+    };
+    let params = json!({
+        "sessionId": id,
+        "query": query,
+        "role": args.get("role"),
+        "limit": args.get("limit"),
+    });
+    match daemon.request(method::MUX_SESSION_SEARCH, params).await {
+        Ok(r) => {
+            let hits = r.get("hits").and_then(Value::as_array).cloned().unwrap_or_default();
+            let text = if hits.is_empty() {
+                "No message holds every word.".to_owned()
+            } else {
+                hits.iter()
+                    .map(|h| {
+                        format!(
+                            "seq {} ({}): {}",
+                            h.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            h.get("role").and_then(Value::as_str).unwrap_or(""),
+                            h.get("snippet").and_then(Value::as_str).unwrap_or(""),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            ok(text, r)
+        }
+        Err(e) => refusal(e),
     }
 }
 

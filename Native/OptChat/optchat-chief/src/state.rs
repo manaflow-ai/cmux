@@ -381,6 +381,10 @@ pub struct SubRecord {
     /// Its acpmux session, once created.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The harness its session runs on (`subagent.start`'s), kept so its
+    /// spend is still attributed after a host restart (usage.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
@@ -531,6 +535,12 @@ pub struct InboxMessage {
 pub struct PendingPermission {
     pub id: String,
     pub request: Value,
+    /// The conversation owner acknowledged this request's Home card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_message: Option<String>,
+    /// A disabled rollout retired this card; the same request must not reopen it.
+    #[serde(default)]
+    pub home_closed: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
