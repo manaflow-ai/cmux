@@ -10,9 +10,10 @@ import AppKit
 /// on its first event, which moves the clip off the main thread for the rest of the gesture, so
 /// a busy main thread no longer stalls the scroll (Leo, ask-757eeb7f80: "scrolling thru sidebar
 /// sessions in claude doesn't lag / in cmux-next it does"). Overriding `scrollWheel(with:)` alone
-/// opted the list out, and every scroll frame waited on the main thread. A gesture
-/// is held here, event by event, until it shows its direction (unless its first event already
-/// does): sideways pages the spaces, otherwise AppKit takes it from there.
+/// opted the list out, and every scroll frame waited on the main thread. A gesture is held here,
+/// event by event, until it shows its direction (unless its first event already does): sideways
+/// pages the spaces to the gesture's end; otherwise the list scrolls by the movement held back
+/// and AppKit takes the gesture from there.
 final class SidebarScrollView: NSScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.
     var onHorizontalSwipe: ((Int) -> Void)?
@@ -24,9 +25,21 @@ final class SidebarScrollView: NSScrollView {
     private var tracker = ProfileSwipeTracker()
     private var wheel = SpaceWheelPager()
     private var paging = false
-    /// A trackpad gesture whose direction is not known yet: no event of it goes to AppKit, which
-    /// would track the rest of the gesture itself and never pass on a sideways swipe.
-    private var deciding = false
+    /// Who has the trackpad gesture under way (the type comment).
+    private var owner = Owner.undecided
+    /// The vertical movement of an undecided gesture, not yet scrolled: it scrolls when the
+    /// gesture turns out vertical, or ends without a direction, so no movement is lost.
+    private var withheldDeltaY: CGFloat = 0
+
+    private enum Owner {
+        /// No direction yet: no event goes to AppKit, which would track the rest of the gesture
+        /// itself and never pass on a sideways swipe.
+        case undecided
+        /// Sideways: the gesture pages the spaces to its end, whatever its later events do.
+        case sideways
+        /// AppKit's: it scrolls the list, off the main thread for the rest of the gesture.
+        case appKit
+    }
 
     /// AppKit asks this because `scrollWheel(with:)` is overridden: the override sees the first
     /// event of a gesture AppKit tracks, and that is all it needs (the type comment).
@@ -46,24 +59,63 @@ final class SidebarScrollView: NSScrollView {
         }
         let step = tracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
         switch phase {
-        case .began: deciding = !tracker.isVertical
-        case .changed: if tracker.isVertical { deciding = false }
-        case .ended, .momentum: deciding = false
+        case .began:
+            owner = .undecided
+            withheldDeltaY = 0
+            decide()
+        case .changed:
+            if owner == .undecided { decide() }
+        case .ended, .momentum:
+            break
         }
         if let onHorizontalScroll {
             if phase == .ended || phase == .momentum {
                 if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
                 paging = false
-            } else if tracker.isHorizontal {
+            } else if owner == .sideways, tracker.isHorizontal {
                 onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
                 paging = true
             }
         } else if let step {
             onHorizontalSwipe?(step)
         }
-        // A horizontal gesture never scrolls the list; the list cannot
-        // scroll horizontally anyway, and elastic bounce would jitter.
-        if !tracker.isHorizontal, !deciding { super.scrollWheel(with: event) }
+        switch owner {
+        case .appKit:
+            // A sideways gesture never scrolls the list; the list cannot scroll horizontally
+            // anyway, and elastic bounce would jitter.
+            super.scrollWheel(with: event)
+        case .undecided:
+            withheldDeltaY += event.scrollingDeltaY
+            // A gesture that ends without a direction still moves the list by what it moved.
+            if phase == .ended || phase == .momentum { replayWithheld() }
+        case .sideways:
+            break
+        }
+    }
+
+    /// Settles who has the gesture once the tracker knows its direction. A vertical one first
+    /// scrolls by the movement held back while it was undecided, then goes to AppKit.
+    private func decide() {
+        if tracker.isHorizontal {
+            owner = .sideways
+            withheldDeltaY = 0
+        } else if tracker.isVertical {
+            replayWithheld()
+            owner = .appKit
+        }
+    }
+
+    /// Scrolls the list by the withheld vertical movement (positive deltas show earlier rows).
+    private func replayWithheld() {
+        defer { withheldDeltaY = 0 }
+        guard withheldDeltaY != 0, let document = documentView else { return }
+        let clip = contentView
+        let range = max(0, document.frame.height - clip.bounds.height)
+        let step = clip.isFlipped ? -withheldDeltaY : withheldDeltaY
+        let y = min(max(clip.bounds.minY + step, 0), range)
+        guard y != clip.bounds.minY else { return }
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
+        reflectScrolledClipView(clip)
     }
 
     private static func phase(of event: NSEvent) -> ProfileSwipeTracker.Phase? {

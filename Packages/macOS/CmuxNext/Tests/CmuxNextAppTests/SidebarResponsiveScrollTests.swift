@@ -17,6 +17,15 @@ struct SidebarResponsiveScrollTests {
         return NSEvent(cgEvent: cg)!
     }
 
+    /// A list document as the sidebar's: flipped, 4,000 points of rows in a 400 point clip.
+    private final class Rows: NSView { override var isFlipped: Bool { true } }
+
+    private func list() -> SidebarScrollView {
+        let scroll = SidebarScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        scroll.documentView = Rows(frame: NSRect(x: 0, y: 0, width: 260, height: 4_000))
+        return scroll
+    }
+
     @Test func theSidebarListTakesResponsiveScrolling() {
         #expect(SidebarScrollView.isCompatibleWithResponsiveScrolling)
     }
@@ -24,8 +33,7 @@ struct SidebarResponsiveScrollTests {
     /// A swipe whose first event carries no movement is not handed to AppKit (which would track the
     /// rest of the gesture itself): it pages the spaces from its first sideways change.
     @Test func aSidewaysSwipeThatStartsStillStillPagesTheSpaces() {
-        let scroll = SidebarScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
-        scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 4_000))
+        let scroll = list()
         var phases: [ProfileSwipeTracker.Phase] = []
         scroll.onHorizontalScroll = { phase, _, _ in phases.append(phase) }
         let origin = scroll.contentView.bounds.origin
@@ -39,14 +47,44 @@ struct SidebarResponsiveScrollTests {
     /// A first sample that leans a little downward (2, 3) is not a direction yet: the swipe that
     /// follows still pages (review of #34648).
     @Test func aSidewaysSwipeThatStartsALittleDownStillPagesTheSpaces() {
-        let scroll = SidebarScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
-        scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 4_000))
+        let scroll = list()
         var phases: [ProfileSwipeTracker.Phase] = []
         scroll.onHorizontalScroll = { phase, _, _ in phases.append(phase) }
         scroll.scrollWheel(with: event(dx: 2, dy: 3, phase: .began))
         for _ in 0..<3 { scroll.scrollWheel(with: event(dx: -20, dy: 0, phase: .changed)) }
         scroll.scrollWheel(with: event(dx: 0, dy: 0, phase: .ended))
         #expect(phases == [.began, .changed, .changed, .ended])
+    }
+
+    /// A swipe that pages keeps the gesture to its end, however its later events drift: AppKit,
+    /// once it had the gesture, would keep its end from the pager and leave the spaces half moved
+    /// (review of #34648).
+    @Test func aPagingSwipeThatDriftsDownStillEndsItsPage() {
+        let scroll = list()
+        var phases: [ProfileSwipeTracker.Phase] = []
+        scroll.onHorizontalScroll = { phase, _, _ in phases.append(phase) }
+        let origin = scroll.contentView.bounds.origin
+        scroll.scrollWheel(with: event(dx: -20, dy: 0, phase: .began))
+        for _ in 0..<3 { scroll.scrollWheel(with: event(dx: 0, dy: -20, phase: .changed)) }
+        scroll.scrollWheel(with: event(dx: 0, dy: 0, phase: .ended))
+        #expect(phases.first == .began && phases.last == .ended, "\(phases)")
+        #expect(scroll.contentView.bounds.origin == origin, "a paging swipe never scrolls the list")
+    }
+
+    /// Movement held back while a gesture had no direction is scrolled, not lost: once it turns
+    /// out vertical, and when it ends without a direction (review of #34648).
+    @Test func heldBackMovementStillScrollsTheList() {
+        let short = list()
+        short.scrollWheel(with: event(dx: 0, dy: -2, phase: .began))
+        short.scrollWheel(with: event(dx: 0, dy: 0, phase: .ended))
+        #expect(short.contentView.bounds.minY == 2, "a 2 point gesture scrolled \(short.contentView.bounds.minY)")
+
+        let slow = list()
+        slow.scrollWheel(with: event(dx: 0, dy: -2, phase: .began))
+        slow.scrollWheel(with: event(dx: 0, dy: -2, phase: .changed))
+        #expect(slow.contentView.bounds.minY == 0, "undecided: nothing scrolled yet")
+        slow.scrollWheel(with: event(dx: 0, dy: -2, phase: .changed)) // 6 points: vertical
+        #expect(slow.contentView.bounds.minY >= 4, "the 4 held points scrolled; got \(slow.contentView.bounds.minY)")
     }
 
     @Test func aGestureShowsOneDirectionOnceItMoves() {

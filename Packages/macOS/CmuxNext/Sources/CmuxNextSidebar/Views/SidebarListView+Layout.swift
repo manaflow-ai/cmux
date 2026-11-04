@@ -161,15 +161,20 @@ extension SidebarListViewComponents {
         if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         let rect = visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
-        // Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls
-        // there off the main thread; those rows are drawn too, up to a quarter screen past each edge.
-        let prepared = preparedContentRect.intersection(visible.insetBy(dx: 0, dy: -visible.height / 4))
+        // Responsive scrolling (`SidebarScrollView`) prepares content past the visible rows before it scrolls there off
+        // the main thread (`prepareContent(in:)`, which keeps it within `overdrawLimit`): those rows are drawn too.
+        let prepared = preparedContentRect
         return prepared.isEmpty ? rect : rect.union(prepared)
     }
-    /// Responsive scrolling's overdraw: AppKit prepares the rect it may scroll to next, and the rows in it get views
-    /// now (`realizationRect`), so a scroll that runs ahead of a busy main thread finds them drawn.
+    /// The most past the visible rows that is prepared: a quarter screen past each edge.
+    static func overdrawLimit(_ visible: NSRect) -> NSRect { visible.insetBy(dx: 0, dy: -visible.height / 4) }
+    /// Responsive scrolling's overdraw: AppKit asks for a rect it may scroll to next. The list prepares (and says it
+    /// prepared) only what it realizes rows for, the asked rect within `overdrawLimit`, so a scroll that runs ahead
+    /// of a busy main thread finds the rows of every prepared point drawn.
     override func prepareContent(in rect: NSRect) {
-        super.prepareContent(in: rect)
+        let visible = enclosingScrollView?.contentView.bounds ?? visibleRect
+        let limited = rect.intersection(Self.overdrawLimit(visible))
+        super.prepareContent(in: limited.isEmpty ? visible : limited.union(visible))
         realizeVisibleRows()
     }
     /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
