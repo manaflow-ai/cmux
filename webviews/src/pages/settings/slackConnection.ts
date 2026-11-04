@@ -9,6 +9,14 @@ export type SlackState = {
   confirmed: boolean;
 };
 
+function isSlackTeam(value: unknown): value is SlackTeam {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const team = value as Record<string, unknown>;
+  return (["slackTeamId", "name", "cmuxTeamId"] as const).every(
+    (key) => typeof team[key] === "string" && team[key].trim().length > 0,
+  );
+}
+
 /** Only the native Cloud client sees the bearer. No credential or install URL is persisted. */
 export class SlackConnectionController {
   private state: SlackState = { phase: "loading", teams: [], error: null, confirmed: false };
@@ -55,7 +63,13 @@ export class SlackConnectionController {
     try {
       const result = await this.client.call<SlackConnection>("cmux.settings.slack.request", { method: "GET" });
       if (this.disposed || revision !== this.revision) return;
-      if (!Array.isArray(result.teams) || typeof result.connected !== "boolean") throw new Error("invalid response");
+      if (
+        !Array.isArray(result.teams) ||
+        !result.teams.every(isSlackTeam) ||
+        typeof result.connected !== "boolean"
+      ) {
+        throw new Error("invalid response");
+      }
       this.set({
         phase: "ready",
         teams: result.connected ? result.teams : [],

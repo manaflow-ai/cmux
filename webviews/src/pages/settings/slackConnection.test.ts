@@ -127,4 +127,12 @@ describe("Slack connection", () => {
       expect(controller.getSnapshot().error).toBe(expected);
     }
   });
+
+  test("rejects malformed team entries instead of exposing them to the row", async () => {
+    for (const teams of [[null], [{}], [{ slackTeamId: "T1", name: "", cmuxTeamId: "team-1" }]]) {
+      const { controller } = harness(() => ({ connected: true, teams }));
+      await controller.refresh();
+      expect(controller.getSnapshot()).toMatchObject({ phase: "ready", teams: [], error: "failed" });
+    }
+  });
 });
