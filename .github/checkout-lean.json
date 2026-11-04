@@ -31,6 +31,7 @@
       "repair": "repairs are scoped to Swift sources, Packages, cmux-tui and webviews; the patch diff and add are limited to the changed paths computed before read-tree"
     },
     "cmux-next-web.yml": {
+      "coalesce": "web_coalesce.py wait --skip-unchanged diffs two trees and reads web_subareas.py's routing (scripts/, webviews/, web/tests/, the catalogs web-bundle-key.py reads); verify/ holds none of them",
       "web-bisect": "web-bisect-probe.sh checks out --force (keeps the patterns) and builds webviews; run-webviews-tests.sh lists tests from cwd=webviews"
     },
     "cmux-tui-testbox-warmup.yml": {

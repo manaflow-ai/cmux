@@ -2,10 +2,12 @@
 """Coalesce cmux-next-web.yml's feat-cmux-next push runs, and bisect a coalesced run's new webview reds.
 
     web_coalesce.py wait --last LAST.json --sha SHA [--before SHA] [--hold-minutes 15] [--ref REF] [--off]
-                         --out OUT.json
+                         [--skip-unchanged] --out OUT.json
         the coalesce job: sleep until HOLD minutes after the last push that ran the web checks, then name this push
         the newest covered one (OUT) and print `base=<the last covered sha>` and `run=true` to $GITHUB_OUTPUT, or,
-        when it slept and REF has moved past SHA, yield to the newer push (`run=false`, nothing recorded)
+        when it slept and REF has moved past SHA, yield to the newer push (`run=false`, nothing recorded), or, with
+        --skip-unchanged, when nothing since the last covered sha changed an input of any web check, run none
+        (`run=false`, the window restarted, the covered range kept)
     web_coalesce.py bisect --base SHA --head SHA --results RESULTS.json... [--history HISTORY.json]
                            --probe PROBE.sh --report REPORT.json
         the web bisect job: for each webview test red at HEAD and not at BASE (the run before it), the first commit
@@ -18,7 +20,11 @@ minutes, on the newest push that waited; each run routes from the last run's com
 everything since. Three rules from the decision (claude-sr2-coord, 2026-11-03):
 
 1. A run starts at least every HOLD (15) minutes while pushes land, so a base red is at most about 15 minutes of
-   landings wide (the decision's bound is 30).
+   landings wide (the decision's bound is 30). A window whose pushes changed no input of any web check (the paths
+   web_subareas.py routes every web check on, as pull requests and the bisect use them) runs none
+   (--skip-unchanged, 2026-11-04): no verdict could differ from the last run's. On 2026-11-03/04 1045 commits
+   landed in 24 hours and 739 of them routed no web check, but most 15-minute windows hold at least one that does:
+   7 of 94 windows changed none.
 2. When such a run goes red, `bisect` re-runs only the failing test files, only on the commits the run covered, so
    the first red commit and its pull request are still named (test_reds.py bisect_report reads its lines).
 3. Pull requests are untouched: react-apps-base-check and everything else ci.yml runs is the same.
@@ -123,14 +129,30 @@ def branch_tip(ref: str) -> str | None:
     return out[0] if out and SHA.fullmatch(out[0]) else None
 
 
-def emit(base: str, run: bool) -> None:
+def emit(base: str, run: bool, save: bool | None = None) -> None:
+    """The job's outputs: BASE and RUN (whether the web checks run), and SAVE (whether the marker written to --out is
+    saved as the newest; RUN by default)."""
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as stream:
-            stream.write(f"base={base}\nrun={'true' if run else 'false'}\n")
+            stream.write(f"base={base}\nrun={'true' if run else 'false'}\n"
+                         f"save={'true' if (run if save is None else save) else 'false'}\n")
 
 
-def wait(args, sleep=time.sleep, clock=time.time, tip=branch_tip) -> int:
+def routes_any_web_check(base: str) -> bool:
+    """Whether BASE..HEAD, in the checkout at the cwd, routes any web check (web_subareas.routes_any). BASE is fetched
+    first (a shallow checkout has only HEAD); a base that cannot be fetched or diffed routes everything."""
+    try:
+        subprocess.run(["git", "fetch", "--no-tags", "--quiet", "--depth=1", "origin", base], capture_output=True,
+                       timeout=180, check=True)
+        import web_subareas  # noqa: PLC0415  (beside this script; the coalesce job checks out the tree)
+        return web_subareas.routes_any(base)
+    except Exception as error:  # noqa: BLE001  (never skip on an error: run the checks)
+        print(f"could not tell whether {base[:12]}..HEAD changes a web check's inputs ({error}); running them")
+        return True
+
+
+def wait(args, sleep=time.sleep, clock=time.time, tip=branch_tip, routes=routes_any_web_check) -> int:
     hold_s = 0.0 if args.off else args.hold_minutes * 60
     last = None if args.off else read_last(args.last)
     attempt = int(getattr(args, "attempt", 1) or 1)
@@ -153,6 +175,20 @@ def wait(args, sleep=time.sleep, clock=time.time, tip=branch_tip) -> int:
             emit("", False)
             return 0
     started = clock()
+    if (getattr(args, "skip_unchanged", False) and not args.off and not rerun and last is not None
+            and base == last["sha"] and SHA.fullmatch(base) and not routes(base)):
+        # Nothing since the last run changed an input of any web check (web_subareas.routes_any: the same routing
+        # every run and pull request uses), so the last run's verdict holds for this push too. No checks run, and
+        # the run looks like a yielded one (readers take the newest run before it as the verdict). The window
+        # restarts as if they had run; the covered range does not move, so the next run still checks every push
+        # since the last run.
+        record = {"sha": last["sha"], "started": started, "covered": last["covered"]}
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(record) + "\n", encoding="utf-8")
+        print(f"no push since {base[:12]} changed an input of any web check: its run's verdict holds for "
+              f"{args.sha[:12]}, so this run runs no web checks")
+        emit("", False, save=True)
+        return 0
     if rerun and last is not None:
         record = dict(last)  # a re-run is no newer covered push: the marker stays as it was
     else:
@@ -424,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--attempt", type=int, default=1, help="the run's attempt: a re-run never waits")
     w.add_argument("--ref", help="the pushed ref: a job that slept yields when it moved past --sha")
     w.add_argument("--off", action="store_true", help="no coalescing: run at once, from the push's own base")
+    w.add_argument("--skip-unchanged", action="store_true",
+                   help="run no web checks when nothing since the last run changed their inputs (cwd: the checkout)")
     w.add_argument("--out", required=True)
     b = sub.add_parser("bisect")
     b.add_argument("--base", default="")

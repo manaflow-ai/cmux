@@ -115,7 +115,7 @@ class WaitTests(unittest.TestCase):
                 del os.environ["GITHUB_OUTPUT"]
             self.assertEqual(slept, [800.0])
             self.assertEqual(json.loads(out.read_text()), {"sha": A, "started": 1900.0, "covered": {A: B}})
-            self.assertEqual(output.read_text(), f"base={B}\nrun=true\n")
+            self.assertEqual(output.read_text(), f"base={B}\nrun=true\nsave=true\n")
 
     def run_wait(self, last, sha, before, now, end, tip):
         """One `wait` call: (the outputs it wrote, the marker it wrote, slept seconds)."""
@@ -143,6 +143,96 @@ class WaitTests(unittest.TestCase):
         # The tip unreadable: it runs, as before.
         got, _, _ = self.run_wait(last, B, A, 60.0, 900.0, tip=None)
         self.assertEqual(got["run"], "true")
+
+    def run_skip(self, last, sha, routes, now=905.0, attempt=1, off=False):
+        """One `wait --skip-unchanged` call past the window: (outputs, marker written, the bases it asked about)."""
+        asked = []
+
+        def ask(base):
+            asked.append(base)
+            return routes
+
+        with tempfile.TemporaryDirectory() as tmp:
+            marker, out, output = Path(tmp, "last.json"), Path(tmp, "new.json"), Path(tmp, "output")
+            marker.write_text(json.dumps(last))
+            args = SimpleNamespace(off=off, hold_minutes=15, last=str(marker), sha=sha, before=B, out=str(out),
+                                   attempt=attempt, ref="refs/heads/feat-cmux-next", skip_unchanged=True)
+            with unittest.mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(output)}), redirect_stdout(io.StringIO()):
+                coalesce.wait(args, sleep=lambda s: None, clock=lambda: now, tip=lambda ref: sha, routes=ask)
+            got = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            return got, json.loads(out.read_text()), asked
+
+    def test_a_window_that_changed_no_web_input_runs_no_checks_and_keeps_the_covered_range(self):
+        # 2026-11-04: 739 of 1045 landings in a day routed no web check. When none since the last run did, the last
+        # run's verdict holds: no checks, a run shaped like a yielded one (coalesce only; readers take the run
+        # before it), and the marker keeps the last covered push (so the next run checks everything since it) with
+        # the window restarted (so skipping does not make the next web push run at once and add a run).
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, asked = self.run_skip(last, C, routes=False)
+        self.assertEqual(asked, [A])
+        self.assertEqual((got["run"], got["base"], got["save"]), ("false", "", "true"))
+        self.assertEqual(marker, {"sha": A, "started": 905.0, "covered": {A: D}})
+        self.assertEqual(coalesce.plan_wait(marker, B, C, 1000.0, 900), (805.0, A))
+
+    def test_a_window_that_changed_a_web_input_runs_as_before(self):
+        last = {"sha": A, "started": 0.0, "covered": {A: D}}
+        got, marker, asked = self.run_skip(last, C, routes=True)
+        self.assertEqual(asked, [A])
+        self.assertEqual((got["run"], got["base"], got["save"], marker["sha"]), ("true", A, "true", C))
+
+    def test_an_unknown_range_a_rerun_and_the_off_switch_never_skip(self):
+        # Every web check runs where the covered range is not one known sha: no marker (EVERYTHING), a re-run (its
+        # first attempt's range), the off switch (every push on its own).
+        for last, sha, attempt, off in ((None, C, 1, False), ({"sha": A, "started": 0.0, "covered": {C: A}}, C, 1, False),
+                                        ({"sha": A, "started": 0.0, "covered": {A: D}}, C, 2, False),
+                                        ({"sha": A, "started": 0.0, "covered": {A: D}}, C, 1, True)):
+            with self.subTest(last=last, attempt=attempt, off=off):
+                got, _, asked = self.run_skip(last or {}, sha, routes=False, attempt=attempt, off=off)
+                self.assertEqual((got["run"], asked), ("true", []))
+
+    def test_a_range_whose_inputs_cannot_be_read_runs_every_check(self):
+        with unittest.mock.patch.object(coalesce.subprocess, "run", side_effect=OSError("no git")), \
+                redirect_stdout(io.StringIO()):
+            self.assertIs(coalesce.routes_any_web_check(A), True)
+
+    def test_the_skip_reads_the_routing_pull_requests_use(self):
+        import web_subareas  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            def git(*args):
+                return subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True).stdout.strip()
+            git("init", "-q")
+            git("config", "user.email", "t@example.com")
+            git("config", "user.name", "t")
+            (repo / "README.md").write_text("a\n")
+            git("add", "-A")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            (repo / "README.md").write_text("b\n")
+            (repo / "Packages").mkdir()
+            (repo / "Packages" / "A.swift").write_text("let a = 1\n")
+            git("add", "-A")
+            git("commit", "-qm", "swift and docs")
+            swift = git("rev-parse", "HEAD")
+            (repo / "webviews").mkdir()
+            (repo / "webviews" / "a.ts").write_text("export {}\n")
+            git("add", "-A")
+            git("commit", "-qm", "webviews")
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                self.assertIs(web_subareas.routes_any(base, swift, repo), False)
+                self.assertIs(web_subareas.routes_any(swift, "HEAD", repo), True)
+                self.assertIs(web_subareas.routes_any(swift, swift, repo), True)  # an empty diff runs everything
+                self.assertIs(web_subareas.routes_any("f" * 40, "HEAD", repo), True)  # an unknown base too
+                # The workflows themselves are an input of every web check.
+                (repo / ".github" / "workflows").mkdir(parents=True)
+                (repo / ".github" / "workflows" / "ci-web.yml").write_text("on: push\n")
+                git("add", "-A")
+                git("commit", "-qm", "workflow")
+                self.assertIs(web_subareas.routes_any("HEAD^1", "HEAD", repo), True)
+            finally:
+                os.chdir(cwd)
 
     def test_a_job_that_did_not_sleep_never_yields(self):
         # Past the deadline it runs at once whatever landed since, so a window always ends in a run.
@@ -549,10 +639,22 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('--ref "$GITHUB_REF"', wait["run"])
         self.assertEqual(job["outputs"]["run"], "${{ steps.wait.outputs.run }}")
         save = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/cache/save@"))
-        self.assertIn("steps.wait.outputs.run == 'true'", save["if"])
+        # A yielded job outputs save=false; a run, or a window skipped as unchanged, save=true.
+        self.assertIn("steps.wait.outputs.save == 'true'", save["if"])
         self.assertIn("needs.coalesce.outputs.run != 'false'", self.web["jobs"]["web"]["if"])
         # The bisect needs a failed web job, so a skipped one never starts it.
         self.assertIn("needs.web.result == 'failure'", self.web["jobs"]["web-bisect"]["if"])
+
+    def test_the_coalesce_job_skips_unchanged_windows_from_the_pushed_tree(self):
+        job = self.web["jobs"]["coalesce"]
+        wait = next(s for s in job["steps"] if s.get("id") == "wait")
+        self.assertIn("--skip-unchanged", wait["run"])
+        # Only the coalesced form skips: the off switch runs every push.
+        self.assertIn('off=(--ref "$GITHUB_REF" --skip-unchanged); [ "$COALESCE" = 1 ] || off=(--off)', wait["run"])
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        # The whole tree (bar the media the lean table drops): the routing reads webviews/ and web/tests/ files.
+        self.assertNotIn("scripts/ci/web_coalesce.py", checkout["with"].get("sparse-checkout", ""))
+        self.assertIs(checkout["with"]["persist-credentials"], False)
 
     def test_the_bisect_copies_its_scripts_in_the_layout_they_resolve(self):
         # web_subareas.py finds the bundle key at parents[1]/cmux-next/web-bundle-key.py: a flat copy loses it, and

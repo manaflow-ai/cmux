@@ -31,7 +31,8 @@ permissions:
 # coalesced run's webview tests go red, `web bisect` re-runs only the new red files on the commits it covered and
 # names the first red commit and its pull request (test_reds.py bisect_report). Pull requests are unchanged.
 # `web lint (fast)` keeps one run per push in cmux-next-web-lint.yml. vars.NEXT_WEB_COALESCE = '0' runs every push
-# at once.
+# at once. A window whose pushes changed no input of any web check (web_subareas.py's routing, the one pull requests
+# use) runs none and ends like a yielded run, so readers keep the last run's verdict (2026-11-04).
 
 # One run per pushed commit: a later push must not cancel the verdict that
 # base-aware excusal reads.
@@ -59,13 +60,18 @@ jobs:
     env:
       COALESCE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.NEXT_WEB_COALESCE) != '0' && '1' || '0' }}
     steps:
-      - name: Checkout the coalesce helper
+      # The pushed tree, for the helper and for the routing it reads (web_subareas.py, web-bundle-key.py): a window
+      # whose pushes changed no web check's inputs runs none (--skip-unchanged).
+      - name: Checkout the coalesce helper and the pushed tree
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 1
+          filter: blob:none
           persist-credentials: false
-          sparse-checkout: scripts/ci/web_coalesce.py
-          sparse-checkout-cone-mode: false
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # The last push that ran the web checks: the newest entry by its prefix. Missing (the first run, an eviction)
       # means no wait, and every web check runs (an empty push base): the range this push covers is unknown.
@@ -84,14 +90,15 @@ jobs:
         env:
           PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
-          off=(--ref "$GITHUB_REF"); [ "$COALESCE" = 1 ] || off=(--off)
+          off=(--ref "$GITHUB_REF" --skip-unchanged); [ "$COALESCE" = 1 ] || off=(--off)
           python3 -I scripts/ci/web_coalesce.py wait "${off[@]}" --last "$RUNNER_TEMP/web-coalesce/last.json" \
             --sha "$GITHUB_SHA" --before "$PUSH_BEFORE" --attempt "$GITHUB_RUN_ATTEMPT" --hold-minutes 15 --out "$RUNNER_TEMP/web-coalesce/last.json"
 
       # A re-run records nothing new (its marker is the one it read), and in its own group a late save could roll the
-      # newest marker back: only a first attempt saves.
+      # newest marker back: only a first attempt saves. A window that ran no checks because nothing changed their
+      # inputs saves too: its marker keeps the last covered push and restarts the window.
       - name: Record this push as the last covered one
-        if: ${{ env.COALESCE == '1' && steps.wait.outputs.run == 'true' && github.run_attempt == '1' }}
+        if: ${{ env.COALESCE == '1' && steps.wait.outputs.save == 'true' && github.run_attempt == '1' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

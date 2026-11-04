@@ -314,6 +314,19 @@ def changed_paths(base: str, head: str) -> list[str] | None:
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
+def routes_any(base: str, head: str = "HEAD", repo_root: Path | None = None) -> bool:
+    """Whether BASE..HEAD routes any web subarea, for the tree checked out at REPO_ROOT (cwd). An unknown diff (a
+    base not fetched) or an empty one routes everything, as route() does: only a known diff that routes no subarea
+    is False. cmux-next-web.yml's coalesce job skips such a range (web_coalesce.py hold): no input of any web check
+    changed, so the last run's verdict still holds for it."""
+    paths = changed_paths(base, head)
+    if not paths:
+        return True
+    areas = classify_paths(paths, repo_root)
+    return any((areas.db, areas.diff_sidecar, areas.instant, areas.production_build, areas.react_apps,
+                areas.typecheck, areas.unit_tests))
+
+
 # The push base that runs every web subarea, whatever the push changed.
 EVERY_SUBAREA = "all"
 
