@@ -26,6 +26,17 @@ struct FocusPersonTargetTests {
         #expect(state.personTarget == "b-tab", "a \(source) move did not set the person's target")
     }
 
+    /// A click in another pane's view reaches the machine as the window's responder report with the mouse source (no focus
+    /// event of the person's: `ShellWindow.reportResponder` inside the mouse-down's dispatch): it sets the person's target
+    /// too (round 8 of #35275: the pane-click row typed the held line into the terminal the person left).
+    @Test func aClickInAnotherPanesViewSetsThePersonsTarget() {
+        let (machine, initial) = twoTerminals()
+        var state = initial
+        _ = machine.send(.responder(.content(pane: "b"), source: .mouse), into: &state)
+        #expect(state.typingTab == "b-tab")
+        #expect(state.personTarget == "b-tab", "the mouse responder report did not set the person's target")
+    }
+
     @Test(arguments: [FocusEvent.Source.cli, .programmatic])
     func aScriptsOrTheAppsMoveLeavesThePersonsTarget(_ source: FocusEvent.Source) {
         let (machine, initial) = twoTerminals()
