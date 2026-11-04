@@ -119,8 +119,11 @@ extension AcpmuxEnvironment {
     /// Probe (hq#6338): `$TMPDIR/acpmux-bin/<size>-<mtime>/acpmux`, a clone of a bundled `executable`; the
     /// bundled one itself when it is not in an app bundle or the copy fails.
     nonisolated static func probeInstalledCopy(of executable: URL, home: URL) -> URL {
+        // The bundled `acpmux` is a link to the multicall `cmux`: copy the file it names, under
+        // the link's own name (the multicall binary picks its tool by that name).
+        let source = executable.resolvingSymlinksInPath()
         guard executable.path.contains(".app/Contents/"),
-              let attributes = try? FileManager.checked.attributesOfItem(atPath: executable.path),
+              let attributes = try? FileManager.checked.attributesOfItem(atPath: source.path),
               let size = attributes[.size] as? NSNumber,
               let modified = attributes[.modificationDate] as? Date else { return executable }
         // Not in the acpmux home: the app adopts and checks that folder before any daemon starts.
@@ -131,7 +134,7 @@ extension AcpmuxEnvironment {
             try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
             let temp = dir.appendingPathComponent(".\(executable.lastPathComponent).\(getpid()).tmp")
             try? FileManager.checked.removeItem(at: temp)
-            try FileManager.checked.copyItem(at: executable, to: temp)
+            try FileManager.checked.copyItem(at: source, to: temp)
             if rename(temp.path, target.path) != 0 { throw POSIXError(.EIO) }
             return target
         } catch {
