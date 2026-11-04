@@ -88,11 +88,23 @@ public struct MobileHostMacIdentityStore: Sendable {
     /// The stored key, or a new one saved now. Blocking I/O: call it off the main actor.
     /// It never shows Keychain UI: an item this build may not read without asking (a
     /// re-signed app) is skipped, with a log line, for the file store.
+    ///
+    /// One identity, whichever store answers: a Keychain that refused one read made the file key a
+    /// second identity, and later launches proved whichever store answered first, so a phone that
+    /// pinned the Keychain key refused this Mac as `mac_identity_changed` on every launch the Keychain
+    /// refused (2026-11-03: the approval prompt only came after a relaunch). So once this build has a
+    /// file key, a Keychain read that answers rewrites the file with the Keychain key: the next refusal
+    /// reads the same key the phones pinned. A build that never had a file key writes none here.
     public func loadOrCreate() throws -> MobileHostMacIdentity {
-        if useKeychain, let stored = keychainRead().flatMap(MobileHostMacIdentity.restore) { return stored }
-        if let data = try? Data(contentsOf: fallbackFile), let stored = MobileHostMacIdentity.restore(data) {
+        let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
+        if useKeychain, let stored = keychainRead().flatMap(MobileHostMacIdentity.restore) {
+            if let fileKey, fileKey != stored {
+                Self.logger.error("iPhone host identity: the file key was a second identity; it now holds the Keychain key")
+                try? writeFallback(stored.privateKey)
+            }
             return stored
         }
+        if let fileKey { return fileKey }
         let identity = MobileHostMacIdentity.generate()
         if !(useKeychain && keychainAdd(identity.privateKey)) {
             try writeFallback(identity.privateKey)
