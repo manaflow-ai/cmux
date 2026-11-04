@@ -82,6 +82,7 @@ export type Drill = { agentId: string; rowId?: string; workflow?: boolean };
 export function BackgroundTasksPanel({
   groups,
   views,
+  agents,
   look = "nested",
   expanded = false,
   initialDrill,

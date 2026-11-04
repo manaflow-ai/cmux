@@ -14071,7 +14071,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                       <>
                                                         {childRows && subagentView &&
                                                           (() => {
-                                                            const agent = freshAgents.find((candidate) => candidate.id === subagentView);
+                                                            const agent = freshAgentMap.get(subagentView);
                                                             return agent ? <SubagentResultHeader agent={agent} /> : null;
                                                           })()}
                                                         <VirtualTranscript
