@@ -9,9 +9,8 @@ import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S3 (`motion.frameOwner.contentPolicy`, default on): the rules the content policy keeps beside
-/// PaneGroundCoversPaneTests (the shell never shows inside a pane rect).
-/// - The switch is latched when each hold begins: a flip in the middle of a spring leaves that spring on its path.
+/// FRAME OWNER REFACTOR S3: the rules the content policy keeps beside PaneGroundCoversPaneTests (the shell never shows
+/// inside a pane rect).
 /// - In a key resize the terminal surface (the producer) stays fixed at the pane edge that does not move, for each side
 ///   a pane can grow or shrink on, while its host (the container) follows the pane in every frame.
 /// - One grid per press: each terminal asks its PTY for its final grid once, in the key's turn, and its surface takes a
@@ -40,35 +39,6 @@ struct PaneContentPolicyTests {
         return frames
     }
 
-    // MARK: Note 1: latched per hold
-
-    /// The switch flipped off in the middle of a key press's spring: that spring finishes on the path it started on (the
-    /// hosts follow their panes to the landing), and the next press takes the off path (the host is held whole).
-    @Test func aSwitchFlipMidSpringAppliesFromTheNextMotion() throws {
-        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
-        defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
-        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        var found: [String] = []
-        let frames = try Self.run(rig) { frame in
-            if frame == 4 { rig.root.context.contentPolicyOverride = false }
-            found += rig.misses().map { "frame \(frame): \($0)" }
-        }
-        #expect(frames > 6, "the press did not spring (\(frames) frames)")
-        #expect(found.isEmpty, "a flip at frame 4 changed the spring's path: \(found.prefix(3))")
-
-        // The next press runs with the switch off: the terminal host is held whole (S1), so its ground is short of
-        // the growing pane: the path this press started on.
-        #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        var offMisses = 0
-        try Self.run(rig) { _ in offMisses += rig.misses().count }
-        #expect(offMisses > 0, "the press after the flip did not take the off path (the host followed its pane)")
-    }
-
     // MARK: Note 2: the surface stays fixed at the pane edge that does not move
 
     /// One press on each side of each axis. p2 grows to the left (H: its leading edge moves, the surface rides the
@@ -92,7 +62,6 @@ struct PaneContentPolicyTests {
         let rig = Rig(PaneGroundCoversPaneTests.column(side.vertical ? PaneGroundCoversPaneTests.stack : PaneGroundCoversPaneTests.pair),
                       focused: side.pressed)
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         var start: [PaneID: CGRect] = [:]
         for pane in ["p1", "p2"] as [PaneID] {
             let host = try #require(rig.root.context.hosts[pane])
@@ -137,7 +106,6 @@ struct PaneContentPolicyTests {
         let vertical = direction == .up || direction == .down
         let rig = Rig(PaneGroundCoversPaneTests.column(vertical ? PaneGroundCoversPaneTests.stack : PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
         var sizes: [PaneID: [CGSize]] = [:]
@@ -173,7 +141,6 @@ struct PaneContentPolicyTests {
     @Test func aHeldKeySizesEachSurfaceOnlyInAPressTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
         var last: [PaneID: CGSize] = [:]
@@ -218,7 +185,6 @@ struct PaneContentPolicyTests {
     @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
         var start: [PaneID: (size: CGSize, grid: TerminalGridSize?)] = [:]
@@ -266,7 +232,6 @@ struct PaneContentPolicyTests {
     @Test func aTerminalThatJoinsDuringAHoldFollowsAndRestsAtTheFinalSize() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let pane = try #require(rig.root.context.hosts["p2"]?.content as? PaneContentView)
         let io = GridRecordingTerminalIO()
         let joining = TerminalSession(io: io)
@@ -305,7 +270,6 @@ struct PaneContentPolicyTests {
         let rig = Rig(.columns([LayoutColumn(id: "c0", width: 1.0 / 3, root: .leaf("p1")), LayoutColumn(id: "c1", width: 1.0 / 3, root: .leaf("p2")),
                                 LayoutColumn(id: "c2", width: 1.0 / 3, root: .leaf("p3"))]), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
         let terminal = try #require(rig.provider.sessions["p2"]?.session.view)
         let ground = try #require(terminal.layer?.backgroundColor, "SETUP: the terminal paints no ground")
@@ -347,7 +311,6 @@ struct PaneContentPolicyTests {
                                                                 b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))),
                       focused: "p3")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         let line = screen.convert(screen.bounds, to: nil)
         // At rest only the gaps show (the column's edge gaps and its dividers).
@@ -394,7 +357,6 @@ struct PaneContentPolicyTests {
         // hides at once as before).
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
         let session = try #require(rig.provider.sessions["p2"]?.session)
         let close = try #require(rig.model.showPaneClose("p2"))
@@ -421,7 +383,6 @@ struct PaneContentPolicyTests {
         // hides at once as before).
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
         let rest = host.frame
         let close = try #require(rig.model.showPaneClose("p2"))
@@ -445,7 +406,6 @@ struct PaneContentPolicyTests {
         let rig = Rig(.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))]),
                       focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let host = try #require(rig.root.context.hosts["p2"])
         let screen = try rig.screen
         /// Along its middle line, the part of the closing ground no live host covers.
