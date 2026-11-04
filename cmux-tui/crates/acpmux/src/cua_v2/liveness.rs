@@ -95,10 +95,46 @@ pub(crate) fn start_time(pid: i32) -> Option<(u64, u64)> {
     (read == size).then_some((info.pbi_start_tvsec, info.pbi_start_tvusec))
 }
 
-/// The helper runs only on macOS; elsewhere the pid and socket checks decide.
-#[cfg(all(unix, not(target_os = "macos")))]
-fn start_time(_pid: i32) -> Option<(u64, u64)> {
+/// Linux: the start time in clock ticks (`/proc/<pid>/stat` field 22), as
+/// the cmux Remote host records its worker's `start` (`(ticks, 0)`).
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) fn start_time(pid: i32) -> Option<(u64, u64)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // `pid (comm) state ...`: comm may hold spaces and parentheses.
+    let rest = stat.get(stat.rfind(')')?.checked_add(1)?..)?;
+    let ticks = rest.split_whitespace().nth(19)?.parse().ok()?;
+    Some((ticks, 0))
+}
+
+/// Other Unix systems run no helper; the pid and socket checks decide.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux", target_os = "android"))))]
+pub(crate) fn start_time(_pid: i32) -> Option<(u64, u64)> {
     None
+}
+
+/// Before the secret goes out: the endpoint's server must be the process
+/// `endpoint.json` names (its pid, and its start time when recorded), not
+/// merely a process of this user. `server_pid` and `server_start` are the
+/// kernel's view of the connected server; with no recorded owner any
+/// same-user server passes (an older writer).
+pub(crate) fn server_is_owner(
+    server_pid: Option<i32>,
+    server_start: Option<(u64, u64)>,
+    owner: Option<Owner>,
+) -> Result<(), String> {
+    let Some(owner) = owner else { return Ok(()) };
+    let Some(pid) = server_pid else {
+        return Err("cannot read the server's process id".into());
+    };
+    if pid != owner.pid {
+        return Err(format!("it is served by pid {pid}, not the recorded owner {}", owner.pid));
+    }
+    match (owner.start, server_start) {
+        (None, _) => Ok(()),
+        (Some(recorded), Some(now)) if recorded == now => Ok(()),
+        (Some(_), Some(_)) => Err(format!("pid {pid} is a later process than the recorded owner")),
+        (Some(_), None) => Err(format!("cannot read the start time of pid {pid}")),
+    }
 }
 
 /// `Ok` when the owner (if recorded) runs and the pipe `socket` has a server.
