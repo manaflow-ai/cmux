@@ -18,7 +18,9 @@
 //! 5. Damage that is not a torn tail (a bad header, or records missing before the next segment)
 //!    keeps the valid prefix; the later segments move to `quarantine/` (never deleted). New
 //!    records take LSNs after every LSN that any segment, live or quarantined, holds, so no LSN
-//!    is ever used twice, also after a crash in the middle of an earlier recovery.
+//!    is ever used twice, also after a crash in the middle of an earlier recovery. The damage is
+//!    written to `DAMAGE` (whole, synced) before the new segment of step 6 hides it from later
+//!    opens, and every open reports it again until `Journal::clear_damage`.
 //! 6. The journal goes on in a segment this open makes (the copy of step 4, or an empty one), never
 //!    in a segment an earlier process wrote: that one may hold a page its cache had and its disk
 //!    never got.
@@ -38,6 +40,10 @@ use crate::{Lsn, Record};
 
 pub(crate) const LOCK_NAME: &str = "LOCK";
 pub(crate) const QUARANTINE_DIR: &str = "quarantine";
+/// The damage earlier opens found ([`Damage::Corrupt`]), kept until `Journal::clear_damage`.
+pub(crate) const DAMAGE_NAME: &str = "DAMAGE";
+/// The name `Journal::clear_damage` gives a cleared damage record in `quarantine/`.
+pub(crate) const CLEARED_DAMAGE: &str = "damage-report";
 /// A segment recovery writes is first written whole under its name plus this, then renamed.
 const STAGING_SUFFIX: &str = ".new";
 /// Segment bytes read at once.
@@ -66,7 +72,9 @@ pub struct OpenReport {
 }
 
 /// What recovery could not read, beyond a torn tail: media damage or a bug, never a crash. The
-/// daemon reports it to the person; moved segments stay in `quarantine/` for a salvage.
+/// daemon reports it to the person; moved segments stay in `quarantine/` for a salvage. Every
+/// open reports the [`Damage::Corrupt`] that earlier opens found, first, until the daemon calls
+/// `Journal::clear_damage`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Damage {
     /// `segment` could not be read past `offset`. The segments in `moved` are in `quarantine/`
@@ -151,6 +159,7 @@ pub(crate) fn recover(
     }
     let lock =
         storage.try_lock(&dir.join(LOCK_NAME)).map_err(io("lock"))?.ok_or(OpenError::Locked)?;
+    let earlier = read_damage(storage, dir)?;
     let listed = list_segments(storage, dir)?;
     let quarantined = list_quarantined(storage, dir)?;
     let live_max_seq = listed.last().map_or(0, |(seq, _)| *seq);
@@ -231,7 +240,14 @@ pub(crate) fn recover(
     }
 
     // 5: every LSN a quarantined segment holds counts, from this open's moves and earlier ones.
-    let q_floor = quarantined_floor(storage, dir, &quarantined, journal_end)?;
+    // Once a live segment is numbered above every quarantined one, it was made after their
+    // quarantine with a first LSN above all of theirs, and `journal_end` is at least that: the
+    // quarantined files are not read again (review G4).
+    let q_floor = if q_max_seq > live_max_seq {
+        quarantined_floor(storage, dir, &quarantined, journal_end)?
+    } else {
+        journal_end
+    };
     floor = floor.max(q_floor);
     if q_max_seq > live_max_seq && bad.is_none() {
         // An earlier recovery moved segments and stopped before its next segment was made.
@@ -292,10 +308,23 @@ pub(crate) fn recover(
         Some(first) => first.header.journal_id,
         None => quarantined_journal_id(storage, dir, &quarantined)?.unwrap_or_else(new_journal_id),
     };
-    let copy = match (segments.last(), last_read.as_ref()) {
-        (Some(last), Some(read)) if read.end > read.vouched => Some((last, read)),
-        _ => None,
-    };
+    let copy = last_read.as_ref().filter(|read| read.end > read.vouched);
+    // The damage found here, durable before the new segment hides it from every later open
+    // (review G2), with the damage earlier opens recorded first.
+    let found: Vec<Damage> = report
+        .damage
+        .iter()
+        .filter(|damage| matches!(damage, Damage::Corrupt { .. }))
+        .cloned()
+        .collect();
+    if !found.is_empty() {
+        let mut all = earlier.clone();
+        all.extend(found);
+        write_damage(storage, dir, &all).map_err(io("record the damage"))?;
+    }
+    let mut damage = earlier;
+    damage.append(&mut report.damage);
+    report.damage = damage;
     // The writer always starts in a segment this open makes: an earlier process's segment may
     // hold a page that its cache had and its disk never got (a failed sync), so nothing is
     // appended to it again. It is read only through the next segment's "previous last LSN".
@@ -308,16 +337,17 @@ pub(crate) fn recover(
     };
     let mut tail = None;
     let mut through = journal_end;
-    if let Some((last, read)) = copy {
-        // Step 4: the unvouched records, again, in a segment of their own.
-        let body = read_range(storage, &dir.join(&last.name), read.vouched_offset, read.offset)?;
+    if let Some(read) = copy {
+        // Step 4: the unvouched records, again, in a segment of their own: the bytes the
+        // checked read returned, never a second read of the file.
+        let body = &read.unvouched;
         let header = SegmentHeader {
             journal_id,
             seq: next_seq(),
             first_lsn: read.vouched.saturating_add(1),
             prev_last: read.vouched,
         };
-        let file = stage_segment(storage, dir, &header, &body, Some(read.end))
+        let file = stage_segment(storage, dir, &header, body, Some(read.end))
             .map_err(io("write the unsynced records again"))?;
         let size = len64(SEGMENT_HEADER_LEN)
             .saturating_add(len64(body.len()))
@@ -346,6 +376,111 @@ pub(crate) fn recover(
     report.last_lsn = next_lsn.saturating_sub(1);
     report.next_lsn = next_lsn;
     Ok(Recovered { lock, next_lsn, report, writer: WriterStart { journal_id, tail } })
+}
+
+/// The damage that earlier opens recorded (`DAMAGE`, one line each), none when there is no file.
+/// A line that does not read is reported as damage itself, so no report is lost silently.
+fn read_damage(storage: &dyn Storage, dir: &Path) -> Result<Vec<Damage>, OpenError> {
+    let file = match storage.open(&dir.join(DAMAGE_NAME), OpenMode::Read) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(OpenError::Io { what: "open the damage record".into(), error }),
+    };
+    let size = file.size().map_err(io("read the damage record's size"))?;
+    let mut bytes = vec![0u8; usize_of(size)];
+    file.read_at(0, &mut bytes).map_err(io("read the damage record"))?;
+    let text = String::from_utf8_lossy(&bytes);
+    Ok(text.lines().filter(|line| !line.is_empty()).map(decode_damage).collect())
+}
+
+/// Writes every [`Damage::Corrupt`] of `damage` to `DAMAGE`: whole under a staging name, fully
+/// synced, renamed into place, folder synced.
+fn write_damage(storage: &dyn Storage, dir: &Path, damage: &[Damage]) -> std::io::Result<()> {
+    let mut text = String::new();
+    for entry in damage {
+        if let Damage::Corrupt { segment, offset, reason, moved, lost_after, lost_through } = entry
+        {
+            let clean = |field: &str| field.replace(['\t', '\n', '\r'], " ");
+            let moved: Vec<String> = moved.iter().map(|name| clean(name.as_str())).collect();
+            text.push_str(&format!(
+                "corrupt\t{}\t{offset}\t{lost_after}\t{lost_through}\t{}\t{}\n",
+                clean(segment.as_str()),
+                moved.join(","),
+                clean(reason.as_str()),
+            ));
+        }
+    }
+    let staging = dir.join(format!("{DAMAGE_NAME}{STAGING_SUFFIX}"));
+    let mut file = storage.open(&staging, OpenMode::Create)?;
+    file.append(text.as_bytes())?;
+    file.sync(SyncLevel::Full)?;
+    storage.rename(&staging, &dir.join(DAMAGE_NAME))?;
+    storage.sync_dir(dir)
+}
+
+/// One line of `DAMAGE`; a line that does not read is damage itself.
+fn decode_damage(line: &str) -> Damage {
+    let fields: Vec<&str> = line.splitn(7, '\t').collect();
+    let number = |index: usize| fields.get(index).and_then(|field| field.parse::<u64>().ok());
+    match (
+        fields.first(),
+        fields.get(1),
+        number(2),
+        number(3),
+        number(4),
+        fields.get(5),
+        fields.get(6),
+    ) {
+        (
+            Some(&"corrupt"),
+            Some(segment),
+            Some(offset),
+            Some(lost_after),
+            Some(lost_through),
+            Some(moved),
+            Some(reason),
+        ) => Damage::Corrupt {
+            segment: (*segment).to_owned(),
+            offset,
+            reason: (*reason).to_owned(),
+            moved: moved.split(',').filter(|name| !name.is_empty()).map(str::to_owned).collect(),
+            lost_after,
+            lost_through,
+        },
+        _ => Damage::Corrupt {
+            segment: DAMAGE_NAME.to_owned(),
+            offset: 0,
+            reason: format!("a line of the damage record does not read: {line}"),
+            moved: Vec::new(),
+            lost_after: 0,
+            lost_through: 0,
+        },
+    }
+}
+
+/// Moves `DAMAGE` into `quarantine/` (kept, never deleted), so later opens report no damage that
+/// the daemon already told the person about. No file: nothing to do.
+pub(crate) fn clear_damage(storage: &dyn Storage, dir: &Path) -> std::io::Result<()> {
+    let from = dir.join(DAMAGE_NAME);
+    match storage.open(&from, OpenMode::Read) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    }
+    let target = dir.join(QUARANTINE_DIR);
+    storage.create_dir_all(&target)?;
+    let taken = storage.list(&target)?;
+    let mut attempt = 0u32;
+    let name = loop {
+        let candidate = format!("{CLEARED_DAMAGE}.{attempt}");
+        if !taken.contains(&candidate) {
+            break candidate;
+        }
+        attempt = attempt.saturating_add(1);
+    };
+    storage.rename(&from, &target.join(name))?;
+    storage.sync_dir(&target)?;
+    storage.sync_dir(dir)
 }
 
 /// The live segment files, by number.
@@ -529,6 +664,11 @@ struct Read {
     /// none), and the offset after that marker.
     vouched: Lsn,
     vouched_offset: u64,
+    /// The last segment's entries after its last marker, as the checked read returned them
+    /// (header and payload): what recovery writes again (step 4). Never read from the file a
+    /// second time: a page that a failed sync dropped can be evicted between two reads, and the
+    /// second read then returns the disk's bytes (review G1).
+    unvouched: Vec<u8>,
 }
 
 fn read_segment(
@@ -545,7 +685,15 @@ fn read_segment(
     let mut reader = Reader::new(file.as_ref(), segment.size);
     let start = len64(SEGMENT_HEADER_LEN);
     let before = segment.header.first_lsn.saturating_sub(1);
-    let mut read = Read { offset: start, end: before, vouched: before, vouched_offset: start };
+    let mut read = Read {
+        offset: start,
+        end: before,
+        vouched: before,
+        vouched_offset: start,
+        unvouched: Vec::new(),
+    };
+    // Only the last segment (no next segment bounds it) can be written again.
+    let keep_tail = trusted_end.is_none();
     loop {
         let expected = read.end.saturating_add(1);
         if trusted_end.is_some_and(|end| expected > end) {
@@ -554,17 +702,25 @@ fn read_segment(
         let Some(entry) = reader.entry(read.offset)? else { break };
         match entry.kind {
             Entry::Record(class) if entry.lsn == expected => {
-                if expected > from {
+                if expected > from || keep_tail {
+                    // The bytes the check covered: `entry` read them into the buffer.
                     let payload = reader.payload(read.offset, entry.len)?;
-                    replay(Record { lsn: expected, kind: entry.record_kind, class, payload })
-                        .map_err(|error| OpenError::Replay { lsn: expected, error })?;
-                    report.replayed = report.replayed.saturating_add(1);
+                    if expected > from {
+                        replay(Record { lsn: expected, kind: entry.record_kind, class, payload })
+                            .map_err(|error| OpenError::Replay { lsn: expected, error })?;
+                        report.replayed = report.replayed.saturating_add(1);
+                    }
+                    if keep_tail {
+                        read.unvouched.extend_from_slice(&entry.head);
+                        read.unvouched.extend_from_slice(payload);
+                    }
                 }
                 read.end = expected;
             }
             Entry::Marker if entry.lsn == read.end => {
                 read.vouched = read.end;
                 read.vouched_offset = read.offset.saturating_add(entry.bytes);
+                read.unvouched.clear();
             }
             _ => break,
         }
@@ -576,6 +732,8 @@ fn read_segment(
 /// One entry that checked out.
 struct Checked {
     kind: Entry,
+    /// The header bytes the check covered.
+    head: [u8; RECORD_HEADER_LEN],
     lsn: Lsn,
     record_kind: u16,
     /// The payload length and the entry's whole length.
@@ -644,6 +802,7 @@ impl<'a> Reader<'a> {
         let Ok(kind) = header.check(&head, payload) else { return Ok(None) };
         Ok(Some(Checked {
             kind,
+            head,
             lsn: header.lsn,
             record_kind: header.kind,
             len: header.len,
@@ -682,7 +841,7 @@ fn scan_beyond_path(
 /// LSNs are bounded by the number of entries the bytes can hold, so random bytes almost never
 /// pass the LSN test, and their checksum is never computed.
 fn scan_beyond(reader: &mut Reader<'_>, start: u64, base: Lsn) -> Result<Beyond, OpenError> {
-    let span = reader.size.saturating_sub(start) / len64(RECORD_HEADER_LEN);
+    let span = reader.size.saturating_sub(start).checked_div(len64(RECORD_HEADER_LEN)).unwrap_or(0);
     let high = base.saturating_add(span).saturating_add(1);
     let mut beyond = Beyond { max_lsn: base, marker: false };
     let mut pos = start;
@@ -702,19 +861,6 @@ fn scan_beyond(reader: &mut Reader<'_>, start: u64, base: Lsn) -> Result<Beyond,
         }
     }
     Ok(beyond)
-}
-
-/// The bytes `[start, end)` of the segment at `path`.
-fn read_range(
-    storage: &dyn Storage,
-    path: &Path,
-    start: u64,
-    end: u64,
-) -> Result<Vec<u8>, OpenError> {
-    let file = storage.open(path, OpenMode::Read).map_err(io("open a segment"))?;
-    let mut bytes = vec![0u8; usize_of(end.saturating_sub(start))];
-    file.read_at(start, &mut bytes).map_err(io("read a segment"))?;
-    Ok(bytes)
 }
 
 /// The highest LSN a segment file holds. Its records are read in order from its first LSN, then

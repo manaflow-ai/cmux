@@ -1,6 +1,6 @@
 //! The public handle ([`Journal`]): append, durable LSNs, waits, listeners, seal.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -171,6 +171,8 @@ impl std::error::Error for OpenError {}
 /// one shared handle.
 pub struct Journal {
     shared: Arc<Shared>,
+    storage: Arc<dyn Storage>,
+    dir: PathBuf,
     writer: Option<std::thread::JoinHandle<()>>,
     /// Held as long as the writer may write; released after the writer is joined.
     _lock: Box<dyn StorageLock>,
@@ -216,12 +218,15 @@ impl Journal {
         });
         let report = recovered.report;
         let lock = recovered.lock;
-        let writer = Writer::new(shared.clone(), storage, dir.to_path_buf(), recovered.writer);
+        let writer =
+            Writer::new(shared.clone(), Arc::clone(&storage), dir.to_path_buf(), recovered.writer);
         let handle = std::thread::Builder::new()
             .name("cmux-journal-writer".into())
             .spawn(move || writer.run())
             .map_err(|error| OpenError::Io { what: "writer thread".into(), error })?;
-        Ok((Self { shared, writer: Some(handle), _lock: lock }, report))
+        let journal =
+            Self { shared, storage, dir: dir.to_path_buf(), writer: Some(handle), _lock: lock };
+        Ok((journal, report))
     }
 
     /// Appends one record and returns its LSN. A memory copy: no I/O, no wait. The record is
@@ -285,6 +290,14 @@ impl Journal {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(Arc::new(listener));
+    }
+
+    /// Ends the reports of the damage that earlier opens found: every open reports it again
+    /// ([`OpenReport::damage`]) until the daemon has told the person and calls this. The record
+    /// moves into `quarantine/` (kept, never deleted). It renames and syncs folders on the
+    /// caller's thread: call it off any request path.
+    pub fn clear_damage(&self) -> std::io::Result<()> {
+        recovery::clear_damage(self.storage.as_ref(), &self.dir)
     }
 
     /// Blocks until record `lsn` is durable. For tests and tools: a daemon's request path

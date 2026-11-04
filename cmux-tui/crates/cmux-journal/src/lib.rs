@@ -28,8 +28,9 @@
 //!
 //! Files (the journal directory): `LOCK` (an exclusive lock held by the one writer), the segments
 //! (`<segment number, 20 digits>.seg`: a header, then records and sync markers back to back, see
-//! `format.rs`), and `quarantine/` for segments recovery could not read past damage that is not a
-//! torn tail. A segment is only ever appended to. The one exception is the writer's own failed
+//! `format.rs`), `quarantine/` for segments recovery could not read past damage that is not a
+//! torn tail, and `DAMAGE`, the damage earlier opens found, reported at every open until
+//! [`Journal::clear_damage`] moves it into `quarantine/`. A segment is only ever appended to. The one exception is the writer's own failed
 //! write: it cuts the segment back to its size before that write, so it removes only bytes that
 //! were never synced and never acknowledged. Nothing here deletes a segment or shortens one past
 //! a synced record.

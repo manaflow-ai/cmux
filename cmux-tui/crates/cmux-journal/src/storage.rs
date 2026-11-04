@@ -257,13 +257,13 @@ fn sync_file(file: &std::fs::File, level: SyncLevel) -> io::Result<()> {
     }
 }
 
+/// Opens `dir` as a folder (`O_DIRECTORY`) and syncs it. A symlink in the path is followed:
+/// the sync is for the folder that holds the entries, and a daemon's state folder, or the journal
+/// folder itself, may be a symlink (GNU stow, state on another volume; review G3).
 #[cfg(unix)]
 fn sync_directory(dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(dir)?;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(dir)?;
     sync_file(&file, SyncLevel::Full)
 }
 
