@@ -18,6 +18,12 @@ import Testing
     /// `%window-close` only when the window is still in the client's session after the unlink;
     /// a window that left it arrives as `%unlinked-window-close`. Treating the first as a close
     /// destroyed the tab and built a new one at the end of the strip.
+    @Test func windowCloseFormsParseToDifferentMessages() {
+        var parser = RemoteTmuxControlStreamParser()
+        let messages = parser.feed(Data("%window-close @4\n%unlinked-window-close @5\n".utf8))
+        #expect(messages == [.windowUnlinkedElsewhere(windowId: 4), .windowClose(windowId: 5)])
+    }
+
     @Test func moveWindowKeepsTheTabAndTakesTheNewPlace() throws {
         let harness = try threeWindowHarness()
         defer { harness.tearDown() }
