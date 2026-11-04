@@ -39,7 +39,7 @@ COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
-ENTRY = re.compile(r"^\s*@main\b")
+ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 
 # Heaviest first: a change takes the verdict of its heaviest file.
