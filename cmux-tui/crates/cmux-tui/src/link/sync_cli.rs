@@ -842,15 +842,20 @@ fn push_through_store(
             }
         })
     };
-    let (part, refused) = match &sent {
+    // The machine may still be writing: nothing goes over the link now.
+    let sent = match sent {
+        Err(error) if error.is::<store::Unsettled>() => return Err(error),
+        other => other,
+    };
+    let (part, written) = match &sent {
         Ok(sent) => (
             json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
-                   "fetched_files": pending.len() - sent.refused.len()}),
-            Some(&sent.refused),
+                   "fetched_files": sent.written.len()}),
+            Some(&sent.written),
         ),
         Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
     };
-    finish_deferred(remote, deferred, &pending, refused, part, next, summary, skips, done, progress)
+    finish_deferred(remote, deferred, &pending, written, part, next, summary, skips, done, progress)
 }
 
 /// Below this many bytes to write, a push goes over the link: the store's
@@ -858,14 +863,14 @@ fn push_through_store(
 const STORE_MIN_BYTES: u64 = 1024 * 1024;
 
 /// Records each deferred file: its revision on the machine when the store
-/// fetched it, or a write over the link when it did not (`refused` is `None`
-/// when the store wrote nothing).
+/// wrote it (`written`, the revision its write left), or a write over the
+/// link when it did not (`written` is `None` when the store wrote nothing).
 #[allow(clippy::too_many_arguments)]
 fn finish_deferred(
     remote: &mut Remote,
     deferred: &[(&String, &LocalFile, String, u64)],
     pending: &[store::Pending<'_>],
-    refused: Option<&BTreeSet<String>>,
+    written: Option<&BTreeMap<String, String>>,
     mut part: serde_json::Value,
     next: &mut Manifest,
     summary: &mut Summary,
@@ -873,15 +878,9 @@ fn finish_deferred(
     done: &mut Progress,
     progress: &mut Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<serde_json::Value> {
-    let mut listings = Listings::default();
     let mut direct = 0u64;
     for ((relative, file, sha256, bytes), pending) in deferred.iter().zip(pending) {
-        let fetched = match refused {
-            Some(refused) if !refused.contains(&pending.target) => {
-                listings.revision(remote, &pending.target)?
-            }
-            _ => None,
-        };
+        let fetched = written.and_then(|written| written.get(&pending.target)).cloned();
         let revision = match fetched {
             Some(revision) => revision,
             None => match write(remote, &pending.target, file) {

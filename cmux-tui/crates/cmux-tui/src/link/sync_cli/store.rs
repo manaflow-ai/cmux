@@ -109,10 +109,26 @@ pub(super) struct Sent {
     pub uploaded: u64,
     /// Bytes the store already had.
     pub reused: u64,
-    /// Files the machine could not write itself (a folder in the way): the
-    /// caller writes them over the link.
-    pub refused: BTreeSet<String>,
+    /// Each file the machine wrote, by its path there, and the revision its
+    /// write left: the caller records that one, never a later listing, and
+    /// writes every other file over the link.
+    pub written: BTreeMap<String, String>,
 }
+
+/// The machine's fetch started and its end is not known (a status read
+/// failed, or the deadline passed while it ran): a copy over the link now
+/// could race the job's later writes, so the push fails instead. The next
+/// push of the same plan picks the job up while it runs.
+#[derive(Debug)]
+pub(super) struct Unsettled(pub String);
+
+impl std::fmt::Display for Unsettled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the machine's store fetch has not finished: {}", self.0)
+    }
+}
+
+impl std::error::Error for Unsettled {}
 
 /// The gear table of the rolling hash: fixed, so the same bytes always cut
 /// at the same places on every Mac.
@@ -303,13 +319,16 @@ pub(super) fn send(
         .to_string();
     let deadline = Instant::now() + FETCH_DEADLINE;
     let status = loop {
-        let status = remote.call("blob.fetch.status", json!({ "job": job }))?;
+        let status = remote
+            .call("blob.fetch.status", json!({ "job": job }))
+            .map_err(|error| Unsettled(format!("{error:#}")))?;
         match status.get("state").and_then(Value::as_str) {
             Some("running") if Instant::now() < deadline => {
                 std::thread::sleep(STATUS_EVERY);
             }
-            Some("running") => bail!("the machine's fetch did not finish in time"),
-            _ => break status,
+            Some("running") => return Err(Unsettled("it did not finish in time".into()).into()),
+            Some("done" | "failed") => break status,
+            _ => return Err(Unsettled("its state is not known".into()).into()),
         }
     };
     if status.get("state").and_then(Value::as_str) != Some("done") {
@@ -317,15 +336,27 @@ pub(super) fn send(
         let error = status.get("error").and_then(Value::as_str).unwrap_or("the fetch failed");
         bail!("the machine's fetch failed ({code}): {error}");
     }
-    let listed = status.get("failed").and_then(Value::as_array).cloned().unwrap_or_default();
-    let count = status.get("failed_count").and_then(Value::as_u64).unwrap_or(0);
-    if count > listed.len() as u64 {
-        bail!("the machine could not write {count} files");
+    // What the job wrote, a page at a time.
+    let mut from = 0u64;
+    loop {
+        let page = remote
+            .call("blob.fetch.status", json!({ "job": job, "written_from": from }))
+            .context("cannot read what the machine's fetch wrote")?;
+        let entries = page.get("written").and_then(Value::as_array).cloned().unwrap_or_default();
+        for entry in &entries {
+            if let (Some(path), Some(revision)) = (
+                entry.get("path").and_then(Value::as_str),
+                entry.get("revision").and_then(Value::as_str),
+            ) {
+                sent.written.insert(path.to_owned(), revision.to_owned());
+            }
+        }
+        from += entries.len() as u64;
+        let total = page.get("written_count").and_then(Value::as_u64).unwrap_or(0);
+        if entries.is_empty() || from >= total {
+            break;
+        }
     }
-    sent.refused = listed
-        .iter()
-        .filter_map(|entry| entry.get("path").and_then(Value::as_str).map(str::to_owned))
-        .collect();
     Ok(sent)
 }
 

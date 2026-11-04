@@ -159,6 +159,21 @@ fn a_plan_writes_every_file_from_its_chunks_with_its_permissions() {
         |name: &str| std::fs::metadata(home.path.join(name)).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode("proj/src/run.sh"), 0o755);
     assert_eq!(mode("proj/empty"), 0o600);
+    // Each written file's revision, as a listing would give it right after.
+    let line =
+        json!({"id": 3, "cmd": "blob.fetch.status", "job": job, "written_from": 1}).to_string();
+    let page = answer_line(Some(&service), true, &line);
+    assert_eq!(page["data"]["written_count"], 3, "{page}");
+    let entries = page["data"]["written"].as_array().unwrap();
+    assert_eq!(entries.len(), 2, "{page}");
+    for entry in entries {
+        let path = entry["path"].as_str().unwrap();
+        let meta = std::fs::metadata(path).unwrap();
+        let mtime =
+            meta.modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+                as u64;
+        assert_eq!(entry["revision"], crate::fs_ops::revision(meta.len(), Some(mtime)), "{entry}");
+    }
     // The same plan after its job finished runs again: a file it wrote may
     // have changed here since, and the push means the plan's bytes.
     std::fs::write(home.path.join("proj/a.txt"), b"changed on the machine").unwrap();

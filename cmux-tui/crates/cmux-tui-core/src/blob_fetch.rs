@@ -247,7 +247,12 @@ struct Job {
     plan: String,
     counters: Counters,
     status: Mutex<JobStatus>,
+    /// Each file this job committed and its revision, in commit order.
+    written: Mutex<Vec<(String, String)>>,
 }
+
+/// At most this many `written` entries in one status answer.
+const WRITTEN_PAGE: usize = 1000;
 
 struct JobStatus {
     state: State,
@@ -355,6 +360,7 @@ impl BlobFetchService {
             id: id.clone(),
             plan: params.plan.clone(),
             counters: Counters::default(),
+            written: Mutex::new(Vec::new()),
             status: Mutex::new(JobStatus {
                 state: State::Running,
                 files_total: 0,
@@ -401,7 +407,22 @@ impl BlobFetchService {
             .cloned()
             .ok_or(Refusal { code: "blob.no_job", message: "no such fetch job".into() })?;
         drop(jobs);
-        let answer = job.answer();
+        let mut answer = job.answer();
+        // `written_from`: a page of the files committed so far, with their
+        // revisions, from that index on.
+        if let Some(from) = request.get("written_from").and_then(Value::as_u64) {
+            let written = job.written.lock().unwrap_or_else(PoisonError::into_inner);
+            let from = usize::try_from(from).unwrap_or(usize::MAX).min(written.len());
+            let page: Vec<Value> = written[from..]
+                .iter()
+                .take(WRITTEN_PAGE)
+                .map(|(path, revision)| json!({"path": path, "revision": revision}))
+                .collect();
+            if let Some(object) = answer.as_object_mut() {
+                object.insert("written".into(), json!(page));
+                object.insert("written_count".into(), json!(written.len()));
+            }
+        }
         self.retire_finished();
         Ok(answer)
     }
@@ -529,7 +550,9 @@ async fn write_file(
     if hex(&whole.finalize()) != file.sha256 {
         return Err(("blob.digest_mismatch", format!("{} did not match its hash", file.path)));
     }
-    pending.commit().map_err(fs)?;
+    let entry = pending.commit().map_err(fs)?;
+    let revision = entry.revision.unwrap_or_default();
+    job.written.lock().unwrap_or_else(PoisonError::into_inner).push((file.path.clone(), revision));
     Ok(())
 }
 
