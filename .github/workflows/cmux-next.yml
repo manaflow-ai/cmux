@@ -3484,11 +3484,54 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
+      # The mode switch is deliberately insufficient on its own.  Promotion
+      # needs a protected repository variable carrying an HQ receipt for this
+      # exact planner policy after a complete 24-hour mirror window with a
+      # measured zero false-skip rate.  A pull request cannot edit vars, so
+      # its checkout cannot forge promotion evidence. Missing, stale, or
+      # malformed evidence leaves this step false and the job runs in full.
+      - name: Verify planner promotion evidence
+        id: planner-evidence
+        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.reuse.outputs.hit != 'true' && inputs.no_reuse != true }}
+        continue-on-error: true
+        env:
+          CI_REBUILD_MIRROR_EVIDENCE: ${{ vars.CI_REBUILD_MIRROR_EVIDENCE }}
+        run: |
+          python3 -I scripts/ci/rebuild_mirror.py verify-evidence \
+            --root . --rev "$GITHUB_SHA" --job fast-tier-cargo \
+            --evidence-json "$CI_REBUILD_MIRROR_EVIDENCE" >> "$GITHUB_OUTPUT"
+
+      # Enforcement is promoted only after the HQ mirror collector has a complete
+      # 24-hour window with zero false skips. Its producer is a trusted push on
+      # feat-cmux-next; pull-request artifacts are evidence, never reusable passes.
+      # CI_REBUILD_MIRROR=0 keeps the old whole-tree mode available as a kill switch.
+      - name: Look for a trusted planner pass
+        id: planner-reuse
+        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.planner-evidence.outputs.eligible == 'true' && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.candidate_key != '' && inputs.no_reuse != true }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ steps.reuse-key.outputs.candidate_key }}
+        run: |
+          python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" \
+            --trusted-branch feat-cmux-next --trusted-event push \
+            --trusted-workflow .github/workflows/cmux-next.yml >> "$GITHUB_OUTPUT"
+
+      - name: Reuse the trusted planner pass
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit == 'true' }}
+        env:
+          KEY: ${{ steps.reuse-key.outputs.candidate_key }}
+          RUN_URL: ${{ steps.planner-reuse.outputs.run_url }}
+          SHA: ${{ steps.planner-reuse.outputs.sha }}
+        run: |
+          echo "::notice title=cmux-next fast tier (cargo) planner reuse::$RUN_URL passed on the trusted feat-cmux-next push (${SHA:0:12})"
+          echo "Planner reused $RUN_URL: it passed on \`${SHA:0:12}\` with the measured input closure (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
+
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
       # Only a feat-cmux-next push saves this build cache; a pull request reads the base
       # branch's. (The pass record at the end of the job is a separate artifact.)
       - name: Cache cargo build
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -3501,17 +3544,17 @@ jobs:
       # unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
       # them first, each attempt under a deadline and retried.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/ghostty-zig-packages
 
       - name: Run the fast tier (cargo and script entries)
-        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
-        if: ${{ (always()) && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-cargo-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
@@ -3519,12 +3562,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      # Observe the candidate and the full run together. Until the measured
-      # rollout is promoted, no candidate (or whole-tree hit) skips this job.
-      # CI_REBUILD_MIRROR=0 restores the existing whole-tree reuse path.
+      # Observe the candidate and the full run together. Before promotion no
+      # candidate skips; after promotion only a trusted push pass can skip.
       - name: Record rebuild mirror outcome
         id: rebuild-mirror
-        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
         continue-on-error: true
         env:
           JOB_OUTCOME: ${{ job.status }}
@@ -3535,7 +3577,7 @@ jobs:
             --output "$RUNNER_TEMP/ci-rebuild-result.json" >> "$GITHUB_OUTPUT"
 
       - name: Upload rebuild mirror observation
-        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
+        if: ${{ always() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.reuse-key.outputs.mirror == 'true' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3545,7 +3587,7 @@ jobs:
           retention-days: 3
 
       - name: Save observed candidate pass
-        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.rebuild-mirror.outputs.key != '' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.rebuild-mirror.outputs.key != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3560,13 +3602,13 @@ jobs:
       # takes only passes of this repository's own runs). Never from a fork pull request.
       # An uncached (no_reuse) run records too.
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
