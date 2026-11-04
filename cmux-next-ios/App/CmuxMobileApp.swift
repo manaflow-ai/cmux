@@ -34,8 +34,6 @@ struct CmuxMobileApp: App {
         #if DEBUG
         // Screenshot rig: CMUX_MOBILE_FEED_LIVE_FIXTURE=1 fills the Feed from a fixed Mac.
         LiveFeedFixture.shared.startIfRequested()
-        // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
-        TerminalFeedFixture.shared.startIfRequested()
         #endif
     }
 

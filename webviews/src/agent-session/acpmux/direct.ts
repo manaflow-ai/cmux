@@ -3461,9 +3461,12 @@ export class AcpmuxDirectClient {
       const params = notification.params ?? {};
       if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
+      if (params.sessionId === this.selectedSessionId) acpmuxPerf.markEvent(notification.params?.at);
       this.apply(notification.params as EventRecord);
     } else if (notification.method === "session/update") {
       this.observeClock(notification.params?.sessionId, notification.params?._meta?.acpmux?.at);
+      if (notification.params?.sessionId === this.selectedSessionId)
+        acpmuxPerf.markEvent(notification.params?._meta?.acpmux?.at);
       this.apply({
         sessionId: notification.params?.sessionId,
         seq: Number(notification.params?._meta?.acpmux?.seq ?? 0),

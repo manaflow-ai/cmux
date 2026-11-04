@@ -1787,6 +1787,7 @@ dependencies = [
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
+ "diffy",
  "flate2",
  "fs4",
  "futures-util",
