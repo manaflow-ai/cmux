@@ -104,3 +104,41 @@ test("a glide stops once the room it lands in is smaller than what it still hold
   expect(glide.outstanding()).toBe(0);
   glide.fit(0);
 });
+
+test("a send from the latest row draws the thread back by the whole rise, past any room, and fit leaves it", () => {
+  const glide = createFollowGlide();
+  const { node, glides, at } = thread();
+  // The sent prompt's row (64) and its reply's live line came at once: no room cap.
+  expect(glide.sent(node, 64)).toBe(64);
+  expect(glides[0]!.keyframes).toEqual([{ translate: "0 64px" }, { translate: "0 0" }]);
+  expect(glides[0]!.options.duration).toBe(180);
+  // No room under the last row (the live line names a call): the send still plays to rest.
+  glide.fit(0);
+  expect(glides[0]!.cancelled).toBe(false);
+  // The reply's first line lands halfway: it continues from what is still drawn back, uncapped.
+  at(0.5);
+  expect(glide.rise(node, 20, 4)).toBe(52);
+  expect(glides[0]!.cancelled).toBe(true);
+  // A row the next commit brings rises on the send's glide too.
+  at(0);
+  expect(glide.sent(node, 30)).toBe(82);
+  glide.stop();
+  expect(glide.outstanding()).toBe(0);
+  // Once it stopped, an ordinary rise is capped by the room again, and fit cuts it.
+  expect(glide.rise(node, 22.75, 10)).toBe(10);
+  glide.fit(0);
+  expect(glides.at(-1)!.cancelled).toBe(true);
+});
+
+test("a send glides nothing with motion off, for a fall, or without a thread", () => {
+  for (const motion of [{ reduce: true }, { off: true }, { token: "0ms" }]) {
+    const { node, glides } = thread(motion);
+    expect(createFollowGlide().sent(node, 64)).toBe(0);
+    expect(glides).toHaveLength(0);
+  }
+  const { node, glides } = thread();
+  const glide = createFollowGlide();
+  expect(glide.sent(node, -10)).toBe(0);
+  expect(glide.sent(null, 64)).toBe(0);
+  expect(glides).toHaveLength(0);
+});

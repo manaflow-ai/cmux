@@ -1810,7 +1810,7 @@ fn stopped_while_starting() -> RpcError {
 /// partial creation, corrupt metadata or a symlink. Never turn a read error into
 /// permission to overwrite a chat. Memory stores use their metadata instead.
 fn refuse_stored_fixed_id(store: &dyn crate::store::Store, id: &str) -> Result<(), RpcError> {
-    let taken = if let Some(path) = store.session_dir(id) {
+    let taken = if let Some(path) = store.session_path(id) {
         match std::fs::symlink_metadata(path) {
             Ok(_) => true,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
