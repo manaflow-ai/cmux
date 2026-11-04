@@ -144,3 +144,19 @@ test("a page that hears the list it already holds keeps it, and a changed list s
   window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: older }));
   expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0001");
 });
+
+test("a held-back list never replaces a newer list another page wrote in its window", async () => {
+  jest.useFakeTimers();
+  const store = await import("../src/agent-session/acpmux/newtab/chatStore");
+  const lists = streamingLists();
+  store.publishSessions(connected(lists[0]), T0 + 1_000);
+  // This page's next list waits for the window to end.
+  store.publishSessions(connected(lists[1]), T0 + 1_100);
+  // Another page writes a newer, different list meanwhile.
+  const newer = store.encodeChatStoreForTests(lists[5], T0 + 1_200);
+  window.localStorage.setItem(store.CHAT_STORE_KEY_FOR_TESTS, newer);
+  window.dispatchEvent(new window.StorageEvent("storage", { key: store.CHAT_STORE_KEY_FOR_TESTS, newValue: newer }));
+  jest.advanceTimersByTime(1_000);
+  expect(JSON.parse(window.localStorage.getItem(store.CHAT_STORE_KEY_FOR_TESTS)!).at).toBe(T0 + 1_200);
+  expect(store.sharedSessions([])[0]?.sessionId).toBe("s-0005");
+});

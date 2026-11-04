@@ -104,8 +104,8 @@ function load(): void {
   lastText = current ? JSON.stringify(current.sessions) : undefined;
   try {
     globalThis.window?.addEventListener("storage", onStorage);
-    globalThis.window?.addEventListener("pagehide", writePending);
-    globalThis.document?.addEventListener("visibilitychange", writePending);
+    globalThis.window?.addEventListener("pagehide", flushPending);
+    globalThis.document?.addEventListener("visibilitychange", flushPending);
   } catch {
     // No window: this page's own writes still reach it.
   }
@@ -180,7 +180,14 @@ export function publishSessions(
 
 function endWindow(): void {
   windowTimer = undefined;
-  if (pending) writePending();
+  flushPending();
+}
+
+/// Writes the list held back from the last window, unless another page wrote a newer one meanwhile:
+/// a held-back list carries the `at` it arrived with, and must not replace a newer page's list.
+function flushPending(): void {
+  if (pending && current && pending.at < current.at) pending = undefined;
+  writePending();
 }
 
 /// Writes the list this page holds, if any, and starts a new window.
@@ -263,7 +270,7 @@ export function useSharedSessions(own: Sessions, enabled = true): Sessions {
 /// A new page's start (tests): forget this page's copy and read the store again.
 export function reloadChatStoreForTests(): void {
   // The page that goes away writes what it holds (`pagehide`).
-  writePending();
+  flushPending();
   if (windowTimer !== undefined) clearTimeout(windowTimer);
   windowTimer = undefined;
   loaded = false;
@@ -272,8 +279,8 @@ export function reloadChatStoreForTests(): void {
   lastText = undefined;
   try {
     globalThis.window?.removeEventListener("storage", onStorage);
-    globalThis.window?.removeEventListener("pagehide", writePending);
-    globalThis.document?.removeEventListener("visibilitychange", writePending);
+    globalThis.window?.removeEventListener("pagehide", flushPending);
+    globalThis.document?.removeEventListener("visibilitychange", flushPending);
   } catch {
     // No window.
   }
