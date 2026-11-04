@@ -13,6 +13,7 @@ import { PAGE_CONNECTION } from "../shared/pageStreams";
 import type { DaemonError, DaemonSocket } from "../shared/daemonSocket";
 import { CloudHome, WS_CLOUD_CAPABILITY } from "./cloudHome";
 import { DaemonPeople } from "./daemonPeople";
+import { slackThreadSource } from "./slackThread";
 import { AttachmentService, messageGroups } from "./attachmentService";
 import { INLINE_TEXT_BYTES, TextUpload } from "./textUpload";
 import { slackThreadSource } from "./slackThread";
