@@ -37,7 +37,7 @@ extension ActionRegistry {
             ActionTargetReasons.set(descriptor.id, in: self) { [weak self] invocation in
                 if let reason = previous?(invocation) { return reason }
                 guard Self.namesNoObject(invocation), let rules = self?.topPageRules, rules.isShowing() else { return nil }
-                if opens, Self.origin(of: invocation) == .user { return nil }
+                if opens, Self.isPersonsRun(invocation) { return nil }
                 return rules.noTabs()
             }
         }
@@ -50,7 +50,7 @@ extension ActionRegistry {
     /// person cannot see.
     func leavesTopPage(for id: ActionID, _ invocation: ActionInvocation) -> Bool {
         guard let rules = topPageRules, descriptor(for: canonicalID(for: id))?.opensWorkspaceContent == true,
-              Self.namesNoObject(invocation), Self.origin(of: invocation) == .user, rules.isShowing() else { return true }
+              Self.namesNoObject(invocation), Self.isPersonsRun(invocation), rules.isShowing() else { return true }
         rules.leave()
         guard rules.isShowing() else { return true }
         refuse(rules.noTabs())
@@ -62,8 +62,10 @@ extension ActionRegistry {
         invocation.target == nil && invocation["tab"] == nil && invocation["pane"] == nil
     }
 
-    /// The run's effective origin: a person's invocation nested in a CLI run is the CLI's.
-    private static func origin(of invocation: ActionInvocation) -> ActionOrigin {
-        ActionRunScope(invocation, focuses: false).nested(in: ActionRunScope.current).origin
+    /// The run is the person's and may change the view: its effective origin is `user` (an
+    /// invocation nested in a CLI run is the CLI's) and the scope it runs in allows view changes.
+    private static func isPersonsRun(_ invocation: ActionInvocation) -> Bool {
+        let run = ActionRunScope(invocation, focuses: false).nested(in: ActionRunScope.current)
+        return run.origin == .user && run.allowsViewChange
     }
 }

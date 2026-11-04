@@ -55,6 +55,13 @@ struct TopPageContentOpenerRulesTests {
             #expect(!registry.perform("newTab.default", invocation: ActionInvocation()))
         }
         #expect(page.shown && ran().isEmpty)
+        // A person's invocation in a scope that may not change the view (a carried scope) is refused too.
+        let quiet = Page()
+        let (quietRegistry, quietRan) = Self.registry(quiet)
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .user, allowsViewChange: false)) {
+            #expect(!quietRegistry.perform("newTab.default", invocation: ActionInvocation()))
+        }
+        #expect(quiet.shown && quiet.leaves == 0 && quietRan().isEmpty)
     }
 
     @Test func automationWithATargetStillRuns() {
