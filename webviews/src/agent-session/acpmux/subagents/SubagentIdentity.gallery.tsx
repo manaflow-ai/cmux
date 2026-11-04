@@ -12,6 +12,15 @@ const agents = [
 ];
 
 rememberHarnessIcons([
+  {
+    id: "gallery-image",
+    iconSpec: {
+      kind: "image",
+      mime: "image/svg+xml",
+      data: "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCI+PHJlY3Qgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0IiBmaWxsPSIjYTM3MWY3Ii8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMCIgcj0iNSIgZmlsbD0iI2QyOTkyMiIvPjxwYXRoIGQ9Ik0zIDI0TDEyIDE1TDIxIDI0IiBmaWxsPSIjM2ZiOTUwIi8+PC9zdmc+",
+      source: "profile",
+    },
+  },
   { id: "gallery-emoji", iconSpec: { kind: "emoji", text: "🦊", source: "profile" } },
   { id: "gallery-monogram", iconSpec: { kind: "monogram", text: "RV", hue: 120, source: "profile" } },
 ]);
@@ -23,7 +32,7 @@ function IdentityOptions({ look, custom }: Props) {
     ? [
         { id: "reviewer", name: "Review rendering", harness: "gallery-emoji" },
         { id: "explorer", name: "Explore layout", harness: "gallery-monogram" },
-        agents[2]!,
+        { id: "writer", name: "Update tests", harness: "gallery-image" },
         agents[3]!,
       ]
     : agents;
