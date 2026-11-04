@@ -3,12 +3,20 @@
 # Only the daemon sources vary; one final-head fixture/executable measures both builds.
 set -euo pipefail
 
-before=${1:?usage: bench-acpmux-resident.sh BEFORE_SHA}
+before=${1:?usage: bench-acpmux-resident.sh BEFORE_SHA AFTER_SHA}
+after=${2:?usage: bench-acpmux-resident.sh BEFORE_SHA AFTER_SHA}
 repo=$(git rev-parse --show-toplevel)
-after=$(git rev-parse HEAD)
 out=${FAST_CHECKS_OUT:?run through cmux-ci test with an artifact directory}
 cd "$repo"
-git cat-file -e "$before^{commit}"
+# Fast checks use a shallow scratch snapshot. Fetch the two exact public revisions,
+# without moving HEAD, and prove the supplied head has the snapshot's source tree.
+for revision in "$before" "$after"; do
+    [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+    if ! git cat-file -e "$revision^{commit}" 2>/dev/null; then
+        git fetch --no-tags --depth=1 origin "$revision"
+    fi
+done
+test "$(git rev-parse HEAD^{tree})" = "$(git rev-parse "$after^{tree}")"
 git diff --quiet
 
 mapfile -t sources < <(git diff --name-only "$before" "$after" -- cmux-tui/crates/acpmux/src)
