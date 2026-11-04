@@ -354,7 +354,7 @@ extension SharedEdgeMotion {
             let width = (leftover: frame.width.value - target.width, speed: frame.width.velocity + (horizontal ? speedChange * share : 0))
             let height = (leftover: frame.height.value - target.height, speed: frame.height.velocity + (horizontal ? 0 : speedChange * share))
             if lowest(width, spring: spring) < 1 - minimum.width || lowest(height, spring: spring) < 1 - minimum.height { return true }
-            guard clampLeftover != 0 else { continue }
+            guard abs(clampLeftover) > 0.001 else { continue } // a clamped press only (`SharedEdgeClamp`'s threshold)
             let along = horizontal ? width : height
             let released: (leftover: CGFloat, speed: CGFloat) = (along.leftover - share * clampLeftover, along.speed)
             if lowest(released, spring: spring) < 1 - (horizontal ? minimum.width : minimum.height) { return true }
