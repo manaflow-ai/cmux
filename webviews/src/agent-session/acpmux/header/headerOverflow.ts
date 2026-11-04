@@ -29,8 +29,12 @@ export function headerFoldCount(
 
 /// One tool's square plus the gap after it, as laid out now: the pitch grows with the interface
 /// size and the density (Leo 2026-11-04: "so all those things are proportional").
-function measuredPitch(tools: HTMLElement): number {
-  const tool = tools.querySelector<HTMLElement>(".acpmux-header-tool");
+/// Only a square tool counts: the worktree pill, the PR chip and a counted inbox share the
+/// .acpmux-header-tool class at their text's width, and a pitch read from them would keep buttons
+/// folded long after the pane widens. With every quick action folded, the "..." square stands in.
+export function measuredPitch(tools: HTMLElement): number {
+  const tool =
+    tools.querySelector<HTMLElement>("[data-quick-action]") ?? tools.querySelector<HTMLElement>(".acpmux-header-more");
   if (!tool) return HEADER_TOOL_PITCH;
   const width = tool.getBoundingClientRect().width;
   return width > 0 ? width + px(getComputedStyle(tools).columnGap) : HEADER_TOOL_PITCH;
