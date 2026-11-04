@@ -41,8 +41,8 @@ extension DaemonRequest {
 /// retry (1 s) windows, so these use `Configuration.spawnTimeout` (5 s), set
 /// when the control-plane deadline was 2 s: a client that gave up first
 /// reported a failure for a tab the daemon then created. Since #35075 the
-/// control-plane deadline is 30 s, so a spawn now gives up before any other
-/// request.
+/// control-plane deadline is 30 s, so a spawn now gives up before a request
+/// on the default deadline.
 public protocol TerminalSpawningRequest: DaemonRequest {}
 
 /// `{}` responses.

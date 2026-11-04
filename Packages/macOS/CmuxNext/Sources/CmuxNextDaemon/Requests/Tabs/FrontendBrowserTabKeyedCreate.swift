@@ -2,7 +2,8 @@ import Foundation
 import os
 
 extension NewFrontendBrowserTabRequest {
-    /// How long a keyed create asks again after a missed reply deadline.
+    /// How long a keyed create asks again after a lost connection or a reconnect. A missed reply deadline (30 s by
+    /// default since #35075) comes after it and ends the create; a connection set to a shorter deadline asks again after one.
     public static let lateReplyBudget: Duration = .seconds(10)
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 

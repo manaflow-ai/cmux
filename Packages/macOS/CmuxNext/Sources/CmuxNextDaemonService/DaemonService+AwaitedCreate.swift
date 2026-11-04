@@ -3,9 +3,9 @@ import CmuxNextWakeups
 
 extension DaemonService {
     /// `workspace.create` with a first terminal (an incognito window's) on `connection`, answered by the daemon: it
-    /// waits through late replies under one idempotency key (`StateResourceClient.createWorkspace`), never on the 2 s
-    /// client deadline. A busy daemon still makes the workspace it answers late, and a create that gave up first left
-    /// that workspace to open as a stray window with a terminal (#30965). Its safety net is ``createReplyBound`` for a
+    /// waits through late replies under one idempotency key (`StateResourceClient.createWorkspace`), never on the client
+    /// request deadline that each pass waits (2 s then, 30 s since #35075). A busy daemon still makes the workspace it
+    /// answers late, and a create that gave up first left that workspace to open as a stray window with a terminal (#30965). Its safety net is ``createReplyBound`` for a
     /// daemon that keeps its socket open and never answers: past it this returns nil, and the caller decides from the
     /// store, which lists the workspace if the daemon made it. Cancelling the caller cancels the create.
     public func createWorkspaceAwaitingReply(on connection: DaemonConnection, ephemeral: Bool,
