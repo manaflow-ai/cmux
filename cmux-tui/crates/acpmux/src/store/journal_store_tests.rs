@@ -162,3 +162,54 @@ fn a_line_the_log_refused_is_never_written_later() {
     assert_eq!(seqs(store.as_ref(), "chat-b"), Vec::<u64>::new(), "a refused line came back");
     assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
 }
+
+#[test]
+fn a_line_after_the_seal_is_refused_and_never_written_later() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(11);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.seal();
+    assert!(store.append(CHAT, &record(2, "queued")).is_err(), "an append after the seal");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
+}
+
+/// A chat deleted and then made again under the same id (a transfer back) before a crash: the
+/// replay writes its new lines and keeps its own files (its `session.json`).
+#[test]
+fn a_chat_made_again_after_its_delete_keeps_its_files_through_a_replay() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(12);
+    let store = open(home.path(), &journal);
+    for seq in 1..=3 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    store.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    let meta: SessionMeta = serde_json::from_value(json!({
+        "schema": META_SCHEMA,
+        "id": CHAT,
+        "name": "again",
+        "harness": "claude",
+        "family": "claude",
+        "cwd": "/tmp",
+        "status": "idle",
+        "createdAt": 1,
+        "updatedAt": 1,
+    }))
+    .unwrap_or_else(|e| panic!("meta: {e}"));
+    store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 1..=2 {
+        store.append(CHAT, &record(seq, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    let loaded = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(loaded.map(|meta| meta.name), Some("again".to_owned()), "its session.json is gone");
+}
