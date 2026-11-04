@@ -7,7 +7,9 @@
 
 mod client_config;
 
-pub use client_config::{ClientConfig, ConfigSource};
+pub use client_config::{
+    ADVANCED_CREATE_FIELDS, ClientConfig, ConfigSource, check_create_capabilities,
+};
 
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
@@ -224,6 +226,9 @@ pub struct Selection {
     pub bundle_id: String,
     pub mutable: bool,
     pub auth_namespace: String,
+    /// Rust's complete auth token/defaults storage suffix. None preserves the
+    /// original production service; signed DEV retains its old Stack suffix.
+    pub auth_storage_namespace: Option<String>,
     /// Untouched default: keep existing sign-in and pairing storage on update.
     pub legacy_storage: bool,
     pub state_path: String,
@@ -266,7 +271,18 @@ impl Resolver {
         // origin allowlist enforced by Environment::parse.
         if let Some(seed) = seed.filter(|value| !value.trim().is_empty()) {
             let environment = Environment::parse(seed)?;
-            return self.selection(environment, 0);
+            if !self.mutable() && matches!(environment, Environment::LocalOrigin(_)) {
+                return Err(format!(
+                    "cloud environment origin is not allowlisted for bundle {}",
+                    self.bundle_id
+                ));
+            }
+            let mut selection = self.selection(environment, 0)?;
+            // An explicit override must never adopt a previous default's
+            // credentials or pairing, even when it spells the default backend.
+            selection.legacy_storage = false;
+            selection.auth_storage_namespace = Some(selection.auth_namespace.clone());
+            return Ok(selection);
         }
         if !self.mutable() {
             return self.selection(Environment::Prod, 0);
@@ -280,8 +296,17 @@ impl Resolver {
             Err(error) => return Err(format!("read {}: {error}", path.display())),
         };
         if let Some(persisted) = persisted {
-            return self
-                .selection(Environment::parse(&persisted.name)?, persisted.revision.unwrap_or(0));
+            let environment = Environment::parse(&persisted.name)?;
+            // #35133 wrote the first default state with a generated revision
+            // and no marker. Preserve that user's existing credentials. New
+            // explicit sets carry `explicit: true`, so switching back to a
+            // default never silently adopts legacy storage.
+            let legacy_seed = persisted.explicit != Some(true);
+            return self.selection_with_legacy(
+                environment,
+                persisted.revision.unwrap_or(0),
+                Some(legacy_seed),
+            );
         }
         let environment = self.default_environment();
         let revision = if environment == self.default_environment() { 0 } else { next_revision() };
@@ -295,7 +320,12 @@ impl Resolver {
                 let winner: Persisted = serde_json::from_str(&text).map_err(|parse| {
                     format!("invalid cloud environment state {}: {parse}", path.display())
                 })?;
-                self.selection(Environment::parse(&winner.name)?, winner.revision.unwrap_or(0))
+                let environment = Environment::parse(&winner.name)?;
+                self.selection_with_legacy(
+                    environment,
+                    winner.revision.unwrap_or(0),
+                    Some(winner.explicit != Some(true)),
+                )
             }
             Err(error) => Err(error),
         }
@@ -315,10 +345,14 @@ impl Resolver {
         let path = self.state_path();
         match fs::read_to_string(&path) {
             Ok(text) => {
-                if let Ok(current) = serde_json::from_str::<Persisted>(&text)
-                    && Environment::parse(&current.name).ok().as_ref() == Some(&environment)
-                {
-                    return self.selection(environment, current.revision.unwrap_or(0));
+                if let Ok(current) = serde_json::from_str::<Persisted>(&text) {
+                    if Environment::parse(&current.name).ok().as_ref() == Some(&environment) {
+                        return self.selection_with_legacy(
+                            environment,
+                            current.revision.unwrap_or(0),
+                            Some(current.explicit != Some(true)),
+                        );
+                    }
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -361,20 +395,55 @@ impl Resolver {
     }
 
     fn selection(&self, environment: Environment, revision: u64) -> Result<Selection, String> {
-        Environment::parse(&environment.configuration().api_origin)?;
+        self.selection_with_legacy(environment, revision, None)
+    }
+
+    fn selection_with_legacy(
+        &self,
+        environment: Environment,
+        revision: u64,
+        legacy_hint: Option<bool>,
+    ) -> Result<Selection, String> {
+        let configuration = environment.configuration();
+        Environment::parse(&configuration.api_origin)?;
+        // These are the only historical defaults with known credential and
+        // pairing destinations. Debug/tagged bundles allowed arbitrary old
+        // overrides, so they cannot safely adopt unscoped previous state.
+        let legacy_storage = legacy_hint.unwrap_or(revision == 0)
+            && match self.bundle_id.as_str() {
+                "com.cmuxterm.app.debug.next" => environment == Environment::Dev,
+                "com.cmuxterm.app" | "com.cmuxterm.app.rc" | NIGHTLY_BUNDLE => {
+                    environment == Environment::Prod
+                }
+                bundle if bundle.starts_with("com.cmuxterm.app.rc.") => {
+                    environment == Environment::Prod
+                }
+                _ => false,
+            };
+        let auth_namespace = format!("{}-{revision}", namespace(&configuration.api_origin));
+        let auth_storage_namespace = if legacy_storage {
+            (self.bundle_id == "com.cmuxterm.app.debug.next")
+                .then(|| configuration.stack_project_id.clone())
+        } else {
+            Some(auth_namespace.clone())
+        };
         Ok(Selection {
-            legacy_storage: revision == 0 && environment == self.default_environment(),
-            auth_namespace: format!(
-                "{}-{revision}",
-                namespace(&environment.configuration().api_origin)
-            ),
-            configuration: environment.configuration(),
+            legacy_storage,
+            auth_namespace,
+            auth_storage_namespace,
+            configuration,
             bundle_id: self.bundle_id.clone(),
             mutable: self.mutable(),
             state_path: self.state_path().display().to_string(),
             config_source: ConfigSource::KnownOriginFallback,
             client_config_version: None,
-            capabilities: serde_json::json!({}),
+            // Compatibility fallback has no capability declaration. Any
+            // advanced create field therefore fails closed until the backend
+            // publishes its current support through `/v1/client-config`.
+            // The compatibility table supplies origins only. Until the backend
+            // publishes `/v1/client-config`, every capability-dependent create
+            // option fails closed rather than being silently discarded.
+            capabilities: serde_json::json!({"machine_create": {"size": true, "name": true}}),
             image_channel: None,
         })
     }
@@ -386,9 +455,12 @@ impl Resolver {
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
-        let body =
-            serde_json::to_vec(&Persisted { name: environment.name(), revision: Some(revision) })
-                .map_err(|error| error.to_string())?;
+        let body = serde_json::to_vec(&Persisted {
+            name: environment.name(),
+            revision: Some(revision),
+            explicit: Some(false),
+        })
+        .map_err(|error| error.to_string())?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -419,9 +491,12 @@ impl Resolver {
         fs::create_dir_all(parent)
             .map_err(|error| format!("create {}: {error}", parent.display()))?;
         let tmp = temp_path(parent);
-        let body =
-            serde_json::to_vec(&Persisted { name: environment.name(), revision: Some(revision) })
-                .map_err(|error| error.to_string())?;
+        let body = serde_json::to_vec(&Persisted {
+            name: environment.name(),
+            revision: Some(revision),
+            explicit: Some(true),
+        })
+        .map_err(|error| error.to_string())?;
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -461,6 +536,10 @@ struct Persisted {
     name: String,
     #[serde(default)]
     revision: Option<u64>,
+    /// Missing means the pre-marker state format from #35133. Such a state
+    /// may be the first-launch default and is retained for continuity.
+    #[serde(default)]
+    explicit: Option<bool>,
 }
 
 static REVISION: AtomicU64 = AtomicU64::new(1);
@@ -553,7 +632,7 @@ mod tests {
         let resolver = Resolver::new(DEV_BUNDLE, &home.0).unwrap();
         let initial = resolver.resolve(None).unwrap();
         assert_eq!(initial.name, "dev");
-        assert!(initial.legacy_storage);
+        assert!(!initial.legacy_storage);
         assert_eq!(resolver.set(Environment::Dev).unwrap().auth_namespace, initial.auth_namespace);
         let staging = resolver.set(Environment::Staging).unwrap();
         assert!(!staging.legacy_storage);
@@ -573,6 +652,44 @@ mod tests {
         assert_eq!(resolver.resolve(Some("prod")).unwrap().name, "prod");
         assert_eq!(resolver.set(Environment::Prod).unwrap().name, "prod");
         assert_eq!(resolver.resolve(None).unwrap().name, "prod");
+    }
+
+    #[test]
+    fn safe_untouched_defaults_preserve_historical_storage_only() {
+        let home = Home::new();
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.rc.test", NIGHTLY_BUNDLE]
+        {
+            let resolver = Resolver::new(bundle, &home.0).unwrap();
+            let selected = resolver.resolve(None).unwrap();
+            assert!(selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, None);
+            let explicit = resolver.resolve(Some("prod")).unwrap();
+            assert!(!explicit.legacy_storage);
+            assert_eq!(explicit.auth_storage_namespace, Some(explicit.auth_namespace));
+        }
+        let resolver = Resolver::new("com.cmuxterm.app.debug.next", &home.0).unwrap();
+        let selected = resolver.resolve(None).unwrap();
+        assert!(selected.legacy_storage);
+        assert_eq!(selected.auth_storage_namespace.as_deref(), Some(DEVELOPMENT_STACK_PROJECT));
+        let switched = resolver.set(Environment::Staging).unwrap();
+        assert!(!switched.legacy_storage);
+        assert_eq!(switched.auth_storage_namespace, Some(switched.auth_namespace.clone()));
+        let returned = resolver.set(Environment::Dev).unwrap();
+        assert!(!returned.legacy_storage);
+        assert_eq!(returned.auth_storage_namespace, Some(returned.auth_namespace.clone()));
+        assert_ne!(returned.auth_storage_namespace, selected.auth_storage_namespace);
+    }
+
+    #[test]
+    fn unknown_debug_history_never_restores_unscoped_credentials() {
+        let home = Home::new();
+        for bundle in [DEV_BUNDLE, "com.cmuxterm.app.debug.tagged", "com.cmuxterm.app.debug.nextx"]
+        {
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
+            assert!(!selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, Some(selected.auth_namespace));
+        }
     }
 
     #[test]
