@@ -55,7 +55,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name"])
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
-        self.assertEqual(bench["options"], ["none", "deps"])
+        self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
 
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
@@ -174,7 +174,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         # The bench's files are laid out with no secret in reach, only for bench=deps, and the bench
         # script itself is root-owned beside acpmux, so the disposable user cannot change what runs.
         prep = step("Prepare the dependency bench")
-        self.assertEqual(prep["if"], "inputs.bench == 'deps'")
+        self.assertEqual(prep["if"], "startsWith(inputs.bench, 'deps')")
         self.assertNotIn("secrets", str(prep))
         self.assertIn('sudo install -o root -g root -m 0755 scripts/cmux-next/deps-bench.sh "$JOIN_BASE/bin/deps-bench.sh"', prep["run"])
         self.assertIn('sudo chown -R root:root "$JOIN_BASE/toolchain"', prep["run"])
@@ -183,6 +183,7 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         mint = step("Mint, join, verify and revoke")
         self.assertEqual(mint["env"]["BENCH"], "${{ inputs.bench }}")
         self.assertIn('bench=(--bench "$JOIN_BASE/bin/deps-bench.sh")', mint["run"])
+        self.assertIn("deps | deps-slow)", mint["run"])
         # Every cache the bench fills is under the base, never in the home the harness scans.
         script = (ROOT / "scripts/cmux-next/deps-bench.sh").read_text(encoding="utf-8")
         for var in ("CARGO_HOME", "BUN_INSTALL", "BUN_INSTALL_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
