@@ -256,19 +256,24 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 }
 
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI. */
-export function cliExecNeedsDirectFallback(status: number | null, stdout: string, stderr: string): boolean {
+export function cliExecNeedsDirectFallback(status: number | null, _stdout: string, stderr: string): boolean {
   if (status === 0) return false;
-  // The CLI writes refusal diagnostics to stderr. Ignore stdout so a guest command
-  // cannot manufacture this marker and cause a side-effectful retry.
-  void stdout;
-  return /cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(stderr);
+  // `--json` puts CLI failures in a structured stderr object; a guest command's
+  // stdout/stderr are fields in its success object, so it cannot manufacture this.
+  try {
+    const error = JSON.parse(stderr);
+    return error?.code === "cloud_client_session.failed"
+      && /^cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(String(error?.message ?? ""));
+  } catch {
+    return false;
+  }
 }
 
 function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {
   const fallback = directExec(api, machine, journey);
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
-    const args = ["machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
+    const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
     // VM API machines do not expose Freestyle client sessions. The CLI's client-session
@@ -276,6 +281,14 @@ function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exe
     // it is supported, but use the same direct machine route as directExec for this case.
     if (cliExecNeedsDirectFallback(done.status, done.stdout ?? "", done.stderr ?? "")) {
       return fallback(command, timeoutMs);
+    }
+    try {
+      const result = JSON.parse(done.stdout ?? "");
+      if (Number.isInteger(result?.exit_code)) {
+        return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+      }
+    } catch {
+      // Preserve the raw CLI answer below when it did not produce its JSON contract.
     }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
   };
