@@ -120,13 +120,28 @@ extension AgentShareActions {
     }
 
     /// The Invite People sheet's model for `chat`, wired to the same work as the op. The sheet is the
-    /// owner's own: what they do in it needs no consent sheet.
+    /// owner's own: what they do in it needs no consent sheet. Its reads watch the shares, so the daemon
+    /// says when to read again (``AgentSessionShareListRequest/changedEvent``).
     static func inviteSheet(_ chat: AgentShareChat, role: String, host: any AgentShareHost) -> AgentShareInviteSheetModel {
         AgentShareInviteSheetModel(chat: chat.title, session: chat.session, role: role, work: AgentShareInviteSheetModel.Work(
-            list: { try await Self.connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface)).shares },
+            list: { try await Self.watchedList(chat) },
             invite: { account, role in _ = try await Self.inviteWork(chat, account: account, role: role, ttl: nil, host: host) },
-            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) }
+            remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) },
+            copy: { host.shareCopy($0) },
+            changes: { onChange in AgentShareInvites.changes(of: host.shareLocalDaemon?.store.sideEvents, onChange) }
         ))
+    }
+
+    /// The chat's shares, this connection watching them; a daemon older than `watch` refuses the field
+    /// (`share.bad_request`), and is listed without it.
+    static func watchedList(_ chat: AgentShareChat) async throws -> [AgentSessionShare] {
+        let connection = try Self.connected(chat.connection)
+        do {
+            return try await connection.request(AgentSessionShareListRequest(surface: chat.surface, watch: true)).shares
+        } catch {
+            guard case DaemonError.command(_, _, "share.bad_request"?, _, _) = error else { throw error }
+            return try await connection.request(AgentSessionShareListRequest(surface: chat.surface)).shares
+        }
     }
 }
 
@@ -150,7 +165,17 @@ enum AgentShareInvites {
     /// invitees. A guest link without any is left alone (its 24 hours and single use are the link's),
     /// so nil makes a new share for invites.
     static func inviteShare(of session: String, in shares: [AgentSessionShare]) -> String? {
-        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }?.shareId
+        inviteRecord(of: session, in: shares)?.shareId
+    }
+
+    /// The link of the share invites to `session`'s chat go on (``inviteShare(of:in:)``); nil with none,
+    /// or while that share has no room.
+    static func inviteLink(of session: String, in shares: [AgentSessionShare]) -> String? {
+        inviteRecord(of: session, in: shares)?.inviteUrl
+    }
+
+    private static func inviteRecord(of session: String, in shares: [AgentSessionShare]) -> AgentSessionShare? {
+        shares.filter { $0.session == session && $0.isLive && !$0.invitees.isEmpty }.max { $0.createdAt < $1.createdAt }
     }
 
     /// Every share of `session`'s chat on which `account` is still invited.
@@ -159,6 +184,18 @@ enum AgentShareInvites {
         return shares.filter { share in
             share.session == session && share.invitees.contains { $0.isInvited && $0.account == account }
         }.map(\.shareId)
+    }
+}
+
+extension AgentShareInvites {
+    /// Calls `onChange` for each `agent-session-shares-changed` in `events` (this Mac's daemon's) until
+    /// the answered stop runs; with no daemon there is nothing to stop.
+    static func changes(of events: DaemonSideEvents?, _ onChange: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
+        guard let events else { return {} }
+        let token = events.subscribe { event in
+            if case .unknown(AgentSessionShareListRequest.changedEvent, _) = event { onChange() }
+        }
+        return { events.unsubscribe(token) }
     }
 }
 

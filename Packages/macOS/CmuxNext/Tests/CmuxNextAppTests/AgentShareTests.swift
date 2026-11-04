@@ -427,6 +427,35 @@ struct AgentShareTests {
         #expect(none == nil)
     }
 
+    /// The card's Copy Invite Link is off until the chat has a link, then copies it and reads Copied
+    /// in place (no toast).
+    @Test func theCardsCopyInviteLinkConfirmsInPlace() async {
+        @MainActor final class Pasteboard { var copied: [String] = [] }
+        let pasteboard = Pasteboard()
+        let link = "https://room.example/i/s"
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1, inviteUrl: link,
+                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])] },
+            invite: { _, _ in },
+            remove: { _ in },
+            copy: { pasteboard.copied.append($0) }))
+        let card = AgentShareInviteCard(model: model, closeImage: NSImage())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        card.removeFromSuperview()
+        window.contentView?.addSubview(card)
+        defer { card.removeFromSuperview() }
+        #expect(!card.copyButton.isEnabled, "no link before anyone is invited")
+        await model.load()
+        for _ in 0..<200 where !card.copyButton.isEnabled { await Task.yield() }
+        #expect(card.copyButton.isEnabled)
+        #expect(card.linkLabel.stringValue == link)
+        #expect(card.copyButton.button.title == model.copyLinkTitle)
+        card.copyPressed()
+        for _ in 0..<200 where card.copyButton.button.title != model.copiedTitle { await Task.yield() }
+        #expect(card.copyButton.button.title == model.copiedTitle)
+        #expect(pasteboard.copied == [link])
+    }
+
     /// While the sheet shows it reads the shares again each time the daemon says they changed (a join,
     /// a leave, an expiry), with no timer; it stops listening when it closes.
     @Test func theSheetReadsAgainWhenTheDaemonsSharesChange() async {
@@ -499,7 +528,7 @@ struct AgentShareTests {
             var shareFocusedTabID: String? { nil }
             func shareConnection(holding tab: TabModel) -> DaemonConnection? { nil }
             func shareIsOnThisMac(_ tab: TabModel) -> Bool { true }
-            var shareLocalConnection: DaemonConnection? { nil }
+            var shareLocalDaemon: DaemonService? { nil }
             func shareOwnerToken(api: URL?) async -> String? { nil }
             func shareCopy(_ text: String) {}
             func shareNotice(_ message: String) {}

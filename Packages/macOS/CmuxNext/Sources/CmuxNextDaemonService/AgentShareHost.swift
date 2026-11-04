@@ -18,8 +18,9 @@ public protocol AgentShareHost: AnyObject {
     func shareConnection(holding tab: TabModel) -> DaemonConnection?
     /// Whether `tab` is on this Mac's daemon, the only one that makes and lists shares.
     func shareIsOnThisMac(_ tab: TabModel) -> Bool
-    /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
-    var shareLocalConnection: DaemonConnection? { get }
+    /// This Mac's daemon: its connection lists, revokes and kicks this Mac's shares, and its side events
+    /// say when they change.
+    var shareLocalDaemon: DaemonService? { get }
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
@@ -37,6 +38,8 @@ public protocol AgentShareHost: AnyObject {
 }
 
 public extension AgentShareHost {
+    /// This Mac's daemon connection (list, revoke and kick act on this Mac's shares).
+    var shareLocalConnection: DaemonConnection? { shareLocalDaemon?.connection }
     /// Fail closed: a host with no consent sheet never lets automation make a link.
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { false }
     /// A host with no sheet shows nothing.
