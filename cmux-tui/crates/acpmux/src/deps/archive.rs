@@ -47,6 +47,55 @@ fn npm_index(rel: &Path) -> bool {
     parts.any(|c| c == "_cacache") && parts.next().is_some_and(|c| c == "index-v5")
 }
 
+/// npm files that can record a registry URL: its cache (`_cacache`, response
+/// bodies and tarballs) and the lockfile it keeps in node_modules.
+fn npm_metadata(rel: &Path) -> bool {
+    rel.components().any(|c| c.as_os_str() == "_cacache")
+        || rel.file_name().is_some_and(|n| n == ".package-lock.json")
+}
+
+/// Whether some URL in `bytes` carries userinfo (`scheme://user[:pass]@host`).
+fn url_with_userinfo(bytes: &[u8]) -> bool {
+    let mut rest = bytes;
+    while let Some(at) = rest.windows(3).position(|w| w == b"://") {
+        let authority = rest.get(at + 3..).unwrap_or_default();
+        let end = authority
+            .iter()
+            .position(|b| {
+                matches!(b, b'/' | b'"' | b'\'' | b'<' | b'>' | b'\\') || b.is_ascii_whitespace()
+            })
+            .unwrap_or(authority.len());
+        if authority.get(..end).is_some_and(|a| a.contains(&b'@')) {
+            return true;
+        }
+        rest = authority;
+    }
+    false
+}
+
+/// [`url_with_userinfo`] over a file, read in chunks that overlap by more
+/// than any authority worth matching.
+fn file_has_userinfo_url(path: &Path) -> io::Result<bool> {
+    const CHUNK: usize = 1 << 20;
+    const OVERLAP: usize = 1024;
+    let mut file = File::open(path)?;
+    let mut buf = vec![0u8; CHUNK + OVERLAP];
+    let mut kept = 0;
+    loop {
+        let read = file.read(buf.get_mut(kept..).unwrap_or_default())?;
+        if read == 0 {
+            return Ok(false);
+        }
+        let filled = kept + read;
+        let window = buf.get(..filled).unwrap_or_default();
+        if url_with_userinfo(window) {
+            return Ok(true);
+        }
+        kept = filled.min(OVERLAP);
+        buf.copy_within(filled - kept..filled, 0);
+    }
+}
+
 /// Whether an index line records a header that can carry a credential.
 fn secret_header(line: &[u8]) -> bool {
     let lower = line.to_ascii_lowercase();
@@ -235,7 +284,7 @@ fn walk(
         let text = std::fs::read(&path)?;
         let kept: Vec<u8> = text
             .split_inclusive(|b| *b == b'\n')
-            .filter(|line| !secret_header(line))
+            .filter(|line| !secret_header(line) && !url_with_userinfo(line))
             .flatten()
             .copied()
             .collect();
@@ -249,6 +298,10 @@ fn walk(
         builder.append_data(&mut header, rel, kept.as_slice())?;
         packed.files += 1;
         packed.raw_bytes += size;
+    } else if kind.is_file() && npm_metadata(rel) && file_has_userinfo_url(&path)? {
+        // A cached registry response or lockfile naming an authenticated URL
+        // (`https://user:token@host/...`): left out, costing only a download.
+        packed.denied.push(rel.to_string_lossy().into_owned());
     } else if kind.is_file() || kind.is_symlink() {
         builder.append_path_with_name(&path, rel)?;
         if kind.is_file() {
@@ -658,6 +711,28 @@ mod tests {
             std::fs::read_to_string(dest.path().join("_cacache/index-v5/ab/cd/abcdef")).unwrap();
         assert_eq!(got, public);
         assert!(dest.path().join("_cacache/content-v2/sha512/aa/bb").is_file());
+    }
+
+    #[test]
+    fn npm_files_naming_authenticated_urls_are_left_out() {
+        assert!(url_with_userinfo(b"\"resolved\":\"https://u:p@npm.example.com/a.tgz\""));
+        assert!(url_with_userinfo(b"x https://token@host/a"));
+        assert!(!url_with_userinfo(b"https://registry.npmjs.org/@scope/a/-/a.tgz"));
+        assert!(!url_with_userinfo(b"mailto me@x.com, https://x.com/a@b"));
+        let src = tempfile::tempdir().unwrap();
+        write(
+            &src.path().join("_cacache/content-v2/sha512/aa/pub"),
+            "{\"dist\":\"https://r.org/a.tgz\"}",
+        );
+        write(
+            &src.path().join("_cacache/content-v2/sha512/aa/priv"),
+            "{\"dist\":\"https://u:p@r.org/a.tgz\"}",
+        );
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join("a.tar");
+        let packed = pack(src.path(), &["_cacache".into()], Codec::Gzip, &archive).unwrap();
+        assert_eq!(packed.denied, ["_cacache/content-v2/sha512/aa/priv"]);
+        assert_eq!(packed.files, 1);
     }
 
     #[test]

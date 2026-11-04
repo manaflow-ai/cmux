@@ -182,7 +182,10 @@ async fn one(
     }
     // The download took a while: an install that someone started meanwhile is
     // left alone (`npm ci` would delete the tree it is using).
-    if options.if_missing && report.restore != "restored" && detect::installed(project) {
+    // A restored download cache (npm's, pnpm's) leaves node_modules to the
+    // install, so only a restored node_modules skips this check.
+    let placed_tree = plan.replaces && report.restore == "restored";
+    if options.if_missing && !placed_tree && detect::installed(project) {
         report.restore = "installed";
         return Ok(());
     }
