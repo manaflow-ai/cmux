@@ -25,6 +25,7 @@ function recordingClient(): { client: AcpmuxDirectClient; sent: Record<string, u
     },
     queue: [],
     queueWithdrawn: [],
+    waitingSteers: [],
     listener: () => undefined,
     subagents: {
       progressSource: { structureVersion: 0, takeChangedProgress: () => ({}) },
