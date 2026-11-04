@@ -978,6 +978,8 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The folders the chat sees beside its own (acpmux `additionalDirectories`, cmux#32811).
+    additionalDirectories?: readonly string[];
     branch?: string;
     worktree?: string;
     title?: string;
@@ -1285,17 +1287,17 @@ const TOOL_RUN_TOP = 0;
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
   row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+/// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
+export const isLiveLine = (row: AcpmuxRow) =>
+  row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
 /// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
-/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot, so a step row after it
-/// (the waiting messages' head) is 22 under it too (#29965). Under a status row it took the footer's
+/// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
+/// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
-  row.below === true &&
-  (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE) &&
-  prev !== undefined &&
-  (isStepRow(prev) || isStatusRow(prev));
+  isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1728,6 +1730,39 @@ export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
         next.incoming?.kind === "message" ||
         next.incoming?.kind === "notice" ||
         next.incoming?.kind === "inbox")));
+/// The footer whose actions show at rest (App.tsx `acpmux-row--final-footer`): the chat's last
+/// ended turn, as ChatGPT's and Claude's last reply keep Copy in sight, until the person's next
+/// prompt opens a turn. Another agent's message, a notice, a recap or a background line drawn under
+/// it leaves it shown (Leo, 2026-11-04: "we don't have ... the thing always showing at hte bottom").
+export function finalFooterId(rows: readonly AcpmuxRow[]): string | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    // An empty footer (turns.ts isEmptyFooter: a turn of bookkeeping with no answer) draws nothing
+    // at rest, so the answer above it keeps its row in sight.
+    if (row.kind === "turnSummary" && !isBlankFooter(row)) return row.id;
+    if (row.kind === "turnSummary") continue;
+    // A later turn's own work (one another agent's message started, or one with no summary yet)
+    // or the person's own prompt: that turn's footer, not this one, is the chat's last.
+    if (row.lastTurn || isTurnWork(row)) return undefined;
+    if (row.kind === "user" && !row.incoming && row.received === undefined) return undefined;
+  }
+  return undefined;
+}
+/// turns.ts isEmptyFooter, which this module cannot import.
+const isBlankFooter = (row: AcpmuxRow) =>
+  row.status !== "failed" &&
+  row.status !== "error" &&
+  !row.text &&
+  !row.resumable &&
+  !(row.retryable === true && (row.turnCopy?.length ?? 0) > 0);
+const isTurnWork = (row: AcpmuxRow) =>
+  row.kind === "assistant" ||
+  row.kind === "activity" ||
+  row.kind === "plan" ||
+  row.kind === WORKED ||
+  row.kind === WORKING ||
+  row.kind === THINKING ||
+  row.kind === ACTIVITY_LINE;
 /// A completed turn followed by more of this chat's assistant. Incoming agents are user rows,
 /// so a user/agent speaker change keeps the full turn gap. Check only the next drawn row.
 export const isContinuationFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
@@ -1876,7 +1911,11 @@ function fallbackRowHeight(
   // below when asked.
   if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
-  if (row.kind === "plan" && row.plan) return finish(40 + row.plan.length * 24);
+  // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
+  if (row.kind === "plan" && row.plan) {
+    const items = row.plan.length * 24;
+    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
@@ -2730,6 +2769,7 @@ import { inboxThreadKey } from "./conversation/inboxNotice";
 import { foldsThreads, inboxNoticeLook } from "./conversation/inboxNoticeLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
+import { planOpen } from "./conversation/planOpen";
 
 /// The pane's fallback accessible name and problem-only header status. A handshake that is
 /// retrying (`connecting:`) says nothing here: the pane's retries are quiet, and a failure that

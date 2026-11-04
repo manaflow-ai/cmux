@@ -541,6 +541,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBridge",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextIcons",
