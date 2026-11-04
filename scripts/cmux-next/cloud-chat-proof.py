@@ -276,26 +276,59 @@ def machine_status(machine: str) -> tuple[int, dict, str]:
     return code, summary, detail
 
 
+def raw_output(text: str, limit: int = 2048) -> dict:
+    """A failed command's own output for the evidence only, never the job log: each line
+    redacted, a line the workflow's evidence scan would refuse left out (one such line would keep
+    the whole evidence from being uploaded), and the rest cut to LIMIT characters."""
+    kept, left_out = [], 0
+    for line in (text or "").splitlines():
+        for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+            if prompt:
+                line = line.replace(prompt, "[prompt]")
+        line = clean(line, len(line) + 1024)  # whole: `truncated` must see a long line
+        if EVIDENCE_SCAN.search(line):
+            left_out += 1
+        elif line:
+            kept.append(line)
+    joined = "\n".join(kept)
+    return {"text": joined[:limit], "truncated": len(joined) > limit, "left_out": left_out}
+
+
+# `--confirm` comes last: `cmux` reads a flag it does not know as taking the next word, so
+# `--confirm --json` made `--json` the confirm's value, the CLI answered in human text, and a
+# failed kill's error was dropped as not JSON (run 41867887577).
+def kill_command(machine: str) -> tuple[int, str, str]:
+    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--json", "--confirm", timeout=120)
+
+
+def kill_failure(code: int, out: str, err: str) -> dict:
+    """What a failed kill said: its error object's code and message, and its raw stdout and stderr."""
+    return {"stderr": failure_text(err, out) or "kill-machine returned no JSON error",
+            "raw": {"exit": code, "stdout": raw_output(out), "stderr": raw_output(err)}}
+
+
 def kill_machine(machine: str) -> bool:
     """Kill MACHINE (a destructive verb needs --confirm from a script). A failed kill reads one
-    bounded status snapshot and retries once; only the safe status/error summary is kept."""
-    code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
-                                timeout=120)
+    bounded status snapshot and retries once; only the safe status/error summary and the redacted
+    raw output are kept."""
+    code_k, out_k, err_k = kill_command(machine)
     if code_k == 0:
         record("cloud kill-machine", code_k, "", "")
         return True
     # A failed kill used to be silent, leaving the proof unable to distinguish a deleted
     # machine from a leaked one.
-    kill_detail = failure_text(err_k, out_k) or "kill-machine returned no error"
+    failed = kill_failure(code_k, out_k, err_k)
     status_code, status_summary, status_detail = machine_status(machine)
-    record("cloud kill-machine", code_k, "", kill_detail,
+    record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"],
            status_after_failure={"exit": status_code, **status_summary,
                                  **({"error": status_detail} if status_detail else {})})
-    code_retry, out_retry, err_retry = cmux(
-        "cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120
-    )
-    record("cloud kill-machine retry", code_retry, "", failure_text(err_retry, out_retry) if code_retry != 0 else "")
-    return code_retry == 0
+    code_retry, out_retry, err_retry = kill_command(machine)
+    if code_retry == 0:
+        record("cloud kill-machine retry", code_retry, "", "")
+        return True
+    failed = kill_failure(code_retry, out_retry, err_retry)
+    record("cloud kill-machine retry", code_retry, "", failed["stderr"], raw=failed["raw"])
+    return False
 
 
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
