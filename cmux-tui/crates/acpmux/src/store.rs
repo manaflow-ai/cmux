@@ -878,6 +878,11 @@ pub trait Store: Send + Sync {
         let _ = timeout;
         Ok(true)
     }
+    /// How durable its appends are (`server/durable_gate.rs`). None: appends are not journaled,
+    /// and no connection waits for them.
+    fn durability(&self) -> Option<Durability> {
+        None
+    }
     /// Why the store asks the daemon to stop with a restart, as it changes: `Some(reason)` once
     /// the store cannot go on safely (the journal store's frozen checkpoint, whose logs only a
     /// restart's replay writes again). None: a store that never asks.
@@ -1039,20 +1044,15 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
     })
 }
 
-/// [`open`] with the journal on `storage` (a simulated file system in the crash tests) and its
-/// own limits, for `store.journal` (R-DURABILITY S2).
-#[cfg(test)]
-pub(crate) fn open_with_journal(
-    config: &StoreConfig,
-    root: &Path,
-    storage: std::sync::Arc<dyn cmux_journal::Storage>,
-    journal: cmux_journal::Config,
-) -> Result<Box<dyn Store>> {
-    Ok(Box::new(journal_store::JournalStore::open(config, root, storage, journal)?))
-}
-
+mod durability;
+pub use durability::Durability;
+pub(crate) use durability::streamed;
 mod journal_store;
+#[cfg(test)]
+pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+#[cfg(test)]
+pub(crate) use journal_store::PAUSE_AFTER_LOG_WRITE;
 pub(crate) use log_sync::SyncFailed;
 #[cfg(all(test, unix))]
 mod sync_model;

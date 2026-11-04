@@ -1,3 +1,5 @@
+import { experimentArm } from "../../experiments/experiment";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -1358,6 +1360,19 @@ function noteHeight(text: string | undefined, width: number): number {
   const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
   return Math.max(NOTE_LINE, lines) + 2 * noteGap();
 }
+/// The chat's reply to a subagent's end under its finished line (ReactionMark.tsx `ReactionReply`):
+/// its text on the notes' 20px lines at the rows' text column, with no margin of its own.
+const reactionPrepared = new Map<string, PreparedText | null>();
+const REACTION_INSET_PT = gridLength("transcript-text-gap");
+function reactionReplyHeight(text: string | undefined, width: number): number {
+  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
+  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
+  if (reactionPrepared.size > 256) reactionPrepared.clear();
+  return Math.max(
+    NOTE_LINE,
+    textHeight(text, Math.max(1, width - REACTION_INSET_PT * chromeScale), reactionPrepared, undefined, NOTE_LINE),
+  );
+}
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
   if (!tool) return item.kind === "note" ? noteHeight(item.text, width) : 26;
@@ -1965,10 +1980,14 @@ function fallbackRowHeight(
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A finished subagent's line, and the chat's reply to its end under it on the reply's own lines
+  // (conversation.css `.cv-tools > .cv-reaction-reply`; ReactionMark.tsx), which the row draws in
+  // the default `background-reaction-look` arm.
+  if (row.kind === SUBAGENT_DONE)
+    return finish(toolRowHeight() + reactionReplyHeight(row.subagents?.[0]?.reaction?.text, width));
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
