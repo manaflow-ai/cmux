@@ -40,3 +40,15 @@ test("preserves a disabling empty project override separately from session text"
   expect(value.parts[0].text).toBe("original text");
   expect(value.parts[0].editable).toBeUndefined();
 });
+
+test("only exposes supported editable cmux parts on an editable connection", () => {
+  const overrides = {user:null, project:null, cwd:"/project", parts: {
+    "cmux-system-prompt": {label:"Preset system prompt", defaultText:"preset", user:null, project:""},
+    "provider-base": {label:"Provider", user:"invalid", project:null},
+  }};
+  const value = contextInventory({canEditOverrides:true, overrides});
+  expect(value.settings?.parts).toEqual({
+    "cmux-system-prompt": {label:"Preset system prompt", defaultText:"preset", user:null, project:""},
+  });
+  expect(contextInventory({canEditOverrides:false, overrides}).settings).toBeUndefined();
+});

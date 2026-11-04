@@ -23,11 +23,15 @@ export type ContextPart = {
 
 export type ContextOverrideScope = "user" | "project";
 
-export type ContextSettings = {
+export type ContextOverrideValues = {
   user: string | null;
   project: string | null;
   defaultText?: string;
+};
+
+export type ContextSettings = ContextOverrideValues & {
   cwd?: string;
+  parts?: Record<string, ContextOverrideValues & { label: string }>;
 };
 
 export type ContextViewerProps = {
@@ -43,8 +47,8 @@ export type ContextViewerProps = {
   sessionId?: string;
   loading?: boolean;
   error?: string;
-  onSaveOverride?: (scope: ContextOverrideScope, text: string) => void | Promise<void>;
-  onResetOverride?: (scope: ContextOverrideScope) => void | Promise<void>;
+  onSaveOverride?: (scope: ContextOverrideScope, text: string, partId?: string) => void | Promise<void>;
+  onResetOverride?: (scope: ContextOverrideScope, partId?: string) => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onClose?: () => void;
 };
@@ -118,21 +122,24 @@ function NextSessionEditor({
   fallbackText?: string;
 }) {
   const t = useT();
-  const currentSettings = settings ?? { user: null, project: null, defaultText: fallbackText };
-  const initialScope: ContextOverrideScope = currentSettings.project !== null ? "project" : "user";
+  const currentSettings: ContextSettings = settings ?? { user: null, project: null, defaultText: fallbackText };
+  const [partId, setPartId] = useState("");
+  const currentPart = (partId && currentSettings.parts?.[partId]) || currentSettings;
+  const initialScope: ContextOverrideScope = currentPart.project !== null ? "project" : "user";
   const [scope, setScope] = useState<ContextOverrideScope>(initialScope);
-  const persisted = currentSettings[scope];
+  const persisted = currentPart[scope];
   const inherited =
     scope === "project"
-      ? (currentSettings.user ?? currentSettings.defaultText ?? fallbackText ?? "")
-      : (currentSettings.defaultText ?? fallbackText ?? "");
+      ? (currentPart.user ?? currentPart.defaultText ?? (partId ? "" : fallbackText) ?? "")
+      : (currentPart.defaultText ?? (partId ? "" : fallbackText) ?? "");
   const [draft, setDraft] = useState(persisted ?? inherited);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string>();
 
   useEffect(() => {
     setDraft(persisted ?? inherited);
-  }, [persisted, inherited, scope]);
+  }, [persisted, inherited, scope, partId]);
+  useEffect(() => setNotice(undefined), [partId, scope]);
   const dirty = draft !== (persisted ?? inherited);
   const hasOverride = persisted !== null;
   const save = async () => {
@@ -141,7 +148,7 @@ function NextSessionEditor({
     setNotice(undefined);
     try {
       // An empty value is intentional: it disables this cmux addition for the next session.
-      await onSaveOverride(scope, draft);
+      await onSaveOverride(scope, draft, partId || undefined);
       setNotice(t("context.saved"));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t("context.saveFailed"));
@@ -154,7 +161,7 @@ function NextSessionEditor({
     setSaving(true);
     setNotice(undefined);
     try {
-      await onResetOverride(scope);
+      await onResetOverride(scope, partId || undefined);
       setNotice(t("context.resetDone"));
     } catch (error) {
       setNotice(error instanceof Error ? error.message : t("context.resetFailed"));
@@ -170,6 +177,23 @@ function NextSessionEditor({
           <h2>{t("context.nextSession")}</h2>
           <p>{t("context.nextSessionDescription")}</p>
         </div>
+        <div className="acpmux-context-editor__selectors">
+        {currentSettings.parts && Object.keys(currentSettings.parts).length > 0 && (
+          <label className="acpmux-context-part__scope">
+            <span>{t("context.editPart")}</span>
+            <select
+              aria-label={t("context.editPart")}
+              value={partId}
+              disabled={saving}
+              onChange={(event) => setPartId(event.target.value)}
+            >
+              <option value="">{t("context.guidance")}</option>
+              {Object.entries(currentSettings.parts).map(([id, part]) => (
+                <option key={id} value={id}>{part.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="acpmux-context-part__scope">
           <span>{t("context.scope")}</span>
           <select
@@ -181,8 +205,9 @@ function NextSessionEditor({
             <option value="project">{t("context.scope.project")}</option>
           </select>
         </label>
+        </div>
       </div>
-      {currentSettings.project !== null && (
+      {currentPart.project !== null && (
         <p className="acpmux-context-editor__note">{t("context.projectReplacesUser")}</p>
       )}
       <textarea
@@ -215,9 +240,9 @@ function NextSessionEditor({
         <span className="acpmux-context-editor__hint">{t("context.emptyDisables")}</span>
       </div>
       {notice && (
-        <p className="acpmux-context-part__notice" role="status">
+        <output className="acpmux-context-part__notice">
           {notice}
-        </p>
+        </output>
       )}
     </section>
   );
@@ -282,9 +307,9 @@ export function ContextViewer({
         )}
       </header>
       {loading && (
-        <p className="acpmux-context-viewer__state" role="status">
+        <output className="acpmux-context-viewer__state">
           {t("context.loading")}
-        </p>
+        </output>
       )}
       {error && (
         <p className="acpmux-context-viewer__state is-error" role="alert">

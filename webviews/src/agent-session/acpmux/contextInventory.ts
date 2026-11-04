@@ -1,4 +1,4 @@
-import type { ContextPart } from "./ContextViewer";
+import type { ContextPart, ContextSettings } from "./ContextViewer";
 
 type RecordValue = Record<string, unknown>;
 const record = (value: unknown): RecordValue => (value && typeof value === "object" ? (value as RecordValue) : {});
@@ -26,7 +26,7 @@ export function contextInventory(value: unknown) {
         };
       })
     : [];
-  const settings =
+  const settings: ContextSettings | undefined =
     "user" in overrides &&
     "project" in overrides &&
     raw.canEditOverrides === true &&
@@ -39,6 +39,21 @@ export function contextInventory(value: unknown) {
           defaultText: typeof overrides.defaultText === "string" ? overrides.defaultText : undefined,
         }
       : undefined;
+  if (settings && overrides.parts) {
+    const parts: NonNullable<ContextSettings["parts"]> = {};
+    for (const [id, value] of Object.entries(record(overrides.parts))) {
+      const part = record(value);
+      if (id !== "cmux-system-prompt" || typeof part.label !== "string" || !("user" in part && "project" in part))
+        continue;
+      parts[id] = {
+        label: part.label,
+        defaultText: typeof part.defaultText === "string" ? part.defaultText : undefined,
+        user: typeof part.user === "string" ? part.user : null,
+        project: typeof part.project === "string" ? part.project : null,
+      };
+    }
+    if (Object.keys(parts).length) settings.parts = parts;
+  }
   return {
     parts,
     totalTokens: count(raw.providerTotalTokens),

@@ -143,6 +143,7 @@
 }
 .acpmux-context-editor { padding: var(--ds-space-4) var(--ds-space-1) 0; }
 .acpmux-context-editor__heading { display: flex; align-items: start; justify-content: space-between; gap: var(--ds-space-2); }
+.acpmux-context-editor__selectors { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); }
 .acpmux-context-editor h2 { margin: 0; font-size: var(--text-body); font-weight: 600; line-height: var(--text-body--line-height); }
 .acpmux-context-editor__heading p,
 .acpmux-context-editor__note,
@@ -172,7 +173,7 @@
 .acpmux-context-editor__actions button:hover:not(:disabled) { background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 10%, transparent)); }
 .acpmux-context-editor__actions button:disabled { cursor: default; opacity: 0.45; }
 .acpmux-context-editor__actions .acpmux-context-part__save { border-color: color-mix(in srgb, var(--agent-accent) 55%, var(--agent-border)); }
-.acpmux-context-part__notice { margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-context-part__notice { display: block; margin: var(--ds-space-1) 0 0; color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-context-viewer__state { margin: auto; padding: var(--ds-space-6); color: var(--agent-muted); font-size: var(--text-body); text-align: center; }
 .acpmux-context-viewer__state.is-error { color: var(--agent-danger, var(--agent-text)); }
 

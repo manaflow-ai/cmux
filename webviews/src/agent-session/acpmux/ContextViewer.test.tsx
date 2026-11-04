@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { ContextViewer, type ContextPart, type ContextOverrideScope } from "./ContextViewer";
+import { ContextViewer, type ContextPart, type ContextOverrideScope, type ContextSettings } from "./ContextViewer";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -61,8 +61,8 @@ const parts: ContextPart[] = [
 
 async function renderViewer(
   container: HTMLElement,
-  onSaveOverride?: (scope: ContextOverrideScope, text: string) => void | Promise<void>,
-  settings = { user: null, project: null, defaultText: "Use parallel tool calls." },
+  onSaveOverride?: (scope: ContextOverrideScope, text: string, partId?: string) => void | Promise<void>,
+  settings: ContextSettings = { user: null, project: null, defaultText: "Use parallel tool calls." },
 ) {
   await act(async () => {
     root = createRoot(container);
@@ -145,4 +145,38 @@ test("does not invent a provider total or raw text", async () => {
   expect(container.querySelector(".acpmux-context-viewer__heading")?.textContent).toContain("Token count unavailable");
   await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="base"] button')!.click());
   expect(container.textContent).toContain("Text is not exposed by this provider.");
+});
+
+test("edits and resets a preset prompt without changing the guidance part", async () => {
+  const container = installDom();
+  const calls: unknown[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ContextViewer
+      parts={parts}
+      settings={{user: "guidance user", project: null, parts: {
+        "cmux-system-prompt": {label: "Preset system prompt", user: "preset user", project: null, defaultText: "preset default"},
+      }}}
+      onSaveOverride={(scope, text, partId) => { calls.push(["save", scope, text, partId]); }}
+      onResetOverride={(scope, partId) => { calls.push(["reset", scope, partId]); }}
+    />);
+  });
+  await act(async () => {
+    const select = container.querySelector<HTMLSelectElement>('select[aria-label="Part"]')!;
+    select.value = "cmux-system-prompt";
+    select.dispatchEvent(new dom!.window.Event("change", {bubbles: true}));
+  });
+  const editor = container.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")!;
+  expect(editor.value).toBe("preset user");
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(editor), "value")!.set!;
+    set.call(editor, "new preset prompt");
+    editor.dispatchEvent(new dom!.window.Event("input", {bubbles: true}));
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-part__save")!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-context-part__reset")!.click());
+  expect(calls).toEqual([
+    ["save", "user", "new preset prompt", "cmux-system-prompt"],
+    ["reset", "user", "cmux-system-prompt"],
+  ]);
 });

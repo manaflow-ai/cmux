@@ -8407,11 +8407,12 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/context", { sessionId });
   }
   /// Save or clear a cmux-owned Context override. It is captured when a new session is created.
-  async setContextOverride(sessionId: string, scope: "user" | "project", text: string | null): Promise<unknown> {
+  async setContextOverride(sessionId: string, scope: "user" | "project", text: string | null, partId?: string): Promise<unknown> {
     return this.request("_acpmux/context_override", {
       sessionId,
       scope,
       text,
+      ...(partId ? { partId } : {}),
     });
   }
   /// Auth for this exact chat or a prospective New Tab target; the daemon owns freshness and

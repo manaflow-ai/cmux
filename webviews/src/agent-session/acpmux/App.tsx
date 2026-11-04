@@ -7663,25 +7663,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
   }, [shownSessionId, snapshot.sessionId]);
   const saveContextOverride = useCallback(
-    async (scope: ContextOverrideScope, text: string) => {
+    async (scope: ContextOverrideScope, text: string, partId?: string) => {
       const sessionId = shownSessionId ?? snapshot.sessionId;
       if (!sessionId) throw new Error("No session is selected");
       const client = directClient.current;
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
-      const next = contextInventory(await client.setContextOverride(sessionId, scope, text));
+      const next = contextInventory(await client.setContextOverride(sessionId, scope, text, partId));
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
     [shownSessionId, snapshot.sessionId],
   );
   const resetContextOverride = useCallback(
-    async (scope: ContextOverrideScope) => {
+    async (scope: ContextOverrideScope, partId?: string) => {
       const sessionId = shownSessionId ?? snapshot.sessionId;
       if (!sessionId) throw new Error("No session is selected");
       const client = directClient.current;
       if (!client) throw new Error("Session is disconnected");
       const request = contextRequest.current;
-      const next = contextInventory(await client.setContextOverride(sessionId, scope, null));
+      const next = contextInventory(await client.setContextOverride(sessionId, scope, null, partId));
       if (request === contextRequest.current) setContextViewerSettings(next.settings);
     },
     [shownSessionId, snapshot.sessionId],
