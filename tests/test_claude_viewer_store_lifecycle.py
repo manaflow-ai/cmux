@@ -180,7 +180,8 @@ class ViewerStoreLifecycleTests(unittest.TestCase):
 
     def tearDown(self):
         try:
-            self.server.__exit__(None, None, None)
+            if hasattr(self, "server"):
+                self.server.__exit__(None, None, None)
         finally:
             for process in [self.worker, self.launcher, *self.extra]:
                 if process.poll() is None:
