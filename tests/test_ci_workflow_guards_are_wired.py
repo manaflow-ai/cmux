@@ -78,8 +78,6 @@ UNWIRED: set[str] = {
     "tests/test_ci_blacksmith_linux_sizes.py",
     # a Linux runs-on or the RUNNER_POOLS.linux picker (#30878);
     "tests/test_ci_overflow_pick_reads_pool.py",
-    # scripts/ci/nightly_next_control_rescue.py or nightly.yml's control rescue (#30657);
-    "tests/test_nightly_next_control_rescue.py",
     # scripts/ci/cloud_probe_rescue.py, run by the main controller's workflow_run adapter, not a PR job
     # (#30796): python3 -m unittest tests.test_ci_cloud_probe_rescue from the repository root.
     "tests/test_ci_cloud_probe_rescue.py",

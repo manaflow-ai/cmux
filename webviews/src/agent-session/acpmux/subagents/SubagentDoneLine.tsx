@@ -38,7 +38,13 @@ import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
+import {
+  subagentDisplayName,
+  subagentTaskLabel,
+  subsessionName,
+  useSubsessionInfo,
+  type SubsessionInfo,
+} from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
 import { Markdown } from "../conversation/Markdown";
 import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
@@ -91,8 +97,14 @@ function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
   return <DoneLine row={row} child={useSubsessionInfo(child)} />;
 }
 
-/// `child`: a sub-session's own session row, where acpmux keeps its retry.
-function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }) {
+/// `child`: a sub-session's own session row, where acpmux keeps its retry and its chat's title.
+function DoneLine({
+  row,
+  child,
+}: {
+  row: AcpmuxRow;
+  child?: SessionRetryFields & Partial<Pick<SubsessionInfo, "name" | "sessionId" | "title">>;
+}) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
@@ -123,8 +135,17 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
   // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
   // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  // A sub-session's own chat names it (its title, else its name) before the bare "Subagent": its
+  // fold record often names nothing once it ends (Leo, 2026-11-03, on a finished line that read
+  // "Subagent").
+  const childName =
+    child?.sessionId !== undefined && child.name !== undefined
+      ? subsessionName({ sessionId: child.sessionId, name: child.name, title: child.title })
+      : child?.title?.trim() || undefined;
   const name =
-    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "")
+      ? subagentDisplayName(t, agent, childName)
+      : subagentTaskLabel(t, agent, childName);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
@@ -277,7 +298,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
             onClick={() => setReportOpen((value) => !value)}
           >
-            <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
           </button>
         ) : (
           /* The chevron only marks that the line opens; the line's button is the one control. Its
@@ -286,7 +307,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
             aria-hidden
           >
-            <ChevronRight size={14} strokeWidth={1.2} />
+            <ChevronRight size={14} />
           </span>
         )}
       </TranscriptActivityRowShell>

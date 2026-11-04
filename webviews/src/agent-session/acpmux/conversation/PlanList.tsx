@@ -52,7 +52,7 @@ export const PlanList = memo(function PlanList({
             {done === entries.length && <Check size={10} />}
           </span>
           <span className="cv-plan__text">{progress}</span>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor cv-plan__chevron${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor cv-plan__chevron${open ? " is-open" : ""}`} />
         </button>
       ) : (
         // Heard, not drawn: the marks show the progress.
