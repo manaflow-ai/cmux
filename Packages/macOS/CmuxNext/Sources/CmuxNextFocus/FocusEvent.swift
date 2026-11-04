@@ -116,4 +116,12 @@ public extension FocusEvent {
         if case .responder(_, let source) = self { return source == .mouse }
         return isPersonsOwn
     }
+
+    /// A focus or selection choice, whatever entry made it: what a run the person chose from a menu counts as theirs.
+    var choosesFocus: Bool {
+        switch self {
+        case .focusPane, .selectTab, .focusTarget, .responder: true
+        default: false
+        }
+    }
 }

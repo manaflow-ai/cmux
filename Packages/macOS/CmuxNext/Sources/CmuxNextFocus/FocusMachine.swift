@@ -30,8 +30,8 @@ public nonisolated final class FocusMachine {
 
     /// Reduces `event` and refreshes `state` (its topology and focus-mode
     /// set follow the machine's own changes). Nil when the ABI refused it
-    /// (a wire mismatch; the state is unchanged).
-    public func send(_ event: FocusEvent, into state: inout FocusState) -> Reduction? {
+    /// (a wire mismatch; the state is unchanged). `menuPick`: the event is part of a run the person chose from a menu.
+    public func send(_ event: FocusEvent, into state: inout FocusState, menuPick: Bool = false) -> Reduction? {
         if case .topology(let topology) = event { return set(topology, into: &state) }
         var wire = FocusWire()
         var encoded = wire.event(event)
@@ -44,9 +44,9 @@ public nonisolated final class FocusMachine {
         }
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
-        // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry or the responder report
-        // of their click; a key's responder change, automation's and the app's events never do.
-        if event.choosesFocusAsPerson { state.personMoveSeq &+= 1 }
+        // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry, the responder report
+        // of their click, or any focus choice of a run they chose from a menu; a key's responder change and automation never.
+        if event.choosesFocusAsPerson || menuPick && event.choosesFocus { state.personMoveSeq &+= 1 }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
     }

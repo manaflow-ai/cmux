@@ -109,7 +109,7 @@ final class FocusCoordinator {
                     machine.setCloseFocus(mostRecent: policy == .mostRecent)
                 }
                 let previous = reduced
-                guard let result = machine.send(event, into: &reduced) else {
+                guard let result = machine.send(event, into: &reduced, menuPick: ActionRunScope.current?.menuPick == true) else {
                     // The ABI refused the event: a wire mismatch between the app
                     // and the linked FFI. Keep the state rather than lose focus.
                     assertionFailure("focus machine refused \(event)")
