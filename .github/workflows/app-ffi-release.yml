@@ -74,9 +74,14 @@ jobs:
     # run cmux-next.yml's Release compile and cmux-tui-artifacts' tests: minis
     # first, Blacksmith as overflow. On Blacksmith alone the build sat queued on
     # blacksmith-12vcpu-macos-26 for 12 hours (run 39402525970, 2026-10-20) and
-    # the app FFI pin stayed red on every push. A re-run, a dispatch or an empty
-    # variable takes the Blacksmith label as before.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NEXT_PROMOTE_POOL != '' && github.event_name == 'push' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    # the app FFI pin stayed red on every push. With the variable unset, attempt
+    # 1 of a push still takes the promote pool's own label
+    # (glaeda-promote-trusted-std-xcode-26.6): run 41888015407 sat
+    # queued on blacksmith-6vcpu-macos-26 while Blacksmith macOS was down and the
+    # variable was empty, so the pin stayed red behind cmux#35641. The trusted
+    # hook admits only feat-cmux-next push and schedule jobs, so a re-run or a
+    # dispatch still takes the Blacksmith label as before.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'push' && github.run_attempt == 1 && (vars.CI_NEXT_PROMOTE_POOL || 'glaeda-promote-trusted-std-xcode-26.6') || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 45
     permissions:
       contents: read
