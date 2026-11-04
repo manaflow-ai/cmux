@@ -11,7 +11,7 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { layoutConversation } from "../src/agent-session/acpmux/model";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { hiddenRowFolds, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { hiddenRowFolds, turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
 const MESSAGE_RUN = "messageRun";
 let n = 0;
@@ -75,10 +75,12 @@ function turn(): AcpmuxRow[] {
 }
 
 const claude = { liveRuns: true, agentFamily: "claude" } as const;
+/// A finished Claude turn folds under "Worked for" (turnFoldStyle.ts); these tests read it opened.
+const OPEN = "worked-prompt";
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((row) => row.id);
 
 test("a finished Claude turn's run of sends, another agent's line and a compaction folds into one line", () => {
-  const view = turnView(turn(), new Set(), claude);
+  const view = turnView(turn(), new Set([OPEN]), claude);
   const lines = view.filter((row) => row.kind === MESSAGE_RUN);
   expect(lines).toHaveLength(1);
   // The agent message and the subagent's report join the run instead of breaking it, and so does
@@ -88,16 +90,27 @@ test("a finished Claude turn's run of sends, another agent's line and a compacti
   // The prompt, the line, then the answer and the footer: the answer stays last.
   expect(view.map((row) => row.kind).filter((kind) => kind !== "date")).toEqual([
     "user",
+    WORKED,
     MESSAGE_RUN,
     "assistant",
     "turnSummary",
   ]);
 });
 
+test("closed, a finished Claude turn's Worked for holds the line, the answer below it", () => {
+  const view = turnView(turn(), new Set(), claude);
+  expect(view.map((row) => row.kind).filter((kind) => kind !== "date")).toEqual([
+    "user",
+    WORKED,
+    "assistant",
+    "turnSummary",
+  ]);
+});
+
 test("the line opens on click to the rows exactly as they drew before", () => {
-  const closed = turnView(turn(), new Set(), claude);
+  const closed = turnView(turn(), new Set([OPEN]), claude);
   const line = closed.find((row) => row.kind === MESSAGE_RUN)!;
-  const open = turnView(turn(), new Set([line.id]), claude);
+  const open = turnView(turn(), new Set([OPEN, line.id]), claude);
   const at = open.findIndex((row) => row.id === line.id);
   expect(open[at]!.foldOpen).toBe(true);
   expect(ids(open.slice(at + 1, at + 5))).toEqual(["run-1", "report", "compacted", "run-2"]);
@@ -107,7 +120,7 @@ test("the line opens on click to the rows exactly as they drew before", () => {
 
 test("the line counts what the run did, messages first", async () => {
   const { messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
-  const line = turnView(turn(), new Set(), claude).find((row) => row.kind === MESSAGE_RUN)!;
+  const line = turnView(turn(), new Set([OPEN]), claude).find((row) => row.kind === MESSAGE_RUN)!;
   expect(messageRunSummary(translate, line.messageRun!)).toBe(
     "Sent 6 messages, read 3 files, ran a command, received a message",
   );
@@ -139,11 +152,11 @@ test("a run with no message, and a lone send, keep drawing as before", () => {
     row("assistant", { text: "Sent." }),
     row("turnSummary", { status: "completed" }),
   ];
-  expect(ids(turnView(lone, new Set(), claude))).toContain("lone");
+  expect(ids(turnView(lone, new Set(["worked-p3"]), claude))).toContain("lone");
 });
 
 test("the closed line is estimated as one line, so its mount moves nothing below it", () => {
-  const view = turnView(turn(), new Set(), claude);
+  const view = turnView(turn(), new Set([OPEN]), claude);
   const at = view.findIndex((row) => row.kind === MESSAGE_RUN);
   const heights = [...layoutConversation(view as never, 720).heights];
   // The frame of a one-call tool run's line (model.ts lineRow), in the same place.
@@ -186,6 +199,6 @@ test("a run whose edit waits for its permission stays in sight, not under the li
       "asks",
     ),
   );
-  const view = turnView(rows, new Set(), claude);
+  const view = turnView(rows, new Set([OPEN]), claude);
   expect(ids(view)).toContain("asks");
 });

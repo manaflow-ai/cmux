@@ -31,11 +31,15 @@ const end: AcpmuxRow = {
   status: "completed",
   durationMs: 60_000,
 };
+const NOTE =
+  "Found the cause in the parser: it reads the trailing comma as the start of another item, so every list " +
+  "that ends a line gets an empty entry, and the retry loop then treats that entry as a failed request.";
 // Two runs of calls with chatter between them, then the conclusion.
 const finished = [
   prompt,
   work("w1", 1_000, 2),
-  say("n1", 10_000, "Found the cause in the parser."),
+  // Longer than a short note, so it stands between the runs instead of joining one (mergeShortNotes).
+  say("n1", 10_000, NOTE),
   work("w2", 20_000, 3),
   say("a", 50_000, "Done: the parser keeps the trailing comma now."),
   end,
@@ -85,7 +89,8 @@ test("claude: a turn that ends on a call keeps its last takeaway in sight, the c
   const takeaway = say(
     "t",
     30_000,
-    "The parser drops the trailing comma when the list ends a line; I'm sending the fix to the lane now.",
+    "The parser drops the trailing comma when the list ends a line, which is why every request looked failed " +
+      "to the retry loop; I'm sending the fix to the lane that owns the parser now and will check it lands.",
   );
   const rows = turnView([prompt, work("w1", 1_000, 2), takeaway, work("w2", 40_000, 1), end], new Set(), {
     now: 70_000,
