@@ -1485,12 +1485,9 @@ def main():
             NATIVE_SUBAGENTS = air.get("version", 0) >= 1 and "nativeSubagentSessions" in air.get("capabilities", [])
             # FAKE_INIT_DELAY_MS / FAKE_NEW_DELAY_MS: an adapter boot and a
             # session start that take time (MCP servers), for pool latency.
-            # FAKE_DELAY_SCALE is a test-clock scale: it preserves the
-            # configured logical delay while keeping integration tests short.
             if os.environ.get("FAKE_INIT_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
-                scale = float(os.environ.get("FAKE_DELAY_SCALE", "1"))
-                pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000 / scale)
+                pause.sleep(int(os.environ["FAKE_INIT_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {
                 "protocolVersion": 1,
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
@@ -1506,8 +1503,7 @@ def main():
         elif m == "session/new":
             if os.environ.get("FAKE_NEW_DELAY_MS"):
                 import time as pause  # main() binds `time` locally
-                scale = float(os.environ.get("FAKE_DELAY_SCALE", "1"))
-                pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000 / scale)
+                pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
             new_sid = codex_new() if CODEX_STORE else f"{SESSION_PREFIX}{sessions}"
             known.add(new_sid)

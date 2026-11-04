@@ -70,6 +70,10 @@ pub async fn spawn(launcher: &HostLauncher, spec: &SpawnSpec) -> Result<HostReco
         cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
     }
     #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_EXIT_DIR_ENV) {
+        cmd.env(super::host::HELLO_EXIT_DIR_ENV, dir);
+    }
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
     }
