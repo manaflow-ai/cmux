@@ -1,4 +1,5 @@
 import "../shared/desktop";
+import "../../ui/ui.css";
 import { createRoot } from "react-dom/client";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
 import { createPageClient, type PageClient } from "../shared/pageClient";

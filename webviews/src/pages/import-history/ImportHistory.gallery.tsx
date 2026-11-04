@@ -18,6 +18,7 @@ export default componentEntry<Props>({
   ],
   load: async () => (await import("./galleryFixture")).ImportHistoryGallery,
   styles: async () => {
+    await import("../../ui/ui.css");
     await import("../shared/pageBase.css");
     await import("./styles.css");
   },
