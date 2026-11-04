@@ -47,8 +47,8 @@ import Testing
         }
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func aNewColumnsKeyTurnBuildsNoPaneView() async throws {
+    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
+    func aNewColumnsKeyTurnBuildsNoPaneView(springs: Bool) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -66,21 +66,23 @@ import Testing
         window.contentView = content.contentView
         window.orderFrontRegardless()
         let root = content.layoutView
-        // Pins the pane springs on without touching the shared settings (as ClosedPaneContentStaysUntilLandingTests).
-        root.context.reduceMotionOverride = false
+        // The pane springs pinned on or off without touching the shared settings: the code must work with no animation.
+        root.context.reduceMotionOverride = !springs
         root.driver.isManual = true
         root.driver.detach()
         root.driver.attach(to: root)
         content.applyCurrent()
         content.contentView.layoutSubtreeIfNeeded()
-        var frames = 0
-        while frames < 600, root.advanceFrame(Self.dt) { frames += 1 }
-        // Frames committed and the main actor went idle: what the window prepares ahead of a key is ready now. The app's
-        // scheduler runs its background work on display frames; the test is its frame (the first task of a frame runs).
-        for _ in 0..<4 {
-            await Self.nextCommittedPass()
-            services.mainWork.frameDidFire()
+        func land() { var frames = 0; while frames < 600, root.advanceFrame(Self.dt) { frames += 1 } }
+        /// Committed passes, each followed by the app scheduler's frame (its background work runs on display frames).
+        func idle() async {
+            for _ in 0..<4 {
+                await Self.nextCommittedPass()
+                services.mainWork.frameDidFire()
+            }
         }
+        land()
+        await idle()
         await Self.drainMain()
         try #require(content.panes.count == 1, "fixture: one pane")
         let ready = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
@@ -101,19 +103,15 @@ import Testing
         #expect(content.paneSpare.ready == nil, "a new spare was made in the key's turn")
         #expect(made.stripModel.selectedID?.rawValue == provisional.tabID, "the new column's strip does not select its stand-in tab")
 
-        // The column springs in: no spare is made in a spring frame. It lands: the next one is made after that.
-        try #require(root.isInLayoutMotion, "fixture: the New Column does not spring")
-        for _ in 0..<2 {
-            await Self.nextCommittedPass()
-            services.mainWork.frameDidFire()
+        // The next spare is made only once the layout is still: never in a spring frame; after the key's frame when
+        // nothing springs.
+        if springs { try #require(root.isInLayoutMotion, "fixture: with the springs on, the New Column does not spring") }
+        if root.isInLayoutMotion {
+            await idle()
+            #expect(content.paneSpare.ready == nil, "a spare was made while the new column sprang in")
+            land()
         }
-        #expect(content.paneSpare.ready == nil, "a spare was made while the new column sprang in")
-        frames = 0
-        while frames < 600, root.advanceFrame(Self.dt) { frames += 1 }
-        for _ in 0..<4 {
-            await Self.nextCommittedPass()
-            services.mainWork.frameDidFire()
-        }
-        #expect(content.paneSpare.ready != nil, "no spare was made after the new column landed")
+        await idle()
+        #expect(content.paneSpare.ready != nil, "no spare was made once the layout was still")
     }
 }
