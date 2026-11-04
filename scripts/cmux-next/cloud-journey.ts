@@ -293,7 +293,9 @@ export function cliExecNeedsDirectFallback(status: number | null, _stdout: strin
 
 function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {
   const fallback = directExec(api, machine, journey);
+  let useDirect = false;
   return async (command, timeoutMs = 60_000) => {
+    if (useDirect) return fallback(command, timeoutMs);
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
@@ -302,6 +304,8 @@ function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exe
     // path reports this documented provider response; keep exercising the real CLI when
     // it is supported, but use the same direct machine route as directExec for this case.
     if (cliExecNeedsDirectFallback(done.status, done.stdout ?? "", done.stderr ?? "")) {
+      useDirect = true;
+      journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
       return fallback(command, timeoutMs);
     }
     try {
