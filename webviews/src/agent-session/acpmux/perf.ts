@@ -173,6 +173,9 @@ export class AcpmuxPerf {
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
   private agentMarks: Partial<Record<AgentMark, number>> = {};
+  /// A new chat's start state as its frames show it (the New Tab chip's folder, the hero's project
+  /// and its Do not work in a project check): the first one drawn, and when it last changed.
+  private startState: { shown: string; first: number; final: number; changes: number } | undefined;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once. */
@@ -210,9 +213,27 @@ export class AcpmuxPerf {
     this.agentMarks[stage] = performance.now();
   }
 
+  /** The start state a frame shows (`shown`, any stable text); recorded always, a string compare per change. */
+  noteStartState(shown: string, now = performance.now()): void {
+    const state = this.startState;
+    if (!state) this.startState = { shown, first: now, final: now, changes: 0 };
+    else if (state.shown !== shown)
+      this.startState = { shown, first: state.first, final: now, changes: state.changes + 1 };
+  }
+
+  /** A New Tab page adopted again (Cmd-T on a spare): its start state is measured from there. */
+  resetStartState(): void {
+    this.startState = undefined;
+  }
+
   agentLatency(): Record<string, number> {
     const start = this.agentMarks.handshakeStart;
     const value: Record<string, number> = {};
+    // First frame to the frame whose start state stayed (0: the first frame was final).
+    if (this.startState) {
+      value.start_state_final_ms = round2(this.startState.final - this.startState.first);
+      value.start_state_changes = this.startState.changes;
+    }
     for (const [name, at] of Object.entries(this.agentMarks)) {
       if (at === undefined) continue;
       value[`${name}_ms`] = round2(start === undefined ? at : at - start);
