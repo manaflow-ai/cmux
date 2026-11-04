@@ -12,6 +12,12 @@ use super::*;
 /// the terminal's input port waits instead (`surface::input_port`).
 pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
+/// The longest a write that waits for its frame ([`InputReply::Written`]) waits for the terminal's input port: one
+/// reconnect wait for the queue ahead of it, a few blocked socket writes, and slack. Past it the write answers an
+/// error and the bytes may still be written.
+#[cfg(any(unix, windows))]
+const INPUT_WRITE_REPLY_WAIT: Duration = Duration::from_secs(15);
+
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
@@ -26,8 +32,19 @@ pub(super) fn host_connection_lost(error: &std::io::Error) -> bool {
 }
 
 impl Surface {
-    /// Write input bytes to the PTY child.
+    /// Write input bytes to the PTY child. On the input lane (R-DAEMON-STATE S1) a hosted terminal's write answers
+    /// when its input port wrote it ([`InputReply::Written`]), with the write's error as before.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.write_bytes_replying(bytes, InputReply::Written)
+    }
+
+    /// [`Self::write_bytes`] answering as `reply` says on the input lane: the person's keys pass
+    /// [`InputReply::Accepted`] and return when the terminal's input port took them.
+    pub(crate) fn write_bytes_replying(
+        &self,
+        bytes: &[u8],
+        reply: InputReply,
+    ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
@@ -35,7 +52,7 @@ impl Surface {
             ));
         };
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Input, bytes) {
+        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Input, bytes, reply) {
             return result;
         }
         #[cfg(any(unix, windows))]
@@ -69,6 +86,7 @@ impl Surface {
         pty: &PtySurface,
         kind: MessageKind,
         bytes: &[u8],
+        reply: InputReply,
     ) -> Option<std::io::Result<()>> {
         if !pty.mux.upgrade().is_some_and(|mux| mux.control_clients.input_lane.on()) {
             return None;
@@ -89,9 +107,28 @@ impl Surface {
                     "the terminal's host connection ended; input not written",
                 )))
             }
-            Some(input_port::InputRoute::Hosted(_)) => {
-                Some(pty.input_port.enqueue(&pty.terminal, kind, bytes).map_err(Into::into))
-            }
+            Some(input_port::InputRoute::Hosted(_)) => Some(match reply {
+                InputReply::Accepted => {
+                    pty.input_port.enqueue(&pty.terminal, kind, bytes, None).map_err(Into::into)
+                }
+                InputReply::Written => {
+                    let (done, written) = std::sync::mpsc::sync_channel(1);
+                    pty.input_port
+                        .enqueue(&pty.terminal, kind, bytes, Some(done))
+                        .map_err(std::io::Error::from)
+                        .and_then(|()| match written.recv_timeout(INPUT_WRITE_REPLY_WAIT) {
+                            Ok(result) => result,
+                            Err(RecvTimeoutError::Timeout) => Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "terminal input still waits in the terminal's input port",
+                            )),
+                            Err(RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                                std::io::ErrorKind::BrokenPipe,
+                                "the terminal's input port closed before it wrote the input",
+                            )),
+                        })
+                }
+            }),
         }
     }
 
@@ -191,7 +228,16 @@ impl Surface {
     /// Write a protocol input payload, conditionally applying bracketed-paste
     /// markers from a terminal-mode snapshot taken before the PTY write.
     pub fn write_paste(&self, bytes: &[u8]) -> std::io::Result<()> {
-        self.write_paste_with_timeout(bytes, None)
+        self.write_paste_with_timeout(bytes, None, InputReply::Written)
+    }
+
+    /// [`Self::write_paste`] answering as `reply` says on the input lane ([`Self::write_bytes_replying`]).
+    pub(crate) fn write_paste_replying(
+        &self,
+        bytes: &[u8],
+        reply: InputReply,
+    ) -> std::io::Result<()> {
+        self.write_paste_with_timeout(bytes, None, reply)
     }
 
     /// Write a paste with a bounded local PTY write for daemon-owned uploads.
@@ -201,13 +247,14 @@ impl Surface {
     /// polled until the same two-second bound, so a full PTY cannot retain an
     /// image-paste reservation indefinitely.
     pub(crate) fn write_paste_bounded(&self, bytes: &[u8]) -> std::io::Result<()> {
-        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT))
+        self.write_paste_with_timeout(bytes, Some(LOCAL_PASTE_WRITE_TIMEOUT), InputReply::Written)
     }
 
     pub(super) fn write_paste_with_timeout(
         &self,
         bytes: &[u8],
         timeout: Option<Duration>,
+        reply: InputReply,
     ) -> std::io::Result<()> {
         let Some(pty) = self.as_pty() else {
             return Err(std::io::Error::new(
@@ -221,7 +268,7 @@ impl Surface {
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Paste, bytes) {
+        if let Some(result) = Self::enqueue_on_input_port(pty, MessageKind::Paste, bytes, reply) {
             return result;
         }
         #[cfg(any(unix, windows))]

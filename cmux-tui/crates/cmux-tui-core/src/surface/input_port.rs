@@ -85,9 +85,25 @@ impl From<InputRefused> for std::io::Error {
     }
 }
 
+/// Where the port reports one frame's write to a writer that waits for it ([`InputReply::Written`]).
+pub(crate) type FrameDone = std::sync::mpsc::SyncSender<std::io::Result<()>>;
+
+/// What a write to a hosted terminal's input port answers (S1.6b): the person's keys return when the port took them;
+/// every other writer (a script's `send`, a resource input effect, the creating-input flush, an image paste) waits
+/// for its frame's write, so its error reaches it as on the old path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum InputReply {
+    /// The port took the bytes; nothing waits (the person's keys).
+    Accepted,
+    /// The port wrote the bytes, or the write's error.
+    Written,
+}
+
 struct PortFrame {
     kind: MessageKind,
     bytes: Vec<u8>,
+    /// The waiting writer of an [`InputReply::Written`] write; dropped unanswered when the frame is dropped.
+    done: Option<FrameDone>,
 }
 
 impl PortFrame {
@@ -173,12 +189,13 @@ impl InputPort {
         terminal: &Arc<PtyTerminalRuntime>,
         kind: MessageKind,
         bytes: &[u8],
+        done: Option<FrameDone>,
     ) -> Result<(), InputRefused> {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
-        let frame = PortFrame { kind, bytes: bytes.to_vec() };
+        let frame = PortFrame { kind, bytes: bytes.to_vec(), done };
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(total) = state
             .queued_bytes
@@ -280,6 +297,9 @@ impl Drop for WriterUnwind<'_> {
 
 fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     let _unwind = WriterUnwind(shared);
+    // One reconnect wait for the queue: set by the first frame that finds the connection lost, cleared by the next
+    // write that succeeds, so frames queued behind a host that never comes back fail together, not 5 s each.
+    let mut reconnect_until = None;
     while let Some(frame) = next_frame(shared) {
         #[cfg(test)]
         {
@@ -294,13 +314,19 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
             finish_frames(shared, 1);
             return;
         };
-        let written = write_with_reconnect(shared, &runtime, frame.kind, &frame.bytes);
+        let written =
+            write_with_reconnect(shared, &runtime, frame.kind, &frame.bytes, &mut reconnect_until);
         finish_frames(shared, 1);
-        if let Err(error) = written {
-            eprintln!(
+        match (written, frame.done) {
+            // The waiting writer answers its request with the result.
+            (written, Some(done)) => {
+                let _ = done.send(written);
+            }
+            (Err(error), None) => eprintln!(
                 "cmux-tui: terminal input not written ({} bytes, already accepted): {error}",
                 frame.bytes.len()
-            );
+            ),
+            (Ok(()), None) => {}
         }
     }
 }
@@ -329,9 +355,8 @@ fn write_with_reconnect(
     runtime: &PtyTerminalRuntime,
     kind: MessageKind,
     bytes: &[u8],
+    reconnect_until: &mut Option<Instant>,
 ) -> std::io::Result<()> {
-    let deadline =
-        Instant::now().checked_add(HOST_INPUT_RECONNECT_WAIT).unwrap_or_else(Instant::now);
     let mut first_error = None;
     loop {
         // Read the revision before the send: an install after it wakes the wait below, so no reconnect is missed.
@@ -359,11 +384,17 @@ fn write_with_reconnect(
             }
         };
         let error = match sent {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                *reconnect_until = None;
+                return Ok(());
+            }
             Err(error) if super::input::host_connection_lost(&error) => error,
             Err(error) => return Err(error),
         };
         let error = first_error.take().unwrap_or(error);
+        let deadline = *reconnect_until.get_or_insert_with(|| {
+            Instant::now().checked_add(HOST_INPUT_RECONNECT_WAIT).unwrap_or_else(Instant::now)
+        });
         let state = TerminalHostConnectionState::from_u8(
             runtime.host_connection_state.load(Ordering::Acquire),
         );

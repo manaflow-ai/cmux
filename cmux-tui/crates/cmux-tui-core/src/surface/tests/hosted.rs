@@ -153,7 +153,8 @@ fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
         // Long enough for the paste's writer to be inside its blocked socket write, well inside the stall.
         std::thread::sleep(Duration::from_millis(150));
         let started = Instant::now();
-        surface.write_bytes(b"k").expect("the key was accepted");
+        // The person's key: it answers when the port took it (on the old path, after its write).
+        surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the key was accepted");
         let took = started.elapsed();
         pasting.join().unwrap().expect("the paste was written");
         (took, reader.join().unwrap())
@@ -235,7 +236,7 @@ fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier", true);
     let pty = surface.as_pty().expect("a terminal");
     let resume = pty.input_port.pause_writes_for_test();
-    surface.write_bytes(b"k").expect("the port took the key");
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
     std::thread::scope(|scope| {
         let direct = scope.spawn(|| {
             let runtime = pty.runtime.lock().unwrap();
@@ -325,7 +326,7 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
     let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order", true);
     let keys: Vec<u8> = (b'a'..=b'z').collect();
     for key in &keys {
-        surface.write_bytes(&[*key]).expect("the port took the key");
+        surface.write_bytes_replying(&[*key], InputReply::Accepted).expect("the port took the key");
     }
     let mut written = Vec::new();
     while written.len() < keys.len() {

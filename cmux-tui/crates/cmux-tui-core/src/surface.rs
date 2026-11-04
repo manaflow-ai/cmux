@@ -66,6 +66,7 @@ mod hosted_stager;
 pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
+pub(crate) use input_port::InputReply;
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
