@@ -162,11 +162,12 @@ struct SharedEdgeDuringSpringTests {
                 misses.append("\(label): the split divider shows \(Self.pt(offset)) pt from b1's edge, at rest \(Self.pt(rest)) pt")
             }
             guard let screen = root.screenViews["s"] else { return }
-            for (pane, frame) in screen.paneFrames where frame.rect.width < 0 || frame.rect.height < 0 {
-                misses.append("\(label): \(pane) shows a negative size \(Self.pt(frame.rect.width)) x \(Self.pt(frame.rect.height))")
+            // The springs' own values: `CGRect.width` is never negative (it reads the standardized rect).
+            for (pane, frame) in screen.paneFrames where frame.width.value < 0 || frame.height.value < 0 {
+                misses.append("\(label): \(pane) shows a negative size \(Self.pt(frame.width.value)) x \(Self.pt(frame.height.value))")
             }
-            for (kind, frame) in screen.dividerFrames where frame.rect.width < 0 || frame.rect.height < 0 {
-                misses.append("\(label): divider \(kind) shows a negative size \(Self.pt(frame.rect.width)) x \(Self.pt(frame.rect.height))")
+            for (kind, frame) in screen.dividerFrames where frame.width.value < 0 || frame.height.value < 0 {
+                misses.append("\(label): divider \(kind) shows a negative size \(Self.pt(frame.width.value)) x \(Self.pt(frame.height.value))")
             }
         }
 
@@ -270,10 +271,10 @@ struct SharedEdgeDuringSpringTests {
             }
             guard let screen = root.screenViews["s"] else { return misses.append("\(label): no screen") }
             if moving || screen.hasMotion { misses.append("\(label): still moving after \(frames) frames") }
-            for (pane, frame) in screen.paneFrames where frame.rect != frame.targetRect || frame.x.velocity != 0 || frame.width.velocity != 0 {
+            for (pane, frame) in screen.paneFrames where frame.rect != frame.targetRect || Self.moves(frame) {
                 misses.append("\(label): \(pane) is not at rest on its target (\(frame.rect) -> \(frame.targetRect))")
             }
-            for (kind, frame) in screen.dividerFrames where frame.rect != frame.targetRect || frame.x.velocity != 0 {
+            for (kind, frame) in screen.dividerFrames where frame.rect != frame.targetRect || Self.moves(frame) {
                 misses.append("\(label): divider \(kind) is not at rest on its target (\(frame.rect) -> \(frame.targetRect))")
             }
         }
@@ -286,6 +287,11 @@ struct SharedEdgeDuringSpringTests {
         }
 
         static func pt(_ value: CGFloat) -> String { String(format: "%.2f", value) }
+
+        /// Some component of `frame` still has a velocity.
+        static func moves(_ frame: AnimatedFrame) -> Bool {
+            frame.x.velocity != 0 || frame.y.velocity != 0 || frame.width.velocity != 0 || frame.height.velocity != 0
+        }
 
         /// How far two values of one shared edge may differ: under half a point (float rounding and pixel edges, never
         /// a gap or an overlap anyone sees). Exact float equality is not the rule.
