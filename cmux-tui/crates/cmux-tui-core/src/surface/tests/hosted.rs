@@ -88,6 +88,111 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
+/// A hosted surface on a fake host connection (the host end is the second value), with the mux's stage S1 switch
+/// `lane`.
+#[cfg(unix)]
+fn hosted_typing_surface(
+    name: &str,
+    lane: bool,
+) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    let mux = Mux::new_for_test(name, SurfaceOptions::default());
+    mux.set_input_lane_for_test(lane);
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let surface = Surface::spawn_hosted(
+        1,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    host.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    (mux, surface, host)
+}
+
+/// How long the fake host reads nothing before it drains its socket.
+#[cfg(unix)]
+const HOST_STALL: Duration = Duration::from_millis(600);
+
+/// A key while another client's large paste to the same hosted terminal is in its socket write and the host reads
+/// nothing for [`HOST_STALL`]: how long the key took to return, and the frame kinds the host then read, in order.
+/// The host drains on its own thread after the stall, so the old path (the key waits for the paste) cannot hang.
+#[cfg(unix)]
+fn key_behind_a_blocked_paste(lane: bool) -> (Duration, Vec<MessageKind>) {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port", lane);
+    // Far larger than the socket buffer: its write blocks while the host reads nothing.
+    let paste = vec![b'p'; 8 * 1024 * 1024];
+    std::thread::scope(|scope| {
+        let reader = scope.spawn(move || {
+            std::thread::sleep(HOST_STALL);
+            let mut kinds = Vec::new();
+            while kinds.last() != Some(&MessageKind::Input) {
+                let frame = crate::terminal_host_protocol::read_frame(
+                    &mut host,
+                    crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+                )
+                .expect("the host reads the queued frames")
+                .expect("the host connection stays open");
+                kinds.push(frame.kind);
+            }
+            kinds
+        });
+        let pasting = scope.spawn(|| surface.write_paste(&paste));
+        // Long enough for the paste's writer to be inside its blocked socket write, well inside the stall.
+        std::thread::sleep(Duration::from_millis(150));
+        let started = Instant::now();
+        surface.write_bytes(b"k").expect("the key was accepted");
+        let took = started.elapsed();
+        pasting.join().unwrap().expect("the paste was written");
+        (took, reader.join().unwrap())
+    })
+}
+
+/// R-DAEMON-STATE stage S1 step 6 (DESIGN.md section 2.6.1): a key to a hosted terminal never waits for another
+/// writer's blocked write to the same terminal's host socket. On the old path the paste's write holds the
+/// terminal's runtime lock and the host writer for the whole write (bounded only by the socket's send timeout), and
+/// the key waits behind it. With the stage on, the key is handed to the terminal's own input port and returns at
+/// once; the port writes in order, the paste first, once the host reads.
+#[cfg(unix)]
+#[test]
+fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
+    let (old_took, old_kinds) = key_behind_a_blocked_paste(false);
+    assert!(
+        old_took >= HOST_STALL / 2,
+        "control: on the old path the key took {old_took:?} behind a paste blocked {HOST_STALL:?}; the hold does not \
+         reach the old path, so the lane's test proves nothing"
+    );
+    assert_eq!(old_kinds.last(), Some(&MessageKind::Input), "old path: the key reached the host");
+
+    let (took, kinds) = key_behind_a_blocked_paste(true);
+    assert!(
+        took < Duration::from_millis(100),
+        "the key waited {took:?} for another writer's blocked host socket"
+    );
+    assert_eq!(
+        kinds.iter().filter(|kind| **kind == MessageKind::Input).count(),
+        1,
+        "the key reached the host once: {kinds:?}"
+    );
+    assert!(
+        kinds.iter().position(|kind| *kind == MessageKind::Paste)
+            < kinds.iter().position(|kind| *kind == MessageKind::Input),
+        "the paste, written first, reached the host before the key: {kinds:?}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
