@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "4184683079001",
+  "notes": "notes/4184683079001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35291,
+      "title": "acpmux: agent hosts name their SIGTERM sender (loginwindow ends them on an update relaunch)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34901,
+      "title": "acpmux: the event log through one append-only journal, behind store.journal (R-DURABILITY S2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35308,
+      "title": "Agent pane: a subagent's background shell that ended stops reading running",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35401,
+      "title": "ci(nightly): log the build commit as one built_sha= line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35467,
+      "title": "cloud receiver: renew the policy before its lease ends, accept leases up to 120 s",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35419,
+      "title": "docs(trace): traced-terminal slots, the requests a key waited behind, and where clear-history comes from, said exactly",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35424,
+      "title": "base red: crash-class check-objc-selectors (ThemedLabel, DividerHandleView)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35137,
+      "title": "Running tray: command lines say what runs, not a one-word nickname",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35431,
+      "title": "perf(tabs): a first visit hands the old tab's keyboard to the window before the old tab hides",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34580,
+      "title": "cmux NEXT iOS: Copy Mode, terminal tools, New Tab rows, Clear Tab Name, Copy IDs, Duplicate Workspace fidelity, Send feedback",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35417,
+      "title": "cloud start-chat: a pending start names the stage it is stuck at",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35450,
+      "title": "try-pr.sh: try a pull request the cheapest way, live when it needs no build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35422,
+      "title": "base red: panic ratchet acpmux +1 from #35328 (ensure sets cwd with JsonSet::set)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35462,
+      "title": "docs(ci): feat-cmux-next requires clippy (changed cmux-tui packages)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35301,
+      "title": "cloud-journey: pass the person's Claude login the Mac's way and read the reply back; hourly on production",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35299,
+      "title": "cmux-vm: trust GitHub Actions jobs by OIDC token, with a scoped CI smoke principal",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
