@@ -45,6 +45,18 @@ pub fn placed_sessions(home: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
+/// This machine's default acpmux daemon's socket (`~/.acpmux/acpmux.sock`,
+/// whatever `ACPMUX_HOME` the Chief's own daemon has): where `acpmux session
+/// move --machine` lands a chat.
+pub fn machine_socket() -> std::path::PathBuf {
+    let user = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| "/".into());
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    crate::acpmux_daemon::socket_path_for(None, None, &user, uid)
+}
+
 /// [`placed_sessions`] of `host/spawns`'s JSON.
 fn placed_in(spawns: &Value) -> HashSet<String> {
     spawns
@@ -91,14 +103,49 @@ impl PlacedPort {
     /// each placed session the machine daemon has added, so a reconnect
     /// never takes a handed-over subagent for gone.
     pub fn home_event(&self, event: AgentEvent) -> AgentEvent {
-        event
+        let AgentEvent::Up(mut list) = event else {
+            return event;
+        };
+        let mut missing: Vec<&String> = self
+            .placed
+            .iter()
+            .filter(|id| !list.iter().any(|s| &s.session_id == *id))
+            .collect();
+        missing.sort();
+        for id in missing {
+            // A machine daemon that does not answer now: its own link's list
+            // brings the session when it does.
+            if let Ok(Some(summary)) = self.here.session(id) {
+                list.push(summary);
+            }
+        }
+        AgentEvent::Up(list)
     }
 
     /// The machine link's events as the brain gets them: only those about a
     /// placed session. Its list is each placed session's change; its link
     /// going down or ending is not the Chief's (the home link's is).
-    pub fn here_events(&self, _event: AgentEvent) -> Vec<AgentEvent> {
-        Vec::new()
+    pub fn here_events(&self, event: AgentEvent) -> Vec<AgentEvent> {
+        match event {
+            AgentEvent::Up(list) => list
+                .into_iter()
+                .filter(|s| self.placed.contains(&s.session_id))
+                .map(AgentEvent::SessionChanged)
+                .collect(),
+            AgentEvent::SessionChanged(s) if self.placed.contains(&s.session_id) => {
+                vec![AgentEvent::SessionChanged(s)]
+            }
+            AgentEvent::Permission {
+                session_id,
+                permission_id,
+                request,
+            } if self.placed.contains(&session_id) => vec![AgentEvent::Permission {
+                session_id,
+                permission_id,
+                request,
+            }],
+            _ => Vec::new(),
+        }
     }
 }
 
@@ -116,31 +163,32 @@ impl AgentPort for PlacedPort {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
-        self.home.start_prompt(session, blocks, prompt_id, signals)
+        self.port(session)
+            .start_prompt(session, blocks, prompt_id, signals)
     }
     fn events(&self, session: &str, after: u64) -> Result<Vec<AcpmuxEvent>, String> {
-        self.home.events(session, after)
+        self.port(session).events(session, after)
     }
     fn end_session(&self, session: &str) -> Result<(), String> {
-        self.home.end_session(session)
+        self.port(session).end_session(session)
     }
     fn find(&self, name: &str) -> Result<Option<String>, String> {
         self.home.find(name)
     }
     fn session(&self, id: &str) -> Result<Option<SessionSummary>, String> {
-        self.home.session(id)
+        self.port(id).session(id)
     }
     fn cancel(&self, session: &str) -> Result<(), String> {
-        self.home.cancel(session)
+        self.port(session).cancel(session)
     }
     fn kill_processes(&self, session: &str) -> Result<usize, String> {
-        self.home.kill_processes(session)
+        self.port(session).kill_processes(session)
     }
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
-        self.home.remove_queued(session, prompt_id)
+        self.port(session).remove_queued(session, prompt_id)
     }
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {
-        self.home.set_mode(session, mode)
+        self.port(session).set_mode(session, mode)
     }
     fn probe_models(&self, harness: &str) -> Result<(), String> {
         self.home.probe_models(harness)
@@ -166,7 +214,8 @@ impl AgentPort for PlacedPort {
         permission: &str,
         option: Option<&str>,
     ) -> Result<(), String> {
-        self.home.respond_permission(session, permission, option)
+        self.port(session)
+            .respond_permission(session, permission, option)
     }
     fn start_steer(
         &self,
@@ -174,7 +223,7 @@ impl AgentPort for PlacedPort {
         blocks: Vec<Value>,
         prompt_id: &str,
     ) -> Result<SteerWait, String> {
-        self.home.start_steer(session, blocks, prompt_id)
+        self.port(session).start_steer(session, blocks, prompt_id)
     }
     fn start_steer_now(
         &self,
@@ -182,7 +231,8 @@ impl AgentPort for PlacedPort {
         blocks: Vec<Value>,
         prompt_id: &str,
     ) -> Result<SteerWait, String> {
-        self.home.start_steer_now(session, blocks, prompt_id)
+        self.port(session)
+            .start_steer_now(session, blocks, prompt_id)
     }
     fn trust_folder(&self, cwd: &Path) -> Result<(), String> {
         self.home.trust_folder(cwd)
