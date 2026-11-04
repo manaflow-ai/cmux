@@ -8,7 +8,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -120,6 +120,19 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
+  };
+  // The running list rides in the composer hat by default; Settings "Pin Task List in Chat"
+  // (agentPane.display.pinnedPlan) keeps it in the transcript, which these tests read.
+  const pinPlan = async (page: Page) => {
+    await page.evaluate(async () => {
+      // The pane dev server serves src/agent-session/acpmux at its root, so this is the module App imports.
+      const display = "/chatDisplay.ts";
+      const { setChatDisplay } = (await import(/* @vite-ignore */ display)) as {
+        setChatDisplay(raw: unknown): void;
+      };
+      setChatDisplay({ "agentPane.display.pinnedPlan": true });
+    });
+    await page.locator(".cv-plan").waitFor();
   };
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -238,6 +251,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(LIVE));
     await page.getByText("Adding retry now.").waitFor();
+    await pinPlan(page);
     const mark = (status: string) =>
       page.locator(`.cv-plan__item[data-status="${status}"] .cv-plan__mark`).evaluate((node) => {
         const style = getComputedStyle(node);
@@ -267,6 +281,7 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(LIVE));
     await page.getByText("Adding retry now.").waitFor();
+    await pinPlan(page);
     expect(await page.locator(".cv-plan__item").count()).toBe(2);
     expect(await page.getByText("TodoWrite").count()).toBe(0);
     // While the turn runs the checklist is pinned under its latest message (cmux#34358): below the

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import JavaScriptCore
 import Testing
@@ -10,7 +11,7 @@ import Testing
 /// Session Info drawn by the App (AgentPaneSessionInfo.swift, AgentPaneView+SessionInfo.swift): the
 /// page's model makes, updates and removes the floating panel, the panel runs the pane's full height,
 /// and its clicks go back to the page.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneNativeSessionInfoTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -490,6 +491,7 @@ struct AgentPaneNativeSessionInfoTests {
         store.send = { sent.append($0) }
         let panel = AgentPaneSessionInfoPanel(store: store)
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         let page = NSTextView(frame: CGRect(x: 0, y: 0, width: 80, height: 600))
         host.addSubview(page)
@@ -755,6 +757,7 @@ struct AgentPaneNativeSessionInfoTests {
         let enter = try #require(NSEvent.enterExitEvent(with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0,
                                                         windowNumber: 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let host = try #require(window.contentView)
         for line in [
             SessionInfoLine(id: "changes", kind: .header, title: "Changes", unfolded: true, reorderable: true, action: "fold:changes:0"),
