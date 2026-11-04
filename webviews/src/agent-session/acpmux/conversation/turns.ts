@@ -43,6 +43,7 @@ import {
 } from "./backgroundTurns";
 import { foldMessageRuns, messageRunFoldFor, messageRunRevealKey, openMessageRuns } from "./messageRuns";
 import { backgroundRunFoldFor, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
+import { turnFoldStyle } from "./turnFoldStyle";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -164,7 +165,7 @@ export function turnView(
     liveRuns?: boolean;
     sessionStatus?: boolean;
     lineBelow?: boolean;
-    /** The session's harness family; Claude keeps assistant prose outside the work fold. */
+    /** The session's harness family, which picks how a finished turn folds (turnFoldStyle.ts). */
     agentFamily?: string;
     /** The running turn's foreground subagents the running tray took out of `rows`. */
     trayAgents?: number;
@@ -620,7 +621,7 @@ function shapedTurn(
     // Where its runs fold, a run of them that carries messages between agents folds under one line
     // (messageRuns.ts; Leo, 2026-11-01: "this should be collapsible").
     const messaged =
-      liveRuns || agentFamily?.startsWith("claude") === true ? foldMessageRuns(shapedBody, expanded) : shapedBody;
+      liveRuns || turnFoldStyle(agentFamily).runs ? foldMessageRuns(shapedBody, expanded) : shapedBody;
     // A run of background-task notifications folds under one line (backgroundRuns.ts; Leo,
     // 2026-11-02: "why do you still do these").
     // A stretch the person came in after ends there, with the end-of-turn footer (`supersededFooters`).
@@ -785,7 +786,9 @@ function shapeTurn(
   // worked for... but i think we should be able to do that replacing the top level thingy maybe"):
   // opened, each run of calls, the short notes inside it with it, folds into its own summary line,
   // and a longer message between runs stays in place, as Claude desktop draws them.
-  const claudeGroups = agentFamily?.startsWith("claude") === true;
+  // The family's row of the one table (turnFoldStyle.ts) says how: Codex, ChatGPT and Claude under
+  // one "Worked for" (Claude's never counting messages), Gemini and Muse with no turn fold.
+  const style = turnFoldStyle(agentFamily);
   // Notification turns can contain an empty assistant segment and a summary solely for
   // bookkeeping. With no visible prompt or work, omit the whole turn, including its footer.
   if (isVisiblyEmptyMessage(user) && body.length === 0 && summary.status === "completed") return [];
@@ -806,7 +809,7 @@ function shapeTurn(
   const steerDialogue = steerDialogueIn(body);
   let folded = false;
   // Where the sub-sessions a folded turn started stay in sight (taskLine.experiment.ts).
-  const taskLook = experimentArm(finishedTaskLook);
+  const taskLook = style.conclusion ? experimentArm(finishedTaskLook) : undefined;
   // A completed turn gets one fold for its work; personal steers keep their dialogue visible. The
   // row boundary above is still opensTurn/continuesTurn: an unrelated incoming prompt starts a
   // separate turn and is never gathered by adjacency alone.
@@ -817,7 +820,8 @@ function shapeTurn(
     // Work after the last answer folds with the work before it, so the answer stays last.
     // Edits after it join the card too, so its Undo covers the whole turn.
     const id = `${WORKED}-${segment.anchor.id}`;
-    const open = foldOpen || expanded.has(id);
+    // A family with no turn fold draws as an open "Worked for" without the line.
+    const open = !style.conclusion || foldOpen || expanded.has(id);
     // A call still waiting for its permission stays in sight: beside the closed fold, and in its
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     const out = (row: AcpmuxRow) =>
@@ -839,11 +843,11 @@ function shapeTurn(
       ? { id: `${TASK_LINE}-${segment.anchor.id}`, version, at: segment.anchor.at, kind: TASK_LINE, tasks }
       : undefined;
     if (work.length && !dialogue) {
-      folded = true;
+      folded = style.conclusion;
       const from = segment.anchor.at;
       // Its label counts the fold's messages (`previous`), which can change while the summary's and
       // the answer's versions do not: the count is part of the version, so the memoized row redraws.
-      const previous = foldMixesMessages(work) ? foldedMessages(work) : undefined;
+      const previous = style.countsMessages && foldMixesMessages(work) ? foldedMessages(work) : undefined;
       const worked: AcpmuxRow = {
         id,
         version: (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
@@ -860,16 +864,16 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
       };
-      shaped.push(worked);
+      if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
       // Open, each run of its work folds into its summary line between the commentary, as in a
       // running turn (codexRuns). A run that edited folds too: its edits stay in sight between the
       // summary lines of the work around them (TurnRows.tsx `runStretches`).
       // A steer's reply never joins a run: it stays in sight beside the steer.
-      const runs = liveRuns || claudeGroups;
+      const runs = liveRuns || style.runs;
       if (open)
         shaped.push(
-          ...(runs ? mergeShortNotes(work, steerDialogue, claudeGroups) : work).flatMap(withoutDrafts).map((row) => ({
+          ...(runs ? mergeShortNotes(work, steerDialogue, style.runs) : work).flatMap(withoutDrafts).map((row) => ({
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
             settled: true,

@@ -323,7 +323,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "machine deps key",
         &[
             ("Print each project's cache key here", "acpmux machine deps key"),
-            ("Print the keys for another folder as JSON", "acpmux machine deps key ~/src/app --json"),
+            (
+                "Print the keys for another folder as JSON",
+                "acpmux machine deps key ~/src/app --json",
+            ),
         ],
     ),
 ];

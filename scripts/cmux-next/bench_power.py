@@ -46,6 +46,13 @@ One command on the fleet:
     --script scripts/measure/perf-idle-power.sh --ref SHA \\
     --arg=scenarios=loaded --arg=config=bench --artifact artifacts/perf-idle-power.json
 
+`relaunch-reconnect` (run it alone) quits and relaunches the app with agent chats open, one
+streaming, and times each phase from process start to the shown chat's first live event
+(bench_relaunch_reconnect.py; --load-local sets its chats, 6 by default):
+  cmux-ci run --class exclusive --measurement --display --label measure \\
+    --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=relaunch-reconnect \\
+    --arg=config=bench --artifact artifacts/perf-idle-power.json
+
 `idle-chats` (run it alone) is the same bench at the idle-CPU stop condition (Leo, 2026-11-03:
 "im at 100% cpu rn"; done when every process idles under 5% CPU with about 40 chats open):
 40 local chats on the app's own daemon, each answered once and shown once in its own workspace,
@@ -742,6 +749,18 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
+    if "relaunch-reconnect" in scenarios:
+        # Relaunch to the first live chat event (bench_relaunch_reconnect.py), through this
+        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
+        if scenarios != ["relaunch-reconnect"]:
+            raise SystemExit("bench-power: the relaunch-reconnect scenario runs alone (--scenarios relaunch-reconnect)")
+        import bench_relaunch_reconnect as relaunch
+        argv = ["--app", args.app, "--config", args.config]
+        argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
+        argv += ["--out", args.out] if args.out else []
+        argv += ["--md", args.md] if args.md else []
+        relaunch.main(argv)
+        return
     for scenario in IDLE_COST_LABELS:
         if scenario in scenarios:
             if scenarios != [scenario]:
