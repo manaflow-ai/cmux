@@ -2,16 +2,6 @@
  "title": "MCP connect card in a real chat: an agent asks for a remote MCP server, the person connects it, cmux lists its tools. Before: the chat. After: connected. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/mcp-connect-chat-card.json",
  "launch_args": [],
  "fakeHarness": true,
- "settings": {
-  "agents": {
-   "trust": {
-    "projectRoots": [
-     "/tmp",
-     "/private/tmp"
-    ]
-   }
-  }
- },
  "steps": [
   {
    "title": "Open a main workspace",
@@ -66,7 +56,19 @@
      "text": "Connect the DeepWiki MCP server so you can read a repo's docs"
     }
    },
-   "wait": 4,
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "The person trusts /tmp, so the fake agent starts its session",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "click",
+     "selector": ".acpmux-trust-ask .acpmux-trust-ask-primary"
+    }
+   },
+   "wait": 5,
    "shot": false
   },
   {
