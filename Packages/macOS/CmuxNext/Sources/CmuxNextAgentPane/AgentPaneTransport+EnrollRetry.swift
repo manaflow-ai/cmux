@@ -29,11 +29,13 @@ extension AgentPaneTransport {
             }
             if let failure {
                 socket.releaseHeld(pageID)
-                return self.onPeerApprovalsOff?(.enrollFailed(peer: peer, reason: failure))
+                self.onPeerApprovalsOff?(.enrollFailed(peer: peer, reason: failure))
+                return
             }
             guard self.resend(frame, pageID: pageID, socket: socket) else {
                 socket.releaseHeld(pageID)
-                return self.onPeerApprovalsOff?(.notEnrolled(peer: peer))
+                self.onPeerApprovalsOff?(.notEnrolled(peer: peer))
+                return
             }
             socket.dropHeld(pageID)
             // Enrolled; the answer's own reply now says whether it counted.
