@@ -20,10 +20,7 @@ export default componentEntry<{ scene: CommandTitlesScene }>({
   id: "agent-pane.subagent-tray-command-titles",
   title: "Running tray command lines name what runs",
   area: "Agent pane",
-  covers: [
-    "agent-session/acpmux/subagents/SubagentTray.tsx",
-    "agent-session/acpmux/session-info/commandRules.ts",
-  ],
+  covers: ["agent-session/acpmux/subagents/SubagentTray.tsx", "agent-session/acpmux/session-info/commandRules.ts"],
   load: () =>
     import("../../../gallery/fixtures/SubagentTrayCommandTitlesStage").then(
       (module) => module.SubagentTrayCommandTitlesStage,

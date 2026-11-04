@@ -48,9 +48,7 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
     ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}),
     command: raw.command,
     ...(typeof raw.description === "string" && raw.description.trim() ? { description: raw.description.trim() } : {}),
-    ...(typeof raw.subagentSessionId === "string" && raw.subagentSessionId
-      ? { subagent: raw.subagentSessionId }
-      : {}),
+    ...(typeof raw.subagentSessionId === "string" && raw.subagentSessionId ? { subagent: raw.subagentSessionId } : {}),
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,

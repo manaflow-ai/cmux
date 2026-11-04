@@ -792,9 +792,7 @@ export function commandRead(
     (ruled && setupWork ? `${setupWork} · ${ruled}` : ruled) ||
     commandWorkLabel(command.command.trim()) ||
     fallbackLabel(programWords(command.command));
-  const label = description
-    ? describedLabel(description, command.command, reading)
-    : reading || command.command;
+  const label = description ? describedLabel(description, command.command, reading) : reading || command.command;
   const link = match?.read.link ?? inner?.link;
   return {
     label,

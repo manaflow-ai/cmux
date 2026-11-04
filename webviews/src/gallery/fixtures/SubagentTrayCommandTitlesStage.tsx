@@ -40,7 +40,8 @@ const command = (line: string, description: string | undefined, seconds: number,
   } satisfies BackgroundCommand;
 };
 
-const WAIT_FILE = "until [ -s /tmp/claude/tasks/b0luhqojj.output ]; do sleep 5; done; cat /tmp/claude/tasks/b0luhqojj.output";
+const WAIT_FILE =
+  "until [ -s /tmp/claude/tasks/b0luhqojj.output ]; do sleep 5; done; cat /tmp/claude/tasks/b0luhqojj.output";
 
 const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: BackgroundCommand[] }> = {
   // The agent named its Monitor calls "hold" and "review result": the line says what each does first.

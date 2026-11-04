@@ -15,7 +15,8 @@ const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof tran
 const label = (command: string, description?: string) =>
   commandRead(t, description === undefined ? { command } : { command, description }).label;
 
-const WAIT_FILE = "until [ -s /private/tmp/claude-501/x/tasks/b0luhqojj.output ]; do sleep 5; done; cat /private/tmp/claude-501/x/tasks/b0luhqojj.output";
+const WAIT_FILE =
+  "until [ -s /private/tmp/claude-501/x/tasks/b0luhqojj.output ]; do sleep 5; done; cat /private/tmp/claude-501/x/tasks/b0luhqojj.output";
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
 
 describe("a tray command line says what runs", () => {
@@ -68,7 +69,15 @@ describe("a subagent's command names its subagent", () => {
     const processes = processesOf(
       {
         processes: [
-          { id: "root/b1", sessionId: "root", command: "sleep 840; echo t", description: "hold", subagentSessionId: reviewer.id, state: "running", startedAt: 2 },
+          {
+            id: "root/b1",
+            sessionId: "root",
+            command: "sleep 840; echo t",
+            description: "hold",
+            subagentSessionId: reviewer.id,
+            state: "running",
+            startedAt: 2,
+          },
           { id: "root/b2", sessionId: "root", command: "bun run dev", state: "running", startedAt: 3 },
         ],
       },
