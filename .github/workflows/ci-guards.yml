@@ -204,6 +204,13 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_send_path_caps.py
 
+      # NEXT code adds no call to classic Cloud (/api/vm, /api/runs, a cmux.com
+      # or cmux-staging API base), as a shrink-only ratchet
+      # (tests/classic-cloud-route-allowlist.json).
+      - name: Validate NEXT adds no classic Cloud routes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_classic_cloud_routes.py
+
       - name: Validate the PR perf section check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_perf_section_check.py
