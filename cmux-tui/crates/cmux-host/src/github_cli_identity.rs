@@ -104,7 +104,7 @@ pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {
                         }
                     }
                     a if a.starts_with("--hostname=") => {
-                        if !github_host(Some(&a["--hostname=".len()..].to_owned())) {
+                        if !github_host(Some(&a.strip_prefix("--hostname=")?.to_owned())) {
                             return None;
                         }
                     }
@@ -129,9 +129,9 @@ pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {
                             return None;
                         }
                     }
-                    a if a.starts_with("--jq=") => jq = Some(a["--jq=".len()..].to_owned()),
+                    a if a.starts_with("--jq=") => jq = Some(a.strip_prefix("--jq=")?.to_owned()),
                     a if a.starts_with("--method=") => {
-                        if !a["--method=".len()..].eq_ignore_ascii_case("GET") {
+                        if !a.strip_prefix("--method=")?.eq_ignore_ascii_case("GET") {
                             return None;
                         }
                     }
