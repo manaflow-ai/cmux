@@ -341,7 +341,7 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   ruler fact the film does not show, an expectation whose check did not look, a unit-test file that is ended by a
   signal or reports no count, a skipped unit test, or no film selected.
 - Each film is judged in its own process (its process group is ended at the budget), in a sealed view that holds
-  only the film's pinned files (reflinks under `<store>/.scratch`), with bytecode that only this run wrote (a prefix
+  only its folder's pinned files (reflinks under `<store>/.scratch`), with bytecode that only this run wrote (a prefix
   per run): a result cannot depend on `--jobs`, film order, an older run's bytecode, or a file the table does not
   pin. The runner starts and signals processes: run it under
   `agent-sandbox`.
@@ -359,8 +359,11 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   ("the store also holds N folder(s) and M file(s) this manifest does not pin"). No unpinned file decides a result:
   each judge reads only its folder's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
   frames.json, and the drag need only a pinned events.json; `snapshot` plans each folder against everything the store
-  holds, whatever manifest stored it, so it never adds an input to a stored film. Two snapshots at the same time never
-  replace each other's files (a link, never a replace). The judges' unit tests read the store by name
+  holds, whatever manifest stored it, so it never adds an input to a stored film. One snapshot runs at a time: it holds
+  a lock on the store (`<store>/.snapshot.lock`) and waits up to `--lock-seconds` (600) for it. A snapshot plans a
+  folder against the files some files table in `<store>/tables` pins, so the files of a snapshot killed in its copy
+  are taken again as the same bytes or refused; a file is linked into place, never replaced. A new film whose name has
+  a dot, or is a folder file's name (`display`, `diag-tiers`), is refused. The judges' unit tests read the store by name
   (`JUDGE_GOLDENS_STORE`): a test reads only the pinned files of the film it names.
 
 ## Gate a dogfood build

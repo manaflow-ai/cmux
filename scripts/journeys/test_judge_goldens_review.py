@@ -1465,7 +1465,7 @@ class EighthReviewTests(unittest.TestCase):
             (w.gallery / "build-a-120x2" / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
             code, out = w.snapshot()
             self.assertEqual(code, 2, out)
-            self.assertIn("col-drag.events", out)
+            self.assertIn("build-a-120x2/col-drag.events: a film name with a dot", out)
             self.assertFalse((w.store / "films" / "build-a-120x2" / "col-drag.events.json").exists())
         finally:
             w.close()
@@ -1513,7 +1513,7 @@ class EighthReviewTests(unittest.TestCase):
             (w.gallery / "build-a-120x2" / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
             code, out = w.snapshot()
             self.assertEqual(code, 2, out)
-            self.assertIn("a film name that starts with another film's name and a dot (col-drag)", out)
+            self.assertIn("build-a-120x2/col-drag.events: a film name with a dot", out)
         finally:
             w.close()
 
@@ -1536,7 +1536,7 @@ class EighthReviewTests(unittest.TestCase):
             (folder / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
             code, out = w.snapshot()
             self.assertEqual(code, 2, out)
-            self.assertIn("a film name that starts with another film's name and a dot (col-drag)", out)
+            self.assertIn("build-a-120x2/col-drag.events: a film name with a dot", out)
             self.assertFalse((w.store / "films" / "build-a-120x2" / "col-drag.events.json").exists())
         finally:
             w.close()

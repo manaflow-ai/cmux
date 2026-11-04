@@ -70,6 +70,7 @@ DEFAULT_MANIFEST = HERE / "judge-goldens"
 # Files a judge reads: the film's JSON, its exact scan lines and its movie. Derived media (.view.mp4, posters, PNG
 # stills, logs) are not judged and not copied.
 KEEP_SUFFIXES = (".json", ".scan", ".mov")
+FOLDER_FILES = ("display", "diag-tiers")  # <name>.json: an input of every film of the folder, never a film's name
 FILM_SUFFIXES = (".mov.frames.json", ".trace.json")
 JUDGES = ("video_judge", "judge_trace", "judge_keys", "judge_scan")
 JUDGE_FILES = ("video_judge.py", "video-cases/judge_trace.py", "video-cases/judge_keys.py", "video-cases/judge_scan.py")
@@ -345,12 +346,14 @@ def plan_folder(source, folder, recorded, names):
     recorded_films = {n for n in names if any(f.startswith(n + ".") for f in recorded)}
     new_films = [n for n in names if n not in recorded_films]
     take, keep, problems = {}, {}, []
-    stored_names = {f.split(".", 1)[0] for f in recorded} | recorded_films
     for n in list(new_films):
-        clash = sorted(m for m in stored_names | set(names) if m != n and n.startswith(m + "."))
-        if clash:  # its files would claim another film's inputs (<film>.events.json is <film>'s, not <film>.events'')
-            problems.append(f"{folder}/{n}: a film name that starts with another film's name and a dot ({clash[0]}); "
-                            "its files cannot be told from that film's inputs")
+        # A film's files are <film>.<suffix>: a name with a dot would make another film's inputs its own
+        # (col-drag.events.json is col-drag's, not col-drag.events''), and a folder file's name is no film's.
+        why = ("a film name with a dot (a film name is the part of its files' names before the first dot)" if "." in n
+               else "a film named as a file of the folder (display.json and diag-tiers.json are inputs of every film "
+                    "there)" if n in FOLDER_FILES else None)
+        if why:
+            problems.append(f"{folder}/{n}: {why}")
             new_films.remove(n)
     for path in sorted(src_dir.iterdir()):
         if not path.is_file() or not path.name.endswith(KEEP_SUFFIXES):
@@ -422,13 +425,27 @@ def copy_folder(source, store, folder, take):
             os.chmod(d, 0o555)
 
 
-def stored_folder(store, folder, recorded):
+def store_pins(store):
+    """{folder: {file names}} that some files table in <store>/tables pins: every manifest's snapshot writes its table
+    there when it completes, so a file of the store that no table pins is the leftover of a snapshot that did not
+    complete (a SIGTERM or SIGKILL inside the link loop runs no clean-up)."""
+    pins = collections.defaultdict(set)
+    tables = Path(store) / "tables"
+    for path in sorted(tables.glob("*.json")) if tables.is_dir() else []:
+        for folder, files in (get_content(tables, path.stem).get("folders") or {}).items():
+            pins[folder] |= set(files)
+    return pins
+
+
+def stored_folder(store, folder, recorded, pins):
     """What the store holds in FOLDER, whatever manifest stored it: RECORDED (this manifest's table entry) and each other
-    file of the store's folder with its size and sha256 (one store serves every manifest)."""
+    file of the store's folder that a table pins (PINS, store_pins), with its size and sha256 (one store serves every
+    manifest). A file no table pins is no stored film's: its film is planned as new, and the copy's link takes the same
+    bytes as this folder's file or refuses other bytes."""
     held = dict(recorded or {})
     folder_dir = Path(store) / "films" / folder
     for path in sorted(folder_dir.iterdir()) if folder_dir.is_dir() else []:
-        if path.is_file() and not path.name.startswith(".") and path.name not in held:
+        if path.is_file() and not path.name.startswith(".") and path.name not in held and path.name in pins.get(folder, ()):
             held[path.name] = [path.stat().st_size, sha256_file(path)]
     return held
 
@@ -482,8 +499,9 @@ def _cmd_snapshot(opts):
         print(f"later: {f} changed in the last {opts.settled_minutes} min (a round may still publish into it)")
         found.pop(f)
     problems = []
+    pins = store_pins(store)  # read once, under the store's lock: no other snapshot writes a table meanwhile
     with concurrent.futures.ThreadPoolExecutor(max(1, opts.jobs)) as pool:
-        plans = {folder: pool.submit(plan_folder, opts.source, folder, stored_folder(store, folder, table.get(folder)),
+        plans = {folder: pool.submit(plan_folder, opts.source, folder, stored_folder(store, folder, table.get(folder), pins),
                                      names) for folder, names in found.items()}
         plans = {folder: job.result() for folder, job in plans.items()}
     for folder, names in found.items():
@@ -1270,6 +1288,9 @@ def truth_problems(truth, films_doc):
         ruler, expects = fact.get("ruler"), fact.get("expect") or []
         if "ruler" in fact and (not isinstance(ruler, dict) or not ruler):  # null, {}, [] and "" too: no form
             problems.append(f"{fid}: a ruler is an object of {', '.join(sorted(RULER_KEYS))}, not {json.dumps(ruler)[:80]}")
+            continue
+        if "expect" in fact and (not isinstance(fact["expect"], list) or not fact["expect"]):  # null, {}, [], "" too
+            problems.append(f"{fid}: an expect is a non-empty list of expectations, not {json.dumps(fact['expect'])[:80]}")
             continue
         if not ruler and not expects:
             problems.append(f"{fid}: no ruler fact and no expectation: it checks nothing")
