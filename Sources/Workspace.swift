@@ -6717,10 +6717,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
-        Self.resolveCloseConfirmation(
+        guard Self.resolveCloseConfirmation(
             shellActivityState: panelShellActivityStates[panelId],
             fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-        )
+        ) else { return false }
+        // A coding agent stays the shell's foreground command between turns.
+        // One that finished its turn or is waiting on the user has no work to
+        // lose, so only a working (or unreported) agent keeps the prompt.
+        switch agentHibernationLifecycleState(panelId: panelId, fallback: nil) {
+        case .idle, .needsInput:
+            return false
+        case .running, .backgroundWorkPending, .unknown:
+            return true
+        }
     }
 
     func panelNeedsConfirmClose(panelId: UUID) -> Bool {
