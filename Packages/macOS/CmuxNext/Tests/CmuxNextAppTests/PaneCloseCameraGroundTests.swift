@@ -61,6 +61,23 @@ struct PaneCloseCameraGroundTests {
         }
     }
 
+    /// Two last-row closes in a row where the second makes the rows fit (Codex review, round 2): four 400-permille rows
+    /// scrolled to the fourth, the fourth closes, and six frames later the third. The two rows left fit the column, so its
+    /// scroll goes and the second row springs to its rest; the first closing pane rides the second, which collapses onto
+    /// that rest, and must collapse with it (it knows where the second rests), not keep the ground it showed for the landing
+    /// to take away.
+    @Test func aSecondLastRowCloseThatMakesTheRowsFitLeavesNoGround() throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.rows([400, 400, 400, 400]), focused: "p4")
+        defer { rig.close() }
+        let screen = try rig.screen
+        try #require((screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100, "SETUP: the rows do not show the fourth")
+        try Self.check(rig, closing: ["p4", "p3"], vertical: true) {
+            let after = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the rows stopped scrolling at the first close")
+            try #require(abs(after.target - after.value) > 0.5, "SETUP: the row scroll does not spring back (\(after.value) -> \(after.target))")
+        }
+        #expect(screen.rowScrolls["c1"] == nil, "SETUP: two rows still scroll after the second close")
+    }
+
     /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
     /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
     static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, moving: () throws -> Void) throws {
