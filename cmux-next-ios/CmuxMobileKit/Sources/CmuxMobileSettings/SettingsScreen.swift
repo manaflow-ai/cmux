@@ -169,7 +169,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                     LinkRow("Join the cmux Discord", symbol: "bubble.left.and.bubble.right", url: "https://discord.gg/xsgFEVrWCZ")
                     LinkRow("Follow @cmux on X", symbol: "at", url: "https://x.com/cmux")
                     LinkRow("cmux on GitHub", symbol: "chevron.left.forwardslash.chevron.right", url: "https://github.com/manaflow-ai/cmux")
-                    LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
+                    // The Mac's Send Feedback (Help menu): the same new-issue page.
+                    LinkRow("Send feedback", symbol: "envelope", url: "https://github.com/manaflow-ai/cmux/issues/new")
+                        .accessibilityIdentifier("settings.sendFeedback")
                     CopyLogsRow()
                     LinkRow("Terms of Use", symbol: "doc.text", url: "https://cmux.com/terms-of-service")
                     LinkRow("Privacy Policy", symbol: "hand.raised", url: "https://cmux.com/privacy-policy")
