@@ -114,7 +114,16 @@ pub(super) fn transfer_epoch(dir: &Path) -> Result<u64, RpcError> {
 /// Reads the marker without treating a crash before marker creation as epoch zero. Callers that
 /// already have the session owner can safely use that owner epoch when this returns `None`.
 pub(super) fn transfer_epoch_marker(dir: &Path) -> Result<Option<u64>, RpcError> {
-    Ok(std::fs::read_to_string(dir.join("epoch")).ok().and_then(|raw| raw.trim().parse().ok()))
+    let path = dir.join("epoch");
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(transfer_error("epoch", error)),
+    };
+    let value = raw.trim().parse::<u64>().map_err(|error| {
+        transfer_error("epoch", format!("invalid epoch marker {}: {error}", path.display()))
+    })?;
+    Ok(Some(value))
 }
 
 /// Reject a delayed request from an older owner. Missing epochs remain accepted for old clients;
@@ -141,6 +150,16 @@ pub(super) fn require_epoch(expected: u64, supplied: Option<u64>) -> Result<(), 
         .with_data(json!({"epoch": expected})));
     }
     check_epoch(expected, supplied)
+}
+
+pub(super) fn require_valid_epoch(session: &Session) -> Result<u64, RpcError> {
+    if !session.ownership_epoch_is_valid() {
+        return Err(transfer_error(
+            "epoch_unreadable",
+            "ownership history is unreadable; refusing transfer writes",
+        ));
+    }
+    Ok(session.ownership_epoch())
 }
 
 /// A target may receive a newer move after its closed copy was moved away, but never an older
@@ -286,6 +305,12 @@ impl Hub {
         to_host: Option<&str>,
         gates_receiver: bool,
     ) -> Result<Value, RpcError> {
+        if !session.ownership_epoch_is_valid() {
+            return Err(transfer_error(
+                "epoch_unreadable",
+                "ownership history is unreadable; refusing to begin a transfer",
+            ));
+        }
         // A stopped chat moves (its bundle is its whole history); one that moved away never
         // does again.
         if let Some(to) = session.meta().moved_to {
@@ -547,7 +572,8 @@ impl Hub {
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
-        check_epoch(session.ownership_epoch(), epoch)?;
+        let current = require_valid_epoch(session)?;
+        check_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         // Committed already (by the source's own watch, or a retried commit). A stopped chat
         // is closed before its move, so the mark is where it went, not its status.
@@ -557,7 +583,7 @@ impl Hub {
             );
         }
         if let Some(epoch) = transfer_epoch_marker(&dir)? {
-            check_epoch(session.ownership_epoch(), Some(epoch))?;
+            check_epoch(current, Some(epoch))?;
         }
         for q in session.queue() {
             self.remove_queued(session, &q.prompt_id);
@@ -616,7 +642,8 @@ impl Hub {
         epoch: Option<u64>,
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
-        check_epoch(session.ownership_epoch(), epoch)?;
+        let current = require_valid_epoch(session)?;
+        check_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         if session.meta().moved_to.is_some() {
             return Err(transfer_error(
@@ -625,7 +652,7 @@ impl Hub {
             ));
         }
         if let Some(epoch) = transfer_epoch_marker(&dir)? {
-            check_epoch(session.ownership_epoch(), Some(epoch))?;
+            check_epoch(current, Some(epoch))?;
         }
         let mut record = json!({"transferId": transfer_id});
         record.set("epoch", json!(session.ownership_epoch()));
@@ -735,6 +762,15 @@ mod fencing_tests {
         assert!(require_epoch(5, Some(5)).is_ok());
         assert!(reject_stale_epoch(4, 5).is_ok());
         assert!(reject_stale_epoch(5, 4).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn malformed_epoch_marker_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("acpmux-epoch-bad-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("epoch"), "not-an-epoch").unwrap();
+        assert!(transfer_epoch_marker(&dir).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -1311,6 +1311,7 @@ impl Hub {
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
             ownership_epoch: AtomicU64::new(0),
+            ownership_epoch_valid: AtomicBool::new(true),
             transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),

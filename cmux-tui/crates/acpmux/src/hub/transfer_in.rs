@@ -371,6 +371,9 @@ impl Hub {
         // A chat that moved away from here may come back (`finish` replaces its closed copy).
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(existing) = here.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
             // A delayed bundle for an older owner must not replace a newer moved copy.
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
@@ -510,6 +513,9 @@ impl Hub {
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
+            if !existing.ownership_epoch_is_valid() {
+                return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
+            }
             self.restore_ownership_epoch(existing)
                 .map_err(|e| transfer_error("store", format!("ownership epoch unreadable: {e}")))?;
             reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;

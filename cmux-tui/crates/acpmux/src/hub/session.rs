@@ -153,6 +153,9 @@ pub struct Session {
     /// Fencing epoch for the daemon that owns this session. A move increments it; transfer
     /// requests carry the value so a delayed writer from the previous owner cannot mutate state.
     pub(super) ownership_epoch: AtomicU64,
+    /// Cleared when durable transfer history cannot be read; ownership must fail closed until
+    /// the daemon can establish the fencing floor.
+    pub(super) ownership_epoch_valid: AtomicBool,
     /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
     /// None until a restored log has been read successfully.
     pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
@@ -399,6 +402,14 @@ impl Session {
     /// The fencing epoch currently held by this session owner.
     pub(super) fn ownership_epoch(&self) -> u64 {
         self.ownership_epoch.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn ownership_epoch_is_valid(&self) -> bool {
+        self.ownership_epoch_valid.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn invalidate_ownership_epoch(&self) {
+        self.ownership_epoch_valid.store(false, Ordering::SeqCst);
     }
 
     /// Transfer ownership to a new daemon incarnation. Epoch zero is the legacy value; every
