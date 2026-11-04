@@ -168,6 +168,15 @@ final class ShellModel {
         terminalTabs.macName = { [weak store] workspace in
             store?.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name
         }
+        // Voice mode on a terminal while an agent runs in it (it replaced the dictation
+        // mic): the agent's Feed events are read aloud; the user's words are typed in.
+        terminalTabs.voiceSourceProvider = { [weak store, weak terminalTabs] tab, workspace, _ in
+            let workspaceID = workspace.id, tabID = tab.id
+            return TerminalVoiceSource(
+                macID: workspace.macID, workspaceID: workspaceID, tabID: tabID, feed: .shared,
+                currentTab: { store?.workspace(id: workspaceID)?.tabs.first { $0.id == tabID } },
+                currentModel: { terminalTabs?.model(forTabID: tabID) })
+        }
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }

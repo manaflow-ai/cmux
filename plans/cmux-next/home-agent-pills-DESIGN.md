@@ -117,3 +117,24 @@ Pills over the mock owner, and each open style live:
    Go to workspace. Red test first (the projection makes one pill per touched agent, under its turn,
    with its state and unread dot; a click opens one tab per agent; a second click selects it).
 3. Cloud transport and the move events, with a963 and a964.
+
+## Landing slices (2026-11-03)
+
+Slice 1 ships pills from the data Home already reads, with no new owner read, so it does not wait on
+the `HomeAgentPeer` / `HomeAgentSessionRef` agreement with a963 and a964:
+
+- `HomeAgentMessages.inserting` puts ONE agents row (the `.fold` kind, same group id) after the turn
+  for one or more messages, and status notes join it (no second "Disconnected (N)" row, no lone
+  bubble). Per agent, first-seen order: state = its newest step (task `told` = working, report
+  `reported`, status note `stopped`); title = `HomeAgentMessageRow.title(of:)` of the Chief's first
+  message to it, else its id. Local and Cloud Chief runs map through the same `HomeAgentRunMapping`.
+- The shipped `HomeAgentFoldRowProvider` draws `HomeAgentPills` (`.pill`) for that row; note and Feed
+  rows keep the caption line. Unread = `reported` until slice 2 adds `readAt`.
+- A click still opens and closes the turn's messages under the pills (no pane yet).
+
+Slice 2: the pill click (`onPill`, now shipped) -> a constructor-injected `@MainActor @Observable`
+`HomeAgentPaneCoordinator` (tabs keyed by (chief, peer), open selects, closing the last hides the
+pane), the pane's first content from the same run rows (task as "Sent via Chief", "Worked for" =
+report time minus task time, the later messages), and the seen set for the unread dot. "Go to
+workspace" waits for the `HomeAgentSessionRef` shape. Slice 3: sender labels and the shared composer
+(needs the `_meta.cmux.sender` and `agentNote` owner changes above).
