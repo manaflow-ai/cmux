@@ -2,6 +2,17 @@
 
 use super::*;
 
+fn note(line: String) {
+    eprintln!("{}", &line[..line.len().min(300)]);
+    if let Some(dir) = std::env::var_os("FAST_CHECKS_OUT") {
+        use std::io::Write;
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(Path::new(&dir).join("diag.txt")) {
+            let _ = writeln!(f, "{line}");
+        }
+    }
+}
+
 fn live_tick(line: &str) -> bool {
     let Ok(v) = serde_json::from_str::<Value>(line) else { return false };
     if v.get("id").is_some() {
@@ -38,7 +49,7 @@ fn daemon_logs(daemon: &Daemon) {
     for name in ["daemon.log", "acpmux.log", "logs/daemon.log"] {
         if let Ok(text) = std::fs::read_to_string(daemon.home.join(name)) {
             for line in text.lines().filter(|l| l.contains("WARN") || l.contains("ERROR")) {
-                eprintln!("LOG {}", &line[..line.len().min(240)]);
+                note(format!("LOG {line}"));
             }
         }
     }
@@ -110,7 +121,7 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     let started = Instant::now();
     daemon.start();
     let r1 = first_live(&daemon, &session, started, Duration::from_secs(15)).await;
-    eprintln!("[{tag}] round 1 first live tick: {r1:?}; mux: {}", mux_kinds(&daemon, &session));
+    note(format!("[{tag}] round 1 first live tick: {r1:?}; mux: {}", mux_kinds(&daemon, &session)));
     std::thread::sleep(Duration::from_secs(8));
     // Round 2: an ordinary handoff (the app asks the old daemon to stop, starts the new build).
     replace_binary(&copy);
@@ -121,7 +132,7 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     daemon.start();
     std::thread::sleep(Duration::from_millis(800));
     let r2 = first_live(&daemon, &session, started, Duration::from_secs(150)).await;
-    eprintln!("[{tag}] round 2 first live tick: {r2:?}; mux: {}", mux_kinds(&daemon, &session));
+    note(format!("[{tag}] round 2 first live tick: {r2:?}; mux: {}", mux_kinds(&daemon, &session)));
     daemon_logs(&daemon);
     let _ = daemon.rpc().await.send("session/cancel", json!({"sessionId": session})).await;
 }
