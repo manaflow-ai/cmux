@@ -47,7 +47,7 @@ pub struct ContextOverrideView {
 
 /// Approximate tokens for text we own. A harness-reported count is always preferred.
 pub fn estimated_tokens(text: &str) -> u64 {
-    text.chars().count().div_ceil(4) as u64
+    text.chars().count().saturating_add(3).checked_div(4).unwrap_or(0) as u64
 }
 
 fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
