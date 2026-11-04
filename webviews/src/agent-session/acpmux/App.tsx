@@ -60,6 +60,7 @@ import {
   statusEdge,
   type StatusEdge,
   isLastFooter,
+  isLiveLine,
   isContinuationFooter,
   QUEUED_MESSAGE,
   PENDING_MESSAGES,
@@ -194,6 +195,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { reconciledProject, startFromContext } from "./newtab/startHint";
 import {
   drawsAsIs,
   drewStreamingRow,
@@ -307,6 +309,7 @@ import {
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { SubagentTray } from "./subagents/SubagentTray";
+import { TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
@@ -425,6 +428,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
+import { startedNames, SubsessionNamesProvider, type StartedNames } from "./conversation/startedNames";
 import {
   headerChangesInPlace,
   repositoryRoot,
@@ -588,7 +592,7 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan } from "./chatDisplay";
+import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan, useTrayTucked } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -750,7 +754,7 @@ import {
 } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
-import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
+import { SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
   STARTED_SESSIONS,
   type StartedCache,
@@ -4183,12 +4187,19 @@ export function VirtualTranscript({
   // tray coming or going, make room as before; scrolled up the room is held anyway.
   // The rows' own growth: room taken or given above them for older history is none.
   const rowsGrew = measured.layout.totalHeight - (measured.layout.origin ?? 0) - rowsSeen.current;
-  const trayBase =
+  const heldBase =
     sessionSwitched || !following || dockSpace <= 0 || !trayToggled.current
       ? dockTray
       : rowsGrew > 0.5
         ? dockTray - Math.min(0, dockTray - foldBase.current + rowsGrew)
         : foldBase.current;
+  // Never over the running turn's live line, though: while it is the last row, what the reader opens
+  // lies over at most half the line's rest gap, and the rows make room for the rest at once, so the
+  // line stays in sight over the stack from the send to the reply (Leo, 2026-11-04: "why does it
+  // not display Thinking or anything here???", then "it appears and disappears????", the line under
+  // a tray he had opened). What folds still moves no row.
+  const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
+  const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
   // a turn footer's action row lies in the band under its reply, so that band comes first
@@ -6329,7 +6340,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(initialChat?.workflowLabs !== false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
-  const [newSession, setNewSession] = useState(false);
+  /// Where this New Tab page's new chat starts, as the app knew it when the page loaded
+  /// (AgentPaneNewTabStart): the first frame draws its project or no project, with no acpmux round trip.
+  const [injectedStart] = useState(() => startFromContext(injectedNewTabContext()?.start));
+  const [newSession, setNewSession] = useState(injectedStart?.newSession === true);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
   /// The focused pane's rail visibility. The experiment still chooses compact/full when visible;
@@ -6371,12 +6385,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onOpenSession: (...args) => whenHandshaken(() => actions.onOpenSession(...args)),
   });
   // An unsent chat can choose its folder even before an agent is available.
-  const [projectDraft, setProjectDraft] = useState<string | undefined>();
+  const [projectDraft, setProjectDraft] = useState<string | undefined>(injectedStart?.projectDraft);
+  /// The folder the app's start named (`NewTabHost.start`), until the handshake's answer: a
+  /// handshake that names none clears it only while the person has not picked another.
+  const startedFromHint = useRef(injectedStart?.projectDraft);
   /// The folders an unsent chat sees beside its own (the folder menu's Add folder…, extraFolders.ts),
   /// on the machine they were added for; its `session/new` carries them (direct.ts `setNewChatFolders`).
   const [extraFolderDraft, setExtraFolderDraft] = useState<ExtraFolderDraft>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
-  const [chooseFolder, setChooseFolder] = useState(false);
+  const [chooseFolder, setChooseFolder] = useState(injectedStart?.chooseFolder === true);
   /// A chat that opened without its folder (cx-nn3e.1): acpmux's reason, until a pick works.
   const [folderNeeded, setFolderNeeded] = useState<{ reason: string; error?: string }>();
   const [pastTurns, setPastTurns] = useState<PastTurn[]>();
@@ -7363,6 +7380,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     lastEditRows.current = edits;
     return edits.edits;
   }, [snapshot.rows]);
+  // The names this chat's start calls gave its sub-sessions, for a "Sent to" row whose chat left
+  // the session list (conversation/startedNames.ts); the same map while no start was added.
+  const lastStartedNames = useRef<StartedNames | undefined>(undefined);
+  const subsessionNames = useMemo(() => {
+    const started = startedNames(snapshot.rows, lastStartedNames.current);
+    lastStartedNames.current = started;
+    return started.names;
+  }, [snapshot.rows]);
   const askedToolCalls = useMemo(
     () => pendingToolCalls(snapshot),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the asks' inputs, not the whole snapshot
@@ -7520,7 +7545,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             liveRuns: codexRuns,
             sessionStatus,
             lineBelow,
-            // A finished turn folds under one Worked for; opened, a Claude turn folds per run, as Claude desktop does.
+            // A finished turn folds as its harness family's app does: Codex under one Worked for, Claude per run.
             agentFamily: snapshot.summary?.family,
             // Other sessions' messages among them, two or more in a run, draw as one card.
             waitingSteers: snapshot.waitingSteers,
@@ -7620,6 +7645,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // in Debug Settings, the Quick Composer, a subagent's own view). Once the turn ends its list folds
   // in the transcript, as before.
   const pinnedPlan = useChatPinnedPlan();
+  // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
+  const trayTucked = useTrayTucked();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -8587,10 +8614,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // (the host names a folder below home, AgentPaneStartFolders), so Cmd-T on a spare names the tab's
   // project on its first frame instead of "Choose folder".
   const adoptNewTab = useCallback((host: NewTabHost) => {
+    // The adopted tab's start is measured from its own first frame (perf.ts noteStartState).
+    acpmuxPerf.resetStartState();
     newTabStartGeneration.current += 1;
     leftoverInField.current = undefined;
     setNewTabAdoptions((count) => count + 1);
     setNewTab(host);
+    // The host's start for the adopting tab (its project, or none with Choose Folder…), as its
+    // handshake would answer; an older host's context has none, and the tab's folder stands in.
+    const start = startFromContext(host.start);
+    if (start) {
+      startedFromHint.current = start.projectDraft;
+      setProjectDraft(start.projectDraft);
+      setChooseFolder(start.chooseFolder);
+      return;
+    }
     const cwd = host.cwd;
     const named = cwd && !isAgentHome(cwd) && !/^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd) ? cwd : undefined;
     setProjectDraft(named);
@@ -8614,7 +8652,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => initialChat !== undefined || injectedNewTabContext() !== undefined,
   );
   const markContextKnown = useCallback(() => setContextKnown(true), []);
-  const earlyNewTab = useEarlyNewTabContext(callNative, setNewTab, markContextKnown);
+  // A context that came by `newTab.context` (not injected) carries the start too: drawn with it.
+  const takeEarlyNewTab = useCallback((host: NewTabHost) => {
+    setNewTab(host);
+    const start = startFromContext(host.start);
+    if (!start || handshakenRef.current) return;
+    startedFromHint.current = start.projectDraft;
+    setNewSession(start.newSession);
+    setProjectDraft(start.projectDraft);
+    setChooseFolder(start.chooseFolder);
+  }, []);
+  const earlyNewTab = useEarlyNewTabContext(callNative, takeEarlyNewTab, markContextKnown);
   // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
     newTabStartGeneration.current += 1;
@@ -9731,6 +9779,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             shown={trayChat}
             enters={trayEnters}
             plan={hatPlan}
+            onTuck={trayPlacement === "tray" ? tuckTray : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -11038,7 +11087,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             : undefined,
         );
         setNewSession(host.newSession === true && !host.sessionId);
+        // The store's start folder: the same as the app's start drawn first changes nothing; another
+        // replaces it, and none clears it unless the person picked a folder meanwhile.
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
+        else if (host.newSession && !host.sessionId && !reconnect && startedFromHint.current !== undefined) {
+          const hinted = startedFromHint.current;
+          setProjectDraft((current) => reconciledProject(current, hinted, undefined));
+        }
+        if (!reconnect) startedFromHint.current = undefined;
         setChooseFolder(host.chooseFolder === true);
         setFolderNeeded(
           typeof host.folderNeeded?.reason === "string" && host.folderNeeded.reason
@@ -13556,6 +13612,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     chooseProject,
     chooseFolder,
   ]);
+  // The hero's start as it shows (its project, Do not work in a project), first frame to final
+  // (perf.ts noteStartState). Only a new chat with no session yet, not under a New Tab page.
+  const heroShown =
+    heroPicker && freshView && !snapshot.sessionId && !showNewTab
+      ? `hero:${projectName(composerSnapshot.summary?.cwd) ?? ""}:${heroPicker.noProject ? 1 : 0}`
+      : undefined;
+  useEffect(() => {
+    if (heroShown !== undefined) acpmuxPerf.noteStartState(heroShown);
+  });
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string) => {
     const view = chatViewRef.current;
@@ -13616,7 +13681,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                           value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                                         >
                                           <SessionHoverContext.Provider value={sessionHover}>
-                                            <SubsessionContext.Provider value={subsessions}>
+                                            <SubsessionNamesProvider
+                                              subsessions={subsessions}
+                                              started={subsessionNames}
+                                            >
                                               <StartedMentionsContext.Provider value={startedMentions}>
                                                 <FailedSendsContext.Provider value={failedSends}>
                                                   <ChatFindScope
@@ -13732,7 +13800,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                   <SelectionReplyChip />
                                                 </FailedSendsContext.Provider>
                                               </StartedMentionsContext.Provider>
-                                            </SubsessionContext.Provider>
+                                            </SubsessionNamesProvider>
                                           </SessionHoverContext.Provider>
                                         </SubagentHarnessContext.Provider>
                                       </SubagentClockContext.Provider>
@@ -14186,7 +14254,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         </Notice>
         {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
           running or recently ended subagent, background command and started chat, one card each. */}
-        {trayPlacement === "tray" && trayNode}
+        {/* Tucked away (chatDisplay.ts TRAY_TUCKED_KEY), the hat leaves only its pull tab at the
+            composer's top middle (subagents/TrayPullTab.tsx). */}
+        {trayPlacement === "tray" &&
+          (trayTucked && trayNode ? (
+            <TrayPullTab running={trayList.length > 0 || (hatPlan !== undefined && hatPlan.length > 0)} />
+          ) : (
+            trayNode
+          ))}
         {statusCardOpen && (
           <HarnessStatusCard
             summary={snapshot.summary}
@@ -14658,9 +14733,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <HostWaitingLine
         since={hostWaitingSince}
         restarting={restartingAcpmux}
-        onRestart={
-          waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined
-        }
+        onRestart={waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined}
         otherwise={hostErrorCard}
       />
     ) : (

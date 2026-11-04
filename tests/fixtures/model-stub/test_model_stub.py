@@ -106,7 +106,10 @@ class StubTest(unittest.TestCase):
         _, text = post(self.base + "/v1/messages/count_tokens", {"messages": []})
         self.assertEqual(json.loads(text), {"input_tokens": 10})
         with urllib.request.urlopen(self.base + "/v1/models", timeout=10) as r:
-            self.assertEqual(json.loads(r.read())["data"][0]["id"], "stub-model")
+            models = json.loads(r.read())
+        self.assertEqual(models["data"][0]["id"], "stub-model")
+        # Codex decodes {"models": [ModelInfo]}; an empty list leaves it on its fallback model metadata.
+        self.assertEqual(models["models"], [])
         with urllib.request.urlopen(self.base + "/__stub/info", timeout=10) as r:
             self.assertEqual(json.loads(r.read())["version"], model_stub.STUB_VERSION)
 
@@ -210,6 +213,36 @@ class ScriptAndCliTest(unittest.TestCase):
         for name in sorted(os.listdir(HERE)):
             if name.endswith(".json"):
                 model_stub.load_script(os.path.join(HERE, name))
+
+    def test_machine_vault_script_reads_both_echo_apis(self) -> None:
+        script = model_stub.load_script(os.path.join(HERE, "machine-vault-e2e.json"))
+        results = ["cmux-secret://MACHINE_VAULT_E2E\n",
+                   '{"headers":{"host":"postman-echo.com","x-cmux-e2e":"n0nce42","accept":"*/*"}}',
+                   '{\n  "headers": {\n    "Host": "httpbin.org", \n    "X-Cmux-E2e": "cmux-secret://MACHINE_VAULT_E2E"\n  }\n}\n']
+        reply = model_stub.render(script["steps"][3]["text"], "", results)
+        self.assertEqual(reply.splitlines()[:3], ["env=cmux-secret://MACHINE_VAULT_E2E", "allowed=n0nce42", "denied=cmux-secret://MACHINE_VAULT_E2E"])
+
+    def test_prompt_templates_read_the_last_user_message(self) -> None:
+        script = model_stub.load_script(os.path.join(HERE, "exact-reply.json"))
+        server, _ = model_stub.serve(script, "n")
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        ask = "ping. Reply with exactly the text PONG-r1-2 and nothing else. No tools."
+        try:
+            # Claude Code: a reminder block beside the prompt, an earlier turn before it.
+            msgs = [{"role": "user", "content": "Reply with exactly the text PONG-r1-1 and nothing else."},
+                    {"role": "assistant", "content": [{"type": "text", "text": "PONG-r1-1"}]},
+                    {"role": "user", "content": [{"type": "text", "text": "<system-reminder>x</system-reminder>"}, {"type": "text", "text": ask}]}]
+            _, text = post(base + "/v1/messages", {"messages": msgs, "tools": [{"name": "Bash"}]})
+            self.assertEqual(json.loads(text)["content"][0]["text"], "PONG-r1-2")
+            items = [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": ask}]}]
+            _, plain = post(base + "/v1/responses", {"input": items, "tools": [{"type": "function", "name": "shell"}]})
+            self.assertEqual(json.loads(plain)["output"][0]["content"][0]["text"], "PONG-r1-2")
+            _, plain = post(base + "/v1/responses", {"input": ask, "tools": [{"type": "function", "name": "shell"}]})
+            self.assertEqual(json.loads(plain)["output"][0]["content"][0]["text"], "PONG-r1-2")
+        finally:
+            server.shutdown()
+            server.server_close()
+        self.assertEqual(model_stub.render("[{{prompt}}]", "n", ["x"]), "[]")
 
     def test_cli_prints_ready_line_and_serves(self) -> None:
         with tempfile.TemporaryDirectory() as d:

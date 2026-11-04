@@ -527,6 +527,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
                 model.clearScreenAndScrollback()
             },
+            // The Mac's Toggle Copy Mode by touch: the cursor's row selected; vi keys
+            // (Shift-Cmd-M from a hardware keyboard) or the handles move it.
+            TerminalTabAction(title: "Select Text…", systemImage: "character.cursor.ibeam", isEnabled: model.canSelectText) {
+                model.selectText()
+            },
+            TerminalTabAction(title: "Select All", systemImage: "selection.pin.in.out") { model.selectAll() },
+            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor", isEnabled: model.connectionState.isAttached) {
+                model.showSendText()
+            },
+            TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
             TerminalTabAction(title: "Scroll to Bottom", systemImage: "arrow.down.to.line", isEnabled: model.isScrolledUp) { model.scrollToBottom() },
         ]
     }

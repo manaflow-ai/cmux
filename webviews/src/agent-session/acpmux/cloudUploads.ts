@@ -26,7 +26,6 @@ const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
 
-
 /// `call`, refused when the host does not answer within `ms`; null delegates its deadline to native.
 export function callWithin(call: Call, ms: number | null = null, signal?: AbortSignal): Call {
   return (method, params) =>

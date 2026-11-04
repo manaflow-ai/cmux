@@ -142,7 +142,7 @@ export function AgentMessageRow({
         </span>
         {meta && <span className="cv-tool__trail">{meta}</span>}
         <span className="cv-tool__chevron cv-agentmsg__chevron" aria-hidden>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </div>
       {below && (

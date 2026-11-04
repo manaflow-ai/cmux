@@ -71,8 +71,8 @@ final class AppControl {
     }
 
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
-        let service = try ControlService.start(registry: registry, settings: settings, launch: launch,
-                                               frameSource: frames, watchdog: watchdog)
+        let service = try ControlService.start(registry: registry, settings: settings, launch: launch, frameSource: frames, watchdog: watchdog,
+                                               sessionHandoff: .forNightly(launch: launch, productionAuth: services.cloud.configuration.isProductionAuth, session: services.cloud.auth.storedSession))
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                           overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,

@@ -331,6 +331,25 @@ pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(file)
 }
 
+/// Create an owner-only state file without following a pre-positioned final
+/// symlink. Callers can distinguish an existing incident archive through the
+/// `AlreadyExists` error, so this deliberately does not open existing files.
+#[cfg(unix)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    refuse_lost_home(path)?;
+
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .with_context(|| format!("create private state file {}", path.display()))?;
+    validate_private_state_file(&file, path)?;
+    Ok(file)
+}
+
 /// Open or create an owner-only regular state file for append without
 /// following a pre-positioned final symlink (daemon.log).
 #[cfg(unix)]
@@ -453,6 +472,11 @@ pub(crate) fn private_state_file(path: &Path) -> Result<std::fs::File> {
 #[cfg(windows)]
 pub(crate) fn private_state_rw(path: &Path) -> Result<std::fs::File> {
     Ok(crate::owner_only::open_rw(path)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn private_state_create_new(path: &Path) -> Result<std::fs::File> {
+    Ok(crate::owner_only::create_new(path)?)
 }
 
 #[cfg(windows)]
@@ -829,54 +853,6 @@ pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
         HarnessKind::ClaudeStdio => Some(TurnCut::Claude),
         HarnessKind::Acp if derive_family(name, profile) == "codex" => Some(TurnCut::Codex),
         _ => None,
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-#[derive(Default)]
-pub enum StoreMode {
-    Memory,
-    #[default]
-    Local,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct StoreConfig {
-    #[serde(default)]
-    pub mode: StoreMode,
-    /// Segment roll size in bytes for the event log.
-    #[serde(default = "default_segment_bytes")]
-    pub segment_bytes: u64,
-    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
-    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
-    /// Default 14; 0 keeps every log whole.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub closed_log_days: Option<u32>,
-}
-
-impl StoreConfig {
-    /// How long a closed chat's log is kept whole; None: always.
-    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
-        match self.closed_log_days.unwrap_or(14) {
-            0 => None,
-            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
-        }
-    }
-}
-
-fn default_segment_bytes() -> u64 {
-    8 * 1024 * 1024
-}
-
-impl Default for StoreConfig {
-    fn default() -> Self {
-        Self {
-            mode: StoreMode::Local,
-            segment_bytes: default_segment_bytes(),
-            closed_log_days: None,
-        }
     }
 }
 
@@ -2073,6 +2049,8 @@ pub use discover::{
 };
 mod peer;
 pub use peer::PeerConfig;
+mod store_config;
+pub use store_config::{StoreConfig, StoreMode, store_journal_enabled};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;

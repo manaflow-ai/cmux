@@ -370,6 +370,36 @@ void cmux_focus_pane_emptied(CmuxFocus *focus, const uint8_t *pane, size_t pane_
 uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t is_key, uint8_t is_repeat);
 
 /*
+ * The app's one input handle (R-INPUT stage S2): the input router of
+ * cmux-focus-core, which owns every window's focus. Each cmux_input_focus_*
+ * call is the cmux_focus_* call of the same name for the window `window`
+ * (UTF-8 id bytes), with the same requests and the same reply bytes. A reply
+ * is valid until the next cmux_input_* call for that window; never free it.
+ * A call for a window that is not open returns null (0 for a number; CMUX_LAYOUT_REDUCER_ERR_INVALID
+ * from cmux_input_focus_import_json, ERR_NULL for a null handle or bad id bytes).
+ * memory: the machine's physical memory in bytes (it bounds the key lanes).
+ */
+typedef struct CmuxInput CmuxInput;
+CmuxInput *cmux_input_new(uint64_t memory);
+void cmux_input_free(CmuxInput *input);
+/* opens a window (a second open changes nothing); its first reply, as cmux_focus_current's */
+const CmuxFocusReply *cmux_input_window_open(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_window_close(CmuxInput *input, const uint8_t *window, size_t window_len);
+const CmuxFocusReply *cmux_input_focus_send(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusEvent *event, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_set_topology(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusTopology *topology, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_current(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_focus_set_close_focus(CmuxInput *input, const uint8_t *window, size_t window_len, uint8_t policy); /* 0 previous neighbor, 1 most recent */
+const CmuxFocusStrings *cmux_input_focus_recent_panes(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *workspace, size_t workspace_len, uint8_t has_workspace);
+const CmuxFocusStrings *cmux_input_focus_remembered(CmuxInput *input, const uint8_t *window, size_t window_len);
+/* Journal checkpoints and replay only, never per event; free the string with cmux_focus_string_free. */
+char *cmux_input_focus_export_json(CmuxInput *input, const uint8_t *window, size_t window_len);
+int32_t cmux_input_focus_import_json(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *json, size_t json_len);
+uint64_t cmux_input_focus_pane_moved(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *from, size_t from_len, uint8_t has_from);
+void cmux_input_focus_frame_presented(CmuxInput *input, const uint8_t *window, size_t window_len, uint64_t serial, double time);
+void cmux_input_focus_pane_emptied(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *pane, size_t pane_len, double time, uint8_t is_key, uint8_t is_repeat);
+uint8_t cmux_input_focus_aims_at_emptied_pane(CmuxInput *input, const uint8_t *window, size_t window_len, double time, uint8_t is_key, uint8_t is_repeat);
+
+/*
  * The close successor rules (cmux-focus-core close_focus), one call per
  * close, no handle. Ids are the caller's own uint32_t numbering of its tab
  * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero

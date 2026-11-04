@@ -155,6 +155,9 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
+pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
@@ -317,6 +320,7 @@ mod url_open;
 #[cfg(test)]
 use capabilities::advertised_capabilities;
 use capabilities::identify_capabilities;
+use cmd_panes::LayoutSizeWire;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -2401,23 +2405,6 @@ impl Command {
                 | Self::BrowserActivate { .. }
                 | Self::ScrollSurface { .. }
         )
-    }
-}
-
-/// One value of `set-layout-sizes`: what `set-split-ratio` or `set-viewport-pane-width` sets.
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(untagged)]
-enum LayoutSizeWire {
-    SplitRatio { split: SplitId, ratio: f32 },
-    PaneWidth { pane: PaneId, width: f32 },
-}
-
-impl From<LayoutSizeWire> for crate::mux::LayoutSizeValue {
-    fn from(value: LayoutSizeWire) -> Self {
-        match value {
-            LayoutSizeWire::SplitRatio { split, ratio } => Self::SplitRatio { split, ratio },
-            LayoutSizeWire::PaneWidth { pane, width } => Self::PaneWidth { pane, width },
-        }
     }
 }
 
