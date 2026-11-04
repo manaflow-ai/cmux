@@ -64,9 +64,7 @@ function Pair({ arm }: { arm: Arm }) {
           <p>The toolbar draws before the sidebar measures itself:</p>
           <img className="cv-img" src={urls.get("reply")} alt="" />
         </div>
-        <div style={{ color: "var(--cv-text-muted)", fontSize: 12 }}>
-          {radii.label}
-        </div>
+        <div style={{ color: "var(--cv-text-muted)", fontSize: "var(--text-caption)" }}>{radii.label}</div>
       </div>
     </TurnActionsContext.Provider>
   );
@@ -77,7 +75,12 @@ function MediaRadius({ arms }: Props) {
     <ImageViewerContext.Provider value={() => {}}>
       <div
         className="acpmux-shell"
-        style={{ padding: 16, display: "grid", gridTemplateColumns: `repeat(${arms.length}, minmax(0, 1fr))`, gap: 32 }}
+        style={{
+          padding: 16,
+          display: "grid",
+          gridTemplateColumns: `repeat(${arms.length}, minmax(0, 1fr))`,
+          gap: 32,
+        }}
       >
         {arms.map((arm) => (
           <Pair key={arm} arm={arm} />
@@ -104,6 +107,9 @@ export default componentEntry<Props>({
     },
     "all-8": { note: "Shipped: thumbnails and reply images at 8, as a reply's video.", props: { arms: ["all-8"] } },
     "all-12": { note: "Everything at the cards' 12, the prompt bubble's radius.", props: { arms: ["all-12"] } },
-    "sent-12-reply-8": { note: "Before: sent thumbnails at 12, a reply's image at 8.", props: { arms: ["sent-12-reply-8"] } },
+    "sent-12-reply-8": {
+      note: "Before: sent thumbnails at 12, a reply's image at 8.",
+      props: { arms: ["sent-12-reply-8"] },
+    },
   },
 });
