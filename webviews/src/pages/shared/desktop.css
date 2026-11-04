@@ -165,7 +165,7 @@ body {
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
-  max-width: min(320px, calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
+  max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
   padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
@@ -554,6 +554,7 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
+  --tooltip-max-width: 320px;
   /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
   --tooltip-edge: var(--ds-space-1);
   --tooltip-pad-block: var(--grid-half-step);

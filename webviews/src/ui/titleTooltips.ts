@@ -14,7 +14,7 @@ import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } 
 import { UI_TOOLTIP_GAP } from "./anchor";
 
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
-const EDGE = 6;
+export const UI_TOOLTIP_EDGE = 4;
 /// After a scroll, how long the page stays still before the element under the pointer shows its
 /// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
 const SCROLL_QUIET = 150;
@@ -23,7 +23,7 @@ const GAP = UI_TOOLTIP_GAP;
 type Box = { left: number; top: number; width: number; height: number };
 
 /// The standard tooltip's widest, the native one's (TooltipPanel.maxWidth).
-const MAX_WIDTH = 320;
+export const UI_TOOLTIP_MAX_WIDTH = 320;
 /// The narrowest a truncated element's tooltip may wrap at, so a cut-off chip's text is not a column.
 const TRUNCATED_MIN_MAX = 480;
 
@@ -43,8 +43,8 @@ export function tooltipWidth({
   view: number;
   text?: number;
 }) {
-  const room = Math.max(0, view - 2 * EDGE);
-  if (!truncated) return { min: 0, max: Math.min(MAX_WIDTH, room) };
+  const room = Math.max(0, view - 2 * UI_TOOLTIP_EDGE);
+  if (!truncated) return { min: 0, max: Math.min(UI_TOOLTIP_MAX_WIDTH, room) };
   const line = Math.ceil(width);
   const min = text === undefined ? line : Math.min(line, Math.ceil(text));
   return { min: Math.min(min, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
@@ -79,7 +79,10 @@ export function tooltipPosition(
         ? below
         : Math.max(EDGE, above);
   const centered = anchor.left + anchor.width / 2 - size.width / 2;
-  const left = Math.min(Math.max(EDGE, centered), Math.max(EDGE, view.width - EDGE - size.width));
+  const left = Math.min(
+    Math.max(UI_TOOLTIP_EDGE, centered),
+    Math.max(UI_TOOLTIP_EDGE, view.width - UI_TOOLTIP_EDGE - size.width),
+  );
   return { left: Math.round(left), top: Math.round(top) };
 }
 
