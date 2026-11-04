@@ -61,6 +61,9 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
 #[cfg(test)]
@@ -621,6 +624,26 @@ impl Surface {
         })))
     }
 
+    /// Where this terminal's sizing publishes the view a key may skip its sizing note for (R-DAEMON-STATE stage S1);
+    /// every view of the terminal shares it. `None` for a browser surface.
+    pub(crate) fn sizing_fast_path_slot(
+        &self,
+    ) -> Option<crate::mux::sizing_fast_path::SizingFastPathSlot> {
+        self.as_pty().map(|pty| pty.terminal.sizing_fast_path.clone())
+    }
+
+    /// Whether a key from `client` into this view may skip its sizing note: the terminal's sizing published this
+    /// view as its settled newest. One atomic load, no lock.
+    pub(crate) fn skips_sizing_note(&self, client: u64) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            pty.terminal
+                .sizing_fast_path
+                .load()
+                .as_deref()
+                .is_some_and(|fast| fast.client == client && fast.placement == self.id)
+        })
+    }
+
     pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
         match (self, other) {
             (Surface::Pty(left), Surface::Pty(right)) => {
@@ -788,6 +811,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: Default::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -849,6 +876,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,

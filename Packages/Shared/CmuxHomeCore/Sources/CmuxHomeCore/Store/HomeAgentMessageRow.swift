@@ -65,11 +65,16 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     /// For a fold or notes row: the newest message's words (a one-line preview); nil for other rows.
     public var latest: String?
     /// For a fold or notes row: each agent's title, in the order of its `peers`: the `Title:` line of the
-    /// first message the Chief sent it (a spawn task's first line), else its first words; the agent's id
+    /// first message the Chief sent it (a spawn task's first line), else its first clause (``title(of:)``); the agent's id
     /// when the Chief sent it nothing here. Empty for other rows.
     public var peerTitles: [String] = []
 
-    /// A task's title: its `Title:` line, else the first line's first five words (Markdown marks dropped).
+    /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
+    public static let titleLength = 32
+
+    /// A task's title: its `Title:` line, else its first clause (Markdown marks dropped): the first line cut
+    /// at the first `:`, `,`, `;`, ` - ` or sentence end (`.` before a space), then at a word edge to about
+    /// ``titleLength`` characters, with no trailing punctuation. Nil for a task with no words.
     public static func title(of text: String) -> String? {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map { $0.trimmingCharacters(in: .whitespaces) }
         if let line = lines.first(where: { $0.lowercased().hasPrefix("title:") }) {
@@ -77,9 +82,19 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
             if !title.isEmpty { return title }
         }
         guard let first = lines.first else { return nil }
-        let words = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
-            .split(separator: " ").prefix(5).joined(separator: " ")
-        return words.isEmpty ? nil : words
+        var clause = first.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+        for mark in [":", ",", ";", " - ", ". "] {
+            if let cut = clause.range(of: mark) { clause = String(clause[..<cut.lowerBound]) }
+        }
+        let words = clause.split(separator: " ")
+        var title = ""
+        for word in words {
+            let next = title.isEmpty ? String(word) : title + " " + word
+            if !title.isEmpty, next.count > titleLength { break }
+            title = next
+        }
+        while let last = title.last, ".,;:!?-–—".contains(last) || last.isWhitespace { title.removeLast() }
+        return title.isEmpty ? nil : title
     }
 
     /// Creates a row of `group`.

@@ -107,6 +107,37 @@ struct AgentPaneMenuLookTests {
         #expect(webKit.count == 1)
     }
 
+    /// A right-click on a chat the transcript opens: Open on Right runs the click's open, and Go to
+    /// Chat is there only when a tab already shows the chat (ask-e9c4803262).
+    @Test func aChatPartOffersOpenOnRightAndGoToChat() throws {
+        var opened: [String] = []
+        var jumped = 0
+        func menu(tabShown: Bool) -> NSMenu {
+            let menu = Self.webKitMenu(MenuLookWebKitTarget())
+            let jump: @MainActor () -> Void = { jumped += 1 }
+            let goTo: (String, Bool) -> (@MainActor () -> Void)? = { _, _ in tabShown ? jump : nil }
+            let open: (String, Bool) -> Void = { session, _ in opened.append(session) }
+            var actions = AgentPaneContextMenu.Actions(copy: { _ in }, fork: { _ in })
+            actions.openSession = open
+            actions.goToSession = goTo
+            let target = AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(session: "child"))
+            AgentPaneContextMenu.rebuild(menu, target: target, devTools: false, scope: ThemeScope.app.fullStrength, actions: actions)
+            return menu
+        }
+        #expect(!menu(tabShown: false).items.contains { $0.title == AgentPaneMenuStrings.goToChat })
+        let shown = menu(tabShown: true)
+        let goTo = try #require(shown.items.first { $0.title == AgentPaneMenuStrings.goToChat })
+        try Self.click(goTo)
+        Self.drainRunLoop { jumped > 0 }
+        #expect(jumped == 1)
+        // Kept: a row knows its menu only weakly, and choosing it goes through the menu.
+        let again = menu(tabShown: true)
+        let right = try #require(again.items.first { $0.title == AgentPaneMenuStrings.openOnRight })
+        try Self.click(right)
+        Self.drainRunLoop { !opened.isEmpty }
+        #expect(opened == ["child"])
+    }
+
     // MARK: Helpers
 
     private static func rows(of menu: NSMenu) -> [NSMenuItem] {

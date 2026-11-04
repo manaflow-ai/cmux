@@ -58,6 +58,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
@@ -98,6 +106,7 @@ name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-bookmarks-core",
+ "cmux-cloud-config",
  "cmux-cloud-start-core",
  "cmux-focus-core",
  "cmux-imessage",
