@@ -147,6 +147,10 @@ extension LiveCoordinator {
         session.currentLink = link
         session.servedLink = nil
         session.pairingGate = nil
+        // A new link pairs from the start: the old link's retry ends, the backoff starts over.
+        session.pairingRetry?.cancel()
+        session.pairingRetry = nil
+        session.pairingRetries = 0
         session.acpmux.approver = nil
         session.chatsError = nil
         session.daemonError = nil
