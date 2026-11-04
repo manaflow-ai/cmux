@@ -4354,6 +4354,12 @@
         "modes": {
           "description": "The agent's ACP session modes."
         },
+        "moveEpoch": {
+          "description": "How many times the chat moved to another daemon (`acpmux session move`). Each move\nraises it by one, here and where it went, and the move's `transferred` record carries the\nnew one with the new place: a client that follows the chat re-attaches where the higher\none says. Absent when it never moved, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "movedTo": {
           "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."
         },
@@ -4907,6 +4913,12 @@
             "string",
             "null"
           ]
+        },
+        "moveEpoch": {
+          "description": "How many times the chat moved to another daemon (`acpmux session move`). Each move\nraises it by one, here and where it went, and the move's `transferred` record carries the\nnew one with the new place: a client that follows the chat re-attaches where the higher\none says. Absent when it never moved, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "movedTo": {
           "description": "Moved to another daemon (`acpmux session move`): where it runs now,\n`{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,\nand from a peer on an older acpmux."

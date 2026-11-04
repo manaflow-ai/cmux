@@ -910,6 +910,13 @@ export type SessionDetail = {
   /** The agent's ACP session modes. */
   modes?: unknown;
   /**
+   * How many times the chat moved to another daemon (`acpmux session move`). Each move
+   * raises it by one, here and where it went, and the move's `transferred` record carries the
+   * new one with the new place: a client that follows the chat re-attaches where the higher
+   * one says. Absent when it never moved, and from a peer on an older acpmux.
+   */
+  moveEpoch?: number;
+  /**
    * Moved to another daemon (`acpmux session move`): where it runs now,
    * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
    * and from a peer on an older acpmux.
@@ -1144,6 +1151,13 @@ export type SessionSummary = {
    */
   mcpServers?: (McpServerSummary[] | null);
   model?: (string | null);
+  /**
+   * How many times the chat moved to another daemon (`acpmux session move`). Each move
+   * raises it by one, here and where it went, and the move's `transferred` record carries the
+   * new one with the new place: a client that follows the chat re-attaches where the higher
+   * one says. Absent when it never moved, and from a peer on an older acpmux.
+   */
+  moveEpoch?: number;
   /**
    * Moved to another daemon (`acpmux session move`): where it runs now,
    * `{host?, sessionId, cwd?, branch?, commit?}`. It never runs here again. Absent otherwise,
