@@ -103,9 +103,9 @@ final class AppServices {
     var appActiveSource: @MainActor () -> Bool
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
-    /// One environment apply at a time; its bounded relaunch helper waits for this process to exit.
-    let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// One Cloud environment apply at a time.
+    let cloudEnvironmentSwitch = CloudEnvironmentSwitch()
     /// This build's error journal (AppControl starts it): Help > Copy Logs reads it.
     var errorJournal: ErrorJournalService?
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
