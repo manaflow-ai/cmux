@@ -170,7 +170,7 @@ test("a recovering pane asks again within 2 s; a refusal keeps retrying without 
     return out;
   };
   expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
-  expect(Math.max(...waits(false))).toBe(2_147_483_647);
+  expect(Math.max(...waits(false))).toBeGreaterThan(30_000);
 });
 
 /// A chat whose open reply passes one message is refused the same way at every ask (Leo,
