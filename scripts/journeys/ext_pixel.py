@@ -1112,7 +1112,7 @@ def _cursor(j):
         raise D.NotRun(f"px_divider_hover: this build has no debug.cursor ({str(error)[:200]})")
     if not isinstance(reply, dict) or "app" not in reply:
         raise D.NotRun(f"px_divider_hover: this build has no debug.cursor: {json.dumps(reply)[:200]}")
-    return {"app": reply.get("app"), "system": reply.get("system")}
+    return dict(reply)  # app, system, and in newer builds the hover pointer and each screen's hovered divider
 
 
 def _divider_centers(j):
@@ -1157,8 +1157,8 @@ def _divider_hover(j, step):
         time.sleep(HOVER_SETTLE_S)
         cursor = _cursor(j)
         readings.append({"label": label, "pointer": point, "want": "resize" if want_resize else "not resize",
-                         "app": cursor["app"], "system": cursor["system"], "ok": (cursor["app"] in RESIZE_CURSORS) == want_resize,
-                         "move": moved})
+                         "app": cursor["app"], "system": cursor.get("system"), "ok": (cursor["app"] in RESIZE_CURSORS) == want_resize,
+                         "report": cursor, "move": moved})
 
     read("on the divider at rest", old, True)
     mark = step.get("mark", "hover")
@@ -1190,7 +1190,8 @@ def _divider_hover(j, step):
         j.video["notes"].setdefault("pixel", {})["divider_hover"] = info
     wrong = [r for r in readings if not r["ok"]]
     if wrong:
-        raise D.StepError("px_divider_hover: " + "; ".join(f"{r['label']}: cursor {r['app']} (want {r['want']})" for r in wrong))
+        raise D.StepError("px_divider_hover: " + "; ".join(f"{r['label']}: cursor {r['app']} (want {r['want']}; "
+                                                         f"{json.dumps(r['report'])[:300]})" for r in wrong))
     return {"divider_hover": info}
 
 
