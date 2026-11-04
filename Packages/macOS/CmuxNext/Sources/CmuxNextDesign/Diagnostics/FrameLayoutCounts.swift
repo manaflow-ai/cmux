@@ -58,3 +58,11 @@ public struct FrameLayoutCounts {
         return report
     }
 }
+
+extension Array where Element == Double {
+    /// The value at `p` (0...1) of an ascending array, nearest rank; 0 when empty (`debug.frames`' percentiles).
+    public func sortedPercentile(_ p: Double) -> Double {
+        guard !isEmpty else { return 0 }
+        return self[Swift.min(count - 1, Int((Double(count - 1) * p).rounded()))]
+    }
+}
