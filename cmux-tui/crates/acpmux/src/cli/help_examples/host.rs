@@ -314,9 +314,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Restore, install and upload after a cold install", "acpmux machine deps warm"),
             ("Only restore, without running the install", "acpmux machine deps warm --no-install"),
             (
+                "Upload before returning, not in the background",
+                "acpmux machine deps warm --upload-now",
+            ),
+            (
                 "Skip projects that already have node_modules or .venv",
                 "acpmux machine deps warm ~/src/app --if-missing --json",
             ),
+        ],
+    ),
+    (
+        "machine deps wait",
+        &[
+            ("Wait for the uploads a cold install started", "acpmux machine deps wait"),
+            ("Wait, then say how many it waited for", "acpmux machine deps wait --json"),
         ],
     ),
     (
