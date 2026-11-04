@@ -24,7 +24,8 @@
 #
 # Identity, recorded in every result (`identity`): the PR, head (this checkout), base (the manifest's
 # exact base, which must be the merge base of base and head), the app's build SHA and where it came
-# from (below), its version, build and executable sha256, the zip's sha256, the PR diff's sha256 and
+# from (below), its version, build and executable sha256 (and the launched executable's: a lab copy is
+# re-signed), the zip's sha256, the PR diff's sha256 and
 # the built overlay's, this script's blob, the host class, and the wall clock start and end.
 #
 # Modes, reported as different paths and never pooled:
@@ -130,8 +131,8 @@ use_instance() { # NAME
   mkdir -p "$work/config-$1" "$CMUX_WEB_OVERLAY_DIR"
   printf '{"version": 1, "values": {"webDev.override": true}}\n' > "$CMUX_NEXT_DEBUG_TUNABLES_FILE"
 }
-pid="" sock="" socks=() mine=() survived="" coexisting=""
-cleanup() { local p; for p in "${mine[@]}"; do kill "$p" 2>/dev/null || true; done; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
+pid="" pid_start="" sock="" socks=() mine=() survived="" coexisting=""
+cleanup() { local p; for p in "${mine[@]}"; do signal_ours "${p%%|*}" "${p#*|}"; done; rm -f "${socks[@]}"; git -C "$root" worktree remove --force "$work/base-tree" 2>/dev/null || true; rm -rf "$work"; }
 trap cleanup EXIT
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 t_json="$work/times.json"; echo '{}' > "$t_json"
@@ -156,7 +157,8 @@ iso = lambda k: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t[k])) if k in t
 identity = {"pr": int(pr), "head": head, "base": base, "merge_base": info.pop("merge_base", None),
             "artifact_build_sha": info.pop("app_commit", None), "artifact_commit_source": info.pop("commit_source", None),
             "artifact_version": info.pop("app_version", None), "artifact_build": info.pop("app_build", None),
-            "exe_sha256": info.pop("exe_sha256", None), "zip_sha256": info.pop("zip_sha256", None),
+            "exe_sha256": info.pop("exe_sha256", None), "launched_exe_sha256": info.pop("launched_exe_sha256", None),
+            "zip_sha256": info.pop("zip_sha256", None),
             "patch_diff_sha256": info.pop("patch_diff_sha256", None), "overlay_sha256": info.pop("overlay_sha256", None),
             "script_blob": info.pop("script_blob", None), "host_class": info.pop("host_class", None),
             "wall_clock_start": iso("start"), "wall_clock_end": iso("end")}
@@ -241,6 +243,7 @@ else
   codesign --force --sign - --deep "$app" >/dev/null 2>&1
   note signature "ad hoc (lab)"
 fi
+if [[ -n "$exe" && -f "$app/Contents/MacOS/$exe" ]]; then note launched_exe_sha256 "$(shasum -a 256 "$app/Contents/MacOS/$exe" | cut -d' ' -f1)"; else note launched_exe_sha256 missing; fi
 mark prepared
 if [[ -n "$eligible_why" ]]; then note path "not-eligible-$kind"; result fallback not_run "not production-equivalent: $eligible_why"; exit 0; fi
 [[ -z "$provenance_bad" ]] || { result fallback not_run "base identity: $provenance_bad"; exit 0; }
@@ -307,9 +310,21 @@ PY
 # Waits for the screen to settle: two shots in a row the same inside the region (60 s cap), kept as NAME.
 settle() { shot "$1-prev"; for _ in $(seq 1 120); do sleep 0.5; shot "$1"; [[ "$(diff_in "$1-prev" "$1")" == "0 -" ]] && return 0; mv "$work/$1.bmp" "$work/$1-prev.bmp"; done; return 1; }
 build_web() { rm -rf "$work/web"; "$1/scripts/cmux-next/build-web-bundles.sh" --force --out-root "$work/web" >/dev/null; }
-# COMMIT: the exact commit the bundles in $work/web were built from, recorded in the overlay's
-# manifest (web-overlay.sh install --commit; an older web-overlay.sh ignores it).
-install_web() { "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" --commit "$1" >/dev/null; }
+# LABEL COMMIT TREE: installs $work/web, built from TREE, which must be checked out at COMMIT. The
+# provenance is recorded here (overlay_LABEL: the commit, the bundles' sha256 and what the overlay's
+# manifest.json says, kept as overlay-manifest-LABEL.json). web-overlay.sh install --commit records
+# COMMIT in the manifest; one without it (before #35910) ignores the flag and records its own
+# checkout's HEAD, which the note says rather than trusting.
+install_web() {
+  local built manifest
+  built="$(git -C "$3" rev-parse HEAD)"
+  [[ "$built" == "$2" ]] || { result fail fail "overlay $1: its bundles were built from $built, not $2"; exit 1; }
+  "$root/scripts/cmux-next/web-overlay.sh" install "$work/web" --commit "$2" >/dev/null
+  cp "$CMUX_WEB_OVERLAY_DIR/manifest.json" "$out/overlay-manifest-$1.json" 2>/dev/null || true
+  manifest="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("commit") or "none")' "$out/overlay-manifest-$1.json" 2>/dev/null || echo none)"
+  note "overlay_$1" "built from $2; bundles sha256 $(bundles_sha); manifest.json records $manifest$([[ "$manifest" == "$2" ]] || echo " (not the bundles' commit: this web-overlay.sh records its own checkout's HEAD)")"
+}
+bundles_sha() { (cd "$work/web" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1); }
 launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket path has a 104-byte limit)
   local before; before=" $(ours_running | tr '\n' ' ') "
   local home="$work/home-$1"; mkdir -p "$home"; sock="/tmp/tpa-$$-$1.sock"; socks+=("$sock")
@@ -320,7 +335,7 @@ launch() { # NAME: the instance's own HOME and control socket (in /tmp: a socket
     pid="$(ours_running | while read -r p; do [[ "$before" == *" $p "* ]] || echo "$p"; done | tail -1)"; [[ -n "$pid" ]] && break; sleep 0.1
   done
   [[ -n "$pid" ]] || { result fail not_run "the app did not start"; exit 1; }
-  mine+=("$pid")
+  pid_start="$(started "$pid")"; mine+=("$pid|$pid_start")
   for _ in $(seq 1 300); do [[ -S "$sock" ]] && break; sleep 0.1; done
   [[ -S "$sock" ]] || { result fail fail "the $1 instance did not create its own socket $sock"; exit 1; }
   note "home_$1" "$home"; note "socket_$1" "$sock"
@@ -356,8 +371,14 @@ isolation_check() {
   [[ -z "$changed" ]] || { result fail fail "isolation: another instance's process, socket or state changed"; exit 0; }
   if [[ -n "$coexisting" ]]; then note coexistence_preexisting "pass: ran alongside $coexisting, whose processes, sockets and state stayed unchanged"; fi
 }
-quit_app() { kill "$pid" 2>/dev/null || true; for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done; pid=""; }
 started() { ps -o lstart= -p "$1" 2>/dev/null | tr -s ' '; }
+# PID START: SIGTERM only while PID is still the process this run launched (same start time, its
+# executable inside this run's app copy), so a reused pid is never signalled.
+signal_ours() {
+  [[ -n "$1" && -n "$2" && "$(started "$1")" == "$2" && "$(ps -o comm= -p "$1" 2>/dev/null)" == "$app/Contents/MacOS/"* ]] || return 0
+  kill "$1" 2>/dev/null || true
+}
+quit_app() { signal_ours "$pid" "$pid_start"; for _ in $(seq 1 100); do [[ "$(started "$pid")" == "$pid_start" ]] || break; sleep 0.1; done; pid=""; }
 probe_in() { # STATE: 0 the PR's behaviour is there, 1 it is not, other: the app is not ready
   CMUX_TRY_STATE="$1" CMUX_TRY_PID="$pid" CMUX_TRY_APP="$app" CMUX_TRY_SOCKET="$sock" bash -c "$probe" >"$out/probe-$1.log" 2>&1
 }
@@ -410,7 +431,7 @@ if [[ "$experience" == full-build ]]; then
 fi
 # Base state and controls: the base overlay in a running app, a repeat install, a base-only window.
 git -C "$root" worktree add --detach -q "$work/base-tree" "$base"
-use_instance base; build_web "$work/base-tree"; install_web "$base"
+use_instance base; build_web "$work/base-tree"; install_web base "$base" "$work/base-tree"
 launch base; base_pid="$pid" base_sock="$sock"; note base_pid "$base_pid"
 settle base || { result fail fail "the base app never settled"; exit 1; }
 if [[ "$experience" == in-place && -n "$seed" ]]; then
@@ -420,7 +441,7 @@ if [[ "$experience" == in-place && -n "$seed" ]]; then
 fi
 mark based
 mark controls_start
-install_web "$base"; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
+install_web repeat "$base" "$work/base-tree"; settle repeat || { result fail fail "the repeat install never settled"; exit 1; }
 control="$(diff_in base repeat)"
 for i in $(seq 1 "$control_seconds"); do
   [[ "$control" == "0 -" ]] || break
@@ -439,9 +460,9 @@ python3 "$root/scripts/cmux-next/live_apply.py" --repo "$root" --json "$base" "$
 mark verdicted
 build_web "$root"
 mark compiled
-note overlay_sha256 "$(cd "$work/web" && find . -type f | LC_ALL=C sort | xargs shasum -a 256 | shasum -a 256 | cut -d' ' -f1)"
+note overlay_sha256 "$(bundles_sha)"
 [[ "$experience" == isolated ]] && use_instance pr
-install_web "$head"
+install_web pr "$head" "$root"
 if [[ "$experience" == isolated ]]; then
   launch pr; note pr_pid "$pid"
   [[ "$pid" != "$base_pid" ]] || { result fail fail "isolated: the PR instance is the base process"; exit 1; }
