@@ -209,3 +209,65 @@ fn output_past_the_cap_is_drained_and_a_cut_reply_is_not_the_reply() {
     let whole = final_event_of(Some(0), r#"{"reply": "all", "stopReason": "end_turn"}"#, false, "");
     assert_eq!(whole["reply"], "all");
 }
+
+#[test]
+fn chats_whose_ids_share_a_prefix_get_their_own_sessions() {
+    let chat = |id: &str| match parse_down(&chat_frame(json!({"id": id}))) {
+        Down::Chat(chat) => chat,
+        _ => panic!("a chat"),
+    };
+    let (a, b) = (chat("0123456789ab-first"), chat("0123456789ab-second"));
+    assert_ne!(session_name(&a), session_name(&b));
+    assert_eq!(session_name(&a), "relay-0123456789ab-first");
+}
+
+#[test]
+fn the_up_queue_is_bounded() {
+    let (tx, _rx) = up_queue();
+    for n in 0..UP_QUEUE {
+        tx.try_send(n.to_string()).expect("room for the queue's frames");
+    }
+    // A full queue holds the senders back: the tail reader awaits a slot, the socket drains it.
+    assert!(matches!(tx.try_send("one more".into()), Err(mpsc::error::TrySendError::Full(_))));
+}
+
+#[test]
+fn a_reader_past_its_grace_sends_nothing_after_it_ends() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (tx, mut rx) = up_queue();
+        let reader = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                if tx.send("late".into()).await.is_err() {
+                    return;
+                }
+            }
+        });
+        end_reader(reader, Duration::from_millis(20)).await;
+        while rx.try_recv().is_ok() {}
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // The reader is gone: its sender dropped, and nothing came after `end_reader` returned.
+        assert!(matches!(rx.try_recv(), Err(mpsc::error::TryRecvError::Disconnected)));
+    });
+}
+
+#[test]
+fn a_chat_runs_with_its_users_own_groups_only() {
+    // SAFETY: geteuid has no preconditions.
+    if unsafe { libc::geteuid() } != 0 {
+        eprintln!("skipped: dropping privilege needs root");
+        return;
+    }
+    let runner = Runner {
+        bin: PathBuf::from("/usr/bin/id"),
+        user: "nobody".into(),
+        uid: 65534,
+        gid: 65534,
+        groups: vec![65534],
+        home: PathBuf::from("/"),
+    };
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let out = rt.block_on(runner.command(&["-G".to_owned()]).output()).expect("id runs");
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "65534");
+}

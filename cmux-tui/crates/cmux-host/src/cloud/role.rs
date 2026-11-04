@@ -1157,6 +1157,7 @@ fn relay_runner() -> Result<Runner, String> {
         user: user.name.clone(),
         uid: user.uid,
         gid: user.gid,
+        groups: crate::linux::spawn::group_list(&user.name, user.gid),
         home,
     })
 }

@@ -126,9 +126,9 @@ pub fn up(id: &str, event: Value) -> String {
     json!({"v": 1, "t": "event", "id": id, "event": event}).to_string()
 }
 
-/// The session a relay chat makes: named after its chat, so a retry finds it.
+/// The session a relay chat makes: named after its whole chat id, so a retry finds it and no other chat shares it.
 pub fn session_name(chat: &Chat) -> String {
-    format!("relay-{}", &chat.id[..chat.id.len().min(12)])
+    format!("relay-{}", chat.id)
 }
 
 /// `acp new`'s arguments for a chat with no session.
@@ -267,15 +267,33 @@ pub struct Runner {
     pub user: String,
     pub uid: u32,
     pub gid: u32,
+    /// The user's own supplementary groups: the chat's processes get these, never the root worker's.
+    pub groups: Vec<u32>,
     pub home: PathBuf,
 }
 
 impl Runner {
     fn command(&self, args: &[String]) -> tokio::process::Command {
         let mut c = tokio::process::Command::new(&self.bin);
+        // As the daemon spawn drops privilege (linux/spawn.rs): the user's groups, then its gid and uid. Std's
+        // `uid`/`gid` would leave it no supplementary groups of its own.
+        // SAFETY: geteuid has no preconditions.
+        let drop_to = (self.uid != unsafe { libc::geteuid() })
+            .then(|| (self.uid, self.gid, self.groups.clone()));
+        // SAFETY: the closure makes only async-signal-safe calls and allocates nothing (the list is moved in).
+        unsafe {
+            c.pre_exec(move || {
+                if let Some((uid, gid, groups)) = &drop_to
+                    && (libc::setgroups(groups.len() as _, groups.as_ptr()) < 0
+                        || libc::setgid(*gid) < 0
+                        || libc::setuid(*uid) < 0)
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
         c.args(args)
-            .uid(self.uid)
-            .gid(self.gid)
             .env_clear()
             .env("HOME", &self.home)
             .env("USER", &self.user)
@@ -401,7 +419,8 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
             e => format!("connect: {e}"),
         })?;
     let (mut sink, mut stream) = ws.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    // Bounded: a slow socket holds the chats' readers back (and so acpmux's output) instead of queueing without end.
+    let (tx, mut rx) = up_queue();
     // Every return ends the chats of this socket: the platform ended their streams with it (host_gone), and a
     // cancel for them can only come down this socket.
     let mut chats = Chats::default();
@@ -418,11 +437,11 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
                         chats.0.retain(|_, h| !h.is_finished());
                         // One task per chat id: a repeated id (a retry) would run the prompt twice.
                         if chats.0.contains_key(&chat.id) {
-                            let _ = tx.send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.duplicate", "message": "a chat with this id is already running"})));
+                            let _ = tx.try_send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.duplicate", "message": "a chat with this id is already running"})));
                             continue;
                         }
                         if chats.0.len() >= MAX_CHATS {
-                            let _ = tx.send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.busy", "message": "too many chats at once"})));
+                            let _ = tx.try_send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.busy", "message": "too many chats at once"})));
                             continue;
                         }
                         let id = chat.id.clone();
@@ -492,9 +511,26 @@ impl Drop for CancelTurn {
     }
 }
 
-async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>) {
-    let send = |event: Value| {
-        let _ = tx.send(up(&chat.id, event));
+/// How many frames may wait for the socket; past it, every chat's events wait their turn.
+const UP_QUEUE: usize = 256;
+
+/// The queue of frames going up one socket.
+fn up_queue() -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
+    mpsc::channel(UP_QUEUE)
+}
+
+/// Waits `grace` for a chat's event reader to end, else stops it; either way it is gone on return, so nothing
+/// it read reaches the socket after the chat's `done`.
+async fn end_reader(mut reader: tokio::task::JoinHandle<()>, grace: Duration) {
+    if tokio::time::timeout(grace, &mut reader).await.is_err() {
+        reader.abort();
+        let _ = reader.await;
+    }
+}
+
+async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::Sender<String>) {
+    let send = async |event: Value| {
+        let _ = tx.send(up(&chat.id, event)).await;
     };
     let home = runner.home.to_string_lossy().into_owned();
     let session = match &chat.session {
@@ -508,13 +544,13 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
                 }
                 Ok(out) => {
                     let err = String::from_utf8_lossy(&out.stderr).into_owned();
-                    return send(final_event(Some(1), "", &err));
+                    return send(final_event(Some(1), "", &err)).await;
                 }
-                Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))),
+                Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
             }
         }
     };
-    send(json!({"kind": "started", "session": session, "prompt_id": chat.prompt_id}));
+    send(json!({"kind": "started", "session": session, "prompt_id": chat.prompt_id})).await;
     // The turn's events, from before the prompt goes in.
     let tail = runner
         .command(&tail_args(&session))
@@ -530,7 +566,9 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
             let mut lines = BufReader::new(out).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 for e in events_of(&line) {
-                    let _ = tx.send(up(&id, e));
+                    if tx.send(up(&id, e)).await.is_err() {
+                        return;
+                    }
                 }
             }
         })
@@ -543,7 +581,7 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
         .spawn();
     let mut child = match child {
         Ok(c) => c,
-        Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))),
+        Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))).await,
     };
     let mut turn = CancelTurn { runner: runner.clone(), session: session.clone(), armed: true };
     if let Some(mut stdin) = child.stdin.take() {
@@ -570,12 +608,12 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
     let err = err_task.await.unwrap_or_default();
     // The turn's last events reach `tail` just after `send` returns: a moment for them, then it stops.
     if let Some(events) = events {
-        let _ = tokio::time::timeout(TAIL_GRACE, events).await;
+        end_reader(events, TAIL_GRACE).await;
     }
     if let Some(mut tail) = tail {
         let _ = tail.kill().await;
     }
-    send(final_event_of(exit, &out, cut, &err));
+    send(final_event_of(exit, &out, cut, &err)).await;
 }
 
 /// How long `tail` may go on after the turn ended, for its last events.
