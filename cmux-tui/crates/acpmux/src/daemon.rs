@@ -1314,10 +1314,6 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
     DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
-/// timeout: a detached child that never binds its socket is a hung start; the
-/// lock-holder paths below use process/socket liveness instead of this bound.
-const START_BUDGET: Duration = Duration::from_secs(8);
-
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
 pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
@@ -1758,8 +1754,8 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
             }
         }
     }
-    // Async pipe I/O, so the timeout cancels the read; a blocking read on a
-    // worker thread would keep runtime teardown waiting on a hung daemon.
+    // Async pipe I/O keeps the client runtime responsive while the detached
+    // process writes readiness or closes the pipe on exit.
     let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
         .context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
@@ -1773,7 +1769,7 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
     // EOF means the detached child exited; a live child keeps the pipe open
     // until it writes readiness. The pipe itself is the liveness signal, so a
     // busy machine never turns a slow but live daemon into a startup failure.
-    wait.await.map(|read| read.unwrap_or_default())
+    wait.await
 }
 /// The readiness line of a daemon that found the lock taken (`run`).
 #[cfg(target_os = "macos")]
@@ -1787,17 +1783,17 @@ const LOCK_HELD_LINE: &str = r#"{"ready":false,"lockHeld":true}"#;
 /// spawned. launchd is asked every half second; the lock and job state are the liveness signals.
 #[cfg(target_os = "macos")]
 async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
-    let deadline = tokio::time::Instant::now() + START_BUDGET;
     let mut tries = 0u32;
-    while tokio::time::Instant::now() < deadline {
+    loop {
         if tokio::net::UnixStream::connect(path).await.is_ok() {
             return Ok(String::new());
         }
         tries += 1;
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries.is_multiple_of(5) && !left.is_zero() {
+        if tries.is_multiple_of(5) {
             let job = job.clone();
-            let budget = left.min(Duration::from_secs(1));
+            // timeout: launchd's status probe must not pin the async runtime;
+            // a live job is checked again on the next pass.
+            let budget = Duration::from_secs(1);
             let running =
                 tokio::task::spawn_blocking(move || login_session::job_running(&job, budget))
                     .await
@@ -1808,11 +1804,6 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    Err(anyhow!(
-        "daemon did not come up at {} within {START_BUDGET:?}; see {}",
-        path.display(),
-        home().join("daemon.log").display()
-    ))
 }
 
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
@@ -1966,7 +1957,12 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
         drop(theirs);
-        hand_key(ours, &key);
+        // The daemon may be alive but busy before it can read its person key.
+        // Keep that handoff off the caller's path and let EOF signal a dead
+        // child instead of imposing a wall-clock cutoff.
+        let _ = std::thread::Builder::new()
+            .name("acpmux-person-key".into())
+            .spawn(move || hand_key(ours, &key));
     }
     Ok(reader)
 }
@@ -1977,7 +1973,6 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
 #[cfg(unix)]
 fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     use std::io::{Read, Write};
-    let _ = link.set_read_timeout(Some(START_BUDGET));
     let mut said = [0u8; KEY_READY.len()];
     if link.read_exact(&mut said).is_err() || said != KEY_READY {
         tracing::warn!("the daemon did not say it is not dumpable: no person key was handed over");

@@ -238,6 +238,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
 /// Wait for a lock with an optional cleanup budget. A caller waiting for a live
 /// daemon's handover uses [`wait_for_lock_release`], while shutdown cleanup may
 /// still choose a finite bound.
+#[cfg(unix)]
 pub(super) async fn wait_for_lock_release_with_budget(
     lock: PathBuf,
     budget: Option<Duration>,
@@ -269,6 +270,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf) -> bool {
     wait_for_lock_release_with_budget(lock, None).await
 }
 
+#[cfg(windows)]
 pub(super) async fn wait_for_lock_release_with_budget(
     lock: PathBuf,
     budget: Option<Duration>,
