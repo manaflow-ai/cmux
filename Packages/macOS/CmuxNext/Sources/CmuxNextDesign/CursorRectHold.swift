@@ -21,12 +21,3 @@ public protocol CursorRectHoldPolicy: AnyObject {
 public protocol CursorRectHoldHosting: NSWindow {
     var cursorRectHold: (any CursorRectHoldPolicy)? { get set }
 }
-
-/// A view that sets its cursor from a hit test of each pointer event (`cursorUpdate`, `mouseMoved` in its tracking
-/// area) and adds no cursor rects, as Chrome sets the cursor from the hit test of the mouse event. AppKit invalidates
-/// the cursor rects of every view whose frame moves, and each invalidation rebuilds the window's structural regions
-/// (drag margins and a constraint min-size walk of every view) in that display cycle; for such a view there is nothing
-/// to invalidate, so the window skips it (cmux-next's shell window). HOT PATH AUDIT frames: a divider moves in every
-/// frame of a spring or a drag.
-@MainActor
-public protocol HitTestCursorView: NSView {}

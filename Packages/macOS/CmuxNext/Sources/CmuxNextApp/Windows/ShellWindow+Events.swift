@@ -29,7 +29,7 @@ extension ShellWindow {
     /// The pane policy may keep an invalidation for later (`CursorRectHoldPolicy`); every other
     /// invalidation is AppKit's as before.
     override func invalidateCursorRects(for view: NSView) {
-        if view is any HitTestCursorView || cursorRectHold?.holdsInvalidation(for: view, in: self) == true { return } // no cursor rects, or held
+        if cursorRectHold?.holdsInvalidation(for: view, in: self) == true { return }
         super.invalidateCursorRects(for: view)
     }
 
