@@ -14,8 +14,13 @@ Steps (`do`):
              Looks for a live (not parked) import-history page for APPEAR_S. None: nothing to do (a build without the
              page, a profile that saw it, a build without debug.page); the record says why. Else: waits for the Skip
              button to render, reads its center, presses it there (trusted), and waits GONE_S for the page to close.
-             A Skip button it cannot hit, or a page that stays, fails the step with the record. The generators put it
-             right after the launch's smoke_make_key (never after a relaunch's: that profile saw the page already).
+             A Skip button it cannot hit, or a page that stays, fails the step with the record.
+
+Where (the lead, STATUS 10405, 10562, 10641): the page eating Ctrl-` is itself a product P0 (P0 FIRST-RUN KEYS, #34547),
+and a journey that skips it hides that P0. So the step is ONLY in resize films, whose subject is not the first window
+(ids px-, rk-, rv-, rkd-; gen_cases.skips_first_run), right after the launch's smoke_make_key, and never in an open P0
+journey (handoff/open-p0-journeys.txt). Every other journey meets the page as a person does. test_ext_firstrun.py checks
+every journey of the kit for this.
 """
 import json
 import time

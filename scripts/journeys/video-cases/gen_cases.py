@@ -63,19 +63,33 @@ def load_cmd(index, heavy):
 
 
 # -- layout building blocks ---------------------------------------------------------------------------
+# The first-run Bring your history page (#33215) left with its Skip button (ext_firstrun skip_first_run_history), ONLY in
+# resize films, whose subject is not the first window (the lead, STATUS 10405, 10562, 10641): the page eating Ctrl-` is
+# itself a product P0 (P0 FIRST-RUN KEYS, #34547), so every other journey, and every open P0 journey, meets it as a
+# person does. OPEN_P0_JOURNEYS: the ids of handoff/open-p0-journeys.txt on 2026-11-04 (none has a film prefix today).
+FIRST_RUN_SKIP_PREFIXES = ("px-", "rk-", "rv-", "rkd-")
+OPEN_P0_JOURNEYS = frozenset({"r3-new-tab-panel", "tipred-1193-stand-in", "focus-corner-drag", "r3-after-switch", "close-then-type",
+                              "ctrlbt-real-palette", "r3-e2-reattach", "quit-reopen-restore", "typing-load-l6", "resize-keyboard"})
+
+
+def skips_first_run(journey_id):
+    """Whether journey JOURNEY_ID skips the first-run page: a resize film that is not an open P0 journey."""
+    return journey_id.startswith(FIRST_RUN_SKIP_PREFIXES) and journey_id not in OPEN_P0_JOURNEYS
+
+
 def first_pane(case_id, heavy):
-    # skip_first_run_history (ext_firstrun): a fresh profile's first-run Bring your history page (#33215) is left as a
-    # person leaves it before the first terminal.
-    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"}, {"do": "skip_first_run_history"},
-             {"do": "new_terminal", "via": "key", "name": case_id},
-             {"do": "neutral_prompt"},
-             {"do": "name_pane", "as": "home"},
-             {"do": "window_place", "title": "set-up: the window at 90% x 90% of the screen", "fraction": [0.05, 0.05, 0.9, 0.9]},
-             # The launch workspace (Home) has an agent chat docked left as its main pane: the case gets a workspace of
-             # its own, so its panes are the only ones on the screen.
-             {"do": "action", "action": "workspace.newAtBottom", "title": "set-up: a new workspace for the case"},
-             {"do": "adopt_pane", "as": "p0"},
-             {"do": "neutral_prompt"}]
+    steps = [{"do": "smoke_ready", "timeout": 60}, {"do": "smoke_make_key"}]
+    if skips_first_run(case_id):
+        steps.append({"do": "skip_first_run_history"})
+    steps += [{"do": "new_terminal", "via": "key", "name": case_id},
+              {"do": "neutral_prompt"},
+              {"do": "name_pane", "as": "home"},
+              {"do": "window_place", "title": "set-up: the window at 90% x 90% of the screen", "fraction": [0.05, 0.05, 0.9, 0.9]},
+              # The launch workspace (Home) has an agent chat docked left as its main pane: the case gets a workspace of
+              # its own, so its panes are the only ones on the screen.
+              {"do": "action", "action": "workspace.newAtBottom", "title": "set-up: a new workspace for the case"},
+              {"do": "adopt_pane", "as": "p0"},
+              {"do": "neutral_prompt"}]
     return steps + ([tuikit_file()] if heavy else []) + start_load(0, heavy)
 
 

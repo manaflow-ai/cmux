@@ -10,7 +10,6 @@
     {"do": "smoke_ready", "timeout": 60},
     {"do": "smoke_remember_workspaces"},
     {"do": "smoke_make_key"},
-    {"do": "skip_first_run_history", "title": "set-up: Skip the first-run Bring your history page (#33215) as a person does (its Skip button); nothing when the build or profile has no such page"},
     {"do": "smoke_snapshot", "name": "before_workspaces"},
     {"do": "smoke_key", "key": "n", "modifiers": ["cmd"], "mark": "ws1"},
     {"do": "expect", "title": "Cmd-N (1 of 3) makes a workspace; Ctrl-` follows as soon as it shows, at a person's speed (the frame kept: not blank)", "since": "ws1", "timeout": 20,
