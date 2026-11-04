@@ -1328,8 +1328,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             # jobs already answers for its finished ones (before_merge_base's note).
             listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}"
                                  f"&per_page={BASE_RUNS_PAGE}")
-            base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
-                                   if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
+            # Newest first, whatever order GitHub lists them in; a run in a PR's context (pull_request or
+            # pull_request_target) is never the base's.
+            base_runs[workflow] = sorted(
+                (run for run in listed.get("workflow_runs") or []
+                 if run.get("event") not in ("pull_request", "pull_request_target")
+                 and run.get("conclusion") != "skipped"),
+                key=lambda run: run.get("created_at") or "", reverse=True)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads)
         base_run, base_job = next(verdicts, (None, None))
