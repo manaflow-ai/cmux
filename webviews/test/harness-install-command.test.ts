@@ -62,31 +62,19 @@ test("without npm, Install runs each vendor's own installer", () => {
     code: 0,
     log: ["brew install gemini-cli"],
   });
-  expect(run(INSTALL_COMMANDS.muse!, false)).toEqual({
-    code: 0,
-    log: [
-      "curl -fsSL https://dev.meta.ai/install.sh",
-      "sh <echo installer>",
-      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --rev 734379ca1fa58f2abdd6665c7fdd11f28ab744cf --locked muse-acp",
-    ],
-  });
+  // Muse uses its existing setup/docs action; it has no second install command
+  // that could duplicate the provider's official setup flow.
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
 });
 
 test("with npm, Install keeps npm, and never also runs a vendor installer", () => {
   expect(run(INSTALL_COMMANDS.claude!, true)).toEqual({ code: 0, log: ["npm install -g @anthropic-ai/claude-code"] });
   expect(run(INSTALL_COMMANDS.codex!, true)).toEqual({ code: 0, log: ["npm install -g @openai/codex"] });
   expect(run(INSTALL_COMMANDS.opencode!, true)).toEqual({ code: 0, log: ["npm install -g opencode-ai"] });
-  // Muse uses its official installer; Gemini keeps npm when it is available.
+  // Gemini keeps npm when it is available; Muse uses its setup/docs action.
   expect(run(INSTALL_COMMANDS.gemini!, true)).toEqual({
     code: 0,
     log: ["npm install -g @google/gemini-cli"],
   });
-  expect(run(INSTALL_COMMANDS.muse!, true)).toEqual({
-    code: 0,
-    log: [
-      "curl -fsSL https://dev.meta.ai/install.sh",
-      "sh <echo installer>",
-      "cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --rev 734379ca1fa58f2abdd6665c7fdd11f28ab744cf --locked muse-acp",
-    ],
-  });
+  expect(INSTALL_COMMANDS.muse).toBeUndefined();
 });
