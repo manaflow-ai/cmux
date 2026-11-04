@@ -511,6 +511,8 @@ export function ComposerContext({
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
       onCloudMachinePicked?.(machine);
+      // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
+      if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
@@ -583,7 +585,11 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  const extraShown = extraFolders && !readOnly ? draftFolders(extraFolders.draft, selectedComputer) : undefined;
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add folder… or +N.
+  const extraShown =
+    extraFolders && !readOnly && !cloudPicked && !sandboxPicked
+      ? draftFolders(extraFolders.draft, selectedComputer)
+      : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {

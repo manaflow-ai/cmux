@@ -87,3 +87,44 @@ import Testing
         #expect(SidebarFoldPersist.after(attempt: SidebarFoldPersist.retries, mayHaveApplied: true) == .giveUp)
     }
 }
+
+/// A workspace move whose reply missed its deadline is sent again quietly on the fold's policy (Leo, 2026-11-04, on
+/// "Move did not apply: set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)").
+@MainActor @Suite struct SidebarResendingTests {
+    private struct Slow: Error {}
+    private struct Refused: Error {}
+    private let quick = Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0)
+
+    @Test func aSlowSaveIsSentOnceMoreAndSucceeds() async throws {
+        var sends = 0
+        try await SidebarFoldPersist.resending(owner: "test", backoff: quick, mayHaveApplied: { $0 is Slow }) {
+            sends += 1
+            if sends == 1 { throw Slow() }
+        }
+        #expect(sends == 2, "one missed deadline is one retry")
+    }
+
+    @Test func aRefusalIsNotSentAgain() async {
+        var sends = 0, thrown: (any Error)?
+        do {
+            try await SidebarFoldPersist.resending(owner: "test", backoff: quick, mayHaveApplied: { $0 is Slow }) {
+                sends += 1
+                throw Refused()
+            }
+        } catch { thrown = error }
+        #expect(thrown is Refused)
+        #expect(sends == 1)
+    }
+
+    @Test func aSaveThatNeverAnswersStopsAfterTheRetries() async {
+        var sends = 0, thrown: (any Error)?
+        do {
+            try await SidebarFoldPersist.resending(owner: "test", backoff: quick, mayHaveApplied: { $0 is Slow }) {
+                sends += 1
+                throw Slow()
+            }
+        } catch { thrown = error }
+        #expect(thrown is Slow)
+        #expect(sends == SidebarFoldPersist.retries + 1)
+    }
+}

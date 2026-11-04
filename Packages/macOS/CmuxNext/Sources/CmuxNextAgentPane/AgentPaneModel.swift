@@ -126,6 +126,10 @@ public final class AgentPaneModel {
     /// gives a remote connection; never cleared): the page's folder tools (project list, Browse,
     /// Choose Folder, Use Folder, the shell box) act there or are refused, never on this Mac (cx-k21v).
     @ObservationIgnored public var remoteChat = false
+    /// The origin the pane's page is served from, which its granted media URLs use (the page's CSP
+    /// plays media only from its own origin): the pane's own host, or the shared page host's
+    /// (``AgentPaneMediaGrants/pageOrigin``), set by the view that hosts the page there.
+    @ObservationIgnored var mediaOrigin = AgentPaneSource.bundledOrigin
     /// Logs each missing-chat view the page reports (`chat.missing`).
     @ObservationIgnored let missingChatLog = AgentPaneMissingChatLog()
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
