@@ -14,8 +14,8 @@ An independent scheduled workflow wakes that same concurrency owner when it is n
 cancels or re-runs target jobs itself. Each pass:
 
 - lists the repository's in-flight (`queued`, `in_progress`) pull request runs, created STALL_SECONDS to WINDOW
-  ago, in one repository-wide listing per status (the newest page, plus one rotating overflow page only when the
-  newest page is full), and keeps those of the workflow files that declare a hosted light job. One listing per
+  ago, in one repository-wide listing per status (the newest page; the second while the first is full; one
+  rotating overflow page from the third while the second is full), and keeps those of the workflow files that declare a hosted light job. One listing per
   status, not one per workflow and status: 2-3 requests a pass instead of 24-48 (cmux#35099 measured 50-100
   requests a minute against the repository's 1,000-an-hour GITHUB_TOKEN pool);
 - retains discovered candidates within WINDOW and reads the jobs of at most MAX_RUNS of them (plus one re-read
@@ -447,23 +447,23 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     for status in IN_FLIGHT:
         # One repository-wide listing per status; a run is kept when its workflow file is declared. A reusable
         # declaration's runs carry their caller's path, and with_callers() already lists the callers.
+        # Pages 1 and 2 are read every pass while full (every workflow now shares them), and one rotating page
+        # from 3 on beyond that, so a declared run is not left to the rotation behind undeclared ones.
         key = REPOSITORY, status
-        overflow = state.pages.get(key, 2)
-        pages = (1, overflow)
+        overflow = state.pages.get(key, 3)
         full_overflow = False
-        newest_full = False
-        for listing_page in pages:
-            if listing_page == overflow and not newest_full:
-                break  # the newest page holds every run: an overflow page would come back empty
+        previous_full = True
+        for listing_page in (1, 2, overflow):
+            if not previous_full:
+                break  # the pages so far hold every run: a later page would come back empty
             try:
                 page = client.runs(None, status, start, end, page=listing_page)
             except Exception as error:  # noqa: BLE001 - an unread listing only narrows this pass
                 lines.append(f"could not list {status} pull request runs ({error})")
-                continue
-            if listing_page == 1:
-                newest_full = len(page) >= LIST_PAGE
+                break
+            previous_full = len(page) >= LIST_PAGE
             if listing_page == overflow:
-                full_overflow = len(page) >= LIST_PAGE
+                full_overflow = previous_full
             for run in page:
                 workflow = workflow_file(run)
                 if (workflow in declared and isinstance(run.get("id"), int) and candidate(run)
@@ -471,9 +471,9 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                         and (created := parse_time(run.get("created_at"))) is not None and start <= created <= end):
                     listed[run["id"]] = {**run, "_workflow": workflow}
         if full_overflow:
-            state.pages[key] = 2 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
+            state.pages[key] = 3 if overflow >= MAX_RUN_LIST_PAGES else overflow + 1
         else:
-            state.pages[key] = 2
+            state.pages[key] = 3
     runs = sorted(listed.values(), key=run_key)
     candidate_count = len(runs)
     runs, state.cursor = scan_slice(runs, state.cursor)

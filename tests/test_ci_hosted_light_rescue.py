@@ -636,6 +636,20 @@ class Quota(unittest.TestCase):
         self.assertEqual(listings, [("runs", None, "queued", 1), ("runs", None, "in_progress", 1)])
         self.assertEqual(set(fake.job_reads), {1, 2})
 
+    def test_a_declared_run_behind_two_pages_of_undeclared_runs_is_found_by_the_rotation(self):
+        """Pages 1 and 2 are read every pass; the third page onward rotates, so a buried declared run is reached."""
+        noise = [run(1000 + index, workflow="other.yml") for index in range(200)]
+        buried = run(7)
+        buried["created_at"] = ago(1200)
+        fake = Fake({"other.yml": noise, "pr-checks.yml": [buried]}, {7: [job("PR size")]})
+        cursor = rescue.ScanState()
+        sweep(fake, dry_run=True, cursor=cursor)
+        listings = [call for call in fake.calls if call[0] == "runs"]
+        self.assertIn(("runs", None, "in_progress", 1), listings)
+        self.assertIn(("runs", None, "in_progress", 2), listings)
+        self.assertIn(("runs", None, "in_progress", 3), listings)
+        self.assertEqual(set(fake.job_reads), {7})
+
     def test_the_repository_listing_reads_the_runs_endpoint(self):
         client = rescue.GitHub("workflow-token", "o/r")
         with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
