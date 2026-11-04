@@ -47,9 +47,11 @@ class Finding:
 
 
 def is_test_path(path: str) -> bool:
-    if path == "scripts/ci/test_integrity.py":
-        return False
     return bool(TEST_FILE.search(path))
+
+
+def is_guard_path(path: str) -> bool:
+    return path == "scripts/ci/test_integrity.py"
 
 
 def _sections(diff: str) -> list[tuple[str, list[str], list[str]]]:
@@ -91,7 +93,7 @@ def analyze(name_status: str, diff: str) -> list[Finding]:
                 findings.append(Finding("deleted-test-file", fields[1], f"test file renamed to {path}"))
 
     for path, removed, added in _sections(diff):
-        if not is_test_path(path):
+        if is_guard_path(path) or not is_test_path(path):
             continue
         old_assertions = sum(len(ASSERTION.findall(line)) for line in removed)
         new_assertions = sum(len(ASSERTION.findall(line)) for line in added)
