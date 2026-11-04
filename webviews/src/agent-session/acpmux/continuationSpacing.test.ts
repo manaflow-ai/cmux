@@ -8,6 +8,7 @@ import {
   TRANSCRIPT_FOOTER_GAP,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
+  MARK_FOOTER_ROW,
   MARK_MESSAGE,
   MARK_PROMPT,
   MARK_STATUS,
@@ -182,6 +183,26 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
   expect(transcriptGap(MARK_STEP, MARK_STEP)).toBe(0);
   expect(transcriptGap(MARK_STEP, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
   expect(transcriptGap(MARK_PROMPT, MARK_STEP)).toBe(TRANSCRIPT_TURN_GAP);
+});
+
+// A status line under a reply's footer hangs 8 under it, the footer's own gap, not a block away
+// (Leo, 2026-11-04: "this bare background update tool call floating in teh air is so weird loking
+// proportionally"); another agent's line (a step row) keeps the block gap.
+test("a status line hangs the footer gap under a reply's footer", () => {
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  const rows = [
+    row("p", "user", { text: "Land it" }),
+    row("a", "assistant", { text: "Landed." }),
+    row("f", "turnSummary", { text: "Landed.", status: "completed" } as Partial<AcpmuxRow>),
+    row("bg", BACKGROUND_TURN, {
+      background: { id: "bg", trigger: "system", running: false, quiet: true, hasRows: true },
+    }),
+  ];
+  const layout = layoutConversation(rows, 720);
+  expect(layout.marks![2]).toBe(MARK_FOOTER_ROW);
+  expect(layout.tops[3]! - (layout.tops[2]! + layout.heights[2]!)).toBe(TRANSCRIPT_FOOTER_GAP);
 });
 
 // Status lines ("Scheduled check", "Compacting the conversation…", a background task's end) and

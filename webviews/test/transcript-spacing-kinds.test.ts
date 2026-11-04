@@ -245,6 +245,9 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const footer = document
         .querySelector('[data-row-id="received-footer"] .cv-turn-actions button svg')
         ?.getBoundingClientRect();
+      const notesFooter = document
+        .querySelector('[data-row-id="notes-footer"] .cv-turn-actions button svg')
+        ?.getBoundingClientRect();
       const received = document.querySelector('[data-row-id="received-line"]') ?? undefined;
       const bubble = document.querySelector('[data-row-id="sp-prompt"] .cv-user__bubble')?.getBoundingClientRect();
       const sent = byText(/^Sent to/m) ?? document.querySelector('[data-row-id="received-sent"]') ?? undefined;
@@ -262,6 +265,13 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
         "sent-to-live": diff(head(sent), head(live)),
         "status-to-prompt": diff(head(byClass("acpmux-subagentDone")), bubble?.top),
         "prompt-to-sent": diff(bubble?.bottom, head(document.querySelector('[data-row-id="sp-sent"]') ?? undefined)),
+        "footer-to-note":
+          notesFooter && notesFooter.height > 0
+            ? diff(
+                (notesFooter.top + notesFooter.bottom) / 2,
+                head(document.querySelector('[data-row-id="notes-task-1"]') ?? undefined),
+              )
+            : null,
         "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
       };
       const chips = [...document.querySelectorAll<HTMLElement>(".cv-agent-tag")].filter(shown).map((chip) => {
@@ -296,7 +306,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
     const page = await open(theme.name, variant);
     try {
       // An earlier turn's footer shows on hover: point at its reply, as Leo would to read it.
-      const reply = page.locator('[data-row-id="received-reply"]');
+      const reply = page.locator('[data-row-id="received-reply"], [data-row-id="notes-reply"]');
       if ((await reply.count()) > 0) await reply.hover();
       // Let the footer's reveal and any other finite motion end, then a few frames paint.
       await page.evaluate(async () => {

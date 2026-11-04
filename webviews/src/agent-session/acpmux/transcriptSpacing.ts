@@ -257,6 +257,15 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     source: "the live line is a one-line row (rule 3, step-to-live)",
   },
   {
+    id: "footer-to-note",
+    variant: "notes-live",
+    between: 'a reply footer\'s glyph centre and the first "Background task finished" note under it, centre to centre',
+    value: 35,
+    tolerance: 1,
+    source:
+      '16 + footer gap 8 + 11: this turn\'s own status line hangs under its footer as the footer hangs under the reply (35.375), never a block away (Leo, 2026-11-04: "this bare background update tool call floating in teh air is so weird loking proportionally")',
+  },
+  {
     id: "note-to-live",
     variant: "notes-live",
     between:

@@ -98,6 +98,13 @@ export function transcriptGap(previous: number, next: number): number {
   // the run's last line, never a block gap away (Leo, 2026-11-02: "this spacing would be good", on
   // ChatGPT's row right under the turn's last line).
   if (next === MARK_FOOTER_ROW && (previous === MARK_STEP || previous === MARK_STATUS)) return TRANSCRIPT_FOOTER_GAP;
+  // A status line right under a reply's footer ("Background update", a background task's or a
+  // subagent's end) is this agent's own afterword to that turn: it hangs the same 8 under the
+  // footer, so the footer sits centred between the reply and it, never a block away on its own
+  // (Leo, 2026-11-04, on "Background update" 51 under a footer: "this bare background update tool
+  // call floating in teh air is so weird loking proportionally"). Another agent's line (a step row)
+  // keeps the block gap: it is not this turn's.
+  if (previous === MARK_FOOTER_ROW && next === MARK_STATUS) return TRANSCRIPT_FOOTER_GAP;
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
