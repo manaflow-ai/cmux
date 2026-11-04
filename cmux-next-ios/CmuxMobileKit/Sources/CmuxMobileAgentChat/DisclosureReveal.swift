@@ -56,4 +56,10 @@ extension AnyTransition {
         withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) { hold.end() }
     }
 }
+
+/// Red-test shim only: the regression tests' call shape, with the base's behavior (the key is unused).
+@MainActor func toggleDisclosure(_ hold: TranscriptFoldHold, key: String?, in disclosures: ChatDisclosures?,
+                                 _ change: @escaping @MainActor () -> Void) {
+    toggleDisclosure(hold, change)
+}
 #endif
