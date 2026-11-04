@@ -14,7 +14,8 @@
 //! is one change: it never comes back twice or not at all.
 //!
 //! [`SimStorage::fail_next_sync`] fails the next sync of a write that spans pages, and the disk
-//! gets none of them (the worst case). [`SimStorage::crash_after_failure`] puts the crash point
+//! gets none of them (the worst case). The cache keeps the dropped pages until an eviction, which
+//! [`SimStorage::evict_dropped_pages_after_read`] makes happen right after each read of them. [`SimStorage::crash_after_failure`] puts the crash point
 //! right after an injected failure: in the writer's backoff, at its first operation when it tries
 //! again.
 //!
@@ -121,6 +122,8 @@ struct Fs {
     fail_sync: Option<(usize, io::ErrorKind)>,
     /// Once an injected failure happened, the operation this many after it crashes.
     crash_after_failure: Option<u64>,
+    /// Each read evicts the dropped pages it read (`SimStorage::evict_dropped_pages_after_read`).
+    evict_after_read: bool,
 }
 
 /// What an operation does: run, fail once, or crash the process.
@@ -146,6 +149,7 @@ impl Fs {
             failures: 0,
             fail_sync: None,
             crash_after_failure: None,
+            evict_after_read: false,
         }
     }
 
@@ -271,6 +275,14 @@ impl SimStorage {
         let mut fs = lock(&self.fs);
         fs.crash_at = None;
         fs.crash_after_failure = Some(n);
+    }
+
+    /// From now on, in this process, each read returns the bytes the cache holds and then evicts
+    /// the pages it read that a failed sync dropped: a second read of them sees the disk's bytes.
+    /// The kernel may evict a clean page at any time; this is the worst time for a reader that
+    /// reads twice.
+    pub fn evict_dropped_pages_after_read(&self, on: bool) {
+        lock(&self.fs).evict_after_read = on;
     }
 
     /// Operations that `fail_after` and `fail_next_sync` made fail.
@@ -558,11 +570,15 @@ impl StorageFile for SimHandle {
         }
         let count = fs.reads.entry(self.path.clone()).or_default();
         *count = count.saturating_add(1);
+        let evict = fs.evict_after_read;
         let file = fs.machine.file(self.inode)?;
         let start = usize::try_from(offset).map_err(|_| io::ErrorKind::UnexpectedEof)?;
         let end = start.checked_add(buf.len()).ok_or(io::ErrorKind::UnexpectedEof)?;
         let src = file.data.get(start..end).ok_or(io::ErrorKind::UnexpectedEof)?;
         buf.copy_from_slice(src);
+        if evict {
+            file.evict(start, end);
+        }
         Ok(())
     }
 

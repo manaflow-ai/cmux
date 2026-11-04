@@ -19,11 +19,20 @@ pub(super) struct SimFile {
     /// The disk content after each good sync, with its machine-wide sync number (for a power
     /// loss). A file the last crash kept starts with its content as sync 0.
     pub(super) synced: Vec<(u64, Vec<u8>)>,
+    /// Pages a failed sync dropped: the cache has their bytes, the disk does not, and no later
+    /// sync writes them (they are not dirty). An eviction makes reads see the disk's bytes.
+    pub(super) dropped: BTreeSet<usize>,
 }
 
 impl SimFile {
     pub(super) fn empty() -> Self {
-        Self { data: Vec::new(), disk: Vec::new(), dirty: BTreeSet::new(), synced: Vec::new() }
+        Self {
+            data: Vec::new(),
+            disk: Vec::new(),
+            dirty: BTreeSet::new(),
+            synced: Vec::new(),
+            dropped: BTreeSet::new(),
+        }
     }
 
     pub(super) fn kept(content: Vec<u8>) -> Self {
@@ -32,13 +41,18 @@ impl SimFile {
             disk: content.clone(),
             dirty: BTreeSet::new(),
             synced: vec![(0, content)],
+            dropped: BTreeSet::new(),
         }
     }
 
     /// Marks the pages of bytes `start..end` dirty.
     pub(super) fn touch(&mut self, start: usize, end: usize) {
         if start < end {
-            self.dirty.extend(start / SIM_PAGE..end.div_ceil(SIM_PAGE));
+            for page in start / SIM_PAGE..end.div_ceil(SIM_PAGE) {
+                // A dirty page goes to the disk whole at the next sync, dropped bytes included.
+                self.dropped.remove(&page);
+                self.dirty.insert(page);
+            }
         }
     }
 
@@ -54,6 +68,7 @@ impl SimFile {
         let old = self.data.len();
         self.data.resize(len, 0);
         self.dirty.retain(|page| page.saturating_mul(SIM_PAGE) < len);
+        self.dropped.retain(|page| page.saturating_mul(SIM_PAGE) < len);
         self.touch(old, len);
     }
 
@@ -61,6 +76,7 @@ impl SimFile {
     pub(super) fn write_back(&mut self, pages: &[usize]) {
         self.disk.resize(self.data.len(), 0);
         for page in pages {
+            self.dropped.remove(page);
             let start = page.saturating_mul(SIM_PAGE).min(self.data.len());
             let end = start.saturating_add(SIM_PAGE).min(self.data.len());
             if let (Some(dst), Some(src)) =
@@ -91,7 +107,31 @@ impl SimFile {
             None => Vec::new(),
         };
         self.write_back(&pages);
+        let lost: Vec<usize> =
+            self.dirty.iter().copied().filter(|page| !pages.contains(page)).collect();
+        self.dropped.extend(lost);
         self.dirty.clear();
+    }
+
+    /// The kernel evicts the dropped pages that bytes `start..end` touch: later reads see what the
+    /// disk holds there (zeros past its end).
+    pub(super) fn evict(&mut self, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        for page in start / SIM_PAGE..end.div_ceil(SIM_PAGE) {
+            if !self.dropped.remove(&page) {
+                continue;
+            }
+            let from = page.saturating_mul(SIM_PAGE).min(self.data.len());
+            let to = from.saturating_add(SIM_PAGE).min(self.data.len());
+            for at in from..to {
+                let disk = self.disk.get(at).copied().unwrap_or(0);
+                if let Some(byte) = self.data.get_mut(at) {
+                    *byte = disk;
+                }
+            }
+        }
     }
 
     /// What an OS crash could leave: the cache's dirty pages, and the disk's pages elsewhere

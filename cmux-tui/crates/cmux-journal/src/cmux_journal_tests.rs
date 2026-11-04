@@ -466,6 +466,14 @@ fn damaged_in_the_middle(seed: u64) -> (SimStorage, Config) {
 #[test]
 fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
     let (damaged, config) = damaged_in_the_middle(50);
+    // Every open after the damage reports it (G2 of the re-review), also after a crash at the
+    // open's last step, which no later open can see the damage from.
+    let reports_the_loss = |report: &OpenReport| {
+        report
+            .damage
+            .iter()
+            .any(|damage| matches!(damage, Damage::Corrupt { lost_through: 40, .. }))
+    };
     // Every storage operation of the open is a crash point once.
     let probe = damaged.snapshot(Crash::Process);
     let (journal, report, _) = open_at(&probe, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
@@ -494,6 +502,7 @@ fn a_crash_inside_the_quarantine_step_never_reuses_a_quarantined_lsn() {
                 Ok(41),
                 "{crash:?} at op {at}: {report:?}"
             );
+            assert!(reports_the_loss(&report), "{crash:?} at op {at}: {report:?}");
         }
     }
     assert!(crashed_after_a_move > 0, "no crash point fell after a move");
@@ -611,6 +620,63 @@ fn recovery_holds_at_most_two_files_open() {
     );
 }
 
+/// G1 of the re-review: a sync fails and drops its pages, and the process is killed before the
+/// writer tries again. The next open reads those pages from the cache and replays their records;
+/// then the kernel evicts the pages, and a second read would see the disk's zeros. The copy that
+/// recovery writes must hold the records the replay got, so a later OS crash keeps them.
+#[test]
+fn recovery_copies_the_records_it_checked_when_the_cache_drops_them() {
+    let slow_retry = Config {
+        retry_min: Duration::from_secs(60),
+        retry_max: Duration::from_secs(60),
+        ..quick()
+    };
+    let storage = SimStorage::new(64);
+    let (journal, _, _) = open_at(&storage, slow_retry, 0).unwrap_or_else(|e| panic!("{e}"));
+    // Record 1 fills page 0 and part of page 1, and is fully synced, its marker too.
+    assert_eq!(journal.append(1, Class::Ack, &vec![b'a'; SIM_PAGE + 1000]), Ok(1));
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
+    // Record 2's sync fails, and the disk gets none of its pages (page 1 on).
+    storage.fail_next_sync(2, std::io::ErrorKind::Other);
+    assert_eq!(journal.append(1, Class::Ack, &vec![b'b'; 2 * SIM_PAGE]), Ok(2));
+    assert!(eventually(|| journal.stats().failures == 1), "{:?}", journal.stats());
+    // A kill -9 while the writer waits to try again.
+    let restarted = storage.restart(Crash::Process);
+    drop(journal);
+    // Each read of the next open sees the cache, then evicts the dropped pages it read.
+    restarted.evict_dropped_pages_after_read(true);
+    let (journal, report, seen) = open(&restarted);
+    restarted.evict_dropped_pages_after_read(false);
+    assert_eq!(lsns(&seen), vec![1, 2], "{report:?}");
+    assert_eq!(journal.append(1, Class::Ack, b"c"), Ok(3));
+    journal.wait_durable(3, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    drop(journal);
+    let (_, report, seen) = open(&restarted.restart(Crash::Os));
+    assert_eq!(lsns(&seen), vec![1, 2, 3], "{report:?}");
+    assert!(report.damage.is_empty(), "{report:?}");
+}
+
+/// G4 of the re-review: once a segment that an open made after its quarantine is live, the
+/// quarantined segments hold no LSN above it, so later opens read none of them.
+#[test]
+fn an_open_after_a_finished_quarantine_reads_no_quarantined_segment() {
+    let (damaged, config) = damaged_in_the_middle(55);
+    let (journal, report, _) =
+        open_at(&damaged, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(report.damage.first(), Some(Damage::Corrupt { .. })), "{report:?}");
+    drop(journal);
+    let restarted = damaged.restart(Crash::Process);
+    let quarantine = dir().join("quarantine");
+    let moved = restarted.names_in(&quarantine);
+    assert!(!moved.is_empty());
+    let (journal, _, _) = open_at(&restarted, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    for name in &moved {
+        assert_eq!(restarted.reads(&quarantine.join(name)), 0, "{name} was read");
+    }
+    assert_eq!(journal.append(3, Class::Ack, b"after"), Ok(41));
+}
+
 // ---------------------------------------------------------------- real file system
 
 #[test]
@@ -653,4 +719,39 @@ fn append_raw(path: &Path, bytes: &[u8]) {
         .open(path)
         .unwrap_or_else(|e| panic!("open {}: {e}", path.display()));
     file.write_all(bytes).unwrap_or_else(|e| panic!("append: {e}"));
+}
+
+/// G3 of the re-review: the daemon's state folder, or the journal folder itself, may be a
+/// symlink (GNU stow, state kept on another volume). The journal opens there and round-trips.
+#[cfg(unix)]
+#[test]
+fn a_journal_in_a_symlinked_folder_opens_and_round_trips() {
+    let root = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let real = root.path().join("real");
+    let journal_real = root.path().join("journal-real");
+    for folder in [&real, &journal_real] {
+        std::fs::create_dir(folder).unwrap_or_else(|e| panic!("mkdir: {e}"));
+    }
+    let state = root.path().join("state");
+    std::os::unix::fs::symlink(&real, &state).unwrap_or_else(|e| panic!("symlink: {e}"));
+    let journal_link = real.join("journal");
+    std::os::unix::fs::symlink(&journal_real, &journal_link)
+        .unwrap_or_else(|e| panic!("symlink: {e}"));
+    let storage: Arc<dyn Storage> = Arc::new(FsStorage);
+    // A journal folder in a symlinked state folder; a journal folder that is a symlink.
+    for dir in [state.join("chats-journal"), journal_link] {
+        let (journal, _) =
+            Journal::open(storage.clone(), &dir, Config::default(), 0, &mut |_| Ok(()))
+                .unwrap_or_else(|e| panic!("open {}: {e}", dir.display()));
+        assert_eq!(journal.append(5, Class::Ack, b"x"), Ok(1));
+        assert_eq!(journal.seal(WAIT), Ok(1));
+        drop(journal);
+        let mut seen = Vec::new();
+        Journal::open(storage.clone(), &dir, Config::default(), 0, &mut |record| {
+            seen.push(record.lsn);
+            Ok(())
+        })
+        .unwrap_or_else(|e| panic!("reopen {}: {e}", dir.display()));
+        assert_eq!(seen, vec![1], "{}", dir.display());
+    }
 }
