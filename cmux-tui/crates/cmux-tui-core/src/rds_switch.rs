@@ -16,7 +16,8 @@ impl InputLaneSwitch {
     /// The switch as the daemon's environment sets it. The first one a process reads is logged, so a daemon's log
     /// says which path its keys take.
     pub(crate) fn from_env() -> Self {
-        let value = std::env::var("CMUX_TUI_RDS_INPUT").ok();
+        // NEVER MERGE: the S1.7 review asked for one full suite with the lane off at the S1.7 head.
+        let value = std::env::var("CMUX_TUI_RDS_INPUT").ok().or_else(|| Some("0".to_owned()));
         let switch = Self::from_value(value.as_deref());
         static LOGGED: std::sync::Once = std::sync::Once::new();
         LOGGED.call_once(|| {
