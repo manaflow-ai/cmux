@@ -125,7 +125,8 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
   // (agentPane.display.pinnedPlan) keeps it in the transcript, which these tests read.
   const pinPlan = async (page: Page) => {
     await page.evaluate(async () => {
-      const display = "/src/agent-session/acpmux/chatDisplay.ts";
+      // The pane dev server serves src/agent-session/acpmux at its root, so this is the module App imports.
+      const display = "/chatDisplay.ts";
       const { setChatDisplay } = (await import(/* @vite-ignore */ display)) as {
         setChatDisplay(raw: unknown): void;
       };
