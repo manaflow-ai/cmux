@@ -130,12 +130,22 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
     tolerance: 1,
     source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
   },
+  // A turn a received message started folds under its "Worked for" line, a Claude turn's too (Leo,
+  // 2026-11-04: "i think it should be the top level collapsible thing IF POSSIBLE"): that line sits
+  // between the received line and the work, with the room it has in a Codex turn.
   {
-    id: "received-to-status",
-    between: 'a received message line and the "Scheduled check" line under it, centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "one-line rows sit flush (rule 3); no reference shows a received line over a scheduled check",
+    id: "received-to-worked",
+    between: 'a received message line and its turn\'s "Worked for" line under it, centre to centre',
+    value: 48.5,
+    tolerance: 1,
+    source: "the Worked for line's own room above it (cv-worked has-divider), as a Codex turn draws it",
+  },
+  {
+    id: "worked-to-status",
+    between: '"Worked for", opened, and the "Scheduled check" line under it, centre to centre',
+    value: 49,
+    tolerance: 1,
+    source: "the Worked for line's own room below it (cv-worked has-divider), as a Codex turn draws it",
   },
   {
     id: "status-to-run",
