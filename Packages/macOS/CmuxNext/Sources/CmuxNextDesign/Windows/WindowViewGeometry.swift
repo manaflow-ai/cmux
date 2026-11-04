@@ -22,8 +22,11 @@ public struct WindowViewGeometry {
     public init() {}
 
     public init(window: NSWindow) {
-        guard let content = window.contentView else { return }
-        self.init(root: content.superview ?? content)
+        if let content = window.contentView {
+            self.init(root: content.superview ?? content)
+        } else {
+            self.init()
+        }
     }
 
     /// The tree under `root` (a window's frame view: the titlebar and the content).
