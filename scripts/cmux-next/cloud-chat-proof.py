@@ -15,6 +15,10 @@ Each step's exit code and the CLI's own message go to the evidence JSON and the 
 the reply text. The chat prompt always includes a browser proof against example.com, so a passing
 run demonstrates that the agent on the Cloud machine drove its browser and read the page back.
 Nothing here reads the credentials file; the app does.
+
+With --cleanup-machine vm_<hex> there is no chat: once signed in it reads the machine's row and
+`cloud machine-status`, kills it (one retry, with a status read after a failed kill) and reads its
+status again, for a machine an earlier run leaked. Only allowlisted status fields reach the evidence.
 """
 import argparse
 import collections
@@ -32,10 +36,15 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
 parser.add_argument("--tag", required=True)
-parser.add_argument("--prompt", required=True)
+parser.add_argument("--prompt", default=None)
 parser.add_argument("--agent", default="claude")
 parser.add_argument("--evidence", required=True)
+parser.add_argument("--cleanup-machine", default="", help="vm_<hex>: inspect and kill this machine, no chat")
 args = parser.parse_args()
+if args.cleanup_machine and not re.fullmatch(r"vm_[0-9a-f]{1,64}", args.cleanup_machine):
+    parser.error("--cleanup-machine must look like vm_<lowercase hex>")
+if not args.cleanup_machine and args.prompt is None:
+    parser.error("--prompt is required without --cleanup-machine")
 
 CLI = str(Path(args.app) / "Contents/Resources/bin/cmux")
 ENV = {**os.environ, "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{args.tag}.sock"}
@@ -62,8 +71,8 @@ SECRET_PATTERNS = (
 evidence = {
     "tag": None,
     "agent": args.agent,
-    "prompt_sha256": hashlib.sha256(args.prompt.encode("utf-8")).hexdigest(),
-    "prompt_bytes": len(args.prompt.encode("utf-8")),
+    "prompt_sha256": hashlib.sha256((args.prompt or "").encode("utf-8")).hexdigest(),
+    "prompt_bytes": len((args.prompt or "").encode("utf-8")),
     "steps": [],
 }
 
@@ -116,18 +125,39 @@ def finish(result: str) -> None:
 
 
 def parsed(text: str) -> dict:
+    """The JSON answer in TEXT: the whole text, else its last line that is JSON (a CLI may print
+    progress lines on stderr before its error object, which left the evidence's stderr empty)."""
+    value: object = {}
     try:
         value = json.loads(text) if text.strip() else {}
     except json.JSONDecodeError:
-        return {}
+        for line in reversed(text.splitlines()):
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                break
+        else:
+            return {}
     value = value.get("result", value) if isinstance(value, dict) else {}
     return value if isinstance(value, dict) else {}
 
 
-def failure_text(err: str) -> str:
+def error_object(err: str, out: str = "") -> dict:
+    """The CLI's error object: on stderr, else on stdout (a CLI that answers its error there left
+    every failed step's evidence empty, runs 41816691332 and 41821353341)."""
+    for text in (err, out):
+        value = parsed(text)
+        if isinstance(value.get("code"), str) or isinstance(value.get("message"), str):
+            return value
+    return {}
+
+
+def failure_text(err: str, out: str = "") -> str:
     """The CLI's error code and message, without the command it names to run again: that command
     carries the whole prompt, the caller's context included (#35079)."""
-    error = parsed(err)
+    error = error_object(err, out)
     code = error.get("code") if isinstance(error.get("code"), str) else ""
     message = error.get("message") if isinstance(error.get("message"), str) else ""
     for cut in ("Run the same command again", "cmux cloud start-chat", "cmux cloud start-session"):
@@ -186,6 +216,62 @@ def app_link_log(since: str, keep: int = 300) -> dict:
 def listed() -> tuple[int, str, str, dict]:
     code, out, err = cmux("cloud", "list-machines", "--json", timeout=60)
     return code, out, err, parsed(out) if code == 0 else {}
+
+
+# The machine-status fields (CloudHandlers.statusFields) that may reach the evidence; the address
+# and anything else are left out.
+STATUS_FIELDS = ("status", "state", "title", "running_since", "hourly_rate_usd", "estimated_cost_usd")
+IDLE_PAUSE_FIELDS = ("minutes", "last_checked_at", "idle_since", "last_api_activity_at", "private_address_known")
+
+
+def scalar(value: object) -> object:
+    if isinstance(value, str):
+        # Left out, not redacted: a `token=[withheld]` would still trip the workflow's evidence scan.
+        return "[left out]" if EVIDENCE_SCAN.search(value) else clean(value, 300)
+    return value if isinstance(value, (int, float, bool)) or value is None else None
+
+
+def machine_status(machine: str) -> tuple[int, dict, str]:
+    """Return a redacted, allowlisted status summary of a machine."""
+    code, out, err = cmux(
+        "cloud", "machine-status", "--target", f"machine:{machine}", "--json", timeout=60
+    )
+    value = parsed(out)
+    for key in ("machine", "fields"):
+        if isinstance(value.get(key), dict):
+            value = {**value[key], **{k: v for k, v in value.items() if k != key}}
+    summary = {key: scalar(value[key]) for key in STATUS_FIELDS if key in value}
+    idle = value.get("idle_pause")
+    if isinstance(idle, dict):
+        summary["idle_pause"] = {key: scalar(idle[key]) for key in IDLE_PAUSE_FIELDS if key in idle}
+        decision = idle.get("last_decision")
+        if isinstance(decision, dict):
+            summary["idle_pause"]["last_decision"] = {
+                key: scalar(decision[key]) for key in ("at", "outcome", "reason") if key in decision}
+    detail = failure_text(err, out) if code != 0 else ""
+    return code, summary, detail
+
+
+def kill_machine(machine: str) -> bool:
+    """Kill MACHINE (a destructive verb needs --confirm from a script). A failed kill reads one
+    bounded status snapshot and retries once; only the safe status/error summary is kept."""
+    code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
+                                timeout=120)
+    if code_k == 0:
+        record("cloud kill-machine", code_k, "", "")
+        return True
+    # A failed kill used to be silent, leaving the proof unable to distinguish a deleted
+    # machine from a leaked one.
+    kill_detail = failure_text(err_k, out_k) or "kill-machine returned no error"
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud kill-machine", code_k, "", kill_detail,
+           status_after_failure={"exit": status_code, **status_summary,
+                                 **({"error": status_detail} if status_detail else {})})
+    code_retry, out_retry, err_retry = cmux(
+        "cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120
+    )
+    record("cloud kill-machine retry", code_retry, "", failure_text(err_retry, out_retry) if code_retry != 0 else "")
+    return code_retry == 0
 
 
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
@@ -284,6 +370,21 @@ record("signed in (cloud list-machines)", 0 if signed_in else (code or 1), "" if
 if not signed_in:
     finish("fail: the app never signed in (cloud list-machines: account.signed_in is not true)")
 
+if args.cleanup_machine:
+    machine = args.cleanup_machine
+    evidence["cleanup_machine"] = machine
+    row = next((r for r in machines.get("machines") or []
+                if isinstance(r, dict) and r.get("machine_id") == machine), None)
+    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None, loaded=machines.get("loaded"),
+           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
+              if row else {}))
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
+    killed = kill_machine(machine)
+    after_code, after_summary, after_detail = machine_status(machine)
+    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
+    finish("pass" if killed else "fail: kill-machine failed twice")
+
 # 2. A VM agent key at this build's issuer (vm-staging.cmux.dev for a tagged Debug build).
 code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout=60)
 # The token is intentionally not retained in the evidence or the job log.
@@ -303,7 +404,10 @@ while True:  # bounded: the same start-chat again while its machine is still bei
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
-    record("cloud start-chat (machine still starting)", code, "", failure_text(err))
+    # The stage it is stuck at (cloud_start_chat.rs StartStage): machine status, create in flight, or link.
+    pending_stage = (error_object(err, out).get("details") or {}).get("stage")
+    record("cloud start-chat (machine still starting)", code, "", failure_text(err, out) or "(no error on stderr or stdout)",
+           **({"stage": pending_stage} if isinstance(pending_stage, dict) else {}))
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
@@ -313,14 +417,14 @@ reply_text = reply if isinstance(reply, str) else ""
 browser_marker = has_browser_proof_reply(reply_text)
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
 reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
-record("cloud start-chat", code, "", failure_text(err) if code != 0 else "", reply=reply_for_evidence,
+record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else "", reply=reply_for_evidence,
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
        **({"app_link_log": app_link_log(chat_started_at)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
-failure = parsed(err).get("details") or {}
+failure = error_object(err, out).get("details") or {}
 machine = answer.get("machine_id") or failure.get("machine_id") or (failure.get("answer") or {}).get("machine_id")
 session = answer.get("session_id") or failure.get("session_id") or (failure.get("answer") or {}).get("session_id")
 if not machine:
@@ -339,13 +443,8 @@ event_proof = browser_event_proof(raw_events)
 record("cloud browser event proof", event_code, "", "",
        browser_proof={"url": BROWSER_PROOF_URL, **event_proof})
 
-# 5. The machine the chat made goes, pass or fail (a destructive verb needs --confirm from a script).
-killed = True
-if machine:
-    code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
-                                timeout=120)
-    record("cloud kill-machine", code_k, "", failure_text(err_k) if code_k != 0 else "")
-    killed = code_k == 0
+# 5. The machine the chat made goes, pass or fail.
+killed = kill_machine(machine) if machine else True
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")
