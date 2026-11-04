@@ -276,6 +276,9 @@ extension SettingsSchema {
         "cloud.agentsStartWithoutAsking": .userOnly,
         // The person's consent to copy their own Claude login to their own Cloud machines: only theirs to give.
         "cloud.useMyClaudeLoginOnMyCloudMachines": .privacy,
+        // The Cloud Tunnel opens the person's Cloud network to every app on this Mac: theirs to set
+        // (an agent turns it on only through `cloud tunnel-on`, and macOS still asks the person).
+        "cloud.tunnel.enabled": .network,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agentPane.scrollToBottomOnSend": .userOnly,

@@ -3148,6 +3148,402 @@
         }
       }
     },
+    "settings.cloud.tunnel.enabled": {
+      "comment": "Settings > Machines: the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        }
+      }
+    },
+    "settings.cloud.tunnel.enabled.help": {
+      "comment": "Settings > Machines: help for the Cloud Tunnel toggle.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتيح لكل تطبيق على هذا الـ Mac الوصول إلى العناوين الخاصة لأجهزة Cloud، مثل VPN لشبكة Cloud فقط. يطلب macOS السماح بامتداد الشبكة من cmux مرة واحدة. لا يحتاجه cmux نفسه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Omogućava svakoj aplikaciji na ovom Macu da dosegne privatne adrese vaših Cloud mašina, kao VPN samo za vašu Cloud mrežu. macOS jednom traži da dozvolite cmux mrežnu ekstenziju. Samom cmuxu nije potrebna."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lader alle apps på denne Mac nå dine Cloud-maskiners private adresser, som en VPN kun til dit Cloud-netværk. macOS beder dig én gang om at tillade cmux' netværksudvidelse. cmux selv behøver den ikke."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lässt jede App auf diesem Mac die privaten Adressen deiner Cloud-Maschinen erreichen, wie ein VPN nur für dein Cloud-Netzwerk. macOS fragt einmal, ob du die cmux-Netzwerkerweiterung erlaubst. cmux selbst braucht sie nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets every app on this Mac reach your Cloud machines' private addresses, like a VPN for your Cloud network only. macOS asks you to allow the cmux network extension once. cmux itself does not need it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que cualquier app de este Mac llegue a las direcciones privadas de tus máquinas de Cloud, como una VPN solo para tu red de Cloud. macOS te pide una vez que permitas la extensión de red de cmux. cmux no la necesita."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permet à toutes les apps de ce Mac d'atteindre les adresses privées de vos machines Cloud, comme un VPN limité à votre réseau Cloud. macOS vous demande une fois d'autoriser l'extension réseau de cmux. cmux lui-même n'en a pas besoin."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Consente a ogni app di questo Mac di raggiungere gli indirizzi privati delle tue macchine Cloud, come una VPN solo per la tua rete Cloud. macOS ti chiede una volta di consentire l'estensione di rete di cmux. cmux non ne ha bisogno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のすべてのアプリから Cloud マシンのプライベートアドレスに接続できるようにします。Cloud ネットワーク専用の VPN のようなものです。macOS が cmux のネットワーク拡張の許可を一度だけ求めます。cmux 自体には必要ありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធីទាំងអស់នៅលើ Mac នេះទៅដល់អាសយដ្ឋានឯកជននៃម៉ាស៊ីន Cloud របស់អ្នក ដូចជា VPN សម្រាប់តែបណ្ដាញ Cloud។ macOS សួរអ្នកម្ដងដើម្បីអនុញ្ញាតផ្នែកបន្ថែមបណ្ដាញ cmux។ cmux ខ្លួនឯងមិនត្រូវការវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 Mac의 모든 앱이 Cloud 머신의 사설 주소에 연결할 수 있게 합니다. Cloud 네트워크 전용 VPN과 같습니다. macOS가 cmux 네트워크 확장 허용을 한 번 요청합니다. cmux 자체에는 필요하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lar alle apper på denne Macen nå de private adressene til Cloud-maskinene dine, som et VPN bare for Cloud-nettverket ditt. macOS ber deg én gang om å tillate cmux sin nettverksutvidelse. cmux selv trenger den ikke."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pozwala każdej aplikacji na tym Macu łączyć się z prywatnymi adresami Twoich maszyn Cloud, jak VPN tylko dla sieci Cloud. macOS jednorazowo poprosi o zezwolenie na rozszerzenie sieciowe cmux. Sam cmux go nie potrzebuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Permite que qualquer app deste Mac acesse os endereços privados das suas máquinas Cloud, como uma VPN só para a sua rede Cloud. O macOS pede uma vez que você permita a extensão de rede do cmux. O próprio cmux não precisa dela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Позволяет любому приложению на этом Mac обращаться к частным адресам ваших машин Cloud, как VPN только для сети Cloud. macOS один раз попросит разрешить сетевое расширение cmux. Самому cmux оно не нужно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ให้ทุกแอปบน Mac เครื่องนี้เข้าถึงที่อยู่ส่วนตัวของเครื่อง Cloud ของคุณ เหมือน VPN สำหรับเครือข่าย Cloud เท่านั้น macOS จะขอให้คุณอนุญาตส่วนขยายเครือข่ายของ cmux หนึ่งครั้ง ตัว cmux เองไม่ต้องใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu Mac'teki her uygulamanın Cloud makinelerinizin özel adreslerine erişmesini sağlar; yalnızca Cloud ağınız için bir VPN gibi. macOS, cmux ağ uzantısına izin vermenizi bir kez ister. cmux'un kendisinin buna ihtiyacı yoktur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дає змогу кожній програмі на цьому Mac звертатися до приватних адрес ваших машин Cloud, як VPN лише для мережі Cloud. macOS один раз попросить дозволити мережеве розширення cmux. Самому cmux воно не потрібне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho phép mọi ứng dụng trên máy Mac này truy cập địa chỉ riêng của các máy Cloud, giống VPN chỉ cho mạng Cloud. macOS sẽ hỏi bạn một lần để cho phép tiện ích mở rộng mạng của cmux. Bản thân cmux không cần nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让这台 Mac 上的所有 App 都能访问你的 Cloud 机器的私有地址，就像只用于 Cloud 网络的 VPN。macOS 会请你允许一次 cmux 网络扩展。cmux 本身不需要它。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓這台 Mac 上的所有 App 都能存取你的 Cloud 機器的私有位址，就像只用於 Cloud 網路的 VPN。macOS 會請你允許一次 cmux 網路延伸功能。cmux 本身不需要它。"
+          }
+        }
+      }
+    },
+    "settings.group.cloudTunnel": {
+      "comment": "Settings > Machines: the Cloud Tunnel group.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cloud Tunnel"
+          }
+        }
+      }
+    },
     "settings.home.bubbleColors.default": {
       "comment": "Default label of the Home bubble color rows (home.bubbleColors.*): unset keeps the Bubble Style's color.",
       "extractionState": "manual",
