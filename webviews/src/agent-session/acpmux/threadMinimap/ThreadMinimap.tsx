@@ -167,7 +167,6 @@ export function ThreadMinimap({
   columnWidth = width,
   placed,
   change,
-  topInset = 0,
 }: {
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
@@ -205,13 +204,8 @@ export function ThreadMinimap({
   /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
-  /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
-  /// its prompt LANDING_OFFSET below the row, not under it.
-  topInset?: number;
 }) {
   const t = useT();
-  const topInsetNow = useRef(topInset);
-  topInsetNow.current = topInset;
   const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
@@ -690,7 +684,7 @@ export function ThreadMinimap({
             const box = targetRow()?.getBoundingClientRect();
             // Not drawn yet, or no layout to measure (a hidden pane).
             if (!box || box.height === 0) return undefined;
-            return box.top - node.getBoundingClientRect().top - LANDING_OFFSET - topInsetNow.current;
+            return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
           },
           SETTLE_FRAMES,
           { explicit: true },

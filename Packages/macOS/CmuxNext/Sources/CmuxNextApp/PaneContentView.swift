@@ -220,7 +220,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
         }
         if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, toolbar: toolbar?.view, in: self) } else { toolbar?.view.paintTabRowHole(nil) }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
         if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 
