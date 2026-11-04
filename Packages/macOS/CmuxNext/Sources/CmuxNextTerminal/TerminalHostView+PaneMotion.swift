@@ -34,10 +34,17 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// the area it shows in, in every frame, anchored top-left: the frame owner shows each size's frame with its bounds,
     /// or keeps the last frame (clipped, top-left) until it is drawn; the PTY still gets one grid per press (the final
     /// grid, ``TerminalSurfaceView`` `restAt`). Except the low prompt above (`restAt` held the surface on the bottom edge):
-    /// it keeps that hold.
+    /// it keeps only that hold's height, and only while the final grid is taller than the area: its bottom rides the
+    /// area's bottom edge (the prompt stays in view) and it has the area's leading edge and width, so it never cuts the
+    /// lines on a moving side edge and never leaves a band above the terminal (review of #35470 at c4d6c936c92, H1: a press
+    /// on the other axis, or two grow presses and then a shrink, in one spring).
     func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
         let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        if TerminalDragTunables.framesOwnedByCommit.value, surfaceHold?.anchor != .bottom { return shown }
+        if TerminalDragTunables.framesOwnedByCommit.value {
+            guard case .bottom? = surfaceHold?.anchor, let held = surfaceHold?.size, held.height > shown.height else { return shown }
+            // The host is not flipped: minY is the bottom edge.
+            return CGRect(x: shown.minX, y: shown.minY, width: shown.width, height: held.height)
+        }
         let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
         var hold = followed.hold
         if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
