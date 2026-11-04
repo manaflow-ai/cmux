@@ -102,6 +102,27 @@ public final class LayoutPassGuard {
     /// Scratch (REOPEN-F7): the layout counts at the first window frame's commit, with the views in that window per class (JSON).
     public private(set) var firstFrame: String?
 
+    // Scratch (REOPEN-F7): time in `-[NSView layout]` per class (inclusive and self), and in window layout passes.
+    private var timeStack: [(start: UInt64, children: UInt64)] = []
+    private var classTime: [String: (incl: UInt64, own: UInt64)] = [:]
+    private var windowNs: UInt64 = 0, topViewNsInWindow: UInt64 = 0, topViewNsOutside: UInt64 = 0
+    private var windowStart: UInt64 = 0, windowDepth = 0
+
+    fileprivate func timeBegin() { timeStack.append((DispatchTime.now().uptimeNanoseconds, 0)) }
+
+    fileprivate func timeEnd(_ view: NSView) {
+        guard let top = timeStack.popLast() else { return }
+        let incl = DispatchTime.now().uptimeNanoseconds &- top.start
+        let name = String(describing: Swift.type(of: view))
+        let entry = classTime[name] ?? (0, 0)
+        classTime[name] = (entry.incl &+ incl, entry.own &+ (incl &- min(incl, top.children)))
+        if timeStack.isEmpty {
+            if windowDepth > 0 { topViewNsInWindow &+= incl } else { topViewNsOutside &+= incl }
+        } else {
+            timeStack[timeStack.count - 1].children &+= incl
+        }
+    }
+
     public func snapshotFirstFrame(_ window: NSWindow?) {
         var views: [String: (all: Int, hidden: Int)] = [:]
         func walk(_ view: NSView) {
@@ -114,9 +135,12 @@ public final class LayoutPassGuard {
         }
         if let root = window?.contentView?.superview ?? window?.contentView { walk(root) }
         let classes: [[String: Any]] = passesByClass.prefix(60).map { entry in
-            ["c": entry.viewClass, "layouts": entry.passes, "views": views[entry.viewClass]?.all ?? 0, "hidden": views[entry.viewClass]?.hidden ?? 0]
+            ["c": entry.viewClass, "layouts": entry.passes, "views": views[entry.viewClass]?.all ?? 0, "hidden": views[entry.viewClass]?.hidden ?? 0,
+             "incl_us": Int((classTime[entry.viewClass]?.incl ?? 0) / 1000), "self_us": Int((classTime[entry.viewClass]?.own ?? 0) / 1000)]
         }
         let object: [String: Any] = ["view_layout_calls": viewLayoutCalls, "window_layout_passes": windowLayoutPasses, "classes": classes,
+                                     "window_pass_us": Int(windowNs / 1000), "top_view_layout_in_window_us": Int(topViewNsInWindow / 1000),
+                                     "top_view_layout_outside_window_us": Int(topViewNsOutside / 1000),
                                      "tree_views": views.values.reduce(0) { $0 + $1.all }]
         firstFrame = (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
     }
@@ -181,10 +205,16 @@ public final class LayoutPassGuard {
         let id = ObjectIdentifier(window)
         windowLayouts[id, default: WindowLayout()].depth += 1
         if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
+        if windowDepth == 0 { windowStart = DispatchTime.now().uptimeNanoseconds }
+        windowDepth += 1
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
+        if windowDepth > 0 {
+            windowDepth -= 1
+            if windowDepth == 0 { windowNs &+= DispatchTime.now().uptimeNanoseconds &- windowStart }
+        }
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart { windowLayoutPasses &+= 1 }
@@ -263,9 +293,13 @@ public final class LayoutPassGuard {
     /// elsewhere is passed through uncounted.
     private nonisolated static func override(calling original: Layout, _ selector: Selector) -> @convention(block) (NSView) -> Void {
         { view in
-            original(view, selector)
-            guard Thread.isMainThread else { return }
-            MainActor.assumeIsolated { LayoutPassGuard.shared.record(view) } // main-proof: checked above
+            guard Thread.isMainThread else { return original(view, selector) }
+            MainActor.assumeIsolated { // main-proof: checked above
+                LayoutPassGuard.shared.timeBegin()
+                original(view, selector)
+                LayoutPassGuard.shared.timeEnd(view)
+                LayoutPassGuard.shared.record(view)
+            }
         }
     }
 
