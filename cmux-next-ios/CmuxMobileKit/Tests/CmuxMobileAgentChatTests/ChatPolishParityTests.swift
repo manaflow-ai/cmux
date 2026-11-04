@@ -16,6 +16,8 @@ import UIKit
         var marks: [(seq: Int, on: Bool)] = []
         var refuseMarks = false
         var refreshed = 0
+        var bookmarkReads = 0
+        var marksOnMac: [Int]?
         var details = AgentSessionDetails(name: "fix-tests", sessionID: "acpmux-1", harnessSessionID: "h-9", cwd: "/w/proj", host: "Studio",
                                           status: AgentSessionStatus(harness: "claude", fields: []))
         func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
@@ -27,6 +29,11 @@ import UIKit
             return bookmarked ? [seq] : []
         }
         func refreshPermissions() { refreshed += 1 }
+        func bookmarks() async throws -> [Int] {
+            bookmarkReads += 1
+            guard let marksOnMac else { throw AgentFeatureUnavailable("Agents on Studio aren't connected.") }
+            return marksOnMac
+        }
     }
 
     private func turn(_ store: AgentChatStore, _ id: String, prompt: String, promptSeq: Int, resultSeq: Int, answer: String = "ok") {
@@ -112,6 +119,29 @@ import UIKit
         await settle(source, calls: 1)
         #expect(!store.isBookmarked(store.turns[0]))
         #expect(store.clientError == "the chat is moving")
+    }
+
+    @Test func marksAreReadAgainWhenTheChatConnects() async {
+        let source = Source()
+        let store = AgentChatStore(source: source)
+        turn(store, "t1", prompt: "one", promptSeq: 3, resultSeq: 9)
+        store.showBookmarks()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(source.bookmarkReads == 1 && !store.isBookmarked(store.turns[0]), "the first read failed: the link was down")
+        source.marksOnMac = [3]
+        store.apply(.status(.ready))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(store.isBookmarked(store.turns[0]))
+        store.apply(.status(.ready))
+        for _ in 0..<100 { await Task.yield() }
+        #expect(source.bookmarkReads == 2, "read once it succeeded")
+    }
+
+    @Test func aReplayKeepsNoMarks() {
+        let replay = ReplaySource(summary: Source().summary)
+        let store = AgentChatStore(source: replay)
+        turn(store, "t1", prompt: "one", promptSeq: 3, resultSeq: 9)
+        #expect(!store.canBookmark(store.turns[0]) && !store.canPin(store.turns[0]))
     }
 
     @Test func aPromptAcpmuxHasNotLoggedCannotBeBookmarked() {
@@ -240,6 +270,20 @@ import UIKit
         #expect(journal.jsonLines([newest]).hasPrefix("{\"dir\":\"in\""))
         journal.clear()
         #expect(journal.events.isEmpty && journal.dropped == 0)
+    }
+
+    @Test func theJournalKeepsItsByteBudget() {
+        let journal = AgentEventJournal()
+        let big = String(repeating: "x", count: 200 << 10)
+        for seq in 1...40 {
+            journal.record(.object(["seq": .number(Double(seq)), "kind": .string("tool_call_update"), "msg": .string(big)]))
+        }
+        #expect(journal.events.reduce(0) { $0 + $1.line.utf8.count } <= AgentEventJournal.maxBytes)
+        #expect(journal.events.last?.seq == 40 && journal.dropped > 0)
+        // One record past the per-record cap keeps its kind and seq only.
+        journal.record(.object(["seq": .number(41), "kind": .string("tool_call_update"), "msg": .string(big + big)]))
+        #expect(journal.events.last?.kind == "tool_call_update" && journal.events.last?.seq == 41)
+        #expect(journal.events.last?.line.contains("only its kind and seq") == true)
     }
 
     // MARK: Replay Conversation

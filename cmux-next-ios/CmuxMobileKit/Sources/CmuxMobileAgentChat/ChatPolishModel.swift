@@ -72,10 +72,15 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
     public let update: String?
     /// The record as it came (encoded only when a person reads it).
     public let record: JSONValue
+    /// The record as one compact JSON line, encoded once (filter, export, the byte budget).
+    public let line: String
 
     public init(id: Int, record: JSONValue) {
         self.id = id
         self.record = record
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        line = (try? encoder.encode(record)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
         seq = Int(record["seq"]?.numberValue ?? 0)
         at = record["at"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
         dir = record["dir"]?.stringValue ?? ""
@@ -102,13 +107,6 @@ public struct AgentInspectorEvent: Identifiable, Hashable, Sendable {
         return (String(text.prefix(AgentEventJournal.maxCharacters)), text.count)
     }
 
-    /// One compact line (JSON Lines export).
-    public var line: String {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(record)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
-    }
-
     /// Whether the filter text matches the row (case-insensitive; its name, kind or body).
     public func matches(_ filter: String) -> Bool {
         let query = filter.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -126,6 +124,11 @@ public final class AgentEventJournal {
     public nonisolated static let limit = 500
     /// The most characters of one record's JSON shown.
     public nonisolated static let maxCharacters = 20_000
+    /// The most bytes the kept records take (tool output can be hundreds of KB each).
+    public nonisolated static let maxBytes = 4 << 20
+    /// The most bytes one record keeps: a larger one keeps its kind and seq, not its body.
+    public nonisolated static let maxRecordBytes = 256 << 10
+    @ObservationIgnored private var bytes = 0
 
     public private(set) var events: [AgentInspectorEvent] = []
     /// Rows dropped for the limit since the last Clear.
@@ -135,10 +138,25 @@ public final class AgentEventJournal {
     public init() {}
 
     public func record(_ record: JSONValue) {
-        events.append(AgentInspectorEvent(id: next, record: record))
+        var event = AgentInspectorEvent(id: next, record: record)
+        if event.line.utf8.count > Self.maxRecordBytes {
+            let size = event.line.utf8.count
+            var kept: [String: JSONValue] = ["cut": .string("\(size) bytes; only its kind and seq are kept on iPhone")]
+            for key in ["seq", "at", "dir", "kind", "sessionId"] { if let value = record[key] { kept[key] = value } }
+            event = AgentInspectorEvent(id: next, record: .object(kept))
+        }
+        events.append(event)
+        bytes += event.line.utf8.count
         next += 1
-        if events.count > Self.limit {
-            let over = events.count - Self.limit
+        // The oldest go first, past the row limit or the byte budget (the newest always stays).
+        var over = 0
+        var kept = bytes
+        while over < events.count - 1, events.count - over > Self.limit || kept > Self.maxBytes {
+            kept -= events[over].line.utf8.count
+            over += 1
+        }
+        if over > 0 {
+            bytes = kept
             events.removeFirst(over)
             dropped += over
         }
@@ -147,6 +165,7 @@ public final class AgentEventJournal {
     public func clear() {
         events = []
         dropped = 0
+        bytes = 0
     }
 
     /// The rows as JSON Lines (the Mac's Export).
@@ -249,6 +268,8 @@ extension AgentSessionSource {
     public func refreshPermissions() {}
 
     public var eventJournal: AgentEventJournal? { nil }
+
+    public var isReadOnly: Bool { false }
 
     public func replayRecording() async throws -> AgentReplayRecording {
         throw AgentFeatureUnavailable(String(localized: "This chat has no recorded history to replay."))

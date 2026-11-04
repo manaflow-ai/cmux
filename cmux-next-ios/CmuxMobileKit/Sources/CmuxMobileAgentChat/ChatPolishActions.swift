@@ -348,7 +348,8 @@ struct ChatDisplaySettingsSheet: View {
 @MainActor
 @Observable
 public final class ChatTurnNavigator {
-    public var bookmarkedOnly = false
+    /// Which turns the bar steps through; switching it forgets the position (another list).
+    public var bookmarkedOnly = false { didSet { if bookmarkedOnly != oldValue { position = nil } } }
     /// The turn the bar last moved to (its index among the turns it steps through).
     public private(set) var position: Int?
     public init(bookmarkedOnly: Bool = false) { self.bookmarkedOnly = bookmarkedOnly }
@@ -366,7 +367,12 @@ public final class ChatTurnNavigator {
     func step(forward: Bool, store: AgentChatStore, surface: AgentChatSurface) {
         let turns = store.navigableTurns(bookmarkedOnly: bookmarkedOnly)
         let reading = surface.scroller?.readingTurn(among: turns.map(\.id))
-        guard let index = Self.target(count: turns.count, reading: reading, forward: forward) else { return }
+        // The reader may have scrolled since the last step: the bar shows where they are.
+        if let reading { position = reading.index }
+        guard let index = Self.target(count: turns.count, reading: reading, forward: forward) else {
+            UIAccessibility.post(notification: .announcement, argument: forward ? String(localized: "No later turn") : String(localized: "No earlier turn"))
+            return
+        }
         position = index
         surface.scroller?.revealFindBlock(AgentChatFind.promptKey(turns[index].id), position: 0,
                                           animated: !UIAccessibility.isReduceMotionEnabled)
@@ -425,11 +431,11 @@ struct ChatTurnBar: View {
 
     private func label(count: Int) -> String {
         if navigator.bookmarkedOnly && count == 0 { return String(localized: "No bookmarked prompts") }
-        let noun = navigator.bookmarkedOnly ? String(localized: "Bookmark") : String(localized: "Turn")
         guard let position = navigator.position, position < count else {
             return navigator.bookmarkedOnly ? String(localized: "\(count) bookmarked") : String(localized: "\(count) turns")
         }
-        return "\(noun) \(position + 1) of \(count)"
+        return navigator.bookmarkedOnly ? String(localized: "Bookmark \(position + 1) of \(count)")
+            : String(localized: "Turn \(position + 1) of \(count)")
     }
 }
 

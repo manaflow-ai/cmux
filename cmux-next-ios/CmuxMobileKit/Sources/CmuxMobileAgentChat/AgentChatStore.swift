@@ -184,6 +184,8 @@ public final class AgentChatStore {
     /// The newest permission answer this phone sent, until the Mac decides that ask
     /// (Check and Retry Permission sends it again when its reply was lost).
     @ObservationIgnored private var sentPermissionAnswer: (permissionID: String, optionID: String?)?
+    /// The newest call the chat made was that answer (its error, if one comes, is the answer's).
+    @ObservationIgnored private var awaitsPermissionReply = false
     /// The newest answer failed to reach the Mac while its ask stays open.
     public private(set) var permissionAnswerUncertain = false
     /// acpmux holds the waiting prompts (`queue_paused`) until the person resumes them.
@@ -478,6 +480,7 @@ public final class AgentChatStore {
         approvingOptionID = option?.isAllow == true ? option?.id : nil
         sentPermissionAnswer = (request.id, option?.id)
         permissionAnswerUncertain = false
+        awaitsPermissionReply = true
         source.send(.respondPermission(permissionId: request.id, optionId: option?.id))
     }
 
@@ -493,10 +496,10 @@ public final class AgentChatStore {
         turnSeqs[turn.id].map(bookmarkedSeqs.contains) ?? false
     }
 
-    /// Whether the prompt can be bookmarked: acpmux logged it.
-    public func canBookmark(_ turn: AgentTurn) -> Bool { promptSeqs[turn.id] != nil }
+    /// Whether the prompt can be bookmarked: acpmux logged it (a replay's chat has none).
+    public func canBookmark(_ turn: AgentTurn) -> Bool { !source.isReadOnly && promptSeqs[turn.id] != nil }
     /// Whether the answer can be pinned: its turn ended.
-    public func canPin(_ turn: AgentTurn) -> Bool { turnSeqs[turn.id] != nil }
+    public func canPin(_ turn: AgentTurn) -> Bool { !source.isReadOnly && turnSeqs[turn.id] != nil }
 
     public func toggleBookmark(_ turn: AgentTurn) {
         guard let seq = promptSeqs[turn.id] else { return }
@@ -508,35 +511,49 @@ public final class AgentChatStore {
         setMark(seq, on: !bookmarkedSeqs.contains(seq))
     }
 
-    /// Shows the mark at once and keeps acpmux's answer; a refusal puts it back and says why.
+    /// Shows the mark at once; acpmux's `bookmarks` record (every mark after a change) is what
+    /// stays. A refusal undoes this one mark only, so another change made meanwhile is kept.
     private func setMark(_ seq: Int, on: Bool) {
-        let before = bookmarkedSeqs
         if on { bookmarkedSeqs.insert(seq) } else { bookmarkedSeqs.remove(seq) }
         let source = source
         Task { @MainActor [weak self] in
             do {
-                let marks = try await source.setBookmark(seq: seq, bookmarked: on)
-                self?.bookmarkedSeqs = Set(marks)
+                _ = try await source.setBookmark(seq: seq, bookmarked: on)
             } catch {
-                self?.bookmarkedSeqs = before
-                self?.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                guard let self else { return }
+                if on { self.bookmarkedSeqs.remove(seq) } else { self.bookmarkedSeqs.insert(seq) }
+                self.clientError = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             }
         }
     }
 
-    /// Reads the chat's marks once (the Mac's pane loads them on open); later changes come as
-    /// `bookmarks` records.
+    /// Reads the chat's marks (the Mac's pane loads them on open): once it is read, later
+    /// changes come as `bookmarks` records. A read that fails (the link was not up yet) is made
+    /// again when the chat connects.
     public func loadBookmarks() {
-        guard !loadedBookmarks else { return }
-        loadedBookmarks = true
+        guard !loadedBookmarks, !loadingBookmarks, summary.status != .disconnected else { return }
+        loadingBookmarks = true
         let source = source
         Task { @MainActor [weak self] in
-            guard let marks = try? await source.bookmarks() else { return }
-            self?.bookmarkedSeqs = Set(marks)
+            let marks = try? await source.bookmarks()
+            guard let self else { return }
+            self.loadingBookmarks = false
+            guard let marks else { return }
+            self.loadedBookmarks = true
+            self.bookmarkedSeqs = Set(marks)
         }
     }
 
     @ObservationIgnored private var loadedBookmarks = false
+    @ObservationIgnored private var loadingBookmarks = false
+    /// The transcript asked for the marks (it is on screen): a reconnect reads them if needed.
+    @ObservationIgnored private var wantsBookmarks = false
+
+    /// The chat is on screen: its marks are read now, or when it connects.
+    public func showBookmarks() {
+        wantsBookmarks = true
+        loadBookmarks()
+    }
 
     /// The turns the transcript holds, for Previous/Next Turn; `bookmarkedOnly`: only those
     /// whose prompt is bookmarked (Previous/Next Bookmarked Prompt).
@@ -545,14 +562,16 @@ public final class AgentChatStore {
     }
 
     /// Check and Retry Permission: the answer that did not reach the Mac goes again while
-    /// its ask is still open; otherwise the open asks are read again.
+    /// its ask is still open; when the ask is gone the open asks are read again instead.
     public func checkAndRetryPermission() {
         guard let sent = sentPermissionAnswer, let pending = pendingPermission, pending.request.id == sent.permissionID else {
             permissionAnswerUncertain = false
             sentPermissionAnswer = nil
+            awaitsPermissionReply = false
             source.refreshPermissions()
             return
         }
+        awaitsPermissionReply = true
         clientError = nil
         permissionAnswerUncertain = false
         approvingOptionID = pending.request.options.first { $0.id == sent.optionID }?.isAllow == true ? sent.optionID : nil
@@ -819,6 +838,7 @@ public final class AgentChatStore {
             if sentPermissionAnswer?.permissionID == permissionId {
                 sentPermissionAnswer = nil
                 permissionAnswerUncertain = false
+                awaitsPermissionReply = false
             }
             updateItems { item in
                 // A question resolves through the same decision: its answer option, or a decline.
@@ -867,15 +887,18 @@ public final class AgentChatStore {
             modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
         case .status(let status):
             summary.status = status
+            if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
             if status == .disconnected { retryRequested = false }
         case .clientError(let message):
             approvingOptionID = nil
-            // An answer whose ask is still open did not reach the Mac (or its reply was lost).
-            if let sent = sentPermissionAnswer, pendingPermission?.request.id == sent.permissionID {
+            // The error that follows an answer whose ask is still open: it did not reach the
+            // Mac (or its reply was lost). Another call's error says nothing about it.
+            if awaitsPermissionReply, let sent = sentPermissionAnswer, pendingPermission?.request.id == sent.permissionID {
                 permissionAnswerUncertain = true
             }
+            awaitsPermissionReply = false
             retryRequested = false
             clientError = message
         case .promptNotSent(let text, let attachments, let promptID, let reason):

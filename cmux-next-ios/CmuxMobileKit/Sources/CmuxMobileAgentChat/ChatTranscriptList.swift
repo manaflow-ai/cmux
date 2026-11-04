@@ -585,7 +585,10 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// Text and Width's width: the column's cap (nil: the whole screen).
     func setColumnCap(_ cap: CGFloat?) {
         guard layout.columnCap != cap else { return }
+        let width = layout.columnWidth
         layout.columnCap = cap
+        // On a screen narrower than the cap the column keeps its width: nothing to measure again.
+        guard layout.columnWidth != width else { return }
         layout.forgetHeights()
         environmentChanged()
     }

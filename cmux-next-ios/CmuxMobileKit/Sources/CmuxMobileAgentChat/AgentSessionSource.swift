@@ -257,6 +257,8 @@ public protocol AgentSessionSource: AnyObject {
     var eventJournal: AgentEventJournal? { get }
     /// The chat's recorded transcript, for Replay Conversation.
     func replayRecording() async throws -> AgentReplayRecording
+    /// A chat that only shows (a replay): no marks, no retries.
+    var isReadOnly: Bool { get }
 }
 
 extension AgentSessionSource {

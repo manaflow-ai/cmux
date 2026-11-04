@@ -600,9 +600,15 @@ final class ShellModel {
 
     /// Message Chief's Send: to the Chief of the Mac this phone shows (Chief follows it).
     func sendToChief(_ text: String) {
-        guard let mac = live?.focusedMacID else {
+        guard live != nil else {
             ChiefSources.shared.mac.send(text: text)
             messagingChiefText = nil
+            return
+        }
+        // No Mac shown yet: the sheet stays with the text, and says why.
+        guard let mac = live?.focusedMacID else {
+            toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: "Choose a Mac first. Nothing was sent.")
+            theme.haptics.error()
             return
         }
         sendToChief(text, macID: mac)

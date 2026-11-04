@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import Observation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Session Info (the Mac's Toggle Session Info)
 
@@ -271,7 +272,10 @@ struct EventInspectorScreen: View {
                     ToolbarItem(placement: .primaryAction) {
                         Menu {
                             Button("Copy as JSON Lines", systemImage: "doc.on.doc") {
-                                UIPasteboard.general.string = journal.jsonLines(rows)
+                                // Raw tool output: kept on this iPhone (no Universal Clipboard) and
+                                // gone from the pasteboard after ten minutes.
+                                UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: journal.jsonLines(rows)]],
+                                                              options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(600)])
                                 copied = true
                             }
                             .disabled(rows.isEmpty)
@@ -389,6 +393,8 @@ final class ChatReplayPlayer {
     private(set) var time: TimeInterval = 0
     private(set) var playing = false
     var speed: Double = 1
+    /// Where the scrubber is while a finger drags it (nil: not dragging).
+    var scrubTime: TimeInterval?
     /// The transcript the replay draws (rebuilt when the playhead moves back).
     private(set) var store: AgentChatStore?
     let surface = AgentChatSurface()
@@ -522,6 +528,7 @@ final class ReplaySource: AgentSessionSource {
 
     /// A replay is read only.
     func send(_ intent: AgentClientIntent) {}
+    var isReadOnly: Bool { true }
 }
 
 struct ChatReplayControls: View {
@@ -530,7 +537,15 @@ struct ChatReplayControls: View {
     var body: some View {
         VStack(spacing: 8) {
             ZStack(alignment: .leading) {
-                Slider(value: Binding(get: { player.time }, set: { player.seek(to: $0) }), in: 0...max(player.duration, 0.1))
+                // A drag moves the clock; the transcript plays to it when the finger lifts (a move
+                // back replays the chat from its start, once, not per drag step).
+                Slider(value: Binding(get: { player.scrubTime ?? player.time }, set: { player.scrubTime = $0 }),
+                       in: 0...max(player.duration, 0.1)) { editing in
+                    if !editing, let time = player.scrubTime {
+                        player.scrubTime = nil
+                        player.seek(to: time)
+                    }
+                }
                     .accessibilityLabel("Replay position")
                     .accessibilityValue(Text("\(AgentReplayRecording.clock(player.time)) of \(AgentReplayRecording.clock(player.duration))"))
                     .accessibilityIdentifier("chat.replay.position")
@@ -547,7 +562,7 @@ struct ChatReplayControls: View {
                 .accessibilityHidden(true)
             }
             HStack(spacing: 20) {
-                Text("\(AgentReplayRecording.clock(player.time)) / \(AgentReplayRecording.clock(player.duration))")
+                Text("\(AgentReplayRecording.clock(player.scrubTime ?? player.time)) / \(AgentReplayRecording.clock(player.duration))")
                     .font(.footnote.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("chat.replay.clock")

@@ -714,8 +714,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             showUnavailable(option)
             return nil
         }
-        if let teams = AgentTeamsLaunch(rawValue: String(option.id.dropFirst(Self.teamsPrefix.count))),
-           option.id.hasPrefix(Self.teamsPrefix) {
+        if option.id.hasPrefix(Self.teamsPrefix),
+           let teams = AgentTeamsLaunch(rawValue: String(option.id.dropFirst(Self.teamsPrefix.count))) {
             Task { await launchAgentTeams(teams) }
             return nil
         }
@@ -1678,11 +1678,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return
         }
         let current = selectedTabID.flatMap { workspaceTab($0) }
-        let folder: String? = switch current?.kind {
-        case .terminal: current?.subtitle ?? workspace.directory
-        case .agent: AgentSessionDirectory.shared.existingStore(id: current?.id ?? "", macID: workspace.macID)?.summary.cwd ?? workspace.directory
-        default: workspace.directory
+        let shown: String? = switch current?.kind {
+        case .terminal: current?.subtitle
+        case .agent: AgentSessionDirectory.shared.existingStore(id: current?.id ?? "", macID: workspace.macID)?.summary.cwd
+        default: nil
         }
+        // The shown tab's folder when it is one on this Mac, else the workspace's.
+        let folder = [shown, workspace.directory].compactMap { $0 }.first { $0.hasPrefix("/") || $0.hasPrefix("~/") }
         pendingTabTitle = teams.title
         defer { pendingTabTitle = nil }
         do {

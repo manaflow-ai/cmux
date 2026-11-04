@@ -533,7 +533,52 @@ def chief(j, label):
     return out
 
 
-FLOWS = {"copy": copy, "info": sessioninfo, "turns": turns, "display": display, "readaloud": readaloud,
+def cloudphoto(j, label):
+    """Home > the Cloud Chief > + > Photos: a photo (rig setup put a checkerboard PNG in the
+    simulator's library) with a line, Send. Before: the base app refuses it ("Photos can't be
+    sent to Cloud Chief from iPhone yet."). After: it goes through the Cloud service's
+    attachment routes and the message shows with its photo, delivered."""
+    home = [e for e in j.sim.find(label="Home") if e.frame[1] > 700]
+    check(home, "no Home tab")
+    j.sim.tap_el(home[0])
+    time.sleep(2.5)
+    row = j.sim.wait(prefix="Chief, Main · Cloud", timeout=10)
+    check(row, f"no Cloud Chief row: {labels(j)[:20]}")
+    j.sim.tap_el(row)
+    time.sleep(3)
+    before_ids = {e.ident for e in j.sim.find() if (e.ident or "").startswith("conversation.message.")}
+    tap_ident(j, "conversation.composer.plus", pause=1.5)
+    j.sim.tap_el(j.sim.wait(label="Photos", kind="Button", timeout=5))
+    time.sleep(2.5)
+    allow = j.sim.wait(label="Allow Full Access", kind="Button", timeout=2)
+    if allow:
+        j.sim.tap_el(allow)
+        time.sleep(2.5)
+    # The newest photo (the checkerboard) is the grid's first cell.
+    j.sim.tap(70, 605)
+    time.sleep(2)
+    pq.shot(f"cloudphoto-{label}-picked")
+    field = ident(j, "conversation.composer.text")
+    j.sim.tap_el(field)
+    time.sleep(0.5)
+    pq.type_text("Which colors are in this picture?")
+    time.sleep(0.5)
+    send = j.sim.wait(label="Send", kind="Button", timeout=5) or j.sim.wait(ident="conversation.composer.send", timeout=3)
+    check(send, f"no Send: {labels(j)[-20:]}")
+    j.sim.tap_el(send)
+    time.sleep(8)
+    out = {"after_send": [e.label for e in j.sim.find() if e.label and e.kind in ("StaticText", "Group", "GenericElement", "Button")][-25:]}
+    out["new_messages"] = [e.label for e in j.sim.find() if (e.ident or "").startswith("conversation.message.") and e.ident not in before_ids]
+    out["refusal"] = [e.label for e in j.sim.find(contains="can't be sent")]
+    out["not_delivered"] = [e.label for e in j.sim.find(contains="Not Delivered")]
+    pq.shot(f"cloudphoto-{label}-sent")
+    time.sleep(20)
+    out["later"] = [e.label for e in j.sim.find() if (e.ident or "").startswith("conversation.message.") and e.ident not in before_ids]
+    pq.shot(f"cloudphoto-{label}-later")
+    return out
+
+
+FLOWS = {"cloudphoto": cloudphoto, "copy": copy, "info": sessioninfo, "turns": turns, "display": display, "readaloud": readaloud,
          "inspector": inspector, "replay": replay, "permissions": permissions, "teams": teams, "chief": chief}
 
 

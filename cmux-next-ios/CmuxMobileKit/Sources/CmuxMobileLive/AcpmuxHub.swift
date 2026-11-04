@@ -743,8 +743,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             sessionID: text(info["sessionId"]) ?? sessionID,
             harnessSessionID: text(info["agentSessionId"]) ?? text(info["agent_session_id"]),
             cwd: text(info["cwd"]),
-            // A chat on an acpmux peer runs there; otherwise on this Mac.
-            host: text(info["host"]) ?? text(info["peer"]) ?? macName,
+            // A chat on an acpmux peer runs there; otherwise on this Mac (`machine`, its name).
+            host: text(info["peer"]) ?? text(info["machine"]) ?? text(info["host"]) ?? macName,
             status: sessionStatus(info, macName: macName, fallbackHarness: fallbackHarness))
     }
 
@@ -830,6 +830,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return try await hub.request(method, .object(params))
         } catch let error as AcpmuxConnection.RPCError {
             throw AgentFeatureUnavailable(error.message)
+        } catch {
+            throw AgentFeatureUnavailable(Self.message(error))
         }
     }
 

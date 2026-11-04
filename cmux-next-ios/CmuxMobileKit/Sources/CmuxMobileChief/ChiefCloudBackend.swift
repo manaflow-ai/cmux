@@ -80,7 +80,7 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
     /// with, then the message names the stored hash in an `attachment` part.
     public func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
         let size = ChiefImageSize(data: data)
-        let ext = mimeType == "image/png" ? "png" : mimeType == "image/heic" ? "heic" : "jpg"
+        let ext = ["image/png": "png", "image/heic": "heic", "image/gif": "gif", "image/webp": "webp"][mimeType] ?? "jpg"
         return try await core.upload(data, mimeType: mimeType, name: "IMG_\(Int(Date().timeIntervalSince1970)).\(ext)",
                                      width: size.width, height: size.height)
     }
@@ -255,7 +255,13 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
         }
 
         func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
-            var parts: [[String: Any]] = draft.attachmentIDs.compactMap { uploadedParts[$0] }
+            // A photo the message names that this connection did not upload: never sent without it.
+            var parts: [[String: Any]] = try draft.attachmentIDs.map { id in
+                guard let part = uploadedParts[id] else {
+                    throw ConversationBackendError(code: -4, message: String(localized: "The photo didn't finish uploading. Try again."))
+                }
+                return part
+            }
             if !draft.text.isEmpty || parts.isEmpty { parts.append(wire.textPart(draft.text, mentions: draft.mentions)) }
             var fields: [String: Any] = [
                 "client_msg_id": draft.clientMessageID,

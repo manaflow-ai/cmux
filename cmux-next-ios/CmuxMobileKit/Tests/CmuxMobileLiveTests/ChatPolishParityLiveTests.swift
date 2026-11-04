@@ -32,6 +32,7 @@ import Testing
         {"sessionId":"s-1","name":"fix tests","agentSessionId":"claude-uuid","cwd":"/Users/me/p","harness":"claude"}
         """#)
         let details = AcpmuxSessionSource.sessionDetails(info, sessionID: "s-1", macName: "Studio", fallbackHarness: "Claude")
+        #expect(AcpmuxSessionSource.sessionDetails(try json(#"{"sessionId":"s-3","machine":"Mac Studio 2"}"#), sessionID: "s-3", macName: "Studio", fallbackHarness: "Claude").host == "Mac Studio 2")
         #expect(details.name == "fix tests")
         #expect(details.harnessSessionID == "claude-uuid")
         #expect(details.cwd == "/Users/me/p")

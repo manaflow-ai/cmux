@@ -528,8 +528,10 @@ public struct AgentChatTranscript: View {
             ChatDisplaySettingsSheet(summary: store.summary)
         }
         // The chat's bookmarks and pins, read once it shows; a chat that closes stops reading aloud.
-        .task { store.loadBookmarks() }
-        .onDisappear { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) }
+        .task { store.showBookmarks() }
+        // The chat left the screen (not a page pushed over it, such as Session Info): what it
+        // was reading stops.
+        .onDisappear { if surface.parityRoute == nil { ChatReadAloud.shared.stopIfReading(chat: store.summary.id) } }
         .sheet(item: $surface.editingEarlier) { edit in
             if let actions = surface.tabActions {
                 EarlierPromptEditSheet(edit: edit, actions: actions)
