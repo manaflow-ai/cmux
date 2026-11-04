@@ -78,8 +78,8 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
 /// The agent `profile` runs, from its kind and command line first, never
 /// its `family` label alone: `{"argv": ["codex-acp"], "family": "mine"}` is
 /// Codex, and a Claude Code kind is Claude. A launcher whose program does not
-/// name its agent (`dsh`, Cursor's `agent`, `sr`) counts by its profile name
-/// (`derive_family`). `None` for a host that starts harnesses itself (the
+/// name its agent (Cursor's `agent`, `sr`) counts by its profile name
+/// (`claude-sr` is Claude). `None` for a host that starts harnesses itself (the
 /// Chief brain `chief acp`, `uniichat-agent`), whatever it is called, and for
 /// a profile that is not one agent.
 pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String> {
@@ -92,9 +92,15 @@ pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String
     if let Some(family) = argv_family(&profile.argv) {
         return Some(family);
     }
-    let unnamed = HarnessProfile { family: None, ..profile.clone() };
-    let family = crate::config::derive_family(name, &unnamed);
-    LEAF_FAMILIES.contains(&family.as_str()).then_some(family)
+    canonical(name)
+}
+
+/// The leaf family a profile name or family label names: itself, or its
+/// first word (`claude-sr` is Claude, `opencode-v2` OpenCode).
+fn canonical(label: &str) -> Option<String> {
+    let lower = label.to_lowercase();
+    let head = lower.split(['-', '_', '.']).next().unwrap_or_default();
+    [lower.as_str(), head].into_iter().find(|f| LEAF_FAMILIES.contains(f)).map(str::to_owned)
 }
 
 /// The agent a command runs (an `auth.check` such as `claude auth status`),
@@ -107,46 +113,82 @@ pub(crate) fn command_family(argv: &[String], label: &str) -> Option<String> {
     if let Some(family) = argv_family(argv) {
         return Some(family);
     }
-    let lower = label.to_lowercase();
-    let head = lower.split(['-', '_', '.']).next().unwrap_or_default();
-    [lower.as_str(), head].into_iter().find(|f| LEAF_FAMILIES.contains(f)).map(str::to_owned)
+    canonical(label)
 }
 
-/// A command line that starts acpmux harnesses under itself.
+/// A command line that starts acpmux harnesses under itself, in the exact
+/// shape acpmux gives it: the Chief brain (`<cli> chief acp`,
+/// `config/discover.rs`) or uniichat (`<acpmux argv> uniichat-agent`).
 fn is_host(argv: &[String]) -> bool {
-    argv.iter().skip(1).any(|a| a == "chief" || a == "uniichat-agent")
+    matches!(argv, [_, chief, acp, ..] if chief == "chief" && acp == "acp")
+        || argv.len() > 1 && argv.last().is_some_and(|a| a == "uniichat-agent")
 }
 
-/// The leaf agent a command line names: its program first (`claude --add-dir
-/// ~/codex` is Claude), then its other words (`npx claude-agent-acp`).
+/// The leaf agent a command line runs, by exact program name: its executable
+/// (`/usr/bin/claude`), or what a package runner or interpreter starts
+/// (`npx -y @agentclientprotocol/claude-agent-acp@0.99`, `node
+/// .../claude-agent-acp/dist/index.js`). No substring of an argument counts.
 fn argv_family(argv: &[String]) -> Option<String> {
-    let word = |a: &String| {
-        std::path::Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase())
+    let (program, rest) = argv.split_first()?;
+    let by_name = |name: &str| {
+        EXECUTABLES.iter().find(|(exe, _)| *exe == name).map(|(_, family)| family.to_string())
     };
-    let named = |w: &str| {
-        ARGV_FAMILIES.iter().find(|(needle, _)| w.contains(needle)).map(|(_, f)| f.to_string())
-    };
-    let program = argv.first().and_then(word);
-    if let Some(family) = program.as_deref().and_then(named) {
+    if let Some(family) = by_name(&program_name(program)) {
         return Some(family);
     }
-    argv.iter().skip(1).filter_map(word).find_map(|w| named(&w))
+    if !RUNNERS.contains(&program_name(program).as_str()) {
+        return None;
+    }
+    // The first non-option argument is what the runner starts: a package
+    // (`@scope/name@version`) or a script path, one of whose folders names it.
+    let target = rest.iter().find(|a| !a.starts_with('-'))?;
+    let package = target.rsplit('/').next().unwrap_or(target);
+    let package = package.split('@').find(|p| !p.is_empty()).unwrap_or(package);
+    by_name(&package.to_lowercase()).or_else(|| {
+        std::path::Path::new(target)
+            .components()
+            .filter_map(|c| c.as_os_str().to_str().map(str::to_lowercase))
+            .find_map(|c| by_name(&c))
+    })
 }
 
-/// Command-line words of leaf agents, `derive_family`'s and the launchers it
-/// names only from a profile's name or label.
-const ARGV_FAMILIES: [(&str, &str); 12] = [
+/// A program's own name: its file name, lower case, without a Windows or
+/// script extension.
+fn program_name(program: &str) -> String {
+    let name = std::path::Path::new(program)
+        .file_name()
+        .map(|f| f.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    [".exe", ".cmd", ".js", ".mjs"]
+        .iter()
+        .find_map(|ext| name.strip_suffix(ext).map(str::to_owned))
+        .unwrap_or(name)
+}
+
+/// Programs that start another program named by their arguments.
+const RUNNERS: [&str; 7] = ["npx", "bunx", "pnpx", "node", "bun", "uvx", "env"];
+
+/// The executables of leaf agents and their families: `derive_family`'s and
+/// the launchers discovery finds (`config/discover.rs`).
+const EXECUTABLES: [(&str, &str); 19] = [
     ("codex", "codex"),
-    ("opencode", "opencode"),
+    ("codex-acp", "codex"),
+    ("claude", "claude"),
+    ("claude-agent-acp", "claude"),
+    ("claude-code-acp", "claude"),
     ("gemini", "gemini"),
+    ("opencode", "opencode"),
+    ("opencode2", "opencode"),
+    ("dsh", "deepseek"),
+    ("pi", "pi"),
     ("pi-acp", "pi"),
     ("omp", "omp"),
     ("prime-agent", "prime"),
-    ("claude", "claude"),
+    ("grok", "grok"),
     ("cursor-agent", "cursor"),
     ("hermes", "hermes"),
-    ("grok", "grok"),
     ("muse", "muse"),
+    ("muse-acp", "muse"),
     ("deepseek", "deepseek"),
 ];
 
@@ -251,6 +293,20 @@ mod tests {
         let mut claude = profile("/usr/bin/claude", None);
         claude.argv.extend(["--add-dir".into(), "/src/codex".into()]);
         assert_eq!(leaf_family("mine", &claude).as_deref(), Some("claude"));
+        // Only exact program names count, never a substring of an argument.
+        let mut prompt = profile("/opt/tools/mytool", None);
+        prompt.argv.extend(["--prompt".into(), "/home/claude/codex".into()]);
+        assert_eq!(leaf_family("mytool", &prompt), None);
+        let mut npx = profile("npx", None);
+        npx.argv.extend(["-y".into(), "@agentclientprotocol/claude-agent-acp@0.99.1".into()]);
+        assert_eq!(leaf_family("mine", &npx).as_deref(), Some("claude"));
+        let mut node = profile("/usr/bin/node", None);
+        node.argv.push("/opt/lib/node_modules/@zed/claude-agent-acp/dist/index.js".into());
+        assert_eq!(leaf_family("mine", &node).as_deref(), Some("claude"));
+        // An ordinary `chief` argument does not make a command a host.
+        let mut chiefarg = profile("/usr/bin/codex", None);
+        chiefarg.argv.extend(["exec".into(), "chief".into()]);
+        assert_eq!(leaf_family("mine", &chiefarg).as_deref(), Some("codex"));
         // A host is never one agent, whatever its name says.
         let mut host = profile("/usr/local/bin/cmux", None);
         host.argv.extend(["chief".into(), "acp".into()]);
