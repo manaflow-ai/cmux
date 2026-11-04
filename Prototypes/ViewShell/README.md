@@ -40,3 +40,28 @@ shell shows the whole app, one window per state, at real sizes, in real windows.
 
 Not yet: the person's background picture (`appearance.background`) behind the glass, and the
 read-only attach to the person's real acpmux (the mock host is the only model today).
+
+## Live code
+
+A Debug shell takes new Swift code for its own views while it runs: no relaunch.
+
+```sh
+swift build --package-path Prototypes/ViewShell        # Debug: linked -interposable
+"$(swift build --package-path Prototypes/ViewShell --show-bin-path)/cmux-view-shell" --live ~/.cache/cmux-view-shell/live &
+# edit Sources/ViewShell/Badge.swift, then:
+Prototypes/ViewShell/inject.sh --live ~/.cache/cmux-view-shell/live Sources/ViewShell/Badge.swift
+```
+
+`inject.sh` compiles the module with the Debug build's settings, links only the edited files into a
+signed dylib and moves it into the live folder. The shell (`LiveCode.swift`) loads it, interposes
+every Swift function the patch defines onto the executable's own (functions only, never type
+metadata), and redraws. The patch can be compiled on another Mac at the same commit and copied
+into the folder; it is the same file.
+
+What applies live: any change inside a function or computed property, a view's body included. A
+view whose `body` is `AnyView(content)` (`PreviewBadge`) may also change what it builds, its
+modifiers and their types. What needs a rebuild: a new or changed stored property, a changed
+function signature, a new type used from another file, `main.swift` and `LiveCode.swift`
+themselves, resources and the package manifest. `--live-render DIR` draws the badge offscreen
+after each patch (`generation-N.png`), and `--headless` runs the loop with no windows, so a host
+without a screen can measure it (`scripts/measure/live-code-shell.sh`).

@@ -2,6 +2,7 @@
 // Thin on purpose: the window, its web view and the URL. The fixture, scripts and every other
 // condition axis are URL keys the web side reads (webviews/src/gallery/app/axes.ts).
 import AppKit
+import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 
@@ -14,6 +15,12 @@ struct Options {
     var quitAfterCapture = false
     /// Seconds a window may take to report ready before `--capture` gives up on it.
     var readyTimeout: Double = 60
+    /// The live code folder (LiveCode.swift): patch dylibs dropped here apply to the running shell.
+    var live: URL?
+    /// Offscreen badge pictures per live code generation (LiveCode.render).
+    var liveRender: URL?
+    /// No windows: the live code loop alone, for a host with no screen.
+    var headless = false
 
     static let usage = """
     usage: cmux-view-shell [--url URL | --dist DIR] [--size WxH]... [--capture DIR [--quit]] [--KEY VALUE]...
@@ -22,6 +29,9 @@ struct Options {
       --size WxH     a window of that size in points; repeat for several windows (default 1280x800)
       --capture DIR  save each window as DIR/<W>x<H>.png once its panes are ready; --quit then exits
                      (exit 1 when a window is not ready within --ready-timeout seconds, default 60)
+      --live DIR     apply live code patches dropped into DIR (inject.sh; a Debug build)
+      --live-render DIR  also draw the badge offscreen to DIR/generation-N.png after each patch
+      --headless     no windows (with --live: the live code loop alone, for a host with no screen)
       --KEY VALUE    any mock app axis, e.g. --fixture app.window/new-tab --density compact --script streaming
     """
 
@@ -52,6 +62,12 @@ struct Options {
             case "--ready-timeout":
                 guard let seconds = Double(try value(flag)), seconds > 0 else { throw ShellError.usage("--ready-timeout takes seconds") }
                 options.readyTimeout = seconds
+            case "--live":
+                options.live = URL(fileURLWithPath: (try value(flag) as NSString).expandingTildeInPath, isDirectory: true)
+            case "--live-render":
+                options.liveRender = URL(fileURLWithPath: (try value(flag) as NSString).expandingTildeInPath, isDirectory: true)
+            case "--headless":
+                options.headless = true
             case "--quit":
                 options.quitAfterCapture = true
             case "-h", "--help":
@@ -129,7 +145,7 @@ final class PreviewWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
     let started = Date()
     let onReady: (PreviewWindow, Double) -> Void
 
-    init(size: CGSize, url: URL, scheme: FolderSchemeHandler?, origin: CGPoint, onReady: @escaping (PreviewWindow, Double) -> Void) {
+    init(size: CGSize, url: URL, scheme: FolderSchemeHandler?, origin: CGPoint, badge: String, onReady: @escaping (PreviewWindow, Double) -> Void) {
         self.size = size
         self.onReady = onReady
         window = NSWindow(
@@ -157,6 +173,10 @@ final class PreviewWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
         glass.autoresizingMask = [.width, .height]
         glass.addSubview(webView)
         window.contentView = glass
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .trailing
+        accessory.view = NSHostingView(rootView: BadgeRoot(text: badge))
+        window.addTitlebarAccessoryViewController(accessory)
         webView.load(URLRequest(url: url))
         window.makeKeyAndOrderFront(nil)
     }
@@ -205,9 +225,18 @@ final class ShellDelegate: NSObject, NSApplicationDelegate {
         components.queryItems = (components.queryItems ?? []) + query.map { URLQueryItem(name: $0.0, value: $0.1) }
         let url = components.url!
         print("view-shell: \(url.absoluteString)")
+        let state = options.query.filter { ["fixture", "density", "script"].contains($0.0) }.map(\.1).joined(separator: " · ")
+        if let live = options.live {
+            if let folder = options.liveRender { LiveCode.shared.render = (folder, state.isEmpty ? "live code" : state) }
+            LiveCode.shared.watch(live)
+            LiveCode.shared.drawn()
+        }
         var origin = CGPoint(x: 40, y: 60)
         for size in options.sizes {
-            windows.append(PreviewWindow(size: size, url: url, scheme: scheme, origin: origin) { [weak self] window, ms in
+            windows.append(PreviewWindow(
+                size: size, url: url, scheme: scheme, origin: origin,
+                badge: ["\(Int(size.width))×\(Int(size.height))", state].filter { !$0.isEmpty }.joined(separator: " · ")
+            ) { [weak self] window, ms in
                 self?.ready(window, ms: ms)
             })
             origin.x += 40
@@ -242,6 +271,8 @@ final class ShellDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
+// One line at a time, so a harness reading the log sees each event as it happens.
+setvbuf(stdout, nil, _IOLBF, 0)
 let options: Options
 do {
     options = try Options.parse(Array(CommandLine.arguments.dropFirst()))
@@ -251,6 +282,17 @@ do {
     exit(message == nil ? 0 : 64)
 } catch {
     exit(64)
+}
+if options.headless {
+    // No window server needed: the live code loop and its offscreen pictures on the main queue.
+    guard let live = options.live else {
+        FileHandle.standardError.write(Data("cmux-view-shell: --headless needs --live DIR\n".utf8))
+        exit(64)
+    }
+    if let folder = options.liveRender { LiveCode.shared.render = (folder, "live code") }
+    LiveCode.shared.watch(live)
+    LiveCode.shared.drawn()
+    dispatchMain()
 }
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)

@@ -1,0 +1,192 @@
+// Live code (README.md, "Live code"): a running shell takes new code for its Swift views without a
+// relaunch. A patch is one edited file compiled against this build and linked as a dylib
+// (inject.sh); dropped into the live folder, it is loaded here, every function it defines that
+// this executable also defines is interposed onto the new one (the executable is linked
+// `-interposable` in Debug, so its own calls go through bindings dyld can repoint), and the views
+// are redrawn. Only code is repointed, never type metadata, so a value change (a padding, a colour,
+// a string, a modifier inside a view built with `LiveView`) applies, and a change of stored
+// properties or signatures needs a rebuild (the patch is then refused by the loader's check, or
+// does nothing).
+import AppKit
+import Combine
+import Darwin
+import Foundation
+import MachO
+import SwiftUI
+
+/// What the views observe: `generation` goes up after each patch, and the root redraws.
+@MainActor
+final class LiveCode: ObservableObject {
+    static let shared = LiveCode()
+    @Published private(set) var generation = 0
+    private var source: (any DispatchSourceFileSystemObject)?
+    private var loaded = Set<String>()
+    /// With `--live-render DIR`, each generation's badge is also drawn offscreen to
+    /// `DIR/generation-N.png`: the pixels a measurement can read with no screen (headless hosts).
+    var render: (folder: URL, text: String)?
+
+    /// Watches `folder` for patch dylibs (`*.dylib`, each a new name) and applies each once.
+    func watch(_ folder: URL) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let descriptor = open(folder.path, O_EVTONLY)
+        guard descriptor >= 0 else {
+            FileHandle.standardError.write(Data("view-shell: live code: cannot watch \(folder.path)\n".utf8))
+            return
+        }
+        // Patches already there belong to an earlier run of an older build: never load them.
+        loaded = Set(Self.patches(in: folder))
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.scan(folder) }
+        }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        self.source = source
+        print("view-shell: live code: watching \(folder.path)")
+    }
+
+    /// After a generation's views are rebuilt: says so, and writes its picture when asked.
+    func drawn() {
+        if let render {
+            let renderer = ImageRenderer(content: PreviewBadge(text: render.text).padding(4))
+            renderer.scale = 2
+            if let image = renderer.cgImage,
+               let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) {
+                let file = render.folder.appendingPathComponent("generation-\(generation).png")
+                try? FileManager.default.createDirectory(at: render.folder, withIntermediateDirectories: true)
+                try? png.write(to: file)
+                print("view-shell: live code: rendered \(file.path) width=\(image.width) height=\(image.height)")
+            }
+        }
+        print("view-shell: live code: redrawn generation=\(generation) at=\(Date().timeIntervalSince1970)")
+    }
+
+    private static func patches(in folder: URL) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".dylib") }.sorted()
+    }
+
+    private func scan(_ folder: URL) {
+        for name in Self.patches(in: folder) where !loaded.contains(name) {
+            loaded.insert(name)
+            apply(folder.appendingPathComponent(name))
+        }
+    }
+
+    private func apply(_ patch: URL) {
+        let started = Date()
+        do {
+            let count = try Interposer.apply(dylib: patch.path)
+            generation += 1
+            let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
+            // The harness (scripts/measure/live-code-shell.sh) reads these lines.
+            print("view-shell: live code: applied \(patch.lastPathComponent) functions=\(count) load_ms=\(ms) at=\(Date().timeIntervalSince1970)")
+            DispatchQueue.main.async { self.drawn() }
+        } catch {
+            FileHandle.standardError.write(Data("view-shell: live code: \(patch.lastPathComponent) refused: \(error)\n".utf8))
+        }
+    }
+}
+
+enum LiveCodeError: Error, CustomStringConvertible {
+    case open(String)
+    case noImage
+    case noInterposer
+    case nothingToReplace
+
+    var description: String {
+        switch self {
+        case .open(let message): "dlopen failed: \(message)"
+        case .noImage: "the patch is loaded but dyld does not list it"
+        case .noInterposer: "dyld_dynamic_interpose is not available"
+        case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
+        }
+    }
+}
+
+/// The Mach-O side: the patch's code symbols, matched by name to this executable's.
+enum Interposer {
+    private struct Tuple {
+        var replacement: UnsafeRawPointer
+        var replacee: UnsafeRawPointer
+    }
+
+    private typealias DynamicInterpose = @convention(c) (UnsafePointer<mach_header>, UnsafeRawPointer, Int) -> Void
+
+    static func apply(dylib path: String) throws -> Int {
+        guard dlopen(path, RTLD_NOW | RTLD_LOCAL) != nil else {
+            throw LiveCodeError.open(String(cString: dlerror()))
+        }
+        guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
+            || URL(fileURLWithPath: String(cString: _dyld_get_image_name($0))).resolvingSymlinksInPath().path == URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+        }), let header = _dyld_get_image_header(index) else { throw LiveCodeError.noImage }
+        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dyld_dynamic_interpose") else {
+            throw LiveCodeError.noInterposer
+        }
+        let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
+        let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
+        var tuples: [Tuple] = []
+        for (name, address) in codeSymbols(header: header, slide: _dyld_get_image_vmaddr_slide(index)) {
+            // Swift functions only; the executable's own copy is the one being replaced.
+            guard name.hasPrefix("_$s"), let old = dlsym(mainOnly, String(name.dropFirst())), UnsafeRawPointer(old) != address else { continue }
+            tuples.append(Tuple(replacement: address, replacee: UnsafeRawPointer(old)))
+        }
+        guard !tuples.isEmpty, let main = _dyld_get_image_header(0) else { throw LiveCodeError.nothingToReplace }
+        tuples.withUnsafeBytes { interpose(main, $0.baseAddress!, tuples.count) }
+        return tuples.count
+    }
+
+    /// The external symbols defined in the image's `__TEXT,__text`: its functions, not its data.
+    private static func codeSymbols(header: UnsafePointer<mach_header>, slide: Int) -> [(String, UnsafeRawPointer)] {
+        let base = UnsafeRawPointer(header)
+        var command = base + MemoryLayout<mach_header_64>.size
+        var sectionIndex: UInt8 = 0
+        var textSection: UInt8 = 0
+        var linkedit: segment_command_64?
+        var symtab: symtab_command?
+        for _ in 0..<header.pointee.ncmds {
+            let load = command.load(as: load_command.self)
+            if load.cmd == LC_SEGMENT_64 {
+                let segment = command.load(as: segment_command_64.self)
+                let segmentName = withUnsafeBytes(of: segment.segname) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+                if segmentName == "__LINKEDIT" { linkedit = segment }
+                var section = command + MemoryLayout<segment_command_64>.size
+                for _ in 0..<segment.nsects {
+                    sectionIndex += 1
+                    let value = section.load(as: section_64.self)
+                    let sectionName = withUnsafeBytes(of: value.sectname) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+                    if segmentName == "__TEXT", sectionName == "__text" { textSection = sectionIndex }
+                    section += MemoryLayout<section_64>.size
+                }
+            } else if load.cmd == LC_SYMTAB {
+                symtab = command.load(as: symtab_command.self)
+            }
+            command += Int(load.cmdsize)
+        }
+        guard let linkedit, let symtab, textSection != 0 else { return [] }
+        let linkeditBase = UnsafeRawPointer(bitPattern: slide + Int(linkedit.vmaddr) - Int(linkedit.fileoff))!
+        let symbols = (linkeditBase + Int(symtab.symoff)).assumingMemoryBound(to: nlist_64.self)
+        let strings = (linkeditBase + Int(symtab.stroff)).assumingMemoryBound(to: CChar.self)
+        var out: [(String, UnsafeRawPointer)] = []
+        for index in 0..<Int(symtab.nsyms) {
+            let symbol = symbols[index]
+            let type = symbol.n_type
+            guard type & UInt8(N_STAB) == 0, type & UInt8(N_TYPE) == UInt8(N_SECT), type & UInt8(N_EXT) != 0,
+                  symbol.n_sect == textSection, let address = UnsafeRawPointer(bitPattern: Int(symbol.n_value) + slide) else { continue }
+            out.append((String(cString: strings + Int(symbol.n_un.n_strx)), address))
+        }
+        return out
+    }
+}
+
+/// The titlebar badge, redrawn after each live code patch. Kept out of Badge.swift so a patch of
+/// that file never replaces the view that observes the patches.
+struct BadgeRoot: View {
+    let text: String
+    @ObservedObject var live = LiveCode.shared
+
+    var body: some View {
+        PreviewBadge(text: text)
+            .id(live.generation)
+            .padding(.trailing, 8)
+    }
+}

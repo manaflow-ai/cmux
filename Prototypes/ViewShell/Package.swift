@@ -14,6 +14,15 @@ let package = Package(
         .executable(name: "cmux-view-shell", targets: ["ViewShell"]),
     ],
     targets: [
-        .executableTarget(name: "ViewShell", path: "Sources/ViewShell"),
+        .executableTarget(
+            name: "ViewShell",
+            path: "Sources/ViewShell",
+            linkerSettings: [
+                // Live code (README.md): in Debug the executable's own calls go through bindings that
+                // dyld can repoint to a patch (`-interposable`), with classic binds rather than
+                // chained fixups so every call site is one.
+                .unsafeFlags(["-Xlinker", "-interposable", "-Xlinker", "-no_fixup_chains"], .when(configuration: .debug)),
+            ]
+        ),
     ]
 )
