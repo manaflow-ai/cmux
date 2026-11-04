@@ -151,6 +151,7 @@ const prefixes: Play = async (ctx) => {
   // DIAG(cmux#35744): temporary, not for merge.
   const view = ctx.document.defaultView!;
   const seen: string[] = [];
+  let frozen = "";
   const diag = new view.PerformanceObserver((list) => {
     for (const entry of list.getEntries() as (PerformanceEntry & { value: number; sources?: { node?: Node; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly }[] })[]) {
       for (const source of entry.sources ?? []) {
@@ -159,11 +160,28 @@ const prefixes: Play = async (ctx) => {
         const pop = el.closest(".acpmux-omni") as HTMLElement;
         const r = (b: DOMRectReadOnly) => [b.x, b.y, b.width, b.height].map((n) => Math.round(n)).join(",");
         const rows = [...pop.querySelectorAll(".acpmux-omni-row")];
+        if (seen.length === 0) frozen = frames.join(" | ");
         seen.push(`t=${Math.round(entry.startTime)} v=${entry.value.toFixed(4)} row#${rows.indexOf(el)}/${rows.length} "${(el.textContent ?? "").slice(0, 40)}" prev=${r(source.previousRect)} cur=${r(source.currentRect)} pop=${r(pop.getBoundingClientRect())} scroll=${pop.scrollTop}/${pop.clientHeight}/${pop.scrollHeight} kind=${ctx.document.querySelector(".acpmux-newtab")?.getAttribute("data-kind")} q="${fieldText(ctx)}" sw=${ctx.document.querySelector(".acpmux-newtab-under")?.getAttribute("data-kind-switch") ?? ""} vh=${view.innerHeight}`);
       }
     }
   });
   diag.observe({ type: "layout-shift", buffered: false });
+  const frames: string[] = [];
+  let live = true;
+  const snap = (t: number) => {
+    const pop = ctx.document.querySelector<HTMLElement>(".acpmux-omni");
+    const rows = pop ? [...pop.querySelectorAll<HTMLElement>(".acpmux-omni-row")] : [];
+    const box = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      return `${Math.round(b.y)}h${Math.round(b.height)}w${Math.round(b.width)}`;
+    };
+    frames.push(
+      `${Math.round(t)}:${pop ? box(pop) : "nopop"}[${rows.map((row) => `${(row.textContent ?? "").slice(0, 14)}@${box(row)}`).join(";")}]q=${fieldText(ctx)}`,
+    );
+    if (frames.length > 12) frames.shift();
+    if (live) view.requestAnimationFrame(snap);
+  };
+  view.requestAnimationFrame(snap);
   await typePrompt(ctx, "!git status");
   await ctx.waitFor(
     () =>
@@ -178,7 +196,8 @@ const prefixes: Play = async (ctx) => {
       fieldText(ctx) === "review the cache",
   );
   diag.disconnect();
-  if (seen.length) throw new Error(`DIAG ${seen.join(" || ")}`);
+  live = false;
+  if (seen.length) throw new Error(`DIAG ${seen.join(" || ")} FRAMES ${frozen}`);
 };
 
 const keyboard: Play = async (ctx) => {
