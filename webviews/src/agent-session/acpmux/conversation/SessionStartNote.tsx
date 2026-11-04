@@ -53,11 +53,7 @@ export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
           <TerminalSquare />
         </span>
         <span className="cv-tool__text">{short.join(" · ")}</span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <div id={detailsId} className="cv-session-start__detail selectable">

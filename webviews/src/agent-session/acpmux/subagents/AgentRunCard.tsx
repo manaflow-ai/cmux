@@ -82,7 +82,7 @@ function RunCommand({ command }: { command: string }) {
         onClick={() => setOpen((value) => !value)}
       >
         {t("subsession.raw")}
-        <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+        <ChevronRight size={12} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
       {open && (
         <pre id={id} className="cv-agent-run__command selectable">
