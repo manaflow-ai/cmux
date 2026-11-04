@@ -188,7 +188,7 @@ class StuckRun(unittest.TestCase):
             "another job running": [job("decide"), job("build", 5, status="in_progress", runner="r")],
             "a gate job waits": [job("decide"), job("sign", status="waiting")],
             "a job pending on a concurrency group": [job("decide"), job("publish", status="pending")],
-            "an owned label": [job("build-nightly-app", label="glaeda-trusted-next-nightly")],
+            "an owned label within its grace": [job("build-nightly-app", 2, label="glaeda-trusted-next-nightly")],
             "taken by a runner": [job("decide", runner="bs-1")],
         }
         for case, jobs in cases.items():
@@ -208,8 +208,8 @@ class StuckRun(unittest.TestCase):
         tick(gh)
         self.assertEqual(gh.writes(), [], "an unknown dependency completion time is not proof of a stall")
 
-    def test_a_queued_owned_build_protects_its_downstream_jobs_before_each_cancel(self):
-        mixed = [job("build-nightly-app", label="glaeda-trusted-next-nightly"), job("signer")]
+    def test_a_queued_owned_build_gets_a_grace_period_before_the_fallback(self):
+        mixed = [job("build-nightly-app", 10, label="glaeda-trusted-next-nightly"), job("signer", 10)]
         for case, reads, expected in (
             ("discovery", [mixed], []),
             ("before cancel", [STUCK, mixed], []),
@@ -219,7 +219,14 @@ class StuckRun(unittest.TestCase):
                 gh = FakeGh(runs=[run(7)], jobs={7: reads}, after_cancel={7: [run(7)]})
                 tick(gh)
                 self.assertEqual(gh.writes(), expected,
-                                 "a queued owned build must stay under owned-pool recovery")
+                                 "a queued owned build remains under owned-pool recovery during its grace")
+
+    def test_an_owned_build_uses_the_fallback_after_its_grace(self):
+        owned = job("build-nightly-app", 16, label="glaeda-trusted-next-nightly")
+        gh = FakeGh(runs=[run(7)], jobs={7: [owned]})
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
+        self.assertIn("build-nightly-app was created 16 min ago", out)
 
     def test_a_new_tip_revalidates_dispatch_and_attempt_cap_before_cancel(self):
         for current in (run(7, attempt=3), run(7, event="workflow_dispatch")):

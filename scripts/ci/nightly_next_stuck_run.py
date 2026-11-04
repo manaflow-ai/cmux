@@ -21,9 +21,10 @@ fail. A run is stuck here only when all of these hold, read twice (the second re
 cancel, so a runner taking the job or a gate appearing in between keeps the run):
   - the run is `queued` or `in_progress` and has no pending deployment (a run waiting on an
     environment or a concurrency group is gated, not stuck);
-  - a job has waited STUCK_MINUTES (3) `queued` with no runner, counted no earlier than the
-    latest executed job's completion (job records can predate their dependencies), on labels none of which is owned
-    (glaeda-* jobs belong to the owned-pool rescue, owned_pool_rescue.py);
+  - a job has waited STUCK_MINUTES (3) `queued` with no runner, or an owned `glaeda-*` job has
+    waited OWNED_STUCK_MINUTES (15), counted no earlier than the latest executed job's completion
+    (job records can predate their dependencies). Owned jobs get the longer grace for
+    owned_pool_rescue.py, then use this fallback if that lane is idle;
   - every other job is `completed` or also `queued` with no runner.
 A newer tip is never a reason to cancel.
 
@@ -55,7 +56,11 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Any
 
+# A non-owned label that stops serving is retried quickly.  Owned labels normally
+# get a little longer for the dedicated-pool rescue to move them, but that rescue
+# is a separate lane and can be idle; its grace must therefore be finite too.
 STUCK_MINUTES = float(os.environ.get("STUCK_MINUTES", "3"))
+OWNED_STUCK_MINUTES = float(os.environ.get("OWNED_STUCK_MINUTES", "15"))
 MAX_ATTEMPTS = int(os.environ.get("MAX_ATTEMPTS", "3"))  # nightly_next_cancelled_tip.sh's bound
 SETTLE_SECONDS = float(os.environ.get("SETTLE_SECONDS", "15"))
 FORCE_AFTER = int(os.environ.get("FORCE_AFTER", "6"))
@@ -272,20 +277,16 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     if any(started_job(job) for job in jobs) and not any(timed_out_job(job) for job in jobs):
         return None
 
-    # A queued owned build may be the dependency of an already-created signer.
-    # Leave the entire run to owned-pool recovery rather than treating that signer
-    # as proof that the run is stalled on a non-owned label.
-    if any(job.status == "queued" and any(label.startswith("glaeda-") for label in job.labels) for job in jobs):
-        return None
-
     # GitHub can create downstream job records before their dependencies complete. Using
     # their creation alone would count build time as queue time and cancel a signer just
     # as it becomes runnable. Waiting from the latest executed completion is conservative
     # even when that job is not this one's dependency; no workflow graph read is needed.
     completed = max((job.completed for job in jobs if job.completed is not None), default=None)
+    def wait_limit(job: Job) -> float:
+        return OWNED_STUCK_MINUTES if any(label.startswith("glaeda-") for label in job.labels) else STUCK_MINUTES
+
     stuck = [job for job in jobs if queued_without_runner(job)
-             and not any(label.startswith("glaeda-") for label in job.labels)
-             and (now - max(job.created, completed or job.created)).total_seconds() / 60 >= STUCK_MINUTES]
+             and (now - max(job.created, completed or job.created)).total_seconds() / 60 >= wait_limit(job)]
     if stuck and all(job.status == "completed" or queued_without_runner(job) for job in jobs):
         return stuck[0]
     return None
