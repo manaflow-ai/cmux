@@ -112,9 +112,7 @@ describe("Bring your history", () => {
   });
   test("detected archives can be replaced without adding another row", async () => {
     const client = host(({ op }) =>
-      op === OPS.detect
-        ? { sources: [{ source: "zip:/Downloads/dot.zip", kind: "dots-export" }] }
-        : undefined,
+      op === OPS.detect ? { sources: [{ source: "zip:/Downloads/dot.zip", kind: "dots-export" }] } : undefined,
     );
     const store = new ImportHistoryStore(client);
     await store.start();
