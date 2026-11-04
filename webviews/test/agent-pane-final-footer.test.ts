@@ -31,6 +31,12 @@ test("the person's next prompt hides it while that turn runs", () => {
   expect(finalFooterId([...turn, row("p2", "user", { text: "more" }), row("t", "thinking")])).toBeUndefined();
 });
 
+test("a turn another agent's message started takes it away while it runs", () => {
+  const message = row("m1", "user", { text: "lane -> coord: done", incoming: { kind: "message" } as never });
+  expect(finalFooterId([...turn, message, row("a2", "assistant", { text: "on it" })])).toBeUndefined();
+  expect(finalFooterId([...turn, message, row("a2", "assistant", { text: "ok" }), row("s2", "turnSummary")])).toBe("s2");
+});
+
 test("a chat with no ended turn has none", () => {
   expect(finalFooterId([row("p1", "user", { text: "hi" })])).toBeUndefined();
 });
