@@ -1512,7 +1512,9 @@ class TabCloseCaseTests(unittest.TestCase):
     but the last, one tab back in p0 with the fixture. p0's fill is not the outline's #FFFF00."""
 
     CID = "px-keys-held-2-tabclose"
-    FILM = ["rk_focus", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait", "video_stop"]
+    # rk_focus, equalizeSplits and its settle: every held film starts with p0 at half the pane area (gen_pixel held_start).
+    FILM = ["rk_focus", "action", "wait", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait",
+            "video_stop"]
     REBUILD = ["rk_focus", "px_tab_new", "neutral_prompt", "type", "expect", "wait"]
 
     def specs(self, *extra):
@@ -1524,15 +1526,17 @@ class TabCloseCaseTests(unittest.TestCase):
         films = [st for st in spec["steps"] if st["do"] == "px_film"]
         self.assertEqual([f["name"].rsplit("-", 1)[1] for f in films], labels, spec["id"])
         for n, f in enumerate(films):
-            self.assertEqual([st["do"] for st in f["steps"]], self.FILM, f["name"])
-            outline = f["steps"][1]
+            dos = [st["do"] for st in f["steps"]]
+            self.assertEqual(dos, self.FILM, f["name"])
+            self.assertEqual(f["steps"][dos.index("action")]["action"], "equalizeSplits")  # every film starts alike
+            outline = f["steps"][dos.index("px_tunable")]
             self.assertEqual((outline["key"], outline["value"], outline["required"]), (TAB_OUTLINE, True, True))
-            hold = f["steps"][4]
+            hold = f["steps"][dos.index("px_hold_tab_close")]
             self.assertEqual((hold["key"], hold["modifiers"], hold["seconds"]), ("l", ["control", "shift"], 1.5))
             self.assertEqual(hold["close"], {"pane": "p0", "which": "middle", "after_ms": 50})
-            burst = f["steps"][6]
+            burst = f["steps"][dos.index("rk_press")]
             self.assertEqual((burst["key"], burst["count"], burst["gap_ms"]), ("h", 30, 33))
-            start = f["steps"][3]
+            start = f["steps"][dos.index("px_record_start")]
             self.assertTrue(start["input"].startswith("held keys ("), start["input"])  # judge_pixel: input-driven
             self.assertEqual(start["fixture"]["p0"], {"kind": "tui", "fill": "#0000FF"})  # never the outline's #FFFF00
             if n == len(films) - 1:
