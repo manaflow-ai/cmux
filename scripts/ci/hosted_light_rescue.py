@@ -81,10 +81,10 @@ EVENTS = frozenset({"pull_request"})
 IN_FLIGHT = ("queued", "in_progress")
 # Workflows a pass never touches, whatever runners.json declares: the nightly picks its own routes.
 EXCLUDED_WORKFLOWS = frozenset({"nightly.yml"})
-# Discovery URLs are rounded so the same lower/upper window is reused for a short interval. Fresh runs that fall
+# Discovery URLs use a rounded lower window reused for a short interval. Fresh runs that fall
 # above the stall bound remain in ScanState and are checked again as they age; a cached page never authorizes a rescue.
 DISCOVERY_CACHE_SECONDS = 75.0
-DISCOVERY_STEP_SECONDS = 60
+DISCOVERY_STEP_SECONDS = 30 * 60
 FORBIDDEN_COOLDOWN_SECONDS = 60.0
 
 
@@ -334,8 +334,10 @@ class GitHub:
 
     def runs(self, workflow: str, status: str, start: dt.datetime, end: dt.datetime, *, page: int = 1) -> list[dict[str, Any]]:
         # Filtered to pull_request runs server-side, so push and dispatch runs never fill the one page.
+        # The upper stall bound is applied locally: retaining fresh metadata lets it age into eligibility while a
+        # discovery page is cached, and keeps the URL stable for conditional requests after the short cache TTL.
         query = urllib.parse.urlencode({"status": status, "event": "pull_request", "per_page": 100, "page": page,
-                                        "created": f"{iso(start)}..{iso(end)}"})
+                                        "created": f">={iso(start)}"})
         return list(self.request("GET", f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or [])
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
@@ -478,8 +480,8 @@ class ScanState:
     recovery_cursor: int | None = None
     pages: dict[tuple[str, str], int] = field(default_factory=dict)
     candidates: dict[int, Mapping[str, Any]] = field(default_factory=dict)
-    # (workflow, status, page, rounded lower/upper window) -> (monotonic read time, page rows).
-    discovery_pages: dict[tuple[str, str, int, str, str], tuple[float, list[Mapping[str, Any]]]] = field(
+    # (workflow, status, page) -> (monotonic read time, page rows).
+    discovery_pages: dict[tuple[str, str, int], tuple[float, list[Mapping[str, Any]]]] = field(
         default_factory=dict)
     # A cached non-stalled jobs answer is safe only until its oldest queued job reaches the stall bound. Stalled
     # verdicts are never cached, so a rescue always gets a fresh authoritative read.
@@ -553,16 +555,15 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         lines.append(f"the workflow token's pool is down to {client.remaining} (reserve {POOL_RESERVE}); "
                      f"no listing or job read until its reset at {iso(dt.datetime.fromtimestamp(client.reset, UTC))}")
         return lines
-    start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
-    # Round the server query window so the same URL remains cacheable for a short interval. The exact upper bound is
-    # always enforced below with `start <= created <= end`; a retained fresh candidate therefore becomes eligible as
+    # Round the server query lower bound so the same URL remains cacheable for a short interval. The exact upper
+    # bound is always enforced locally; a retained fresh candidate therefore becomes eligible as
     # soon as its timestamp ages into the stall window, even while the listing page is cached.
     def floor(moment: dt.datetime) -> dt.datetime:
         stamp = int(moment.astimezone(UTC).timestamp())
         return dt.datetime.fromtimestamp(stamp - stamp % DISCOVERY_STEP_SECONDS, UTC)
 
     exact_start, exact_end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
-    start, end = floor(exact_start), floor(exact_end)
+    start, end = floor(exact_start), exact_end
     # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
     # disappearing from the next listing cannot discard candidates before their turn. Metadata never
     # authorizes a mutation: the run, PR head and jobs are still re-read immediately before cancellation.
@@ -596,7 +597,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                 try:
                     # Keep the cache key independent of the moving time window. The local exact-window filter below
                     # drops aged rows, while the short TTL keeps newly-created rows boundedly fresh.
-                    cache_key = (workflow, status, listing_page, "", "")
+                    cache_key = (workflow, status, listing_page)
                     cached = state.discovery_pages.get(cache_key)
                     if cached is not None and clock() - cached[0] < DISCOVERY_CACHE_SECONDS:
                         page = cached[1]

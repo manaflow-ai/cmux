@@ -278,6 +278,29 @@ class WorkflowToken(unittest.TestCase):
 
 
 class Sweep(unittest.TestCase):
+    def test_discovery_query_retains_fresh_runs_for_local_stall_filtering(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        with mock.patch.object(client, "request", return_value={"workflow_runs": []}) as request:
+            client.runs("pr-checks.yml", "queued", NOW - rescue.WINDOW,
+                        NOW - dt.timedelta(seconds=rescue.STALL_SECONDS))
+        query = rescue.urllib.parse.parse_qs(rescue.urllib.parse.urlsplit(request.call_args.args[1]).query)
+        self.assertEqual(query["created"], [f">={rescue.iso(NOW - rescue.WINDOW)}"])
+        self.assertEqual(query["event"], ["pull_request"])
+
+    def test_fresh_run_becomes_eligible_while_discovery_page_is_cached(self):
+        fresh = {**run(7), "created_at": ago(150)}
+        fake = Fake({"pr-checks.yml": [fresh]}, {7: [job("PR size", waited=150)]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        self.assertEqual(fake.job_reads, {})
+        self.assertEqual(mutations(fake), [])
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=31), dry_run=False,
+                     scan_state=cursor, clock=lambda: 31, sleep=lambda _: None, log=lambda _: None)
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+
     def test_discovery_page_cache_reuses_a_page_within_its_short_ttl(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
         cursor = rescue.ScanState()
@@ -683,13 +706,35 @@ class RecoverCancelled(unittest.TestCase):
     def test_unrelated_history_cap_does_not_hide_newest_owned_settlement(self):
         import owned_pool_rescue
         client = rescue.GitHub("workflow-token", "o/r")
-        history = mock.Mock()
+        history = owned_pool_rescue.GitHub("workflow-token", "o/r")
         client.history = history
-        history.rescue_jobs.return_value = [20, 10]
-        history.job_marks.side_effect = [
-            owned_pool_rescue.cancel_marks([f"{rescue.LIGHT_CANCEL_SETTLED} run 7 attempt 1"]),
-            owned_pool_rescue.cancel_marks([f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1"])]
-        self.assertEqual(client.pending_cancellations(NOW), set())
+        listing_reads = []
+        rows = [
+            {"id": 10, "event": "schedule", "display_title": "owned-pool-sweeper", "status": "completed",
+             "conclusion": "cancelled", "run_attempt": 1, "created_at": ago(600),
+             "run_started_at": ago(600), "updated_at": ago(400)},
+            {"id": 20, "event": "workflow_dispatch", "display_title": "owned-pool-sweeper", "status": "completed",
+             "conclusion": "success", "run_attempt": 1, "created_at": ago(300),
+             "run_started_at": ago(300), "updated_at": ago(200)}]
+        def request(method, path, **_):
+            if path.startswith("/actions/workflows/"):
+                listing_reads.append(path)
+                query = rescue.urllib.parse.parse_qs(rescue.urllib.parse.urlsplit(path).query)
+                if "event" not in query:
+                    return {"total_count": 2501, "workflow_runs": []}
+                selected = [row for row in rows if row["event"] == query["event"][0]]
+                return {"total_count": len(selected), "workflow_runs": selected if query["page"] == ["1"] else []}
+            run_id = int(path.split("/runs/")[1].split("/")[0])
+            return {"jobs": [{"id": run_id, "status": "completed", "conclusion": "success"}]}
+        history.request = request
+        marks = {
+            20: [f"{rescue.LIGHT_CANCEL_SETTLED} run 7 attempt 1"],
+            10: [f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1", f"{rescue.LIGHT_CANCEL_SENT} run 9 attempt 1"]}
+        history.job_marks = lambda job_id: owned_pool_rescue.cancel_marks(marks[job_id])
+        self.assertEqual(client.pending_cancellations(NOW), {9})
+        self.assertEqual(len(listing_reads), 4)
+        with self.assertRaises(owned_pool_rescue.RescueHistoryCapped):
+            history.rescue_jobs(NOW - rescue.WINDOW)
 
     def test_an_incomplete_journal_cannot_authorize_a_recovery(self):
         client = rescue.GitHub("workflow-token", "o/r")
