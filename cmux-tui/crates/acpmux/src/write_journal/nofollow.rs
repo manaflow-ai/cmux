@@ -180,9 +180,8 @@ impl Dir {
         // The raw syscall: musl, which the Linux release binaries link, has no `renameat2`
         // wrapper.
         // SAFETY: valid folder fds and NUL-terminated names; renameat2 takes exactly these.
-        let r = unsafe {
-            libc::syscall(libc::SYS_renameat2, fd, ca.as_ptr(), fd, cb.as_ptr(), flags)
-        };
+        let r =
+            unsafe { libc::syscall(libc::SYS_renameat2, fd, ca.as_ptr(), fd, cb.as_ptr(), flags) };
         if r < 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
     }
 
