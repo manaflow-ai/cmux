@@ -15,13 +15,11 @@ struct SidebarAvatarLooks {
 
     /// Working's arc: one turn, linear (`motion-and-polish`: a loop, not a transition).
     static let arcPeriod: CFTimeInterval = 1.6
-    /// Idle's glint: one sweep, then rest until the next (a pet's blink).
-    static let idleGlintPeriod: CFTimeInterval = 7
+    /// One glint's sweep across the face: Glow's working loop (with a rest), and Ring's cue.
     static let glintSweep: CFTimeInterval = 0.7
     /// Glow's working glint: sweeps back to back, with a short rest.
     static let workingGlintPeriod: CFTimeInterval = 1.8
-    /// Tilt: the idle glance and the working rock.
-    static let idleTiltPeriod: CFTimeInterval = 6
+    /// Tilt's working rock.
     static let workingTiltPeriod: CFTimeInterval = 1.4
     /// A cue's whole length (`motion-and-polish`: nothing that is not a loop runs past 240 ms).
     static let cueDuration: CFTimeInterval = 0.24
@@ -99,14 +97,10 @@ struct SidebarAvatarLooks {
         look.moving && loops(look) && !SidebarAvatarMotion.isLooping(avatar)
     }
 
-    /// Whether `look` has a loop: Ring and Glow loop at idle and working, Tilt at idle and working.
+    /// Whether `look` has a loop: only working loops. Nothing runs at idle, waiting or failed (the
+    /// idle budget, `plans/cmux-next/idle-wakeups.md`: 0.0% CPU with nothing changing).
     static func loops(_ look: SidebarAvatarMotion.Look) -> Bool {
-        switch (look.style, look.mode) {
-        case (.still, _): false
-        case (.glow, .idle): false
-        case (_, .idle), (_, .working): true
-        case (_, .waiting), (_, .failed): false
-        }
+        look.style != .still && look.mode == .working
     }
 
     /// Removes the look: every loop, the ring and glint, the glow; the cue too unless `keepCue`.
@@ -140,14 +134,13 @@ struct SidebarAvatarLooks {
             glow(avatar, color: accent, opacity: 0.5)
         case (.glow, .failed):
             glow(avatar, color: red, opacity: 0.55)
-        case (.ring, .idle):
-            if look.moving { sweep(avatar, period: idleGlintPeriod, phase: phase) }
-        case (.tilt, .idle):
-            if look.moving { tilt(avatar, period: idleTiltPeriod, degrees: 3, glance: true, phase: phase) }
+        case (.ring, .idle), (.tilt, .idle):
+            // At rest: nothing runs while nothing changes. Ring's glint plays once, as a state change's cue.
+            return
         case (.ring, .working):
             arc(avatar, color: accent, moving: look.moving, phase: phase)
         case (.tilt, .working):
-            if look.moving { tilt(avatar, period: workingTiltPeriod, degrees: 4, glance: false, phase: phase) }
+            if look.moving { tilt(avatar, period: workingTiltPeriod, degrees: 4, phase: phase) }
         case (.ring, .waiting), (.tilt, .waiting):
             still(avatar, color: accent, opacity: 0.6)
         case (.ring, .failed), (.tilt, .failed):
@@ -209,18 +202,12 @@ struct SidebarAvatarLooks {
         band.add(move, forKey: SidebarAvatarMotion.animationKey)
     }
 
-    /// The avatar turns a few degrees about its centre: a glance (once, then rest) or a slow rock.
-    static func tilt(_ avatar: CALayer, period: CFTimeInterval, degrees: Double, glance: Bool, phase: Double) {
+    /// The avatar rocks a few degrees about its centre (Tilt's working loop).
+    static func tilt(_ avatar: CALayer, period: CFTimeInterval, degrees: Double, phase: Double) {
         let angle = degrees * .pi / 180
         let turn = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        if glance {
-            // Turn, hold a beat, turn back, then rest for the rest of the period.
-            turn.values = [0, angle, angle, 0, 0]
-            turn.keyTimes = [0, 0.05, 0.12, 0.17, 1].map { NSNumber(value: $0) }
-        } else {
-            turn.values = [0, angle, 0, -angle, 0]
-            turn.keyTimes = [0, 0.25, 0.5, 0.75, 1].map { NSNumber(value: $0) }
-        }
+        turn.values = [0, angle, 0, -angle, 0]
+        turn.keyTimes = [0, 0.25, 0.5, 0.75, 1].map { NSNumber(value: $0) }
         turn.calculationMode = .cubic
         turn.duration = period
         turn.repeatCount = .infinity
@@ -230,6 +217,21 @@ struct SidebarAvatarLooks {
     }
 
     // MARK: Cues
+
+    /// One glint across the face, then nothing: Ring's cue on a state change (at most ``cueDuration``).
+    static func glintOnce(_ avatar: CALayer) {
+        let glint = glint(avatar)
+        fit(avatar)
+        guard let band = glint.sublayers?.first else { return }
+        let width = max(avatar.bounds.width, 1)
+        let move = CABasicAnimation(keyPath: "position.x")
+        move.fromValue = -width * 0.5
+        move.toValue = width * 1.5
+        move.duration = cueDuration
+        move.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        move.isRemovedOnCompletion = true
+        band.add(move, forKey: SidebarAvatarMotion.cueKey)
+    }
 
     /// The one-shot of a change from `from` to `to`, if it has one: a turn ending (working to idle or
     /// waiting) pops the avatar 4 %; a failure shakes it a few degrees about its centre; a reply waiting
@@ -250,7 +252,10 @@ struct SidebarAvatarLooks {
     }
 
     static func cue(_ avatar: CALayer, style: CmuxSidebarAvatarMotionStyle, from: SidebarAvatarMotion.Mode, to: SidebarAvatarMotion.Mode) {
-        guard style != .still, let cue = cue(from: from, to: to) else { return }
+        guard style != .still else { return }
+        // Ring: every state change glints once across the face (the pet's blink, never a loop at idle).
+        if style == .ring, to != .working { glintOnce(avatar) }
+        guard let cue = cue(from: from, to: to) else { return }
         let animation: CAAnimation
         var target = avatar
         switch cue {

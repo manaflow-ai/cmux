@@ -606,9 +606,10 @@ def watch_layout(run, out, stop_at):
     started = time.monotonic()
     while time.monotonic() < stop_at:
         asked = time.monotonic()
+        asked_wall = time.time()
         reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
         if isinstance(reply, dict) and not reply.get("error") and "frames" in reply:
-            out["watch"], out["watch_asked"] = reply, asked
+            out["watch"], out["watch_asked"], out["watch_asked_wall"] = reply, asked, asked_wall
             return
         out["watch_error"] = reply
         errors = out.setdefault("watch_errors", [])
@@ -656,6 +657,7 @@ def frame_click(run, key, label, keep=False):
     # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
     # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
     asked = time.monotonic()
+    asked_wall = time.time()
     clicked = asked + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
     if isinstance(strip.get("lead_ms"), (int, float)):
@@ -686,7 +688,9 @@ def frame_click(run, key, label, keep=False):
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
-                   "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
+                   "watch_asked_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None,
+                   "watch_started_ms": cof.watch_started_ms(out.get("watch"), out.get("watch_asked"), clicked,
+                                                            asked_wall + (clicked - asked))})
     record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
     record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):

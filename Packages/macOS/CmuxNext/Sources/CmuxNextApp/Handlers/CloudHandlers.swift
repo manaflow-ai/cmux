@@ -1,12 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
-import CmuxNextCloudTunnel
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
-import CmuxNextSettings
 
 /// Cloud and account actions over the kept Cloud library (`CmuxNextCloud`):
 /// Stack sign-in, `/api/vm`, and each machine's daemon tree. A machine is
@@ -23,7 +21,6 @@ enum CloudHandlers {
         bindBrowserActions(into: registry, context: context, reason: signedInReason)
         CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
-        bindSystemTunnelActions(into: registry, context: context, signedIn: signedInReason, reason: reason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
         CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
@@ -390,37 +387,5 @@ enum CloudHandlers {
         let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
-    }
-}
-
-// `cmux cloud tunnel on|off|status` and MCP: the opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md).
-// The rules live in CloudTunnelController.change; this only binds the actions.
-extension CloudHandlers {
-    static func bindSystemTunnelActions(into registry: ActionRegistry, context: AppActionContext,
-                                        signedIn: @escaping @MainActor () -> String?, reason: @escaping @MainActor () -> String?) {
-        let tunnel = context.services.cloud.systemTunnel
-        bind("cloudSystemTunnelStatus", registry, reason: reason) { answer("Cloud Tunnel status", $0, context) { tunnelAnswer(tunnel.status) } }
-        for on in [true, false] {
-            bind(on ? "cloudSystemTunnelOn" : "cloudSystemTunnelOff", registry, reason: on ? signedIn : reason) { invocation in
-                // Approval in System Settings can take the person a while: answer then, keep going.
-                answer(on ? "turn on Cloud Tunnel" : "turn off Cloud Tunnel", invocation, context, pendingAfter: .seconds(30),
-                       pending: ["status": .string((on ? CloudTunnelStatus.connecting : .disconnecting).name)]) {
-                    let settings = context.services.settings
-                    do {
-                        return tunnelAnswer(try await tunnel.change(
-                            on: on, byPerson: [.user, .cli].contains(invocation.origin),
-                            settingIsOn: settings.map { CloudTunnelSetting().enabled(in: $0.snapshot.root) }
-                        ) { try await settings?.set(.bool($0), at: CloudTunnelSetting.enabledPath) })
-                    } catch let refusal as CloudTunnelRefusal { throw ActionFailure(message: refusal.message) }
-                }
-            }
-        }
-    }
-
-    private static func tunnelAnswer(_ status: CloudTunnelStatus) -> CloudAnswer {
-        var fields: [String: ActionResultValue] = ["status": .string(status.name)]
-        if let reason = status.reason { fields["reason"] = .string(reason) }
-        if let since = status.connectedSinceSeconds { fields["connected_since"] = .int(since) }
-        return CloudAnswer(title: CloudTunnelStatus.title, text: status.summary, fields: fields)
     }
 }

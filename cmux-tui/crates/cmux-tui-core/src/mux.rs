@@ -929,6 +929,11 @@ impl Mux {
 
     #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
+        if self.control_clients.input_lane.on() {
+            // The routing tables of the last finished change, with no lock (R-DAEMON-STATE stage S1): the same
+            // lookup, never a wait behind a list, a snapshot or a durable mutation that holds the session lock.
+            return self.state.routes().surface(id);
+        }
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
@@ -944,6 +949,13 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
+    }
+
+    /// Turns R-DAEMON-STATE stage S1 (the input lane) on or off for this mux (tests).
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_route_publishing_for_test(on);
+        self.control_clients.set_input_lane_for_test(on);
     }
 
     #[cfg(test)]

@@ -1176,5 +1176,62 @@ class ClassifyAny(unittest.TestCase):
         verdict = reds.classify_any(crashed, [("run 2", log(SUMMARY)), ("run 1", crashed)], "cmux-next swift test")
         self.assertTrue(verdict.own)
 
+
+# cmux#33162's `web / react-apps-base-check (3)`, job 126154996598 (run 41698414997 attempt 1, 2026-11-03), as GitHub
+# serves it: its runner lost communication mid-step, so the job failed with that annotation, its "Run base reds and
+# compare" step still in_progress, and no log stored (the logs endpoint answers BlobNotFound).
+LOST_JOB = FIXTURES / "lost-runner-job-126154996598.json"
+LOST_NOTES = FIXTURES / "lost-runner-annotations-126154996598.json"
+LOST_LOG = FIXTURES / "lost-runner-log-126154996598.txt"
+
+
+class LostRunner(unittest.TestCase):
+    """A job whose runner was lost is infra, not a verdict: never the PR's own red, it needs a re-run."""
+
+    def setUp(self):
+        self.job = json.loads(LOST_JOB.read_text())
+        self.notes = json.loads(LOST_NOTES.read_text())
+
+    def test_the_real_lost_job_is_infra_from_any_one_signal(self):
+        self.assertIn("lost communication", reds.lost_runner(self.job, self.notes))
+        self.assertIn("still in_progress", reds.lost_runner(self.job))  # its steps alone, no read
+        steps_done = dict(self.job, steps=[dict(s, status="completed") for s in self.job["steps"][:14]])
+        self.assertIn("BlobNotFound", reds.lost_runner(steps_done, (), LOST_LOG.read_text()))
+        # As cmuxterm-hq's next-autoland asks: the check run's conclusion and its annotations only.
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, self.notes))
+        self.assertTrue(reds.lost_runner({"conclusion": "failure"}, [n["message"] for n in self.notes]))
+
+    def test_a_real_test_failure_keeps_its_verdict(self):
+        failed = dict(self.job, steps=[dict(s, status="completed", conclusion="success") for s in self.job["steps"]])
+        failed["steps"][14]["conclusion"] = "failure"
+        self.assertIsNone(reds.lost_runner(failed))
+        self.assertIsNone(reds.lost_runner(failed, [{"annotation_level": "failure",
+                                                     "message": "Process completed with exit code 1."}], "log"))
+        # A failed step decides even beside an unread log.
+        self.assertIsNone(reds.lost_runner(failed, (), LOST_LOG.read_text()))
+        # Only a failure is judged: a cancelled or passed job has no lost-runner red.
+        self.assertIsNone(reds.lost_runner(dict(self.job, conclusion="cancelled"), self.notes))
+        # A notice that quotes the words is not the runner's failure.
+        self.assertIsNone(reds.lost_runner({"conclusion": "failure"},
+                                           [{"annotation_level": "notice", "message": self.notes[0]["message"]}]))
+
+    def test_the_cli_marks_the_real_job_infra_needing_a_re_run(self):
+        script = ROOT / "scripts/ci/test_reds.py"
+        done = subprocess.run([sys.executable, str(script), "runner", "--job", str(LOST_JOB), "--annotations",
+                               str(LOST_NOTES), "--log", str(LOST_LOG)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("infra, not a verdict: 'web / react-apps-base-check (3)' (job 126154996598)", done.stdout)
+        self.assertIn("never the PR's own red; re-run it", done.stdout)
+        with tempfile.TemporaryDirectory() as tmp:
+            failed = json.loads(LOST_JOB.read_text())
+            failed["steps"] = [dict(s, status="completed", conclusion="success") for s in failed["steps"]]
+            failed["steps"][14]["conclusion"] = "failure"
+            path = Path(tmp) / "job.json"
+            path.write_text(json.dumps(failed))
+            done = subprocess.run([sys.executable, str(script), "runner", "--job", str(path)],
+                                  capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("a verdict", done.stdout)
+
 if __name__ == "__main__":
     unittest.main()

@@ -54,6 +54,9 @@ enum SidebarStatesPlaygroundState: String, CaseIterable, Sendable {
     /// A browser workspace whose page has no favicon: the fallback.
     case faviconMissing
 
+    /// The rows the favicon styles sheet shows (`SidebarStatesPlaygroundColumn.faviconStyles`).
+    static let favicons: [SidebarStatesPlaygroundState] = [.faviconMono, .faviconColorful, .faviconMissing]
+
     /// The row's caption in the playground.
     var title: String {
         switch self {

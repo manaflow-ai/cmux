@@ -7,6 +7,8 @@
 //! CLI's (`chief/chat_scope.rs`). The app's `app_chat_send` (Send Message
 //! To…) takes the same path, so no MCP send writes as the owner.
 
+use std::sync::OnceLock;
+
 use cmux_process::{Command, Stdio};
 
 use serde_json::{Map, Value, json};
@@ -19,6 +21,23 @@ pub(super) const LIST: &str = "chat_list";
 /// The app action tool that `chat_send` stands in for.
 pub(super) const APP_SEND: &str = "app_chat_send";
 
+/// The MCP client's name from `initialize` (`clientInfo.title`, else `name`): the
+/// sender's app when no harness environment says (chief/caller.rs).
+static CLIENT: OnceLock<String> = OnceLock::new();
+
+/// Keeps the client's name from an `initialize` request's params.
+pub(super) fn remember_client(params: &Value) {
+    let info = params.get("clientInfo");
+    let name = ["title", "name"]
+        .iter()
+        .find_map(|key| info.and_then(|i| i.get(*key)).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    if let Some(name) = name {
+        let _ = CLIENT.set(name.to_owned());
+    }
+}
+
 /// The longest a `chat_send` waits for a Chief's reply.
 const MAX_WAIT_SECONDS: u64 = 1800;
 const DEFAULT_WAIT_SECONDS: u64 = 600;
@@ -26,9 +45,11 @@ const DEFAULT_WAIT_SECONDS: u64 = 600;
 const SEND_DESCRIPTION: &str = "Message your Chief, another Chief, a person or a group chat in \
     cmux, as `cmux chat send`. to: `chief` (your Chief), a Chief's name or id (`codex` is \
     \"Codex Chief\"; chat_list names them), or a person's name or a group chat's title in Home. \
-    The message is yours as an agent, never the user's: the chat shows [from NAME] (your acpmux \
-    session, or HARNESS-SESSION@HOST; `as` overrides), and a Chief reads it as an agent's \
-    words. wait true (Chiefs only) answers with the Chief's replies when its turn ends \
+    Say who you are in from, as APP or APP › PERSONA (\"Grok bot › Ada\", \"Muse\", \"Codex › \
+    reviewer\"): the chat shows it, with that app's icon (a monogram for an unknown app), so \
+    the user sees who sent what. Without it cmux names you by your harness and session \
+    (\"Claude Code › 3fa9c1d2@mini-7\"). The message is yours as an agent, never the user's, \
+    and a Chief reads it as an agent's words. wait true (Chiefs only) answers with the Chief's replies when its turn ends \
     ({id, seq, conversation, replies}); timeout_seconds bounds it (default 600, at most 1800). \
     class says what you ask: question, block, blocker, action, result (default) or fyi.";
 
@@ -56,7 +77,8 @@ pub(super) fn descriptors() -> [Value; 3] {
                     "wait": {"type": "boolean", "default": false},
                     "timeout_seconds": {"type": "integer", "minimum": 1,
                                         "maximum": MAX_WAIT_SECONDS, "default": DEFAULT_WAIT_SECONDS},
-                    "as": {"type": "string", "minLength": 1},
+                    "from": {"type": "string", "minLength": 1, "description": "Who you are, as APP or APP › PERSONA (\"Grok bot › Ada\", \"Muse\", \"Claude Code › reviewer\"). Always say it: the chat shows it with your icon. Default: your harness and session."},
+                    "as": {"type": "string", "minLength": 1, "description": "Old name of from."},
                     "class": {"type": "string",
                               "enum": ["question", "block", "blocker", "action", "result", "fyi"]},
                 },
@@ -97,7 +119,9 @@ pub(super) fn words(
 ) -> Option<Result<Vec<String>, String>> {
     let text = |key: &str| arguments.get(key).and_then(Value::as_str).map(str::to_owned);
     let allowed: &[&str] = match name {
-        SEND | APP_SEND => &["to", "text", "wait", "timeout_seconds", "as", "class", "focus"],
+        SEND | APP_SEND => {
+            &["to", "text", "wait", "timeout_seconds", "from", "as", "class", "focus"]
+        }
         READ => &["to", "last"],
         LIST => &[],
         _ => return None,
@@ -130,10 +154,11 @@ pub(super) fn words(
                     .clamp(1, MAX_WAIT_SECONDS);
                 words.extend(["--wait".to_owned(), "--timeout".to_owned(), secs.to_string()]);
             }
-            for key in ["as", "class"] {
-                if let Some(value) = text(key) {
-                    words.extend([format!("--{key}"), value]);
-                }
+            if let Some(from) = text("from").or_else(|| text("as")) {
+                words.extend(["--from".to_owned(), from]);
+            }
+            if let Some(class) = text("class") {
+                words.extend(["--class".to_owned(), class]);
             }
             Ok(words)
         }
@@ -156,13 +181,13 @@ fn run(words: &[String], applied: bool) -> Value {
         Ok(program) => program,
         Err(error) => return failed(&format!("this cmux has no path: {error}"), "not_run"),
     };
-    let output = Command::new(program)
-        .arg("--json")
-        .args(words)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output();
+    let mut command = Command::new(program);
+    command.arg("--json").args(words).stdin(Stdio::null()).stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
+    if let Some(name) = CLIENT.get() {
+        command.env(super::super::chief::caller::SENDER_APP_ENV, name);
+    }
+    let output = command.output();
     let output = match output {
         Ok(output) => output,
         Err(error) => return failed(&format!("cmux chat did not start: {error}"), "not_run"),
