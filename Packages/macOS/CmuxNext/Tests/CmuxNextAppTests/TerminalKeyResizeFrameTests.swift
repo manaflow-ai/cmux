@@ -38,31 +38,22 @@ struct TerminalKeyResizeFrameTests {
         // A spring, as a person sees it (KeyScreen pins Reduce Motion on), with S3's containers following their panes.
         screen.root.context.reduceMotionOverride = false
         screen.root.context.contentPolicyOverride = true
+        // The test is the clock, as in TabStripFollowsPaneTickTests: one spring frame per step (1/120 s), its layout
+        // pass, then that frame's Core Animation commit. A display-link spring may not animate on a CI host (its
+        // animation speed setting); stepping it shows every frame the spring has.
+        screen.root.driver.isManual = true
+        defer { screen.root.driver.isManual = false }
         // Warm-up press: one-time setup is not the press under test.
         _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
         await Self.settle(screen)
         let resizesBefore = screen.ios.map { $0.resizes.count }
 
-        // Every commit for 1.5 s of wall-clock time (a run-loop turn is not a refresh: idle turns commit nothing new). A
-        // committed state is kept when it differs from the last one kept: each kept state is one frame the spring showed.
         let before = screen.sessions.map(Sample.init)
         _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
         var frames: [[Sample]] = [before]
-        var intervals: [Double] = []
-        var lastChange = ContinuousClock.now
-        let until = ContinuousClock.now.advanced(by: .milliseconds(1500))
-        while ContinuousClock.now < until {
-            await Self.commit()
-            let sample = screen.sessions.map(Sample.init)
-            guard let previous = frames.last, previous.map(\.area) != sample.map(\.area) || previous.map(\.layer) != sample.map(\.layer)
-            else { continue }
-            let now = ContinuousClock.now
-            intervals.append(Self.ms(lastChange.duration(to: now)))
-            lastChange = now
-            frames.append(sample)
-        }
-        let moving = frames.count - 1
-        try #require(moving >= 4, "the press moved its panes in \(moving) frames: no spring ran")
+        let (steps, intervals) = await Self.step(screen) { frames.append($0) }
+        try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
         var wrong: [String] = []
         for index in 1..<frames.count {
             for (terminal, sample) in frames[index].enumerated() {
@@ -79,9 +70,9 @@ struct TerminalKeyResizeFrameTests {
         // The press's grid reaches the IO through the ordered input stream: read it after the panes rest.
         await Self.settle(screen)
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
-        let sorted = intervals.dropFirst().sorted()
+        let sorted = intervals.sorted()
         let p = { (q: Double) in sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
-        print("S4 key resize: \(moving) moving frames; frame interval ms p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
+        print("S4 key resize: \(steps) spring frames; main ms per frame (step + layout) p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
               "PTY grids per terminal \(resizes); wrong frames \(wrong.count)")
         #expect(wrong.isEmpty, "\(wrong.count) frames showed a terminal at a size its pane did not have then or one frame before: \(wrong.prefix(8))")
         #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes)")
@@ -107,6 +98,29 @@ struct TerminalKeyResizeFrameTests {
     static func ms(_ duration: Duration) -> Double {
         let ms = Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
         return (ms * 100).rounded() / 100
+    }
+
+    /// Steps the spring to its landing, one frame per step: the step, its layout pass, its commit (`record` gets each
+    /// committed frame), then 6 commits for the landing's release. Returns the frames stepped and each frame's main
+    /// time (step and layout, ms).
+    static func step(_ screen: KeyScreen, record: (([Sample]) -> Void)?) async -> (Int, [Double]) {
+        var intervals: [Double] = []
+        var moving = true
+        var steps = 0
+        while moving, steps < 240 {
+            let started = ContinuousClock.now
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            intervals.append(ms(started.duration(to: .now)))
+            await commit()
+            record?(screen.sessions.map(Sample.init))
+            steps += 1
+        }
+        for _ in 0..<6 {
+            await commit()
+            record?(screen.sessions.map(Sample.init))
+        }
+        return (steps, intervals)
     }
 
     /// Commits until the panes and their terminals have not changed for 300 ms of wall-clock time (at most 3 s).
