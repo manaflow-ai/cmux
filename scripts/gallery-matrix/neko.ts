@@ -45,7 +45,7 @@ try {
       });
       try {
         const page = await context.newPage();
-        for (const set of ["noto", "fluent", "lucide", "authored"]) {
+        for (const set of ["noto", "fluent", "lucide", "authored", "earfold", "tailterm", "whisker"]) {
           const errors: string[] = [];
           const listener = (error: Error) => errors.push(error.message);
           page.on("pageerror", listener);
@@ -68,6 +68,15 @@ try {
           await stage
             .locator("img")
             .evaluateAll((images) => Promise.all(images.map((image) => (image as HTMLImageElement).decode())));
+          await stage.locator("[data-neko-drawing]").evaluateAll((elements) =>
+            Promise.all(
+              elements.map((element) => {
+                const image = new Image();
+                image.src = (element as HTMLElement).dataset.nekoDrawing!;
+                return image.decode();
+              }),
+            ),
+          );
           const provenance = await page.locator("[data-gallery-revision]").evaluate((el) => ({
             revision: (el as HTMLElement).dataset.galleryRevision,
             source: (el as HTMLElement).dataset.gallerySource,

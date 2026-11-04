@@ -18,3 +18,7 @@ The two authored cmux Neko fill-ins (`action.copy` and `action.pin`) are generat
 `scripts/icons/build_pack.py`; they are original cmux geometry and have no third-party provenance.
 No candidate SVG has been transformed, recolored, or combined into those fill-ins. SHA-256 hashes,
 source paths, byte counts, and repository URLs are recorded in `manifest.json`.
+
+Round 2's nine original monochrome experiments in `round2/` reuse first-party cmux action
+silhouettes, as recorded in that directory's manifest. They are not derived from a third-party cat
+asset and remain gallery-only. No production theme imports these experiments.

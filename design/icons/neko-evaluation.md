@@ -72,6 +72,14 @@ Keep More and status marks shared. The working mark remains a true spinner throu
 independent visual reader inspected all 16 captures and agreed that no candidate improves on the
 default row; its critique prompted the separate action-recognition and visual-fit scores above.
 
+## Round 2
+
+Gallery variants: `{earfold,tailterm,whisker}-{light,dark}`. Three monochrome, noun-specific directions
+alter copy/retry/speak (3/6 actions); More, bookmark, pin and spinner/status marks remain shared.
+The nine original SVGs and source-geometry manifest live in `neko-candidates/round2/`. They use the
+shared token names and compare against both the token family and actual transcript row. These
+experiments remain gallery-only. Scores are pending the same real 1x/2x capture review as round 1.
+
 ## License survey
 
 `neko-candidates/manifest.json` pins upstream commits, exact source paths, byte counts and SHA-256

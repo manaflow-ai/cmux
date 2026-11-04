@@ -1,0 +1,86 @@
+{
+  "status": "Original vector experiments only. Unaccepted; no release assets or theme changes.",
+  "source_root": "design/icons/source",
+  "source_geometry": {
+    "copy": "actions-nav.json: action.copy (line)",
+    "retry": "actions-nav.json: action.reload (line)",
+    "speak": "browser.json: media.audio (line)"
+  },
+  "common": {
+    "grid": 24,
+    "display_css_px": 16,
+    "stroke_width": 1.5,
+    "color": "currentColor",
+    "fill": "none",
+    "linecap": "round",
+    "linejoin": "round",
+    "motion": "none"
+  },
+  "evidence_needed": "Real device-scale-factor 1x and 2x screenshots at 16 CSS px, in light and dark, directly beside unchanged shared tokens and the real transcript row. SVG file presence is not a quality verdict.",
+  "known_gap": "These reuse registry geometry as requested. The real transcript Copy has since been changed to front-top-left two-square geometry in conversation/icons.tsx; renderer integration is outside this experiment.",
+  "directions": [
+    {
+      "id": "01-earfold",
+      "intent": "Ear cues replace existing angular corners, using the same monochrome outline rather than separate accent strokes. Test whether a single silhouette interruption feels deliberate at 16px.",
+      "files": [
+        {
+          "file": "01-earfold-copy.svg",
+          "action": "copy",
+          "change": "Shared rear sheet unchanged; a small folded notch replaces one section of the front sheet top edge."
+        },
+        {
+          "file": "01-earfold-retry.svg",
+          "action": "retry",
+          "change": "Shared circular arc unchanged; arrowhead keeps the turn direction, with one short folded ear corner."
+        },
+        {
+          "file": "01-earfold-speak.svg",
+          "action": "speak",
+          "change": "Shared speaker/tray and two sound waves reused; one ear-like fold is cut into the speaker cone upper slope."
+        }
+      ]
+    },
+    {
+      "id": "02-tailterm",
+      "intent": "An open line ends in one small tail curl. Preserve the two-sheet, round-arrow and speaker/wave silhouettes without adding ears or facial marks.",
+      "files": [
+        {
+          "file": "02-tailterm-copy.svg",
+          "action": "copy",
+          "change": "Shared rear sheet unchanged; front sheet lower-right rounded corner becomes a tail curl without losing the document sides."
+        },
+        {
+          "file": "02-tailterm-retry.svg",
+          "action": "retry",
+          "change": "Shared top arrowhead and most circular silhouette retained; open trailing end bends into a small tail curl."
+        },
+        {
+          "file": "02-tailterm-speak.svg",
+          "action": "speak",
+          "change": "Shared speaker and inner sound wave unchanged; only the outer sound wave lower terminal curls inward."
+        }
+      ]
+    },
+    {
+      "id": "03-whisker",
+      "intent": "Use a pair of short separated rays at an existing open edge, like restrained whiskers. No face, ears, pads, colored layer or extra bounding box. This is deliberately a higher-risk legibility experiment.",
+      "files": [
+        {
+          "file": "03-whisker-copy.svg",
+          "action": "copy",
+          "change": "Shared front sheet untouched; two short rays meet the exposed rear-sheet lower-left edge."
+        },
+        {
+          "file": "03-whisker-retry.svg",
+          "action": "retry",
+          "change": "Shared circular arc and arrowhead unchanged; two short rays share the trailing endpoint."
+        },
+        {
+          "file": "03-whisker-speak.svg",
+          "action": "speak",
+          "change": "Shared speaker unchanged; curved sound waves replaced with three restrained whisker-like sound rays."
+        }
+      ]
+    }
+  ]
+}

@@ -13,6 +13,16 @@ import noto from "../../../../../design/icons/neko-candidates/noto-emoji/cat.svg
 import fluent from "../../../../../design/icons/neko-candidates/fluent-emoji/cat-flat.svg?url";
 import lucide from "../../../../../design/icons/neko-candidates/lucide/cat.svg?url";
 
+import earfoldCopy from "../../../../../design/icons/neko-candidates/round2/01-earfold-copy.svg?url";
+import earfoldRetry from "../../../../../design/icons/neko-candidates/round2/01-earfold-retry.svg?url";
+import earfoldSpeak from "../../../../../design/icons/neko-candidates/round2/01-earfold-speak.svg?url";
+import tailtermCopy from "../../../../../design/icons/neko-candidates/round2/02-tailterm-copy.svg?url";
+import tailtermRetry from "../../../../../design/icons/neko-candidates/round2/02-tailterm-retry.svg?url";
+import tailtermSpeak from "../../../../../design/icons/neko-candidates/round2/02-tailterm-speak.svg?url";
+import whiskerCopy from "../../../../../design/icons/neko-candidates/round2/03-whisker-copy.svg?url";
+import whiskerRetry from "../../../../../design/icons/neko-candidates/round2/03-whisker-retry.svg?url";
+import whiskerSpeak from "../../../../../design/icons/neko-candidates/round2/03-whisker-speak.svg?url";
+
 const candidatePack = overlaidIconPack(bundledIconPack, candidate as IconPack);
 // Explicit provider identity keeps a host's debug family out of the baseline comparison.
 const baselinePack = { ...bundledIconPack };
@@ -41,6 +51,27 @@ const sets = {
     image: "",
     note: "Copy and pin experiments only. Other actions and working/status marks retain default geometry. Not enabled.",
   },
+  earfold: {
+    title: "cmux Ear folds",
+    license: "First-party",
+    image: "",
+    note: "An angular cue replaces part of the action silhouette. Unapproved round 2 experiment.",
+    drawings: { "action.copy": earfoldCopy, "action.reload": earfoldRetry, "media.audio": earfoldSpeak },
+  },
+  tailterm: {
+    title: "cmux Tail terminals",
+    license: "First-party",
+    image: "",
+    note: "One contour ends in a small curl. Unapproved round 2 experiment.",
+    drawings: { "action.copy": tailtermCopy, "action.reload": tailtermRetry, "media.audio": tailtermSpeak },
+  },
+  whisker: {
+    title: "cmux Whisker edges",
+    license: "First-party",
+    image: "",
+    note: "Short rays share an exposed edge. Higher recognition risk; unapproved round 2 experiment.",
+    drawings: { "action.copy": whiskerCopy, "action.reload": whiskerRetry, "media.audio": whiskerSpeak },
+  },
 } as const;
 type SetName = keyof typeof sets;
 const samples = [
@@ -52,13 +83,35 @@ const samples = [
   ["action.more", "More"],
 ] as const;
 
-function TokenRow({ experimental = false }: { experimental?: boolean }) {
+function TokenRow({
+  experimental = false,
+  drawings,
+}: {
+  experimental?: boolean;
+  drawings?: Readonly<Record<string, string>>;
+}) {
   return (
     <IconsProvider pack={experimental ? candidatePack : baselinePack}>
-      <div style={{ display: "flex", gap: 16 }} data-token-row={experimental ? "candidate" : "default"}>
+      <div style={{ display: "flex", gap: 16 }} data-token-row={experimental || drawings ? "candidate" : "default"}>
         {samples.map(([name, label]) => (
           <span key={name} style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
-            <Icon name={name} size={16} />
+            {drawings?.[name] ? (
+              <span
+                aria-hidden="true"
+                data-neko-drawing={drawings[name]}
+                style={{
+                  display: "block",
+                  width: 16,
+                  height: 16,
+                  background: "currentColor",
+                  maskImage: `url(${drawings[name]})`,
+                  maskSize: "contain",
+                  maskRepeat: "no-repeat",
+                }}
+              />
+            ) : (
+              <Icon name={name} size={16} />
+            )}
             <span style={{ fontSize: "var(--text-caption)" }}>{label}</span>
           </span>
         ))}
@@ -82,6 +135,7 @@ function TokenRow({ experimental = false }: { experimental?: boolean }) {
 function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" | "dark"; set?: SetName }) {
   const art = sets[set];
   const dark = mode === "dark";
+  const drawings = "drawings" in art ? art.drawings : undefined;
   return (
     <div
       data-neko-gallery={set}
@@ -110,12 +164,12 @@ function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" 
         <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
         <TokenRow />
       </div>
-      {set === "authored" ? (
+      {set === "authored" || drawings ? (
         <div style={{ display: "grid", gap: 12 }}>
           <span style={{ fontSize: "var(--text-detail)" }}>
-            Candidate · 2/6 actions · 0/1 spinner · 0/2 status marks
+            Candidate · {drawings ? "3" : "2"}/6 actions · Shared spinner/status marks
           </span>
-          <TokenRow experimental />
+          <TokenRow experimental={set === "authored"} drawings={drawings} />
         </div>
       ) : (
         <div style={{ display: "flex", gap: 24, alignItems: "center", minHeight: 60 }}>
@@ -169,7 +223,7 @@ export default componentEntry({
       (["light", "dark"] as const).map((mode) => [
         `${set}-${mode}`,
         {
-          note: "Round 1: unapproved candidate, beside default; see neko-evaluation.md for capture-based verdict.",
+          note: "Unapproved candidate beside default; see neko-evaluation.md for capture-based verdicts.",
           props: { mode, set },
         },
       ]),
