@@ -36,7 +36,7 @@ public struct AgentPaneExternalAccess {
             return AgentPaneReply.failure(code: RemoteAcpmuxWire.unsupported, message: RemoteAcpmuxWire.unsupported)
         }
         guard gestures.consume(), let url = kind.settingsURL else { return AgentPaneModel.transportFailure(.gestureRequired) }
-        if let open { open(url) } else { NSWorkspace.shared.openInBackground(url) }
+        if let open { open(url) } else { _ = NSWorkspace.shared.openInForeground(url) }
         return AgentPaneReply.success(["opened": true])
     }
 }
