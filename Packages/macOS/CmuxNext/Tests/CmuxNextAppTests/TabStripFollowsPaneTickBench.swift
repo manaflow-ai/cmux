@@ -4,8 +4,9 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextLayout
-import CmuxNextTabs
+@testable import CmuxNextTabs
 import CmuxNextTestSupport
+import CmuxNextWakeups
 import Foundation
 import QuartzCore
 import Testing
@@ -17,6 +18,7 @@ import Testing
 /// middle pane; each frame runs what one display frame runs: `advanceFrame` (springs, pane frames, strip layout), the
 /// layout pass, display, the layers' display (what the commit draws: re-truncated tab titles) and the landing's
 /// after-commit release. Run optimized on the fleet: package-test-lane.sh suite with CMUX_SWIFT_SUITE_CONFIGURATION=release.
+/// `tabCloseTurnTimeOffAndOn`: the S1B 1b switch's cost on a tab close's turn while the frames tick (OFF and ON lines).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_KEY_RESIZE_STRIP_BENCH"] == "1"), .closesItsWindows)
 struct TabStripFollowsPaneTickBench {
@@ -95,6 +97,52 @@ struct TabStripFollowsPaneTickBench {
             return String(format: "%.3f", sorted[min(sorted.count - 1, Int((p * Double(sorted.count - 1)).rounded()))] * 1000)
         }
         return "KEY-RESIZE-STRIP-BENCH \(name) frames=\(times.count) p50=\(ms(0.5))ms p95=\(ms(0.95))ms p99=\(ms(0.99))ms max=\(ms(1))ms"
+    }
+
+    /// FRAME OWNER S1B 1b (`motion.frameOwner.tabMoves`) cost: wall seconds of each tab close's and reopen's turn
+    /// (the model change, the strip's sync and its moves) on a 12-tab strip on screen while the window's frames tick
+    /// (an active frame client, one frame given by hand before each change), with the switch `on` or off.
+    static func closeTurns(switchOn on: Bool, rounds: Int) throws -> [Double] {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register([DesignTunables.frameOwnerTabMoves.descriptor])
+        _ = store.set(DesignTunables.frameOwnerTabMoves.key, .bool(on))
+        defer { _ = store.set(DesignTunables.frameOwnerTabMoves.key, nil) }
+        let tabs = (0..<12).map { TabItem(id: TabID("tab\($0)"), title: "python3 /tmp/sigwinch.py --seed 100\($0)") }
+        let model = TabStripModel(tabs: tabs, selectedID: tabs[0].id)
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 40), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.closeAfterTest() }
+        let strip = TabStripView(model: model)
+        strip.frame = NSRect(x: 0, y: 0, width: 1200, height: TabStripView.preferredHeight)
+        window.contentView = strip
+        window.orderFrontRegardless()
+        try #require(window.screen != nil)
+        strip.layoutSubtreeIfNeeded()
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let scheduler = FrameScheduler.forWindow(window)
+        let client = FrameClient(owner: "TabStripFollowsPaneTickBench.closeTurns", on: scheduler) { _ in true }
+        client.activate()
+        defer { client.deactivate() }
+        var times: [Double] = []
+        for _ in 0..<rounds {
+            for change in 0..<2 {
+                scheduler.frameDidFire(timestamp: CACurrentMediaTime() - 1.0 / 120, refreshInterval: 1.0 / 120)
+                let start = CACurrentMediaTime()
+                if change == 0 { model.tabs.removeLast() } else { model.tabs = tabs }
+                strip.sync(fromModel: true)
+                times.append(CACurrentMediaTime() - start)
+            }
+        }
+        return times
+    }
+
+    @Test func tabCloseTurnTimeOffAndOn() throws {
+        _ = try Self.closeTurns(switchOn: true, rounds: 5)
+        for on in [false, true, false, true] {
+            print(Self.line(on ? "tab-close-turn-on" : "tab-close-turn-off", try Self.closeTurns(switchOn: on, rounds: 100)))
+        }
     }
 
     @Test func keyResizeFrameTime() {

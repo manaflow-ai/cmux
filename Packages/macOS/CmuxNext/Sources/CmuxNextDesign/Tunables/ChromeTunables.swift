@@ -93,6 +93,16 @@ public nonisolated enum DesignTunables {
             + ChromeTunables.mainPane + [HoverCardEscapeGeometry.escapeSlotTunable.descriptor] + TerminalDragTunables.all + frameOwnerTunables
     }
 
+    // @intent FRAME OWNER REFACTOR S1B 1b (Lawrence P0, "the tabbar is not perfectly in sync with the animation"): on, a
+    // tab open, close or move that starts while the window's frames tick (a key resize's spring) begins at the frame
+    // clock's origin (`FrameScheduler.motionOrigin`), so in each frame it shows the same time of its motion as the panes,
+    // and a closing tab goes when that motion ends. Off: it begins at the event turn's media time. The switch films old
+    // and new in one build; it goes once the stage's films pass. Read in TabStripView.moveBegin.
+    public static let frameOwnerTabMoves = Tunable<Bool>.toggle(
+        "motion.frameOwner.tabMoves", .springs, "Tab moves on the frame clock",
+        help: "On: a tab open, close or move that starts during a pane animation runs on the same frame clock as the panes. Off: it runs on its own clock from the key press.",
+        default: true, code: "DesignTunables.frameOwnerTabMoves")
+
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The film fixture of the FRAME OWNER REFACTOR (DEV and bench builds only): a 1 device-pixel #FFFF00 border on every
     /// tab, so a 120 Hz film finds each tab's edges in each frame. It changes no frame or layout.
@@ -100,8 +110,8 @@ public nonisolated enum DesignTunables {
         "motion.frameOwner.tabOutline", .springs, "Outline tabs (pixel film fixture)",
         help: "A 1 device-pixel yellow border on every tab, for frame-by-frame films. Changes no frame or layout.",
         default: false, code: "DesignTunables.frameOwnerTabOutline")
-    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabOutline.descriptor] }
+    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabMoves.descriptor, frameOwnerTabOutline.descriptor] }
     #else
-    private static var frameOwnerTunables: [TunableDescriptor] { [] }
+    private static var frameOwnerTunables: [TunableDescriptor] { [frameOwnerTabMoves.descriptor] }
     #endif
 }

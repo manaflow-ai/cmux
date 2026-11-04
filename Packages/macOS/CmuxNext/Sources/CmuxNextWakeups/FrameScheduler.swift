@@ -67,6 +67,12 @@ public final class FrameScheduler: NSObject {
         return scheduler
     }
 
+    /// ``motionOrigin`` of `window`'s scheduler; nil when it has none (no scheduler is made for the question).
+    public static func motionOrigin(in window: NSWindow?) -> CFTimeInterval? {
+        guard let window, let scheduler = windows[ObjectIdentifier(window)]?.value, scheduler.window === window else { return nil }
+        return scheduler.motionOrigin
+    }
+
     /// The scheduler of `view`'s window, or ``app`` while it has none.
     public static func forView(_ view: NSView) -> FrameScheduler {
         view.window.map(forWindow) ?? app
@@ -105,6 +111,10 @@ public final class FrameScheduler: NSObject {
     private var lastTimestamp: CFTimeInterval?
     /// The time the last frame showed (``FrameTick/targetTimestamp``).
     private var lastTarget: CFTimeInterval?
+    /// The last link frame's refresh period (``motionOrigin``'s bound ahead of now).
+    private var lastInterval: CFTimeInterval?
+    /// While the clients of a frame tick: the time the motion of that tick starts from (``motionOrigin``).
+    private var tickOrigin: CFTimeInterval?
     private let mediaTime: @MainActor () -> CFTimeInterval
     /// The last link frame's timestamp (or the time the clients activated): where a stall starts.
     private var lastLinkFrame: CFTimeInterval = 0
@@ -156,6 +166,20 @@ public final class FrameScheduler: NSObject {
 
     public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
 
+    /// While the frames tick, the media time a motion that starts now starts from, so it shows the same time of its
+    /// curve in each frame as the frame clients do (FRAME OWNER S1B: a tab move that starts during a key resize's
+    /// spring). Every client steps its motion from the time the previous frame showed (``FrameTick/frameElapsed``), so
+    /// that is the origin: in a tick, the time the frame before it showed; between ticks, the time the last frame
+    /// shows. At most ``catchUpLimit`` back (a frame steps no more) and at most one refresh ahead of now (the last
+    /// frame's target may still be to show: a render-server move that begins there fills backward). Nil while no frame
+    /// ticks (no link, or no frame since the clients activated): a motion then starts now.
+    public var motionOrigin: CFTimeInterval? {
+        if let tickOrigin { return tickOrigin }
+        guard link != nil, let lastTarget else { return nil }
+        let now = mediaTime()
+        return min(max(lastTarget, now - Self.catchUpLimit), now + (lastInterval ?? 1.0 / 60.0))
+    }
+
     /// A display link exists (only while clients are active).
     public var hasLink: Bool { link != nil }
 
@@ -174,7 +198,7 @@ public final class FrameScheduler: NSObject {
             return
         }
         if link.isPaused {
-            (lastTimestamp, lastTarget) = (nil, nil)
+            (lastTimestamp, lastTarget, lastInterval) = (nil, nil, nil)
             link.isPaused = false
         }
         if !stall.isScheduled { lastLinkFrame = mediaTime() }
@@ -197,7 +221,7 @@ public final class FrameScheduler: NSObject {
     func pause() {
         link?.invalidate()
         link = nil
-        (lastTimestamp, lastTarget) = (nil, nil)
+        (lastTimestamp, lastTarget, lastInterval) = (nil, nil, nil)
         stall.cancel()
         stalls = 0
     }
@@ -211,7 +235,7 @@ public final class FrameScheduler: NSObject {
         link?.invalidate()
         link = nil
         // A window shown again (Reopen Closed Window) keeps its scheduler: its next first frame is one refresh.
-        (lastTimestamp, lastTarget) = (nil, nil)
+        (lastTimestamp, lastTarget, lastInterval) = (nil, nil, nil)
         closeObserver = nil
     }
 
@@ -308,6 +332,10 @@ public final class FrameScheduler: NSObject {
         let shown = min(max(lastTarget.map { target - $0 } ?? firstElapsed, 0), Self.catchUpLimit)
         // Never back: a link frame due before a synthesized one that ran late steps 0 and the motion stays on its curve.
         lastTarget = max(lastTarget ?? target, target)
+        if let interval { lastInterval = interval }
+        // A motion a client starts in this tick starts where the clients' steps start: the time the frame before showed.
+        tickOrigin = target - shown
+        defer { tickOrigin = nil }
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
                              refreshInterval: refreshInterval, targetTimestamp: target, frameElapsed: shown)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.

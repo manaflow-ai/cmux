@@ -18,6 +18,8 @@ public struct MotionPath {
         let duration: CFTimeInterval
         /// The value holds after the animation ends (`fillMode` forwards or both).
         let holds: Bool
+        /// The start value shows before the animation begins (`fillMode` backwards or both).
+        let fillsBackward: Bool
         let component: Component
         let additive: Bool
         /// nil: a value type the path cannot read (the segment adds nothing, as before).
@@ -85,6 +87,7 @@ public struct MotionPath {
             segments.append(Segment(begin: begin - animation.timeOffset / Double(max(animation.speed, .ulpOfOne)),
                                     speed: Double(animation.speed), duration: duration,
                                     holds: animation.fillMode == .forwards || animation.fillMode == .both,
+                                    fillsBackward: animation.fillMode == .backwards || animation.fillMode == .both,
                                     component: Self.component(of: property?.keyPath ?? keyPath, under: keyPath),
                                     additive: property?.isAdditive ?? false, curve: Self.curve(animation, kindOf: kindOf)))
         }
@@ -101,8 +104,8 @@ public struct MotionPath {
         var value = model
         for segment in segments {
             let local = (time - segment.begin) * segment.speed
-            guard local >= 0, local < segment.duration || segment.holds, let curve = segment.curve else { continue }
-            let shown = Self.sample(curve, local: min(local, segment.duration), duration: segment.duration)
+            guard local >= 0 || segment.fillsBackward, local < segment.duration || segment.holds, let curve = segment.curve else { continue }
+            let shown = Self.sample(curve, local: min(max(local, 0), segment.duration), duration: segment.duration)
             let additive = segment.additive
             switch segment.component {
             case .x: value.x = additive ? value.x + shown.x : shown.x

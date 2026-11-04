@@ -140,7 +140,17 @@ extension TabStripView {
     func stripMove(_ token: MotionTween) -> TabStripMove? {
         guard let motion = MotionMove.tween(token, in: Motion.tabs), Motion.canAnimate(in: self) else { return nil }
         moveGeneration += 1
-        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs))
+        return TabStripMove(generation: moveGeneration, motion: motion, closing: token == .tabClose ? nil : MotionMove.tween(.tabClose, in: Motion.tabs),
+                            begin: moveBegin())
+    }
+
+    /// When a strip move begins (`TabStripMove.begin`). While the window's frames tick (a key resize's spring), the
+    /// frame clock's origin (`FrameScheduler.motionOrigin`): in each frame the move shows the same time of its curve as
+    /// the pane motion it shows with, and its closing tab goes when that motion ends (FRAME OWNER S1B,
+    /// `motion.frameOwner.tabMoves`). Now otherwise.
+    func moveBegin() -> CFTimeInterval { // perf-hot: 0.005ms tab-switch (each strip move: one switch read, one dictionary lookup)
+        guard DesignTunables.frameOwnerTabMoves.value, let origin = FrameScheduler.motionOrigin(in: window) else { return CACurrentMediaTime() }
+        return origin
     }
 
     /// Runs `work` once no strip move is in flight (at once when none is): a tab's open has ended its motion.
@@ -200,7 +210,7 @@ extension TabStripView {
         var move: TabStripMove?
         if animated, !reduceMotion, Motion.canAnimate(in: self), let motion = MotionMove.spring(.scroll, in: Motion.tabs) {
             moveGeneration += 1
-            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true)
+            move = TabStripMove(generation: moveGeneration, motion: motion, closing: nil, isScroll: true, begin: moveBegin())
         }
         applyFrames(move: move, scrollFrom: from)
     }
@@ -226,7 +236,7 @@ extension TabStripView {
     func noteClosing(_ id: TabID, moved: Bool, move: TabStripMove) {
         guard dying.contains(id) else { return }
         // A reveal's spring only scrolls it (it may be cut short by a wheel): the close decides when it goes.
-        let end = CACurrentMediaTime() + (moved && !move.isScroll ? move.duration(closing: id.chipGroupID == nil) : 0)
+        let end = move.begin + (moved && !move.isScroll ? move.duration(closing: id.chipGroupID == nil) : 0)
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
