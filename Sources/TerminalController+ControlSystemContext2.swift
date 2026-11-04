@@ -269,7 +269,7 @@ extension TerminalController {
                 // Routed to the remote tmux mirror as `new-window`; the tab arrives
                 // via %window-add and the mirror positions it, so no local reorder here.
                 return finish(.routedToRemote)
-            case .failed, .noSpace:
+            case .failed, .noSpace, .moshTmuxSplitUnsupported:
                 return .createFailed
             }
 
