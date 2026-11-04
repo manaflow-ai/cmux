@@ -51,7 +51,10 @@ SIGNING_JOBS = {
 # Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
 # pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
 # literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
-OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas")
+OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas",
+                   "build-sign-notarize-nightly", "recover-nightly-next-notarization", "verify-signed-nightly",
+                   "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
+                   "verify-recovered-nightly-next")
 OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
@@ -457,20 +460,17 @@ class EveryLabelDead(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
-    def test_signing_jobs_read_the_picked_label_first(self) -> None:
+    def test_signing_jobs_never_read_the_blacksmith_pick(self) -> None:
+        # Nightlies never run on Blacksmith (Lawrence, 2026-10-30): no signing, verify or publication Mac job
+        # reads the picker's Blacksmith label or its re-run alternate; each ends on the owned route.
         jobs = WORKFLOW["jobs"]
         for name, picked in SIGNING_JOBS.items():
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                # A job holding signing material keeps its literal route (tests/runs_on_labels.py SIGNING_JOB).
-                last = "'blacksmith-6vcpu-macos-26'" if holds_signing_material(jobs[name]) else "fromJSON(vars.RUNNER_POOLS).macos_26"
-                self.assertIn(f"|| {picked} || vars.MACOS_RUNNER_26 || {last}", runs_on)
-                # A re-run (attempt 2 on) takes the other size: GitHub never re-routes a queued job,
-                # so a label that stalls after the pick is left only by a re-run, which must not
-                # queue on it again (run 40489472569, 2026-10-27).
-                self.assertIn(f"|| github.run_attempt > 1 && {ALTERNATES[picked]} || {picked} ||", runs_on)
-                needs = jobs[name]["needs"]
-                self.assertIn(picked.split(".")[1], [needs] if isinstance(needs, str) else needs)
+                self.assertNotIn(picked, runs_on)
+                self.assertNotIn(ALTERNATES[picked], runs_on)
+                self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
+                self.assertIn(name, OWNED_ONLY_JOBS)
 
     def test_owned_only_jobs_never_name_blacksmith(self) -> None:
         jobs = WORKFLOW["jobs"]
@@ -543,29 +543,21 @@ class OwnedVerify(unittest.TestCase):
                 job = jobs[name]
                 self.assertNotIn("environment", job)
                 self.assertNotIn("secrets.", yaml.safe_dump(job))
+                # The owned pick for this attempt, then the owned nightly route; never Blacksmith.
                 self.assertIn(f"|| needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} "
-                              "|| github.ref_name == 'nightly-next' && github.run_attempt == 2 "
-                              "&& needs.pick-nightly-sign-runner.outputs.attempt == 1 "
-                              "&& vars.CI_PR_POOL_OWNED == '1' && "
-                              "(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER) "
-                              "|| github.run_attempt > 1 && "
-                              "needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner "
-                              "|| vars.MACOS_RUNNER_26 || "
-                              + ("'blacksmith-6vcpu-macos-26'" if holds_signing_material(job) else "fromJSON(vars.RUNNER_POOLS).macos_26"),
-                              str(job["runs-on"]))
+                              + OWNED_FALLBACK, str(job["runs-on"]))
                 # The launch smoke selects no Xcode: it mounts a DMG and runs the app in it.
                 if name == "launch-smoke-nightly":
                     self.assertNotIn("CMUX_CI_XCODE_APP", job["env"])
                     continue
                 xcode = job["env"]["CMUX_CI_XCODE_APP"]
                 self.assertIn(f"needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && {self.OWNED} != '' "
-                              "|| github.ref_name == 'nightly-next'", xcode)
-                self.assertIn("&& vars.CMUX_CI_XCODE_APP_PR", xcode)
+                              "&& vars.CMUX_CI_XCODE_APP_PR", xcode)
                 self.assertIn("|| vars.CMUX_CI_XCODE_APP_MACOS_26", xcode)
 
-    def test_failed_job_reruns_rejoin_the_fleet_pool_instead_of_an_old_pick(self) -> None:
+    def test_failed_job_reruns_take_the_owned_route_instead_of_an_old_pick(self) -> None:
         # Run 41253243235 attempt 2 kept attempt 1's picker and queued the DMG
-        # image on the Blacksmith alternate after its build and notarization passed.
+        # image on the Blacksmith alternate after its build and notarization passed; now it takes the owned route.
         from test_ci_fork_runner_routing import parse_expression
         from test_nightly_trusted_routing import evaluate
 
@@ -581,18 +573,21 @@ class OwnedVerify(unittest.TestCase):
             "vars.CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-fleet.app",
             "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
         }
+        # Nightlies never use Blacksmith: without a pick for this attempt each job takes the owned nightly
+        # slot, then the side lane, then the owned std pool, with the overflow Xcode variable (both name the
+        # same Xcode on the minis).
         cases = (
-            ({}, "glaeda-nightly-std-xcode-26.6", "fleet"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "fleet"),
-            ({"github.run_attempt": "3"}, LARGE, "overflow"),
-            ({"github.run_attempt": "4"}, LARGE, "overflow"),
-            ({"vars.CI_PR_POOL_OWNED": "0"}, LARGE, "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, LARGE, "overflow"),
-            ({"github.ref_name": "main"}, LARGE, "overflow"),
+            ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "overflow"),
+            ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-std-xcode-26.6", "overflow"),
+            ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),
-            ({"github.run_attempt": "1", self.OWNED: ""}, SMALL, "overflow"),
-            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, LARGE, "overflow"),
+            ({"github.run_attempt": "1", self.OWNED: ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
+            ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
              "glaeda-side-light-xcode-26.6", "fleet"),
         )

@@ -50,19 +50,19 @@ class Decide(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
-    def test_the_signers_take_the_re_run_route_when_hosted_was_slow(self):
-        route = ("(github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') "
-                 "&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'")
-        for name in ("signer-app", "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg"):
+    def test_the_signers_never_take_blacksmith_when_hosted_was_slow(self):
+        # Nightlies never run on Blacksmith: a slow hosted queue or a re-run waits for GitHub-hosted
+        # Ubuntu, the ephemeral runner the signing-secret rules allow, instead of moving to Blacksmith
+        # (run 41717500642 put signer-build and legacy-identity-target on blacksmith-4vcpu).
+        for name in ("signer-build", "signer-app", "signer-dmg", "legacy-identity-target", "legacy-signer-app",
+                     "legacy-signer-dmg", "pick-nightly-sign-runner"):
             with self.subTest(job=name):
-                self.assertIn(route, JOBS[name]["runs-on"])
-                self.assertIn("pick-nightly-sign-runner", JOBS[name]["needs"])
-        # cmux#34164: signer-build, before the pick, reads decide's answer (run 41683652930: 327 s on hosted).
-        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
-                      "&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04'", JOBS["signer-build"]["runs-on"])
+                self.assertTrue(JOBS[name]["runs-on"].endswith("'ubuntu-24.04' }}"), JOBS[name]["runs-on"])
+                self.assertNotIn("blacksmith", JOBS[name]["runs-on"])
+                self.assertNotIn("RUNNER_POOLS", JOBS[name]["runs-on"])
+        for name in ("signer-app", "signer-dmg", "legacy-identity-target", "legacy-signer-app", "legacy-signer-dmg"):
+            self.assertIn("pick-nightly-sign-runner", JOBS[name]["needs"])
         pick = JOBS["pick-nightly-sign-runner"]
-        self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
-                      "&& fromJSON(vars.RUNNER_POOLS).linux_4", pick["runs-on"])
         self.assertEqual(pick["outputs"]["hosted_slow"],
                          "${{ steps.hosted-wait.outputs.hosted_slow || needs.decide.outputs.hosted_slow }}")
         self.assertEqual(JOBS["decide"]["outputs"]["hosted_slow"], "${{ steps.hosted-wait.outputs.hosted_slow }}")

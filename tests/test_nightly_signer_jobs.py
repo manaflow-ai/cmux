@@ -38,17 +38,13 @@ SECRET_JOBS = {"signer-app", "signer-dmg"}
 # The cmux NIGHTLY-identity copy through the same release signer, with the macOS legacy signer as its fallback.
 LEGACY_POOL_JOBS = ("legacy-signer-app", "legacy-signer-dmg-image", "legacy-signer-dmg")
 LEGACY_POOL_SECRET_JOBS = {"legacy-signer-app", "legacy-signer-dmg"}
-# The signer route: GitHub-hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run or when hosted was slow to start
-# this run (the hosted-runner guard's exception; scripts/ci/hosted_queue_wait.py).
-SIGNER_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-                "(github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && "
-                "'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
+# The signer route: GitHub-hosted Ubuntu on every attempt. Nightlies never run on Blacksmith (Lawrence,
+# 2026-10-30), so a re-run or a slow hosted start waits for hosted Ubuntu instead of moving to Blacksmith.
+SIGNER_ROUTE = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"
 SIGNER_BUILD_ROUTE = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
                       "needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && "
                       "contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && "
-                      "needs.decide.outputs.early_linux_runner || "
-                      "(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') && "
-                      "'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}")
+                      "needs.decide.outputs.early_linux_runner || 'ubuntu-24.04' }}")
 VERIFY = ROOT / "scripts/ci/release-signer/verify_appcast_item.py"
 FINAL_DMG = "cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
 TIP_APPCAST = ROOT / "scripts/ci/tip_appcast_linux.py"
@@ -159,17 +155,17 @@ class Wiring(unittest.TestCase):
 
     def test_signer_compiler_takes_early_fleet_placement_then_the_signer_route(self):
         # signer-build holds no secret: decide's early fleet placement comes first on its own attempt, then
-        # the signer route (hosted Ubuntu, Blacksmith Linux 4 vCPU on a re-run).
+        # the signer route (hosted Ubuntu, never Blacksmith).
         runs_on = JOBS["signer-build"]["runs-on"]
         self.assertEqual(runs_on, SIGNER_BUILD_ROUTE)
-        self.assertLess(runs_on.index("needs.decide.outputs.early_linux_runner"),
-                        runs_on.index("&& 'blacksmith-4vcpu-ubuntu-2404'"))
+        self.assertLess(runs_on.index("needs.decide.outputs.early_linux_runner"), runs_on.rindex("'ubuntu-24.04'"))
 
-    def test_production_signers_take_hosted_ubuntu_then_blacksmith_4vcpu_never_16_or_32(self):
+    def test_production_signers_take_hosted_ubuntu_never_blacksmith(self):
         """The rulebook's measured signing exception (Leo, 2026-11-01): "a small job that is not CPU-bound,
-        such as signing and its runner pick, takes GitHub-hosted Ubuntu first", the smallest Blacksmith size
-        on a re-run, "never 16 or 32 vCPU". These are the exact lines the hosted-runner guard allowlists
-        (tests/test_ci_self_hosted_guard.sh, signer_route and signer_build_route)."""
+        such as signing and its runner pick, takes GitHub-hosted Ubuntu first". Nightlies never run on
+        Blacksmith (Lawrence, 2026-10-30), so hosted Ubuntu is the only route, re-runs included. These are the
+        exact lines the hosted-runner guard allowlists (tests/test_ci_self_hosted_guard.sh, signer_route and
+        signer_build_route)."""
         guard = (ROOT / "tests/test_ci_self_hosted_guard.sh").read_text()
         self.assertIn("    runs-on: " + SIGNER_ROUTE + "\n", guard)
         self.assertIn("    runs-on: " + SIGNER_BUILD_ROUTE + "\n", guard)
@@ -177,9 +173,8 @@ class Wiring(unittest.TestCase):
             runs_on = JOBS[name]["runs-on"]
             with self.subTest(job=name):
                 self.assertEqual(runs_on, SIGNER_BUILD_ROUTE if name == "signer-build" else SIGNER_ROUTE)
-                self.assertTrue(runs_on.endswith("&& 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"))
-                self.assertNotIn("blacksmith-16vcpu", runs_on)
-                self.assertNotIn("blacksmith-32vcpu", runs_on)
+                self.assertTrue(runs_on.endswith("|| 'ubuntu-24.04' }}"))
+                self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("vars.LINUX_RUNNER", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
 
