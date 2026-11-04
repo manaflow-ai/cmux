@@ -1191,10 +1191,6 @@ impl ContextOverrides {
         std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned()).to_string_lossy().into_owned()
     }
 
-    pub fn project_key(cwd: &Path) -> String {
-        std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned()).to_string_lossy().into_owned()
-    }
-
     pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
         let key = Self::project_key(cwd);
         self.projects
