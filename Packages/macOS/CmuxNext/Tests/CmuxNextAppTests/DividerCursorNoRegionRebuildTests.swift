@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
+import CmuxNextDesign
 import Foundation
 import ObjectiveC
 import Testing
@@ -55,6 +56,7 @@ struct DividerCursorNoRegionRebuildTests {
         probe.hoverAt = screen.convert(old, to: nil)
         screen.refreshDividerHover()
         #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer on the divider")
+        #expect(NSCursor.current === handle.resizeCursor, "the app shows the resize cursor: \(NSCursor.current.debugName)")
 
         var next = columns
         next[1] = PaneMotionBench.column(1, rows: 2, width: 0.5)
@@ -63,10 +65,27 @@ struct DividerCursorNoRegionRebuildTests {
         try #require(frames > 1, "the change started no spring")
         try #require(abs(center().y - old.y) > 40, "the divider did not move: \(old) -> \(center())")
         #expect(!handle.isHovered && screen.dividerPointer.shownCursor == nil, "the divider left the still pointer: no resize cursor at its old place")
+        #expect(NSCursor.current !== handle.resizeCursor, "the app gave the resize cursor back: \(NSCursor.current.debugName)")
 
         probe.hoverAt = screen.convert(center(), to: nil)
         screen.refreshDividerHover()
         #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer at the divider's new place")
+    }
+
+    /// A screen that hides under a still pointer on its divider (a workspace switch) gives the resize cursor back: a
+    /// hidden view gets no pointer events, and its handles did not move.
+    @Test func aScreenThatHidesUnderThePointerGivesTheResizeCursorBack() throws {
+        let columns = (0..<2).map { PaneMotionBench.column($0, rows: 2, width: 0.5) }
+        let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
+        defer { probe.close() }
+        let screen = probe.screen
+        let handle = try #require(screen.dividerViews[.split("s1-0")])
+        probe.hoverAt = screen.convert(CGPoint(x: handle.frame.midX, y: handle.frame.midY), to: nil)
+        screen.refreshDividerHover()
+        try #require(screen.dividerPointer.shownCursor != nil, "the pointer on the divider")
+        screen.isHidden = true
+        #expect(!handle.isHovered && screen.dividerPointer.shownCursor == nil, "the hidden screen holds no resize cursor")
+        #expect(NSCursor.current !== handle.resizeCursor, "the app gave the resize cursor back: \(NSCursor.current.debugName)")
     }
 
     /// The pointer over a divider still gets the resize cursor, and over the part a dock covers it does not.
@@ -78,8 +97,8 @@ struct DividerCursorNoRegionRebuildTests {
         handle.cursorClip = CGRect(x: 0, y: 0, width: 400, height: 300)
         // The handle is flipped and its parent is not: local y 300 is the parent's y 100 (inside the clip), local y 50
         // the parent's y 350 (above the clip's top, under the dock).
-        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 300)) != nil, "inside the clip: the resize cursor")
-        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 50)) == nil, "under the dock: no resize cursor")
+        #expect(handle.cursorRectInBounds.contains(CGPoint(x: 4, y: 300)), "inside the clip: the resize cursor")
+        #expect(!handle.cursorRectInBounds.contains(CGPoint(x: 4, y: 50)), "under the dock: no resize cursor")
     }
 }
 
