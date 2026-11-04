@@ -242,7 +242,9 @@ impl<'a> Walk<'a> {
                 EntryKind::Dir if !last => {
                     let fd = match sys::open_dir_at(self.top()?, &part) {
                         // Swapped for a symlink since the look above.
-                        Err(error) if self.refuse_links && error.raw_os_error() == Some(libc::ELOOP) => {
+                        Err(error)
+                            if self.refuse_links && error.raw_os_error() == Some(libc::ELOOP) =>
+                        {
                             return Err(FsError::SymlinkInPath);
                         }
                         opened => opened?,

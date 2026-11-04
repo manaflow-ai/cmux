@@ -53,10 +53,13 @@ struct Wire {
     down: AtomicU64,
 }
 
+/// Chunks in flight with when each arrived, and whether the sender closed.
+type Queue = (VecDeque<(Instant, Vec<u8>)>, bool);
+
 /// One direction of a proxied connection: chunks wait out the latency,
 /// then leave no faster than the rate.
 struct Pipe {
-    queue: Mutex<(VecDeque<(Instant, Vec<u8>)>, bool)>,
+    queue: Mutex<Queue>,
     ready: Condvar,
 }
 

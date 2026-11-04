@@ -371,8 +371,8 @@ impl Remote {
         }
         let (parent, name) = split(path)?;
         let part = format!("{}/.{name}.cmux-sync-part", parent.trim_end_matches('/'));
-        let request = self
-            .guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
+        let request =
+            self.guarded(json!({ "path": part, "mode": "overwrite", "permissions": permissions }));
         let mut revision = revision_of(&self.call_with_progress(
             "fs.write",
             with_bytes(request, &first, compress)?,
@@ -395,7 +395,7 @@ impl Remote {
         match self.kind(path)?.as_deref() {
             Some("file") => self.delete(&[path.to_string()])?,
             Some("symlink") if self.no_follow => {
-                self.delete(&[part.clone()])?;
+                self.delete(std::slice::from_ref(&part))?;
                 return Err(FsRefusal {
                     code: SYMLINK_IN_PATH.to_string(),
                     message: "a symlink is on the path".to_string(),
@@ -636,7 +636,8 @@ mod tests {
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
             heard
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
+        let mut remote =
+            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
         let data = vec![7u8; PART_BYTES];
         let mut progress = || {
             let _ = tick.send(());
@@ -669,7 +670,8 @@ mod tests {
                 json!({"id": request["id"], "ok": true, "data": {"entry": {"revision": "r1"}}});
             server.write_all(format!("{answer}\n").as_bytes()).unwrap();
         });
-        let mut remote = Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
+        let mut remote =
+            Remote { reader: BufReader::new(client), next_id: 1, deflate: false, no_follow: false };
         let data = vec![7u8; 256 * 1024];
         let revision = remote.write("/work/cmux-tui", &mut data.as_slice(), 0o755).unwrap();
         assert_eq!(revision, "r1");
@@ -812,7 +814,10 @@ mod tests {
         remote.write("/work/big.bin", &mut data.as_slice(), 0o644).unwrap();
         let first = writes.recv().unwrap();
         let append = writes.recv().unwrap();
-        assert_eq!((first["mode"].as_str(), append["mode"].as_str()), (Some("overwrite"), Some("append")));
+        assert_eq!(
+            (first["mode"].as_str(), append["mode"].as_str()),
+            (Some("overwrite"), Some("append"))
+        );
         assert_eq!((&first["no_follow"], &append["no_follow"]), (&json!(true), &json!(true)));
     }
 

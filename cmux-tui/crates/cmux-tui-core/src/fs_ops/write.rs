@@ -214,7 +214,8 @@ pub fn append(
     bytes: &[u8],
     no_follow: bool,
 ) -> Result<Entry, FsError> {
-    let resolved = if no_follow { roots.resolve_no_follow(path)? } else { roots.resolve(path, false)? };
+    let resolved =
+        if no_follow { roots.resolve_no_follow(path)? } else { roots.resolve(path, false)? };
     let Some(name) = resolved.name.clone() else {
         return Err(if resolved.is_root { FsError::PermissionDenied } else { FsError::NotAFile });
     };

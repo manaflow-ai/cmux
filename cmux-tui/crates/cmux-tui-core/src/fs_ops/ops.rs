@@ -309,7 +309,9 @@ impl FsService {
             if params.permissions.is_some() {
                 return Err(FsError::ParamsInvalid("permissions is not valid with append".into()));
             }
-            return Ok(json!({ "entry": append(&self.roots, &params.path, &expected, &data, params.no_follow)? }));
+            return Ok(
+                json!({ "entry": append(&self.roots, &params.path, &expected, &data, params.no_follow)? }),
+            );
         }
         let mode = WriteMode::parse(&params.mode, params.expected)?;
         let size = Some(data.len() as u64);

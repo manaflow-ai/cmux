@@ -672,18 +672,19 @@ fn push_inner(
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
-            let revision = match write_found(&mut remote, &target, found.as_deref(), file, &mut || {}) {
-                Ok(revision) => revision,
-                // A symlink of the machine's at its path: a file written
-                // there would go through it, so this Mac's file stays.
-                Err(error) if error.is::<LinkInTheWay>() => {
-                    set.skips.note(relative, skips::Why::SymlinkTaken);
-                    done.files_done += 1;
-                    done.bytes_done += bytes;
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
+            let revision =
+                match write_found(&mut remote, &target, found.as_deref(), file, &mut || {}) {
+                    Ok(revision) => revision,
+                    // A symlink of the machine's at its path: a file written
+                    // there would go through it, so this Mac's file stays.
+                    Err(error) if error.is::<LinkInTheWay>() => {
+                        set.skips.note(relative, skips::Why::SymlinkTaken);
+                        done.files_done += 1;
+                        done.bytes_done += bytes;
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                };
             summary.written += 1;
             summary.bytes += bytes;
             next.files.insert(
