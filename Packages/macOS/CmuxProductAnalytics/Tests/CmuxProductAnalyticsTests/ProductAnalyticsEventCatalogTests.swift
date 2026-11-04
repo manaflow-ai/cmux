@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import Foundation
 import Testing
 
 @testable import CmuxProductAnalytics
@@ -8,6 +9,8 @@ import Testing
 /// together.
 @Suite("Product analytics event catalog")
 struct ProductAnalyticsEventCatalogTests {
+    static let attempt = SignInAttemptID(UUID(uuidString: "6F1C2A7E-0B5D-4C33-9E1A-2D4B8F00A1C9")!)
+
     static let catalog: [(ProductAnalyticsEvent, String, Set<String>)] = [
         (.upgradePromptShown(source: "mac_sidebar_badge", plan: "pro"), "cmux_upgrade_prompt_shown", ["source", "plan"]),
         (.upgradeEntrypointOpened(source: "mac_cloud_welcome", plan: "pro", destination: .pricingPage),
@@ -23,9 +26,17 @@ struct ProductAnalyticsEventCatalogTests {
          "cmux_cloud_welcome_button_clicked", ["trigger", "next_step", "button"]),
         (.cloudWelcomeClosed(trigger: .newCloudWorkspace, step: .upgrade, outcome: .notNow, visibleFor: .from3to10s),
          "cmux_cloud_welcome_closed", ["trigger", "next_step", "outcome", "visible_for"]),
-        (.signInStarted, "cmux_sign_in_started", []),
-        (.signInSucceeded, "cmux_sign_in_succeeded", []),
-        (.signInFailed(reason: .timedOut), "cmux_sign_in_failed", ["reason"]),
+        (.signInStarted(entrypoint: .pane, start: .opened(attempt, replaced: nil)), "cmux_sign_in_started",
+         ["attempt_id", "entrypoint", "start_outcome", "replaced_pending"]),
+        (.signInStarted(entrypoint: .app, start: .opened(attempt, replaced: SignInAttemptID())), "cmux_sign_in_started",
+         ["attempt_id", "entrypoint", "start_outcome", "replaced_pending", "replaced_attempt_id"]),
+        (.signInStarted(entrypoint: .socket, start: .noAttempt(.alreadySignedIn)), "cmux_sign_in_started",
+         ["entrypoint", "start_outcome", "replaced_pending"]),
+        (.signInCallbackReceived(attemptID: attempt, delivery: .external, link: .state), "cmux_sign_in_callback_received",
+         ["attempt_id", "delivery", "attempt_link"]),
+        (.signInWindowClosed(attemptID: attempt), "cmux_sign_in_window_closed", ["attempt_id"]),
+        (.signInSucceeded(attemptID: attempt, link: .state), "cmux_sign_in_succeeded", ["attempt_id", "attempt_link"]),
+        (.signInFailed(reason: .timedOut, attemptID: attempt), "cmux_sign_in_failed", ["reason", "attempt_id"]),
         (.signedOut, "cmux_signed_out", []),
         (.cloudEnableCompleted(result: .success), "cmux_cloud_enable_completed", ["result"]),
         (.cloudDisabled, "cmux_cloud_disabled", []),
@@ -60,7 +71,7 @@ struct ProductAnalyticsEventCatalogTests {
     @Test("names are unique, snake_case and cmux_ prefixed")
     func namingConvention() {
         let names = Set(Self.catalog.map(\.1))
-        #expect(names.count == 28)
+        #expect(names.count == 30)
         for name in names {
             #expect(name.hasPrefix("cmux_"))
             #expect(name.allSatisfy { $0.isLowercase || $0 == "_" })
@@ -120,5 +131,43 @@ struct ProductAnalyticsEventCatalogTests {
         #expect(DurationBucket(seconds: 1) == .from1to3s)
         #expect(DurationBucket(seconds: 59) == .from30to60s)
         #expect(DurationBucket(seconds: 7 * 86_400) == .over7d)
+    }
+
+    @Test("sign-in events carry only bounded values and a random attempt UUID")
+    func signInPropertiesAreBounded() {
+        let attempt = SignInAttemptID()
+        let events: [ProductAnalyticsEvent] =
+            SignInEntrypoint.allCases.flatMap { entrypoint -> [ProductAnalyticsEvent] in
+                let starts: [SignInStart] = [.opened(attempt, replaced: nil), .opened(attempt, replaced: attempt)]
+                    + SignInStartOutcome.allCases.filter { $0 != .opened }.map { .noAttempt($0) }
+                return starts.map { .signInStarted(entrypoint: entrypoint, start: $0) }
+            }
+            + SignInCallbackDelivery.allCases.flatMap { delivery in
+                SignInAttemptLink.allCases.map { .signInCallbackReceived(attemptID: attempt, delivery: delivery, link: $0) }
+            }
+            + SignInFailureReason.allCases.map { .signInFailed(reason: $0, attemptID: attempt) }
+            + SignInAttemptLink.allCases.map { .signInSucceeded(attemptID: attempt, link: $0) }
+            + [.signInWindowClosed(attemptID: attempt)]
+        let bounded = Set(SignInEntrypoint.allCases.map(\.rawValue))
+            .union(SignInCallbackDelivery.allCases.map(\.rawValue))
+            .union(SignInFailureReason.allCases.map(\.rawValue))
+            .union(SignInAttemptLink.allCases.map(\.rawValue))
+            .union(SignInStartOutcome.allCases.map(\.rawValue))
+        for event in events {
+            for (key, value) in event.properties {
+                switch (key, value) {
+                case let ("attempt_id", .string(id)), let ("replaced_attempt_id", .string(id)):
+                    #expect(id == attempt.token)
+                    #expect(UUID(uuidString: id) != nil && id == id.lowercased(), "\(event.name)")
+                case ("replaced_pending", .bool):
+                    break
+                case let (_, .string(token)):
+                    #expect(bounded.contains(token), "\(event.name).\(key) = \(token)")
+                default:
+                    Issue.record("\(event.name).\(key) has an unexpected value type")
+                }
+            }
+        }
+        #expect(SignInAttemptID().token != SignInAttemptID().token)
     }
 }

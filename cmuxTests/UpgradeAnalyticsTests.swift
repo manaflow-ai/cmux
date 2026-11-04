@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxCloud
 import CmuxProductAnalytics
 import Foundation
@@ -257,34 +258,58 @@ struct UpgradeAnalyticsTests {
 
 @Suite("Account analytics transitions")
 struct AccountAnalyticsStateTests {
-    @Test("restore identifies without a sign-in success; a started sign-in succeeds once")
+    @Test("restore identifies without a sign-in success; a started sign-in succeeds once, on its completion")
     func signInLifecycle() {
         var state = AccountAnalyticsState()
-        let restoring = state.observe(userID: nil, isSettling: true, failure: nil)
-        let restored = state.observe(userID: "u1", isSettling: false, failure: nil)
-        let signedOut = state.observe(userID: nil, isSettling: false, failure: nil)
-        state.signInStarted()
-        let waiting = state.observe(userID: nil, isSettling: true, failure: nil)
-        let signedIn = state.observe(userID: "u2", isSettling: false, failure: nil)
-        let unchanged = state.observe(userID: "u2", isSettling: false, failure: nil)
+        let attempt = SignInAttemptID()
+        let restoring = state.observe(userID: nil, isSettling: true)
+        let restored = state.observe(userID: "u1", isSettling: false)
+        let signedOut = state.observe(userID: nil, isSettling: false)
+        let started = state.signInStarted(.app, attemptID: attempt)
+        let waiting = state.observe(userID: nil, isSettling: true)
+        let completed = state.flowEvent(.signInCompleted(attempt: nil), userID: "u2", failure: nil)
+        let completedAgain = state.flowEvent(.signInCompleted(attempt: nil), userID: "u2", failure: nil)
+        let unchanged = state.observe(userID: "u2", isSettling: false)
         #expect(restoring.isEmpty)
         #expect(restored == [.identify(userID: "u1")])
         #expect(signedOut == [.signedOut])
+        #expect(started == [.signInStarted(.app, .opened(attempt, replaced: nil))])
         #expect(waiting.isEmpty)
-        #expect(signedIn == [.identify(userID: "u2"), .signInSucceeded])
+        #expect(completed == [.identify(userID: "u2"), .signInSucceeded(attempt, .unlinked)])
+        #expect(completedAgain.isEmpty)
         #expect(unchanged.isEmpty)
     }
 
-    @Test("a failure is reported once per started sign-in")
-    func signInFailure() {
+    @Test("each attempt fails at most once, its own failure even with another attempt's reason, and can still succeed later")
+    func signInFailurePerAttempt() throws {
         var state = AccountAnalyticsState()
-        let unstarted = state.observe(userID: nil, isSettling: false, failure: .timedOut)
-        state.signInStarted()
-        let failed = state.observe(userID: nil, isSettling: false, failure: .timedOut)
-        let repeated = state.observe(userID: nil, isSettling: false, failure: .timedOut)
-        #expect(unstarted.isEmpty)
-        #expect(failed == [.signInFailed(.timedOut)])
+        let first = HostBrowserSignInAttempt(1)
+        let second = HostBrowserSignInAttempt(2)
+        #expect(state.flowEvent(.attemptFailed(first), userID: nil, failure: .timedOut).isEmpty)
+
+        let firstRequest = state.signInRequested(.app)
+        let firstStart = state.flowEvent(.attemptStarted(first), userID: nil, failure: nil)
+        #expect(state.signInRequestEnded(firstRequest, withoutAttempt: .reused).isEmpty)
+        let secondRequest = state.signInRequested(.app)
+        let secondStart = state.flowEvent(.attemptStarted(second), userID: nil, failure: nil)
+        #expect(state.signInRequestEnded(secondRequest, withoutAttempt: .reused).isEmpty)
+        guard case let .signInStarted(_, .opened(firstID, _)) = try #require(firstStart.first),
+              case let .signInStarted(_, .opened(secondID, _)) = try #require(secondStart.first)
+        else { Issue.record("no opened starts"); return }
+
+        // The old tab's validation times out, then the retry's deadline passes:
+        // two attempts, the same reason, two failures.
+        let oldTab = state.flowEvent(.callbackFailed(attempt: first), userID: nil, failure: .timedOut)
+        let deadline = state.flowEvent(.attemptFailed(second), userID: nil, failure: .timedOut)
+        let repeated = state.flowEvent(.attemptFailed(second), userID: nil, failure: .timedOut)
+        // A kept state of the timed-out attempt still signs in.
+        let late = state.flowEvent(.signInCompleted(attempt: second), userID: "u1", failure: nil)
+        let failAfterSuccess = state.flowEvent(.callbackFailed(attempt: second), userID: "u1", failure: .network)
+        #expect(oldTab == [.signInFailed(.timedOut, firstID)])
+        #expect(deadline == [.signInFailed(.timedOut, secondID)])
         #expect(repeated.isEmpty)
+        #expect(late == [.identify(userID: "u1"), .signInSucceeded(secondID, .state)])
+        #expect(failAfterSuccess.isEmpty)
         #expect(AccountAnalyticsState.reason(.unknown) == .network)
         #expect(AccountAnalyticsState.reason(nil) == nil)
     }

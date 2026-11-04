@@ -8,4 +8,8 @@ public enum HostBrowserAuthSessionResult: Equatable, Sendable {
     case cancelled(reason: String)
     /// The browser session failed before returning a usable callback.
     case failed(reason: String)
+
+    /// The ``cancelled(reason:)`` reason for a user who closed the sign-in
+    /// window.
+    public static let userClosedWindowReason = "canceled_login"
 }

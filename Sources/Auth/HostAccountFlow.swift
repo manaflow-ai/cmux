@@ -19,7 +19,7 @@ import Observation
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     let coordinator: AuthCoordinator
-    private let browserSignIn: HostBrowserSignInFlow
+    let browserSignIn: HostBrowserSignInFlow
     private let billingPlanClient: BillingPlanClient
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { hasLoadedBillingPlan && billingPlanState.isPro }
@@ -86,6 +86,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         self.billingPlanClient = billingPlanClient
         self.analytics = analytics
         startCoordinatorObservation()
+        browserSignIn.onEvent = { [weak self] event in self?.noteSignInFlowEvent(event) }
         syncAnalytics()
     }
 
@@ -177,13 +178,13 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func startSignIn() {
-        noteSignInStarted()
-        browserSignIn.beginSignIn()
+        // Without a new attempt, Sign In shows the one that continues in the
+        // default browser again.
+        withSignInRequest(.app, withoutAttempt: .reused) { _ = browserSignIn.beginSignIn() }
     }
 
     func startSignInForPane() -> URL? {
-        noteSignInStarted()
-        browserSignIn.beginSignIn()
+        withSignInRequest(.pane, withoutAttempt: .reused) { _ = browserSignIn.beginSignIn() }
         return browserSignIn.activeAttemptSignInURL
     }
 
@@ -194,8 +195,11 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Runs the same hosted Stack sign-in used by every UI entrypoint, while
     /// allowing socket callers to await a bounded result.
     func signIn(timeout: TimeInterval) async -> Bool {
-        noteSignInStarted()
-        return await browserSignIn.signIn(timeout: timeout)
+        // The flow opens its attempt before its first suspension; the only
+        // call that opens none is one made while already signed in.
+        await withAsyncSignInRequest(.socket, withoutAttempt: .alreadySignedIn) {
+            await browserSignIn.signIn(timeout: timeout)
+        }
     }
 
     /// Issues the manual hosted Stack sign-in URL through the same callback
@@ -242,7 +246,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         // Captured before the sign-out so it joins the signed-in person.
-        analytics.signedOut()
+        noteSignOutRequested()
         await browserSignIn.signOut()
         billingPlanState = .unknown
         billingPlanRequestScope = nil
@@ -265,7 +269,9 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // starting one would race the sign-out.
         if isSwitchingAccount {
             if switchAttempt != nil {
-                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+                switchAttempt = withSignInRequest(.switchAccount, withoutAttempt: .reused) {
+                    browserSignIn.beginSignIn(selectAccount: true)
+                }
             }
             return
         }
@@ -275,8 +281,10 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             switchAttempt = nil
         }
         await signOut()
-        noteSignInStarted()
-        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        // `selectAccount` never reuses an attempt, so this always opens one.
+        var attempt = withSignInRequest(.switchAccount, withoutAttempt: .reused) {
+            browserSignIn.beginSignIn(selectAccount: true)
+        }
         switchAttempt = attempt
         // Stay switching until the newest attempt settles: a replaced one
         // ends early, cancelled, while its replacement is still open.
@@ -290,7 +298,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// Socket variant of sign-out. The underlying sign-out continues if the
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
-        analytics.signedOut()
+        noteSignOutRequested()
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
         billingPlanRequestScope = nil

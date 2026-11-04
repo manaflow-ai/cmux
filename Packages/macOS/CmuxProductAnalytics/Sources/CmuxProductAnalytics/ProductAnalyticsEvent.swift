@@ -50,9 +50,21 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
 
     // MARK: Account
 
-    case signInStarted
-    case signInSucceeded
-    case signInFailed(reason: SignInFailureReason)
+    /// The user asked to sign in, once per request. `start` says whether the
+    /// request opened a new attempt (with its `attempt_id`) or opened none.
+    case signInStarted(entrypoint: SignInEntrypoint, start: SignInStart)
+    /// An auth callback reached the app: the browser side finished. Once per
+    /// attempt. `link` says whether the callback carried that attempt's own
+    /// state, which can belong to an earlier, replaced attempt.
+    case signInCallbackReceived(attemptID: SignInAttemptID, delivery: SignInCallbackDelivery, link: SignInAttemptLink)
+    /// The user closed the sign-in window before a callback, which ended the
+    /// window. Not a result: a callback from the same attempt can still
+    /// arrive through the default browser and succeed. Once per attempt.
+    case signInWindowClosed(attemptID: SignInAttemptID)
+    /// The started sign-in completed. A session restore does not count.
+    case signInSucceeded(attemptID: SignInAttemptID, link: SignInAttemptLink)
+    /// The started sign-in failed, once per attempt.
+    case signInFailed(reason: SignInFailureReason, attemptID: SignInAttemptID)
     case signedOut
 
     // MARK: Cloud
@@ -99,6 +111,8 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
         case .cloudWelcomeButtonClicked: "cmux_cloud_welcome_button_clicked"
         case .cloudWelcomeClosed: "cmux_cloud_welcome_closed"
         case .signInStarted: "cmux_sign_in_started"
+        case .signInCallbackReceived: "cmux_sign_in_callback_received"
+        case .signInWindowClosed: "cmux_sign_in_window_closed"
         case .signInSucceeded: "cmux_sign_in_succeeded"
         case .signInFailed: "cmux_sign_in_failed"
         case .signedOut: "cmux_signed_out"
@@ -140,7 +154,7 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
                 "upgrade_source": .string(upgradeSource.map(Self.token) ?? "none"),
                 "since_upgrade_click": .string(since?.rawValue ?? "none"),
             ]
-        case .planDeactivated, .signInStarted, .signInSucceeded, .signedOut, .cloudDisabled, .cloudMachineDeleted,
+        case .planDeactivated, .signedOut, .cloudDisabled, .cloudMachineDeleted,
              .cloudButtonShown:
             return [:]
         case let .cloudButtonClicked(action):
@@ -160,8 +174,32 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
                 "outcome": .string(outcome.rawValue),
                 "visible_for": .string(visibleFor.rawValue),
             ]
-        case let .signInFailed(reason):
-            return ["reason": .string(reason.rawValue)]
+        case let .signInStarted(entrypoint, start):
+            var properties: [String: AnalyticsValue] = [
+                "entrypoint": .string(entrypoint.rawValue),
+                "start_outcome": .string(start.outcome.rawValue),
+            ]
+            switch start {
+            case let .opened(attemptID, replacedAttemptID):
+                properties["attempt_id"] = .string(attemptID.token)
+                properties["replaced_pending"] = .bool(replacedAttemptID != nil)
+                if let replacedAttemptID { properties["replaced_attempt_id"] = .string(replacedAttemptID.token) }
+            case .noAttempt:
+                properties["replaced_pending"] = .bool(false)
+            }
+            return properties
+        case let .signInCallbackReceived(attemptID, delivery, link):
+            return [
+                "attempt_id": .string(attemptID.token),
+                "delivery": .string(delivery.rawValue),
+                "attempt_link": .string(link.rawValue),
+            ]
+        case let .signInWindowClosed(attemptID):
+            return ["attempt_id": .string(attemptID.token)]
+        case let .signInSucceeded(attemptID, link):
+            return ["attempt_id": .string(attemptID.token), "attempt_link": .string(link.rawValue)]
+        case let .signInFailed(reason, attemptID):
+            return ["reason": .string(reason.rawValue), "attempt_id": .string(attemptID.token)]
         case let .cloudEnableCompleted(result):
             return ["result": .string(result.rawValue)]
         case let .cloudMachineCreateStarted(memoryGB):

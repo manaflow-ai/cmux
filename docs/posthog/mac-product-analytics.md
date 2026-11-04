@@ -99,10 +99,37 @@ Enable's result is `cmux_cloud_enable_completed`. Upgrade continues as
 
 | Event | Fires when | Properties |
 | --- | --- | --- |
-| `cmux_sign_in_started` | The user starts a sign-in (Sign In, pane sign-in, Switch Account) | none |
-| `cmux_sign_in_succeeded` | That sign-in completes. A session restore does not count. | none |
-| `cmux_sign_in_failed` | That sign-in fails, once per attempt | `reason` (`offline`, `network`, `timed_out`, `server`, `invalid_link`, `browser_unavailable`, `unauthorized`, `rejected`, `cancelled`, `rate_limited`) |
+| `cmux_sign_in_started` | The user asks to sign in (Sign In, pane sign-in, Switch Account, socket `auth` sign-in), once per request, as before. `start_outcome` says what the request did; see [Requests and attempts](#requests-and-attempts) | `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `start_outcome` (`opened`, `reused`, `already_signed_in`), `replaced_pending` (bool), `attempt_id` (only when `opened`), `replaced_attempt_id` (only when `opened` and an earlier opened attempt had no result yet; that attempt's id) |
+| `cmux_sign_in_callback_received` | An auth callback URL was handed to the app's sign-in completion. Receipt only: its payload, state and tokens are not validated yet, so it does not prove the browser or provider sign-in succeeded. Once per attempt. | `attempt_id`, `delivery` (`sign_in_window`, `external`, `embedded_browser`), `attempt_link` (`state`, `none`) |
+| `cmux_sign_in_window_closed` | The user closes the sign-in window before a callback, which ends the window. Not a result: a callback from the same attempt can still arrive. Once per attempt. | `attempt_id` |
+| `cmux_sign_in_succeeded` | That sign-in completes, including one that ends on the account already signed in, and once per attempt, also after that attempt's failure (see [Results per attempt](#results-per-attempt)). A session restore does not count. | `attempt_id`, `attempt_link` |
+| `cmux_sign_in_failed` | That sign-in fails, once per attempt. A 429 that is still being retried is not a failure. A callback's failure goes to the attempt that issued its state. | `reason` (`offline`, `network`, `timed_out`, `server`, `invalid_link`, `browser_unavailable`, `unauthorized`, `rejected`, `cancelled`, `rate_limited`), `attempt_id` |
 | `cmux_signed_out` | The account signs out (captured before the identity reset) | none |
+
+`attempt_id` is a random UUID made for each opened attempt
+(`start_outcome = 'opened'`) and held only in memory. It is derived from nothing, so it names no person, account, device,
+callback state or token. The app keeps, in memory only, which browser attempt
+issued each callback state. A callback, its success and its failure carry the
+`attempt_id` of the started sign-in whose browser attempt issued the state the
+callback carried (`attempt_link = state`). That can be an earlier, replaced
+attempt whose browser tab finished after a retry; the newer attempt then gets
+no result of its own. A stateless callback (the embedded browser's handoff,
+or an unsolicited callback the user approved) has no such link: it is
+credited to the pending sign-in with `attempt_link = none`, which does not
+mean that sign-in caused it. A refused callback whose state no tracked
+attempt issued is credited to no attempt and is not measured. The app tracks
+the latest eight started sign-ins; a callback from an older one is not
+measured either. A deadline (`timed_out`) or a failed browser session
+(`browser_unavailable`) goes to the attempt it ended. `reason = cancelled` is never
+sent: closing the window is `cmux_sign_in_window_closed`.
+
+Events sent before this catalog had `attempt_id` carry no attempt properties
+and no `start_outcome`. Count them as requests; leave them out of
+attempt-level queries.
+
+One request is counted that the earlier app did not count: clicking Switch
+Account again while its window is open (it opens a new attempt with
+`entrypoint = switch_account`). Before, that click sent no start.
 
 ### Cloud
 
@@ -184,7 +211,213 @@ Existing events that are unchanged: `cmux_hourly_active`,
 8. **Churn signals.** Weekly counts of `cmux_cloud_disabled`,
    `cmux_signed_out`, `cmux_plan_deactivated`, and `cmux_app_updated`
    (`direction = downgrade`).
+9. **Sign-in funnel.** See [Sign-in funnel](#sign-in-funnel).
 
 Known gap: someone who checks out signed out gets an anonymous Stack user at
 checkout, so that checkout joins the app's events only through `source`
 until they sign in to the app with that account.
+
+## Sign-in funnel
+
+### Where each stage is observed
+
+| Stage | Source | Measured |
+| --- | --- | --- |
+| Sign-in requested, by entrypoint | `cmux_sign_in_started` (app), every request | Yes |
+| Sign-in attempt opened | `cmux_sign_in_started` with `start_outcome = 'opened'` | Yes. See [Requests and attempts](#requests-and-attempts). |
+| Hosted page shown; provider or method chosen; provider sign-in finished or failed | The hosted sign-in page | **No.** See [Hosted page](#hosted-page). |
+| Callback handed to the app (receipt, not yet validated) | `cmux_sign_in_callback_received` (app) | Yes |
+| App finished the sign-in | `cmux_sign_in_succeeded` (app) | Yes |
+| Bounded failure | `cmux_sign_in_failed` (app) | Yes |
+| Window closed before a callback | `cmux_sign_in_window_closed` (app) | Yes |
+| Abandoned | None | Never an event. Only the query's classes below, from events that did happen. |
+
+The app opens the browser before the person picks a provider, so no app event
+says which provider or method was used, and a start without a callback does
+not show where on the page the person stopped.
+
+### Requests and attempts
+
+`cmux_sign_in_started` is sent once per user sign-in request (Sign In in
+Settings or a pane, Switch Account, `auth.begin_sign_in` on the socket), as
+before this change. `start_outcome` says what the request did:
+
+| `start_outcome` | Meaning | `attempt_id` |
+| --- | --- | --- |
+| `opened` | A new browser sign-in attempt opened. | The new attempt's id. |
+| `reused` | Sign In again while an attempt continues in the default browser. The app shows that attempt again; no new attempt. | None |
+| `already_signed_in` | A socket sign-in while the app is signed in. It returns at once; no attempt. | None |
+
+Only `opened` starts an attempt. `reused` and `already_signed_in` requests
+create no pending attempt, so they never take a later callback, success or
+failure from a real attempt. The `reused` attempt keeps its own `attempt_id`
+and results.
+
+Two denominators:
+
+- **Requests:** count of `cmux_sign_in_started`, split by `entrypoint` and
+  `start_outcome`. This is the count the event always had. Use it for "how
+  often do people ask to sign in".
+- **Attempts:** distinct `attempt_id` of `cmux_sign_in_started` with
+  `start_outcome = 'opened'`. Use it for conversion and outcomes; the query
+  below uses it.
+
+A browser attempt that no such request opened is not measured, and none of
+its steps are sent. Today that is the browser-app link handoff
+(`BrowserAppLinkHandoffCoordinator`), which starts a sign-in when an
+embedded-browser link needs one.
+
+### Results per attempt
+
+Each attempt sends at most one `cmux_sign_in_failed` and at most one
+`cmux_sign_in_succeeded`. A failure is never sent after the attempt's
+success. A success can follow the attempt's failure: when the browser
+session fails (`browser_unavailable`), the app keeps the attempt's state, and
+the default browser can still finish the sign-in with it. That attempt then
+sends `failed` and later `succeeded`; count it as **succeeded (eventual
+success)**. The outcome query gives success precedence.
+
+Every failure comes from the sign-in step that caused it and names that
+step's attempt: a callback that failed or was refused, the attempt's 10-minute
+deadline, or a failed browser session. Two attempts that fail for the same
+reason send two failures. A 429 that is still being retried sends none.
+
+### Hosted page
+
+The hosted sign-in page (`web/app/handler/cmux-sign-in.tsx`) sends nothing.
+The `/handler` layout does not mount the web PostHog provider, so the shared
+`posthog-client` capture gate never opens there. Provider and method choice,
+provider errors and page exits are therefore **unmeasured, not zero**, and no
+provider-level success rate can be derived from these events.
+
+The smallest safe path is known but needs the auth handoff route: the app's
+sign-in URL enters `/handler/native-sign-in`, a server route that sets the
+native handoff nonce and redirects to the hosted `/sign-in`. To report page
+steps for an attempt without new consent semantics:
+
+1. The app adds `cmux_analytics=1` and `cmux_attempt=<attempt_id>` to the
+   sign-in URL only when product analytics is enabled (Settings and the
+   managed `DisableTelemetry` policy); otherwise the URL is unchanged.
+2. `/handler/native-sign-in` forwards only those two parameters, validated
+   (`1` and a lowercase UUID), to `/sign-in`.
+3. The page sends manual, allowlisted, personless events only when both are
+   present: page shown, method selected (bounded provider list, `passkey`,
+   `email_code`, `password`) and method start failed. They post straight to
+   the capture endpoint like the waitlist signup, with `$process_person_profile:
+   false`, no posthog-js autocapture, no cookies and no URL, referrer, email or
+   error text.
+
+Step 2 changes an auth handoff route, so it is left out of the first,
+telemetry-only change.
+
+### Provenance
+
+These events come only from the classic macOS app (`Sources/`, PostHog
+project `244066`). cmux NEXT shares the browser sign-in code
+(`Packages/Shared/CmuxAuthRuntime`; its `CloudAuth` builds the same
+`HostBrowserSignInFlow`, whose `onEvent` it leaves unset) but has no product
+analytics pipeline, sends none of these events and is a separate population. Do not mix NEXT
+data into this funnel or assume a cross-population identity join.
+
+### Windows and denominators
+
+- The app ends every open attempt within 10 minutes: a callback, a window
+  close, a failure (`timed_out` included), a newer start, or a sign-out. A
+  window-closed attempt can still complete from its kept state for 10 more
+  minutes. Use a **1-hour step window** after `cmux_sign_in_started`.
+- Leave out attempts started in the **last 24 hours**. This is a maturity
+  heuristic for events queued by offline launches, not a guarantee that every
+  queued event has arrived.
+- **Denominator: attempts.** Distinct `attempt_id` of `cmux_sign_in_started`
+  with `start_outcome = 'opened'`. Request counts (every start) are a
+  separate denominator; see [Requests and attempts](#requests-and-attempts).
+- **Retry chains, if needed:** `replaced_attempt_id` links a retry to the
+  attempt it replaced, exactly and without identity joins. A chain starts at a
+  start with no `replaced_attempt_id`. A chain can hold a failure of one
+  attempt and a success of another (an old tab finishing after the retry
+  failed), so classify a chain as succeeded when any of its attempts did.
+- Do not compare these rates with hosted-page visit counts; those count page
+  views, not started sign-ins.
+
+### Outcome classes (query-inferred, never sent)
+
+First match, within the step window:
+
+1. `succeeded`: `cmux_sign_in_succeeded` for the attempt, also after a
+   failure of the same attempt (eventual success). To see those, count
+   attempts with both events.
+2. `failed:<reason>`: `cmux_sign_in_failed` for the attempt.
+3. `replaced`: another start names this attempt in `replaced_attempt_id`.
+4. `callback_without_result`: `cmux_sign_in_callback_received` and nothing
+   later (for example the app quit or signed out while it validated).
+5. `closed_without_callback`: `cmux_sign_in_window_closed`, no callback, no
+   result. The only class that says the person left the sign-in window; they
+   may still have finished in another browser outside the window.
+6. `no_signal`: only the start. Ambiguous, not abandonment: the person may
+   still be on the hosted page past the window, the app may have quit or
+   signed out, telemetry may have been turned off, or events may be queued.
+
+### Query (HogQL)
+
+```sql
+WITH starts AS (
+    SELECT properties.attempt_id AS attempt_id, timestamp AS started_at,
+           properties.entrypoint AS entrypoint
+    FROM events
+    WHERE event = 'cmux_sign_in_started'
+      AND properties.start_outcome = 'opened'
+      AND properties.attempt_id IS NOT NULL
+      AND timestamp >= now() - INTERVAL 15 DAY
+      AND timestamp < now() - INTERVAL 1 DAY
+),
+steps AS (
+    SELECT properties.attempt_id AS attempt_id, event, timestamp, properties.reason AS reason
+    FROM events
+    WHERE event IN ('cmux_sign_in_callback_received', 'cmux_sign_in_window_closed',
+                    'cmux_sign_in_succeeded', 'cmux_sign_in_failed')
+      AND timestamp >= now() - INTERVAL 15 DAY
+    UNION ALL
+    SELECT properties.replaced_attempt_id AS attempt_id, 'replaced' AS event, timestamp, '' AS reason
+    FROM events
+    WHERE event = 'cmux_sign_in_started'
+      AND properties.replaced_attempt_id IS NOT NULL
+      AND timestamp >= now() - INTERVAL 15 DAY
+),
+joined AS (
+    -- Window conditions stay out of the JOIN: equality only in ON.
+    SELECT s.attempt_id AS attempt_id, s.entrypoint AS entrypoint,
+           st.event AS event, st.reason AS reason,
+           st.timestamp >= s.started_at
+               AND st.timestamp < s.started_at + INTERVAL 1 HOUR AS in_window
+    FROM starts s
+    LEFT JOIN steps st ON st.attempt_id = s.attempt_id
+),
+per_attempt AS (
+    SELECT attempt_id, any(entrypoint) AS entrypoint,
+           countIf(in_window AND event = 'cmux_sign_in_succeeded') > 0 AS succeeded,
+           countIf(in_window AND event = 'cmux_sign_in_failed') > 0 AS failed,
+           anyIf(reason, in_window AND event = 'cmux_sign_in_failed') AS failed_reason,
+           countIf(in_window AND event = 'replaced') > 0 AS replaced,
+           countIf(in_window AND event = 'cmux_sign_in_callback_received') > 0 AS callback,
+           countIf(in_window AND event = 'cmux_sign_in_window_closed') > 0 AS window_closed
+    FROM joined
+    GROUP BY attempt_id
+)
+SELECT
+    multiIf(succeeded, 'succeeded',
+            failed, concat('failed:', coalesce(failed_reason, 'unknown')),
+            replaced, 'replaced',
+            callback, 'callback_without_result',
+            window_closed, 'closed_without_callback',
+            'no_signal') AS outcome,
+    entrypoint,
+    count() AS attempts
+FROM per_attempt
+GROUP BY outcome, entrypoint
+ORDER BY entrypoint, attempts DESC
+```
+
+Signed-out attempts start under the install's anonymous id and PostHog merges
+them into the account at the first identify (see [Identity](#identity)), but
+this query joins only on `attempt_id` and `replaced_attempt_id`, so it needs
+no identity join.

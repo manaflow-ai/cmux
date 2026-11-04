@@ -73,7 +73,7 @@ public final class ASWebBrowserAuthSessionFactory: HostBrowserAuthSessionFactory
         if nsError.domain == ASWebAuthenticationSessionError.errorDomain {
             switch nsError.code {
             case ASWebAuthenticationSessionError.Code.canceledLogin.rawValue:
-                return .cancelled(reason: "canceled_login")
+                return .cancelled(reason: HostBrowserAuthSessionResult.userClosedWindowReason)
             case ASWebAuthenticationSessionError.Code.presentationContextInvalid.rawValue:
                 return .failed(reason: "presentation_context_invalid")
             case ASWebAuthenticationSessionError.Code.presentationContextNotProvided.rawValue:

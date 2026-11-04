@@ -1,26 +1,27 @@
+import CmuxAuthRuntime
 import CmuxProductAnalytics
 
 extension HostAccountFlow {
     /// Reports sign-in, identity, team and sign-out changes. Called on every
     /// coordinator change and once at init; cheap when nothing changed.
     func syncAnalytics() {
-        let actions = analyticsState.observe(
+        // Failures come only from flow events, so a 429 that is still being
+        // retried (no event) is never one.
+        reportAnalytics(analyticsState.observe(
             userID: coordinator.currentUser?.id,
-            isSettling: isWorkingOnAuth,
+            isSettling: isWorkingOnAuth
+        ))
+    }
+
+    /// A sign-in step from the browser flow.
+    func noteSignInFlowEvent(_ event: HostBrowserSignInEvent) {
+        // On completion the coordinator already holds the signed-in user, and
+        // on a callback failure the flow already holds its failure.
+        reportAnalytics(analyticsState.flowEvent(
+            event,
+            userID: coordinator.currentUser?.id,
             failure: AccountAnalyticsState.reason(lastSignInFailure)
-        )
-        for action in actions {
-            switch action {
-            case let .identify(userID):
-                analytics.identify(userID: userID)
-            case .signInSucceeded:
-                analytics.track(.signInSucceeded)
-            case let .signInFailed(reason):
-                analytics.track(.signInFailed(reason: reason))
-            case .signedOut:
-                analytics.signedOut()
-            }
-        }
+        ))
     }
 
     /// `cmux_signed_out` is captured before a sign-out runs so it joins the
@@ -31,8 +32,56 @@ extension HostAccountFlow {
         analytics.identify(userID: userID)
     }
 
-    func noteSignInStarted() {
-        analyticsState.signInStarted()
-        analytics.track(.signInStarted)
+    /// Runs `open` (a synchronous `beginSignIn`) as a user sign-in request
+    /// from `entrypoint`. Every request sends `cmux_sign_in_started`: with the
+    /// attempt it opened, or as `withoutAttempt` when it opened none.
+    func withSignInRequest<Result>(
+        _ entrypoint: SignInEntrypoint,
+        withoutAttempt outcome: SignInStartOutcome,
+        _ open: () -> Result
+    ) -> Result {
+        let request = analyticsState.signInRequested(entrypoint)
+        defer { reportAnalytics(analyticsState.signInRequestEnded(request, withoutAttempt: outcome)) }
+        return open()
+    }
+
+    /// The async variant, for the socket sign-in.
+    func withAsyncSignInRequest<Result>(
+        _ entrypoint: SignInEntrypoint,
+        withoutAttempt outcome: SignInStartOutcome,
+        _ open: () async -> Result
+    ) async -> Result {
+        let request = analyticsState.signInRequested(entrypoint)
+        let result = await open()
+        reportAnalytics(analyticsState.signInRequestEnded(request, withoutAttempt: outcome))
+        return result
+    }
+
+    /// Captures `cmux_signed_out` before the sign-out runs and ends any open
+    /// attempt, which the sign-out cancels.
+    func noteSignOutRequested() {
+        analyticsState.signOutRequested()
+        analytics.signedOut()
+    }
+
+    private func reportAnalytics(_ actions: [AccountAnalyticsState.Action]) {
+        for action in actions {
+            switch action {
+            case let .identify(userID):
+                analytics.identify(userID: userID)
+            case let .signInStarted(entrypoint, start):
+                analytics.track(.signInStarted(entrypoint: entrypoint, start: start))
+            case let .signInCallbackReceived(attempt, delivery, link):
+                analytics.track(.signInCallbackReceived(attemptID: attempt, delivery: delivery, link: link))
+            case let .signInWindowClosed(attempt):
+                analytics.track(.signInWindowClosed(attemptID: attempt))
+            case let .signInSucceeded(attempt, link):
+                analytics.track(.signInSucceeded(attemptID: attempt, link: link))
+            case let .signInFailed(reason, attempt):
+                analytics.track(.signInFailed(reason: reason, attemptID: attempt))
+            case .signedOut:
+                analytics.signedOut()
+            }
+        }
     }
 }
