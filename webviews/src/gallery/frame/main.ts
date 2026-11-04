@@ -18,6 +18,7 @@ import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
 import { installUiFont } from "./uiFont";
+import { startGalleryLoad } from "./load";
 import { setLastingGrace } from "../../ui/lasting";
 import "./frame.css";
 import revision from "virtual:cmux-gallery/revision";
@@ -132,6 +133,9 @@ root.style.setProperty("--cmux-ui-scale", String(env.scale));
 root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
 // Entries were imported before the token was set: chat sizing (chatWidth.ts) reads it again.
 window.dispatchEvent(new Event("cmux-ui-scale-change"));
+// The load axis: the stage's main thread shares its frames with other work, from the first frame.
+startGalleryLoad(env.load);
+if (env.load) root.dataset.galleryLoad = env.load;
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
 root.dataset.gallerySource = entryState?.path ?? "";

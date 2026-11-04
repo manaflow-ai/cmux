@@ -162,9 +162,7 @@ async fn context_inventory_fresh_fork_of_a_legacy_chat_captures_local_guidance()
             .iter()
             .any(|part| part.text.as_deref() == Some("LEGACY-FORK-GUIDANCE"))
     );
-    hub.prompt(&fork, vec![json!({"type":"text", "text":"next"})], "test", false)
-        .await
-        .unwrap();
+    hub.prompt(&fork, vec![json!({"type":"text", "text":"next"})], "test", false).await.unwrap();
     assert!(fork.meta().cmux_context_delivered);
     let records = hub.events(&fork.id, 0, 1_000).unwrap();
     let replies: String = records

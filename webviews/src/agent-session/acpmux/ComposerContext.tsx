@@ -671,13 +671,14 @@ export function ComposerContext({
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
-  // machine picked is the workspace's own New machine; Another machine with none picked asks for one.
+  // machine picked says Cloud (Send reuses the person's machine or makes one, so no New machine shows;
+  // Leo, 2026-11-04); Another machine with none picked asks for one.
   const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
     cloudPicked && cloudWorksOn
       ? cloudWorksOn
       : cloudPicked || sandboxPicked
-        ? t("composer.newMachine")
+        ? t(cloudPicked ? "composer.cloud" : "composer.newMachine")
         : layout === "where-machine" && localMachine
           ? t(CONTEXT_LABELS.chooseMachine)
           : localMachine

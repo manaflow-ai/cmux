@@ -537,9 +537,10 @@ impl Hub {
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks.iter().any(|block| {
-            crate::prompt_context::is_context(block) && !saved_context.contains(block)
-        }) {
+        if blocks
+            .iter()
+            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
+        {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
