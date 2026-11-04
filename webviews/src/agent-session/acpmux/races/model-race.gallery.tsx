@@ -20,7 +20,14 @@ export default componentEntry<ComponentProps<typeof RaceCompareView>>({
   widths: { narrow: 420, normal: 900, wide: 1200 },
   covers: ["agent-session/acpmux/races/RaceCompareView.tsx#RaceCompareView"],
   styles: () => import("./styles.css"),
-  load: async () => (await import("./RaceCompareView")).RaceCompareView,
+  load: async () => {
+    const { RaceCompareView } = await import("./RaceCompareView");
+    return (props) => (
+      <section className="race-panel">
+        <RaceCompareView {...props} />
+      </section>
+    );
+  },
   variants: {
     completed: {
       props: props(raceFixture),
