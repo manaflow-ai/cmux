@@ -984,6 +984,47 @@ class TypingSwitchVariantTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 
 
+HANGS_READ = {"do": "rpc", "method": "debug.hangs", "params": {"limit": 64},
+              "title": "after the typing: the watchdog's main-thread stalls over its threshold, each with its sampled stack "
+                       "(finds a key stall such as the Ctrl-C one; reads only)"}
+
+
+class TypingHangsReadTests(unittest.TestCase):
+    """typing/gen_load.py: every typing round reads debug.hangs {limit: 64} once, after the measured keys (the probe's
+    `after` mark, before load_stop), so each round carries the watchdog's main-thread stalls with their stacks. A read
+    only: it is after the last typist_play and the last video_stop, so no measured key or film sees it. Every profile and
+    film choice, and the switch variants (generated from typing-load-l6)."""
+
+    def specs(self):
+        return [json.loads(p.read_text()) for p in sorted((HERE / "journeys" / "video").glob("typing-load-l[0-9]*.json"))]
+
+    def check(self, spec):
+        dos = [st["do"] for st in spec["steps"]]
+        reads = [i for i, st in enumerate(spec["steps"]) if st.get("method") == "debug.hangs"]
+        self.assertEqual(len(reads), 1, spec["id"])
+        i = reads[0]
+        self.assertEqual(spec["steps"][i], HANGS_READ, spec["id"])
+        self.assertEqual(spec["steps"][i - 1], {"do": "probe_mark", "as": "after"}, spec["id"])
+        last_key = max(n for n, d in enumerate(dos) if d in ("typist_play", "video_stop"))
+        self.assertGreater(i, last_key, spec["id"])
+        if "load_stop" in dos:
+            self.assertEqual(dos[i + 1], "load_stop", spec["id"])
+
+    def test_every_typing_round_reads_the_hangs_after_the_keys(self):
+        specs = self.specs()
+        self.assertGreaterEqual(len(specs), 14)
+        for spec in specs:
+            self.check(spec)
+
+    def test_the_switch_variants_read_them_too(self):
+        with tempfile.TemporaryDirectory() as out:
+            done = subprocess.run([sys.executable, str(HERE / "typing" / "gen_load.py"), "--out", out, "--switch",
+                                   "motion.frameOwner.timing"], capture_output=True, text=True, timeout=120)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            for path in Path(out).glob("*.json"):
+                self.check(json.loads(path.read_text()))
+
+
 class WindowFrameTests(unittest.TestCase):
     """px_window_frame: the window's bottom-right corner moved through ext_window's window_drag (debug.mouse into AppKit's
     resize tracking, the path the R3a journeys use), its frame read back."""
