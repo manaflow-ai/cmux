@@ -44,8 +44,10 @@ pub(super) fn run_for(
     crate::login_env::apply_std_for(&mut cmd, family, Some(env));
     crate::config::scrub_nested_claude_env_for(&mut cmd, family);
     // A sign-in check never sees another harness's login (`agent/foreign_login.rs`).
-    if let Some(family) = family {
-        crate::agent::foreign_login::remove_foreign_for(family, |key| {
+    // The family counts by the command the check runs, or the label's canonical family.
+    if let Some(family) = family.and_then(|f| crate::agent::foreign_login::command_family(argv, f))
+    {
+        crate::agent::foreign_login::remove_foreign_for(&family, |key| {
             cmd.env_remove(key);
         });
     }

@@ -75,36 +75,74 @@ pub(crate) fn foreign_login_keys(family: &str) -> impl Iterator<Item = &'static 
         .map(|login| login.key)
 }
 
-/// The agent `profile` runs, from its kind and command line, never its
-/// `family` label: `{"argv": ["codex-acp"], "family": "mine"}` is Codex. A
-/// Claude Code kind is Claude. `None` for a profile that is not one agent.
+/// The agent `profile` runs, from its kind and command line first, never
+/// its `family` label alone: `{"argv": ["codex-acp"], "family": "mine"}` is
+/// Codex, and a Claude Code kind is Claude. A launcher whose program does not
+/// name its agent (`dsh`, Cursor's `agent`, `sr`) counts by its profile name
+/// (`derive_family`). `None` for a host that starts harnesses itself (the
+/// Chief brain `chief acp`, `uniichat-agent`), whatever it is called, and for
+/// a profile that is not one agent.
 pub(crate) fn leaf_family(name: &str, profile: &HarnessProfile) -> Option<String> {
     if profile.kind == HarnessKind::ClaudeStdio {
         return Some("claude".into());
     }
-    let unnamed = HarnessProfile { family: None, ..profile.clone() };
-    let family = crate::config::derive_family(name, &unnamed);
-    if LEAF_FAMILIES.contains(&family.as_str()) {
+    if is_host(&profile.argv) {
+        return None;
+    }
+    if let Some(family) = argv_family(&profile.argv) {
         return Some(family);
     }
-    // Launchers `derive_family` does not name from the command line: a profile
-    // `{"argv": ["/opt/bin/cursor-agent", "acp"], "family": "custom"}` is Cursor.
-    let words = profile.argv.iter().filter_map(|a| {
-        std::path::Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase())
-    });
-    for word in words {
-        for (needle, family) in LAUNCHER_FAMILIES {
-            if word.contains(needle) {
-                return Some(family.to_string());
-            }
-        }
-    }
-    None
+    let unnamed = HarnessProfile { family: None, ..profile.clone() };
+    let family = crate::config::derive_family(name, &unnamed);
+    LEAF_FAMILIES.contains(&family.as_str()).then_some(family)
 }
 
-/// Command-line words of leaf agents that `derive_family` names only from the
-/// profile's name or label.
-const LAUNCHER_FAMILIES: [(&str, &str); 5] = [
+/// The agent a command runs (an `auth.check` such as `claude auth status`),
+/// else the canonical family of its `label` (`opencode-v2` is OpenCode).
+/// `None` for a host's command or a label that names no agent.
+pub(crate) fn command_family(argv: &[String], label: &str) -> Option<String> {
+    if is_host(argv) {
+        return None;
+    }
+    if let Some(family) = argv_family(argv) {
+        return Some(family);
+    }
+    let lower = label.to_lowercase();
+    let head = lower.split(['-', '_', '.']).next().unwrap_or_default();
+    [lower.as_str(), head].into_iter().find(|f| LEAF_FAMILIES.contains(f)).map(str::to_owned)
+}
+
+/// A command line that starts acpmux harnesses under itself.
+fn is_host(argv: &[String]) -> bool {
+    argv.iter().skip(1).any(|a| a == "chief" || a == "uniichat-agent")
+}
+
+/// The leaf agent a command line names: its program first (`claude --add-dir
+/// ~/codex` is Claude), then its other words (`npx claude-agent-acp`).
+fn argv_family(argv: &[String]) -> Option<String> {
+    let word = |a: &String| {
+        std::path::Path::new(a).file_name().map(|f| f.to_string_lossy().to_lowercase())
+    };
+    let named = |w: &str| {
+        ARGV_FAMILIES.iter().find(|(needle, _)| w.contains(needle)).map(|(_, f)| f.to_string())
+    };
+    let program = argv.first().and_then(word);
+    if let Some(family) = program.as_deref().and_then(named) {
+        return Some(family);
+    }
+    argv.iter().skip(1).filter_map(word).find_map(|w| named(&w))
+}
+
+/// Command-line words of leaf agents, `derive_family`'s and the launchers it
+/// names only from a profile's name or label.
+const ARGV_FAMILIES: [(&str, &str); 12] = [
+    ("codex", "codex"),
+    ("opencode", "opencode"),
+    ("gemini", "gemini"),
+    ("pi-acp", "pi"),
+    ("omp", "omp"),
+    ("prime-agent", "prime"),
+    ("claude", "claude"),
     ("cursor-agent", "cursor"),
     ("hermes", "hermes"),
     ("grok", "grok"),
@@ -170,6 +208,21 @@ mod tests {
     }
 
     #[test]
+    fn a_sign_in_check_counts_by_the_agent_it_runs_or_its_canonical_label() {
+        let argv = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            command_family(&argv(&["claude", "auth", "status"]), "mine").as_deref(),
+            Some("claude")
+        );
+        assert_eq!(
+            command_family(&argv(&["/opt/x", "auth"]), "opencode-v2").as_deref(),
+            Some("opencode")
+        );
+        assert_eq!(command_family(&argv(&["cmux", "chief", "status"]), "codex"), None);
+        assert_eq!(command_family(&argv(&["/opt/x"]), "custom"), None);
+    }
+
+    #[test]
     fn the_family_comes_from_what_runs_and_a_host_is_left_alone() {
         let profile = |argv: &str, family: Option<&str>| {
             let mut p: HarnessProfile =
@@ -194,6 +247,19 @@ mod tests {
         let mut cursor = profile("/opt/bin/cursor-agent", Some("custom"));
         cursor.argv.push("acp".into());
         assert_eq!(leaf_family("custom", &cursor).as_deref(), Some("cursor"));
+        // The program names the agent before any other word does.
+        let mut claude = profile("/usr/bin/claude", None);
+        claude.argv.extend(["--add-dir".into(), "/src/codex".into()]);
+        assert_eq!(leaf_family("mine", &claude).as_deref(), Some("claude"));
+        // A host is never one agent, whatever its name says.
+        let mut host = profile("/usr/local/bin/cmux", None);
+        host.argv.extend(["chief".into(), "acp".into()]);
+        assert_eq!(leaf_family("codex-host", &host), None);
+        // A launcher that does not name its agent counts by the profile's name.
+        assert_eq!(
+            leaf_family("deepseek", &profile("/opt/bin/dsh", None)).as_deref(),
+            Some("deepseek")
+        );
         let mut chief = profile("cmux-tui", Some("chief"));
         chief.argv = vec!["cmux-tui".into(), "chief".into(), "acp".into()];
         assert_eq!(leaf_family("chief", &chief), None);
