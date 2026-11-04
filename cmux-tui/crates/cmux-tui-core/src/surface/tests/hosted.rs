@@ -1191,3 +1191,53 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
         );
     });
 }
+
+/// A write waiting for a reconnect on the input port, from a thread; the test thread then ends the reconnect with
+/// `end` and gets the write's result and how long it took.
+#[cfg(unix)]
+fn write_waiting_for_a_reconnect_then(
+    name: &str,
+    end: impl FnOnce(&Surface, &PtySurface),
+) -> (std::io::Result<()>, Duration) {
+    let (_mux, surface, _host) = hosted_typing_surface(name, true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| {
+            let started = Instant::now();
+            (surface.write_bytes(b"g"), started.elapsed())
+        });
+        wait_until("the write waits for a reconnect", || pty.input_port.reconnecting_for_test());
+        end(&surface, pty);
+        writing.join().unwrap()
+    })
+}
+
+/// #35280 review (should-do 1): the reader's real give-up (its backoff past the budget, `wait_or_fail`) ends the
+/// port's reconnect wait, not only a hand call of `reader_gave_up`.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_readers_backoff_gives_up() {
+    let (written, took) =
+        write_waiting_for_a_reconnect_then("hosted-input-port-backoff-gives-up", |_, pty| {
+            let mut backoff = TerminalHostReconnectBackoff::default();
+            while backoff.next_delay().is_some() {}
+            assert!(!backoff.wait_or_fail(pty), "the exhausted backoff did not give the host up");
+        });
+    written.expect_err("a write to a host the reader gave up on answered ok");
+    assert!(took < Duration::from_secs(2), "the write waited {took:?} after the reader gave up");
+}
+
+/// #35280 review (should-do 1): a daemon shutdown's detach (`disconnect_for_daemon_shutdown`) ends the port's
+/// reconnect wait: the write fails now, not at its own deadline.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_daemon_shuts_down() {
+    let (written, took) =
+        write_waiting_for_a_reconnect_then("hosted-input-port-shutdown-detach", |surface, _| {
+            surface.disconnect_for_daemon_shutdown();
+        });
+    written.expect_err("a write to a terminal the daemon detached answered ok");
+    assert!(took < Duration::from_secs(2), "the write waited {took:?} after the daemon's detach");
+}
