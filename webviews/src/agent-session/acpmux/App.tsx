@@ -10902,7 +10902,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // while reconnecting. This separate gate blocks typing hints until the new handshake installs
       // its identity, without unmounting ComposerContext and losing a pending machine selection.
       reconnectingRef.current = true;
-      cloudDraftMachineID.current = undefined;
       cloudTypingPrewarm.reset();
       try {
         acpmuxPerf.markAgent("handshakeStart");
