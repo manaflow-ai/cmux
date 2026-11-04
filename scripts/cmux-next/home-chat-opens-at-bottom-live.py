@@ -123,9 +123,13 @@ def return_and_check(conv_id, step):
     up = geometry()
     scrolled = "scrollOffset" in up and up["scrollBottom"] - up["scrollOffset"] > 500
     say("scrolled up" if scrolled else "SCROLL-DID-NOT-MOVE", json.dumps({k: up.get(k) for k in ("scrollOffset", "scrollBottom", "pinned")}))
-    rpc("action.run", {"id": "workspace.new"})
+    left = rpc("action.run", {"id": "workspace.newAtBottom", "focus": True})
     time.sleep(2)  # test harness: the new workspace shows
-    rpc("action.run", {"id": "home.show", "focus": True})
+    away = geometry()
+    say("left Home", json.dumps(left)[:300], "transcript in window:", away.get("windowFrame") is not None if away else None)
+    shot(step + "-away")
+    back = rpc("action.run", {"id": "home.show", "focus": True})
+    say("home.show", json.dumps(back)[:300])
     wait(lambda: (home().get("page") or {}).get("shown") == conv_id, 30)
     time.sleep(3)  # test harness: let the return settle before the snapshot
     g = geometry()
