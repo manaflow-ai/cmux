@@ -13850,9 +13850,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
   // request bars there were the chat's, and a prompt typed in it went to the chat. It draws the
   // subagent's composer instead, whose prompt the chat passes on to the subagent.
-  // The subagent's draft is its own: by the chat that passes it on and the subagent's id (its name
-  // when it has none).
-  const subagentDraftKey = `${subagentRelayChat ?? chatName}\u0000${shownSubagentTarget?.id ?? shownSubagentTarget?.name ?? ""}`;
+  // The subagent's draft is its own, by keys that hold while its pane is open: the chat's session and
+  // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
+  // id, task name and connected chat arrive or change later and would remount the composer empty.
+  const subagentDraftKey = `${shownSessionId ?? chatName}\u0000${shownSubagentId ?? ""}`;
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}

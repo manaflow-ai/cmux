@@ -5,7 +5,7 @@
 // names the chat, so a prompt never goes anywhere the composer does not say. It is the one composer
 // box (ComposerBox.tsx) with the prompt and Send only: the chat's queue, pull request bar, model and
 // mode chips are the chat's, and drawing them here sent edits to the chat (Leo 2026-10-20).
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
@@ -63,6 +63,15 @@ export function SubagentComposer({
   attachmentsRef.current = attachments;
   const textRef = useRef(text);
   textRef.current = text;
+  // A send that fails after the composer is gone (the person opened the chat or another subagent)
+  // comes back in the kept draft, so the pane shows it when it opens again.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   // Every change is the draft kept for this subagent (an empty one is forgotten).
   const keep = (next: Draft) => {
     if (next.text || next.attachments.length > 0) drafts.set(draftKey, next);
@@ -107,6 +116,10 @@ export function SubagentComposer({
     setFailed(undefined);
     onSend(message).catch(() => {
       // The message comes back to the prompt whole (afterFailedSend).
+      if (!mounted.current) {
+        keep(afterFailedSend(drafts.get(draftKey) ?? { text: "", attachments: [] }, { typed, held, message }));
+        return;
+      }
       const next = afterFailedSend(
         { text: textRef.current, attachments: attachmentsRef.current },
         { typed, held, message },

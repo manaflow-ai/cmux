@@ -475,7 +475,8 @@ button.cv-subagent > :last-child {
    (SubagentComposer.tsx), over the row's middle where a chat's look dots sit (composerLook.css). */
 .cv-subagent-composer-via {
   position: absolute;
-  right: 16px;
+  /* Clear of Send (28px) and its gap at the row's right end, so a long chat name truncates before it. */
+  right: calc(16px + 28px + 8px);
   bottom: 12px;
   left: 16px;
   overflow: hidden;
