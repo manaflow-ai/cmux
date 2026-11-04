@@ -87,9 +87,8 @@ pub(super) fn fetch_served(socket: &std::path::Path) -> Option<bool> {
 /// [`fetch_served`] for one `identify` answer: `None` when it has no list of
 /// capabilities, which says nothing about what the machine serves.
 fn serves_fetch(identity: &Value) -> Option<bool> {
-    Some(super::super::machine_gate::served(identity).is_some_and(|served| {
-        served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY)
-    }))
+    let served = super::super::machine_gate::served(identity)?;
+    Some(served.contains(&cmux_tui_core::blob_fetch::BLOB_FETCH_CAPABILITY))
 }
 
 /// [`fence`], for a machine whose capabilities are not known: one that
