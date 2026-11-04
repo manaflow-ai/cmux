@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::Path;
 
@@ -336,16 +336,10 @@ impl Journal {
 }
 
 fn private_file(path: &Path) -> Result<File> {
-    let mut options = OpenOptions::new();
-    options.read(true).write(true).create(true).truncate(false);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    // The containing directory has already passed private_state_dir's owner
-    // and access checks (including its Windows owner-only ACL).
-    options.open(path).with_context(|| format!("open workflow journal {}", path.display()))
+    // Use the shared owner-only opener so Windows creates the file with its
+    // restrictive DACL, rather than relying on the directory's inheritance.
+    crate::config::private_state_rw(path)
+        .with_context(|| format!("open workflow journal {}", path.display()))
 }
 
 fn fingerprint(kind: &str, prompt: &str, options: &Value) -> Result<String> {

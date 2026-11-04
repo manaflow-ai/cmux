@@ -722,6 +722,24 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head .acpmux-lineage__icon[data-blank] {
   visibility: hidden;
 }
+/* The `stack` arm's marks (trayHead.experiment.ts): the first lines' own glyphs side by side where
+   the blank slot was, as the sidebar's status row draws its toned sparkles before "8 done" (Leo,
+   2026-11-04: "the top of the bar not having anything is weird"). Its first mark sits in the lines'
+   icon column; the counts follow one gap after the last. */
+.acpmux-running-tray__stack {
+  /* It gives way before the time and the chevron: never pushes them out of the lines' columns. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-running-tray__stack-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--agent-muted);
+}
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
    meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons
