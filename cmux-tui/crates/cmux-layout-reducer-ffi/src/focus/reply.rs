@@ -137,7 +137,7 @@ impl FocusReply {
     /// memory's asks keep their last values.
     pub(crate) fn reset(&mut self, state: &FocusState) {
         self.summary = Summary::of(state);
-        self.write(true, state, &[]);
+        self.write(true, state, std::iter::empty());
     }
 
     /// The current state as a reply (`changed` 1, no effects, no address bar asks).
@@ -164,13 +164,18 @@ impl FocusReply {
         &self.reply
     }
 
-    /// The reply after a reduction of `state` that produced `effects` (`ran`: the reducer ran at all).
-    pub(crate) fn finish(
+    /// The reply after a reduction of `state` that produced `effects`, in order (`ran`: the reducer ran at all). The
+    /// input handle passes its window's effects straight from the router's (no copy).
+    pub(crate) fn finish<'e, E>(
         &mut self,
         ran: bool,
         state: &FocusState,
-        effects: &[FocusEffect],
-    ) -> &CmuxFocusReply {
+        effects: E,
+    ) -> &CmuxFocusReply
+    where
+        E: IntoIterator<Item = &'e FocusEffect>,
+        E::IntoIter: Clone,
+    {
         if !ran {
             // Nothing changed: the last reply's fields still hold.
             self.reply.ok = 1;
@@ -178,9 +183,10 @@ impl FocusReply {
             self.reply.effect_count = 0;
             return &self.reply;
         }
+        let effects = effects.into_iter();
         let summary = Summary::of(state);
         let changed = summary != self.summary;
-        if changed || !effects.is_empty() {
+        if changed || effects.clone().next().is_some() {
             self.summary = summary;
             self.write(changed, state, effects);
         } else {
@@ -191,7 +197,12 @@ impl FocusReply {
         &self.reply
     }
 
-    fn write(&mut self, changed: bool, state: &FocusState, effects: &[FocusEffect]) {
+    fn write<'e>(
+        &mut self,
+        changed: bool,
+        state: &FocusState,
+        effects: impl Iterator<Item = &'e FocusEffect>,
+    ) {
         self.strings.clear();
         self.overlays.clear();
         self.c_effects.clear();

@@ -2,7 +2,8 @@
 //! every window's focus. The `cmux_input_focus_*` calls are the window focus handle's (`cmux_focus_*`) with a window
 //! id: the same requests and the same reply bytes, because each window's focus is the same
 //! [`cmux_focus_core::window::WindowFocus`] and its reply is written by the same [`FocusReply`]. A focus event goes
-//! through the router (`InputEvent::Focus`), so the router sees every focus change. The router's other effects
+//! through the router (`InputRouter::send_focus`, a topology `InputRouter::set_focus_topology`), so the router sees
+//! every focus change; the event, the topology and the effects are not copied on the way. The router's other effects
 //! (keys, sessions, sinks) wait for stage S3, which routes keys through this handle.
 
 use crate::focus::{
@@ -10,7 +11,7 @@ use crate::focus::{
     decode_event, decode_topology,
 };
 use cmux_focus_core::close_aim::Press;
-use cmux_focus_core::event::{FocusEffect, FocusEvent};
+use cmux_focus_core::event::FocusEvent;
 use cmux_focus_core::input::{InputEffect, InputEvent, InputRouter, LaneLimit};
 use cmux_focus_core::state::CloseFocusPolicy;
 use cmux_focus_core::topology::Topology;
@@ -29,18 +30,13 @@ struct InputWindow {
 pub struct Input {
     router: InputRouter,
     windows: HashMap<String, InputWindow>,
-    effects: Vec<FocusEffect>,
 }
 
 impl Input {
     /// A handle with no window; a key lane holds at most what `memory` bytes of physical memory allow
     /// (`LaneLimit::for_memory`).
     pub fn new(memory: u64) -> Input {
-        Input {
-            router: InputRouter::new(LaneLimit::for_memory(memory)),
-            windows: HashMap::new(),
-            effects: Vec::new(),
-        }
+        Input { router: InputRouter::new(LaneLimit::for_memory(memory)), windows: HashMap::new() }
     }
 
     /// Opens `window` (a second open of an open window changes nothing); its first reply, as `cmux_focus_new`'s.
@@ -68,38 +64,38 @@ impl Input {
 
     /// Reduces `event` in `window`'s focus through the router; none for a window that is not open.
     pub fn focus_send(&mut self, window: &str, event: &FocusEvent) -> Option<&CmuxFocusReply> {
-        let open = self.windows.get_mut(window)?;
-        let effects = self
-            .router
-            .handle(&InputEvent::Focus { window: open.id.clone(), event: event.clone() });
-        self.effects.clear();
-        let mut reduction = None;
-        for effect in effects {
-            match effect {
-                InputEffect::Focus { window: of, effect } if **of == *window => {
-                    self.effects.push(effect.clone())
-                }
-                InputEffect::FocusReduced { window: of, reduction: reduced } if **of == *window => {
-                    reduction = Some(*reduced);
-                }
-                _ => {}
-            }
-        }
-        let state = self.router.focus(window)?;
-        let reduction = reduction?;
-        open.out.finish(reduction.ran, state, &self.effects);
-        open.out.set_omnibar(reduction.omnibar_return, reduction.returns_to_omnibar);
-        Some(open.out.reply())
+        self.router.send_focus(window, event);
+        self.write_reply(window)
     }
 
     /// A topology report for `window` (an equal topology changes nothing), as `cmux_focus_set_topology`: the
-    /// router's `WindowFocus::send` takes the topology fast path, which never asks to return to the address bar.
+    /// topology fast path, which never asks to return to the address bar.
     pub fn focus_set_topology(
         &mut self,
         window: &str,
         topology: Topology,
     ) -> Option<&CmuxFocusReply> {
-        self.focus_send(window, &FocusEvent::Topology { topology })
+        self.router.set_focus_topology(window, topology);
+        self.write_reply(window)
+    }
+
+    /// Writes `window`'s reply from the router's last effects: the window's reduction and its focus effects in order.
+    fn write_reply(&mut self, window: &str) -> Option<&CmuxFocusReply> {
+        let open = self.windows.get_mut(window)?;
+        let effects = self.router.effects();
+        let reduction = effects.iter().find_map(|effect| match effect {
+            InputEffect::FocusReduced { window: of, reduction } if **of == *window => {
+                Some(*reduction)
+            }
+            _ => None,
+        })?;
+        let focus = effects.iter().filter_map(|effect| match effect {
+            InputEffect::Focus { window: of, effect } if **of == *window => Some(effect),
+            _ => None,
+        });
+        open.out.finish(reduction.ran, self.router.focus(window)?, focus);
+        open.out.set_omnibar(reduction.omnibar_return, reduction.returns_to_omnibar);
+        Some(open.out.reply())
     }
 
     /// `window`'s current state as a reply (`changed` 1, no effects).
@@ -166,7 +162,6 @@ impl Input {
         if !self.windows.contains_key(window) || !self.router.import_focus(window, json) {
             return false;
         }
-        self.effects.clear();
         match (self.router.focus(window), self.windows.get_mut(window)) {
             (Some(state), Some(open)) => {
                 open.out.reset(state);

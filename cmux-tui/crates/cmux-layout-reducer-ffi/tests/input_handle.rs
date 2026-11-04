@@ -274,6 +274,8 @@ fn the_input_handle_replies_to_every_corpus_step_as_the_window_handle() {
     );
 }
 
+/// An equal topology report, after the first: no allocation in either handle (the router judges the ended sinks of every
+/// report, which allocates only while one is recorded: the replay records none).
 #[test]
 fn an_equal_topology_report_makes_no_allocation_in_either_handle() {
     let corpus = corpus();
@@ -284,6 +286,9 @@ fn an_equal_topology_report_makes_no_allocation_in_either_handle() {
     new.window_open(WINDOW).unwrap();
     assert!(old.import(&initial) && new.focus_import(WINDOW, &initial));
     let topology = FocusState::import(&initial).unwrap().topology;
+    // One report first: the router's effect buffer grows once (its first event), then never again.
+    old.set_topology(topology.clone());
+    new.focus_set_topology(WINDOW, topology.clone()).unwrap();
     let (for_old, for_new) = (topology.clone(), topology);
     let start = allocations();
     let reply = old.set_topology(for_old);

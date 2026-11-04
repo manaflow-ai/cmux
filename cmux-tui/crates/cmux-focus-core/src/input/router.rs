@@ -17,7 +17,7 @@ use super::{
 use crate::close_aim::Press as ClosePress;
 use crate::event::{FocusEffect, FocusEvent, Source};
 use crate::state::{CloseFocusPolicy, Expectation, ExpectationKey, FocusState, Resolved, Target};
-use crate::topology::Kind;
+use crate::topology::{Kind, Topology};
 use crate::window::WindowFocus;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -39,6 +39,9 @@ pub(super) struct WindowInput {
     /// The pane whose content the keyboard left for a sidebar or text field
     /// by the person's own move: Escape there gives the keyboard back to it.
     return_to: Option<String>,
+    /// The pane a focus event's user move leaves from its content, kept while
+    /// the event reduces (a buffer reused for each event: no copy per event).
+    left_pane: String,
 }
 
 impl WindowInput {
@@ -48,6 +51,7 @@ impl WindowInput {
             tabs: HashMap::new(),
             surfaces: HashMap::new(),
             return_to: None,
+            left_pane: String::new(),
         }
     }
 
@@ -105,6 +109,13 @@ pub(super) fn content_sink(tab: &Arc<str>, info: &TabInfo) -> Option<Sink> {
         }
         Kind::Other => None,
     }
+}
+
+/// A focus reduction of a window: an event, or a topology report its caller
+/// gives up (the app's focus handle: no copy of it).
+enum FocusInput<'a> {
+    Event(&'a FocusEvent),
+    Topology(Topology),
 }
 
 /// Where a press went, so its repeats and release follow it.
@@ -224,6 +235,34 @@ impl InputRouter {
         &self.effects
     }
 
+    /// A focus event of `window` from the app's focus handle: as
+    /// `handle(&InputEvent::Focus { .. })`, without a copy of the event.
+    pub fn send_focus(&mut self, window: &str, event: &FocusEvent) -> &[InputEffect] {
+        self.focus_input(window, FocusInput::Event(event))
+    }
+
+    /// A topology report of `window` from the app's focus handle: as a
+    /// `FocusEvent::Topology`, without a copy of the topology. An equal
+    /// topology changes nothing (the reducer does not run).
+    pub fn set_focus_topology(&mut self, window: &str, topology: Topology) -> &[InputEffect] {
+        self.focus_input(window, FocusInput::Topology(topology))
+    }
+
+    fn focus_input(&mut self, window: &str, input: FocusInput) -> &[InputEffect] {
+        self.effects.clear();
+        if let Some(id) = self.windows.get_key_value(window).map(|(id, _)| id.clone()) {
+            self.focus_event(&id, input);
+            self.drop_left_lanes();
+            self.drain();
+        }
+        &self.effects
+    }
+
+    /// The effects of the last call, as it returned them.
+    pub fn effects(&self) -> &[InputEffect] {
+        &self.effects
+    }
+
     /// `window`'s focus; none for a window that is not open.
     pub fn focus(&self, window: &str) -> Option<&FocusState> {
         self.windows.get(window).map(WindowInput::focus)
@@ -305,7 +344,9 @@ impl InputRouter {
     fn apply(&mut self, event: &InputEvent) {
         match event {
             InputEvent::Key(_) => {}
-            InputEvent::Focus { window, event } => self.focus_event(window, event),
+            InputEvent::Focus { window, event } => {
+                self.focus_event(window, FocusInput::Event(event));
+            }
             InputEvent::WindowOpened { window } => {
                 self.windows.entry(window.clone()).or_insert_with(WindowInput::new);
             }
@@ -341,24 +382,47 @@ impl InputRouter {
         }
     }
 
-    fn focus_event(&mut self, window: &Arc<str>, event: &FocusEvent) {
+    fn focus_event(&mut self, window: &Arc<str>, focus: FocusInput) {
         let Some(input) = self.windows.get_mut(window) else { return };
-        let before = input.focus().derived.resolved.clone();
+        let event = match &focus {
+            FocusInput::Event(event) => Some(*event),
+            FocusInput::Topology(_) => None,
+        };
+        // The pane a user move leaves from its content (a buffer, not a copy
+        // of the state, per event).
+        input.left_pane.clear();
+        let left = match (event.is_some_and(is_user_move), &input.window.state().derived.resolved) {
+            (true, before) if is_content(before) => {
+                before.pane().map(|pane| input.left_pane.push_str(pane)).is_some()
+            }
+            _ => false,
+        };
         // The app's focus handle's reduction: a topology takes the fast path,
         // and the address bar memory notes every reduction.
-        let reduction = input.window.send(event, &mut self.focus_effects);
+        let (reduction, topology) = match focus {
+            FocusInput::Event(event) => (
+                input.window.send(event, &mut self.focus_effects),
+                matches!(event, FocusEvent::Topology { .. }),
+            ),
+            FocusInput::Topology(topology) => {
+                (input.window.set_topology(topology, &mut self.focus_effects), true)
+            }
+        };
         for effect in self.focus_effects.drain(..) {
             self.effects.push(InputEffect::Focus { window: window.clone(), effect });
         }
         self.effects.push(InputEffect::FocusReduced { window: window.clone(), reduction });
-        let after = &input.focus().derived.resolved;
-        if !is_return_field(after) {
+        if !is_return_field(&input.focus().derived.resolved) {
             input.return_to = None;
-        } else if is_content(&before) && is_user_move(event) {
-            input.return_to = before.pane().map(str::to_owned);
+        } else if left {
+            input.return_to = Some(input.left_pane.clone());
         }
-        if matches!(event, FocusEvent::Topology { .. }) {
-            input.reindex();
+        // Every topology report judges the sinks that ended (`track_gone`); an equal one did not run the
+        // reducer, so the tabs it shows, and their index, are the same.
+        if topology {
+            if reduction.ran {
+                input.reindex();
+            }
             self.track_gone();
         }
         self.session_after_focus(window, event);
@@ -503,7 +567,7 @@ impl InputRouter {
         if let Some(pane) = self.returns_focus(window_id, key, aim.sink.as_ref()) {
             let window = window_id.clone();
             let event = FocusEvent::FocusPane { pane, workspace: None, source: Source::Keyboard };
-            self.focus_event(&window, &event);
+            self.focus_event(&window, FocusInput::Event(&event));
             // The field's waiting keys can no longer reach it.
             self.drop_left_lanes();
             self.push(InputEffect::Consumed { id, reason: ConsumeReason::ReturnedFocus });
