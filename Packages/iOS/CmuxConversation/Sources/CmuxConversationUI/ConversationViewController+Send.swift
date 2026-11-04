@@ -117,10 +117,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
-            bubble.fillColor = ConversationTheme.outgoingBubble
+            bubble.fillColor = ConversationTheme.sentFill
             // The landed bubble's screen-fixed gradient, sampled where it lands,
             // so the color doesn't change at the hand-off to the cell.
-            bubble.screenGradient = ConversationTheme.iMessageGradient
+            bubble.screenGradient = ConversationTheme.sentFillGradient
             let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)

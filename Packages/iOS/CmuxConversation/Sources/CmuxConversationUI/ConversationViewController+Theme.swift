@@ -2,12 +2,13 @@
 import CmuxConversationCore
 import UIKit
 
-/// The host's text size (`textSize`): the controller draws at that Dynamic
-/// Type size instead of the person's own. Its traits carry the size, so
-/// UIKit text follows it and every row re-measures through the same path a
-/// Dynamic Type change takes; `ConversationTheme` resolves its text styles
-/// at the size of the conversation in front (`ConversationTextSizeOwners`),
-/// including for rows measured off the main thread.
+/// The host's text size (`textSize`) and bubble colours (`bubbleColors`):
+/// the controller draws at that Dynamic Type size and in those colours
+/// instead of the defaults. Its traits carry the size, so UIKit text follows
+/// it and every row re-measures through the same path a Dynamic Type change
+/// takes; `ConversationTheme` resolves text styles and bubble colours from
+/// the conversation in front (`ConversationThemeOwners`), including for rows
+/// measured off the main thread.
 extension ConversationViewController {
     func applyTextSize() {
         guard isViewLoaded else { return }
@@ -16,7 +17,7 @@ extension ConversationViewController {
         } else if traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
             traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
         }
-        ConversationTextSizeOwners.changed(self)
+        ConversationThemeOwners.changed(self)
     }
 
     /// What the theme resolves fonts with while this conversation is in front.
@@ -29,24 +30,34 @@ extension ConversationViewController {
         }
     }
 
-    /// The theme's text size changed. Rows, the composer and the header
-    /// measured under another conversation's size are laid out again once
+    /// The colours the theme draws bubbles with while this conversation is in front.
+    var themeBubbleColors: ConversationBubbleColors? {
+        guard let bubbleColors, !bubbleColors.isEmpty else { return nil }
+        return bubbleColors
+    }
+
+    /// The theme's size or colours changed. Rows, the composer and the
+    /// header laid out under another conversation's are laid out again once
     /// the theme is this conversation's own (now, or when it is in front again).
-    func themeTextSizeDidChange() {
-        guard isViewLoaded else { return }
-        guard ConversationTextSizeOwners.sameSize(ConversationTheme.textSizeTraits, themeTextSizeTraits) else { return }
-        if composer.textView.font != ConversationTheme.bodyFont { composer.applyScaledFonts() }
-        header.applyScaledFonts()
+    func themeDidChange(sizeChanged: Bool) {
+        guard isViewLoaded,
+              ConversationThemeOwners.sameSize(ConversationTheme.textSizeTraits, themeTextSizeTraits),
+              ConversationTheme.bubbleColors == themeBubbleColors else { return }
+        if sizeChanged {
+            if composer.textView.font != ConversationTheme.bodyFont { composer.applyScaledFonts() }
+            header.applyScaledFonts()
+        }
         relayoutForTextMetrics()
     }
 }
 
-/// The conversations on screen, front last. The theme's fonts follow the
-/// front one's host text size; when it goes (a sheet closes, a pushed one
-/// pops), the one under it takes the theme back and re-measures what it
-/// laid out meanwhile. With no host size anywhere the theme never changes.
+/// The conversations on screen, front last. The theme's fonts and bubble
+/// colours follow the front one's host size and colours; when it goes (a
+/// sheet closes, a pushed one pops), the one under it takes the theme back
+/// and lays out again what it laid out meanwhile. With no host size or
+/// colours anywhere the theme never changes.
 @MainActor
-enum ConversationTextSizeOwners {
+enum ConversationThemeOwners {
     private struct Owner { weak var controller: ConversationViewController? }
     private static var owners: [Owner] = []
 
@@ -63,7 +74,7 @@ enum ConversationTextSizeOwners {
         apply()
     }
 
-    /// `controller`'s size (or Bold Text) changed.
+    /// `controller`'s size, Bold Text or colours changed.
     static func changed(_ controller: ConversationViewController) {
         guard owners.last?.controller === controller else { return }
         apply()
@@ -74,11 +85,16 @@ enum ConversationTextSizeOwners {
     }
 
     private static func apply() {
-        let wanted = owners.last?.controller?.themeTextSizeTraits
-        guard !sameSize(ConversationTheme.textSizeTraits, wanted) else { return }
-        ConversationTheme.textSizeTraits = wanted
-        ConversationTheme.textSizeEpoch += 1
-        for owner in owners { owner.controller?.themeTextSizeDidChange() }
+        let front = owners.last?.controller
+        let size = front?.themeTextSizeTraits
+        let colors = front?.themeBubbleColors
+        let sizeChanged = !sameSize(ConversationTheme.textSizeTraits, size)
+        let colorsChanged = ConversationTheme.bubbleColors != colors
+        guard sizeChanged || colorsChanged else { return }
+        if sizeChanged { ConversationTheme.textSizeTraits = size }
+        if colorsChanged { ConversationTheme.bubbleColors = colors }
+        ConversationTheme.themeEpoch += 1
+        for owner in owners { owner.controller?.themeDidChange(sizeChanged: sizeChanged) }
     }
 }
 
