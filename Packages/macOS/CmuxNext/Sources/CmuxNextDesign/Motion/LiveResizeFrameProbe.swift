@@ -27,6 +27,10 @@ import CmuxNextWakeups
 /// - `liveResize.view_layouts_after`: those calls from the `setFrame`'s end to the end of the turn's commit (what the
 ///   turn still laid out after a commit inside the `setFrame` shows one commit later);
 /// - `liveResize.after_ms`: from the `setFrame`'s end to the end of the turn's commit;
+/// - `liveResize.content_views`, `liveResize.view_edge_err_pt`, `liveResize.layer_edge_err_pt`: just before the turn's
+///   commit, the pane contents measured and their largest left or right edge distance from their pane content area,
+///   from view frames and from model layers (``ContentEdgeProbe``); `..._before` the same at the drag's start (the state
+///   the last commit sent: the baseline);
 /// - `liveResize.witness_ok`: 1 when the turn's commit showed in the witness (its `commit_inside` readings are valid), 0
 ///   when even the turn's commit did not (they mean nothing).
 @MainActor
@@ -56,6 +60,11 @@ final class LiveResizeFrameProbe {
     /// A probed `setFrame` runs now.
     private var applying = false
     private var observer: CFRunLoopObserver?
+    /// One before Core Animation's commit observer: after AppKit's layout and display passes (``MotionCommitProbe``).
+    static let beforeCommitOrder: CFIndex = 1_999_999
+    private var beforeCommit: CFRunLoopObserver?
+    private weak var window: NSWindow?
+    private let edges = ContentEdgeProbe()
 
     /// A `setFrame` of the live resize starts in `window`; nil unless `debug.motion` records. `eventTime`: the drag
     /// AppKit applies (`NSEvent.timestamp`); `atTick`: a frame tick gave it.
@@ -67,6 +76,11 @@ final class LiveResizeFrameProbe {
         if let eventTime { MotionTrace.sample("liveResize.wait_ms", (start - eventTime) * 1000) }
         MotionTrace.sample("liveResize.at_tick", atTick ? 1 : 0)
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
+        self.window = window
+        if let measured = edges.measure(in: window) {
+            MotionTrace.sample("liveResize.view_edge_err_pt_before", measured.view)
+            MotionTrace.sample("liveResize.layer_edge_err_pt_before", measured.layer)
+        }
         if let root = window.contentView?.layer { witness.attach(to: root) }
         witness.arm()
         (committedBeforeResize, applying) = (nil, true)
@@ -92,6 +106,17 @@ final class LiveResizeFrameProbe {
         MotionTrace.sample("liveResize.view_layouts_inside", Double(viewLayouts - frame.viewLayouts))
         lastApplied = (CACurrentMediaTime(), viewLayouts)
         if let target = frame.target { awaitingCommit.append(target) }
+        if beforeCommit == nil {
+            // One shot, as the after-commit observer: the turn's contents just before its commit.
+            let before = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue,
+                                                            false, Self.beforeCommitOrder) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.contentEdgesBeforeCommit() } // main-proof: added to the main run loop only
+            }
+            if let before {
+                beforeCommit = before
+                CFRunLoopAddObserver(CFRunLoopGetMain(), before, .commonModes)
+            }
+        }
         guard observer == nil else { return }
         // One shot: the turn's commit ends just before it; the run loop drops it after it runs.
         let observer = MainRunLoopObserver.afterCommitObserver(activities: [.beforeWaiting, .exit], repeats: false,
@@ -100,6 +125,14 @@ final class LiveResizeFrameProbe {
         }
         self.observer = observer
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+    }
+
+    private func contentEdgesBeforeCommit() {
+        beforeCommit = nil
+        guard let window, let measured = edges.measure(in: window) else { return }
+        MotionTrace.sample("liveResize.content_views", Double(measured.views))
+        MotionTrace.sample("liveResize.view_edge_err_pt", measured.view)
+        MotionTrace.sample("liveResize.layer_edge_err_pt", measured.layer)
     }
 
     private func commitDidEnd() {
