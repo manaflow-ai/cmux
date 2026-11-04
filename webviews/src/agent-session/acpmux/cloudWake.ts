@@ -31,7 +31,9 @@ export function cloudSendWakes(state: CloudWakeState): string | undefined {
 /// asleep: a link that is only connecting (a chat just opened) is left alone. `woke` is the chat
 /// this stretch of sleep already woke, so a wake runs once per stretch, not once per key; a send
 /// then joins the wake in flight (useCloudChatRecovery `resume` runs one at a time).
-export function cloudTypingWakes(state: CloudWakeState & { asleep: boolean; woke: string | undefined }): string | undefined {
+export function cloudTypingWakes(
+  state: CloudWakeState & { asleep: boolean; woke: string | undefined },
+): string | undefined {
   if (!state.asleep) return undefined;
   const chat = cloudSendWakes(state);
   return chat !== state.woke ? chat : undefined;
