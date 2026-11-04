@@ -1328,7 +1328,7 @@ function codexLiveTurn(
     // Past the streaming text's pause the line says the agent writes, never "Thinking".
     line.liveState = "writing";
   }
-  // Past the turn's first step its clock reads as the turn's whole time ("· 4m", no word: the step time sits on its words), so a long wait
+  // Past the turn's first step its clock reads as the turn's whole time ("2s · 4m" after a step's own time, else "4m" beside the label), so a long wait
   // never reads as that long a think, call or step (Leo, 2026-11-03: "i think the "thinking"
   // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that waited on
   // its subagents).
