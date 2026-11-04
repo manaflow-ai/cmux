@@ -216,6 +216,10 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func stopAgentChat(_ chat: AgentChatListing, on macID: String) async throws {
         try await backend(macID).stopAgentChat(chat, on: macID)
     }
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch, beside tab: WorkspaceTab?, folder: String?,
+                                 in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).launchAgentTeams(teams, beside: tab, folder: folder, in: workspace)
+    }
 
     // MARK: WorkspaceGroupBackend
 
