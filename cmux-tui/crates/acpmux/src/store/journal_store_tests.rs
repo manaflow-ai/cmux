@@ -9,6 +9,7 @@
 
 use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT};
 use super::log_sync::FAIL_NEXT_LOG_SYNC;
+use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
 use serde_json::json;
@@ -725,4 +726,149 @@ fn an_agent_chunk_is_a_stream_record() {
 /// The `seq` of one journaled line (the test reads the journal itself).
 fn line_seq(line: &[u8]) -> Option<u64> {
     record_seq(line)
+}
+
+// ---------------------------------------------------------------- review 2 of #34901
+
+/// Overwrites `id`'s log with zeros from the middle of line `from` to the middle of line `to`:
+/// the hole an OS crash leaves where a page in the middle never reached the disk (a page boundary
+/// is almost never at a line start).
+fn zero_log_mid_lines(home: &Path, id: &str, from: u64, to: u64) {
+    let events = home.join("sessions").join(id).join("events");
+    for entry in std::fs::read_dir(&events).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|ext| ext != "ndjson") {
+            continue;
+        }
+        let mut bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("{e}"));
+        let mut lines = BTreeMap::new();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let end = bytes
+                .get(offset..)
+                .and_then(|rest| rest.iter().position(|b| *b == b'\n'))
+                .map_or(bytes.len(), |at| offset + at + 1);
+            if let Some(seq) = bytes.get(offset..end).and_then(record_seq) {
+                lines.insert(seq, (offset, end));
+            }
+            offset = end;
+        }
+        if let (Some(&(a, a_end)), Some(&(b, b_end))) = (lines.get(&from), lines.get(&to)) {
+            if let Some(hole) = bytes.get_mut(a + (a_end - a) / 2..b + (b_end - b) / 2) {
+                hole.fill(0);
+            }
+            std::fs::write(&path, bytes).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
+}
+
+/// Finding 2: an OS crash hole that starts inside a line. Line 6 keeps its `{"seq":6,` head and
+/// runs through the zeros into the tail of line 8: it is torn bytes, not a line of a log that
+/// moved on, so the journaled lines go back in.
+#[test]
+fn a_hole_that_starts_inside_a_line_is_repaired() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(40);
+    let store = open(home.path(), &journal);
+    for seq in 1..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 6..=9 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    zero_log_mid_lines(home.path(), CHAT, 6, 8);
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=9).collect::<Vec<_>>(),
+        "a torn line was taken for a line of a log that moved on"
+    );
+}
+
+/// Finding 1a: after a kill, the dead daemon's log writes may be in the page cache only. The next
+/// start's first checkpoint retires their records, so it must sync those bytes first. An OS crash
+/// after that restart keeps every acknowledged line (the logs' crash model follows real syncs).
+#[test]
+fn an_os_crash_after_a_restart_from_a_kill_keeps_every_acked_line() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(41);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The restart replays 2..5 and its first checkpoint runs.
+    let store = open(home.path(), &killed);
+    let crashed = killed.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "the restart's checkpoint retired records whose log lines no sync made durable"
+    );
+}
+
+/// Finding 1b: a failed log sync freezes the checkpoint and the daemon restarts. The kernel may
+/// have marked the lost pages clean, so a plain sync after the restart reports success without
+/// them: the restart must write those lines again before its checkpoint retires their records.
+#[test]
+fn an_os_crash_after_a_restart_from_a_failed_sync_keeps_every_acked_line() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(42);
+    let store = open(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=5 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush();
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
+    // The daemon stops for a restart (no crash), and the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        (1..=5).collect::<Vec<_>>(),
+        "the restart's checkpoint retired records whose lines a failed sync lost"
+    );
+}
+
+/// Finding 3: a failed sync in `flush_session` (transfer receipts, forks, auto-resume, team
+/// messages) freezes the checkpoint, as a failed sync in a checkpoint or at a log's close does.
+#[test]
+fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(43);
+    let store = open(home.path(), &journal);
+    for seq in 1..=3 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    assert!(store.flush().is_err(), "a checkpoint after a failed sync in flush_session went ahead");
+    let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
+    assert!(reason.is_some(), "the store did not ask the daemon to stop");
 }

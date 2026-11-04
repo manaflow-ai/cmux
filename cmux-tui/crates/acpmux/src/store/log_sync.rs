@@ -5,8 +5,24 @@ use super::*;
 
 #[cfg(test)]
 thread_local! {
-    /// Tests: the next `LocalStore::sync_log` on this thread fails, as a failed fsync would.
+    /// Tests: the next sync of a log segment on this thread ([`sync_segment`]) fails, as a failed
+    /// fsync would.
     pub(crate) static FAIL_NEXT_LOG_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Syncs one log segment: its data, or with `all` its metadata too. The tests' crash model
+/// follows each sync (`store/sync_model.rs`).
+pub(super) fn sync_segment(file: &File, all: bool) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
+        #[cfg(unix)]
+        super::sync_model::synced(file, false);
+        return Err(std::io::Error::other("a failed sync (a test)"));
+    }
+    let result = if all { file.sync_all() } else { file.sync_data() };
+    #[cfg(all(test, unix))]
+    super::sync_model::synced(file, result.is_ok());
+    result
 }
 
 /// A sync call (`fsync`) that failed, as opposed to an error before it (a folder that does not
@@ -32,10 +48,6 @@ impl LocalStore {
     /// the disk works (the journal store's checkpoint, `store/journal_store.rs`). A segment that
     /// is not open was synced at its close (`SegmentWriter::close`, which notes a failure).
     pub(super) fn sync_log(&self, id: &str) -> Result<()> {
-        #[cfg(test)]
-        if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
-            return Err(SyncFailed(std::io::Error::other("a failed sync (a test)")).into());
-        }
         let open = {
             let writers = self.writers.lock_or_recover();
             match writers.open.get(id) {
@@ -44,7 +56,7 @@ impl LocalStore {
             }
         };
         if let Some(file) = open {
-            file.sync_all().map_err(SyncFailed)?;
+            sync_segment(&file, true).map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;

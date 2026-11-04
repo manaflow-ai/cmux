@@ -1040,6 +1040,8 @@ pub(crate) fn open_with_journal(
 mod journal_store;
 mod log_sync;
 pub(crate) use log_sync::SyncFailed;
+#[cfg(all(test, unix))]
+mod sync_model;
 
 mod memory;
 pub use memory::MemoryStore;
@@ -1085,7 +1087,7 @@ impl SegmentWriter {
     /// written (an append is never synced on its own), so only a machine crash before the kernel
     /// writes them back loses them, as it would any append since the last `flush`.
     fn close(self, id: &str, failed: &std::sync::atomic::AtomicBool) {
-        if let Err(e) = self.file.sync_data() {
+        if let Err(e) = log_sync::sync_segment(&self.file, false) {
             failed.store(true, std::sync::atomic::Ordering::SeqCst);
             tracing::warn!(session = %id, "sync event log on close: {e}");
         }
@@ -1540,7 +1542,7 @@ impl Store for LocalStore {
     fn flush_session(&self, id: &str) -> Result<()> {
         let writers = self.writers.lock_or_recover();
         if let Some(writer) = writers.open.get(id) {
-            writer.file.sync_all()?;
+            log_sync::sync_segment(&writer.file, true)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -1709,7 +1711,7 @@ impl Store for LocalStore {
 
     fn flush(&self) -> Result<()> {
         for w in self.writers.lock_or_recover().open.values() {
-            w.file.sync_data()?;
+            log_sync::sync_segment(&w.file, false)?;
         }
         Ok(())
     }

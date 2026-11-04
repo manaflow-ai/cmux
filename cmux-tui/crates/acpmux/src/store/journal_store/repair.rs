@@ -361,6 +361,8 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     }
     let file = options.open(path).with_context(|| format!("open {}", path.display()))?;
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
-    file.sync_all()?;
+    #[cfg(all(test, unix))]
+    sync_model::cut(&file, len);
+    log_sync::sync_segment(&file, true)?;
     Ok(())
 }
