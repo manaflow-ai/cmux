@@ -226,6 +226,48 @@ fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
     assert_eq!(frame.payload, b"y", "the refused key must not reach the host");
 }
 
+/// R-DAEMON-STATE S1.6b: a frame another writer sends to a hosted terminal's host connection (a viewer size, cell
+/// pixels, receipted input, a clear history, Kitty limits, a clipboard reply, a terminate) after a key the input port
+/// took reaches the host after that key, though the port has not written it yet.
+#[cfg(unix)]
+#[test]
+fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order-barrier", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes(b"k").expect("the port took the key");
+    std::thread::scope(|scope| {
+        let direct = scope.spawn(|| {
+            let runtime = pty.runtime.lock().unwrap();
+            let PtyRuntime::Hosted(attachment) = &*runtime else {
+                panic!("the fixture's terminal is hosted");
+            };
+            attachment.send(MessageKind::Activate, &[]).expect("the direct frame was written");
+        });
+        // The direct sender is now inside its send, while the port holds the key.
+        std::thread::sleep(Duration::from_millis(200));
+        resume.send(()).expect("the port's writer waits");
+        direct.join().unwrap();
+    });
+    drop(resume);
+    let mut kinds = Vec::new();
+    while !(kinds.contains(&MessageKind::Input) && kinds.contains(&MessageKind::Activate)) {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads both frames")
+        .expect("the host connection stays open");
+        kinds.push(frame.kind);
+    }
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    let frame_at = kinds.iter().position(|kind| *kind == MessageKind::Activate);
+    assert!(
+        matches!((key_at, frame_at), (Some(key), Some(frame)) if key < frame),
+        "a frame sent after a key the port held passed it: {kinds:?}"
+    );
+}
+
 /// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
 /// one writer thread), and a key the port took returns before the host read anything (#34544 review).
 #[cfg(unix)]

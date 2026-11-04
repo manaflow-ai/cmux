@@ -103,12 +103,52 @@ struct PortState {
     queued_bytes: usize,
     writer_running: bool,
     closed: bool,
+    /// Frames the port took, and frames it finished (written, failed or dropped): a direct writer of the host
+    /// connection waits until `finished` reaches `accepted` as it read it ([`PortOrder::barrier`], S1.6b).
+    accepted: u64,
+    finished: u64,
+    /// The writer waits for a reconnect: a barrier does not wait then; the connection it would write to is gone, and
+    /// the install it waits for may need the runtime lock that barrier's caller holds.
+    reconnecting: bool,
+    /// Tests: the writer waits here before it writes each frame.
+    #[cfg(test)]
+    paused: Option<std::sync::mpsc::Receiver<()>>,
 }
 
 #[derive(Default)]
 struct PortShared {
     state: Mutex<PortState>,
     changed: Condvar,
+    /// Signalled when `finished` moves, the writer starts waiting for a reconnect, or the port closes.
+    finished_changed: Condvar,
+}
+
+/// The order of one terminal's input port for the other writers of its host connection (DESIGN 2.6.1, S1.6b): a
+/// viewer size, a cell-pixel size, receipted input, a clear history, Kitty limits, a clipboard reply or a terminate
+/// issued after a key the port took reaches the host after that key.
+#[derive(Clone)]
+pub(crate) struct PortOrder(Arc<PortShared>);
+
+impl PortOrder {
+    /// Waits until the port finished every frame it took before this call. Returns at once while the port's writer
+    /// waits for a reconnect or when the port closed, and at `deadline`. Frames taken after the call do not extend
+    /// the wait.
+    pub(crate) fn barrier(&self, deadline: Instant) {
+        let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let target = state.accepted;
+        while state.finished < target && !state.reconnecting && !state.closed {
+            let now = Instant::now();
+            if now >= deadline {
+                return;
+            }
+            state = self
+                .0
+                .finished_changed
+                .wait_timeout(state, deadline.saturating_duration_since(now))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
 }
 
 /// One terminal's input port (see the module docs). Closed when the terminal drops.
@@ -121,6 +161,7 @@ impl Drop for InputPort {
     fn drop(&mut self) {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).closed = true;
         self.shared.changed.notify_all();
+        self.shared.finished_changed.notify_all();
     }
 }
 
@@ -158,11 +199,33 @@ impl InputPort {
             state.writer_running = true;
         }
         state.queued_bytes = total;
+        state.accepted = state.accepted.saturating_add(1);
         state.frames.push_back(frame);
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
     }
+
+    /// The port's order for the other writers of the terminal's host connection.
+    pub(crate) fn order(&self) -> PortOrder {
+        PortOrder(Arc::clone(&self.shared))
+    }
+
+    /// Tests: the writer waits for one message on the returned sender before it writes each frame.
+    #[cfg(test)]
+    pub(crate) fn pause_writes_for_test(&self) -> std::sync::mpsc::Sender<()> {
+        let (resume, paused) = std::sync::mpsc::channel();
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
+        resume
+    }
+}
+
+/// One frame of the port finished (written, failed or dropped): barriers waiting for it may go.
+fn finish_frames(shared: &PortShared, count: u64) {
+    let mut state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+    state.finished = state.finished.saturating_add(count).min(state.accepted);
+    drop(state);
+    shared.finished_changed.notify_all();
 }
 
 /// The writer: the next frame in order, or `None` when the port closed or stayed idle for
@@ -204,7 +267,11 @@ impl Drop for WriterUnwind<'_> {
         state.frames.clear();
         state.queued_bytes = 0;
         state.writer_running = false;
+        // Dropped frames and the one it lost are finished: no barrier waits for them.
+        state.finished = state.accepted;
+        state.reconnecting = false;
         drop(state);
+        self.0.finished_changed.notify_all();
         eprintln!(
             "cmux-tui: terminal input port writer stopped by a panic; {dropped} queued writes dropped"
         );
@@ -214,9 +281,22 @@ impl Drop for WriterUnwind<'_> {
 fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     let _unwind = WriterUnwind(shared);
     while let Some(frame) = next_frame(shared) {
+        #[cfg(test)]
+        {
+            let paused = shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused.take();
+            if let Some(paused) = paused {
+                let _ = paused.recv();
+                shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
+            }
+        }
         // The terminal is gone: its port closed, and nothing is left to write to.
-        let Some(runtime) = terminal.upgrade() else { return };
-        if let Err(error) = write_with_reconnect(&runtime, frame.kind, &frame.bytes) {
+        let Some(runtime) = terminal.upgrade() else {
+            finish_frames(shared, 1);
+            return;
+        };
+        let written = write_with_reconnect(shared, &runtime, frame.kind, &frame.bytes);
+        finish_frames(shared, 1);
+        if let Err(error) = written {
             eprintln!(
                 "cmux-tui: terminal input not written ({} bytes, already accepted): {error}",
                 frame.bytes.len()
@@ -225,9 +305,27 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     }
 }
 
+/// Marks the writer waiting for a reconnect while it lives, so barriers do not wait for it meanwhile.
+struct Reconnecting<'a>(&'a PortShared);
+
+impl<'a> Reconnecting<'a> {
+    fn start(shared: &'a PortShared) -> Self {
+        shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnecting = true;
+        shared.finished_changed.notify_all();
+        Self(shared)
+    }
+}
+
+impl Drop for Reconnecting<'_> {
+    fn drop(&mut self) {
+        self.0.state.lock().unwrap_or_else(PoisonError::into_inner).reconnecting = false;
+    }
+}
+
 /// One frame on the terminal's current host connection, across a lost connection: the rule of
 /// `Surface::send_hosted_input`, on the port's thread, reading the published route instead of the runtime lock.
 fn write_with_reconnect(
+    shared: &PortShared,
     runtime: &PtyTerminalRuntime,
     kind: MessageKind,
     bytes: &[u8],
@@ -275,7 +373,10 @@ fn write_with_reconnect(
         ) || runtime.reader_completion.is_complete()
             || runtime.owner_detaching.load(Ordering::Acquire)
             || Instant::now() >= deadline
-            || runtime.stream_progress.wait_for_change(observed, deadline).is_none()
+            || {
+                let _reconnecting = Reconnecting::start(shared);
+                runtime.stream_progress.wait_for_change(observed, deadline).is_none()
+            }
         {
             return Err(error);
         }
