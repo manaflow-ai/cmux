@@ -86,8 +86,9 @@ test("a prompt whose automatic continuation and Retries fail the same way draws 
     const drawn = turnView(view.rows as never, new Set() as never, { now: Date.now() }) as unknown as Row[];
     const cards = drawn.filter((row) => row.kind === "turnSummary" && row.status === "failed");
     expect(cards.length).toBe(1);
-    // The prompt draws once; the continuations' own words never do.
-    expect(drawn.filter((row) => row.kind === "user").map((row) => row.text)).toEqual(["has this been pushed yet"]);
+    // The prompt draws once, the card right under its turn; the continuations draw no row of their own.
+    const after = drawn.slice(drawn.findIndex((row) => row.kind === "user" && row.text === "has this been pushed yet"));
+    expect(after.filter((row) => row.kind === "user").map((row) => row.text)).toEqual(["has this been pushed yet"]);
   } finally {
     close();
   }
