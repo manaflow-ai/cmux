@@ -58,7 +58,9 @@ def judge(base, movie=True):
         findings.append({"check": "gap or overlap", "severity": "defect", "frames": FRAMES, "t": [0, 0], "detail": "band"})
     for check in EXTRA:
         findings.append({"check": check, "severity": "defect", "frames": [0, 0], "t": [0, 0], "detail": "x"})
-    return {"case": Path(str(base)).name, "base": str(base), "frames": 9, "dropped": 0, "motion": [], "findings": findings}
+    # One motion window over the film: a judged film (an absence needs the judge to have looked: a motion).
+    return {"case": Path(str(base)).name, "base": str(base), "frames": 9, "dropped": 0,
+            "motion": [{"a": 0, "b": 8}], "findings": findings}
 '''
 
 

@@ -515,5 +515,116 @@ class ThirdReviewTests(unittest.TestCase):
             w.close()
 
 
+
+class FourthReviewTests(unittest.TestCase):
+    """Review 4 of #33930 at 7d08a9afddc (FIX, comment 6619442751), finding A: an absence holds only where its judge
+    looked (a judged motion) and only for a name the judge reports; a result without the list a kind reads is NO
+    VERDICT."""
+
+    FILM = "px-build-120x2/px-keys"
+
+    def workspace(self, expect, video=None, trace=None):
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace(video=video)
+        if trace is not None:
+            (w.judges / "video-cases" / "judge_trace.py").write_text(textwrap.dedent(trace))
+        w.write_truth(expect=expect)
+        self.assertEqual(w.snapshot()[0], 0)
+        return w
+
+    def bless(self, w):
+        return w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2", "--no-git-check")
+
+    NO_MOTION_TRACE = """
+        import json
+        def load_trace(path):
+            return json.loads(open(path).read())
+        def judge(trace, frames=None, scale=2.0, events=None):
+            return {"motion": None, "motions": [], "defects": [], "counts": {}}
+        """
+    MOTION_TRACE = """
+        import json
+        def load_trace(path):
+            return json.loads(open(path).read())
+        def judge(trace, frames=None, scale=2.0, events=None):
+            return {"motion": {"first": 0, "last": 2}, "motions": [{"first": 0, "last": 2}], "defects": [], "counts": {}}
+        """
+
+    def test_an_absence_on_a_trace_with_no_motion_is_no_verdict(self):
+        w = self.workspace([{"judge": "judge_trace", "absent_kind": "reverse"}], trace=self.NO_MOTION_TRACE)
+        try:
+            code, out = self.bless(w)
+            self.assertEqual(code, 2, out)
+            self.assertIn("no motion", out)
+        finally:
+            w.close()
+
+    def test_an_absence_on_a_trace_with_a_motion_holds(self):
+        w = self.workspace([{"judge": "judge_trace", "absent_kind": "reverse"}], trace=self.MOTION_TRACE)
+        try:
+            code, out = self.bless(w)
+            self.assertEqual(code, 0, out)
+            self.assertIn("truth: 2 of 2", out)
+        finally:
+            w.close()
+
+    def test_an_absence_on_a_video_judge_with_no_motion_window_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        still = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}]', '"motion": []')
+        w = self.workspace([{"judge": "video_judge", "absent_check": "jump"}], video=still)
+        try:
+            code, out = self.bless(w)
+            self.assertEqual(code, 2, out)
+            self.assertIn("no motion", out)
+        finally:
+            w.close()
+
+    def test_the_model_grid_check_needs_no_motion_window(self):
+        # 'model edge off the device-pixel grid' judges the trace alone (every sample), not a motion window.
+        import test_judge_goldens_truth as truth
+        still = truth.video_stub().replace('"motion": [{"a": 0, "b": 8}]', '"motion": []')
+        w = self.workspace([{"judge": "video_judge", "absent_check": "model edge off the device-pixel grid"}], video=still)
+        try:
+            code, out = self.bless(w)
+            self.assertEqual(code, 0, out)
+        finally:
+            w.close()
+
+    def test_an_absent_name_its_judge_does_not_report_is_no_verdict(self):
+        for name, expect in (("reversed", {"judge": "judge_trace", "absent_kind": "reversed"}),
+                             ("jump-back", {"judge": "video_judge", "absent_check": "jump-back"})):
+            with self.subTest(name=name):
+                w = self.workspace([expect], trace=self.MOTION_TRACE)
+                try:
+                    code, out = self.bless(w)
+                    self.assertEqual(code, 2, out)
+                    self.assertIn(name, out)
+                finally:
+                    w.close()
+
+    def test_a_result_without_its_list_is_no_verdict(self):
+        import test_judge_goldens_truth as truth
+        bare = truth.video_stub().replace('"findings": findings}', '"findings_v2": findings}')
+        w = self.workspace([{"judge": "video_judge", "absent_check": "jump"}], video=bare)
+        try:
+            code, out = self.bless(w)
+            self.assertEqual(code, 2, out)
+            self.assertIn("no findings list", out)
+        finally:
+            w.close()
+
+    def test_the_runners_name_sets_are_the_judges_own(self):
+        import re
+        video = (HERE / "video_judge.py").read_text()
+        names = set(re.findall(r'(?<![a-z_])finding\(\s*case\s*,\s*"([^"]+)"', video, re.S))
+        names |= set(re.findall(r'grouped_findings\(\s*case\s*,\s*"([^"]+)"', video, re.S))
+        names |= set(re.findall(r'"check":\s*"([^"]+)"', video))
+        trace = (HERE / "video-cases" / "judge_trace.py").read_text()
+        kinds = set(re.findall(r'(?<![a-z_])add\(\s*"([^"]+)"', trace)) | set(re.findall(r'"kind":\s*"([^"]+)"', trace))
+        kinds |= {"overlap"}  # add("overlap-fading" if fading else "overlap", ...): the second name of one call
+        self.assertEqual(jg.JUDGE_NAMES["video_judge"], frozenset(names))
+        self.assertEqual(jg.JUDGE_NAMES["judge_trace"], frozenset(kinds))
+
+
 if __name__ == "__main__":
     unittest.main()
