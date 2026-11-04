@@ -234,6 +234,47 @@ await requireBrowserLane("send-scroll-setting.browser.test.ts", async () => {
     await page.close();
   });
 
+  test("a send that makes a short chat overflow lifts the thread on one glide", async () => {
+    // The longest tail that still fits the view, found on a page of its own: once a tail overflows,
+    // the chat has opened, and the send below must come into one that has not.
+    let rows = history().slice(0, 2);
+    const probe = await open();
+    for (let turns = 1; turns <= 26; turns += 1) {
+      const next = history().slice(0, turns * 2);
+      await show(probe, next);
+      await frames(probe, 2);
+      const metrics = await probe.evaluate(() => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return { height: node.scrollHeight, view: node.clientHeight };
+      });
+      if (metrics.height > metrics.view) break;
+      rows = next;
+    }
+    await probe.close();
+    const page = await open();
+    await show(page, rows);
+    await frames(page, 4);
+    expect((await scrollMetrics(page)).top).toBe(0);
+    // The prompt and a long reply: more than the room left, so the send makes the chat overflow.
+    const long = [1, 2, 3, 4].map(paragraph).join(" ");
+    await sendWith(page, [
+      ...rows,
+      row("sent-prompt", "user", "Keep this visible while I read above."),
+      { ...row("sent-reply", "assistant", long), streaming: true },
+    ]);
+    const tops = await sampleFrames(page, 24, "prompt");
+    const drawn = tops.filter((top) => Number.isFinite(top));
+    const rest = drawn.at(-1)!;
+    // The prompt starts below where it rests and only moves up, with frames in between.
+    expect(drawn[0]! - rest).toBeGreaterThan(8);
+    for (let index = 1; index < drawn.length; index += 1)
+      expect(drawn[index]!).toBeLessThanOrEqual(drawn[index - 1]! + 0.5);
+    expect(drawn.some((top) => top < drawn[0]! - 1 && top > rest + 1)).toBe(true);
+    await frames(page, 4);
+    expect((await scrollMetrics(page)).fromEnd).toBeLessThanOrEqual(2);
+    await page.close();
+  });
+
   test("a send while scrolled up glides down to the latest message instead of cutting there", async () => {
     const page = await open();
     const rows = history();
