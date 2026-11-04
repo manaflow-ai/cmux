@@ -64,6 +64,11 @@ fn arrive(clients: &'static watch::Sender<Use>) -> Client {
     Client(clients)
 }
 
+impl Client {
+    /// This client only observes (R-LIFECYCLE ORPHANS): not counted yet.
+    pub(crate) fn observes(&mut self) {}
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
         self.0.send_modify(|u| u.clients = u.clients.saturating_sub(1));
@@ -296,6 +301,57 @@ mod tests {
             start.elapsed(),
             owner_exit::OWNER_EXIT_GRACE + owner_exit::OWNER_KEPT_RECHECK * 2
         );
+    }
+
+    /// R-LIFECYCLE ORPHANS: after a Keep Sessions quit with live shells, the app's cmux-tui
+    /// daemon stays (it holds the terminals) and keeps one `_acpmux/watch` open for its chat
+    /// notices. That watch only observes: once the owner app is gone it keeps nothing, so the
+    /// daemon and its router stop when no agent, turn or task keeps them (fleet repro on build
+    /// 3a43a131: acpmux and router ran on with parent 1 after every quit).
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_watch_only_client_keeps_nothing_after_the_owners_exit() {
+        let (clients, app) = (sender(), owner());
+        let mut watcher = arrive(clients);
+        watcher.observes();
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with its app running");
+        app.send_replace(true);
+        let quit = tokio::time::Instant::now();
+        let why = task.await.unwrap();
+        assert!(why.starts_with(OWNER_GONE), "{why}");
+        assert_eq!(quit.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
+    }
+
+    /// While the owner app runs, a watch-only client keeps the daemon as any client does.
+    #[tokio::test(start_paused = true)]
+    async fn a_watch_only_client_keeps_it_while_its_app_runs() {
+        let clients = sender();
+        let mut watcher = arrive(clients);
+        watcher.observes();
+        let wait = unused_for(clients.subscribe(), Some(G), owner().subscribe(), nothing_keeps());
+        assert!(tokio::time::timeout(G * 10, wait).await.is_err(), "stopped with a client");
+    }
+
+    /// A client that also works (not only a watch) keeps it after the owner's exit.
+    #[tokio::test(start_paused = true)]
+    async fn quit_helpers_a_working_client_beside_a_watcher_keeps_it() {
+        let (clients, app) = (sender(), owner());
+        app.send_replace(true);
+        let mut watcher = arrive(clients);
+        watcher.observes();
+        let worker = arrive(clients);
+        let task =
+            tokio::spawn(unused_for(clients.subscribe(), None, app.subscribe(), nothing_keeps()));
+        tokio::time::sleep(G * 10).await;
+        assert!(!task.is_finished(), "stopped with a working client");
+        let left = tokio::time::Instant::now();
+        drop(worker);
+        task.await.unwrap();
+        assert_eq!(left.elapsed(), owner_exit::OWNER_EXIT_GRACE);
+        drop(watcher);
     }
 
     #[tokio::test(start_paused = true)]
