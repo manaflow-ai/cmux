@@ -106,7 +106,8 @@ impl Surface {
             return true;
         }
         let records = {
-            let metadata = pty.terminal_metadata.lock().unwrap();
+            let metadata =
+                pty.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if metadata.has_publication_change() {
                 return true;
             }
