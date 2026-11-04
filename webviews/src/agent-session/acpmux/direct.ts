@@ -37,7 +37,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE } from "./model";
+import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -139,6 +139,7 @@ import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
+import { hostTurn, hostTurnState } from "./hostTurnState";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -226,6 +227,22 @@ export function newSessionParams(
 }
 
 /** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+/// What a `turn_retrying` record says the live line shows (acpmux hub/turn_retry.rs).
+export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  const attempt = count(msg.attempt);
+  const maxRetries = count(msg.maxRetries);
+  const errorStatus = count(msg.errorStatus);
+  const error = typeof msg.error === "string" && msg.error.trim() ? msg.error.trim() : undefined;
+  return {
+    ...(attempt !== undefined && { attempt }),
+    ...(maxRetries !== undefined && (attempt === undefined || attempt <= maxRetries) && { maxRetries }),
+    ...(errorStatus !== undefined && { errorStatus }),
+    ...(error !== undefined && { error }),
+  };
+}
+
 function liveDetails(details: unknown): { canFork: boolean; command?: string } {
   const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
   return {
@@ -4626,6 +4643,9 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
+    // The page's records may open a turn whose end never reached them, or miss the start of one
+    // acpmux runs on: the summary read with them says (hostTurnState.ts).
+    this.settleTurnWithHost();
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
@@ -4774,6 +4794,8 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // Built when sent, after the record it follows: it settles the turn the records folded.
+      this.settleTurnWithHost();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
@@ -6195,8 +6217,16 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "stopping") {
         // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
         if (this.turnOpen) this.stoppingTurn = { turnId: typeof msg.turnId === "string" ? msg.turnId : undefined };
-      } else if (event.kind === "turn_silent" || event.kind === "turn_heard") {
-        // acpmux's diagnostics of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
+      } else if (event.kind === "turn_retrying") {
+        // The harness retries the turn's failed model request (acpmux hub/turn_retry.rs): the live
+        // line says the model cannot be reached, never "Thinking" (Leo, 2026-11-03).
+        if (this.turnOpen) this.noteRetry(event.at, readTurnRetry(msg));
+      } else if (event.kind === "turn_heard") {
+        // The model answered again: a retry ends (its time leaves the "Thinking" clock); a quiet
+        // model's diagnosis (hub/silent_turn.rs) changed nothing the turn draws.
+        this.retryHeard(event.at);
+      } else if (event.kind === "turn_silent") {
+        // acpmux's diagnostic of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
       } else if (event.kind === "turn_started") {
         this.suggestionFenced(event.seq ?? 0);
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
@@ -6221,6 +6251,7 @@ export class AcpmuxDirectClient {
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
+        this.rows.delete(TURN_RETRY);
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
         if (oldMessageId) {
@@ -6272,6 +6303,7 @@ export class AcpmuxDirectClient {
         // transcript's memo compares the drawn row's version with the next one.
         this.endAssistantSegment();
         this.rows.delete("typing");
+        this.rows.delete(TURN_RETRY);
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
         const summaryId = `summary-${resultTurnId ?? event.seq}`;
@@ -6740,6 +6772,65 @@ export class AcpmuxDirectClient {
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
       }
+  }
+
+  /// The pane's open turn follows the one acpmux holds (hostTurnState.ts). One acpmux no longer
+  /// runs closes; one it runs that the pane holds closed, and never saw end, opens again: a
+  /// restart that adopted the running host goes on with the same turn and logs no new start.
+  private settleTurnWithHost(): void {
+    if (this.replayThrough !== undefined) return;
+    const state = hostTurnState(this.summary);
+    if (state === "ended" && this.turnOpen) {
+      this.hostEndedTurn();
+      return;
+    }
+    const turn = hostTurn(this.summary);
+    if (state !== "runs" || this.turnOpen || !turn) return;
+    if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
+    this.turnOpen = true;
+    if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
+    if (!this.rows.has("typing")) this.rows.set("typing", { id: "typing", version: 1, at: Date.now(), kind: "typing" });
+  }
+
+  /// acpmux holds no turn while the pane still holds one open: its end never reached the pane.
+  /// The turn closes as its end would, with no summary row: no Stop, no typing dots. A late end
+  /// record still settles it (`turn_end`, `turn_result`).
+  private hostEndedTurn(): void {
+    this.turnOpen = false;
+    this.turnPrompt = undefined;
+    this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+    this.rows.delete("typing");
+    this.rows.delete(TURN_RETRY);
+  }
+
+  /// A retry of the running turn's model request (`turn_retrying`): the `TURN_RETRY` row holds it,
+  /// timed from the first retry since the model was last heard.
+  private noteRetry(at: number, retry: AcpmuxTurnRetry): void {
+    const row = this.rows.get(TURN_RETRY);
+    this.rows.set(TURN_RETRY, {
+      id: TURN_RETRY,
+      version: (row?.version ?? 0) + 1,
+      at: row?.retry ? row.at : at,
+      kind: "typing",
+      retry,
+      ...(row?.retriedMs ? { retriedMs: row.retriedMs } : {}),
+    });
+  }
+
+  /// The model answered again (`turn_heard`): the retries end, and their time adds to `retriedMs`.
+  private retryHeard(at: number): void {
+    const row = this.rows.get(TURN_RETRY);
+    if (!row?.retry) return;
+    this.rows.set(TURN_RETRY, {
+      id: TURN_RETRY,
+      version: row.version + 1,
+      at: row.at,
+      kind: "typing",
+      retriedMs: (row.retriedMs ?? 0) + Math.max(0, at - row.at),
+    });
   }
 
   private endAssistantSegment(): void {

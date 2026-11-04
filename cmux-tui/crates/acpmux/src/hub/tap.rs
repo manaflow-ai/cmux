@@ -229,7 +229,15 @@ impl Hub {
                         let mut line = params.clone().unwrap_or(Value::Null);
                         crate::model_copies::scrub_logged(&mut line);
                         crate::claude_stdio::leave_out_bodies(&kind, &mut line);
-                        return tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
+                        let retry = (!muted && method == "claude.system.api_retry")
+                            .then(|| super::turn_retry::claude_retry(&line));
+                        let logged =
+                            tap_hub.append_logged(&tap_session, "in", &kind, line, host_seq).1;
+                        // The model request failed and Claude Code tries again (`turn_retry.rs`).
+                        if let Some(retry) = retry {
+                            tap_hub.turn_retrying(&tap_session, retry);
+                        }
+                        return logged;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
