@@ -117,10 +117,6 @@ import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 
 const ROW_ICON = rowIconSize(12);
-/// The widest tray whose lines take two rows: under it a title keeps no room beside the time, Stop
-/// and chevron columns. Wider, every line is one row (Leo, 2026-11-04: "how Claude code just has one
-/// lines too").
-const TIGHT_WIDTH = 260;
 
 const itemKey = (item: TrayItem): string =>
   item.kind === "command" ? `command:${arrivalKey(item.command)}` : `${item.kind}:${item.id}`;
@@ -207,8 +203,6 @@ export const SubagentTray = memo(function SubagentTray({
   const now = useNow(items.length > 0);
   const trayNode = useRef<HTMLElement | null>(null);
   const [narrow, setNarrow] = useState(false);
-  // Too narrow for a line's title and its trailing columns on one row (subagents.css): two rows.
-  const [tight, setTight] = useState(false);
   // Room for one name in the folded header, not two: a measured narrow tray (an unmeasured one, 0px,
   // keeps two).
   const [oneName, setOneName] = useState(false);
@@ -252,10 +246,6 @@ export const SubagentTray = memo(function SubagentTray({
     const update = (width: number) => {
       setNarrow((current) => {
         const next = width <= 400;
-        return current === next ? current : next;
-      });
-      setTight((current) => {
-        const next = width > 0 && width <= TIGHT_WIDTH;
         return current === next ? current : next;
       });
       setOneName((current) => {
@@ -487,7 +477,6 @@ export const SubagentTray = memo(function SubagentTray({
       data-card={items.length > 0 || planned || surface !== "none" || undefined}
       data-motion={motion}
       data-narrow={narrow || undefined}
-      data-tight={tight || undefined}
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}

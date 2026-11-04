@@ -910,10 +910,10 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - 160px - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
   }
-  /* Two rows only where one cannot hold the title: a tray too narrow for one (SubagentTray.tsx
-     `data-tight`, 260px or less), or a line whose workflow progress wraps. The title goes above the
-     same right-aligned controls, and the status track takes the title's room. */
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__button {
+  /* Two rows only where one cannot hold the title: a line whose workflow progress wraps here, and
+     every line of a tray of 260px or less (below). The title goes above the same right-aligned
+     controls, and the status track takes the title's room. */
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button {
     --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
     position: relative;
     grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
@@ -921,29 +921,68 @@ button.cv-subagent > :last-child {
     height: calc(2 * var(--ui-row-height, 28px));
     padding-block: 0;
   }
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress):is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     align-items: center;
   }
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-lineage__icon {
     position: absolute;
     grid-area: auto;
     top: 7px;
     left: var(--acpmux-tray-inset);
   }
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__button > .acpmux-summary-text {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-summary-text {
     grid-column: 1 / -1;
   }
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
     grid-row: 2;
   }
   /* The controls line has the title's track free: a long state word takes that room first. Stop's
      track stays its own, empty or not. */
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__button > .acpmux-agent-line__trail {
     grid-column: 1 / 4;
   }
-  :is(.acpmux-running-tray[data-tight] .acpmux-agent-line, .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress)) > .acpmux-agent-line__stop-slot {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__progress) > .acpmux-agent-line__stop-slot {
+    top: auto;
+    bottom: 0;
+    height: var(--ui-row-height, 28px);
+    transform: translateY(-0.5px);
+  }
+}
+/* A tray of 260px or less cannot hold a title beside the columns: every line takes two rows. */
+@container running-tray (max-width: 260px) {
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button {
+    --acpmux-tray-status-width: clamp(0px, calc(100cqw - var(--acpmux-tray-time-width) - var(--acpmux-tray-stop-width) - var(--acpmux-tray-chevron-width) - 4 * var(--acpmux-tray-gap) - 2 * var(--acpmux-tray-inset)), 74px);
+    position: relative;
+    grid-template-rows: var(--ui-row-height, 28px) var(--ui-row-height, 28px);
+    row-gap: 0;
+    height: calc(2 * var(--ui-row-height, 28px));
+    padding-block: 0;
+  }
+  .acpmux-running-tray .acpmux-agent-line:is(:has(.acpmux-agent-line__progress), :has(.acpmux-agent-line__latest)) > .acpmux-agent-line__button {
+    grid-template-rows: auto var(--ui-row-height, 28px);
+    height: auto;
+    align-items: center;
+  }
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-lineage__icon {
+    position: absolute;
+    grid-area: auto;
+    top: 7px;
+    left: var(--acpmux-tray-inset);
+  }
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-summary-text {
+    grid-column: 1 / -1;
+  }
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > :is(.acpmux-agent-line__trail, .acpmux-agent-line__stop-track, .acpmux-agent-line__chevron, .acpmux-agent-line__chevron-track) {
+    grid-row: 2;
+  }
+  /* The controls line has the title's track free: a long state word takes that room first. Stop's
+     track stays its own, empty or not. */
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__button > .acpmux-agent-line__trail {
+    grid-column: 1 / 4;
+  }
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot {
     top: auto;
     bottom: 0;
     height: var(--ui-row-height, 28px);
