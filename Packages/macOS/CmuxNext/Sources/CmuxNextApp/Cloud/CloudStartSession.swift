@@ -70,7 +70,7 @@ struct CloudStartSession {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
                     let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
-                    try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation, delegated: delegated))
+                    return try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation, delegated: delegated))
                 }
             }
         }
