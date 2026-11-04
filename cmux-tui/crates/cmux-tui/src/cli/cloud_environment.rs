@@ -99,7 +99,7 @@ fn launch_backend(args: &[String]) -> Result<Option<String>, String> {
         index += 1;
     }
     if let Some(value) = &found {
-        Environment::parse(value).map_err(|error| error.to_string())?;
+        Environment::parse(value)?;
     }
     Ok(found)
 }
