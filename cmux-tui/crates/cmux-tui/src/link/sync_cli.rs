@@ -588,14 +588,10 @@ fn push_inner(
                 done.bytes_done += bytes;
                 continue;
             }
-            // What is at the target now, from its folder's listing (one
-            // `fs.list` per folder instead of one `fs.stat` per file: on a
-            // link of tens of ms each round trip is most of a small file).
-            let in_the_way = listings.kind(&mut remote, &target)?;
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
-            let revision = match write_known(&mut remote, &target, file, in_the_way.as_deref()) {
+            let revision = match write(&mut remote, &target, file) {
                 Ok(revision) => revision,
                 // A symlink of the machine's at its path: a file written
                 // there would go through it, so this Mac's file stays.
@@ -784,14 +780,9 @@ impl LinkSync {
 /// Writes `file` to `target`. An empty folder in the way (left by a folder
 /// that became a file) is removed first; a folder with anything in it stays
 /// and the write fails.
-fn write_known(
-    remote: &mut Remote,
-    target: &str,
-    file: &LocalFile,
-    kind: Option<&str>,
-) -> anyhow::Result<String> {
+fn write(remote: &mut Remote, target: &str, file: &LocalFile) -> anyhow::Result<String> {
     let mut ignored = || {};
-    write_over(remote, target, file, kind, &mut ignored)
+    write_with_progress(remote, target, file, &mut ignored)
 }
 
 fn write_with_progress(
@@ -800,19 +791,9 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
-    let kind = remote.kind(target)?;
-    write_over(remote, target, file, kind.as_deref(), progress)
-}
-
-/// [`write_with_progress`] where `kind` is what is at `target` now.
-fn write_over(
-    remote: &mut Remote,
-    target: &str,
-    file: &LocalFile,
-    kind: Option<&str>,
-    progress: &mut dyn FnMut(),
-) -> anyhow::Result<String> {
-    match kind {
+    // Asked right before each write, never from a listing read earlier: a
+    // symlink the machine put there since must stop this file.
+    match remote.kind(target)?.as_deref() {
         Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
             remote.delete(&[target.to_string()])?;
         }
@@ -885,12 +866,6 @@ impl Listings {
             .entry(remote, target)?
             .filter(|entry| entry.kind == "file")
             .and_then(|entry| entry.revision))
-    }
-
-    /// The kind of what is at `target` (`file`, `dir`, ...); None when
-    /// nothing is there.
-    fn kind(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.entry(remote, target)?.map(|entry| entry.kind))
     }
 
     fn entry(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<RemoteEntry>> {
