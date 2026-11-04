@@ -1657,6 +1657,28 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual([path for path in asked if "/attempts/" in path],
                          ["/actions/runs/3/attempts/2/jobs?per_page=20", "/actions/runs/3/attempts/1/jobs?per_page=20"])
 
+    def test_rescue_history_can_narrow_events_and_sweeper_title_without_losing_attempts(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        runs = [
+            {"id": 3, "event": "workflow_dispatch", "display_title": "owned-pool-sweeper",
+             "status": "completed", "conclusion": "failure", "run_attempt": 2,
+             "run_started_at": stamp(-60), "updated_at": stamp(0)},
+            {"id": 4, "event": "schedule", "display_title": "other", "status": "completed",
+             "conclusion": "failure", "run_attempt": 1, "run_started_at": stamp(-60), "updated_at": stamp(0)},
+        ]
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                return {"workflow_runs": runs} if "&page=1&" in path else {}
+            attempt = int(path.split("/attempts/")[1].split("/")[0])
+            return {"jobs": [{"id": 30 + attempt, "status": "completed", "conclusion": "failure"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=600),
+                                         events=("schedule", "workflow_dispatch"),
+                                         titles=("owned-pool-sweeper",)), [32, 31])
+        self.assertTrue(all("&event=" in path for path in asked if path.startswith("/actions/workflows/")))
+
     def test_a_cancel_after_the_watch_looked_is_never_re_run(self):
         # The watch found a refusal; before rescue() read the run, someone cancelled it. No cancel was this rescue's.
         clock = Clock()

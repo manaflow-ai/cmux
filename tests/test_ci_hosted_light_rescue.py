@@ -114,8 +114,16 @@ class Scope(unittest.TestCase):
     def test_reusable_declarations_bring_their_callers(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            (directory / "caller.yml").write_text("jobs:\n  report:\n    uses: ./.github/workflows/report.yml\n")
+            (directory / "caller.yml").write_text("on: [pull_request]\njobs:\n  report:\n    uses: ./.github/workflows/report.yml\n")
             self.assertEqual(rescue.with_callers(["report.yml"], directory), ["caller.yml", "report.yml"])
+
+    def test_callers_drops_only_workflows_proven_to_be_reusable_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            (directory / "reusable.yml").write_text("on:\n  workflow_call:\n")
+            (directory / "caller.yml").write_text(
+                "on:\n  workflow_call:\n  pull_request:\n\njobs:\n  call:\n    uses: ./.github/workflows/reusable.yml\n")
+            self.assertEqual(rescue.with_callers(["reusable.yml"], directory), ["caller.yml"])
 
     def test_callers_without_a_directory_are_just_the_declaration(self):
         self.assertEqual(rescue.with_callers(["b.yml", "a.yml"], None), ["a.yml", "b.yml"])
@@ -230,6 +238,30 @@ class WorkflowToken(unittest.TestCase):
         request = opened.call_args_list[1].args[0]
         self.assertEqual(request.get_header("If-none-match"), '"v1"')
         self.assertEqual(request.get_header("Authorization"), "Bearer workflow-token")
+
+    def test_forbidden_diagnostics_are_bounded_and_quota_refusal_is_cooled_down(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        body = json.dumps({"message": "API rate limit exceeded; " + "secret-token " * 200,
+                           "resource": "core"}).encode()
+        error = urllib.error.HTTPError("url", 403, "forbidden", {
+            "X-RateLimit-Remaining": "0", "X-RateLimit-Limit": "5000", "X-RateLimit-Reset": "123",
+            "X-RateLimit-Resource": "core", "Retry-After": "9", "X-Secret": "do-not-print"},
+            __import__("io").BytesIO(body))
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=error) as opened:
+            with self.assertRaises(rescue.GitHubHTTPError) as raised:
+                client.run(7)
+            with self.assertRaises(rescue.GitHubHTTPError) as raised_again:
+                client.run(8)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(raised.exception.status, 403)
+        self.assertEqual(raised_again.exception.status, 403)
+        rendered = str(raised.exception)
+        self.assertTrue(rendered.endswith("HTTP 403"), rendered)
+        self.assertIn("quota", rendered)
+        self.assertIn("remaining=0", rendered)
+        self.assertIn("resource=core", rendered)
+        self.assertNotIn("secret-token", rendered)
+        self.assertNotIn("X-Secret", rendered)
 
 
 class Sweep(unittest.TestCase):
@@ -594,6 +626,8 @@ class RecoverCancelled(unittest.TestCase):
                 f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1",
                 f"{rescue.LIGHT_CANCEL_SENT} run 9 attempt 1"])]
         self.assertEqual(client.pending_cancellations(NOW), {9})
+        history.rescue_jobs.assert_called_once_with(
+            NOW - rescue.WINDOW, events=("schedule", "workflow_dispatch"), titles=("owned-pool-sweeper",))
 
     def test_an_incomplete_journal_cannot_authorize_a_recovery(self):
         client = rescue.GitHub("workflow-token", "o/r")
