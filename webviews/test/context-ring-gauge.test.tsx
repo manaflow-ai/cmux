@@ -83,5 +83,5 @@ test("before usage is known the ring is the inert track alone", async () => {
   expect(track).toBeDefined();
   expect(container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!.disabled).toBe(true);
   // No caption in the shipped look.
-  expect(container.querySelector(".acpmux-context-ring-caption")).toBeNull();
+  expect(container.querySelector(".acpmux-context-caption")).toBeNull();
 });

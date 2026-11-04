@@ -1584,7 +1584,7 @@ export function ContextRing({
       >
         <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
           <circle
-            className="acpmux-context-ring-track"
+            className="acpmux-context-track"
             cx="7"
             cy="7"
             r={arcRadius}
@@ -1595,7 +1595,7 @@ export function ContextRing({
           />
           {fraction > 0 && (
             <circle
-              className="acpmux-context-ring-used"
+              className="acpmux-context-used"
               cx="7"
               cy="7"
               r={arcRadius}
@@ -1611,7 +1611,7 @@ export function ContextRing({
         </svg>
       </button>
       {look === "percent" && known && (
-        <span className="acpmux-context-ring-caption" aria-hidden="true">
+        <span className="acpmux-context-caption" aria-hidden="true">
           {percent}%
         </span>
       )}
