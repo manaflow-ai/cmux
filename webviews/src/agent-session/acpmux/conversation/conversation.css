@@ -4447,15 +4447,16 @@ a.cv-sha:focus-visible {
 .cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
 }
-/* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
-   row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
-   the reader points at the reply or a button in it has keyboard focus. */
+/* A reply's own row (MessageActions.tsx ReplyActions: the person's steer follows the reply, model.ts
+   `hasReplyActions`): the footer's line in the turn gap over the steer, centred in it as an ended
+   turn's empty footer is over the next prompt, so it takes no room and never reaches the steer's
+   bubble. Shown while the reader points at the reply or a button in it has keyboard focus. */
 .cv-reply-actions {
   position: absolute;
   /* Its left edge on the prose's: the first button's own margin (above) puts that glyph's ink on
      col-left. Only the end overhangs, so the last control's box can end past the column. */
   inset-inline: 0 calc(-1 * var(--cv-footer-overhang));
-  top: calc(100% + var(--grid-gap-footer));
+  top: calc(100% + (var(--grid-gap-turn) - var(--cv-meta-row)) / 2);
   margin: 0;
   opacity: 0;
 }
