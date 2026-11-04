@@ -369,6 +369,25 @@ extension AppDelegate {
             .toggleFocusedTerminalCopyMode() ?? false
     }
 
+    /// Runs Focus Last Surface from a non-keyboard entrypoint (History menu):
+    /// the focused Dock first, then the main area, matching the
+    /// `focusHistoryLastSurface` shortcut. A focused Dock with no target
+    /// doesn't fall through, so focus stays in the Dock.
+    ///
+    /// - Returns: Whether focus moved.
+    @discardableResult
+    func performFocusHistoryLastSurfaceShortcut(preferredWindow: NSWindow? = nil) -> Bool {
+        let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
+        if let dock = focusedDockStoreForShortcut(
+            action: .focusHistoryLastSurface,
+            preferredWindow: targetWindow
+        ) {
+            return dock.performShortcutCommand(.focusHistoryLastSurface)
+        }
+        let manager = activeTabManagerForCommands(preferredWindow: targetWindow) ?? tabManager
+        return manager?.navigateToLastFocusedSurface() ?? false
+    }
+
     func matchesLegacyNextSurfaceShortcut(event: NSEvent) -> Bool {
         matchTabShortcut(
             event: event,

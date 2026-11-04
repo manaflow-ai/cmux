@@ -25,7 +25,9 @@ extension cmuxApp {
             }
 
             splitCommandButton(title: String(localized: "menu.history.focusLastSurface", defaultValue: "Focus Last Surface"), shortcut: menuShortcut(for: .focusHistoryLastSurface)) {
-                if !historyMenuCoordinator.navigateToLastFocusedSurface() {
+                if AppDelegate.shared?.performFocusHistoryLastSurfaceShortcut(
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
                     NSSound.beep()
                 }
             }
