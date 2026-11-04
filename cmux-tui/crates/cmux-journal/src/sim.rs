@@ -15,9 +15,9 @@
 //!
 //! [`SimStorage::fail_next_sync`] fails the next sync of a write that spans pages, and the disk
 //! gets none of them (the worst case). The cache keeps the dropped pages until an eviction, which
-//! [`SimStorage::evict_dropped_pages_after_read`] makes happen right after each read of them. [`SimStorage::crash_after_failure`] puts the crash point
-//! right after an injected failure: in the writer's backoff, at its first operation when it tries
-//! again.
+//! [`SimStorage::evict_dropped_pages_after_read`] makes happen right after each read of them.
+//! [`SimStorage::crash_after_failure`] puts the crash point right after an injected failure: in
+//! the writer's backoff, at its first operation when it tries again.
 //!
 //! [`SimStorage::crash_after`] makes the n-th storage operation from now the crash point: an
 //! append there writes a random prefix of its bytes, a create, rename, truncate or sync there
