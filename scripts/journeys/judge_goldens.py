@@ -1268,7 +1268,7 @@ def truth_problems(truth, films_doc):
             problems.append(f"{fid}: its film {fact.get('film')!r} is not in films.json")
         film_judges_listed = set((films.get(fact.get("film")) or {}).get("judges") or [])
         ruler, expects = fact.get("ruler"), fact.get("expect") or []
-        if "ruler" in fact and ruler is not None and (not isinstance(ruler, dict) or not ruler):
+        if "ruler" in fact and (not isinstance(ruler, dict) or not ruler):  # null, {}, [] and "" too: no form
             problems.append(f"{fid}: a ruler is an object of {', '.join(sorted(RULER_KEYS))}, not {json.dumps(ruler)[:80]}")
             continue
         if not ruler and not expects:
