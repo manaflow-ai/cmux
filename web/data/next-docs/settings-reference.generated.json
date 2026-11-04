@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 567,
+  "count": 568,
   "sections": [
     {
       "id": "general",
@@ -2866,6 +2866,14 @@
           "help": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
           "kind": "string_map",
           "default": {},
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.themeFile",
+          "title": "Theme File",
+          "help": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+          "kind": "text",
+          "default": null,
           "group": "App Theme"
         },
         {
