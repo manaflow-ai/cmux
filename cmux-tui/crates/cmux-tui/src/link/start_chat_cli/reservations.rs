@@ -25,6 +25,14 @@ pub(super) struct Call {
 pub(super) type Transport<'a> = &'a dyn Fn(&Call, &str) -> Result<Value, PlatformCallError>;
 
 impl Call {
+    pub(super) fn bind_payload(&self) -> Value {
+        let mut body = json!({"sendKey": self.send_key});
+        if let Some(environment) = &self.environment {
+            body["environment"] = json!(environment);
+        }
+        body
+    }
+
     pub(super) fn post(&self, credential: &str) -> Result<Value, PlatformCallError> {
         let unreachable = PlatformCallError::Unreachable;
         let origin =
@@ -45,7 +53,7 @@ impl Call {
                 platform.post("/v1/machines/reservations", body)
             }
             Action::Bind => {
-                platform.post(&format!("{path}/bind"), json!({"sendKey": self.send_key}))
+                platform.post(&format!("{path}/bind"), self.bind_payload())
             }
             Action::Release => platform.delete(&path),
         }

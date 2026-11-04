@@ -2042,3 +2042,17 @@ fn project_ensure_carries_the_reservation_and_its_send_key_without_enabling_new_
     );
     assert_eq!(answer["machine"], "vm_0123456789abcdef0123", "{answer}");
 }
+
+#[test]
+fn reservation_bind_preserves_the_environment_authorization_input() {
+    let call = super::reservations::Call {
+        action: super::reservations::Action::Bind,
+        compose_key: key(),
+        send_key: Some(key()),
+        environment: Some("env_project".into()),
+        platform: None,
+        team: None,
+    };
+    assert_eq!(call.bind_payload()["environment"], "env_project");
+    assert_eq!(call.bind_payload()["sendKey"], json!(call.send_key));
+}
