@@ -32,6 +32,17 @@ extension WindowRootView {
         return shown.compactMap(\.self).reduce(band) { $0.union($1) }
     }
 
+    /// The controls share the window's device-pixel grid, including when it moves between screens.
+    /// Snap both edges so their center stays within half a pixel of the native traffic-light line.
+    func alignedTitlebarFrame(_ frame: CGRect) -> CGRect {
+        let scale = max(1, window?.backingScaleFactor ?? 1)
+        let minX = (frame.minX * scale).rounded() / scale
+        let minY = (frame.minY * scale).rounded() / scale
+        let maxX = (frame.maxX * scale).rounded() / scale
+        let maxY = (frame.maxY * scale).rounded() / scale
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
     /// After the band, the badge while `showsTitlebarBadge`, then the host
     /// pressure indicator while it shows, `space2` apart, centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
@@ -40,13 +51,13 @@ extension WindowRootView {
             badge.isHidden = !showsTitlebarBadge || presentsPage
             if showsTitlebarBadge {
                 let size = badge.fittingSize
-                badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
+                badge.frame = alignedTitlebarFrame(CGRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height))
                 x = badge.frame.maxX + Metrics.space2
             }
         }
         guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
         let side = TitlebarBandButton.side
         let width = (indicator as? HostPressureIndicatorView)?.width ?? side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        indicator.frame = alignedTitlebarFrame(CGRect(x: x, y: midY - side / 2, width: width, height: side))
     }
 }
