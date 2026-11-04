@@ -48,7 +48,7 @@ fn mux_kinds(daemon: &Daemon, session: &str) -> String {
 fn daemon_logs(daemon: &Daemon) {
     for name in ["daemon.log", "acpmux.log", "logs/daemon.log"] {
         if let Ok(text) = std::fs::read_to_string(daemon.home.join(name)) {
-            for line in text.lines().filter(|l| l.contains("WARN") || l.contains("ERROR")) {
+            for line in text.lines().filter(|l| l.contains("WARN") || l.contains("ERROR") || l.contains("adopt") || l.contains("replay") || l.contains("resum")) {
                 note(format!("LOG {line}"));
             }
         }
@@ -91,7 +91,14 @@ async fn two_rounds(tag: &str, kill_harness: bool, kill_host: bool, idle: usize)
     let copy = daemon.home.join("bin").join("acpmux");
     daemon.sigterm();
     std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
-    std::fs::copy(daemon_env::bin(), &copy).unwrap();
+    // A wrapper that keeps the daemon's log (at info) in its home.
+    let script = format!(
+        "#!/bin/sh\nfor a; do shift; [ \"$a\" = warn ] && a=info; set -- \"$@\" \"$a\"; done\nexec {} \"$@\" 2>>{}\n",
+        daemon_env::bin().display(),
+        daemon.home.join("daemon.log").display()
+    );
+    std::fs::write(&copy, script).unwrap();
+    std::fs::set_permissions(&copy, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     daemon.exe = copy.clone();
     daemon.start();
     let session = new_session(&daemon).await;
