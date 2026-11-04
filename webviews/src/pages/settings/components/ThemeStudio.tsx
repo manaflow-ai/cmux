@@ -73,9 +73,15 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     "app-light": useId(),
     "app-dark": useId(),
     accent: useId(),
+    wholeApp: useId(),
   };
   const [previewing, setPreviewing] = useState<{ name: string; target: "terminal" | "app" } | null>(null);
   const previewOwners = useRef(new Map<"terminal" | "app", object>());
+  // Preview on the Whole App (Leo, 2026-11-04: "theme previews, like for not just the terminal, but the
+  // app itself"): while the app has its own App Theme, terminal theme previews and picks also set
+  // the App Theme to match the terminal. Off until the person turns it on; it is a way to pick, not
+  // a setting.
+  const [wholeApp, setWholeApp] = useState(false);
   const load = useCallback((node: HTMLElement | null) => void (node && store.loadThemeColors()), [store]);
 
   const row = rowsByKey.get(THEME_KEY)!;
@@ -138,6 +144,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const appValue = valueOf(state, APP_THEME_KEY);
   const appSpec = typeof appValue === "string" && appValue !== FOLLOW_TERMINAL ? parseThemeSpec(appValue) : null;
   const appManaged = managedOf(state, APP_THEME_KEY);
+  const wholeAppOn = wholeApp && appSpec !== null && appManaged === null;
   // Right-click on a row's title: the same menu as every other setting row (cx-64hi).
   const themeMenu = useRowMenu(THEME_KEY);
   const appMenu = useRowMenu(APP_THEME_KEY);
@@ -181,7 +188,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       ? lookup(previewing.name)
       : terminalThemeColors(valueOf(state, THEME_KEY), colors, scheme, configColors);
   const appSource =
-    (previewing?.target === "app"
+    (previewing?.target === "app" || (previewing?.target === "terminal" && wholeAppOn)
       ? lookup(previewing.name)
       : appSpec
         ? lookup(themeFor(appSpec, scheme, fallbackName))
@@ -200,7 +207,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     if (name) {
       previewOwners.current.set("terminal", owner ?? {});
       setPreviewing({ name, target: "terminal" });
-      store.preview(THEME_KEY, name, owner);
+      store.preview(THEME_KEY, name, owner, wholeAppOn ? [{ key: APP_THEME_KEY, value: null }] : undefined);
     } else if (!owner || previewOwners.current.get("terminal") === owner) {
       previewOwners.current.delete("terminal");
       setPreviewing((current) => (current?.target === "terminal" ? null : current));
@@ -253,7 +260,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
       disabled={disabled}
       configLabel={configLabel}
       configColors={configColors}
-      onPick={onPick}
+      onPick={wholeAppOn ? (name) => Promise.all([onPick(name), writeApp(null)]) : onPick}
       onPreview={previewTerminal}
       custom={custom}
       favorites={starred.favorites}
@@ -362,6 +369,24 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                   {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
                     write(name ? { kind: "single", name } : null),
                   )}
+                </StudioRow>
+              )}
+              {appSpec && (
+                <StudioRow
+                  kind="whole-app"
+                  settingKey={THEME_KEY}
+                  id={ids.wholeApp}
+                  title={t("settingsPage.theme.wholeApp")}
+                  help={t("settingsPage.theme.wholeAppHelp")}
+                  menu={themeMenu}
+                  reset={<ResetSpacer />}
+                >
+                  <Switch
+                    checked={wholeAppOn}
+                    disabled={disabled || appDisabled}
+                    labelId={ids.wholeApp}
+                    onToggle={setWholeApp}
+                  />
                 </StudioRow>
               )}
             </>
