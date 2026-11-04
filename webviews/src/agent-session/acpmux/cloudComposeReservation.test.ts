@@ -88,7 +88,10 @@ test("Send reserves its native gesture before a slow reserve, ignores a second R
   expect(h.calls).toEqual([
     ["transport.gesture", { intent: { method: "cloud.startChat", params: { key: "send-1" } } }],
     ["cloud.reserve", { composeKey: "compose-1" }],
-    ["cloud.startChat", { task: "reply PONG", home: true, key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" }],
+    [
+      "cloud.startChat",
+      { task: "reply PONG", home: true, key: "send-1", reservationKey: "compose-1", gestureTicket: "ticket-1" },
+    ],
   ]);
 });
 

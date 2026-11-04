@@ -119,7 +119,8 @@ export function reservedCloudCall(
       // live gesture at the end of the wait.
       const ticket = await call("transport.gesture", {
         intent: { method: "cloud.startChat", params: { key: params.key } },
-      }).then((reply) => (reply as { ticket?: unknown } | undefined)?.ticket)
+      })
+        .then((reply) => (reply as { ticket?: unknown } | undefined)?.ticket)
         .catch(() => undefined);
       if (!(await reservation.ready(reservationKey))) {
         const { reservationKey: _reservationKey, gestureTicket: _gestureTicket, ...ordinary } = params;
