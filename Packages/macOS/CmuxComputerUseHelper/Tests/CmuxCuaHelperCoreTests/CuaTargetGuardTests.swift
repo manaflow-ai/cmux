@@ -64,9 +64,11 @@ import Testing
     func browserNavigateToCmuxIsRefused(url: String) async throws {
         _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
             .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"https://example.com"}"#.utf8))
+        // JSON-encoded, so control characters reach the guard as the agent's JSON carries them.
+        let arguments = try JSONSerialization.data(withJSONObject: ["pid": 102, "url": url])
         await #expect(throws: ToolError.self) {
             try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
-                .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"\#(url)"}"#.utf8))
+                .check(name: "browser_navigate", arguments: arguments)
         }
     }
 

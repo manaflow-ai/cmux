@@ -249,6 +249,6 @@ async fn a_window_the_list_dropped_is_never_resolved_through_upstream() {
         let error = worker.call(&session, "click", json!({"window_id": 77_777, "x": 1, "y": 1})).await.unwrap_err();
         assert_eq!(error.code.as_deref(), Some("target_unresolved"), "{mode:?}: {error:?}");
         assert!(upstream_tools(&upstream).is_empty(), "{mode:?}: upstream was asked: {:?}", upstream_tools(&upstream));
-        session.close();
+        session.close().await;
     }
 }
