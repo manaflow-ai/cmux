@@ -192,7 +192,7 @@ def browser_event_proof(events: list[dict]) -> dict:
         "raw_event_count": len(events),
         "navigation_observed": bool(browser_call_ids),
         "page_read_observed": browser_result_seen,
-        "browser_tool_call": browser_call_seen,
+        "browser_tool_call": bool(browser_call_ids),
         "browser_tool_result": browser_result_seen,
     }
 
