@@ -8,6 +8,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
@@ -606,6 +607,11 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The start the folder chip shows (none, holding its place, or a folder), first frame to final
+  // (perf.ts noteStartState, read by scripts/cmux-next/new-pane-start-state-bench.py).
+  const startShown = none ? "none" : projectPending ? "pending" : (askFolder ?? "");
+  // Every commit, a string compare: an adopt that keeps the screen mounted is measured again too.
+  useEffect(() => acpmuxPerf.noteStartState(`newTab:${startShown}`));
   // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
   // machine picked before, so the folder it sends is the one the chip names.
   const runMode = props.runMode && {

@@ -1161,3 +1161,33 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
     assert_eq!(written, vec![b"a".to_vec()], "the input the flush kept reached the host once");
 }
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon
+/// as the reader gives that host up (the link is `Failed` and nothing will install a replacement), as the old path's
+/// write failed then, not at its own reconnect deadline. The reader's wake reached only `stream_progress`, which the
+/// port's writer no longer waits on.
+#[cfg(unix)]
+#[test]
+fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-give-up", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.set_reconnect_wait_for_test(Duration::from_secs(5));
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| {
+            let started = Instant::now();
+            (surface.write_bytes(b"g"), started.elapsed())
+        });
+        wait_until("the write waits for a reconnect", || pty.input_port.reconnecting_for_test());
+        // The reader gives the host up, as `wait_or_fail` does at the end of its budget.
+        pty.host_connection_state
+            .store(TerminalHostConnectionState::Failed as u8, Ordering::Release);
+        pty.reader_gave_up();
+        let (written, took) = writing.join().unwrap();
+        written.expect_err("a write to a host the reader gave up on answered ok");
+        assert!(
+            took < Duration::from_secs(2),
+            "a write to a host the reader gave up on waited {took:?}, its reconnect deadline, not the give-up"
+        );
+    });
+}
