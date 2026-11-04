@@ -136,9 +136,9 @@ import Testing
         deinit { try? FileManager.default.removeItem(at: url) }
     }
 
-    static func controller(_ home: Home, config: String) throws -> SettingsController {
+    static func controller(_ home: Home, config: String, design: DesignSettings = DesignSettings()) throws -> SettingsController {
         try Data(config.utf8).write(to: home.config)
-        return SettingsController(registry: .standard(), design: DesignSettings(), fileURL: home.config,
+        return SettingsController(registry: .standard(), design: design, fileURL: home.config,
                                   managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
     }
 
@@ -264,6 +264,24 @@ import Testing
         await settings.reload()
         #expect(settings.snapshot.accent == .red)
         #expect(!settings.diagnostics.contains { $0.kind == .unreadableFile })
+    }
+
+    /// A theme file that does not parse never stops cmux-next.json's own settings from applying,
+    /// even with no last good text (broken from the first load).
+    @Test func aBrokenThemeFileNeverHoldsBackCmuxNextJSON() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.accent": "#, theme: "tokyo")
+        let design = DesignSettings()
+        let settings = try Self.controller(home, config: #"{ "app": { "uiScale": 1.2 }, "appearance": { "themeFile": "tokyo" } }"#, design: design)
+        await settings.reload()
+        #expect(settings.diagnostics.contains { $0.kind == .unreadableFile && $0.file == "themes/tokyo.json" })
+        #expect(abs(design.uiScale - 1.2) < 0.001)
+        try Data(#"{ "app": { "uiScale": 1.1 }, "appearance": { "themeFile": "tokyo" } }"#.utf8).write(to: home.config)
+        await settings.reload()
+        #expect(abs(design.uiScale - 1.1) < 0.001)
+        // Its toast opens the Theme File row, not cmux-next.json.
+        #expect(SettingsDiagnosticToasts.destination("", file: "themes/tokyo.json") == .row)
     }
 
     /// Settings lists problems; which keys the file sets is no problem.
