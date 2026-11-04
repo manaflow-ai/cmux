@@ -32,10 +32,11 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// With `motion.frameOwner.terminals` on (cmux-ad m6: pixels per frame, the program's size per press) the surface takes
     /// the area it shows in, in every frame, anchored top-left: the frame owner shows each size's frame with its bounds,
     /// or keeps the last frame (clipped, top-left) until it is drawn; the PTY still gets one grid per press (the final
-    /// grid, ``TerminalSurfaceView`` `restAt`).
+    /// grid, ``TerminalSurfaceView`` `restAt`). Except the low prompt above (`restAt` held the surface on the bottom edge):
+    /// it keeps that hold.
     func followedSurfaceFrame(_ followed: (hold: PaneMotionHold, heldSize: CGSize), in area: CGRect) -> CGRect { // perf-hot: 4ms motion-frame
         let shown = CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scrollerWidth), height: area.height)
-        if TerminalDragTunables.framesOwnedByCommit.value { return shown }
+        if TerminalDragTunables.framesOwnedByCommit.value, surfaceHold?.anchor != .bottom { return shown }
         let size = surfaceHold?.size ?? surfaceSize(forHostSize: followed.heldSize)
         var hold = followed.hold
         if case .bottom? = surfaceHold?.anchor { hold.bottom = true }
