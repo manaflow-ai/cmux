@@ -31,13 +31,14 @@ on:
         default: ""
         type: string
       bench:
-        description: "deps: while joined, time cold and warm Cargo and bun installs through `acpmux machine deps warm` (the platform's dependency cache)"
+        description: "deps: while joined, time cold and warm Cargo and bun installs through `acpmux machine deps warm` (the platform's dependency cache); deps-slow: the same over a link with 150 ms more latency"
         required: false
         default: none
         type: choice
         options:
           - none
           - deps
+          - deps-slow
 
 permissions:
   contents: read
@@ -202,10 +203,11 @@ jobs:
       # toolchain root-owned beside acpmux, and scripts/cmux-next/deps-bench.sh (root-owned) to run while
       # joined. Every cache the bench fills lives under the base, outside the scanned home. No secret here.
       - name: Prepare the dependency bench
-        if: inputs.bench == 'deps'
+        if: startsWith(inputs.bench, 'deps')
         env:
           JOIN_USER: ${{ steps.user.outputs.user }}
           JOIN_BASE: ${{ steps.user.outputs.base }}
+          BENCH: ${{ inputs.bench }}
         run: |
           set -euo pipefail
           sysroot="$(cd cmux-tui && rustc --print sysroot)"
@@ -220,6 +222,21 @@ jobs:
           # The manifest without its scripts (the postinstall reads the app's catalogs, not part of the bench).
           jq 'del(.scripts)' webviews/package.json | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/webviews/package.json" >/dev/null
           sudo -n -u "$JOIN_USER" -- cp -- webviews/bun.lock "$JOIN_BASE/bench/webviews/bun.lock"
+          # deps-slow: every packet out of this VM waits 150 ms more (a far-away registry and cache).
+          # The VM is destroyed after the job, so the delay is never undone. A kernel without netem
+          # gets the same delay from a local proxy that the bench routes every tool's HTTPS through.
+          if [ "$BENCH" = deps-slow ]; then
+            dev="$(ip -o route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+            sudo modprobe sch_netem 2>/dev/null || true
+            if sudo tc qdisc replace dev "$dev" root netem delay 150ms; then
+              tc qdisc show dev "$dev"
+              echo netem | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            else
+              sudo install -o root -g root -m 0755 scripts/cmux-next/delay-proxy.py "$JOIN_BASE/bin/delay-proxy.py"
+              echo 150 | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link-proxy-ms" >/dev/null
+              echo proxy | sudo -n -u "$JOIN_USER" -- tee "$JOIN_BASE/bench/link" >/dev/null
+            fi
+          fi
 
       # The only step that sees the stack secrets, through env. No `set -x`: the script prints its own lines.
       - name: Mint, join, verify and revoke
@@ -235,7 +252,7 @@ jobs:
         # exec: bun is the step's process, so a cancel's SIGINT reaches it and it revokes at once.
         run: |
           bench=()
-          if [ "$BENCH" = deps ]; then bench=(--bench "$JOIN_BASE/bin/deps-bench.sh"); fi
+          case "$BENCH" in deps | deps-slow) bench=(--bench "$JOIN_BASE/bin/deps-bench.sh") ;; esac
           exec bun scripts/cmux-next/machine-join-e2e.ts --origin "$HUB_ORIGIN" --acpmux "$JOIN_BASE/bin/acpmux" \
             --user "$JOIN_USER" --home "$JOIN_HOME" --name "$JOIN_NAME" \
             --evidence "$RUNNER_TEMP/machine-join-e2e/evidence.json" --run "$GITHUB_RUN_ID" --sha "$GITHUB_SHA" "${bench[@]}"

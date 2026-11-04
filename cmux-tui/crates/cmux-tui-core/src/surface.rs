@@ -61,6 +61,9 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
 #[cfg(test)]
@@ -808,6 +811,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: Default::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
