@@ -62,10 +62,9 @@ jobs:
         with:
           ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
           path: .fast-checks-tools
-          # Keep the admission checkout narrow, but include every helper the
-          # pinned picker imports: the shared census client, its request counter
-          # (github_spend, imported at load since #34270's pin) and the warm
-          # routing modules it imports on the distance path.
+          # Keep the admission checkout narrow, but include every module the
+          # pinned picker imports (pr_runner_pool imports github_spend at load and
+          # warm_distance / owned_warm_state lazily).
           sparse-checkout: |
             scripts/ci/fast_checks_runner.py
             scripts/ci/pr_runner_pool.py
