@@ -66,16 +66,6 @@ public nonisolated struct BrowserResizeTunables {
         help: "Live: the page lays out at every size, a few frames behind the divider. Hold: the page keeps its size and moves with the pane, clipped, and lays out once when the drag lands. Synced live: Chromium holds each app frame until the page has drawn at the new size (up to 500 ms); applies the next time Chromium starts. Resize sync: the page lays out at every size and each app frame waits for it up to the divider drag wait, at most half a display frame (Chromium fork API 27; Live below it).",
         default: BrowserDragResize.default, code: "BrowserResizeTunables.dragResize")
 
-    /// On (the default; cmux-ad m6 1b, the interim browser contract until FRAME OWNER S5): through a keyboard resize a
-    /// Chromium page keeps its size with its top-left corner on its pane's page area, so it moves with the pane's leading
-    /// and top edges as the tab strip does; the pane clips it and the page's backdrop fills the rest. Off: S3's hold, the
-    /// page fixed at the pane edges that do not move. Read when each key resize's hold begins. A kill switch only: it goes
-    /// once the refactor owner's off/on film passes.
-    public static let keyResizeTopLeft = Tunable<Bool>.toggle(
-        "browserResize.keyResizeTopLeft", section, "Page moves with its pane in a keyboard resize",
-        help: "On: through a keyboard resize a Chromium page keeps its size with its top-left corner on its pane, so it moves with the pane's left and top edges; the pane clips it. Off: the page stays at the pane edges that do not move.",
-        default: true, code: "BrowserResizeTunables.keyResizeTopLeft")
-
     /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
     /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
     static var dragResizeAtLaunch: BrowserDragResize {
@@ -91,7 +81,7 @@ public nonisolated struct BrowserResizeTunables {
 
     public static var all: [TunableDescriptor] {
         [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor,
-         dragResizeDeadline.descriptor, keyResizeTopLeft.descriptor]
+         dragResizeDeadline.descriptor]
     }
 }
 
