@@ -10,6 +10,7 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { FilesView } from "./files";
 import {
   ACTION_RUN,
+  CloudActions,
   CloudOps,
   HostActions,
   isGone,
