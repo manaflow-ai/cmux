@@ -771,9 +771,9 @@ class Journey:
         return {"bench": "sample", "label": step.get("label", "sample"), "rows": rows}
 
     def step_grow_workspaces(self, step):
-        """STRESS-lite set-up: script workspaces (unfocused, one terminal each) until the app holds `count`;
-        then `busy` of them print a line every 20 ms (perf-stress-session.py's BUSY_COMMAND). The journey's
-        terminal stays the shown one."""
+        """STRESS-lite set-up: script workspaces (one terminal each; the app shows each new one) until the app holds
+        `count`; then `busy` of them print a line every 20 ms (perf-stress-session.py's BUSY_COMMAND). At the end the
+        journey's base terminal is shown and focused again (show_base_terminal)."""
         count, busy = int(step.get("count", 60)), int(step.get("busy", 10))
         def have():
             snap = self.app.rpc("snapshot.get") or {}
@@ -803,8 +803,28 @@ class Journey:
         names = have()
         if len(names) < count or len(busy_terms) < busy:
             raise StepError(f"STRESS-lite: {len(names)} workspaces (want {count}), {len(busy_terms)} busy (want {busy})")
+        refocus = self.show_base_terminal() if made else None
         time.sleep(float(step.get("settle", 2.0)))
-        return {"workspaces": len(names), "made": len(made), "busy": busy_terms}
+        return {"workspaces": len(names), "made": len(made), "busy": busy_terms, "refocus": refocus}
+
+    def show_base_terminal(self, timeout=20.0):
+        """The app shows each workspace a script's newTab makes, so after the STRESS-lite set-up the last one has
+        the keyboard (2026-11-04, DOGFOOD BENCH STATUS 11935: step 11 typed into stress-NONCE-59 on every round).
+        Show the base terminal's workspace again, as the person's click on its row would, and wait until its pane
+        has the focus; the STRESS-lite presses and the typing check then start from the same terminal as light."""
+        place = self.place_of(self.term)
+        if not place:
+            raise StepError(f"STRESS-lite: the base terminal {self.term} is not in the topology")
+        ws = place[0].get("id")
+        self.app.cmux("workspace", ws, "focus")
+        end, last = now() + timeout, None
+        while now() < end:
+            last = self.focused_pane()
+            if last.get("pane") == self.pane or (self.term and last.get("terminal_id") == self.term):
+                return {"workspace": ws, "pane": self.pane}
+            time.sleep(0.2)
+        raise StepError(f"STRESS-lite: the base terminal's pane {self.pane} (workspace {ws}) has no focus "
+                        f"{timeout:g} s after `cmux workspace {ws} focus`; focused: {last.get('pane') if last else None}")
 
     # -- scroll, paste, select: the pointer, the clipboard, helper files --
 
