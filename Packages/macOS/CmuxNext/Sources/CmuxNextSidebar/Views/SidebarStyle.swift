@@ -26,17 +26,17 @@ enum SidebarStyle {
     static var iconBox: CGFloat { leadingGlyphSide + Metrics.space2 }
     /// A leading glyph drawn at a fixed side (a pin, a header's leading icon): the small icon size plus the
     /// `sidebar.textSize` step, so it grows with the text beside it. Trailing marks keep `Metrics.smallIconSize`.
-    static var leadingGlyphSide: CGFloat { Metrics.smallIconSize + SidebarDensityTokens.textSteps.glyph }
-    /// A sidebar text style at the `sidebar.textSize` step (Lawrence msg 17752): `base`'s size plus
-    /// the density's ``SidebarTextSize/Steps/text``, at `weight`. The default size returns `base` itself.
+    static var leadingGlyphSide: CGFloat { SidebarDensityTokens.scaled(Metrics.smallIconSize) + SidebarDensityTokens.textSteps.glyph }
+    /// A sidebar text style at this density's scale and the `sidebar.textSize` step (Lawrence msg 17752), at
+    /// `weight`. Normal at the default size returns `base` itself.
     ///
     /// Row layout reads titles and details on every pass, so the font comes from `Typography.system`, which
     /// keeps one font per (design, size, weight) for the process (`CheckedFont`): no font object is made per row
     /// layout, and no sidebar cache is needed (a590's review). A text size or type scale change asks for a new size.
     static func sized(_ base: NSFont, weight: NSFont.Weight) -> NSFont {
-        let step = SidebarDensityTokens.textSteps.text
-        guard step != 0 else { return base }
-        return Typography.system(.default, size: base.pointSize + step, weight: weight)
+        let size = SidebarRowTokens.text(base.pointSize, density: SidebarDensityTokens.density) + SidebarDensityTokens.textSteps.text
+        guard size != base.pointSize else { return base }
+        return Typography.system(.default, size: size, weight: weight)
     }
     /// A list text style: the person's exact `custom` size (points at Interface Size 100%, which still
     /// scales it; the text size step does not apply) when set, else `base` at the `sidebar.textSize` step.
@@ -44,11 +44,9 @@ enum SidebarStyle {
         guard let custom else { return sized(base, weight: weight) }
         return Typography.system(.default, size: custom * Typography.userScale, weight: weight)
     }
-    /// The detail lines' text: `sidebar.detailSize` when set; Codex's 12 pt detail
-    /// (`Typography.sidebarDetail`), or the caption at Compact.
+    /// The detail lines' text: `sidebar.detailSize` when set; Codex's 12 pt detail (`Typography.sidebarDetail`).
     private static var detailFont: NSFont {
-        let base = SidebarDensityTokens.isCompact ? Typography.caption : Typography.sidebarDetail
-        return sized(base, weight: .regular, custom: SidebarDensityTokens.preferences.detailSize)
+        sized(Typography.sidebarDetail, weight: .regular, custom: SidebarDensityTokens.preferences.detailSize)
     }
     /// The one leading icon column (Leo 2026-10-28: "the alignment"): in a row whose leading slot starts at `leading`,
     /// every leading glyph (a band row's, a pinned row's pin, a workspace row's icon) centers its ink here, one
@@ -135,16 +133,13 @@ enum SidebarStyle {
     /// edge does not park and come back on every small scroll.
     static var pruneMargin: CGFloat { Metrics.sidebarRowHeightWithSubtitle }
 
-    /// Workspace titles: the Codex sidebar's 13 pt at its 430 UI weight (issue 28793; Compact keeps
-    /// `Typography.body` at regular, `sidebar.titleSize` sets the size), not bold, read
+    /// Workspace titles: the Codex sidebar's 13 pt at its 430 UI weight (issue 28793; `sidebar.titleSize`
+    /// sets the size), not bold, read
     /// or unread, selected or not (Lawrence 2026-10-14: "sidebar text should not be bold by default"),
     /// and every title in the primary text color ("All titles primary"):
     /// unread shows by the badge, selection by the fill.
     static var titleFont: NSFont {
-        let custom = SidebarDensityTokens.preferences.titleSize
-        return SidebarDensityTokens.isCompact
-            ? sized(Typography.body, weight: .regular, custom: custom)
-            : sized(Typography.sidebarRow, weight: TypeScale.sidebar, custom: custom)
+        sized(Typography.sidebarRow, weight: TypeScale.sidebar, custom: SidebarDensityTokens.preferences.titleSize)
     }
     /// Length of the fade that ends a clipped row title (no ellipsis): 24 pt at Compact. At
     /// 16 pt the fade ended at a word gap and read as a hard cut.

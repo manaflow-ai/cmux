@@ -22,9 +22,7 @@ public import CoreGraphics
 /// | medium          | 14 pt | 13 pt  | 29  | 31        | 14 pt         |
 /// | large           | 15 pt | 14 pt  | 32  | 34        | 15 pt         |
 ///
-/// Medium and Large are the same sizes at Compact density (``steps(compact:)``), whose Small is its own
-/// 12 pt text on 24 pt rows: Compact's Medium is the first setting's Larger exactly (14 pt on 29 pt rows),
-/// so a person who had Compact and the ChatGPT size sees no change.
+/// The table is Normal; a size adds the same steps at every density.
 public nonisolated enum SidebarTextSize: String, Hashable, Sendable, CaseIterable {
     /// The Codex desktop sidebar's size, the list's base tokens; the default.
     case small
@@ -59,16 +57,8 @@ public nonisolated enum SidebarTextSize: String, Hashable, Sendable, CaseIterabl
         }
     }
 
-    /// The steps over the density's sizes: from Compact's 12 pt text on 24 pt rows when `compact`, else
-    /// from the Codex 13 pt text on 28 pt rows, so Medium and Large come out the same size at both.
-    public func steps(compact: Bool) -> Steps {
-        guard compact else { return Steps(text: textStep, row: rowStep, glyph: glyphStep) }
-        switch self {
-        case .small: return Steps(text: 0, row: 0, glyph: 0)
-        case .medium: return Steps(text: 2, row: 5, glyph: 2)
-        case .large: return Steps(text: 3, row: 8, glyph: 3)
-        }
-    }
+    /// The steps over a density's sizes.
+    public var steps: Steps { Steps(text: textStep, row: rowStep, glyph: glyphStep) }
 
     /// Points added to the list's text sizes over the Codex base (titles, details and headers).
     public var textStep: CGFloat {

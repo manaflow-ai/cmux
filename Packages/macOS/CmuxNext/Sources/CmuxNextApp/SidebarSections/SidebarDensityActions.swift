@@ -12,7 +12,7 @@ enum SidebarDensityActions {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let current = { (context.services.settings?.snapshot.sidebarSections ?? .defaults).density }
         let choices: [(ActionID, SidebarDensity)] = [
-            ("sidebar.density.compact", .compact), ("sidebar.density.normal", .normal), ("sidebar.density.comfortable", .comfortable), ("sidebar.density.expanded", .expanded),
+            ("sidebar.density.ultraCompact", .ultraCompact), ("sidebar.density.compact", .compact), ("sidebar.density.normal", .normal), ("sidebar.density.comfortable", .comfortable), ("sidebar.density.expanded", .expanded),
         ]
         for (id, value) in choices {
             registry.bind(id, unavailable: { nil }) { invocation in
