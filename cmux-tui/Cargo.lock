@@ -58,6 +58,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "signal-hook-registry",
  "syntect",
  "tar",
  "tempfile",
@@ -1282,6 +1283,7 @@ dependencies = [
  "tokio",
  "url",
  "x25519-dalek",
+ "yaml-rust",
  "zeroize",
 ]
 

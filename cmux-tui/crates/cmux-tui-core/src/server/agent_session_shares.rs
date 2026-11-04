@@ -337,6 +337,42 @@ impl Drop for LinkShares {
     }
 }
 
+/// Moves `directory`'s shares file to the first free name of `.unreadable`,
+/// `.unreadable-<ms>`, `.unreadable-<ms>-1`, … A hard link never replaces what is at its
+/// name (a `rename` would: two moves in one millisecond, or a clock that went back, pick the
+/// same name), so a taken name moves on to the next; the original is removed once linked. A
+/// filesystem without hard links falls back to `rename`, and only onto a name nothing is at.
+fn set_aside_unreplaced(directory: &Path, ms: u64) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+    let path = directory.join(FILE);
+    let mut attempt = 0u64;
+    loop {
+        let aside = directory.join(match attempt {
+            0 => format!("{FILE}.unreadable"),
+            1 => format!("{FILE}.unreadable-{ms}"),
+            n => format!("{FILE}.unreadable-{ms}-{}", n - 1),
+        });
+        attempt += 1;
+        match std::fs::hard_link(&path, &aside) {
+            Ok(()) => {
+                return match std::fs::remove_file(&path) {
+                    Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
+                    _ => Ok(()),
+                };
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(_) if std::fs::symlink_metadata(&aside).is_ok() => {}
+            Err(_) => {
+                return match std::fs::rename(&path, &aside) {
+                    Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+                    moved => moved,
+                };
+            }
+        }
+    }
+}
+
 fn wall_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -555,21 +591,15 @@ impl LinkShares {
     }
 
     /// Moves an unreadable shares file to `agent-session-shares.json.unreadable` (or, when one
-    /// from before is there, `….unreadable-<unix ms>`), so no write replaces it and no earlier
-    /// copy is lost. Ok when there is nothing at the path any more.
+    /// from before is there, `….unreadable-<unix ms>`, then `….unreadable-<unix ms>-<n>`), so no
+    /// write replaces it and no earlier copy is lost. Ok when there is nothing at the path any
+    /// more.
     fn set_aside(&self, directory: &Path) -> std::io::Result<()> {
         #[cfg(test)]
         if self.refuse_set_aside.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("set aside refused (test)"));
         }
-        let mut aside = directory.join(format!("{FILE}.unreadable"));
-        if std::fs::symlink_metadata(&aside).is_ok() {
-            aside = directory.join(format!("{FILE}.unreadable-{}", wall_ms()));
-        }
-        match std::fs::rename(directory.join(FILE), &aside) {
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            moved => moved,
-        }
+        set_aside_unreplaced(directory, wall_ms())
     }
 
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
