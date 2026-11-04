@@ -113,9 +113,9 @@ final class MessageCell: UICollectionViewCell {
         footerLabel.textAlignment = .right
         editedLabel.font = ConversationTheme.editedFont
         editedLabel.textColor = .systemBlue
-        repliesLabel.font = ConversationTheme.editedFont
+        repliesLabel.font = ConversationTheme.footerFont
         repliesLabel.textColor = .systemBlue
-        quoteRepliesLabel.font = ConversationTheme.editedFont
+        quoteRepliesLabel.font = ConversationTheme.footerFont
         quoteRepliesLabel.textColor = .systemBlue
         failedBadge.tintColor = ConversationTheme.notDelivered
         failedBadge.contentMode = .scaleAspectFit

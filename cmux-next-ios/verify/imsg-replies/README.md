@@ -65,3 +65,9 @@ reply preview gray (outline 20 %/22 %, text 44 %), reply preview blue
   and starts again level with the next bubble's top, 10 pt under theirs.
 - A reply to a reply joins the root's thread and quotes the root.
 - A plain message, another thread or a timestamp section ends the block.
+- "N Replies" is caption2 semibold (as "Delivered"), 7.33 pt under the quote.
+  Under a quote of mine it ends 12 pt inside the quote's edge; under a quote
+  of theirs it starts 12 pt right of the line, and the line passes beside it,
+  its ink 6.33 pt under the quote.
+- The quote outline is 27.33 pt tall in the simulator and 29.33 pt on the
+  2026-10-30 device screenshot; Chief keeps the device's.

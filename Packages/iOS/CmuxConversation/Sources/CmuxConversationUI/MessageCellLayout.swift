@@ -371,11 +371,15 @@ extension MessageCellLayout {
     static let quoteTextInset: CGFloat = 10
     static let quoteHeight: CGFloat = 28
     static let quoteMinimumWidth: CGFloat = 48
-    /// "N Replies" under the quote when the quoted message has two or more
-    /// (Messages: "3 Replies" under both quotes of "ill merge ok?", none under
-    /// a quote with one): its glyphs 7.33 pt under the quote, 12 pt in.
+    /// "N Replies" under the quote: its glyphs 7.33 pt under the quote, and
+    /// 12 pt in from the quote's trailing edge (a quote of mine) or from the
+    /// reply line's edge (a quote of theirs, where the line passes beside the
+    /// label; simulator Messages 27.0).
     static let quoteRepliesGap: CGFloat = 17.0 / 3
     static let quoteRepliesInset: CGFloat = 12
+    /// Under a quote of theirs with "N Replies", the line's ink starts
+    /// 6.33 pt under the quote (simulator Messages 27.0): `quoteGap` plus this.
+    static let lineDropBesideReplies: CGFloat = 7
     /// To the reply's top: from the quote, 12 pt on one side (the line runs
     /// between them) and 10.33 pt across; from "N Replies", 11.33 pt and
     /// 3 pt from its glyphs (each measured to the outline Messages draws).
@@ -424,6 +428,10 @@ extension MessageCellLayout {
                 : CGRect(x: incomingBodyLeading - t.tailWidth, y: y, width: w + t.tailWidth, height: h)
         }
 
+        // The reply line runs in its own column at the transcript's leading
+        // edge (a group's avatar column), whichever side the bubbles are on.
+        let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
+
         var y: CGFloat = 0
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
@@ -457,7 +465,7 @@ extension MessageCellLayout {
                 let h = t.footerHeight
                 quoteRepliesFrame = quote.isOutgoing
                     ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
-                    : CGRect(x: bodyMinX + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
+                    : CGRect(x: max(bodyMinX, column + ConversationReplyThread.lineWidth / 2) + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                 y += Self.quoteRepliesGap + h
                 y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
             } else {
@@ -659,17 +667,14 @@ extension MessageCellLayout {
         var thread: ConversationReplyThread?
         let pieces = imageFrames + fileFrames + [bubbleFrame, emojiFrame, audioFrame, linkCardFrame].compactMap { $0 }
         let replyTop = pieces.min { $0.minY < $1.minY } ?? primary
-        // The line runs in its own column at the transcript's leading
-        // edge (a group's avatar column), whichever side the bubbles are on.
-        let column = model.isGroup ? margin + t.avatarSize / 2 : margin + ConversationReplyThread.columnInset
         let replyAvatarTop = !model.isOutgoing && model.reservesAvatarColumn ? (avatarFrame?.minY ?? primary.maxY) : nil
         if let quoteFrame, let quote = model.replyQuote {
             var quoteBody = quoteFrame
             quoteBody.size.width -= t.tailWidth
             if !quote.isOutgoing { quoteBody.origin.x += t.tailWidth }
-            // Under a quote of theirs the line drops from the leading edge,
-            // where "N Replies" sits: it starts under the label instead.
-            if !quote.isOutgoing, let labels = quoteRepliesFrame { quoteBody.size.height = labels.maxY - quoteBody.minY }
+            // Under a quote of theirs the line drops from the leading edge and
+            // passes beside its "N Replies", a little lower than under a bare quote.
+            if !quote.isOutgoing, quoteRepliesFrame != nil { quoteBody.size.height += Self.lineDropBesideReplies }
             thread = ConversationReplyThread.row(
                 quote: quoteBody,
                 quoteSide: quote.isOutgoing ? .trailing : .leading,
