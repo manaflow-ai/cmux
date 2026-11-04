@@ -929,6 +929,18 @@ fn input_payloads(frames: &[Frame]) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// Starts the port's writer on a key `k` and lets it write it, then holds it paused on its next frame: the next
+/// frame is taken at once by a running writer (no thread start), so a test of a frame "taken, not yet written"
+/// does not depend on how fast a new thread starts (#35082 review 2, should-do 4). Returns the pause's sender.
+#[cfg(unix)]
+fn running_paused_writer(surface: &Surface, pty: &PtySurface) -> std::sync::mpsc::Sender<()> {
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    resume.send(()).expect("the port's writer waits");
+    resume
+}
+
 /// Installs a live replacement connection as the reader does (`PtyTerminalRuntime::replace_runtime` under the
 /// runtime lock, which it then releases); returns the replacement's host end.
 #[cfg(unix)]
@@ -1126,8 +1138,9 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     let (_mux, surface, mut host) =
         hosted_typing_surface("hosted-input-port-reply-in-flight", true);
     let pty = surface.as_pty().expect("a terminal");
-    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
-    let resume = pty.input_port.pause_writes_for_test();
+    let resume = running_paused_writer(&surface, pty);
+    // The running writer takes "y" at once and holds it at its pause; the wait ends long after that.
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
     let error = surface.write_bytes(b"y").expect_err("a write still being written answered ok");
     assert!(
         input_may_be_written(&error),
@@ -1135,7 +1148,11 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     );
     drop(resume);
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
-    assert_eq!(written, vec![b"y".to_vec()], "the frame the port was writing reached the host");
+    assert_eq!(
+        written,
+        vec![b"k".to_vec(), b"y".to_vec()],
+        "the frame the port was writing reached the host"
+    );
 }
 
 /// R-DAEMON-STATE S1.6b review 1 (item 6): the creating-input flush gives back the bytes it could not write, but not
@@ -1159,9 +1176,10 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
             .expect("queued while creating");
     }
     mux.insert_surface_runtime_for_test(surface.clone());
-    pty.input_port.set_reply_wait_for_test(Duration::from_millis(300));
-    let resume = pty.input_port.pause_writes_for_test();
-    // The flush writes "a"; the port's writer holds it at its pause until the flush's wait ends.
+    let resume = running_paused_writer(&surface, pty);
+    pty.input_port.set_reply_wait_for_test(Duration::from_secs(2));
+    // The flush writes "a"; the running writer takes it at once and holds it at its pause until the flush's wait
+    // ends.
     mux.finish_creating_input(&terminal_id, generation, None);
     assert_eq!(
         given_back.lock().unwrap().as_slice(),
@@ -1170,7 +1188,11 @@ fn the_creating_input_flush_keeps_input_that_may_have_been_written() {
     );
     drop(resume);
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
-    assert_eq!(written, vec![b"a".to_vec()], "the input the flush kept reached the host once");
+    assert_eq!(
+        written,
+        vec![b"k".to_vec(), b"a".to_vec()],
+        "the input the flush kept reached the host once"
+    );
 }
 
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 1): a write that waits out a lost host connection fails as soon
