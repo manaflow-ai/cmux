@@ -7,3 +7,23 @@
   flex: none;
   max-width: 40%;
 }
+/* How the chat's reply sits under a finished line: "grid" is the shipped look (conversation.css
+   `.cv-tools > .cv-reaction-reply`). */
+.subagent-done-gallery[data-reply-look="note"] .cv-tools > .cv-reaction-reply {
+  margin: var(--cv-note-gap) 0;
+}
+.subagent-done-gallery[data-reply-look="quote"] .cv-tools > .cv-reaction-reply {
+  margin: 2px 0 2px var(--cv-tool-text-inset);
+  padding-left: var(--ds-space-2);
+  border-left: 2px solid color-mix(in srgb, var(--cv-text) 14%, transparent);
+}
+.subagent-done-gallery[data-reply-look="before"] .cv-tools > .cv-reaction-reply {
+  margin: 4px 0 6px;
+  line-height: inherit;
+}
+/* The stage's rows flow one under the other (the transcript places its rows absolutely, which drew
+   every row of this stage at the same top). */
+.subagent-done-gallery > .acpmux-row {
+  position: relative;
+  inset: auto;
+}

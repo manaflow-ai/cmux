@@ -9,10 +9,11 @@
   cursor: default;
   user-select: none;
 }
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > .cv-agent-activity__control {
-  color: var(--cv-text);
-}
-.cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) .cv-agent-activity__chevron {
+/* One steady tone under the pointer, as the tool rows keep (design/chat-transcript.md "steady
+   tone"; cmux#29754 lifted these lines to the text colour on hover): only keyboard focus lifts the
+   line, so it still shows where focus is. */
+.cv-agent-activity-row:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) > .cv-agent-activity__control,
+.cv-agent-activity-row:has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) .cv-agent-activity__chevron {
   color: var(--cv-text);
 }
 .cv-agent-activity__control {
@@ -52,8 +53,7 @@
   flex: none;
 }
 
-/* A received message's line keeps one tone under the pointer and focus (conversation.css
-   `.cv-received__text`); other disclosure lines still lift. */
-.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):is(:hover, :active, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) {
+/* A disclosure line (a report batch, a received message) lifts only for keyboard focus too. */
+.cv-agent-activity-row.cv-disclosure__line:not(.cv-received > *):has(:focus-visible):not(:has(.cv-agent-tag.is-open:focus)) {
   color: var(--cv-text);
 }
