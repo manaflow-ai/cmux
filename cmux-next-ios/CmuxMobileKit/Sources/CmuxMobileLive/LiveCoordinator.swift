@@ -668,6 +668,7 @@ public final class LiveCoordinator {
     /// Closes a Mac's link and forgets its session.
     private func closeSession(_ id: String) {
         guard let session = sessions.removeValue(forKey: id) else { return }
+        session.pairingRetry?.cancel()
         for relay in session.cloudChats.values { relay.retire() }
         session.cloudChats.removeAll()
         session.link.send(.target(nil))

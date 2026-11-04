@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Admit secret-free nightly controls on reserved fleet Linux before paid overflow.
+"""Admit secret-free nightly controls on reserved fleet Linux before the hosted Ubuntu overflow.
 
 The controller owns the 180-second lease and dispatches the existing HQ JIT
 provisioner. A fleet receipt names an unconsumed runner for each requested job;
@@ -27,7 +27,9 @@ import nightly_admission_receipt as published
 from nightly_admission_receipt import validate
 
 FLEET_LINUX = "cmux-fleet-linux-x64"
-OVERFLOW = {"blacksmith-16vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
+# Nightlies never run on Blacksmith (Lawrence, 2026-10-30). The overflow is GitHub-hosted Ubuntu, which always
+# starts a job: a bare nightly-only reservation label holds a control that no live placement admitted.
+OVERFLOW = {"ubuntu-24.04"}
 JOBS = frozenset({"resolve-nightly-cmux-tui-client",
                   "resolve-nightly-ghostty-cli-helper", "build-nightly-inputs",
                   "find-nightly-next-recovery"})

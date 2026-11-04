@@ -80,4 +80,68 @@ struct CloudStartChatLoginTests {
         #expect(declined.step == .skip && declined.reason == .buildGateOff && declined.summary.hasSuffix(" -> declined"))
         #expect(declined.provider == .codex && Decision(dogfood: true, setting: nil, harness: "opencode", signedIn: true).provider == nil)
     }
+
+    /// Leo, 2026-11-02: a CLI or agent run never waits on a confirm; it takes the machine's login,
+    /// the person's kept choice or `--login`, and with none of them fails at once.
+    @Test func aHeadlessRunDecidesAtOnce() {
+        func decision(_ ask: CloudHarnessLoginAsk, stored: Decision.Choice? = nil, machine: String = "none\n") -> Decision {
+            var decision = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+            (decision.requested, decision.requestedByPerson, decision.headless) = (ask.requested, ask.byPerson && ask.requested != nil, ask.headless)
+            (decision.stored, decision.callerOwns, decision.guestStdout) = (stored, true, "vm-kind:owner\n")
+            decision.machineProbe = .init(exitCode: 0, stdout: machine)
+            return decision
+        }
+        let headless = CloudHarnessLoginAsk(headless: true)
+        #expect(decision(headless).step == .refuse && decision(headless).reason == .needsLoginChoice)
+        #expect(decision(headless, stored: Decision.Choice.none).reason == .choseNone)
+        #expect(decision(headless, stored: .machine).reason == .machineLoginMissing)
+        #expect(decision(.init(requested: .pass, byPerson: true, headless: true)).step == .install)
+        #expect(decision(.init(requested: .pass, byPerson: false, headless: true)).step == .refuse, "an agent's --login pass is no consent")
+        #expect(decision(.init(), stored: nil).step == .confirmThenInstall, "the palette still asks once")
+        #expect(decision(headless).refusal == .needsLoginChoice)
+        var codex = decision(headless)
+        codex.harness = "codex"
+        #expect(codex.refusal == nil, "a headless Codex start goes on as on base (cmux#34209 tracks refusing it)")
+    }
+
+    /// A rejected credential's automatic recovery never copies a login the run or the person refused.
+    @Test func automaticRecoveryHonorsNoneAndMachine() {
+        var decision = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        #expect(CloudHarnessLoginChoices.allowsAutomaticCopy(nil, stored: nil))
+        #expect(CloudHarnessLoginChoices.allowsAutomaticCopy(nil, stored: .pass))
+        #expect(!CloudHarnessLoginChoices.allowsAutomaticCopy(nil, stored: Decision.Choice.none))
+        #expect(!CloudHarnessLoginChoices.allowsAutomaticCopy(nil, stored: .machine))
+        decision.requested = Decision.Choice.none
+        #expect(!CloudHarnessLoginChoices.allowsAutomaticCopy(decision, stored: .pass), "the run's --login none wins")
+        decision.requested = .pass
+        #expect(!CloudHarnessLoginChoices.allowsAutomaticCopy(decision, stored: nil), "an agent's --login pass is no consent")
+        #expect(CloudHarnessLoginChoices.allowsAutomaticCopy(decision, stored: .pass))
+        decision.requestedByPerson = true
+        #expect(CloudHarnessLoginChoices.allowsAutomaticCopy(decision, stored: nil))
+    }
+
+    /// The person's own `--login` is kept per user; an agent's is used for that run only, and its
+    /// `pass` never overrides a kept `none` or `machine`.
+    @Test func onlyThePersonsChoiceIsKept() throws {
+        let suite = "CloudStartChatLoginTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let choices = CloudHarnessLoginChoices(defaults: defaults)
+        var decision = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        CloudHarnessLoginAsk(requested: .pass, byPerson: false, headless: true).apply(to: &decision, userID: "u1", choices: choices)
+        #expect(decision.requested == .pass && !decision.requestedByPerson && decision.stored == nil)
+        #expect(choices.load(userID: "u1") == nil)
+        CloudHarnessLoginAsk(requested: .machine, byPerson: true, headless: true).apply(to: &decision, userID: "u1", choices: choices)
+        #expect(decision.requestedByPerson && choices.load(userID: "u1") == .machine)
+        CloudHarnessLoginAsk(headless: true).apply(to: &decision, userID: "u1", choices: choices)
+        #expect(decision.requested == nil && decision.stored == .machine)
+        CloudHarnessLoginAsk(requested: .pass, byPerson: false, headless: true).apply(to: &decision, userID: "u1", choices: choices)
+        #expect(decision.requested == .machine, "an agent's pass never overrides the person's kept machine")
+        choices.save(.none, userID: "u1")
+        CloudHarnessLoginAsk(requested: .pass, byPerson: false, headless: true).apply(to: &decision, userID: "u1", choices: choices)
+        #expect(decision.requested == Decision.Choice.none, "nor their kept none")
+        #expect(choices.load(userID: "u2") == nil, "per user")
+        #expect(throws: CloudHarnessLoginAsk.Invalid()) { try CloudHarnessLoginAsk.choice("always") }
+        #expect(try CloudHarnessLoginAsk.choice(" NONE ") == Decision.Choice.none && CloudHarnessLoginAsk.choice(nil) == nil)
+    }
 }

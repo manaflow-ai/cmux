@@ -808,7 +808,7 @@ impl Targets {
         if let Some(n) = &named
             && !peers.iter().any(|(p, _)| p.eq_ignore_ascii_case(n))
         {
-            bail!("{n} is not an ssh peer of this daemon (`acpmux host ls`)");
+            bail!("{n} is not an ssh peer of this daemon (`acpmux machine ls`)");
         }
         Ok(Self {
             here: None,
@@ -893,7 +893,7 @@ impl Targets {
                 }
                 walked.pick.ok_or_else(|| {
                     anyhow!(
-                        "no peer can take a moved chat: {} (`acpmux host place`)",
+                        "no peer can take a moved chat: {} (`acpmux machine pick`)",
                         if skipped.is_empty() {
                             "none has room".to_owned()
                         } else {

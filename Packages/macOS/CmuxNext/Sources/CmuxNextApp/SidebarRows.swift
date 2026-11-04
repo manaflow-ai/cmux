@@ -102,7 +102,7 @@ final class SidebarRows {
         if let elsewhere { self.elsewhere = elsewhere }
         let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
-        if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        if unlessShown, !reprojected, model.arrangedSortsAreCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
@@ -129,19 +129,13 @@ final class SidebarRows {
     }
 
     /// Folds or opens `group` at once and keeps that look until `body`
-    /// replied and the home store holds it, or failed (then `failed`).
+    /// replied and the home store holds it; a slow reply is sent again
+    /// quietly, and only a refusal goes to `failed` (`SidebarRowEdits.saveFold`).
     func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, failed: @escaping @MainActor (ActionWorkFailure) -> Void,
               _ body: @escaping DaemonCommandBody) {
-        let settle = edits.fold(group, collapsed: collapsed)
         let transaction = ClientTransactionID.generate()
-        // task-owner: one personal fold command; settles its fold
-        Task {
-            if let failure = await home.failure("update-personal-group", body) {
-                settle()
-                return failed(failure)
-            }
-            home.whenApplied(transaction, settle)
-        }
+        edits.saveFold(group, collapsed: collapsed, save: { await home.failure("update-personal-group", body) },
+                       mayHaveApplied: { $0.mayHaveApplied }, refused: failed) { home.whenApplied(transaction, $0) }
     }
 
     /// Writes `group`'s fold into the live rows kept here (one group, no redraw).
@@ -173,9 +167,9 @@ final class SidebarRows {
         }
     }
 
-    /// Sends one personal-state command to `home` for `edit`.
-    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService,
+    /// Sends one personal-state command to `home` for `edit`; `until`: sent again while unanswered, never undone.
+    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, until claim: PersonalWriteLedger.Claim? = nil,
               failed: @escaping @MainActor (ActionWorkFailure) -> Void, _ body: @escaping DaemonCommandBody) {
-        send(edit, [(label, home, body)], failed: failed)
+        if let claim { home.sendUntilAnswered(label, until: claim, edits.outcome(edit, failed: failed), body) } else { send(edit, [(label, home, body)], failed: failed) }
     }
 }

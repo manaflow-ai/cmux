@@ -26,6 +26,7 @@ import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
+import { THINKING_VERBS } from "../src/agent-session/acpmux/conversation/thinkingVerbs";
 
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -616,9 +617,13 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
-    // draws no row for the thought yet; the turn's live line at its foot says "Thinking"
-    // (Thinking.tsx), with nothing to open.
-    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Thinking" }).waitFor();
+    // draws no row for the thought yet; the turn's live line at its foot says the turn's verb
+    // ("Pondering", conversation/thinkingVerbs.ts), with nothing to open.
+    await page
+      .locator(".cv-worked.is-below .cv-thinking", {
+        hasText: new RegExp(`^(?:Thinking|${THINKING_VERBS.join("|")})`),
+      })
+      .waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();

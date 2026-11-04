@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d3d3f420820ff448d4f0b85e75fedc39369a56e5/CCmuxAppFFI.xcframework.zip",
-    checksum: "267fc1ede0e107fcc57be43e33cf1308b25803da1512ab32ea27486188f54742"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-df4352d75349a4374f29caac31458c83d4a0c6dc/CCmuxAppFFI.xcframework.zip",
+    checksum: "f31f6634638a23e3720563a811af4578d225fcd80431ba63f48ba9e0186a9314"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -194,14 +194,15 @@ let uiLayerPreviewDefine: [SwiftSetting] = [
 let uiLayerPreviewTargets: [Target] = [
     .target(
         name: "CmuxNextUiLayerPreview",
-        dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+        // Settings and CmuxTheme read the installed app's look (UiLayerAppLook).
+        dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", .product(name: "CmuxTheme", package: "CmuxTheme")],
         swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
     // The library compiles to nothing outside Debug, so its tests carry the
     // same define and compile to nothing there too.
     .testTarget(
         name: "CmuxNextUiLayerPreviewTests",
-        dependencies: ["CmuxNextUiLayerPreview"],
+        dependencies: ["CmuxNextUiLayerPreview", .product(name: "CmuxTheme", package: "CmuxTheme")],
         swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
 ]
@@ -1060,7 +1061,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -1277,6 +1278,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBridge",
             dependencies: [
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -1555,7 +1557,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextSidebar"],
+            dependencies: ["CmuxNextSidebar", "CmuxNextWakeups"],
             exclude: ["Fixtures"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1587,7 +1589,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
@@ -1845,7 +1847,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(

@@ -39,6 +39,9 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a grid report waits for the pane's layout spring to land (``TerminalGridPolicy/held``).
     var isHeldGridPending: Bool { geometry.held }
 
+    /// The size this view asked of Ghostty while its window's commit owns its frame (``place(_:anchor:)``).
+    var frameOwnership = TerminalFrameOwnership()
+
     /// A person drags a divider or edge of this terminal's pane (`PaneResizeGestureFollowing`): the view's
     /// grid is held (drawn as the reflow preview) and goes to the PTY once, when the drag lands.
     var isFollowingResizeGesture = false
@@ -108,8 +111,11 @@ public final class TerminalSurfaceView: NSView {
     private var givenAwayFrame: IOSurface?
     private var lastFocus: Bool?
     private var windowObservers: [any NSObjectProtocol] = []
-    private var appliedContentScale: NSSize?
+    /// The display scale last given to Ghostty (``updateContentScale()``); nil before it was set.
+    private(set) var appliedContentScale: NSSize?
     private var appliedDisplayID: UInt32?
+    /// The display scale a test puts this view at (its window moved to a display of another scale); nil: AppKit's.
+    var backingScaleOverride: CGFloat?
     var trackingArea: NSTrackingArea?
     var cursor: NSCursor = .iBeam
 
@@ -232,6 +238,8 @@ public final class TerminalSurfaceView: NSView {
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        // A size that waits for this window's commit takes its bounds now.
+        if newWindow !== window { releaseFrameOwnership() }
         super.viewWillMove(toWindow: newWindow)
         observeWindow(false)
         // Leaving its window gets no mouseExited: the modifier watcher and underlines go here.
@@ -241,6 +249,8 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         syncWindowState()
+        // In another window, its last shown-size change's commit is reported by that window's presenter.
+        frameOwnershipDidReveal()
     }
 
     public override func viewDidHide() {
@@ -274,6 +284,7 @@ public final class TerminalSurfaceView: NSView {
             let joined = isInPaneMotion && joinPaneMotion()
             updateSurfaceSize(forceReport: pendingForcedReport && !joined)
             pendingForcedReport = false
+            requestPresentIfNeeded()
         }
         updateOcclusion()
         updateFocus()
@@ -318,8 +329,7 @@ public final class TerminalSurfaceView: NSView {
         case NSWindow.didChangeOcclusionStateNotification:
             updateOcclusion()
         case NSWindow.didChangeScreenNotification:
-            updateContentScale()
-            updateSurfaceSize()
+            backingDidChange()
         default:
             updateFocus()
         }
@@ -329,8 +339,15 @@ public final class TerminalSurfaceView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         guard !isHiddenOrHasHiddenAncestor else { return }
+        backingDidChange()
+    }
+
+    /// A new display scale or screen: Ghostty's scale and pixel size follow at once; while its window's commit owns
+    /// the frame, the layer takes the new scale with the frame drawn at it (``requestPresentIfNeeded()``).
+    private func backingDidChange() {
         updateContentScale()
         updateSurfaceSize()
+        requestPresentIfNeeded()
     }
 
     /// Every frame of a drag resizes a shown surface at once (a hidden one waits to be shown,
@@ -343,8 +360,10 @@ public final class TerminalSurfaceView: NSView {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
         if resized { session?.frameChanges.bump() } // its kept frame has another size now (TerminalLaunchFrameKeeper)
-        if resized, isShown { updateSurfaceSize() }
-        copyMode.syncCursor()
+        // Taking the size Ghostty already shows (``landRequestedFrame()``) asks for no new size.
+        if resized, isShown, !frameOwnership.landing { updateSurfaceSize() }
+        // A landing runs under the Core Animation lock: its cursor box follows after it (``frameDidLand()``).
+        if !frameOwnership.landing { copyMode.syncCursor() }
     }
 
     /// `ghostty_surface_set_content_scale` + `ghostty_surface_set_display_id`
@@ -352,16 +371,18 @@ public final class TerminalSurfaceView: NSView {
     /// Applies only what changed since the last call (a terminal shown again calls it).
     private func updateContentScale() {
         guard let surface else { return }
-        let scale = convertToBacking(NSSize(width: 1, height: 1))
+        let scale = toBacking(NSSize(width: 1, height: 1))
         if scale != appliedContentScale {
             appliedContentScale = scale
             ghostty_surface_set_content_scale(surface, scale.width, scale.height)
         }
         if let window {
-            if layer?.contentsScale != window.backingScaleFactor {
+            let backing = backingScaleOverride ?? window.backingScaleFactor
+            // While its window's commit owns the frame, the layer keeps the scale of the frame it shows.
+            if !holdsScale(backing), layer?.contentsScale != backing {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                layer?.contentsScale = window.backingScaleFactor
+                layer?.contentsScale = backing
                 CATransaction.commit()
             }
             if let screenNumber = window.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber,
@@ -370,6 +391,12 @@ public final class TerminalSurfaceView: NSView {
                 ghostty_surface_set_display_id(surface, screenNumber.uint32Value)
             }
         }
+    }
+
+    /// `size` in this view's backing pixels: AppKit's conversion, or ``backingScaleOverride``'s.
+    private func toBacking(_ size: NSSize) -> NSSize {
+        guard let scale = backingScaleOverride else { return convertToBacking(size) }
+        return NSSize(width: size.width * scale, height: size.height * scale)
     }
 
     /// Locks the mirror to the owner's grid on the output lane, behind every
@@ -426,7 +453,8 @@ public final class TerminalSurfaceView: NSView {
             pendingForcedReport = pendingForcedReport || forceReport
             return
         }
-        let pixels = convertToBacking(bounds.size)
+        // The size asked of Ghostty and not shown yet, else the view's (``place(_:anchor:)``).
+        let pixels = toBacking(frameOwnership.inFlight ?? bounds.size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
         defer { copyMode.syncCursor() }
         ghostty_surface_set_size(surface, UInt32(pixels.width), UInt32(pixels.height))
@@ -516,29 +544,42 @@ public final class TerminalSurfaceView: NSView {
         guard drawing != lastOcclusionVisible else { return }
         lastOcclusionVisible = drawing
         session?.frameChanges.wake() // drawn or paused (a window shown, minimized, occluded): its kept frame follows
-        holdPresentedFrame(volatile: pause != nil)
+        let saved = holdPresentedFrame(volatile: pause != nil)
         ghostty_surface_set_occlusion(surface, drawing)
         // A surface can parse a renderer-affecting OSC action (for example Copilot's OSC 11
         // background update) before its view has ever joined a window. The visibility message
         // normally starts the next frame, but a first display after that off-window parse can
         // otherwise retain an empty IOSurface. Explicitly refresh the reveal edge so the state
         // already parsed off-screen is presented (#22282, related to #16706/#18432).
-        if drawing { ghostty_surface_refresh(surface) }
+        if drawing {
+            ghostty_surface_refresh(surface)
+            frameOwnershipDidReveal()
+            if isShown { session?.surfaceRevealed(self, saved: saved) }
+        } else {
+            session?.surfaceHidden(self)
+        }
     }
 
     /// A paused surface keeps the frame its layer shows, volatile until it shows again
     /// (``TerminalFramePurgeability``): shown again, it is non-volatile before the next commit, and a
     /// purged one leaves the layer empty until Ghostty's next frame, as before.
-    private func holdPresentedFrame(volatile: Bool) {
+    /// Returns what became of the kept frame when the surface draws again (``TerminalRevealReport/SavedFrame``).
+    @discardableResult
+    private func holdPresentedFrame(volatile: Bool) -> TerminalRevealReport.SavedFrame {
         if volatile {
             volatileFrame = presentedFrame === givenAwayFrame ? nil : presentedFrame
             volatileFrame?.makeVolatile()
-        } else if let frame = volatileFrame {
-            volatileFrame = nil
-            // A frame in flight at the pause may have replaced it: that one is not volatile.
-            guard presentedFrame === frame else { return }
-            if !frame.reclaim() { layer?.contents = nil }
+            return .none
         }
+        guard let frame = volatileFrame else { return .none }
+        volatileFrame = nil
+        // A frame in flight at the pause may have replaced it: that one is not volatile.
+        guard presentedFrame === frame else { return .replaced }
+        guard frame.reclaim() else {
+            layer?.contents = nil
+            return .purged
+        }
+        return .kept
     }
 
     /// The presented frame for one reader (hover pictures): a paused surface's volatile frame is

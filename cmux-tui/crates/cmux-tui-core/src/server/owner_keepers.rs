@@ -2,8 +2,8 @@
 //! else keeps it (R-LIFECYCLE stage 1, handoff/rewrites/R-LIFECYCLE/DESIGN.md).
 //!
 //! `server ensure` starts the owner of an app session (`cmux-app`,
-//! `cmux-app-*`) detached, so that terminals outlive the app (pty-holder.md
-//! D1). With nothing to keep, that owner ran until reboot: after a quit, a
+//! `cmux-app-*`) and of the app's Chief session (`cmux-chief-*`) detached,
+//! so that terminals outlive the app (pty-holder.md D1). With nothing to keep, that owner ran until reboot: after a quit, a
 //! crash or a deleted bundle, for every build and tag a person ran (STATUS
 //! 1370: 105 such processes on 8 fleet hosts; STATUS 8519: the cmux20
 //! nightly's owner after its app quit). Its state is durable, so a stop
@@ -18,11 +18,21 @@
 //!   except the owner's own journal plugin;
 //! - a live terminal (launching, adopting or running): this includes a
 //!   closed terminal in its Reopen hold until the reaper ends it, and a
-//!   terminal marked `keep`; and a terminal whose new shell is on its way (a
-//!   lost host's respawn in its backoff, or an `on_exit` shell restart);
+//!   terminal marked `keep`; a terminal whose new shell is on its way (a
+//!   lost host's respawn in its backoff, or an `on_exit` shell restart); an
+//!   ended `on_exit` keep or shell terminal whose tabs and final screen
+//!   only this owner holds (a new owner detaches them); and a signal exit
+//!   whose detach waits out the session shutdown lead (a stop in that wait
+//!   would make it a host loss, and the next owner would respawn a shell the
+//!   person killed);
 //! - its running browser host (an agent in one of its terminals may use it);
 //! - a running app server (an `always` server, or an on-demand server until
-//!   its idle stop).
+//!   its idle stop), and an `always` server that crashed and waits for its
+//!   restart;
+//! - in a Chief session, a brain the owner supervises (`chief_brains.rs`)
+//!   that runs or waits for its restart, and a signal that may start one:
+//!   the owner's stop ends every brain and cuts its turn, and a brain is a
+//!   client only while its link is up.
 //!
 //! When none holds, it stops as a plain `server stop` does
 //! ([`stop_orphaned_owner`]): no terminal is ended (none is live) and no
@@ -34,13 +44,13 @@
 //! (the reaper's filter) and is woken by client arrivals and departures (and
 //! a connection's role-main hello), by browser host starts and stops, and by
 //! app server starts and stops. Each wake drains what woke it and reads the
-//! keepers cheap-first: while the app runs, one client count answers; the
-//! terminal count (a registry read) runs only when no client, browser host or
-//! app server keeps the owner.
+//! keepers cheap-first: the client count, the browser host state and the
+//! apps supervisor's count; the terminal count (a registry read) runs only
+//! when none of those keeps the owner. All of it runs on the watch thread.
 //!
-//! The headless owner starts the watch (cmux-tui `headless.rs`) behind
-//! `CMUX_TUI_OWNER_KEEPERS=1`, the stage's switch, which is deleted when the
-//! stage passes.
+//! The headless owner starts the watch (cmux-tui `headless.rs`) unless
+//! `CMUX_TUI_OWNER_KEEPERS=0`, the stage's switch, which is deleted when the
+//! stage has passed dogfood (R-LIFECYCLE ORPHANS turned it on by default).
 
 use super::*;
 use crate::event_bus::MuxEventReceiver;
@@ -57,8 +67,11 @@ pub struct Keepers {
     pub browser_host: bool,
     /// Running app server processes.
     pub app_servers: usize,
-    /// Live and respawning terminals; `None` when not read (a cheaper
-    /// keeper held, or the owner is not armed) or unreadable.
+    /// Supervised Chief brains that run or wait for a start ([`crate::chief_brains`]).
+    pub chief_brains: usize,
+    /// Terminals that keep the owner (`Mux::kept_terminal_count`: 0 exactly
+    /// when none does); `None` when not read (a cheaper keeper held, or the
+    /// owner is not armed) or unreadable.
     pub terminals: Option<usize>,
 }
 
@@ -70,13 +83,18 @@ impl Keepers {
             && self.clients == 0
             && !self.browser_host
             && self.app_servers == 0
+            && self.chief_brains == 0
             && self.terminals == Some(0)
     }
 
     /// Whether every keeper but the terminals is gone, so the terminal count
     /// decides.
     fn terminals_decide(&self) -> bool {
-        self.armed && self.clients == 0 && !self.browser_host && self.app_servers == 0
+        self.armed
+            && self.clients == 0
+            && !self.browser_host
+            && self.app_servers == 0
+            && self.chief_brains == 0
     }
 }
 
@@ -87,7 +105,8 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
         armed: mux.control_clients.frontend_seen(),
         clients: mux.control_clients.user_client_count(),
         browser_host: mux.control_clients.browser_host.is_running(),
-        app_servers: mux.control_clients.apps().running_servers(),
+        app_servers: mux.control_clients.apps().kept_servers(),
+        chief_brains: mux.chiefs().brains.kept(),
         terminals: None,
     };
     if keepers.terminals_decide() {
@@ -96,7 +115,9 @@ pub(crate) fn owner_keepers(mux: &Mux) -> Keepers {
     keepers
 }
 
-/// What the watch thread and its wakers share.
+/// What the watch thread and its wakers share. The Chief brain supervisor
+/// wakes the watch through the client presence observers when its count
+/// changes (`chief_brains.rs` `publish_kept`).
 struct Shared {
     stopping: AtomicBool,
     /// The thread's event subscription: wakers push into it. Replaced when
@@ -200,7 +221,14 @@ mod tests {
     use super::Keepers;
 
     fn idle() -> Keepers {
-        Keepers { armed: true, clients: 0, browser_host: false, app_servers: 0, terminals: Some(0) }
+        Keepers {
+            armed: true,
+            clients: 0,
+            browser_host: false,
+            app_servers: 0,
+            chief_brains: 0,
+            terminals: Some(0),
+        }
     }
 
     #[test]
@@ -218,6 +246,7 @@ mod tests {
         assert!(!Keepers { clients: 1, ..idle() }.none());
         assert!(!Keepers { browser_host: true, ..idle() }.none());
         assert!(!Keepers { app_servers: 1, ..idle() }.none());
+        assert!(!Keepers { chief_brains: 1, ..idle() }.none());
         assert!(!Keepers { terminals: Some(1), ..idle() }.none());
     }
 
@@ -233,5 +262,6 @@ mod tests {
         assert!(!Keepers { clients: 1, ..idle() }.terminals_decide());
         assert!(!Keepers { browser_host: true, ..idle() }.terminals_decide());
         assert!(!Keepers { app_servers: 2, ..idle() }.terminals_decide());
+        assert!(!Keepers { chief_brains: 1, ..idle() }.terminals_decide());
     }
 }

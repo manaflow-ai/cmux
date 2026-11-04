@@ -34,9 +34,15 @@ struct Answer {
     peer_key: String,
     #[serde(default)]
     stun: Vec<String>,
+    /// The hub's TURN relays, for a relayed path when no direct one works.
+    #[serde(default)]
+    turn: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     candidates: Vec<String>,
     socket: String,
+    /// The person's "relay only": this side reaches the host through TURN alone.
+    #[serde(default)]
+    relay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +95,8 @@ pub fn run() -> Res<()> {
         expected_remote: peer,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: Vec::new(),
+        turn: crate::carrier::turn_servers(&answer.turn),
+        relay_only: answer.relay_only,
     })?;
     for c in answer.candidates.iter().filter_map(|c| Candidate::from_wire(c)) {
         net.add_remote_candidate(c);
@@ -135,13 +142,18 @@ fn bridge(net: &Net, listener: &UnixListener) -> Res<String> {
     let mut pane: Option<UnixStream> = None;
     let mut reader = FrameReader::default();
     let mut app = Vec::new();
+    // Lines that came in the same read as the answer sit in stdin's buffer, where a wait on the
+    // descriptor never sees them: the first pass reads them before waiting.
+    let mut first = true;
     loop {
         let mut fds = vec![net.event_fd(), libc::STDIN_FILENO];
         match &pane {
             Some(stream) => fds.push(stream.as_raw_fd()),
             None => fds.push(listener.as_raw_fd()),
         }
-        wait_readable(&fds, Some(1_000_000_000))?;
+        if !std::mem::take(&mut first) {
+            wait_readable(&fds, Some(1_000_000_000))?;
+        }
         for later in app_lines(&mut app)? {
             if later.stop {
                 return Ok("stopped by the viewer".into());

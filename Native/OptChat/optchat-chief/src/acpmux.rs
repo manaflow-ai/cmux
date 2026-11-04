@@ -427,6 +427,9 @@ pub struct Acpmux {
     builtins: std::sync::atomic::AtomicBool,
     /// When `refresh_preset` last ran, by preset.
     refreshed: Mutex<HashMap<String, std::time::Instant>>,
+    /// Whether the link may start a daemon on the socket when none answers
+    /// (false: [`Acpmux::joining`]).
+    starts: bool,
 }
 
 /// The shortest time between two `refresh_preset` runs for one preset.
@@ -434,7 +437,16 @@ const PRESET_REFRESH: Duration = Duration::from_secs(30);
 
 impl Acpmux {
     pub fn new(socket: PathBuf, preset: Option<Preset>, required: Vec<Preset>) -> Arc<Acpmux> {
-        Arc::new(Acpmux {
+        Arc::new(Acpmux::build(socket, preset, required, true))
+    }
+
+    fn build(
+        socket: PathBuf,
+        preset: Option<Preset>,
+        required: Vec<Preset>,
+        starts: bool,
+    ) -> Acpmux {
+        Acpmux {
             socket,
             client: Mutex::new(None),
             turns: Arc::new(Mutex::new(HashMap::new())),
@@ -445,7 +457,15 @@ impl Acpmux {
             with_prompt: Mutex::new(HashSet::new()),
             builtins: std::sync::atomic::AtomicBool::new(false),
             refreshed: Mutex::new(HashMap::new()),
-        })
+            starts,
+        }
+    }
+
+    /// A port on a daemon someone else runs (this machine's default daemon,
+    /// which a moved Chief's handed-over subagents run on: placed_agents.rs):
+    /// no presets, and its link never starts a daemon there.
+    pub fn joining(socket: PathBuf) -> Arc<Acpmux> {
+        Arc::new(Acpmux::build(socket, None, Vec::new(), false))
     }
 
     /// Installs (or refreshes) every preset; acpmux saves them in its config.
@@ -628,7 +648,7 @@ impl Acpmux {
                 let mut last_error = String::new();
                 loop {
                     let started = std::time::Instant::now();
-                    match this.connect_once(&sink, &*log, !linked) {
+                    match this.connect_once(&sink, &*log, !linked && this.starts) {
                         Ok(closed) => {
                             linked = true;
                             last_error.clear();
@@ -654,7 +674,9 @@ impl Acpmux {
                         let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
-                    if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                    // A joining link (Acpmux::joining) owns no sessions: a
+                    // daemon that went away may come back, so it retries.
+                    if linked && this.starts && !crate::acpmux_daemon::reachable(&this.socket) {
                         // A handoff, not an end (cx-ebm.54): the next daemon,
                         // started by the client that handed this one off,
                         // adopted the sessions. Join it; never start one.
