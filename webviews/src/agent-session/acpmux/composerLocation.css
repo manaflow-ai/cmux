@@ -1616,7 +1616,7 @@
 /* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
    then one row per folder in the same name column as the folders above, × at the end. */
 .acpmux-extra-folders {
-  margin: 4px 0 2px;
+  margin: var(--ds-space-1) 0 0;
   padding: 4px 0 0;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
