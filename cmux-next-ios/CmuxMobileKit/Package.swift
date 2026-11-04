@@ -108,6 +108,8 @@ let package = Package(
         // Workspaces list and the per-workspace TabsKit navigation (last tab first).
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
+            // The + menu's Screen Sharing: the account's Macs and the viewer.
+            "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
         ]),

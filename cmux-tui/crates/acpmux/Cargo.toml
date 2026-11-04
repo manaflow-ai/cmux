@@ -111,6 +111,8 @@ syntect = { version = "5.3", default-features = false, features = ["default-fanc
 # (src/codex_app_server.rs). Pinned to an exact commit.
 cmux-codex-acp = { git = "https://github.com/manaflow-ai/cmux-codex-acp", rev = "ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a", default-features = false }
 cmux-host.workspace = true
+# The vault egress proxy (src/vault/egress.rs): agents get placeholders.
+cmux-vault-egress.workspace = true
 
 # Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 # same-user checks); the detached start (CreateProcess with a handle list),
