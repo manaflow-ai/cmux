@@ -54,6 +54,74 @@ import Testing
         #expect(result == false)
         #expect(harness.coordinator.isAuthenticated == false)
         #expect(await harness.tokenStore.getStoredRefreshToken() == nil)
+        #expect(harness.flow.lastFailure == .invalidCallback)
+    }
+
+    @Test func staleCallbackWhileSignedInStaysSilent() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let state = harness.callbackState(harness.factory.sessions[0])
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: state)))
+        #expect(await attempt.value)
+
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: "older-tab"))
+
+        #expect(result == false)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
+    @Test func duplicateCallbackWhileTheFirstCompletesStaysSilent() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        await harness.client.closeUserGate()
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let callback = harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0]))
+        let first = Task { await harness.flow.handleCallbackURL(callback) }
+        await harness.waitForPendingUserRequest()
+
+        // Safari delivered the callback twice; the first still decides.
+        #expect(await harness.flow.handleCallbackURL(callback) == false)
+        #expect(harness.flow.lastFailure == nil)
+
+        await harness.client.openUserGate()
+        #expect(await first.value)
+        #expect(await attempt.value)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
+    @Test func staleCallbackKeepsAFailureAlreadyRecorded() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        harness.factory.sessions[0].deliver(.failed(reason: "browser_broke"))
+        #expect(await attempt.value == false)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("browser_broke"))
+
+        let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: "older-tab"))
+
+        #expect(result == false)
+        #expect(harness.flow.lastFailure == .browserSignInFailed("browser_broke"))
+    }
+
+    @Test func staleCallbackAfterTheSignOutQuietPeriodIsReported() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user, browserAttemptTimeout: 60, clock: clock)
+        await harness.flow.signOut()
+
+        // A tab from before the sign-out finishing now is the user backing
+        // out, not a failed sign-in. lateCallbackAfterSignOutIsRejected pins it.
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: "pre-sign-out")) == false)
+        #expect(harness.flow.lastFailure == nil)
+
+        clock.advance(by: .seconds(61))
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: "pre-sign-out")) == false)
+        #expect(harness.flow.lastFailure == .invalidCallback)
     }
 
     @Test func expiredManualStateIsRejected() async throws {
