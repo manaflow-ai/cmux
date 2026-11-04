@@ -21,7 +21,8 @@ from pathlib import Path
 
 TEST_FILE = re.compile(
     r"(?:^|/)(?:tests?|cmuxTests?)(?:/|$)|"
-    r"(?:^|/)(?:test_[^/]+|[^/]+_test|[^/]+\.(?:test|spec))\.[^/]+$",
+    r"(?:^|/)(?:test_[^/]+|[^/]+_test|[^/]+\.(?:test|spec)|test(?:[-.]|$)[^/]*)\.[^/]+$|"
+    r"(?:^|/)[^/]*Tests?(?:/|\.[^/]+$)",
     re.IGNORECASE,
 )
 ASSERTION = re.compile(
@@ -92,15 +93,16 @@ def analyze(name_status: str, diff: str) -> list[Finding]:
     for path, removed, added in _sections(diff):
         if not is_test_path(path):
             continue
-        old_assertions = sum(bool(ASSERTION.search(line)) for line in removed)
-        new_assertions = sum(bool(ASSERTION.search(line)) for line in added)
+        old_assertions = sum(len(ASSERTION.findall(line)) for line in removed)
+        new_assertions = sum(len(ASSERTION.findall(line)) for line in added)
         if old_assertions > new_assertions:
             findings.append(Finding(
                 "weakened-assertions", path,
                 f"removed {old_assertions} assertion line(s), added {new_assertions}",
             ))
+        old_skips = sum(bool(SKIP.search(line)) for line in removed)
         new_skips = [line.strip() for line in added if SKIP.search(line)]
-        if new_skips:
+        if len(new_skips) > old_skips:
             findings.append(Finding("new-skip", path, new_skips[0][:200]))
         removed_defs = sum(bool(TEST_DEF.search(line)) for line in removed)
         added_defs = sum(bool(TEST_DEF.search(line)) for line in added)

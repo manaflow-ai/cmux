@@ -57,6 +57,33 @@ class TestIntegrity(unittest.TestCase):
 """
         self.assertEqual(module.analyze("M\tsrc/math.py\n", diff), [])
 
+    def test_common_tests_directories_and_scripts_are_test_paths(self):
+        self.assertTrue(module.is_test_path("cmuxCLITests/CLIAgentMessageCommandTests.swift"))
+        self.assertTrue(module.is_test_path("Examples/FooTests/Bar.swift"))
+        self.assertTrue(module.is_test_path("tools/freestyle-workflow/test.mjs"))
+        self.assertTrue(module.is_test_path("tools/test.sh"))
+
+    def test_same_line_assertion_removal_is_detected(self):
+        diff = """diff --git a/tests/test_x.py b/tests/test_x.py
+--- a/tests/test_x.py
++++ b/tests/test_x.py
+@@ -1 +1 @@
+-assert a; assert b
++assert a
+"""
+        findings = module.analyze("M\ttests/test_x.py\n", diff)
+        self.assertTrue(any(f.kind == "weakened-assertions" for f in findings))
+
+    def test_skip_reason_update_is_not_new_skip(self):
+        diff = """diff --git a/tests/test_x.py b/tests/test_x.py
+--- a/tests/test_x.py
++++ b/tests/test_x.py
+@@ -1 +1 @@
+-pytest.mark.skip('old')
++pytest.mark.skip('new')
+"""
+        self.assertFalse(any(f.kind == "new-skip" for f in module.analyze("M\ttests/test_x.py\n", diff)))
+
 
 if __name__ == "__main__":
     unittest.main()
