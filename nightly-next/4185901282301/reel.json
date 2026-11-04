@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4185901282301",
+  "notes": "notes/4185901282301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35475,
+      "title": "Run staging Cloud journey through Linux cmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35341,
+      "title": "App kit: Toggle, Slider, Panel, cmux.theme and cmux.toast for customize panes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 32949,
+      "title": "acpmux: _acpmux/set_directories gives a running chat new folders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35215,
+      "title": "acpmux: keep wake and pooled starts alive on busy machines",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35561,
+      "title": "Cloud VM image: apt snapshot 20261104T000000Z, bind9 0ubuntu0.24.04.9",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35539,
+      "title": "swift-logic table: rows for the vendored Messages transcript in MessagesLabHome/Vendor (190 PLATFORM, 21 MIXED)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35420,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-df4352d75349a4374f29caac31458c83d4a0c6dc",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35404,
+      "title": "cmux NEXT: Gallery Stage, a gallery stage as a tab of the nightly itself",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34470,
+      "title": "acpmux: fence session transfers with ownership epochs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35540,
+      "title": "cmux-vm production: approve cloud-native-f7b9c57 (cmux-tui f7b9c571, #35193) ahead of 5e57723",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35535,
+      "title": "base red: web-lint format of childRows.ts (#35308)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35506,
+      "title": "ci(ios-streamed): Claude Code talks to the model stub by default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35532,
+      "title": "test(ios): CloudChatsLiveTests waits for the hub's ready event, not a 2 s clock",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
