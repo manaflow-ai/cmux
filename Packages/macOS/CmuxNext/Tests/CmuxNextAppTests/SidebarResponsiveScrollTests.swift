@@ -114,6 +114,24 @@ struct SidebarResponsiveScrollTests {
         #expect(realized <= visible * 2, "a far jump realized \(realized) rows for \(visible) visible")
     }
 
+    /// What the list tells AppKit is prepared always has row views: after AppKit asks for a wide
+    /// rect, after a scroll down and after the scroll back, with no new ask between (review of #34648).
+    @Test func everyPreparedRowHasAView() {
+        let bench = SidebarScrollBench(count: 500)
+        defer { bench.close() }
+        func check(_ when: String) {
+            let prepared = bench.list.preparedContentRect
+            let missing = bench.list.displayed.rows.filter { prepared.intersects(bench.list.frame(for: $0)) && bench.list.rowViews[$0.key] == nil }
+            #expect(missing.isEmpty, "\(when): \(missing.count) prepared rows have no view")
+        }
+        bench.list.prepareContent(in: bench.clip.bounds.insetBy(dx: 0, dy: -1_500))
+        check("after a wide ask")
+        _ = bench.frame(to: 1_200)
+        check("after a scroll down")
+        _ = bench.frame(to: 400)
+        check("after the scroll back")
+    }
+
     @Test func aGestureShowsOneDirectionOnceItMoves() {
         var sideways = ProfileSwipeTracker()
         _ = sideways.feed(deltaX: 0, deltaY: 0, phase: .began)

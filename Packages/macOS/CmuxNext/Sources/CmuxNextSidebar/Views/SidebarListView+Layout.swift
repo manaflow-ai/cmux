@@ -160,22 +160,13 @@ extension SidebarListViewComponents {
         // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
         if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
-        let rect = visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
-        // Responsive scrolling (`SidebarScrollView`) prepares content past the visible rows before it scrolls there off
-        // the main thread (`prepareContent(in:)`): those rows are drawn too, within the overdraw limit of the clip as
-        // it is now. A jump far from the last prepared rect (a reveal) realizes none of the rows between them.
-        let prepared = preparedContentRect.intersection(Self.overdrawLimit(visible))
-        return prepared.isEmpty ? rect : rect.union(prepared)
+        return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
     }
-    /// The most past the visible rows that is prepared: a quarter screen past each edge.
-    static func overdrawLimit(_ visible: NSRect) -> NSRect { visible.insetBy(dx: 0, dy: -visible.height / 4) }
-    /// Responsive scrolling's overdraw: AppKit asks for a rect it may scroll to next. The list prepares (and says it
-    /// prepared) only what it realizes rows for, the asked rect within `overdrawLimit`, so a scroll that runs ahead
-    /// of a busy main thread finds the rows of every prepared point drawn.
+    /// Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls there off
+    /// the main thread. The list prepares exactly the rows it realizes, and says so (`realizeVisibleRows` keeps
+    /// `preparedContentRect` the realization rect), so AppKit never counts a row as drawn that has no view.
     override func prepareContent(in rect: NSRect) {
-        let visible = enclosingScrollView?.contentView.bounds ?? visibleRect
-        let limited = rect.intersection(Self.overdrawLimit(visible))
-        super.prepareContent(in: limited.isEmpty ? visible : limited.union(visible))
+        super.prepareContent(in: realizationRect())
         realizeVisibleRows()
     }
     /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
@@ -560,6 +551,8 @@ extension SidebarListViewComponents {
             rowViews[row.key] = view
         }
         pruneOffscreen()
+        // What responsive scrolling may count as drawn: the rows just realized, never more (`prepareContent(in:)`).
+        if !realize.isNull, preparedContentRect != realize { preparedContentRect = realize }
         let followed = hoverFollowsScroll
         hoverFollowsScroll = true
         defer { hoverFollowsScroll = followed }
