@@ -1,3 +1,4 @@
+import { announceScroll } from "./threadMinimap/scrollMotion";
 import { userScrollIntent } from "./conversation/userScroll";
 import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
@@ -10,6 +11,7 @@ import { shownPresence } from "./multiplayer/LivePresence";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
@@ -27,7 +29,9 @@ export type AcpmuxDebug = {
   /// workedTurn.ts when `fixture` is "worked-turn", or with received agent messages
   /// (incomingFixture.ts) when it is "incoming", or with a turn linking a synthetic pull request page
   /// (linkFixture.ts) when it is "link", or with a turn organized as Claude Code desktop
-  /// draws one (organizationFixture.ts) when it is "organization", or with a shared chat (teammates' prompts, who
+  /// draws one (organizationFixture.ts) when it is "organization", or with a run of shell calls
+  /// summarized as Claude Code desktop summarizes one (toolSummaryFixture.ts) when it is
+  /// "tool-summary", or with a shared chat (teammates' prompts, who
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
   /// "subagents".
@@ -62,6 +66,8 @@ export type AcpmuxDebug = {
   models(): Record<string, unknown>;
   /** What moved on the page after it first showed its content, watched for `ms` (layoutWatch.ts). */
   layoutWatch(options?: LayoutWatchOptions): Promise<Record<string, unknown>>;
+  /** What the page asks for while nobody touches it, by call site, over `ms` (idleProbe.ts). */
+  idleProbe(options?: IdleProbeOptions): Promise<Record<string, unknown>>;
   /** Streams a scripted reply into a long synthetic transcript and reports the frames (streamDebug.ts). */
   stream(options?: StreamOptions): Promise<Record<string, unknown>>;
   /** Opens a mock session of `turns` heavy turns through the real client (loadDebug.ts). */
@@ -144,6 +150,7 @@ export function createAcpmuxDebug(
         incomingRows,
         linkRows,
         organizationRows,
+        toolSummaryRows,
         SUBAGENT_TRAY_STEPS,
         subagentTrayRows,
         SHARED_PRESENCE,
@@ -167,9 +174,11 @@ export function createAcpmuxDebug(
                 ? linkRows(Date.now() - 30_000)
                 : fixture === "organization"
                   ? organizationRows(Date.now() - 120_000)
-                  : fixture === "shared"
-                    ? sharedRows(Date.now() - 1_020_000)
-                    : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                  : fixture === "tool-summary"
+                    ? toolSummaryRows(Date.now() - 60_000)
+                    : fixture === "shared"
+                      ? sharedRows(Date.now() - 1_020_000)
+                      : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
       host.replaceRows(rows);
@@ -235,6 +244,7 @@ export function createAcpmuxDebug(
             timestamps.push(now);
             const progress = Math.min(1, (now - start) / duration);
             scroller.scrollTop = from * (1 - progress);
+            announceScroll(scroller);
             acpmuxPerf.markFrame(
               now,
               isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
@@ -261,6 +271,7 @@ export function createAcpmuxDebug(
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        launch: acpmuxPerf.launchTimeline(),
       };
     },
 
@@ -377,6 +388,11 @@ export function createAcpmuxDebug(
     },
     layoutWatch(options = {}) {
       return layoutWatch(options);
+    },
+
+    async idleProbe(options = {}) {
+      const { idleProbe } = await import("./idleProbe");
+      return idleProbe(options);
     },
     async stream(options = {}) {
       const { runStream } = await import("./streamDebug");

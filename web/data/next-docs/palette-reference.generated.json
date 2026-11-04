@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1279,
+    "entries": 1288,
     "shortcuts": 189
   },
   "sections": [
@@ -44,6 +44,12 @@
           "title": "Chat Colors…",
           "shortcut": null,
           "command": "cmux chat colors"
+        },
+        {
+          "id": "home.chiefTeleportPlayground",
+          "title": "Chief Teleport Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "home.zoomReset",
@@ -222,6 +228,12 @@
         {
           "id": "recentlyFocused",
           "title": "Location History…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "home.mcpConnectPlayground",
+          "title": "MCP Connect Card Playground",
           "shortcut": null,
           "command": null
         },
@@ -5284,8 +5296,20 @@
           "command": null
         },
         {
+          "id": "sidebar.revealAndFocusWorkspace",
+          "title": "Reveal and Focus Workspace in Sidebar",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "fileExplorerReveal",
           "title": "Reveal in Finder",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "sidebar.revealWorkspace",
+          "title": "Reveal Workspace in Sidebar",
           "shortcut": null,
           "command": null
         },
@@ -5722,6 +5746,12 @@
           "command": null
         },
         {
+          "id": "chief.importMemories",
+          "title": "Bring Your History",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "agentChat.subagentLimit",
           "title": "Chat Subagent Limit…",
           "shortcut": null,
@@ -5998,12 +6028,6 @@
           "command": null
         },
         {
-          "id": "chief.importMemories",
-          "title": "Import Memories…",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "agentPane.togglePointerInspector",
           "title": "Inspect UI Element",
           "shortcut": null,
@@ -6180,6 +6204,12 @@
         {
           "id": "agentPane.permission.revoke",
           "title": "Revoke Chat Permission",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "chief.moveRollback",
+          "title": "Roll Back Chief Move",
           "shortcut": null,
           "command": null
         },
@@ -6940,6 +6970,12 @@
           "command": "cmux servers add"
         },
         {
+          "id": "debug.allThemesPlayground",
+          "title": "All Themes Playground",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "layout.centerFocusedColumn.always",
           "title": "Always Center Focused Column",
           "shortcut": null,
@@ -7258,6 +7294,12 @@
           "command": "cmux settings keyboard-shortcuts"
         },
         {
+          "id": "agentPane.display.railOnRight",
+          "title": "Prompt Rail on Right Edge",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "reloadConfiguration",
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
@@ -7378,6 +7420,12 @@
           "command": "cmux settings show-announcements"
         },
         {
+          "id": "agentPane.display.showMinimap",
+          "title": "Show Chat Minimap",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "help.showCrashLogs",
           "title": "Show Crash Logs",
           "shortcut": null,
@@ -7406,6 +7454,12 @@
           "title": "Show Media Card",
           "shortcut": null,
           "command": "cmux media show-card"
+        },
+        {
+          "id": "debug.sidebarStatesPlayground",
+          "title": "Sidebar States Playground",
+          "shortcut": null,
+          "command": null
         },
         {
           "id": "links.signInPagesByLinkSettings",

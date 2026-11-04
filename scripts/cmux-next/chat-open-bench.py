@@ -24,7 +24,9 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click_again  a click back onto the row of a chat shown before and left (its page kept)
 
 The click cases read the window as the window server composited it, frame after frame, from the click
-(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it) until the pane
+(`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
+ScreenCaptureKit when the process lacks the Screen Recording grant, as on a fleet step, since the window list
+then leaves the page out; each record's `capture` says which) until the pane
 stops changing, and report click to first content frame, click to final frame, whether those are the same
 frame, and how far the transcript's rows moved after the page first drew them (`layout_watch`, started at the
 click): chat_open_frames.py (Leo, 2026-11-03: the final view on the first frame, never "text first and the
@@ -82,7 +84,7 @@ import bench_memory as bm  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 from bench_power import wipe_state  # noqa: E402  (the tagged app's saved state under the real ~/Library)
 import chat_open_frames as cof  # noqa: E402
-from chat_open_summary import cell, summarize  # noqa: E402
+from chat_open_summary import cell, invalid_reason, summarize  # noqa: E402
 import chat_open_seed_cache as seed_cache  # noqa: E402
 
 parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -116,9 +118,16 @@ parser.add_argument("--backdrop", choices=["opaque", "frosted", "glass", "glass-
 parser.add_argument("--tag", default="chatopen", help="the tag the app was built with (its state folder)")
 parser.add_argument("--no-seed-cache", action="store_true",
                     help="seed every template on the daemon again, neither reading nor writing the worker's seed cache")
+parser.add_argument("--capture-check", action="store_true",
+                    help="only say whether this process (and so the app it launches) may read the screen "
+                         "(screen_capture_check.py) into --json, then exit: nothing is launched (scripts/measure/chat-open.sh "
+                         "with --app=PATH builds nothing)")
 parser.add_argument("--json")
 parser.add_argument("--md")
 opts = parser.parse_args()
+if opts.capture_check:
+    sys.exit(subprocess.run([sys.executable, os.path.join(HERE, "screen_capture_check.py"), "--embed-png",
+                             *(["--json", opts.json] if opts.json else [])]).returncode)
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
@@ -501,7 +510,7 @@ def why(record):
     """What an open's log line says beyond its times, so a run with no artifact (a failed step returns
     none) still shows why an open had no first content."""
     parts = []
-    for key in ("error", "timed_out"):
+    for key in ("error", "timed_out", "invalid_reason"):
         if record.get(key):
             parts.append(f"{key}={str(record[key])[:200]}")
     if not record.get("first_content_ms"):
@@ -597,9 +606,10 @@ def watch_layout(run, out, stop_at):
     started = time.monotonic()
     while time.monotonic() < stop_at:
         asked = time.monotonic()
+        asked_wall = time.time()
         reply = run.rpc("debug.agent_pane", {"action": "layout_watch", "ms": max(100, opts.strip_ms - 200)}, timeout=20)
         if isinstance(reply, dict) and not reply.get("error") and "frames" in reply:
-            out["watch"], out["watch_asked"] = reply, asked
+            out["watch"], out["watch_asked"], out["watch_asked_wall"] = reply, asked, asked_wall
             return
         out["watch_error"] = reply
         errors = out.setdefault("watch_errors", [])
@@ -644,9 +654,14 @@ def frame_click(run, key, label, keep=False):
     params = {"action": "frame_strip", "gesture": "mouse", "mouse": {"row": key, "action": "click"}, "above": True,
               "duration_ms": opts.strip_ms, "dir": folder, "tolerance": opts.strip_tolerance}
     watcher.start()
-    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead): the click's monotonic time.
-    clicked = time.monotonic() + 0.12
+    # frame_strip clicks 120 ms after it starts recording (DebugFrameStrip's lead), or once ScreenCaptureKit's first
+    # frame is in when that is later: the click's monotonic time, corrected from the reply's lead_ms.
+    asked = time.monotonic()
+    asked_wall = time.time()
+    clicked = asked + 0.12
     strip = run.rpc("debug.new_tab", params, timeout=opts.strip_ms / 1000 + 60) or {}
+    if isinstance(strip.get("lead_ms"), (int, float)):
+        clicked = asked + strip["lead_ms"] / 1000
     watcher.join(timeout=max(0.0, stop_at - time.monotonic()) + 20)
     if strip.get("error"):
         shutil.rmtree(folder, ignore_errors=True)
@@ -657,9 +672,15 @@ def frame_click(run, key, label, keep=False):
         # The same moment through the screen (screencapture, this script's own capture), to check the app's frames
         # show the chat's page pixels: a capture without them shows the pane empty.
         screen = os.path.join(folder, "screen.png")
-        if subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, timeout=30).returncode == 0:
+        shot = subprocess.run(["screencapture", "-x", "-t", "png", screen], capture_output=True, text=True, timeout=30)
+        if shot.returncode == 0 and os.path.exists(screen):
             record["pictures"].update(frame_pictures(folder, [{"ms": "screen", "file": "screen.png"}], {}, names={"screen": "screen"}))
+        else:
+            record["screen_error"] = f"screencapture exited {shot.returncode}: {(shot.stderr or shot.stdout).strip()[:300]}"
     shutil.rmtree(folder, ignore_errors=True)  # the PNGs: the numbers per frame, and the kept pictures, are the evidence
+    # How the frames were read: screencapturekit has the Chromium page's pixels without the Screen Recording grant;
+    # window_list without the grant shows the pane empty (cmuxterm-hq#6338).
+    record.update({"capture": strip.get("capture"), "capture_error": strip.get("capture_error")})
     record.update({"click": strip.get("key"), "frame_count": strip.get("frame_count"),
                    "mean_interval_ms": strip.get("mean_interval_ms"), "strip_settled_ms": strip.get("settled_ms"),
                    "strip_first_change_ms": strip.get("first_change_ms"), "spans": strip.get("spans"),
@@ -667,11 +688,13 @@ def frame_click(run, key, label, keep=False):
                                round(f.get("flatness") or 0, 4), bool(f.get("blank"))] for f in strip.get("frames") or []],
                    "frames_columns": ["ms", "content_vs_before", "content_vs_final", "flatness", "blank"],
                    "layout_watch": out.get("watch"), "drift": cof.row_drift(out.get("watch")),
-                   "watch_started_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None})
+                   "watch_asked_ms": round((out["watch_asked"] - clicked) * 1000) if out.get("watch_asked") else None,
+                   "watch_started_ms": cof.watch_started_ms(out.get("watch"), out.get("watch_asked"), clicked,
+                                                            asked_wall + (clicked - asked))})
     record["transcript_ms"] = cof.transcript_ms(out.get("watch"), record["watch_started_ms"], opts.strip_ms)
+    record["layout_watch_errors"] = out.get("watch_errors")  # the asks before one answered too: why the watch started late
     if not out.get("watch"):
         record["layout_watch_error"] = out.get("watch_error")
-        record["layout_watch_errors"] = out.get("watch_errors")
     # Rows the page added after its first paint are a second view: the first frame was not the final one.
     if (record.get("drift") or {}).get("rows_appeared_later"):
         record["first_is_final"] = False
@@ -779,9 +802,11 @@ def main():
                         say(f"chat-open: {condition} {case} {index}: first_content_frame_ms={record.get('first_content_ms')} "
                             f"final_frame_ms={record.get('final_frame_ms')} first_is_final={record.get('first_is_final')} "
                             f"between={record.get('between_frames')} blank={record.get('blank_frames')} "
+                            f"transcript_ms={record.get('transcript_ms')} watch_started_ms={record.get('watch_started_ms')} "
                             f"drift={json.dumps(record.get('drift'))}" + (f" error={str(record['error'])[:300]}" if record.get("error") else ""))
                         continue
                     record = measure_case(run, case, sessions[condition], index)
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
@@ -809,6 +834,7 @@ def main():
                             time.sleep(0.5)  # test script: waiting for the app's recorder to finish
                         if not recorded(record_dir):
                             say(f"chat-open: {condition} restore {index}: the launch recording wrote no frames.json")
+                    record["invalid_reason"] = invalid_reason(record)
                     records.append(record)
                     say(f"chat-open: {condition} restore {index}: first_content_ms={record.get('first_content_ms')} "
                         f"first_image_ms={record.get('first_image_ms')} saved_pictures={pictures}{why(record)}")

@@ -5,11 +5,12 @@
 // during the hold moves the offset by however far the line moved, and none of them follows the
 // latest row meanwhile.
 //
-// Tool/work disclosures clicked at or near the end, and any line opened there (`opensBody`, Leo
-// 2026-11-02), instead pin the bottom and move the thread as one stack: what opens pushes the text
-// above it up (App.tsx, Leo 2026-10-31). Other disclosures keep the clicked line even when closing
-// near the end: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as the
-// reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
+// Any disclosure clicked with the view at its very end instead pins the bottom and moves the thread
+// as one stack: what opens pushes the text above it up (Leo 2026-11-02), and what closes pulls it
+// down, leaving no blank room under the rows (App.tsx `beginBottomStackFold`, Leo 2026-11-03: "it's
+// weird to collapse and get all that empty space at the bottom"). Away from the end a close keeps
+// the clicked line: foldRoomFor prevents a browser clamp, and trimmedFoldRoom releases that room as
+// the reader scrolls up, the rows fill it, or a send/Jump to latest returns to following.
 import { foldMs } from "./fold";
 
 /// The disclosures a click holds in place: every control that opens or closes something in its row
@@ -83,10 +84,16 @@ export type FoldAnchor = {
   until: number;
 };
 
+/// A message row's first line, on its own line under the row (messageLineLook.ts, stacked: a sent
+/// message, an agent message, a received line, a folded group's head). It toggles its row, so a click
+/// on it holds the row's line, as a click on the line does; the first line itself goes as the row opens.
+const FIRST_LINE = ".cv-msgline__preview";
+
 /// The disclosure line `target` is on, inside one of `scroller`'s rows; undefined for anything else.
 export function foldToggleAt(target: EventTarget | null, scroller: HTMLElement): HTMLElement | undefined {
   const element = target && typeof (target as Element).closest === "function" ? (target as Element) : null;
-  const toggle = element?.closest<HTMLElement>(FOLD_TOGGLE);
+  const line = element?.closest(FIRST_LINE)?.previousElementSibling;
+  const toggle = line?.matches(FOLD_TOGGLE) ? (line as HTMLElement) : element?.closest<HTMLElement>(FOLD_TOGGLE);
   if (!toggle || !scroller.contains(toggle) || !toggle.closest(".acpmux-row")) return undefined;
   // A control of its own inside the toggle (a sent line's recipient, its Copy) opens nothing there.
   const control = element?.closest<HTMLElement>(NESTED_CONTROL);

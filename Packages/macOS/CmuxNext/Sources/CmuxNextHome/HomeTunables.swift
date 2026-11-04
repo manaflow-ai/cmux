@@ -101,7 +101,7 @@ public nonisolated struct HomeTunables {
     /// scenarios"). Ring by default; the others are the gallery's variants.
     public static let avatarMotion = Tunable<HomeAvatarMotionChoice>.choice(
         "home.avatarMotion", section, "Chief avatar motion",
-        help: "How a Chief's avatar shows its state in the Home list. Ring: a glint now and then at idle, an arc running round the edge while it works, a still ring while a reply waits (accent) or a send failed (red). Glow: a soft glow for the same states, with a glint while it works. Tilt: the avatar turns its head. Still: none. No avatar ever moves off its place, and nothing loops under Reduce Motion or while the window is hidden.",
+        help: "How a Chief's avatar shows its state in the Home list. Ring: still at idle, an arc running round the edge while it works, a still ring while a reply waits (accent) or a send failed (red), and one glint across the face when the state changes. Glow: a soft glow for the same states, with a glint while it works. Tilt: the avatar rocks its head while it works. Still: none. No avatar ever moves off its place, nothing runs at idle, and nothing loops under Reduce Motion or while the window is hidden.",
         default: .ring, code: "HomeTunables.avatarMotion")
 
     public static var all: [TunableDescriptor] {

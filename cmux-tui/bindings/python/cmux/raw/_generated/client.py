@@ -75,6 +75,9 @@ class GeneratedClientMixin:
     def chief_inspect(self, path: str, *, query: Union[Dict[str, str], MissingType] = MISSING) -> ChiefInspectResult:
         return self._invoke_command('chief-inspect', ChiefInspectRequest(path=path, query=query))
 
+    def chief_work(self, chief: str) -> ChiefWorkResult:
+        return self._invoke_command('chief-work', ChiefWorkRequest(chief=chief))
+
     def clear_history(self, surface: Id, *, fallback_key: Union[TerminalKeyInput, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('clear-history', ClearHistoryRequest(surface=surface, fallback_key=fallback_key))
 
@@ -898,6 +901,7 @@ GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload'
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
 GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
 GeneratedClientMixin.chief_inspect.__cmux_command__ = COMMANDS['chief-inspect']
+GeneratedClientMixin.chief_work.__cmux_command__ = COMMANDS['chief-work']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
 GeneratedClientMixin.client_focus.__cmux_command__ = COMMANDS['client-focus']

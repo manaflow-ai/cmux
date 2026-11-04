@@ -67,6 +67,8 @@ public actor MobileHostSupervisor {
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
+    /// The last `needs_you` line (the Feed's open requests): sent to each new hostd and on every change.
+    private var needsYouLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -272,6 +274,15 @@ public actor MobileHostSupervisor {
         process?.send(line)
     }
 
+    /// The app Feed's open requests (#33818): kept for each new hostd and sent to the running one
+    /// now. hostd serves them to phones and pushes each one once.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) {
+        let line = MobileHostLaunch.needsYouLine(requests)
+        guard line != needsYouLine else { return }
+        needsYouLine = line
+        process?.send(line)
+    }
+
     /// Shows a phase without running hostd (for example, not signed in).
     public func show(_ phase: MobileHostState.Phase) {
         publish { $0.reset(to: phase) }
@@ -418,6 +429,7 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
+        if let needsYouLine { child.send(needsYouLine) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

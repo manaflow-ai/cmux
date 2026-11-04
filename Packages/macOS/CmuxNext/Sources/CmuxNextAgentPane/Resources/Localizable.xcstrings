@@ -31589,133 +31589,1050 @@
         }
       }
     },
-    "agentPane.peerApprovals.onceOnly.title": {
+    "agentPane.peerApprovals.enrolling.detail": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يمكن منح الموافقة من هذا الـ Mac إلا لمرة واحدة"
+            "value": "سيُرسَل ردّك فور انتهاء ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Von diesem Mac aus sind nur einmalige Genehmigungen möglich"
+            "value": "Deine Antwort wird gesendet, sobald das erledigt ist."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Desde este Mac solo se pueden conceder autorizaciones de una sola vez"
+            "value": "Tu respuesta se enviará en cuanto termine."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Seules les autorisations ponctuelles sont possibles depuis ce Mac"
+            "value": "Votre réponse part dès que c’est fait."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac からは 1 回限りの許可のみ使えます"
+            "value": "完了するとすぐに回答が送信されます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 Mac에서는 일회성 승인만 가능합니다"
+            "value": "완료되는 즉시 답변이 전송됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Only a one-time Allow works from this Mac"
+            "value": "Your answer goes as soon as it's done."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从此 Mac 只能授予单次授权"
+            "value": "完成后会立即发送你的回答。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從此 Mac 只能授予單次授權"
+            "value": "完成後會立即傳送你的回答。"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.enrolling.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تسجيل هذا الـ Mac لدى %@…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac wird auf %@ registriert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrando este Mac en %@…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrement de ce Mac sur %@…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を %@ に登録しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac을 %@에 등록하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Enrolling this Mac on %@…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 %@ 上注册此 Mac…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在 %@ 上註冊此 Mac…"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.alwaysOff.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيار «السماح دائمًا» غير متاح من هذا الـ Mac؛ يعمل «السماح مرة واحدة» و«الرفض»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvijek dozvoli nije dostupno s ovog Maca; Dozvoli jednom i Odbij rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad altid er ikke tilgængelig fra denne Mac; Tillad én gang og Afvis virker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Immer erlauben“ ist auf diesem Mac nicht verfügbar; „Einmal erlauben“ und „Ablehnen“ funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always allow isn't available from this Mac; Allow once and Deny work."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Permitir siempre» no está disponible desde este Mac; «Permitir una vez» y «Denegar» sí funcionan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Toujours autoriser » n’est pas disponible depuis ce Mac ; « Autoriser une fois » et « Refuser » fonctionnent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Consenti sempre» non è disponibile da questo Mac; «Consenti una volta» e «Rifiuta» funzionano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からは「常に許可」を使えません。「1 回だけ許可」と「拒否」は使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«អនុញ្ញាតជានិច្ច» មិនអាចប្រើពី Mac នេះបានទេ; «អនុញ្ញាតម្ដង» និង «បដិសេធ» ដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서는 '항상 허용'을 사용할 수 없습니다. '한 번 허용'과 '거부'는 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat alltid er ikke tilgjengelig fra denne Macen; Tillat én gang og Avslå virker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Zawsze zezwalaj” nie jest dostępne z tego Maca; „Zezwól raz” i „Odmów” działają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Sempre permitir” não está disponível neste Mac; “Permitir uma vez” e “Negar” funcionam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Разрешать всегда» недоступно с этого Mac; «Разрешить один раз» и «Отклонить» работают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ «อนุญาตเสมอ» จาก Mac เครื่องนี้ไม่ได้ ใช้ «อนุญาตครั้งเดียว» และ «ปฏิเสธ» ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Her zaman izin ver bu Mac'ten kullanılamaz; Bir kez izin ver ve Reddet çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«Завжди дозволяти» недоступне з цього Mac; «Дозволити один раз» і «Відхилити» працюють."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể dùng “Luôn cho phép” từ máy Mac này; “Cho phép một lần” và “Từ chối” vẫn dùng được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从此 Mac 使用“始终允许”；“允许一次”和“拒绝”可以使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法從此 Mac 使用「永遠允許」；「允許一次」和「拒絕」可以使用。"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.noKey.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفتاح الموافقة الخاص به غير متاح. سجّل هذا الـ Mac على الجهاز الآخر، ثم اختر «السماح مرة واحدة» مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Njegov ključ za odobrenja nije dostupan. Registrujte ovaj Mac na drugoj mašini, pa ponovo odaberite Dozvoli jednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dens godkendelsesnøgle er ikke tilgængelig. Tilmeld denne Mac på den anden maskine, og vælg derefter Tillad én gang igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sein Freigabeschlüssel ist nicht verfügbar. Registriere diesen Mac auf dem anderen Rechner und wähle dann erneut „Einmal erlauben“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its approval key isn't available. Enroll this Mac on the other machine, then choose Allow once again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su clave de aprobación no está disponible. Registra este Mac en la otra máquina y vuelve a elegir «Permitir una vez»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sa clé d’approbation n’est pas disponible. Inscrivez ce Mac sur l’autre machine, puis choisissez à nouveau « Autoriser une fois »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sua chiave di approvazione non è disponibile. Registra questo Mac sull’altra macchina, poi scegli di nuovo «Consenti una volta»."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認キーを使えません。もう一方のマシンにこの Mac を登録してから、もう一度「1 回だけ許可」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កូនសោអនុម័តរបស់វាមិនមានទេ។ ចុះឈ្មោះ Mac នេះនៅលើម៉ាស៊ីនផ្សេងនោះ រួចជ្រើស «អនុញ្ញាតម្ដង» ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "승인 키를 사용할 수 없습니다. 다른 컴퓨터에 이 Mac을 등록한 다음 '한 번 허용'을 다시 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Godkjenningsnøkkelen er ikke tilgjengelig. Registrer denne Macen på den andre maskinen, og velg deretter Tillat én gang igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jego klucz zatwierdzania jest niedostępny. Zarejestruj tego Maca na drugiej maszynie, a potem ponownie wybierz „Zezwól raz”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chave de aprovação dele não está disponível. Registre este Mac na outra máquina e escolha “Permitir uma vez” de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Его ключ подтверждения недоступен. Зарегистрируйте этот Mac на другой машине, затем снова выберите «Разрешить один раз»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีคีย์อนุมัติของเครื่องนี้ ลงทะเบียน Mac เครื่องนี้บนอีกเครื่องหนึ่ง แล้วเลือก «อนุญาตครั้งเดียว» อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onay anahtarı kullanılamıyor. Bu Mac'i diğer makineye kaydedin, ardından Bir kez izin ver'i yeniden seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Його ключ підтвердження недоступний. Зареєструйте цей Mac на іншій машині, потім знову виберіть «Дозволити один раз»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khóa phê duyệt của máy không khả dụng. Hãy đăng ký máy Mac này trên máy kia, rồi chọn lại “Cho phép một lần”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它的批准密钥不可用。请在另一台机器上登记此 Mac，然后再次选择“允许一次”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "它的核准金鑰無法使用。請在另一台機器上登記此 Mac，然後再次選擇「允許一次」。"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.noKey.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر على هذا الـ Mac توقيع «السماح مرة واحدة»"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac nije mogao potpisati to Dozvoli jednom"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac kunne ikke signere den Tillad én gang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac konnte dieses „Einmal erlauben“ nicht signieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac couldn't sign that Allow once"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac no pudo firmar ese «Permitir una vez»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’a pas pu signer cet « Autoriser une fois »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non ha potuto firmare quel «Consenti una volta»"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はその「1 回だけ許可」に署名できませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនអាចចុះហត្ថលេខាលើ «អនុញ្ញាតម្ដង» នោះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 해당 '한 번 허용'에 서명하지 못했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen kunne ikke signere den Tillat én gang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie mógł podpisać tego „Zezwól raz”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac não conseguiu assinar esse “Permitir uma vez”"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac не смог подписать «Разрешить один раз»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ลงนาม «อนุญาตครั้งเดียว» นั้นไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac o Bir kez izin ver'i imzalayamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac не зміг підписати «Дозволити один раз»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này không thể ký “Cho phép một lần” đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 无法为该“允许一次”签名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 無法為該「允許一次」簽署"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.notClicked.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقر «السماح مرة واحدة» للإجابة عن هذا من هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknite Dozvoli jednom da odgovorite s ovog Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik på Tillad én gang for at svare fra denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klicke auf „Einmal erlauben“, um von diesem Mac aus zu antworten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click Allow once to answer this from this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic en «Permitir una vez» para responder desde este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez sur « Autoriser une fois » pour répondre depuis ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic su «Consenti una volta» per rispondere da questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac から回答するには「1 回だけ許可」をクリックしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុច «អនុញ្ញាតម្ដង» ដើម្បីឆ្លើយពី Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 답하려면 '한 번 허용'을 클릭하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klikk på Tillat én gang for å svare fra denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij „Zezwól raz”, aby odpowiedzieć z tego Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique em “Permitir uma vez” para responder deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите «Разрешить один раз», чтобы ответить с этого Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิก «อนุญาตครั้งเดียว» เพื่อตอบจาก Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'ten yanıtlamak için Bir kez izin ver'e tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть «Дозволити один раз», щоб відповісти з цього Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bấm “Cho phép một lần” để trả lời từ máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点按“允许一次”以从此 Mac 回答。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按一下「允許一次」以從此 Mac 回答。"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.notRecorded.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكن هذا الـ Mac قد تلقّى ذلك الطلب بعد. اختر «السماح مرة واحدة» مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj Mac još nije primio taj zahtjev. Ponovo odaberite Dozvoli jednom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Mac havde ikke modtaget anmodningen endnu. Vælg Tillad én gang igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Mac hatte die Anfrage noch nicht erhalten. Wähle erneut „Einmal erlauben“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac hadn't received that request yet. Choose Allow once again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac aún no había recibido esa solicitud. Vuelve a elegir «Permitir una vez»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce Mac n’avait pas encore reçu cette demande. Choisissez à nouveau « Autoriser une fois »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo Mac non aveva ancora ricevuto la richiesta. Scegli di nuovo «Consenti una volta»."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac はまだそのリクエストを受け取っていませんでした。もう一度「1 回だけ許可」を選んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac នេះមិនទាន់បានទទួលសំណើនោះនៅឡើយ។ ជ្រើស «អនុញ្ញាតម្ដង» ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 아직 해당 요청을 받지 못했습니다. '한 번 허용'을 다시 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne Macen hadde ikke mottatt forespørselen ennå. Velg Tillat én gang igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten Mac nie otrzymał jeszcze tej prośby. Ponownie wybierz „Zezwól raz”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este Mac ainda não tinha recebido essa solicitação. Escolha “Permitir uma vez” de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот Mac ещё не получил этот запрос. Снова выберите «Разрешить один раз»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac เครื่องนี้ยังไม่ได้รับคำขอนั้น เลือก «อนุญาตครั้งเดียว» อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac bu isteği henüz almamıştı. Bir kez izin ver'i yeniden seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей Mac ще не отримав цей запит. Знову виберіть «Дозволити один раз»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Mac này chưa nhận được yêu cầu đó. Hãy chọn lại “Cho phép một lần”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未收到该请求。请再次选择“允许一次”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 尚未收到該要求。請再次選擇「允許一次」。"
+          }
+        }
+      }
+    },
+    "agentPane.peerApprovals.notes.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإجابات مع الملاحظات غير متاحة من هذا الـ Mac؛ يعمل «السماح مرة واحدة» و«الرفض»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odgovori s bilješkama nisu dostupni s ovog Maca; Dozvoli jednom i Odbij rade."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svar med noter er ikke tilgængelige fra denne Mac; Tillad én gang og Afvis virker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten mit Notizen sind auf diesem Mac nicht verfügbar; „Einmal erlauben“ und „Ablehnen“ funktionieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answers with notes aren't available from this Mac; Allow once and Deny work."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las respuestas con notas no están disponibles desde este Mac; «Permitir una vez» y «Denegar» sí funcionan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réponses avec des notes ne sont pas disponibles depuis ce Mac ; « Autoriser une fois » et « Refuser » fonctionnent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le risposte con note non sono disponibili da questo Mac; «Consenti una volta» e «Rifiuta» funzionano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からはメモ付きの回答を使えません。「1 回だけ許可」と「拒否」は使えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចម្លើយដែលមានកំណត់ចំណាំមិនអាចប្រើពី Mac នេះបានទេ; «អនុញ្ញាតម្ដង» និង «បដិសេធ» ដំណើរការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서는 메모가 있는 답변을 사용할 수 없습니다. '한 번 허용'과 '거부'는 사용할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svar med notater er ikke tilgjengelige fra denne Macen; Tillat én gang og Avslå virker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odpowiedzi z notatkami nie są dostępne z tego Maca; „Zezwól raz” i „Odmów” działają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Respostas com notas não estão disponíveis neste Mac; “Permitir uma vez” e “Negar” funcionam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ответы с заметками недоступны с этого Mac; «Разрешить один раз» и «Отклонить» работают."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้คำตอบที่มีโน้ตจาก Mac เครื่องนี้ไม่ได้ ใช้ «อนุญาตครั้งเดียว» และ «ปฏิเสธ» ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notlu yanıtlar bu Mac'ten kullanılamaz; Bir kez izin ver ve Reddet çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відповіді з нотатками недоступні з цього Mac; «Дозволити один раз» і «Відхилити» працюють."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể gửi câu trả lời kèm ghi chú từ máy Mac này; “Cho phép một lần” và “Từ chối” vẫn dùng được."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法从此 Mac 发送带备注的回答；“允许一次”和“拒绝”可以使用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法從此 Mac 傳送附註的回答；「允許一次」和「拒絕」可以使用。"
           }
         }
       }

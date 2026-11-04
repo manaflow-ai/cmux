@@ -39,12 +39,14 @@ public final class StatusIndicatorLayer {
         /// scope). `color` overrides the loading color
         /// (`appearance.statusIndicator.color`).
         public static func current(loading color: ThemeRGB?) -> Colors {
-            Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
-                   attention: Palette.attention.cgColor,
-                   danger: Palette.danger.cgColor,
-                   success: Palette.success.cgColor,
-                   accent: Palette.textPrimary.cgColor,
-                   working: Palette.accentFill.cgColor)
+            var colors = Colors(loading: color?.nsColor.cgColor ?? Palette.textSecondary.cgColor,
+                                attention: Palette.attention.cgColor,
+                                danger: Palette.danger.cgColor,
+                                success: Palette.success.cgColor,
+                                accent: Palette.textPrimary.cgColor,
+                                working: Palette.accentFill.cgColor)
+            colors.spinner = ThemeContext.active?.spinnerInk.nsColor.cgColor
+            return colors
         }
 
         /// The sidebar's status colors (Lawrence msg 11983: "blue, orange/yellow for needs attention,
@@ -65,6 +67,10 @@ public final class StatusIndicatorLayer {
         /// The unread dot's color; nil draws ``Palette/notificationBlue``.
         public var unread: CGColor?
 
+        /// The spinner's color (``ThemeTokens/spinnerInk``, set in a theme scope); nil draws
+        /// `accent` (else `loading`) at 66%.
+        public var spinner: CGColor?
+
         /// The default unread dot: ``Palette/notificationBlue``.
         static var defaultUnread: CGColor { Palette.notificationBlue.cgColor }
 
@@ -76,7 +82,7 @@ public final class StatusIndicatorLayer {
             case .danger: danger
             case .success: success
             case .accent: accent ?? loading
-            case .spinner: (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
+            case .spinner: spinner ?? (accent ?? loading).copy(alpha: (accent ?? loading).alpha * 0.66) ?? loading
             case .unread: unread ?? Self.defaultUnread
             case .working: working ?? accent ?? loading
             }

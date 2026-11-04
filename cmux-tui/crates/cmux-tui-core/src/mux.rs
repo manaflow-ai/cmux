@@ -95,6 +95,8 @@ use cell_pixel_state::apply_cell_pixel_size_until;
 use cell_pixel_state::cell_pixel_retry_delay;
 use cell_pixel_state::validate_cell_pixel_convergence;
 mod client_sizing_state;
+/// A key's sizing note without the sizing lock (R-DAEMON-STATE stage S1).
+pub(crate) mod sizing_fast_path;
 use client_sizing_state::AppliedClientSize;
 use client_sizing_state::ClientResizeRequest;
 pub(crate) use client_sizing_state::ClientSizeRollback;
@@ -276,9 +278,9 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
-pub(crate) use signaled_mutex::SignaledMutex;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
+pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -535,7 +537,7 @@ pub struct Mux {
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
-    client_sizing: Mutex<ClientSizingState>,
+    client_sizing: sizing_fast_path::SizingMutex,
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
@@ -929,6 +931,14 @@ impl Mux {
 
     #[track_caller]
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
+        // The last finished change's routes, no lock (R-DAEMON-STATE S1); loaded before the poison check (poison
+        // never clears), and a poisoned state takes the old read, which fails as it does.
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return routes.surface(id);
+            }
+        }
         let state = self.state.lock().unwrap();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
@@ -944,6 +954,17 @@ impl Mux {
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
         self.state.lock().unwrap().surfaces.remove(&id)
+    }
+
+    /// Turns R-DAEMON-STATE stage S1 (the input lane) on or off for this mux (tests).
+    #[cfg(test)]
+    pub(crate) fn set_input_lane_for_test(&self, on: bool) {
+        self.state.set_route_publishing_for_test(on);
+        self.control_clients.set_input_lane_for_test(on);
+        self.remote_relay().peers.set_publishing_for_test(on);
+        self.surface_operation_admission.set_lock_free_for_test(on);
+        self.client_sizing.set_publishing_for_test(on);
+        self.activity.set_lock_free_for_test(on);
     }
 
     #[cfg(test)]

@@ -5,7 +5,8 @@ import path from "node:path";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
 import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
-import { programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
+import { imageLeftoversCommand, programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
+import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 
@@ -39,6 +40,35 @@ describe("cmux VM image guest commands", () => {
   test("smoke scans and program checks parse", async () => {
     await bashSyntax(secretScanCommand());
     await bashSyntax(programChecksCommand(lock));
+  });
+
+  test("daemon uptime, forced rebind and image leftover commands parse", async () => {
+    await bashSyntax(daemonHoldCommand());
+    await bashSyntax(forcedRebindCommand());
+    await bashSyntax(imageLeftoversCommand());
+    // Existence only: the leftover scan never reads or prints a sign-in file's contents.
+    expect(imageLeftoversCommand()).not.toMatch(/\b(cat|head -c|grep [^|]*credentials)\b/);
+  });
+
+  // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
+  test("daemon uptime parsing: a crash loop, a fence without auth/ and the migration error fail", () => {
+    const up = "pid=812\nalive=1\npid-after=812\nudp4101=0\ncloud-bound=0";
+    expect(daemonUptimeProblems(up, true)).toEqual([]);
+    expect(daemonUptimeProblems("pid=\nalive=0\npid-after=\nudp4101=0\ncloud-bound=0", false)).toEqual(["no session host at the start of the hold"]);
+    expect(daemonUptimeProblems("pid=812\nalive=0\npid-after=901\nudp4101=0\ncloud-bound=0", false)).toEqual(["session host 812 did not stay up 60 s (now 901)"]);
+    const crashLoop = [
+      "pid=812",
+      "alive=0",
+      "pid-after=",
+      "fence-without-auth=/home/cmux/.local/state/cmux/remote/sessions/Y2xvdWQ/",
+      "legacy-error=cmux-tui: previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      "host-exit=cmux-host: session host 2840 exited after 94 ms",
+    ].join("\n");
+    expect(daemonUptimeProblems(crashLoop, false)).toHaveLength(4);
+    // UDP 4101 is required once the clone is bound to Cloud (the Native receiver binds after a Cloud bind).
+    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), true)).toEqual(["UDP 4101 not bound on a Cloud-bound Native receiver clone"]);
+    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1").replace("udp4101=0", "udp4101=1"), true)).toEqual([]);
+    expect(daemonUptimeProblems(up.replace("cloud-bound=0", "cloud-bound=1"), false)).toEqual([]);
   });
 
   test("program check parsing: exit code, store path and version", () => {
