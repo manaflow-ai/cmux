@@ -158,8 +158,9 @@ export function AgentLine({
     >
       <span
         className={shimmer.className ? `acpmux-lineage__icon ${shimmer.className}` : "acpmux-lineage__icon"}
-        style={shimmer.style}
+        style={tone === undefined ? shimmer.style : { ...shimmer.style, color: "var(--agent-tone-ink)" }}
         data-state={status}
+        data-agent-tone={tone}
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />

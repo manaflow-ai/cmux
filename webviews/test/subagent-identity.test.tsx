@@ -28,3 +28,23 @@ test("non-subagent identities keep their brand mark", () => {
   expect(html).toContain(renderToStaticMarkup(<AgentMark agent="claude" size={14} />));
   expect(html).not.toContain("data-identity-look");
 });
+
+test("a working subagent keeps its spinner and the same identity ink as its finished harness mark", () => {
+  const tone = agentTone("reviewer");
+  for (const working of [true, false]) {
+    const html = renderToStaticMarkup(
+      <AgentLine
+        name="Reviewer"
+        status={working ? "running" : "done"}
+        state={working ? "Running" : "Done"}
+        mark="claude"
+        tone={tone}
+        working={working}
+      />,
+    );
+    expect(html).toContain(`data-state="${working ? "running" : "done"}" data-agent-tone="${tone}"`);
+    expect(html).toContain("color:var(--agent-tone-ink)");
+    expect(html.includes("cv-spinner")).toBe(working);
+    expect(html.includes('data-agent="claude"')).toBe(!working);
+  }
+});
