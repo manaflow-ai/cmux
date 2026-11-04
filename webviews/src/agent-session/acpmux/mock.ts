@@ -408,12 +408,8 @@ export class MockAcpmuxSocket {
       params,
     });
     const slowMethod = (globalThis as MockAuthGlobals).cmuxAcpmuxMockSlowMethod;
-    if (slowMethod === method)
-      await this.delay(
-        typeof (globalThis as MockAuthGlobals).cmuxAcpmuxMockSlowMs === "number"
-          ? (globalThis as MockAuthGlobals).cmuxAcpmuxMockSlowMs
-          : 6_000,
-      );
+    const slowMs = (globalThis as MockAuthGlobals).cmuxAcpmuxMockSlowMs;
+    if (slowMethod === method) await this.delay(typeof slowMs === "number" ? slowMs : 6_000);
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
