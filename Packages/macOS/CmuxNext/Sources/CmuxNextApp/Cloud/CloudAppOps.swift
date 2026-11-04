@@ -96,13 +96,12 @@ extension CloudMachine {
 }
 /// App adapters for the latest-turn Cloud fork. The sequence itself lives in CmuxNextCloud.
 @MainActor
-private func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
+func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
     func failure(_ message: String) -> NSError {
         NSError(domain: "cloud.tryAnotherApproach", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
-    var childDaemon: DaemonService?
-    var parentPane: Pane?
-    return try await CloudTryAnotherApproach.run(
+    var openChild: (@MainActor (CloudTryAnotherApproach.Plan, String) async throws -> String)?
+    let result = try await CloudTryAnotherApproach.run(
         chat: key, throughSeq: throughSeq,
         prepare: { chat, seq in
             guard seq > 0, services.cloud.auth.isSignedIn,
@@ -134,20 +133,23 @@ private func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services
             guard let childSession = services.machines.session(childMachine) else {
                 throw failure("Child machine is not connected")
             }
-            childDaemon = childSession.daemon
-            guard let daemon = childDaemon,
-                  let parentTab = daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+            let daemon = childSession.daemon
+            guard let parentTab = daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
                     .first(where: { $0.agentSession?.session == plan.session }),
                   let pane = daemon.store.pane(holding: parentTab) else {
                 throw failure("Child machine did not restore the parent chat")
             }
-            parentPane = pane
             let attach = AgentSessionAttachClient(surface: parentTab.surface.rawValue,
                                                    endpoint: { try await daemon.endpoint() })
             do {
                 let forked = try await attach.fork(throughSeq: plan.throughSeq, name: plan.parentLabel)
                 await attach.close()
                 RemoteAgentSessionLinks.shared.noteFork(forked.session, parent: plan.session)
+                openChild = { plan, session in
+                    let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session,
+                                                              idempotencyKey: plan.clientKey)
+                    return try await pending.value().key
+                }
                 return forked.session
             } catch {
                 await attach.close()
@@ -155,11 +157,9 @@ private func cloudTryAnotherApproach(chat key: String, throughSeq: Int, services
             }
         },
         openChild: { plan, _, session in
-            guard let daemon = childDaemon, let pane = parentPane else { throw failure("Child chat is unavailable") }
-            let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session,
-                                                      idempotencyKey: plan.clientKey)
-            return try await pending.value().key
+            guard let openChild else { throw failure("Child chat is unavailable") }
+            return try await openChild(plan, session)
         })
-    .map { ["childMachine": $0.childMachine, "childSession": $0.childSession, "childTab": $0.childTab,
-            "parentLabel": $0.parentLabel, "throughSeq": $0.throughSeq] }
+    return ["childMachine": result.childMachine, "childSession": result.childSession, "childTab": result.childTab,
+            "parentLabel": result.parentLabel, "throughSeq": result.throughSeq]
 }
