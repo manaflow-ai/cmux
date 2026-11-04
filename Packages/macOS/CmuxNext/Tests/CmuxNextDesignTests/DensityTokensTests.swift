@@ -82,6 +82,26 @@ import Testing
         #expect(rows == [20, 24, 28, 32, 38])
     }
 
+    /// Leo 2026-11-04: "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever
+    /// ui scaling modes too". Before, Ultra-compact drew 13 and 11 pt glyphs, Cozy 15 and 13, Spacious 18.
+    @Test func everyDensityDrawsGlyphsOnTheIconScale() {
+        var icons: [CGFloat] = [], small: [CGFloat] = []
+        for preset in DensityPreset.allCases {
+            DensityTokens.$scoped.withValue(preset.tokens) {
+                icons.append(Metrics.iconSize)
+                small.append(Metrics.smallIconSize)
+            }
+        }
+        #expect(icons == [12, 14, 16, 16, 20])
+        #expect(small == [12, 12, 14, 14, 16])
+        for level in stride(from: DensityTokens.levelRange.lowerBound, through: DensityTokens.levelRange.upperBound, by: 0.25) {
+            let tokens = DensityTokens(id: "l", name: "L", level: level)
+            #expect(DensityTokens.iconScale.contains(tokens.resolveGlyph(compact: 14, comfortable: 16)), "level \(level)")
+        }
+        let exact = DensityTokens(id: "x", name: "X", level: 0.5, tokens: ["iconSize": 15])
+        DensityTokens.$scoped.withValue(exact) { #expect(Metrics.iconSize == 15, "an exact token stays exact") }
+    }
+
     @Test func aCustomFontSizeSetsTheBodyAndKeepsTheRatios() {
         let big = DensityTokens(id: "big-text", name: "Big Text", fontSize: 15)
         DensityTokens.$scoped.withValue(big) {
