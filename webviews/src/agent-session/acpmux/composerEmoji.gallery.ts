@@ -44,7 +44,7 @@ export default agentPaneEntry({
     },
   },
   variants: {
-    tedd: variant("Play: `:tedd` lists the teddy bear first, its typed letters bold, over the typed `:`.", (ctx) =>
+    tedd: variant("Play: `:tedd` lists the teddy bear first, its typed letters bold, over the typed `:`; no row is chosen.", (ctx) =>
       typeToMenu(ctx, "Ship it :tedd"),
     ),
     "emoticon-dd": variant(
@@ -52,11 +52,20 @@ export default agentPaneEntry({
       (ctx) => typeToMenu(ctx, "That fixed it :DD"),
     ),
     heart: variant("Play: `<3` lists the red heart first.", (ctx) => typeToMenu(ctx, "Thanks <3")),
-    "pick-return": variant("Play: Return on `:tedd` writes 🧸 and a space; the menu closes.", async (ctx) => {
+    "arrow-return": variant("Play: ↓ chooses 🧸 on `:tedd`, then Return writes it and a space; the menu closes.", async (ctx) => {
       await typeToMenu(ctx, "Ship it :tedd");
+      const prompt = ctx.document.querySelector(PROMPT)!;
+      await ctx.press("ArrowDown");
+      await ctx.waitFor(() => prompt.getAttribute("aria-activedescendant") === "acpmux-emoji-0");
       await ctx.press("Enter");
       await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
       if (!promptText(ctx).includes("Ship it 🧸")) throw new Error(`pick did not write the emoji: ${promptText(ctx)}`);
+    }),
+    "return-sends": variant("Play: Return with no row chosen sends `Ship it :tedd` as typed; no emoji is written.", async (ctx) => {
+      await typeToMenu(ctx, "Ship it :tedd");
+      await ctx.press("Enter");
+      await ctx.waitFor(() => ctx.document.querySelector(ROW) === null);
+      if (promptText(ctx).includes("🧸")) throw new Error(`Return wrote an emoji: ${promptText(ctx)}`);
     }),
     "emoticon-tab": variant("Play: Tab on `:DD` (no row chosen) writes the first row, 😆.", async (ctx) => {
       await typeToMenu(ctx, "That fixed it :DD");
