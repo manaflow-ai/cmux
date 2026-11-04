@@ -1,15 +1,9 @@
-/* The composer's looks (composerLook.ts; Leo 2026-10-22: "first dot claude, second dot codex. since
-   it's just all looks anyways"). Both lay +, the prompt, the mic and Send out as Claude's, the default
-   (Leo 2026-11-01: "the placement of the buttons are just really bad compared to our claude code
-   version", then "we already have a good version"): + left of the prompt, the send slot and the mic
-   right of it (composerLocation.css). Claude's draws the mode, model, effort and context ring in the
-   quiet row under the box; Codex's (data-composer-look="codex" on the chat's form and on New Tab's
-   .nt-composer) draws that row inside the chat's box under the prompt (below), Codex's folder and
-   computer strip as a tray tucked under the box's top edge, and Full access in the theme's accent
-   (never Codex's orange). Replaced: Codex's own row in the box under the prompt with + in it (cmux
-   #28901, last good commit 8b44a8a1dc2; gallery agent-pane.composer-look codex-chat-alt-in-box-row),
-   then Codex's look drawing exactly Claude's (#30395), which made a switch in a running chat show
-   nothing. test/composer-codex-row.test.ts checks both looks. */
+/* The composer's looks (composerLook.ts): Claude keeps its compact prompt line and quiet footer.
+   Codex's chat composer gives the prompt its own line over the controls, as ChatGPT does (Leo
+   2026-11-04: "we still don't have the proper spacing"). It keeps the folder tray and Full access
+   in the theme's accent. New Tab keeps its compact grid. This supersedes #30395's shared compact
+   prompt grid for the Codex chat look only; #32682's in-box mode/model/context controls stay.
+   test/composer-codex-row.test.ts measures both looks. */
 
 /* The folder and computer strip: Codex's tray, set in from the box's sides where its corners end,
    its bottom tucked under the box (which is raised over it), its top corners round, a faint wash of
@@ -71,23 +65,57 @@
 :root .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-strip) > .acpmux-composer-box::before {
   content: none;
 }
-/* Codex's look keeps the mode, the model and effort and the context ring inside the box, a row
-   under the prompt, as Codex desktop does (Leo 2026-10-30: "the bypass/context/model picker stuff
-   should literally be inside the composer box"; 2026-11-02: "switching to the codex view in the
-   middle of an agent chat doesn't do anything right now"). +, the prompt, the mic and Send keep
-   Claude's grid (design/composer.md rules 15 and 16; Leo 2026-11-01: "the placement of the buttons
-   are just really bad compared to our claude code version"). ComposerBox moves the same quiet row
-   (ComposerFoot) into the box, so its fit steps, chip styles and the look dots' hover carry over:
-   it spans the grid's columns on a row of its own, the mode's shield still under the + glyph and
-   the ring as far in from the right. The box then stands its floor over the pane's bottom edge
-   instead of the row under it (bottomStack.css, the quiet row's 8 px). */
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
+/* ChatGPT's two-row composer: the prompt has its own full-width line, with + at the lower left
+   and the actions at the lower right (private ref chatgpt/live/composer-empty-placeholder-plus-button;
+   Leo 2026-11-04: "we still don't have the proper spacing"). Keep every existing control: the
+   same quiet row fits between + and the actions, using its existing measured fit steps. The prompt
+   stays mounted through a look switch, so its draft, attachments and caret stay too. Claude's look
+   and New Tab keep their own compact grid. */
+.acpmux-composer[data-composer-look="codex"] {
+  --acpmux-codex-prompt-top: calc(16px * var(--cmux-interface-scale, 1));
+  --acpmux-codex-prompt-gap: calc(24px * var(--cmux-interface-scale, 1));
+  --acpmux-codex-prompt-side: calc(var(--acpmux-composer-inset) + var(--acpmux-composer-lead-gap));
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid] {
+  --acpmux-shell-inset-top: var(--acpmux-codex-prompt-top);
+  --acpmux-shell-inset-bottom: var(--acpmux-codex-prompt-gap);
+  --acpmux-shell-inset-left: var(--acpmux-codex-prompt-side);
+  --acpmux-shell-inset-right: var(--acpmux-codex-prompt-side);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
+  > .acpmux-composer-field-menu > * {
   grid-column: 1 / -1;
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
+  > .acpmux-composer-field-menu > .acpmux-md-field {
+  margin-right: 0;
+  padding: var(--acpmux-codex-prompt-top) var(--acpmux-codex-prompt-side)
+    var(--acpmux-codex-prompt-gap);
+  padding-right: max(0px, calc(var(--acpmux-codex-prompt-side) - var(--cmux-scroller-size, 8px)));
+  --cmux-minimal-scroller-inset-end: var(--acpmux-composer-inset);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box[data-composer-grid]
+  > .acpmux-composer-field-menu > .acpmux-md-field .acpmux-md-placeholder {
+  top: var(--acpmux-codex-prompt-top);
+  left: var(--acpmux-codex-prompt-side);
+  right: var(--acpmux-codex-prompt-side);
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > :not(.acpmux-composer-actions),
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-inner > .acpmux-composer-actions {
   grid-row: 3;
-  /* The prompt's row keeps its block inset under + (the grid's 48 px line), and the row stands as
-     far off the box's bottom as + off its left. */
+  margin-bottom: var(--acpmux-composer-inset);
+}
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-foot {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+  height: var(--acpmux-composer-control);
+  align-self: end;
   margin: 0 0 var(--acpmux-composer-inset, 8px);
-  padding-inline-end: calc(var(--acpmux-composer-inset, 8px) - 3px);
+  padding-inline: 0;
+}
+.acpmux-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-context-ring {
+  margin-inline-end: 4px;
 }
 .acpmux-main[data-dock="float"]
   > .acpmux-dock

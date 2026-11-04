@@ -23,8 +23,8 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
-mod text_index;
 mod shared_value;
+mod text_index;
 pub use shared_value::SharedValue;
 
 /// One line in the session event log.
