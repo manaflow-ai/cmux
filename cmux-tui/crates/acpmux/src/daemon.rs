@@ -698,6 +698,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
+    // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
+    // event journal checkpoint, whose logs only the next start's replay writes again.
+    let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.store.stop_reason()));
     let shutdown = async {
         // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
@@ -714,6 +717,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
+                // A restart handoff: the next start repairs what the store could not.
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -767,6 +774,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -917,6 +927,18 @@ struct AbortOnDrop(tokio::task::AbortHandle);
 impl Drop for AbortOnDrop {
     fn drop(&mut self) {
         self.0.abort();
+    }
+}
+
+/// Resolves, with the reason logged, once the store asks the daemon to stop
+/// (`Store::stop_reason`); never for a store that does not ask, or once the store is gone.
+async fn store_asks_to_stop(reason: Option<tokio::sync::watch::Receiver<Option<String>>>) {
+    let Some(mut reason) = reason else { return std::future::pending().await };
+    match reason.wait_for(Option::is_some).await {
+        Ok(why) => {
+            tracing::error!("stopping for a restart: {}", why.as_deref().unwrap_or_default());
+        }
+        Err(_) => std::future::pending().await,
     }
 }
 

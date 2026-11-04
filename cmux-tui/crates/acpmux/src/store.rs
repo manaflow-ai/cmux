@@ -994,13 +994,16 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
         StoreMode::Local if config.journal => Box::new(journal_store::JournalStore::open(
             config,
             root,
-            std::sync::Arc::new(journal_store::FencedStorage::new(
-                std::sync::Arc::new(cmux_journal::FsStorage),
-                Box::new(crate::config::refuse_lost_home),
-            )),
+            std::sync::Arc::new(journal_store::FencedStorage::daemon()),
             cmux_journal::Config::default(),
         )?),
-        StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
+        StoreMode::Local => {
+            // A journal a run with `store.journal` on left: its lines go to the logs first.
+            if let Err(error) = journal_store::catch_up(config, root) {
+                tracing::error!("the event journal's catch-up with store.journal off: {error:#}");
+            }
+            Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?)
+        }
     })
 }
 
@@ -1413,7 +1416,7 @@ impl LocalStore {
     pub(super) fn sync_log(&self, id: &str) -> Result<()> {
         #[cfg(test)]
         if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
-            return Err(std::io::Error::other("a failed sync (a test)").into());
+            return Err(SyncFailed(std::io::Error::other("a failed sync (a test)")).into());
         }
         let open = {
             let writers = self.writers.lock_or_recover();
@@ -1423,7 +1426,7 @@ impl LocalStore {
             }
         };
         if let Some(file) = open {
-            file.sync_all()?;
+            file.sync_all().map_err(SyncFailed)?;
         }
         let session = self.dir(id);
         sync_directory(&session.join("events"))?;
@@ -1793,6 +1796,24 @@ impl Store for LocalStore {
     }
 }
 
+/// A sync call (`fsync`) that failed, as opposed to an error before it (a folder that does not
+/// open): what it was to make durable may be lost, and a later sync of the same file may report
+/// success without it (the journal store then keeps every line until a restart).
+#[derive(Debug)]
+pub(crate) struct SyncFailed(pub(crate) std::io::Error);
+
+impl std::fmt::Display for SyncFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "sync failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for SyncFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
 /// Sync a directory entry after a file or subdirectory was created or replaced.
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
@@ -1801,7 +1822,7 @@ fn sync_directory(path: &Path) -> Result<()> {
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
-    dir.sync_all()?;
+    dir.sync_all().map_err(SyncFailed)?;
     Ok(())
 }
 

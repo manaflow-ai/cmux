@@ -64,8 +64,6 @@ pub(crate) struct Shared {
     /// Wakes waiters: the durable LSN moved, or the writer ended.
     pub(crate) durable: Condvar,
     pub(crate) listeners: Mutex<Vec<Listener>>,
-    /// Called with the new written LSN after each batch's write, before its sync.
-    pub(crate) written_listeners: Mutex<Vec<Listener>>,
     /// The live segments, oldest first: recovery's, then each one the writer makes.
     pub(crate) segments: Mutex<Vec<LiveSegment>>,
 }
@@ -73,6 +71,23 @@ pub(crate) struct Shared {
 impl Shared {
     pub(crate) fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl State {
+    /// Whether a record of `size` bytes (header included) may join the queue now: refused when
+    /// the journal is closed, or when the queue holds records and would grow past
+    /// [`Config::max_pending_bytes`] (one record is always taken, however large).
+    fn admits(&self, config: &Config, size: usize) -> Result<(), AppendError> {
+        if self.closed {
+            return Err(AppendError::Closed);
+        }
+        if !self.pending.is_empty()
+            && self.pending.len().saturating_add(size) > config.max_pending_bytes
+        {
+            return Err(AppendError::Backlog);
+        }
+        Ok(())
     }
 }
 
@@ -221,7 +236,6 @@ impl Journal {
             wake: Condvar::new(),
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
-            written_listeners: Mutex::new(Vec::new()),
             segments: Mutex::new(recovered.live),
         });
         let report = recovered.report;
@@ -246,15 +260,8 @@ impl Journal {
         // The payload's checksum is computed before the lock; the lock covers the LSN and copy.
         let crc = format::payload_crc(payload);
         let mut state = self.shared.lock();
-        if state.closed {
-            return Err(AppendError::Closed);
-        }
         let size = format::record_len(payload.len());
-        if !state.pending.is_empty()
-            && state.pending.len().saturating_add(size) > self.shared.config.max_pending_bytes
-        {
-            return Err(AppendError::Backlog);
-        }
+        state.admits(&self.shared.config, size)?;
         let lsn = state.stats.next_lsn;
         state.stats.next_lsn = lsn.saturating_add(1);
         let was_empty = state.pending.is_empty();
@@ -274,8 +281,10 @@ impl Journal {
     /// under that lock, is sure of the append unless the writer stops in between
     /// ([`AppendError::Closed`]): only appends fill the queue, and only the writer empties it.
     pub fn check_append(&self, payload_len: usize) -> Result<(), AppendError> {
-        let _ = payload_len;
-        Ok(())
+        if payload_len > MAX_PAYLOAD_LEN {
+            return Err(AppendError::TooLarge);
+        }
+        self.shared.lock().admits(&self.shared.config, format::record_len(payload_len))
     }
 
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel
@@ -315,20 +324,6 @@ impl Journal {
     /// caller's thread: call it off any request path.
     pub fn clear_damage(&self) -> std::io::Result<()> {
         recovery::clear_damage(self.storage.as_ref(), &self.dir)
-    }
-
-    /// Calls `listener` with the new written LSN after each batch is written, before it is synced,
-    /// on the writer thread. A written record survives a kill of any or all processes (it is in
-    /// the page cache), not an OS crash. A daemon's projector writes its compaction output from
-    /// here, so it never holds a record the journal never held. It must return quickly and never
-    /// wait. A batch written again into a new segment (after a failed sync) is not heard twice.
-    /// When the writer stops, the listeners are dropped.
-    pub fn on_written(&self, listener: impl Fn(Lsn) + Send + Sync + 'static) {
-        self.shared
-            .written_listeners
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Arc::new(listener));
     }
 
     /// Deletes the segments that hold no record after `compacted`, the caller's compaction point:
