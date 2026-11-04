@@ -5225,8 +5225,11 @@ export function VirtualTranscript({
       // of a long way and heads for the end as the prompt's row and its reply land, instead of a
       // jump to the old end and a second step when the row arrives (design/motion.md "Full,
       // parked"). Its follow takes the reader's hold too.
+      // After this commit, before its frame paints: the glide's own flushSync cannot run inside it.
       followRequest.current = userScrollIntent(node).request();
-      jumpToLatest(false);
+      queueMicrotask(() => {
+        if (ref.current === node && previousSession.current === sessionId) jumpToLatest(false);
+      });
       if (onAnchor) {
         clearTimeout(anchorTimer.current);
         anchorTimer.current = setTimeout(reportAnchor, SCROLL_ANCHOR_SETTLE_MS);
@@ -10018,6 +10021,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     freshSends.current = undefined;
   }
   useLayoutEffect(() => {
+    // Only the commit that mounted the transcript counts its rows as the first send's.
+    firstSend.current = false;
     const copies = leavingFresh.current;
     if (copies.length === 0) return;
     leavingFresh.current = [];
