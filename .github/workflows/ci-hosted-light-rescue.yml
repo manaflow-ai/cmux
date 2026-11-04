@@ -32,6 +32,9 @@ jobs:
       - name: Check out trusted rescue code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Always read the reviewed rescue implementation from the trusted default branch.
+          # An explicit ref prevents a workflow-dispatch branch from supplying Actions-write code.
+          ref: main
           persist-credentials: false
 
       # Only the existing owned-pool-sweeper concurrency group mutates runs.
