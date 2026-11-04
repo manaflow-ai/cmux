@@ -422,6 +422,8 @@ final class ChatReplayPlayer {
     }
 
     var duration: TimeInterval { recording.duration }
+    /// The tool calls' times (the scrubber's ticks), each once.
+    var toolCallTimes: [TimeInterval] { Array(Set(recording.steps.filter(\.isToolCall).map(\.time))).sorted() }
 
     func play() {
         guard state == .ready else { return }
@@ -532,11 +534,11 @@ struct ChatReplayControls: View {
                     .accessibilityIdentifier("chat.replay.position")
                 // Tool-call ticks under the track.
                 GeometryReader { proxy in
-                    ForEach(Array(player.recording.steps.enumerated().filter { $0.element.isToolCall }), id: \.offset) { _, step in
+                    ForEach(player.toolCallTimes, id: \.self) { time in
                         Rectangle()
                             .fill(.secondary)
                             .frame(width: 1.5, height: 6)
-                            .offset(x: (proxy.size.width - 28) * step.time / max(player.duration, 0.1) + 14, y: proxy.size.height - 4)
+                            .offset(x: (proxy.size.width - 28) * time / max(player.duration, 0.1) + 14, y: proxy.size.height - 4)
                     }
                 }
                 .allowsHitTesting(false)

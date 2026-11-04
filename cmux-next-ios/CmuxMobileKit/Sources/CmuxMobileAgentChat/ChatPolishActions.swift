@@ -196,7 +196,7 @@ public struct ChatDisplaySettings: Codable, Hashable, Sendable {
     static func index(of category: UIContentSizeCategory) -> Int {
         if let exact = sizes.firstIndex(where: { $0.category == category }) { return exact }
         // Sizes past the list (the two largest accessibility sizes) count as its last.
-        return category.isAccessibilityCategory ? sizes.count - 1 : 3
+        return category.rawValue.contains("Accessibility") ? sizes.count - 1 : 3
     }
 
     /// The size the chat draws at over the person's `system` size; nil: the system's own.
