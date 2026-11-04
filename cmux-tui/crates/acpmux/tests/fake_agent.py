@@ -169,15 +169,15 @@ def prompt_text(params):
     return "".join(b.get("text", "") for b in blocks)
 
 
+# The hidden guidance blocks (`context_inventory::override_block`), and only those: the
+# forum's rules, a side question's chat and a message's attachments are cmux-*-context
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+
+
 def guidance_text(text):
-    """Recognize a context wrapper after an adapter dropped its metadata."""
-    if not isinstance(text, str):
-        return False
-    text = text.lstrip()
-    if not text.startswith("<cmux-"):
-        return False
-    name = text[1:].split(">", 1)[0]
-    return name.endswith("-context") and not any(c.isspace() for c in name)
+    """Recognize a guidance wrapper after an adapter dropped its metadata."""
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
 
 
 def is_cmux_guidance(block):

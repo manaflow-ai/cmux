@@ -81,6 +81,11 @@ impl Hub {
         crate::vault::start_worker().await;
         self.startup_ready.send_replace(true);
         self.care_worker();
+        // A spare for each harness this machine used (`pool/spare.rs`).
+        {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.restore_spares().await });
+        }
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(|| {

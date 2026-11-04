@@ -84,7 +84,7 @@ impl OverCap {
             "lanes.max_lanes in the fleet registry".into()
         };
         let next = match instead {
-            Some(placed) => format!("Next time try `acpmux new --host auto` ({placed})."),
+            Some(placed) => format!("Next time try `acpmux new --machine auto` ({placed})."),
             None if local && peers => "No connected host has room either.".into(),
             None => "Next time start it on another host.".into(),
         };
@@ -626,7 +626,8 @@ mod tests {
                 && message.contains("cap of 3")
                 && message.contains("lanes.max_lanes of cmux16 in /r/fleet-registry.json")
                 && message.contains("started anyway")
-                && message.contains("`acpmux new --host auto` (placed on big-red: 31 GB RAM free)"),
+                && message
+                    .contains("`acpmux new --machine auto` (placed on big-red: 31 GB RAM free)"),
             "the warning names the count, the cap, where it comes from and a host with room: {message}"
         );
         assert!(cap.warning(true, true, None).contains("No connected host has room"));

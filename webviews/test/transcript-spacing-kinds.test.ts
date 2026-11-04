@@ -120,7 +120,6 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const long = rowLines("kinds-long");
       const received = rowLines("kinds-received");
       const scheduled = rowLines("backgroundTurn-spacing-scheduled");
-      const worked = rowLines("worked-kinds-received");
       const run = rowLines("kinds-run");
       const short = rowLines("kinds-short");
       const compacted = rowLines("kinds-compacted");
@@ -131,8 +130,7 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
       const gaps: Record<string, number | null> = {
         "body-line": long.length > 1 ? diff(at(long[0]), at(long[1])) : null,
         "footer-to-received": diff(glyph("kinds-footer"), at(received[0])),
-        "received-to-worked": diff(at(received.at(-1)), at(worked[0])),
-        "worked-to-status": diff(at(worked[0]), at(scheduled[0])),
+        "received-to-status": diff(at(received.at(-1)), at(scheduled[0])),
         "status-to-run": diff(at(scheduled.at(-1)), at(run[0])),
         "run-to-child": run.length > 2 ? diff(at(run[0]), at(run[1])) : null,
         "child-pitch": run.length > 2 ? diff(at(run[1]), at(run[2])) : null,
