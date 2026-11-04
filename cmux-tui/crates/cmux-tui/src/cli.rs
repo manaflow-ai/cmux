@@ -1203,6 +1203,8 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        // `mod workflow` is Unix-only; Windows falls through to the root help.
+        #[cfg(unix)]
         "workflow" => Cow::Borrowed(workflow::HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     });
