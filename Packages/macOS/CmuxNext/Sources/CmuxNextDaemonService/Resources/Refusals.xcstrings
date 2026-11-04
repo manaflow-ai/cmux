@@ -32109,6 +32109,138 @@
           }
         }
       }
+    },
+    "refusal.daemon.timedOut": {
+      "comment": "A reason after '<action> did not apply: ': cmux-tui did not answer the request within its deadline. Full sentence.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’s background service was busy and did not answer in time. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كانت خدمة cmux في الخلفية مشغولة ولم تستجب في الوقت المناسب. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozadinska usluga cmuxa bila je zauzeta i nije odgovorila na vrijeme. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ baggrundstjeneste havde travlt og svarede ikke i tide. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Hintergrunddienst von cmux war ausgelastet und hat nicht rechtzeitig geantwortet. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio en segundo plano de cmux estaba ocupado y no respondió a tiempo. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service d’arrière-plan de cmux était occupé et n’a pas répondu à temps. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio in background di cmux era occupato e non ha risposto in tempo. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のバックグラウンドサービスが混み合っていて、時間内に応答しませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាកម្មផ្ទៃខាងក្រោយរបស់ cmux រវល់ ហើយមិនបានឆ្លើយតបទាន់ពេលទេ។ សូមព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 백그라운드 서비스가 바빠서 제때 응답하지 않았습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’ bakgrunnstjeneste var opptatt og svarte ikke i tide. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa w tle cmux była zajęta i nie odpowiedziała na czas. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço em segundo plano do cmux estava ocupado e não respondeu a tempo. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фоновая служба cmux была занята и не ответила вовремя. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเบื้องหลังของ cmux ไม่ว่างและไม่ตอบกลับทันเวลา โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux’un arka plan hizmeti meşguldü ve zamanında yanıt vermedi. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фонова служба cmux була зайнята й не відповіла вчасно. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ nền của cmux đang bận và không phản hồi kịp. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的后台服务正忙，未能及时响应。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 的背景服務正忙，未能及時回應。請再試一次。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

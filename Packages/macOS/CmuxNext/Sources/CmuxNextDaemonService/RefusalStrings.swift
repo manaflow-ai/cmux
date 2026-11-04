@@ -133,6 +133,12 @@ public nonisolated enum RefusalStrings {
     /// Why a change or a start did not happen: the disk under cmux-tui's state is full (restore fuzz h2, h3).
     /// A reason after "<action> did not apply: " and inside cmux-tui's start notice.
     public static var diskFull: String { text("refusal.daemon.diskFull", "the disk is full") }
+    /// Why a change did not happen: cmux-tui did not answer within the request's deadline. A reason after
+    /// "<action> did not apply: ", in place of the raw command names (Leo, 2026-11-03, on "Move did not apply:
+    /// set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)": "idk what happened here").
+    public static var daemonTimedOut: String {
+        text("refusal.daemon.timedOut", "cmux’s background service was busy and did not answer in time. Try again.")
+    }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
     public static var daemonRestoreTimedOut: String {
