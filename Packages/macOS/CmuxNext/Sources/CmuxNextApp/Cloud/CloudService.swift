@@ -340,7 +340,16 @@ final class CloudService {
             // It is stopped on sign-out and policy disable below.
             // This observer is the single lifecycle owner for account changes.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if accountScope != nil && !self.policyDisabled { if self.machineWire == nil { let auth = self.auth; self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; self.machineWire?.start { [weak self] change in self?.portChanged(change) }; AgentPaneTailCache.shared.resume()
+                if accountScope == nil { self.machineWire?.stop(); self.dropAllMachines()
+                    // Signing out invalidates the bearer used by the wire.
+                    // Stop before dropping machine state so no event races a new account.
+                    await self.link.endLink(final: true)
+                    await self.installIdentity.unbind()
+                    for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
+                    self.hands.stop()
+                } else if self.policyDisabled { continue
+                } else {
+                    if self.machineWire == nil { let auth = self.auth; self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; self.machineWire?.start { [weak self] change in self?.portChanged(change) }; AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -349,14 +358,6 @@ final class CloudService {
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
-                } else {
-                    // Signing out invalidates the bearer used by the wire.
-                    // Stop before dropping machine state so no event races a new account.
-                    self.machineWire?.stop(); self.dropAllMachines()
-                    await self.link.endLink(final: true)
-                    await self.installIdentity.unbind()
-                    for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
-                    self.hands.stop()
                 }
             }
         })
