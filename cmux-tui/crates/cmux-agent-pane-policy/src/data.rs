@@ -105,6 +105,8 @@ struct Raw {
     #[serde(default)]
     scoped_session_params: BTreeMap<String, BTreeSet<String>>,
     #[serde(default)]
+    primary_session_params: BTreeMap<String, String>,
+    #[serde(default)]
     optional_scoped_session_params: BTreeMap<String, BTreeSet<String>>,
     source_scoped: BTreeSet<String>,
     gesture_rules: BTreeMap<String, GestureRule>,
@@ -145,6 +147,9 @@ pub struct Policy {
     /// Params beside `sessionId` that name a session, which must be the pane's
     /// too (`_acpmux/side`'s `chat`).
     pub scoped_session_params: BTreeMap<String, BTreeSet<String>>,
+    /// The primary session key for methods whose pane-scoped session reference is not named
+    /// `sessionId` (model races use `parent`).
+    pub primary_session_params: BTreeMap<String, String>,
     /// Params beside `sessionId` that may name a session: none is fine, a
     /// named one must be a string the pane holds (`_acpmux/offer_respond`'s
     /// `childSessionId`, which only an accepted offer names).
@@ -197,6 +202,7 @@ pub fn policy() -> &'static Policy {
             session_scoped: raw.session_scoped,
             optionally_session_scoped: raw.optionally_session_scoped,
             scoped_session_params: raw.scoped_session_params,
+            primary_session_params: raw.primary_session_params,
             optional_scoped_session_params: raw.optional_scoped_session_params,
             source_scoped: raw.source_scoped,
             gesture_rules: raw.gesture_rules,

@@ -370,8 +370,17 @@ acpmux ls --since 24h --limit 100 --json                     # sessions changed 
 acpmux ls --json --live --fields name,status,peer             # what an agent should read: `ls --json` alone is every record
 acpmux session tail NAME --since <sessionId>:<seq> --follow   # raw events as JSON lines; a cursor past the log is exit 2
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
+# Race CLI commands run inside an authenticated acpmux agent session:
+acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
+acpmux race stats                                              # each model's wins / completed races
+acpmux race stop RACE                                          # cancel this race's work, retain its record
 acpmux guide                                                  # the agent guide (also --guide, --skill); acpmux daemon schema prints the RPC surface
 ```
+
+Race commands default to the authenticated calling agent's own chat. `--parent CHAT` may
+name that chat or a descendant it can manage; it does not authenticate an ordinary terminal.
+Use the chat's **menu → Tools → Race models** control in cmux NEXT from an ordinary terminal.
 
 Waits run in the daemon: a per-session `stateSeq` bumps on every status, permission and
 turn change and the wait subscribes to hub events, so nothing is missed between the check

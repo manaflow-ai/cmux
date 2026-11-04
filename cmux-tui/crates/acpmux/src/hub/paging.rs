@@ -85,6 +85,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "reopened",
     "host_started",
     "host_ended",
+    // A model race snapshot updates the parent's compare view and must travel with transcript
+    // subscriptions, including reconnect paging.
+    "race",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are

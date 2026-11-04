@@ -67,7 +67,11 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
 /// The session a start acts for: the proven caller, itself or a descendant it names as
 /// `parent`, or the session the person names. Any other connection is refused, as for every
 /// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
-fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+pub(super) fn start_parent(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Arc<Session>, RpcError> {
     let named = str_param(params, "parent").filter(|p| !p.is_empty());
     match (conn.caller(), named) {
         (Some(caller), named) => {
@@ -144,6 +148,8 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            owner_authorized_race: false,
+            race_id: None,
             force_admit: super::requests::can_force(conn.origin)
                 && super::requests::force_asked(params),
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)

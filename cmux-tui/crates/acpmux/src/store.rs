@@ -419,6 +419,9 @@ pub struct SessionMeta {
     /// or by an ancestor within its budget; unset fields inherit.
     #[serde(default, skip_serializing_if = "SubsessionLimits::is_empty")]
     pub subsession_limits: SubsessionLimits,
+    /// Model races owned by this parent. Shared so per-token metadata copies stay constant-time.
+    #[serde(default)]
+    pub races: std::sync::Arc<Vec<crate::hub::races::Race>>,
     /// The session whose agent started this one, recorded once at creation from
     /// the proven caller (`hub/lineage.rs`): `acpmux new` run in an agent's
     /// shell, or its `start_session` tool. `None` for a session a person or
