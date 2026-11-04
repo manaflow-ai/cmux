@@ -128,10 +128,10 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         }
     }
 
-    // Not an isolated deinit, as PageWebView's (cx-t7hu).
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The task handle is Sendable and cancels from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { scaleObservation?.cancel() }
+        scaleObservation?.cancel()
     }
 
     @available(*, unavailable)
