@@ -369,6 +369,9 @@ impl Hub {
         let mut blocks = blocks;
         let web = opts.control == Control::Web;
         crate::prompt_uploads::resolve_off_runtime(&session.id, web, &mut blocks).await?;
+        if let Some(guard) = opts.race_guard.as_ref() {
+            guard()?;
+        }
         // A stop after this prompt came ends the agent start it waits on (`ensure_child`).
         let stops = session.stops.load(Ordering::SeqCst);
         let control = opts.control;

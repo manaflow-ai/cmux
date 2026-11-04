@@ -244,6 +244,8 @@ pub struct StartRequest {
     /// Never populated from ordinary sub-session RPC fields. A peer-origin parent still
     /// owns a real folder on this daemon; its owner may explicitly race there.
     pub(crate) owner_authorized_race: bool,
+    /// Internal durable race identity; never populated from an RPC request.
+    pub(crate) race_id: Option<String>,
     /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
     /// admitted past this host's refusal, logged (`admission.rs`).
     pub force_admit: bool,
@@ -490,6 +492,20 @@ impl Hub {
             .collect()
     }
 
+    fn race_active(parent: &Session, race_id: Option<&str>) -> bool {
+        let Some(race_id) = race_id else { return true };
+        parent.read_meta(|m| {
+            m.races.iter().any(|race| {
+                race.id == race_id && matches!(race.state.as_str(), "running" | "reviewing")
+            })
+        })
+    }
+
+    fn race_cancelled() -> RpcError {
+        RpcError::invalid_params("race was cancelled before its sub-session prompt was accepted")
+            .with_data(json!({"reason": "race.cancelled"}))
+    }
+
     /// `_acpmux/subsession/start`: `parent`'s agent starts a child with a
     /// first prompt. Answers once the prompt is accepted.
     pub async fn start_subsession(
@@ -510,6 +526,9 @@ impl Hub {
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
             return Err(RpcError::invalid_params("a closed session starts no sub-session"));
+        }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            return Err(Self::race_cancelled());
         }
         let limits = self.subsession_effective(&pm);
         // One depth for every way a session starts another (`lineage.rs`).
@@ -655,6 +674,10 @@ impl Hub {
         {
             return Err(self.close_refused(&probe, e).await);
         }
+        if !Self::race_active(parent, req.race_id.as_deref()) {
+            let _ = self.kill(&probe, false).await;
+            return Err(Self::race_cancelled());
+        }
         let cm = probe.meta();
         // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
         // and before that turn's `turn_ended`.
@@ -663,7 +686,7 @@ impl Hub {
         let started: Box<dyn FnOnce() + Send> =
             Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
         let accepted = self
-            .send_family_prompt(
+            .send_family_prompt_inner(
                 parent,
                 &probe,
                 text_block(&req.prompt),
@@ -672,6 +695,17 @@ impl Hub {
                 false,
                 Some(started),
                 None,
+                req.race_id.as_deref().map(|race_id| {
+                    let parent = parent.clone();
+                    let race_id = race_id.to_owned();
+                    Arc::new(move || {
+                        if Self::race_active(&parent, Some(&race_id)) {
+                            Ok(())
+                        } else {
+                            Err(Self::race_cancelled())
+                        }
+                    }) as Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>
+                }),
             )
             .await;
         let accepted = match accepted {
@@ -764,6 +798,25 @@ impl Hub {
         accepted: Option<Box<dyn FnOnce() + Send>>,
         saved: Option<crate::attach::Saved>,
     ) -> Result<Value, RpcError> {
+        self.send_family_prompt_inner(
+            from, to, blocks, prompt_id, steer, interrupt, accepted, saved, None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn send_family_prompt_inner(
+        self: &Arc<Self>,
+        from: &Arc<Session>,
+        to: &Arc<Session>,
+        blocks: Vec<Value>,
+        prompt_id: Option<String>,
+        steer: bool,
+        interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
+        saved: Option<crate::attach::Saved>,
+        race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
+    ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
             "kind": PROVENANCE_KIND,
@@ -799,6 +852,7 @@ impl Hub {
                 None => on_accepted,
             },
             provenance: Some(provenance),
+            race_guard,
             ..PromptOptions::default()
         };
         let (hub, to2) = (self.clone(), to.clone());

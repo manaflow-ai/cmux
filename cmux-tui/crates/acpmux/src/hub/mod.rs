@@ -224,13 +224,13 @@ pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
+pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
-pub mod races;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
@@ -404,6 +404,8 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
+    pub(crate) race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
