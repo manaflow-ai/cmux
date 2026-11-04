@@ -128,6 +128,27 @@ const described = activity(
   1.4,
 );
 
+/** The shell lines in Leo's screenshot of the tray (2026-11-03: "we should be able to parse these
+ * more... like instead of raw things, we should be able to deterministically/heuristically have
+ * stuff"), with no description, so each reads by its rule (session-info/commandRules.ts). */
+const RAW_COMMANDS = [
+  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
+  'python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 34769',
+  "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
+  "gh pr merge 34769 -R manaflow-ai/cmux --squash --match-head-commit 0123abcd",
+  "cd ~/Projects/cmux && git push -q origin HEAD:lane/hat-command-labels 2>&1 | tail -3",
+];
+const rawCommands = activity(
+  RAW_COMMANDS.map((command, index) =>
+    tool(command, "execute", "completed", {
+      inputSummary: JSON.stringify({ command, run_in_background: true }),
+      startedAt: minutesAgo(6 - index),
+    }),
+  ),
+  6,
+);
+
 /** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
 const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
@@ -596,13 +617,34 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "command-words": {
+      note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): a wait reads Waiting on cmux checks, cmux-ci reads Fleet tests · Playwright or Fleet run for #34769, a sleep reads Waiting 9m 20s. The shell line is the tooltip; a line about a run or a pull request links to it from its tail.',
+      height: 560,
+      play: async (ctx) => {
+        await trayLines(RAW_COMMANDS.length)(ctx);
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")].map(
+          (name) => name.textContent,
+        );
+        for (const want of [
+          "Waiting on cmux checks",
+          "Fleet tests · Playwright",
+          "Waiting 9m 20s",
+          "Fleet run for #34769",
+        ])
+          if (!names.includes(want)) throw new Error(`a command reads "${want}", got ${names.join(" | ")}`);
+        if (names.some((name) => name?.includes("--"))) throw new Error("no line shows a raw shell line");
+      },
+      snapshot: chat([user("Wait on the checks, run the fleet tests and land it", 7), rawCommands], {
+        isWorking: true,
+      }),
+    },
     "command-substitution": {
-      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · cmux-ci run. Both executed operations stay named; shell flags and interpolation remain in the full-command tooltip.",
+      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · Fleet run: the setup's substitution stays named, the cmux-ci step reads by its rule (session-info/commandRules.ts). Shell flags and interpolation remain in the full-command tooltip.",
       snapshot: glyphCheckScene(),
       play: async (ctx) => {
         await trayLines(1)(ctx);
         const name = ctx.document.querySelector(".acpmux-running-tray .acpmux-summary-agent__name");
-        if (name?.textContent !== "git rev-parse HEAD · cmux-ci run")
+        if (name?.textContent !== "git rev-parse HEAD · Fleet run")
           throw new Error("the command needs a readable title");
         const line = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__button");
         if (line?.title !== glyphCheck) throw new Error("the full command stays available in the tooltip");
