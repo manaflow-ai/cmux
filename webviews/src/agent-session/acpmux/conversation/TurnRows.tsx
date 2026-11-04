@@ -31,6 +31,8 @@ import {
   PinButton,
   ReadAloudButton,
   ROW_ICON,
+  TryAnotherApproachButton,
+  tryAnotherApproachWithFeedback,
 } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
@@ -293,6 +295,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const {
     fork,
+    tryAnotherApproach,
     forkSeq,
     forkAny,
     retry,
@@ -393,6 +396,12 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             )}
             {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
               <ForkButton throughSeq={seq} onFork={() => forkWithFeedback(seq, () => fork(seq))} />
+            )}
+            {tryAnotherApproach && seq !== undefined && (
+              <TryAnotherApproachButton
+                throughSeq={seq}
+                onTry={() => tryAnotherApproachWithFeedback(seq, () => tryAnotherApproach(seq))}
+              />
             )}
             <PinButton rowId={row.id} />
             {text && <ReadAloudButton id={row.id} text={text} />}

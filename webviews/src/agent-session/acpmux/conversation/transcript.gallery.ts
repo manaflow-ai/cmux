@@ -1424,6 +1424,44 @@ export default agentPaneEntry({
       snapshot: forkTurns("claude"),
       play: forkEarlierTurn,
     },
+    "cloud-try-another-approach": {
+      note: "Play: a Cloud chat offers Try another approach at a completed checkpoint and leaves the parent transcript unchanged while the sibling opens with its parent label.",
+      ready: { transport: "mock", cloudMachineID: "machine-parent" },
+      native: {
+        "chat.tryAnotherApproach": {
+          childSessionId: "cloud-child",
+          opened: true,
+          parentLabel: "Parent Cloud chat",
+        },
+      },
+      snapshot: forkTurns("claude").snapshot,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as {
+          cmuxGalleryLog: { method: string; params?: Record<string, unknown> }[];
+        };
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const action = () =>
+          [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-label^='Try another approach']")].find(
+            (button) => button.dataset.throughSeq === "3",
+          );
+        await ctx.waitFor(() => Boolean(action()));
+        action()!.click();
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(
+            ({ method, params }) => method === "chat.tryAnotherApproach" && params?.throughSeq === 3,
+          ),
+        );
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.select")) throw new Error("parent chat was selected");
+      },
+    },
+    "cloud-try-another-approach-child": {
+      note: "The sibling opened from a checkpoint carries a visible parent label.",
+      ready: { transport: "mock", cloudMachineID: "machine-child" },
+      snapshot: {
+        ...forkTurns("claude").snapshot,
+        summary: { ...forkTurns("claude").snapshot.summary!, title: "Try another approach · Parent Cloud chat" },
+      },
+    },
     "fork-any-turn-codex": {
       note: "Play: a Codex chat offers Fork under every completed turn too (cx-a7r); an earlier turn's forks through that turn.",
       snapshot: forkTurns("codex"),

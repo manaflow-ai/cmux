@@ -77,6 +77,75 @@ export function forkWithFeedback(throughSeq: number, fallback: () => unknown): u
   });
 }
 
+/// The Cloud-only full-workspace fork. Native owns the durable ForkRuns request and sibling
+/// placement; the page only supplies the selected checkpoint and keeps the promise for feedback.
+export function tryAnotherApproachWithFeedback(throughSeq: number, fallback: () => unknown): unknown {
+  const action = globalThis.window?.cmuxAcpmuxActions?.["chat.tryAnotherApproach"];
+  if (!action) return fallback();
+  return action({ throughSeq }).then((child) => {
+    if (child === undefined || child === null || child === false) throw new Error("try another approach failed");
+    return child;
+  });
+}
+
+/// A named Cloud action sits beside the compact transcript controls so the affordance explains
+/// that this creates a sibling workspace, rather than a transcript-only fork.
+export function TryAnotherApproachButton({ onTry, throughSeq }: { onTry(): unknown; throughSeq: number }) {
+  const inFlight = useRef(false);
+  const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
+  const label =
+    state === "pending"
+      ? "Try another approach…"
+      : state === "done"
+        ? "Try another approach ✓"
+        : state === "failed"
+          ? "Try another approach failed"
+          : "Try another approach";
+  const run = () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setState("pending");
+    let result: unknown;
+    try {
+      result = onTry();
+    } catch {
+      inFlight.current = false;
+      setState("failed");
+      return;
+    }
+    if (!result || typeof (result as PromiseLike<unknown>).then !== "function") {
+      inFlight.current = false;
+      setState("done");
+      return;
+    }
+    Promise.resolve(result).then(
+      () => {
+        inFlight.current = false;
+        setState("done");
+      },
+      () => {
+        inFlight.current = false;
+        setState("failed");
+      },
+    );
+  };
+  return (
+    <button
+      type="button"
+      className="cv-turn-auth-action cv-try-another-approach"
+      aria-label={label}
+      title={label}
+      aria-busy={state === "pending"}
+      data-try-another-approach-state={state}
+      data-through-seq={throughSeq}
+      disabled={state === "pending"}
+      onClick={run}
+    >
+      {label}
+    </button>
+  );
+}
+
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is. The host
 /// operation can take long enough to look inert, so press feedback starts before the promise is
 /// dispatched and a ref closes the same-frame duplicate-click window.

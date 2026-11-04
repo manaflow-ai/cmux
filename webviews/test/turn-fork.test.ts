@@ -67,6 +67,11 @@ await requireBrowserLane("turn-fork.test.ts", async () => {
     expect(playFailures(result.report)).toEqual([]);
   });
 
+  test("A Cloud chat tries another approach from the chosen checkpoint", async () => {
+    const result = await play("cloud-try-another-approach");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
   test("Another agent offers Fork only under its latest turn", async () => {
     const result = await play("fork-latest-turn-only");
     expect(playFailures(result.report)).toEqual([]);
