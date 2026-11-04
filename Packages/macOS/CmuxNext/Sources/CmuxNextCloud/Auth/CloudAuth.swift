@@ -45,9 +45,16 @@ public final class CloudAuth {
         var replacesSession: Bool
     }
 
-    /// ``LaunchSignIn`` for `configuration` launched with `environment`.
+    /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
+    /// compile on the development Stack project) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE`
+    /// (dev-build-try passes it), never the ambient files, keeps a session already signed in unless told to
+    /// replace it, and gets no debug sign-in surface. Every other Release build never signs in from the launch.
     nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
         let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", !configuration.isProductionAuth {
+            return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
+                                replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
+        }
         let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
         let replaces = environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
             || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
@@ -131,7 +138,8 @@ public final class CloudAuth {
         // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
         // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
         // a hidden rig build signs a production test account in for end-to-end checks
-        // (cmux-next-ios/verify). A release build never reads either.
+        // (cmux-next-ios/verify). A release build never reads either, except the signed NEXT DEV
+        // build, which reads an explicit file (``launchSignIn``).
         // The variable is read from the process environment, so pass it per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
         let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
