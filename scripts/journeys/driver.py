@@ -307,10 +307,38 @@ class App:
         return path
 
     def read_text(self, image):
+        """The text lines of IMAGE (a Read: the reader's bands that read no text go with the lines)."""
         done = subprocess.run([self.ocr, str(image)], capture_output=True, text=True, timeout=120)
         if done.returncode != 0:
             raise StepError(f"text recognition failed on {Path(image).name}: {(done.stderr or done.stdout).strip()[-200:]}")
-        return [line for line in done.stdout.splitlines() if line.strip()]
+        silent = re.search(r"no text in bands? ([0-9][0-9, ]*)", done.stderr or "")
+        return Read([line for line in done.stdout.splitlines() if line.strip()],
+                    [int(b) for b in re.findall(r"[0-9]+", silent.group(1))] if silent else [])
+
+
+class Read(list):
+    """The text lines of one image, and the bands of it (1 is the top) in which the reader read no text.
+    scripts/ci/pr_media_ocr.swift reads an image in which Vision finds no text at all again in 4 horizontal bands; on
+    macOS 27 a band can read nothing although it shows text, so such a read is partial: a check that text is absent
+    must not pass on it (cmux-ad m10 1, review 1 of #35282)."""
+
+    def __init__(self, lines=(), unread=()):
+        super().__init__(lines)
+        self.unread = list(unread)
+
+
+def unread_bands(lines):
+    """The bands of a read that read no text ([] for a whole read or a plain list)."""
+    return list(getattr(lines, "unread", None) or [])
+
+
+def lacks_not_judged(want, lines):
+    """Why a `lacks` check of WANT cannot be judged on LINES (a band read nothing), or None."""
+    unread = unread_bands(lines)
+    if not want.get("lacks") or not unread:
+        return None
+    return (f"band{'s' if len(unread) > 1 else ''} {', '.join(map(str, unread))} of the reader's 4 read no text: "
+            "a lacks check needs the whole frame read")
 
 
 def descendants(table, roots):
@@ -907,6 +935,9 @@ class Journey:
         missing = [t for t in want.get("shows", []) if not ocr_contains(lines, t)]
         present = [t for t in want.get("lacks", []) if ocr_contains(lines, t)]
         detail = {"image": image.name, "text": lines[-12:], "lines": len(lines), "missing": missing, "present": present}
+        partial = lacks_not_judged(want, lines)
+        if partial:
+            return False, dict(detail, lacks_not_judged=partial)
         return bool(want.get("shows")) and not missing and not present, detail
 
     def cond_quit_leftovers(self, want, cache):

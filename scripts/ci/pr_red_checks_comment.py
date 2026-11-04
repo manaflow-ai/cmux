@@ -159,6 +159,8 @@ def decide(check_runs, existing_line, lines=None):
 class GitHub:
     def __init__(self, api, repo, token):
         self.api, self.repo, self.token = api.rstrip("/"), repo, token
+        # check run id -> (steps, annotations), prefetched over GraphQL (prefetch_details); REST answers the rest.
+        self.details = {}
 
     def call(self, method, path, payload=None):
         req = urllib.request.Request(self.api + path, method=method,
@@ -183,12 +185,116 @@ class GitHub:
 
 
 def annotations(gh, run):
+    if run.get("id") in gh.details:
+        return gh.details[run["id"]][1]
     return gh.call("GET", f"/repos/{gh.repo}/check-runs/{run['id']}/annotations?per_page=100") or []
 
 
 def run_signature(gh, run):
+    if run.get("id") in gh.details:
+        return signature(*gh.details[run["id"]])
     steps = gh.call("GET", f"/repos/{gh.repo}/actions/jobs/{run['id']}").get("steps") or []
     return signature(steps, annotations(gh, run))
+
+
+# Reads over GraphQL (its own hourly pool), so a red call spends no REST: before, it read the head's and the base's
+# check-run pages, then each red check's job steps and annotations, on the PR's run and the base's, all from the
+# repository GITHUB_TOKEN's 1,000/h REST pool that every workflow shares. Any GraphQL error, or a commit with more
+# suites or runs than one page holds, leaves the REST reads to answer exactly as before.
+_RUNS = ("checkSuites(first:100){pageInfo{hasNextPage} nodes{checkRuns(first:100,filterBy:{checkType:LATEST})"
+         "{pageInfo{hasNextPage} nodes{id databaseId name status conclusion startedAt}}}}")
+CHECKS_QUERY = ("query($owner:String!,$name:String!,$head:GitObjectID!,$base:GitObjectID!,$withBase:Boolean!){"
+                "repository(owner:$owner,name:$name){head:object(oid:$head){...on Commit{" + _RUNS + "}}"
+                " base:object(oid:$base) @include(if:$withBase){...on Commit{" + _RUNS + "}}}"
+                " rateLimit{limit cost remaining used resetAt}}")
+DETAILS_QUERY = ("query($ids:[ID!]!){nodes(ids:$ids){...on CheckRun{databaseId"
+                 " steps(first:100){pageInfo{hasNextPage} nodes{name conclusion number}}"
+                 " annotations(first:100){nodes{title message annotationLevel}}}}"
+                 " rateLimit{limit cost remaining used resetAt}}")
+
+
+def _lower(value):
+    return value.lower() if isinstance(value, str) else value
+
+
+def _commit_runs(commit):
+    """A commit's check runs in REST's shape, or None when a page was not enough."""
+    suites = (commit or {}).get("checkSuites") or {}
+    if (suites.get("pageInfo") or {}).get("hasNextPage"):
+        return None
+    runs = []
+    for suite in suites.get("nodes") or []:
+        if not isinstance(suite, dict):
+            return None  # a null suite could hide a red run: incomplete, so REST answers
+        page = suite.get("checkRuns") or {}
+        if (page.get("pageInfo") or {}).get("hasNextPage"):
+            return None
+        for node in page.get("nodes") or []:
+            if not isinstance(node, dict):
+                return None  # a null node (a deleted or hidden run): incomplete, so REST answers
+            runs.append({"id": node.get("databaseId"), "node_id": node.get("id"), "name": node.get("name"),
+                         "status": _lower(node.get("status")), "conclusion": _lower(node.get("conclusion")),
+                         "started_at": node.get("startedAt")})
+    return runs
+
+
+def prefetch_runs(gh, sha, base_sha, query=None):
+    """{sha: check runs} for the head (and the base when given) in one GraphQL query; {} on any error."""
+    query = query or pr_status.graphql
+    owner, _, name = gh.repo.partition("/")
+    try:
+        data = query(CHECKS_QUERY, {"owner": owner, "name": name, "head": sha, "base": base_sha or sha,
+                                    "withBase": bool(base_sha)})
+    except RuntimeError as err:
+        print(f"pr-red-checks: check runs over GraphQL failed ({str(err)[:200]}); reading them over REST",
+              file=sys.stderr)
+        return {}
+    repo = (data or {}).get("repository") or {}
+    found = {}
+    for key, oid in (("head", sha), ("base", base_sha)):
+        if oid and repo.get(key) is not None:
+            runs = _commit_runs(repo[key])
+            if runs is not None:
+                found[oid] = runs
+    return found
+
+
+def prefetch_details(gh, runs, query=None):
+    """Fill gh.details for `runs` (each with a node_id) in one GraphQL query; on any error leave it to REST."""
+    query = query or pr_status.graphql
+    wanted = {run["node_id"]: run["id"] for run in runs
+              if run and run.get("node_id") and run.get("id") is not None and run["id"] not in gh.details}
+    if not wanted:
+        return
+    try:
+        data = query(DETAILS_QUERY, {"ids": sorted(wanted)})
+    except RuntimeError as err:
+        print(f"pr-red-checks: steps and annotations over GraphQL failed ({str(err)[:200]}); reading them over REST",
+              file=sys.stderr)
+        return
+    for node in (data or {}).get("nodes") or []:
+        if not node or node.get("databaseId") is None:
+            continue
+        if ((node.get("steps") or {}).get("pageInfo") or {}).get("hasNextPage"):
+            # REST's job read returns every step; a failed step past the first page must not drop out of the
+            # signature (it could turn a new red into a base red), so REST answers this run.
+            continue
+        if not all(isinstance(item, dict) for key in ("steps", "annotations")
+                   for item in ((node.get(key) or {}).get("nodes") or [])):
+            continue  # a null step or annotation: incomplete, so REST answers this run
+        steps = [{"name": s.get("name"), "conclusion": _lower(s.get("conclusion")), "number": s.get("number")}
+                 for s in ((node.get("steps") or {}).get("nodes") or [])]
+        notes = [{"title": a.get("title"), "message": a.get("message"),
+                  "annotation_level": _lower(a.get("annotationLevel"))}
+                 for a in ((node.get("annotations") or {}).get("nodes") or [])]
+        gh.details[node["databaseId"]] = (steps, notes)
+
+
+def commit_runs(gh, sha, prefetched):
+    """A commit's check runs: the GraphQL prefetch, else REST's pages."""
+    if sha in prefetched:
+        return prefetched[sha]
+    return gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
 
 
 def new_tests(found):
@@ -219,17 +325,22 @@ def aggregate_line(name, gathered, unfinished=()):
     return f"red: {name}; follows the jobs it gathers, whose reds are all on the base too; does not block"
 
 
-def base_lines(gh, runs, base_sha):
+def base_lines(gh, runs, base_sha, prefetched=None):
     """Each red check's line compared with the base commit's run of it; {} without a base."""
     red = red_checks(runs)
     if not base_sha or not red:
         return {}
     try:
-        base = newest_runs(gh.pages(f"/repos/{gh.repo}/commits/{base_sha}/check-runs?filter=latest", key="check_runs"))
+        base = newest_runs(commit_runs(gh, base_sha, prefetched or {}))
     except (urllib.error.URLError, TimeoutError) as err:
         print(f"pr-red-checks: base {base_sha[:10]} unreadable ({err}); every red blocks", file=sys.stderr)
         return {}
     mine = newest_runs(runs)
+    # One GraphQL query for every run compared below: each red check's run, and the base's run when it is red too.
+    compared = [mine[name] for name in red if name not in AGGREGATES]
+    compared += [base[name] for name in red if name not in AGGREGATES and not BASE_CHECK.match(name)
+                 and is_red(base.get(name))]
+    prefetch_details(gh, compared)
     lines = {}
     for name in red:
         if name in AGGREGATES:
@@ -288,8 +399,10 @@ def main():
         # its checks) writes. Nothing for this call to change; skip the check-runs pages.
         print(f"pr-red-checks: #{pr} {sha[:12]}: own checks green, no red line; action=none")
         return 0
-    runs = gh.pages(f"/repos/{gh.repo}/commits/{sha}/check-runs?filter=latest", key="check_runs")
-    lines = base_lines(gh, runs, os.environ.get("BASE_SHA", "").strip())
+    base_sha = os.environ.get("BASE_SHA", "").strip()
+    prefetched = prefetch_runs(gh, sha, base_sha)
+    runs = commit_runs(gh, sha, prefetched)
+    lines = base_lines(gh, runs, base_sha, prefetched)
     line = decide(runs, current, lines)
     action = None
     if line is not None:
