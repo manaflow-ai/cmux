@@ -287,9 +287,8 @@ extension CloudHandlers {
                 // cron decision written after the sidebar last refreshed.
                 let read = cloud.beginRecordRead(machineID: session.machineID)
                 defer { cloud.finishRecordRead(read) }
-                async let statsRequest = cloud.api.stats(session.machineID)
-                async let recordRequest = cloud.api.machine(session.machineID)
-                let (stats, record) = try await (statsRequest, recordRequest)
+                // From the API that made the machine: a Worker machine is not on /api/vm.
+                let (record, stats) = try await cloud.machineStatus(session.machineID)
                 // Through the list's own path: a pause suspends the link, a resume connects it.
                 cloud.apply(record, to: session, read: read)
                 return CloudAnswer(title: CloudStrings.statusTitle, text: describe(session, stats), fields: statusFields(session, stats))
@@ -322,7 +321,7 @@ extension CloudHandlers {
         bind("palette.cloud.handoff", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             answer("hand off machine", invocation, context) {
-                let live = try await cloud.api.machine(session.machineID)
+                let live = try await cloud.machineRecord(session.machineID)
                 return CloudAnswer(title: CloudStrings.handoffTitle, text: handoff(live),
                                    fields: ["machine_id": .string(live.id), "status": .string(live.status.rawValue)])
             }

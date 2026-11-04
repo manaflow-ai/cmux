@@ -28,6 +28,36 @@ extension CloudService {
         return machines
     }
 
+    /// One machine's record from the API that made it: `cloud.machine.get` on the app server link,
+    /// `GET /api/vm/{id}` otherwise. A Worker machine is not on `/api/vm`, which answers it
+    /// `vm_not_found` ("Cloud VM vm_… was not found."), so a machine made seconds earlier read as gone.
+    func machineRecord(_ machineID: String) async throws -> CloudMachine {
+        guard configuration.linkSource == .appServer else { return try await api.machine(machineID) }
+        return try await Self.appServerRecord(machineID, ops: appOps)
+    }
+
+    /// `cloud.machine.get` (a read: no key, origin script) for one Worker machine.
+    static func appServerRecord(_ machineID: String, ops: CloudAppOp) async throws -> CloudMachine {
+        let record = try await ops("cloud.machine.get", .object(["machine": .string(machineID)]), nil, .script)
+        guard let machine = CloudMachine(next: record) else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.get answered no machine")
+        }
+        return machine
+    }
+
+    /// The machine's record and live stats, read together. Off the app server link both come from
+    /// `/api/vm`; the Worker has no stats route, so on the app server link the stats carry only the
+    /// record's status.
+    func machineStatus(_ machineID: String) async throws -> (record: CloudMachine, stats: CloudMachineStats) {
+        guard configuration.linkSource != .appServer else {
+            let record = try await machineRecord(machineID)
+            return (record, CloudMachineStats(state: record.status.rawValue))
+        }
+        async let stats = api.stats(machineID)
+        async let record = api.machine(machineID)
+        return try await (record, stats)
+    }
+
     /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through
     /// ``CloudMachineCreateFlow``, with the request's one idempotency key (cmuxterm-hq#4709): the
     /// creation's Retry sends the same key to the same team, so a create whose answer was lost
