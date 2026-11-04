@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { AgentMark } from "../../shared/AgentMark";
+import { harnessIconsSnapshot, subscribeHarnessIcons } from "../../shared/harnessIcons";
 import { Icon } from "../icons/Icon";
 
 /// The type label is already established by a list heading or a harness mark. Keep it out of
@@ -39,6 +40,12 @@ export function AgentIdentity({
 }) {
   // Keep the full id subscribed: a profile icon may arrive after this row mounts.
   const family = harness?.split(/[-_/]/)[0];
+  const icons = useSyncExternalStore(subscribeHarnessIcons, harnessIconsSnapshot, harnessIconsSnapshot);
+  const own = (harness && icons.get(harness)) || (family && icons.get(family));
+  // A photo's alpha mask can be a solid square, and emoji have their own colours. Preserve the
+  // person's chosen artwork; the same small hue badge carries identity without changing its box.
+  const preserve = own && (own.kind === "image" || own.kind === "emoji" || own.kind === "monogram");
+  const shown = look === "tint" && tone !== undefined && preserve ? "badge" : look;
   const glyph = (
     <span data-agent-tone={tone} style={{ color: "var(--agent-tone-ink, var(--agent-muted))" }}>
       {fallbackNode ?? <Icon name={fallback} size={size} row />}
@@ -46,19 +53,19 @@ export function AgentIdentity({
   );
   return (
     <span
-      className={[className, look && "acpmux-agent-identity"].filter(Boolean).join(" ") || undefined}
+      className={[className, shown && "acpmux-agent-identity"].filter(Boolean).join(" ") || undefined}
       style={style}
-      data-agent-tone={look ? tone : undefined}
-      data-identity-look={look}
+      data-agent-tone={shown ? tone : undefined}
+      data-identity-look={shown}
       aria-hidden="true"
     >
       <AgentMark
         agent={harness}
         size={size}
-        tint={look === "tint"}
+        tint={shown === "tint"}
         fallback={
           family && family !== harness ? (
-            <AgentMark agent={family} size={size} tint={look === "tint"} fallback={glyph} />
+            <AgentMark agent={family} size={size} tint={shown === "tint"} fallback={glyph} />
           ) : (
             glyph
           )

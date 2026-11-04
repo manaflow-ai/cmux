@@ -7,6 +7,7 @@ import { AgentLine } from "../src/agent-session/acpmux/subagents/AgentLine";
 import { agentTone } from "../src/agent-session/acpmux/subagents/agentTones";
 import { Avatar } from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import { AgentMark } from "../src/agent-session/shared/AgentMark";
+import { rememberHarnessIcons, type HarnessIconSpec } from "../src/agent-session/shared/harnessIcons";
 
 test("a known harness keeps its shape and the same agent hue across transcript, tray and card", () => {
   const id = "reviewer";
@@ -28,6 +29,20 @@ test("non-subagent identities keep their brand mark", () => {
   const html = renderToStaticMarkup(<AgentIdentity harness="claude" tone={2} />);
   expect(html).toContain(renderToStaticMarkup(<AgentMark agent="claude" size={14} />));
   expect(html).not.toContain("data-identity-look");
+});
+
+test.each([
+  { kind: "image", mime: "image/png", data: "c3ludGhldGlj", source: "profile" },
+  { kind: "emoji", text: "🦊", source: "profile" },
+  { kind: "monogram", text: "RV", hue: 120, source: "profile" },
+] satisfies HarnessIconSpec[])("custom $kind artwork stays intact beside its identity hue", (iconSpec) => {
+  const harness = `claude-artwork-${iconSpec.kind}`;
+  rememberHarnessIcons([{ id: harness, iconSpec }]);
+  const html = renderToStaticMarkup(<AgentIdentity harness={harness} tone={2} look="tint" />);
+  expect(html).toContain('data-agent-tone="2" data-identity-look="badge"');
+  expect(html).toContain(renderToStaticMarkup(<AgentMark agent={harness} size={14} />));
+  expect(html).not.toContain("mask:");
+  expect(html).not.toContain("grayscale");
 });
 
 test("a working subagent keeps its spinner and the same identity ink as its finished harness mark", () => {
