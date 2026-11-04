@@ -796,7 +796,10 @@ fn hidden_local_owner_permission_has_one_home_card_and_workspace_keeps_its_answe
         1,
         "the hidden local request needs an actionable Home card"
     );
-    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    assert!(
+        h.brain.unanswered_permissions().is_empty(),
+        "a delivered card waits for the person"
+    );
     h.brain.deny_overdue_permissions_at(T0 + 1);
     assert_eq!(answered(&h, "p1"), None);
     assert!(pending_prompt(&h));
@@ -1426,7 +1429,10 @@ fn discovering_the_local_owner_presents_an_already_pending_hidden_request() {
     }));
     h.settle_posts();
     assert_eq!(questions(&h), 1);
-    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    assert!(
+        h.brain.unanswered_permissions().is_empty(),
+        "the delivered card waits for the person"
+    );
 }
 
 #[test]
@@ -1466,7 +1472,10 @@ fn replacing_the_conversation_needs_a_new_home_card_receipt() {
             .home_message,
         old_receipt
     );
-    assert_eq!(h.brain.unanswered_permissions().len(), 1);
+    assert!(
+        h.brain.unanswered_permissions().is_empty(),
+        "the new card waits for the person"
+    );
 }
 
 #[test]
