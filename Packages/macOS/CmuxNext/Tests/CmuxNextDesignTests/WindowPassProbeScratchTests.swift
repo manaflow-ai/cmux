@@ -27,6 +27,9 @@ import Testing
         #expect(LayoutPassGuard.shared.windowPassCounts.isEmpty, "counted per window before the probe started")
         plain.layoutIfNeeded()
         counts.reset()
+        #expect(!LayoutPassGuard.shared.countsPassesByWindow, "reset turned counting on")
+        counts.frame(records: false) // the probe's first tick
+        #expect(LayoutPassGuard.shared.countsPassesByWindow, "the probe's tick did not turn counting on")
         // Frame 1: the panel twice, the plain window once.
         panelView.needsLayout = true; panel.layoutIfNeeded()
         panelView.needsLayout = true; panel.layoutIfNeeded()
@@ -42,6 +45,7 @@ import Testing
         let perFrame = try #require(report["window_passes_per_frame"] as? [[String: Int]])
         #expect(perFrame.count == 2 && perFrame[1].isEmpty, "\(perFrame)")
         #expect(report["window_layouts"] as? Int == 3, "\(report)")
+        #expect(report["window_passes_no_slot"] as? Int == 0, "\(report)")
         counts.stop()
         #expect(!LayoutPassGuard.shared.countsPassesByWindow, "counting per window stayed on after stop")
         panelView.needsLayout = true; panel.layoutIfNeeded()
