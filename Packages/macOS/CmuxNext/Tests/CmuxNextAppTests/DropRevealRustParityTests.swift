@@ -1,4 +1,5 @@
 import CmuxNextAppCore
+import CmuxNextBridge
 import CoreGraphics
 import Foundation
 import Testing
