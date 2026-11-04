@@ -337,7 +337,7 @@ impl Hub {
             *moving = Some(transfer_id.clone());
         }
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
-        // below so a daemon restart restores the same epoch while this move is in flight.
+        // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let epoch = session.bump_ownership_epoch();
         // Persist the fencing marker before the durable transfer_out record. If the daemon dies
         // after transfer_out is appended, startup can then always recover the epoch that fenced
