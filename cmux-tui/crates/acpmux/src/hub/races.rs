@@ -383,6 +383,16 @@ impl Hub {
                 child
             }
         };
+        if race.reviewer_turn_id.is_none() {
+            let turn = reviewer.turn().map(|t| t.turn_id).or_else(|| {
+                reviewer.read_meta(|m| {
+                    m.last_turn.as_ref().and_then(|t| t["turnId"].as_str()).map(str::to_owned)
+                })
+            });
+            if let Some(turn_id) = turn {
+                self.race_update(parent, id, |r| r.reviewer_turn_id = Some(turn_id))?;
+            }
+        }
         loop {
             let race = self.race_get(parent, id)?;
             if !race.active() {
@@ -488,21 +498,30 @@ fn outcome(child: &Session, expected_turn: Option<&str>) -> Option<(bool, Option
     child.read_meta(|m| {
         if let Some(turn) = &m.last_turn {
             if let Some(status) = turn["status"].as_str() {
-                if expected_turn.is_some_and(|id| turn["turnId"].as_str() != Some(id)) {
-                    return None;
-                }
-                return Some((
-                    status == "completed",
-                    turn["errorText"]
-                        .as_str()
-                        .or_else(|| turn["error"].as_str())
-                        .map(crate::secret_scan::mask),
-                ));
+                let turn_id = turn["turnId"].as_str();
+                let closed = m.status == SessionStatus::Closed;
+                return turn_outcome(status, turn_id, expected_turn, closed, turn);
             }
         }
         (m.status == SessionStatus::Closed)
             .then(|| (false, Some("session closed before completing".into())))
     })
+}
+
+fn turn_outcome(
+    status: &str,
+    turn_id: Option<&str>,
+    expected: Option<&str>,
+    closed: bool,
+    turn: &Value,
+) -> Option<(bool, Option<String>)> {
+    if expected.is_some_and(|id| turn_id != Some(id)) && !closed {
+        return None;
+    }
+    Some((
+        status == "completed" && !closed,
+        turn["errorText"].as_str().or_else(|| turn["error"].as_str()).map(crate::secret_scan::mask),
+    ))
 }
 
 fn review_prompt(race: &Race) -> String {
@@ -649,6 +668,16 @@ mod tests {
             race.state = state.into();
             assert_eq!(statistics(&[race.clone()])["models"], json!([]));
         }
+    }
+
+    #[test]
+    fn a_closed_child_is_terminal_even_when_last_turn_is_from_another_generation() {
+        let old = json!({"status":"completed", "turnId":"old", "reply":"done"});
+        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), false), None);
+        assert_eq!(turn_outcome("completed", Some("old"), Some("new"), true), Some((false, None)));
+        assert_eq!(turn_outcome("failed", Some("new"), Some("new"), false), Some((false, None)));
+        assert_eq!(turn_outcome("completed", Some("new"), Some("new"), false), Some((true, None)));
+        let _ = old;
     }
 
     #[test]

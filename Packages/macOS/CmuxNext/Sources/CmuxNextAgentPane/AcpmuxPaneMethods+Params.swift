@@ -60,6 +60,11 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/session/auth": (["sessionId", "target", "refresh"], []),
         // The running-limit stepper: `maxRunning` only, never `maxChildren` or `maxDepth`.
         "_acpmux/subsession/limits": (["sessionId", "maxRunning"], []),
+        "_acpmux/race/start": (["parent", "prompt", "candidates", "reviewer"], []),
+        "_acpmux/race/get": (["parent", "raceId"], []),
+        "_acpmux/race/list": (["parent"], []),
+        "_acpmux/race/cancel": (["parent", "raceId"], []),
+        "_acpmux/race/stats": (["parent"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
