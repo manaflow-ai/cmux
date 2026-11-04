@@ -56,6 +56,14 @@ struct TerminalKeyResizeFrameTests {
         var misplaced: [String] = []
         var unsized: [String] = []
         var stretched: [String] = []
+        // Review of #35470 (T1): the sizes allowed include the start size, so count the frames in which each terminal
+        // took a new size: a terminal that keeps one size through the spring (the defect) fails here.
+        var changes = Array(repeating: 0, count: before.count)
+        for index in 1..<frames.count {
+            for terminal in frames[index].indices where frames[index][terminal].layer != frames[index - 1][terminal].layer {
+                changes[terminal] += 1
+            }
+        }
         for index in 1..<frames.count {
             for (terminal, sample) in frames[index].enumerated() {
                 let scale = sample.scale
@@ -88,6 +96,48 @@ struct TerminalKeyResizeFrameTests {
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
         #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes)")
+        #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+    }
+
+    /// Review of #35470 (F1): a terminal whose frames wait at the landing (a busy program, or one that holds its frames
+    /// with synchronized output, mode 2026, as agent TUIs do) still gets one grid for the press. The size in flight at the
+    /// landing is an earlier spring size; the landing's release sized the surface from it and reported its grid (the
+    /// spring was over), and the newest size reported the final grid again when it went to Ghostty: final, stale, final.
+    /// The grids are locked as the daemon locks them (an announced grid: a pixel resize keeps mode 2026 set).
+    @Test func aTerminalWhoseFrameWaitsAtTheLandingGetsOneGridForThePress() async throws {
+        let screen = try await PaneScreen()
+        defer { screen.close() }
+        _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        for (session, io) in zip(screen.sessions, screen.ios) {
+            let grid = try #require(session.surfaceView.fittedGrid, "a terminal fits no grid at rest")
+            io.send(.resize(cols: grid.columns, rows: grid.rows))
+        }
+        // p1 holds its frames from here (Ghostty ends a hold after 1 s by itself: the press lands well before).
+        screen.ios[0].send(.output(Data("\u{1b}[?2026h".utf8)))
+        for _ in 0..<3 { await Self.commit() }
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        let keepsBefore = presenter.stats.keeps
+        let resizesBefore = screen.ios.map { $0.resizes.count }
+
+        _ = PaneResize.press("p2", .right, model: screen.model, view: screen.root)
+        var steps = 0, moving = true, waitingAtLanding = false
+        while moving, steps < 240 {
+            moving = screen.root.advanceFrame(1.0 / 120)
+            screen.root.layoutSubtreeIfNeeded() // sync-layout: the stepped frame's own layout pass, as the frame tick runs it
+            if !moving { waitingAtLanding = presenter.isWaiting(screen.sessions[0].surfaceView) }
+            await Self.commit()
+            steps += 1
+        }
+        try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
+        try #require(presenter.stats.keeps > keepsBefore, "no size of the press waited for its frame: p1 did not hold its frames")
+        try #require(waitingAtLanding, "p1 had no size in flight at the landing: the case under test did not happen")
+        screen.ios[0].send(.output(Data("\u{1b}[?2026l".utf8)))
+        await Self.settle(screen)
+        let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
+        let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
+        #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes) (p1: \(grids))")
     }
 
     /// One terminal in one committed frame: its surface layer's size and top-left, its host's area size and top-left

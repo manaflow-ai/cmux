@@ -233,6 +233,36 @@ struct PaneContentPolicyTests {
         }
     }
 
+    /// Review of #35470 (F2): a pane that a key press grows down keeps a prompt on its last row in view, as S3 did (and as
+    /// a split or a close does, TerminalPaneMotionFinalGridTests): the PTY gets the final, taller grid at the press, and a
+    /// surface at the pane's size in each frame showed that grid's top rows, cut off at the bottom, so the prompt was out
+    /// of view for the whole spring. The surface keeps its final size on the moving bottom edge instead: the prompt rides
+    /// the bottom of the pane, and the rows above it come into view as the pane grows.
+    @Test func aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown() async throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
+        defer { rig.close() }
+        let terminal = try #require(rig.provider.sessions["p1"])
+        // A device attributes query after the prompt: its reply says the lines before it were parsed.
+        terminal.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
+        await terminal.io.nextWrite()
+        #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        var taller = 0, cut: [String] = []
+        let frames = try Self.run(rig) { frame in
+            let clip: NSView = terminal.session.view
+            let surface = terminal.session.surfaceView.convert(terminal.session.surfaceView.bounds, to: clip)
+            let visible = clip.bounds
+            guard surface.height > visible.height + 1 else { return }
+            taller += 1
+            let off = clip.isFlipped ? surface.maxY - visible.maxY : visible.minY - surface.minY
+            if abs(off) >= 1 { cut.append("frame \(frame): \(off) pt of the terminal's bottom is cut off") }
+        }
+        #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(taller > 3, "the terminal kept its final size on \(taller) of \(frames) frames: its prompt went out of view")
+        #expect(cut.isEmpty, "\(cut.prefix(3))")
+    }
+
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
