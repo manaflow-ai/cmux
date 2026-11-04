@@ -1562,6 +1562,8 @@ button.cv-subagent > :last-child {
   .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
+    /* The controls' row centres on Stop, as every narrow line's does (subagent-tray-columns). */
+    align-items: center;
     padding-block: var(--ds-space-1) 0;
   }
 }
