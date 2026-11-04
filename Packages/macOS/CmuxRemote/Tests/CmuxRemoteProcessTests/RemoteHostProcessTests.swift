@@ -2,6 +2,7 @@
 import CmuxRemoteWire
 import Darwin
 import Foundation
+import Security
 import Testing
 
 /// The built `cmux-remote host` as a real process, driven over its sockets
@@ -17,6 +18,8 @@ import Testing
         /// The stand-in daemon socket this test process serves: the host admits a supervisor
         /// only when it is the process listening there.
         let daemonListener: Int32
+        /// The test's own short directory (sockets for a worker go here).
+        let directory: String
     }
 
     @Test(.timeLimit(.minutes(2))) func supervisorHelloStatusAdoptionAndDrain() throws {
@@ -73,6 +76,60 @@ import Testing
         #expect(exitStatus == 0)
     }
 
+    /// Review 1 #1: the app's channel open carries its Computer Use mode and client; cmux Remote
+    /// starts the worker with them only when the client is the bundle id the app's own code
+    /// signature names, so the worker's questions carry the client the app's broker admits
+    /// (`request.client == store.client`). Real host, real worker, the app's own wire.
+    @Test(.timeLimit(.minutes(2))) func theComputerUseWorkerRunsForTheVerifiedAppsClientAndMode() throws {
+        let host = try Self.start(computerUse: true)
+        defer {
+            kill(host.child.pid, SIGKILL)
+            close(host.daemonListener)
+        }
+        let daemon = try Self.hello(host)
+        let me = try #require(ProcessStamp.of(getpid()))
+        let appSecret = try #require(try Self.call(daemon, "app_grant", ["app": me.fields])["secret"] as? String)
+        let client = try #require(Self.ownSigningIdentifier(), "this test process's signing identifier")
+
+        func open(_ extra: [String: Any]) throws -> LineChannel {
+            let app = try Self.connect(host.layout.appSocket)
+            app.setReadTimeout(30)
+            app.write(RemoteWire.line(["type": "hello", "secret": appSecret]))
+            var request: [String: Any] = ["id": 1, "channel": "computer-use"]
+            for (key, value) in extra { request[key] = value }
+            app.write(RemoteWire.line(request))
+            return app
+        }
+        func errorCode(_ extra: [String: Any]) throws -> String? {
+            let app = try open(extra)
+            defer { app.close() }
+            return (app.readObject()?["error"] as? [String: Any])?["code"] as? String
+        }
+
+        // A mode that is not one of the four, and a client other than the app's own, start nothing.
+        #expect(try errorCode(["permission_mode": "yolo", "client": client]) == "bad_request")
+        #expect(try errorCode(["client": client]) == "bad_request")
+        #expect(try errorCode(["permission_mode": "ask", "client": "com.cmuxterm.app.debug.someone-else"]) == "refused")
+        #expect(try errorCode(["permission_mode": "ask"]) == "refused")
+
+        // The app's open, then its configure: the worker's ready names the mode and client it runs with.
+        let app = try open(["permission_mode": "standard", "client": client])
+        defer { app.close() }
+        let opened = try #require(app.readObject())
+        #expect(opened["ok"] as? Bool == true, "\(opened)")
+        app.write(RemoteWire.line(["type": "configure", "socket": host.directory + "/w.sock", "host_socket": host.directory + "/c.sock",
+                                   "host_secret": String(repeating: "cd", count: 32), "secret": String(repeating: "ab", count: 32),
+                                   "acpmux_cdhashes": [String](), "acpmux_requirement": NSNull()]))
+        var ready: [String: Any]?
+        while let line = app.readObject() {
+            if line["type"] as? String == "ready" || line["type"] as? String == "error" { ready = line; break }
+        }
+        let answer = try #require(ready, "the worker answers configure")
+        #expect(answer["type"] as? String == "ready", "\(answer)")
+        #expect(answer["client"] as? String == client, "\(answer)")
+        #expect(answer["permission_mode"] as? String == "standard", "\(answer)")
+    }
+
     @Test(.timeLimit(.minutes(1))) func aLaunchWithoutTheDaemonsBootstrapExitsAtOnce() throws {
         let built = try #require(Self.executable(), "the built cmux-remote")
         let directory = try Self.temporaryDirectory()
@@ -87,7 +144,7 @@ import Testing
 
     // MARK: Helpers
 
-    static func start() throws -> Host {
+    static func start(computerUse: Bool = false) throws -> Host {
         let built = try #require(Self.executable(), "the built cmux-remote")
         let directory = try temporaryDirectory()
         let layout = RemoteHostLayout(directory: directory + "/l")
@@ -97,7 +154,7 @@ import Testing
         var bootstrap: [Int32] = [-1, -1]
         #expect(pipe(&bootstrap) == 0)
         let line = RemoteWire.line(["supervisor_secret": RemoteWire.hex(secret), "daemon_build": "test",
-                                    "computer_use": false, "screen_sharing": false, "headless": true,
+                                    "computer_use": computerUse, "screen_sharing": false, "headless": true,
                                     "daemon_socket": daemonSocket])
         _ = LineChannel.writeAll(bootstrap[1], line)
         close(bootstrap[1])
@@ -109,7 +166,17 @@ import Testing
         close(child.stdin)
         let ready = LineChannel(read: child.stdout, write: child.stdout).readLine()
         #expect(ready == Data("ready".utf8))
-        return Host(child: child, layout: layout, secret: secret, daemonListener: listener)
+        return Host(child: child, layout: layout, secret: secret, daemonListener: listener, directory: directory)
+    }
+
+    /// This process's signing identifier, read from its own valid signature (as the host reads the app's).
+    static func ownSigningIdentifier() -> String? {
+        var code: SecCode?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code, SecCodeCheckValidity(code, [], nil) == errSecSuccess else { return nil }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(unsafeBitCast(code, to: SecStaticCode.self),
+                                            SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess else { return nil }
+        return (info as? [String: Any])?[kSecCodeInfoIdentifier as String] as? String
     }
 
     /// The hello with the right secret from a process that is not the daemon (nc -U); its output.
