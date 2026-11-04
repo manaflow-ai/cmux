@@ -63,6 +63,7 @@ test("an activity row's hover lights only its chevron, and only on a row that op
     if (!selector.includes(".cv-agent-activity-row") || !STATE.test(selector) || !INK.test(body)) continue;
     const lit = subject(selector);
     const chevronOfAButton =
+      // The chevron inside the line's button, or beside it (SubagentDoneLine.tsx), of a line that opens.
       (/\.cv-agent-activity__chevron\b/.test(lit) && /button\.cv-agent-activity__control\b/.test(selector)) ||
       (/\.cv-rotor\b/.test(lit) && /\.cv-disclosure__toggle\b/.test(selector));
     if (!chevronOfAButton) found.push(selector);

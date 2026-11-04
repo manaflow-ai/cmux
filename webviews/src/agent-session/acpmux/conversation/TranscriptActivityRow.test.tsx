@@ -74,6 +74,8 @@ test("the shared activity row lights only its chevron on hover and press, never 
     ".cv-agent-activity-row:is(:hover, :active, :focus-visible, :focus-within):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))) > button.cv-agent-activity__control .cv-agent-activity__chevron {",
   );
   expect(css).not.toMatch(/\) > \.cv-agent-activity__control \{/);
+  // A chevron beside the line's button lifts too (SubagentDoneLine.tsx).
+  expect(css).toContain(":has(> button.cv-agent-activity__control) > .cv-agent-activity__chevron {");
   expect(source("./AgentTag.css")).toContain(":is(:hover, :focus-visible, :active)");
 });
 
