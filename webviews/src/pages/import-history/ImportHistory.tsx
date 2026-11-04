@@ -148,7 +148,7 @@ function SourceRow({
               type="button"
               className="history-source-title"
               disabled={busy || Boolean(snapshot.picking)}
-              onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
+              onClick={() => void store.pickZip(row.id)}
             >
               {title}
             </button>
@@ -173,7 +173,7 @@ function SourceRow({
               type="button"
               className="history-link"
               disabled={busy || Boolean(snapshot.picking)}
-              onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
+              onClick={() => void store.pickZip(row.id)}
               aria-label={strings.format("history.chooseFor", title)}
             >
               {t(snapshot.picking === row.id ? "history.choosing" : "history.choose")}

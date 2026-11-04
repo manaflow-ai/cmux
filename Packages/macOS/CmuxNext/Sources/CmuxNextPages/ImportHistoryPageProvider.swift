@@ -43,6 +43,7 @@ public final class ImportHistoryPageProvider: PageProvider {
             // Passive page detection must stay TCC-safe. Export folders are scanned only after
             // the person clicks Find exports in the open import page.
             let includesExports = params["exports"]?.boolValue == true
+            if includesExports { try requireGesture(context) }
             let result = try await run(command.detect(exports: includesExports), .seconds(60))
             let sources = (result["sources"]?.arrayValue ?? []).filter { source in
                 includesExports || !(source["source"]?.stringValue ?? "").hasPrefix("zip:")

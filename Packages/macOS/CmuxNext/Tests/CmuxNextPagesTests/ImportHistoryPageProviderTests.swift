@@ -27,7 +27,7 @@ import Testing
     }
     #endif
 
-    @Test func detectionNeverScansExportFoldersAndOnlyAdmitsAgentSources() async throws {
+    @Test func passiveDetectionRejectsArchivesAndExplicitDetectionAdmitsThem() async throws {
         var arguments: [[String]] = []
         let provider = ImportHistoryPageProvider(muxHome: "/test/mux", personOnlyMessage: "Click Import") { args, _ in
             arguments.append(args)
@@ -42,13 +42,18 @@ import Testing
         await #expect(throws: PageError.self) {
             _ = try await provider.call("cmux.importHistory.dryRun", params: ["source": "zip:/not-picked.zip", "batch": "b1"], context: passive)
         }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.importHistory.detect", params: ["exports": .bool(true)], context: passive)
+        }
         let explicitReply = try await provider.call(
             "cmux.importHistory.detect",
             params: ["exports": .bool(true)],
-            context: passive,
+            context: click(2)
         )
         #expect(arguments[1].contains("--exports"))
         #expect(explicitReply["sources"]?.arrayValue?.count == 2)
+        _ = try await provider.call("cmux.importHistory.dryRun", params: ["source": "zip:/not-picked.zip", "batch": "b1"], context: passive)
+        #expect(arguments[2].contains("zip:/not-picked.zip"))
     }
 
     @Test func pageScriptCannotBeginOrImportWithoutARealClick() async throws {

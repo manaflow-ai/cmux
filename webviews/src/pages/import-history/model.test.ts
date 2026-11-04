@@ -110,6 +110,24 @@ describe("Bring your history", () => {
     expect(row?.title).toBe("Dot export (.zip)");
     expect(row?.selected).toBe(true);
   });
+  test("detected archives can be replaced without adding another row", async () => {
+    const client = host(({ op }) =>
+      op === OPS.detect
+        ? { sources: [{ source: "zip:/Downloads/dot.zip", kind: "dots-export" }] }
+        : undefined,
+    );
+    const store = new ImportHistoryStore(client);
+    await store.start();
+    await store.pickZip("detected-0");
+    const archives = store.getSnapshot().rows.filter((row) => row.source?.startsWith("zip:"));
+    expect(archives).toHaveLength(1);
+    expect(archives[0]).toMatchObject({
+      id: "detected-0",
+      source: "zip:/selected/dot.zip",
+      detected: false,
+      selected: true,
+    });
+  });
   test("retry replaces old detections and preserves manually picked archives", async () => {
     let sources = [
       { source: "zip:/Downloads/dot.zip", kind: "dots-export" },

@@ -123,6 +123,7 @@ export class ImportHistoryStore {
     return this.snapshot.phase === "importing" || this.snapshot.undoing;
   }
   async start(): Promise<void> {
+    if (this.snapshot.phase !== "idle") return;
     await this.detect(false);
   }
   async findExports(): Promise<void> {
@@ -222,12 +223,12 @@ export class ImportHistoryStore {
       this.set({ error: message(error) });
     }
   }
-  async pickZip(id: "chatgpt" | "claude" | "dot"): Promise<void> {
+  async pickZip(id: RowID): Promise<void> {
     if (!this.client || this.busy || this.snapshot.picking) return;
     this.set({ picking: id, error: undefined });
     try {
       const result = await this.client.call<{ source: string; name: string } | null>(OPS.pickZip, {
-        kind: id,
+        kind: id.startsWith("detected-") ? "dot" : id,
       });
       if (!result) return;
       if (id === "dot" && !this.snapshot.rows.some((row) => row.id === "dot")) {
