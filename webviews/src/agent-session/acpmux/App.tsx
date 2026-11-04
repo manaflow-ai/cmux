@@ -9068,7 +9068,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const sandboxWake = useRef<ComposerWake | undefined>(undefined);
   /// The New Tab page handed a prompt to a Sandboxed send: its draft isn't moved again as it goes.
   const newTabSandboxSent = useRef(false);
-  const shownView = useRef<CloudIdentityView>({
+  const cloudShownView = useRef<CloudIdentityView>({
     ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}),
     generation: newTabGeneration,
   });
@@ -9083,8 +9083,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudDraftMachineID.current = undefined;
     cloudTypingPrewarm.reset();
     const view = { ...(snapshot.sessionId ? { session: snapshot.sessionId } : {}), generation: newTabGeneration };
-    if (!cloudIdentityKept(shownView.current, view)) cloudIdentityBound.current = false;
-    shownView.current = view;
+    if (!cloudIdentityKept(cloudShownView.current, view)) cloudIdentityBound.current = false;
+    cloudShownView.current = view;
   }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
