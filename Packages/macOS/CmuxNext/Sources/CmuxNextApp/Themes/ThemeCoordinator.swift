@@ -78,6 +78,7 @@ final class ThemeCoordinator {
     private var chromeObservation: Task<Void, Never>?
     private var accentObservation: Task<Void, Never>?
     private var artAccentObservation: Task<Void, Never>?
+    private var artObservation: Task<Void, Never>?
     private var machineColorsObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
@@ -93,6 +94,18 @@ final class ThemeCoordinator {
         artAccentObservation = Task { [weak self] in
             for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
                 guard store.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
+            }
+        }
+        // Art Color: another picture (a pick, a shuffle or rotation step, a preview) is another hue,
+        // and pages' `--cmux-app-*` accent comes from the app theme made here, so make it again. The
+        // native scopes re-derive on their own (ThemeScope.repaintBackdropArt).
+        artObservation = Task { [weak self] in
+            var shown = store.backdropRevision.value
+            for await revision in ObservationStream({ store.backdropRevision.value }) {
+                guard revision != shown else { continue }
+                shown = revision
+                guard store.accentFollowsArt else { continue }
                 self?.applyChromeTheme()
             }
         }
