@@ -12,6 +12,8 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { seedLastPicks } from "../lastPick";
+import { EMPTY_OMNIBAR } from "../omnibar";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -454,6 +456,39 @@ test("Return on a typed address still opens it without a harness", async () => {
   } finally {
     unregister();
   }
+});
+
+// A last pick names the chip's harness before acpmux lists its harnesses (or when that read failed
+// and nothing has read again), so the chip read "Opus 5.5" over a list with no Ask row, and Return
+// took the prompt to Google. Whatever the chip names, Return asks.
+test("with a remembered pick and no catalog, the Ask row leads and Return asks instead of searching", async () => {
+  const asked: string[] = [];
+  const searched: string[] = [];
+  saved.set("localStorage", scope.localStorage);
+  Object.assign(scope, { localStorage: dom!.window.localStorage });
+  seedLastPicks({ global: { harness: "claude", model: "claude-opus-5-5" } });
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        omnibar={EMPTY_OMNIBAR}
+        onAsk={(harness, text, _cwd, model) => void asked.push(`${harness} ${model}: ${text}`)}
+        onSearch={(text) => void searched.push(text)}
+      />,
+    );
+  });
+  const field = await promptField();
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type("look at the ios connection failures");
+  });
+  const rows = [...document.querySelectorAll(".nt-row")].map((row) => row.textContent ?? "");
+  expect(rows[0]).toContain("Claude Code");
+  expect(rows.some((row) => row.includes("Search the web"))).toBe(true);
+  await press(field, "Enter");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(searched).toEqual([]);
+  expect(asked).toEqual(["claude claude-opus-5-5: look at the ios connection failures"]);
 });
 
 test("the `/` menu opens mid-prompt with the skills and writes the pick in place, as in chat", async () => {

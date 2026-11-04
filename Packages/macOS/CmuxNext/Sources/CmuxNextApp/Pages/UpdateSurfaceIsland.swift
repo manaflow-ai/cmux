@@ -28,6 +28,7 @@ final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
 final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
     private(set) var contentHeight: CGFloat = 0
+    private(set) var contentWidth: CGFloat = 0
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
@@ -37,7 +38,7 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
-        provider.onHeight = { [weak self] height in self?.setHeight(height) }
+        provider.onSize = { [weak self] height, width in self?.setSize(height: height, width: width) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
     }
@@ -46,27 +47,30 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
         (view as? PageWebView)?.close()
     }
 
-    /// `height` is in CSS px; the page is zoomed (the interface scale), so
-    /// one CSS px is `pageZoom * magnification` points.
-    private func setHeight(_ height: CGFloat) {
+    /// `height` and `width` are in CSS px; the page is zoomed (the interface scale), so
+    /// one CSS px is `pageZoom * magnification` points. A width of 0: the page fills its host.
+    private func setSize(height: CGFloat, width: CGFloat) {
         let web = (view as? PageWebView)?.webKitView
         let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
-        let height = max(0, ceil(height * zoom))
-        guard height != contentHeight else { return }
+        let height = max(0, ceil(height * zoom)), width = max(0, ceil(width * zoom))
+        guard height != contentHeight || width != contentWidth else { return }
         contentHeight = height
+        contentWidth = width
         onHeightChange?()
     }
 }
 
 /// `cmux.changelog.surface.*`: `get` (the surface's UpdateHighlights or
-/// null), `size {height}` (the page's content height), `openChangelog`
+/// null), `size {height, width?}` (the page's content height, and its own width when it is
+/// narrower than the host), `openChangelog`
 /// and `dismiss`; the stream `cmux.changelog.surface.changes` sends the
 /// highlights again whenever they change (the notes arrive after staging).
 @MainActor
 final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
-    var onHeight: ((CGFloat) -> Void)?
+    /// The page's content height and its own width (0: it fills the host), in CSS px.
+    var onSize: ((CGFloat, CGFloat) -> Void)?
     /// The page ran an action (the popover closes).
     var onAction: (() -> Void)?
     /// The card's x: the sidebar sends `.dismissUpdated` (SidebarCardFeed.handle), the one
@@ -86,7 +90,12 @@ final class UpdateSurfaceProvider: PageProvider {
 
     private func json(_ highlights: UpdateHighlights?) throws -> JSONValue {
         guard let highlights else { return .null }
-        return try JSONValue.parse(JSONEncoder().encode(highlights))
+        let value = try JSONValue.parse(JSONEncoder().encode(highlights))
+        // The Updated card after an automatic install that relaunched cmux behind another app
+        // (nobody clicked Restart to Update): the card says it updated in the background.
+        guard kind == .updated, services?.environment.relaunchBehind != nil, case .object(var members) = value else { return value }
+        members["delivery"] = .string("background")
+        return .object(members)
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -101,7 +110,7 @@ final class UpdateSurfaceProvider: PageProvider {
         case "cmux.changelog.surface.size":
             guard let height = params["height"]?.doubleValue else { throw PageError.invalidParams("height is required") }
             services.updater.log.append("update surface \(kind.rawValue): height \(Int(height))")
-            onHeight?(CGFloat(height))
+            onSize?(CGFloat(height), CGFloat(params["width"]?.doubleValue ?? 0))
             return .null
         case "cmux.changelog.surface.openChangelog":
             _ = kind == .ready ? services.updater.openStagedChangelog() : services.updater.openWhatsNewForLastUpdate()
