@@ -66,13 +66,18 @@ impl AgentTools {
     pub fn context_parts(&self, claude: bool) -> Vec<ContextPart> {
         let mut parts = Vec::new();
         let cmux = self.servers.iter().find(|server| server.name == "cmux");
+        let filtered = cmux.is_some_and(|server| {
+            server.env.iter().any(|(key, _)| key == MCP_TOOLS_ENV)
+        });
         let code_mode = cmux.is_some_and(|server| {
             !server.args.iter().any(|arg| arg == "--all-tools")
-                && !server.env.iter().any(|(key, _)| key == MCP_TOOLS_ENV)
+                && !filtered
         });
         if cmux.is_some() {
             let (mode, instructions) = if code_mode {
                 ("code mode", CODE_MODE_INSTRUCTIONS)
+            } else if filtered {
+                ("filtered tool listing", BASE_INSTRUCTIONS)
             } else {
                 ("tool listing", BASE_INSTRUCTIONS)
             };
@@ -96,7 +101,11 @@ impl AgentTools {
             parts.push(source(
                 format!("mcp-server-{}", server.name),
                 "mcp-catalog",
-                format!("MCP server: {} ({placement}; runtime tool schemas unavailable)", server.name),
+                format!(
+                    "MCP server: {} ({placement}{}; runtime tool schemas unavailable)",
+                    server.name,
+                    if filtered { "; cmux tool allowlist applies" } else { "" }
+                ),
                 "mcp-tools",
             ));
         }
@@ -194,6 +203,7 @@ mod tests {
         allowed.servers[0].env.push((MCP_TOOLS_ENV.into(), "agents_snapshot".into()));
         let base = allowed.context_parts(false).remove(0);
         assert_eq!(base.text, Some(format!("{BASE_INSTRUCTIONS} {ASKING_RULE}")));
+        assert!(base.label.contains("filtered tool listing"));
     }
 
     #[test]
