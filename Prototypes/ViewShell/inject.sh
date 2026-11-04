@@ -49,11 +49,12 @@ executable="$build/cmux-view-shell"
 names=()
 for file in "${files[@]}"; do names+=("$(basename "$file" .swift)"); done
 if [[ -f "$compiled" && -f "$executable" ]]; then
-  real="$(cd "$sources" && pwd -P)"
+  # File names only (the module is one flat folder): SwiftPM quotes or escapes a path with a space.
+  built="$(sed -e 's/^"//' -e 's/"$//' -e 's/\\\(.\)/\1/g' -e 's#.*/##' "$compiled")"
   for file in "${all[@]}"; do
     name="$(basename "$file" .swift)"
     why=""
-    if ! grep -qxF -e "$real/$name.swift" -e "$sources/$name.swift" "$compiled"; then why="new since the build"
+    if ! grep -qxF "$name.swift" <<<"$built"; then why="new since the build"
     elif [[ "$file" -nt "$executable" ]]; then why="changed since the build"; fi
     [[ -n "$why" && " ${names[*]} " != *" $name "* ]] || continue
     names+=("$name")
