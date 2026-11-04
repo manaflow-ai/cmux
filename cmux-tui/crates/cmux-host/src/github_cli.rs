@@ -687,14 +687,10 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     let mut out = GhHosts::default();
     let Some(first) = lines.first() else { return out };
     if first.trim_start().starts_with('{') {
-        let text = lines.join("\n");
-        match flow_keys(text.trim()) {
+        match flow_keys(lines.join("\n").trim()) {
             Some(keys) => out.hosts = keys,
             None => out.unread = true,
         }
-        // A flow parse that misses a github.com key anywhere in the text fails
-        // toward the person's own login, never toward the team's token.
-        out.unread |= !out.github_login() && mentions_github_key(&text);
         return out;
     }
     let indent = |line: &str| line.len() - line.trim_start().len();
@@ -817,16 +813,6 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
         }
     }
     None
-}
-
-/// Whether `github.com` appears anywhere in `text` as a key (optionally
-/// quoted, then `:`), at any depth.
-fn mentions_github_key(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    lower.match_indices("github.com").any(|(at, m)| {
-        let rest = lower[at + m.len()..].trim_start_matches(['"', '\'']).trim_start();
-        rest.starts_with(':')
-    })
 }
 
 /// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
@@ -1696,6 +1682,9 @@ mod tests {
         for hosts in [
             "  ghe.example.com:\n      user: a\n",
             "{ghe.example.com: {user: a, note: github.com}}\n",
+            "{ghe.example.com: {github.com: 1}}\n",
+            "{mygithub.com: {user: a}}\n",
+            "{ghe.example.com: {user: a, note: \"github.com: x\"}}\n",
             "  x:\n      github.com: 1\n",
             "{}\n",
             "# github.com:\n",
