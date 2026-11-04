@@ -12,6 +12,7 @@ nonisolated extension ActionCatalog {
         // Panes and focus targets
         "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane", "focusPaneByNumber", "focusSidebar",
         "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "browser.focusSearch", "focusTextBoxInput", "focusRightSidebar",
+        "sidebar.revealWorkspace", "sidebar.revealAndFocusWorkspace",
         // Screens
         "screen.next", "screen.previous", "screen.select", "screen.selectLast",
         // Workspaces and rooms

@@ -275,8 +275,14 @@ mod inbound;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::leave_out_bodies;
+mod loops;
+#[cfg(test)]
+mod loops_tests;
 mod outbound;
 pub mod prompt_cache;
+pub mod prompt_suggestions;
+#[cfg(test)]
+mod prompt_suggestions_tests;
 // A tool result's images as ACP image blocks (`result_images.rs`).
 mod result_images;
 pub(crate) use result_images::result_images;
@@ -296,6 +302,9 @@ mod stop_spares_background_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
+mod task_plan;
+#[cfg(test)]
+mod task_plan_tests;
 #[cfg(test)]
 mod tests;
 mod usage_limits;
@@ -304,7 +313,7 @@ mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
 mod workflows;
-pub use usage_limits::merge_usage_limits;
+pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
 const MAX_FAILURE_CHARS: usize = 600;
@@ -333,11 +342,6 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// control request. The answer is `{}` once Claude Code connected it again,
 /// or Claude Code's error.
 pub const MCP_RECONNECT: &str = "_acpmux/claude/mcp_reconnect";
-
-/// The most categories, memory files, MCP tools and skills a context breakdown
-/// names (`context_breakdown`; the lists the largest first, categories in Claude Code's order): a chat with hundreds of MCP
-/// tools would otherwise log every one at each turn's end.
-const BREAKDOWN_ROWS: usize = 50;
 
 /// The internal ACP request for Claude Code's native, transcript-free `/btw`
 /// control request. The translator turns this into a `side_question`
@@ -431,6 +435,13 @@ pub fn spawn_plan(
         args.push("--effort".into());
         args.push(e.into());
     }
+    // In -p, Claude Code 2.1.310 streams thinking blocks empty (display
+    // omitted) unless asked for summaries, so the chat showed no thinking
+    // (Leo: "why is no thinking appearing for you?"). A profile may pin its own.
+    if !profile.argv.iter().any(|a| a == "--thinking-display") {
+        args.push("--thinking-display".into());
+        args.push("summarized".into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
@@ -481,6 +492,10 @@ pub struct Translator {
     effort: Mutex<String>,
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
+    /// The chat's `prompt-suggestions` option (`prompt_suggestions.rs`), on unless set off.
+    pub prompt_suggestions: AtomicBool,
+    /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
+    suggestions_offered: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -596,6 +611,11 @@ pub struct Translator {
     /// The plan usage limit windows Claude Code reported, newest each, by id
     /// (`usage_limits.rs`).
     usage_limits: Mutex<std::collections::BTreeMap<&'static str, Value>>,
+    /// Claude Code's task list, from its TaskCreate and TaskUpdate calls
+    /// (`task_plan.rs`), sent whole as the turn's ACP plan.
+    task_plan: Mutex<task_plan::TaskPlan>,
+    /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
+    loops: Mutex<loops::Loops>,
 }
 
 /// A running shell: the session its Bash call ran in, its command, Claude's
@@ -604,6 +624,9 @@ pub struct Translator {
 struct BackgroundShell {
     sid: String,
     command: String,
+    /// What the Bash call says it does (its `description`): the tray names
+    /// the process by it (webviews `session-info/commandRules.ts`).
+    description: Option<String>,
     task: Option<String>,
     background: bool,
     /// Started in the background (`run_in_background`), not moved there.
@@ -637,6 +660,8 @@ enum Pending {
     Background(Vec<String>, Option<std::time::Instant>),
     /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
     Withdraw,
+    /// A chat's prompt-suggestions pick (`prompt_suggestions.rs`), answered when claude answers.
+    Suggestions,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -674,6 +699,8 @@ impl Translator {
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
+            prompt_suggestions: AtomicBool::new(true),
+            suggestions_offered: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
@@ -696,6 +723,7 @@ impl Translator {
             failed_agents: Mutex::new(Default::default()),
             workflows: Mutex::new(HashMap::new()),
             background_shells: Mutex::new(HashMap::new()),
+            task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
@@ -711,6 +739,7 @@ impl Translator {
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
             usage_limits: Mutex::new(Default::default()),
+            loops: Mutex::new(Default::default()),
         })
     }
 
@@ -870,7 +899,7 @@ impl Translator {
 
     pub async fn config_options_value(&self) -> Value {
         let effort = self.effort.lock().await.clone();
-        json!([
+        let mut options = json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
@@ -896,7 +925,11 @@ impl Translator {
                  {"value": "on", "name": "On", "description": RECAP_COST},
                  {"value": "off", "name": "Off", "description": "No recap when you come back"},
              ]},
-        ])
+        ]);
+        if let (Some(list), Some(option)) = (options.as_array_mut(), self.suggestion_option()) {
+            list.push(option);
+        }
+        options
     }
 }
 
@@ -1047,10 +1080,10 @@ pub fn is_context_answer(line: &Value) -> bool {
         .is_some_and(|id| id.starts_with("ctx-"))
 }
 
-/// Claude Code's answer to `get_context_usage` (its `/context`), trimmed to
-/// what a client draws: each category's tokens and kind, the memory files,
-/// MCP tools and skills by size (at most `BREAKDOWN_ROWS` of each, the
-/// largest), and the totals; no grid or colors. None without categories: a
+/// Claude Code's answer to `get_context_usage` (its `/context`), retaining
+/// every reported category, memory file, MCP tool and skill with token counts.
+/// Detail rows are sorted by size; presentation-only grid and colors are omitted.
+/// None without categories: a
 /// Claude Code too old to answer, or one that answered something else.
 pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
     let categories = usage.get("categories")?.as_array()?;
@@ -1073,13 +1106,10 @@ pub(super) fn context_breakdown(usage: &Value) -> Option<Value> {
             })
             .collect();
         rows.sort_by_key(|row| std::cmp::Reverse(tokens(row)));
-        rows.truncate(BREAKDOWN_ROWS);
         rows
     };
-    // Claude Code names a dozen; the bound keeps a misbehaving answer out of the log.
     let categories: Vec<Value> = categories
         .iter()
-        .take(BREAKDOWN_ROWS)
         .map(|c| {
             let mut kept =
                 json!({"name": c.get("name"), "tokens": tokens(c), "kind": c.get("kind")});

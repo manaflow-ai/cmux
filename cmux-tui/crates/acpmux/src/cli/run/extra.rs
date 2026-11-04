@@ -47,7 +47,7 @@ pub(super) async fn resume_held(client: &Client, id: &str, info: &Value) -> Resu
 /// What `session resume` prints when it moved the chat first.
 fn moved_line(host: &str) -> String {
     format!(
-        "moved to {host} (as `session move --host auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
+        "moved to {host} (as `session move --machine auto` does): this machine is one a person works at, so a stopped chat resumes on a fleet host"
     )
 }
 
@@ -400,6 +400,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             leave_dirty,
             cwd,
             dry_run,
+            from,
         } => {
             let args = super::session_move::MoveArgs {
                 sessions,
@@ -410,6 +411,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 cwd,
                 dry_run,
                 resume_there: false,
+                from,
             };
             super::session_move::run(args, json_out).await
         }
@@ -598,13 +600,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonService { action } => crate::cli::daemon_service::run(action, json_out),
         Command::Config { show_token, set } => {
             let path = Config::path();
             if let Some(assignment) = set {
                 let (key, value) =
                     assignment.split_once('=').ok_or_else(|| anyhow!("--set expects KEY=VALUE"))?;
                 let mut cfg = Config::load()?;
-                cfg.set_session_resource(key, value)?;
+                cfg.set(key, value)?;
                 cfg.save()?;
                 // Refresh the local daemon's cached config before reporting success;
                 // a later defaults/token save must retain these resource settings.
@@ -643,6 +646,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
             }
             println!("# home: {}", home().display());
+            print_start_modes().await;
             Ok(())
         }
         Command::Web { no_open, show_token, rotate_token } => {
@@ -771,6 +775,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 crate::cli::host_vault::forget_cmd(json_out).await
             }
         },
+        Command::Host(PeerCmd::Deps { cmd }) => crate::cli::machine_deps::run(cmd, json_out).await,
         Command::Host(PeerCmd::Consent { cmd }) => {
             let (screen, control, granted) = match cmd {
                 crate::cli::command_host::ConsentCmd::Grant { screen, control } => {
@@ -863,7 +868,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         let (message, warning) = if url.starts_with("ssh://") && has_token {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host ls` and retry after it shows connected (the saved WebSocket token is retained)"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine ls` and retry after it shows connected (the saved WebSocket token is retained)"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -874,7 +879,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else if url.starts_with("ssh://") {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux host doctor {name} --json`"
+                                    "peer {name} was saved and is probing in the background; verify the SSH alias with `ssh -o BatchMode=yes {host} true`, then run `acpmux machine doctor {name} --json`"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
@@ -885,11 +890,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         } else {
                             (
                                 format!(
-                                    "peer {name} was saved and is probing in the background; run `acpmux host ls` and retry after it shows connected"
+                                    "peer {name} was saved and is probing in the background; run `acpmux machine ls` and retry after it shows connected"
                                 ),
                                 json!({
                                     "reason": "peer_probing",
-                                    "try": "acpmux host ls",
+                                    "try": "acpmux machine ls",
                                     "detail": "the peer was saved and is probing in the background"
                                 }),
                             )
@@ -1028,9 +1033,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;
                 }
-                PeerCmd::Join { .. } | PeerCmd::Consent { .. } | PeerCmd::Vault { .. } => {
+                PeerCmd::Join { .. }
+                | PeerCmd::Consent { .. }
+                | PeerCmd::Vault { .. }
+                | PeerCmd::Deps { .. } => {
                     return Err(anyhow!(
-                        "host join, consent and vault are handled before daemon connection"
+                        "host join, consent, vault and deps are handled before daemon connection"
                     ));
                 }
             };
@@ -1040,7 +1048,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             let peers = v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
             if peers.is_empty() {
-                println!("no peers (add one: acpmux host add HOST)");
+                println!("no peers (add one: acpmux machine add HOST)");
             }
             for p in peers {
                 let state = crate::peer_link::state_label(&p, crate::store::now_ms());
@@ -1143,6 +1151,37 @@ fn config_text_without_tokens(text: &str) -> String {
         }
     }
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| HIDDEN_TOKEN.into())
+}
+
+/// `acpmux config`'s last lines: the permission mode a new chat starts in, as the local daemon
+/// answers `_acpmux/start_mode` (what the app's mode picker shows), for the default harness and
+/// each harness with its own `permissionMode`. Nothing when no daemon runs.
+async fn print_start_modes() {
+    let Ok(cfg) = Config::load() else { return };
+    let Ok(client) = crate::client::Client::connect(&crate::config::socket_path()).await else {
+        return;
+    };
+    let mut names: Vec<Option<String>> = vec![None];
+    names.extend(
+        cfg.defaults
+            .iter()
+            .filter(|(_, d)| d.permission_mode.is_some())
+            .map(|(k, _)| Some(k.clone())),
+    );
+    for name in names {
+        let Ok(v) = client.request(method::MUX_START_MODE, json!({"harness": name})).await else {
+            continue;
+        };
+        let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("-").to_owned();
+        println!(
+            "# new {} chats start in: {} ({}, from {})",
+            s("harness"),
+            s("level"),
+            s("modeId"),
+            s("source")
+        );
+    }
+    println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
 }
 
 #[cfg(test)]

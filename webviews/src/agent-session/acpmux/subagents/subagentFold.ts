@@ -1,5 +1,5 @@
 import { AgentProgressStore } from "./agentProgressSource";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxBackgroundReaction, AcpmuxRow } from "../model";
 import { textFromContent } from "../direct";
 import {
   markPullRequestActivityVersion,
@@ -28,6 +28,14 @@ export const SUBAGENTS = "subagents";
 /// One subagent, from the model acpmux records in each update's `_meta.acpmux`
 /// (cmux-tui/crates/acpmux/src/subagents.rs): native ACP subagent sessions and Codex's
 /// collaboration calls alike.
+/// Whether a subagent stopped while it waits on background work of its own: Claude Code said so
+/// when its task ended (acpmux's interim cause, direct.ts `attachReaction`), and no final report
+/// has come since. It still counts as live work: the tray lists it, and its "Subagent finished"
+/// line waits for the report (Leo, 2026-11-03, on the tray's lines: "Tray only, richer").
+export function awaitsOwnWork(agent: Pick<Subagent, "state" | "reaction">): boolean {
+  return agent.reaction?.interim === true && (agent.state === "running" || agent.state === "completed");
+}
+
 export type Subagent = {
   id: string;
   /// The subagent that spawned it, or null for the session's own.
@@ -67,6 +75,9 @@ export type Subagent = {
   progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
+  /// The chat's reaction to its end, when acpmux weighed it (direct.ts `attachReaction`): its done
+  /// line marks a result the person has not seen, and its tooltip carries the reply.
+  reaction?: AcpmuxBackgroundReaction;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
   prompt?: string;
   /// Why a stopped (`cancelled`) one stopped, when this pane knows (``SubagentStops``); none
@@ -392,6 +403,16 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// Puts the chat's reaction on the subagent call `call` started (its Agent call, or a shell call
+  /// that runs one). Whether there is one.
+  react(call: string, reaction: AcpmuxBackgroundReaction): boolean {
+    const agent = this.agents.get(call) ?? this.agents.get(this.spawnedBy.get(call) ?? this.runs.get(call) ?? "");
+    if (!agent) return false;
+    agent.reaction = reaction;
+    this.touch(agent);
+    return true;
   }
 
   /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
@@ -872,8 +893,18 @@ export class SubagentFold {
       markTranscriptSummaryVersion(drawn.rows, revisions.summary);
       views[id] = drawn.rows;
     }
+    // The same record while every view is the same array, so a snapshot that changes no subagent
+    // compares equal by identity (HOT PATH AUDIT area F, row W1).
+    const kept = this.publishedViews;
+    if (kept) {
+      const ids = Object.keys(views);
+      if (ids.length === Object.keys(kept).length && ids.every((id) => kept[id] === views[id])) return kept;
+    }
+    this.publishedViews = views;
     return views;
   }
+
+  private publishedViews: Record<string, AcpmuxRow[]> | undefined;
 
   private record(id: string, entry: ChildEntry): void {
     const entries = this.own.get(id) ?? [];

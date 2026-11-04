@@ -15,7 +15,8 @@ pub const POLICY_JSON: &str = include_str!("../policy.json");
 pub enum GestureRule {
     /// Every frame of the method (the user pressed send, picked a mode or an option).
     Always,
-    /// `acp.trust.set` that trusts (`level` not one of `non_trusting_levels`).
+    /// Every peer `acp.trust.set`, or a local set that trusts
+    /// (`level` not one of `non_trusting_levels`).
     WhenTrusting,
     /// `_acpmux/permission_respond` whose option is not a known deny.
     WhenOptionAllows,
@@ -115,6 +116,8 @@ struct Raw {
     history_replies: BTreeSet<String>,
     path_keys: BTreeSet<String>,
     question_answers: QuestionAnswers,
+    #[serde(default)]
+    act_as_me_covers: BTreeSet<String>,
 }
 
 /// The rules.
@@ -150,7 +153,7 @@ pub struct Policy {
     /// Methods that copy a session into a new one the pane controls.
     pub source_scoped: BTreeSet<String>,
     pub gesture_rules: BTreeMap<String, GestureRule>,
-    /// `acp.trust.set` levels that do not trust (no gesture).
+    /// Local `acp.trust.set` levels that do not trust (no gesture).
     pub non_trusting_levels: BTreeSet<String>,
     /// The methods that set a mode or an option (P1).
     pub setting_methods: BTreeSet<String>,
@@ -162,6 +165,10 @@ pub struct Policy {
     /// (`AcpmuxPathPolicy.keys`): such a frame waits for the host's path check.
     pub path_keys: BTreeSet<String>,
     pub question_answers: QuestionAnswers,
+    /// The only frames input another process posts may grant while "Computer use can act as me"
+    /// is on ([`crate::act_as_me`]): Send and Retry (`session/prompt`) and Approve
+    /// (`_acpmux/queue_approve`). Empty (a policy that did not parse) covers nothing.
+    pub act_as_me_covers: BTreeSet<String>,
 }
 
 pub fn policy() -> &'static Policy {
@@ -201,6 +208,7 @@ pub fn policy() -> &'static Policy {
             history_replies: raw.history_replies,
             path_keys: raw.path_keys,
             question_answers: raw.question_answers,
+            act_as_me_covers: raw.act_as_me_covers,
         }
     })
 }

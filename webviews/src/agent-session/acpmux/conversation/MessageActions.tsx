@@ -9,6 +9,7 @@ import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
+import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { AlertCircle, Check, DoubleCheck, Pin, Retry, Speaker, Spinner, StopReading, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
@@ -16,7 +17,8 @@ import { exactTime, nextRelativeTime, nextReplyTime, relativeTime, replyTime } f
 import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
-import { TurnActionsContext } from "./turnActions";
+import { RowReplyButton } from "./SelectionReply";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
@@ -174,12 +176,20 @@ export function ForkButton({ onFork, throughSeq }: { onFork(): unknown; throughS
 
 /// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
 /// thread minimap. Nothing for a message acpmux has not logged yet.
-export function PinButton({ rowId }: { rowId: string }) {
+export function PinButton({ rowId, bookmark = false }: { rowId: string; bookmark?: boolean }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
   const readOnly = useTranscriptReadOnly();
   if (!mark.can || readOnly) return null;
-  const label = t(mark.marked ? "message.unpin" : "message.pin");
+  const label = t(
+    bookmark
+      ? mark.marked
+        ? "minimap.bookmarkRemove"
+        : "minimap.bookmarkAdd"
+      : mark.marked
+        ? "message.unpin"
+        : "message.pin",
+  );
   return (
     <button
       type="button"
@@ -189,7 +199,7 @@ export function PinButton({ rowId }: { rowId: string }) {
       title={label}
       onClick={mark.toggle}
     >
-      <Pin size={ROW_ICON} filled={mark.marked} />
+      {bookmark ? <BookmarkIcon size={ROW_ICON} filled={mark.marked} /> : <Pin size={ROW_ICON} filled={mark.marked} />}
     </button>
   );
 }
@@ -275,7 +285,10 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 /// (`prompt`, as the agent got it) again. Under a prompt it shows on every one, as Claude's; at the
 /// end of another agent's message only on the last ended turn's (VirtualTranscript marks that row
 /// `data-retryable`; conversation.css).
-export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
+/// `held`: the prompt is a steer the agent has not read yet (PendingSteer.tsx's row). Its Retry
+/// stays in the row, as the sent row's does, but cannot be pressed and has no model menu: a resend
+/// while the steer still waits would reach the agent twice (cmux#34613, #34614).
+export function PromptRetry({ rowId, prompt, held = false }: { rowId: string; prompt: string; held?: boolean }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
   const readOnly = useTranscriptReadOnly();
@@ -288,11 +301,12 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         aria-label={t("turn.retry")}
         title={t("turn.retry")}
         data-tooltip-detail={t("turn.retryLabel")}
+        disabled={held}
         onClick={() => retry(rowId, prompt)}
       >
         <Retry size={ROW_ICON} />
       </button>
-      {retryWith && retryWith.models.length > 1 && (
+      {!held && retryWith && retryWith.models.length > 1 && (
         <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
       )}
     </span>
@@ -307,16 +321,22 @@ export function PromptActions({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
+  const prompt = row.resend ?? row.text ?? "";
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+      <PromptRetry rowId={row.id} prompt={prompt} />
+      <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
-  return <div className="cv-user__actions">{pending ? pending(actions) : actions}</div>;
+  return (
+    <div className="cv-user__actions">
+      {pending ? pending(actions, { retry: <PromptRetry rowId={row.id} prompt={prompt} held /> }) : actions}
+    </div>
+  );
 }
 
 /// The hover row at the end of a message this agent sent another one (MessageCard.tsx): Copy,
@@ -366,6 +386,7 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageCopy text={text} />
         <PinButton rowId={row.id} />
         <ReadAloudButton id={row.id} text={text} />
+        <RowReplyButton text={text} />
         <MessageMore rowId={row.id} />
       </span>
       <ReplyTime at={row.at} />

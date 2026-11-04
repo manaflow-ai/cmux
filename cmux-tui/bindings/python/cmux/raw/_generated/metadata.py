@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e1376b26094dcc4058ebfae8b8708916c1f9f204117cba1fee8a626ff0266943'
+IR_SHA256 = '6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea'
 
 
 @dataclass(frozen=True)
@@ -322,6 +322,17 @@ COMMANDS = {
         {
             'path': CommandFieldMetadata(None, None),
             'query': CommandFieldMetadata(None, None),
+        },
+    ),
+    'chief-work': CommandMetadata(
+        'chief-work',
+        'frontend',
+        12,
+        'chief-work-v1',
+        ('frontend',),
+        None,
+        {
+            'chief': CommandFieldMetadata(None, None),
         },
     ),
     'clear-history': CommandMetadata(
@@ -2112,6 +2123,7 @@ COMMANDS = {
             'dock': CommandFieldMetadata(12, 'dock-columns-v1'),
             'keep_focus': CommandFieldMetadata(12, 'tab-split-keep-focus-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(12, 'tab-column-client-pane-v1'),
             'respawn': CommandFieldMetadata(12, 'tab-column-respawn-v1'),
             'screen': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
@@ -3142,6 +3154,18 @@ COMMANDS = {
         None,
         {
             'policy': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-layout-sizes': CommandMetadata(
+        'set-layout-sizes',
+        'control',
+        12,
+        'layout-sizes-batch-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'transaction': CommandFieldMetadata(None, None),
+            'values': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(

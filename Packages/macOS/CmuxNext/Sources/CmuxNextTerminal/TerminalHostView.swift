@@ -302,7 +302,7 @@ public final class TerminalHostView: NSView {
     func install(_ surfaceView: TerminalSurfaceView) {
         let old = current
         surfaceView.autoresizingMask = []
-        surfaceView.frame = surfaceFrame
+        surfaceView.place(surfaceFrame, anchor: surfaceAnchor)
         // At the back: the scroller and the overlays stay over every swapped-in surface.
         addSubview(surfaceView, positioned: .below, relativeTo: nil)
         current = surfaceView
@@ -356,7 +356,7 @@ public final class TerminalHostView: NSView {
 
     /// The strip the scroller keeps free beside the surface: none, since it is pinned to the
     /// overlay style (``SystemScrollers/nativeStyle``), built or not.
-    private var scrollerWidth: CGFloat {
+    var scrollerWidth: CGFloat {
         scroller?.reservedWidth ?? TerminalScroller.reservedWidth(for: SystemScrollers.nativeStyle)
     }
 
@@ -373,6 +373,7 @@ public final class TerminalHostView: NSView {
     /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
     private var surfaceFrame: CGRect {
         let area = terminalBounds
+        if let followed = followedHold { return followedSurfaceFrame(followed, in: area) }
         if let hold = surfaceHold {
             let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
             return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
@@ -387,26 +388,32 @@ public final class TerminalHostView: NSView {
     }
 
     /// The surface's size and edge while its pane's layout spring runs; nil at rest.
-    private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    private(set) var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+    /// FRAME OWNER S3: the hold this host follows its pane through (``PaneMotionHoldFollowing``), and the host's size
+    /// when it began; nil at rest.
+    var followedHold: (hold: PaneMotionHold, heldSize: CGSize)?
+
+    /// The edge a surface rides while its frame differs from the area's (a hold, or a size Ghostty has not shown yet).
+    private var surfaceAnchor: PaneMotionAnchor { surfaceHold?.anchor ?? .top }
 
     /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
     /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows
     /// once, not once per frame. `anchor`: the edge it rides (the bottom keeps a prompt on the last row in view).
     func holdSurface(size: CGSize, anchor: PaneMotionAnchor) {
         surfaceHold = (size, anchor)
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        current?.place(surfaceFrame, anchor: surfaceAnchor)
     }
 
     /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
     func releaseSurfaceHold() {
         guard surfaceHold != nil else { return }
         surfaceHold = nil
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        current?.place(surfaceFrame, anchor: surfaceAnchor)
     }
 
-    public override func layout() {
+    public override func layout() { // perf-hot: 4ms motion-frame (each frame of a key resize the host follows, FRAME OWNER S3)
         super.layout()
-        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+        current?.place(surfaceFrame, anchor: surfaceAnchor)
         if let scroller {
             let strip = scroller.strip(in: terminalBounds)
             if scroller.frame != strip { scroller.frame = strip }

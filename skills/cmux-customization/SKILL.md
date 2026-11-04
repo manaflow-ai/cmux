@@ -1,6 +1,6 @@
 ---
 name: cmux-customization
-description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, or Ghostty-backed terminal preferences."
+description: "Customize cmux for an end user, including terminal, browser, Markdown, diff, file preview, notes, HTML, and right-sidebar viewers. Use when changing cmux-next.json (or classic cmux.json) actions, custom commands, workspace layouts, plus-button behavior, surface tab bar buttons, Command Palette entries, Dock controls, sidebar and app settings, shortcuts, notifications, browser routing, examples-library presets, Ghostty-backed terminal preferences, or a view of their own (a sidebar or Session Info section built as the customize app, such as the PRs from the last 24h)."
 ---
 
 # cmux Customization
@@ -99,3 +99,41 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Do not use sleeps or timing workarounds in generated commands.
 - Do not add a cmux setting for behavior Ghostty already owns.
 - Keep labels short enough for menus, buttons, and the Command Palette.
+
+## Make a view
+
+When someone asks for a view of their own (a sidebar section, a Session Info
+section, "a view of the PRs from the last 24h"), write the customize app in
+`~/.config/cmux/customize`: `cmux-app.json` (id `local/customize`, manifest v2)
+and `main.js`, a classic script that uses the scene globals (`VStack`, `Row`,
+`ForEach`, `EmptyState`, ...) and ends with
+`globalThis.__cmuxAppExports = { ... }`. cmux watches the folder: every save
+reloads the view, and the app installs itself the first time. No restart, no
+install click.
+
+- `implements["cmux.section/1"]` is its one sidebar section; `options.defaultRegion`
+  `top`, `middle` or `bottom` (the band under the workspace list). cmux places it
+  there the first time it sees it, and the person's later move or removal wins.
+  Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
+- `implements["cmux.session.info.section/1"]` is its one Session Info section; its
+  render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Scopes: read scopes (`integration:github:read`) are granted at install. Others
+  (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
+- Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
+- Adding a view: keep every existing implementation and render function. A taken
+  slot gets the new view inside its existing render; add each new name to the one
+  `__cmuxAppExports` object.
+
+### Matching the app
+
+Build a pane only from the kit so it looks like cmux in every theme: `Panel`
+(the app's card surface), `Row`, `Button`, `Menu`, `Toggle`, `Slider`,
+`TextField`, `Badge`, `EmptyState`, plus `cmux.toast({ title, message?, tone? })`
+for a notice and `cmux.theme` for the tone names. Never a literal color
+(`#RRGGBB`) or size (point fonts, hand-set padding or radii): pass tones
+(`tint: cmux.theme.success`) and font names. The kit, its rules and a
+copy-paste focus timer template are in
+[references/local-app-views.md](references/local-app-views.md#matching-the-app).
+
+The worked example, as copy-paste files, and the recipe for adding a view:
+[references/local-app-views.md](references/local-app-views.md).

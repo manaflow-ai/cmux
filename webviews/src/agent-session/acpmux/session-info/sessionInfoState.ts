@@ -15,6 +15,14 @@
 // "like if they want it open they can just do it on the right split one but otherwise it really
 // doesn't have that much space pretty often"). Such a pane keeps its state under its own key
 // (``sessionInfoPaneKey``), so opening it there sticks for that pane and never reaches the parent's.
+//
+// One chat can be open in two tabs at once (Leo, 2026-11-03: "i feel like right split is fine on click
+// by default (extra view doesn't really affect anything), and you can riht click to go to it. but of
+// course we just have to be prepared to mitigate oddities"), so a pane that knows its tab (the host's
+// handshake `tab`, or `acpmux-pane-tab` for a page a tab adopted later: ``setTab``) keeps its state
+// under that tab's key (``tabEntry``): one tab's toggle or reload never takes the other's state. Each
+// save writes the chat's key too, so the chat's key holds its latest state in any tab: what a tab with
+// no state of its own shows (a tab opened on the chat later, a chat saved before keys were per tab).
 import { useSyncExternalStore } from "react";
 
 export type SessionInfoSectionId =
@@ -27,8 +35,11 @@ export type SessionInfoSectionId =
   | "servers"
   | "subagents"
   | "tasks"
-  | "outputs";
-export type SessionInfoSections = Readonly<Record<SessionInfoSectionId, boolean>>;
+  | "outputs"
+  | `app:${string}#${string}`;
+export type BuiltInSessionInfoSectionId = Exclude<SessionInfoSectionId, `app:${string}#${string}`>;
+export type SessionInfoSections = Readonly<Record<BuiltInSessionInfoSectionId, boolean>> &
+  Partial<Record<SessionInfoSectionId, boolean>>;
 
 /// The width a drag can give it, in px, and the width it opens at the first time.
 export const SESSION_INFO_WIDTH = { min: 260, max: 560, fallback: 320 } as const;
@@ -56,6 +67,8 @@ const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
 /// The last Show more / Show less of the panel's less-used sections (sectionOrder.ts `MORE_SECTIONS`).
 const MORE_KEY = "cmux.agentPane.inspector.more";
+/// The first iMessage connector reveal is shared across panes and relaunches; later folds stay put.
+const IMESSAGE_REVEALED_KEY = "cmux.agentPane.inspector.imessageRevealed";
 /// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const SESSION_INFO_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
@@ -68,6 +81,13 @@ const PANE_DAYS = 30;
 
 /// The prefix of a split pane's key (``sessionInfoPaneKey``).
 const SPLIT_PREFIX = "split:";
+/// The prefix of a tab's own key (``tabEntry``).
+const TAB_PREFIX = "tab:";
+
+/// The entry tab `tab` keeps chat key `pane` (``sessionInfoPaneKey``) under; with no tab, the chat's.
+export function tabEntry(pane: string, tab: string | undefined): string {
+  return tab ? `${TAB_PREFIX}${tab}:${pane}` : pane;
+}
 
 /// The key pane state is saved under for chat `sessionId`: the chat's own, or (`split`: a pane opened
 /// beside another chat) one of its own, which starts closed. A subagent's pane shows its chat's
@@ -191,6 +211,7 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   /// Once per page: a chat whose key is in no index (a save another pane's index write lost) joins
   /// the index, so pruning reaches it. The only full scan of the storage.
   let swept = false;
+  let imessageRevealed = false;
   const adoptStrays = (index: [string, number][]) => {
     if (swept) return index;
     swept = true;
@@ -210,16 +231,17 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   /// another pane's index write loses delays its pruning, and a chat another pane saved after this
   /// pane read the index is never dropped (each chat's key carries its own time); neither loses a
   /// chat's state.
+  /// A tab's pane (``setTab``) saves under the tab's entry and the chat's (the default for a tab with
+  /// none of its own); both are entries of the index, kept and pruned alike.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    write(
-      SESSION_INFO_PANE_PREFIX + sessionId,
-      JSON.stringify({ ...next, sections: savedSections(next.sections), at: now }),
-    );
+    const ids = tab ? [tabEntry(sessionId, tab), sessionId] : [sessionId];
+    const value = JSON.stringify({ ...next, sections: savedSections(next.sections), at: now });
+    for (const id of ids) write(SESSION_INFO_PANE_PREFIX + id, value);
     const others = adoptStrays(indexOf())
-      .filter(([id]) => id !== sessionId)
+      .filter(([id]) => !ids.includes(id))
       .sort((a, b) => b[1] - a[1]);
-    const kept: [string, number][] = [[sessionId, now]];
+    const kept: [string, number][] = ids.map((id) => [id, now]);
     for (const [id, at] of others) {
       if (kept.length < PANES_KEPT && now - at < PANE_DAYS * 86_400_000) {
         kept.push([id, at]);
@@ -240,12 +262,25 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
   };
 
   let pane: string | undefined;
+  /// The tab this page is (``setTab``); none (an older host, a page no tab adopted yet, a test): by chat.
+  let tab: string | undefined;
   let state: State | undefined;
   /// The last saved state `shownFor` read for a chat the pane does not show yet, so the snapshot
   /// stays the same object while nothing changed.
   let peeked: { key: string; raw: string | null; state: State | undefined } | undefined;
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
+  /// Chat key `key`'s saved state for this pane: its tab's own, else the chat's (``tabEntry``), with
+  /// the raw value it was read from (``shownFor``'s cache).
+  const savedFor = (key: string): { raw: string | null; state: State | undefined } => {
+    if (tab) {
+      const raw = read(SESSION_INFO_PANE_PREFIX + tabEntry(key, tab));
+      const own = storedState(raw);
+      if (own) return { raw, state: own };
+    }
+    const raw = read(SESSION_INFO_PANE_PREFIX + key);
+    return { raw, state: storedState(raw) };
+  };
   /// What a pane with no saved state of its own starts with: what it shows now, closed for a split
   /// pane. The same object while `current()` is, so a snapshot read stays stable.
   let closedOf: { from: State; state: State } | undefined;
@@ -261,16 +296,23 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     state = next;
     if (changed) for (const listener of listeners) listener();
   };
-  return {
+  const store = {
     current,
+    /// Claims the initial Connect reveal before changing any fold; no storage still remembers per page.
+    claimIMessageReveal(): boolean {
+      if (imessageRevealed || read(IMESSAGE_REVEALED_KEY) === "1") return false;
+      imessageRevealed = true;
+      write(IMESSAGE_REVEALED_KEY, "1");
+      return true;
+    },
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
     /// state, else what the pane shows now (a new chat inherits it).
     shownFor(sessionId: string | undefined): State {
       if (!sessionId || sessionId === pane) return current();
-      const key = SESSION_INFO_PANE_PREFIX + sessionId;
-      const raw = read(key);
-      if (peeked?.key !== key || peeked.raw !== raw) peeked = { key, raw, state: storedState(raw) };
+      const key = tabEntry(sessionId, tab);
+      const saved = savedFor(sessionId);
+      if (peeked?.key !== key || peeked.raw !== saved.raw) peeked = { key, raw: saved.raw, state: saved.state };
       return peeked.state ?? fresh(sessionId);
     },
     subscribe(listener: () => void) {
@@ -286,11 +328,23 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
       if (sessionId === pane) return;
       pane = sessionId || undefined;
       if (!pane) return;
-      const saved = storedState(read(SESSION_INFO_PANE_PREFIX + pane));
+      const saved = savedFor(pane).state;
       if (saved) return update(saved, false);
       const start = fresh(pane);
       save(pane, start);
       update(start, false);
+    },
+    /// The page is tab `next`'s (the handshake's `tab`, `acpmux-pane-tab`): its state is kept under the
+    /// tab's own key from here, and the chat it shows is read again under it.
+    setTab(next: string | undefined) {
+      next = next || undefined;
+      if (next === tab) return;
+      tab = next;
+      peeked = undefined;
+      const shown = pane;
+      pane = undefined;
+      if (shown) store.bind(shown);
+      else for (const listener of listeners) listener();
     },
     setOpen(open: boolean) {
       write(OPEN_KEY, open ? "1" : "0");
@@ -317,16 +371,27 @@ export function createSessionInfoStore(storage: () => Storage | undefined = () =
     },
     /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
-      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, MORE_KEY, SESSION_INFO_INDEX_KEY, ...paneKeys()])
+      for (const key of [
+        OPEN_KEY,
+        WIDTH_KEY,
+        SECTIONS_KEY,
+        MORE_KEY,
+        IMESSAGE_REVEALED_KEY,
+        SESSION_INFO_INDEX_KEY,
+        ...paneKeys(),
+      ])
         write(key, null);
       swept = false;
+      imessageRevealed = false;
       pane = undefined;
+      tab = undefined;
       state = undefined;
       peeked = undefined;
       closedOf = undefined;
       update(defaults(), false);
     },
   };
+  return store;
 }
 
 /// This page's pane.
@@ -345,9 +410,12 @@ export const useSessionInfoOpen = (sessionId?: string): boolean => {
 };
 /// Keys this pane's state by the chat it shows (useSessionInfo, from the snapshot's session).
 export const bindSessionInfoPane = page.bind;
+/// Keys this pane's state by the tab the page is (App.tsx, from the handshake and `acpmux-pane-tab`).
+export const setSessionInfoTab = page.setTab;
 export const setSessionInfoOpen = page.setOpen;
 export const setSessionInfoWidth = page.setWidth;
 export const setSessionInfoSection = page.setSection;
+export const claimSessionInfoIMessageReveal = page.claimIMessageReveal;
 export const setSessionInfoSourcesAll = page.setSourcesAll;
 export const setSessionInfoMore = page.setMore;
 /// Forgets every choice: the gallery and the tests start each case on a clean slate.

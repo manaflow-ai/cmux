@@ -61,9 +61,34 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         }
         return inner.recordRule(tenantId, rule);
       },
+      recordRules: (tenantId: Parameters<typeof inner.recordRules>[0], rules: Parameters<typeof inner.recordRules>[1]) => {
+        if (recordFailures > 0 && rules.length > 0) {
+          recordFailures -= 1;
+          return Effect.fail(new StoreError({ operation: "mesh.recordRules", cause: "injected" }));
+        }
+        return inner.recordRules(tenantId, rules);
+      },
     })),
   ).pipe(Layer.provide(base.layer));
-  const store = { ...base, layer: failingLayer };
+  /** Every mesh store call waits this long first: a stand-in for one Worker-to-database round trip. */
+  let storeLatencyMs = 0;
+  /** Mesh store calls made so far: each is one round trip on the request's one database connection. */
+  let storeCalls = 0;
+  const latencyLayer = Layer.effect(
+    MeshStore,
+    Effect.map(MeshStore, (inner) => new Proxy(inner, {
+      get(target, key, receiver) {
+        const value: unknown = Reflect.get(target, key, receiver);
+        if (typeof value !== "function") return value;
+        return (...args: ReadonlyArray<unknown>) => {
+          storeCalls += 1;
+          const run: unknown = Reflect.apply(value, target, args);
+          return storeLatencyMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(storeLatencyMs), run) : run;
+        };
+      },
+    })),
+  ).pipe(Layer.provide(failingLayer));
+  const store = { ...base, layer: latencyLayer };
   const vpcs = new Map<string, { readonly id: string; readonly cidr: string; readonly slug?: string; readonly displayName?: string }>();
   let networkCreateStatus: number | null = null, networkLostReplies = 0, hideNetworks = false;
   let networkHold: Promise<void> | null = null, networkHeld = false;
@@ -301,6 +326,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     layer,
     store,
     onDeviceInventoryRead(hook: () => void) { inventoryRead = hook; },
+    /** Delays every mesh store call by `ms` (0: none), so a test can count serial database round trips. */
+    delayStoreCalls(ms: number) { storeLatencyMs = ms; },
+    /** How many mesh store calls have been made (each is a database round trip in production). */
+    storeCallCount() { return storeCalls; },
     failNetworkCreates(status: number | null) { networkCreateStatus = status; },
     loseNetworkReplies(times: number) { networkLostReplies = times; },
     hideNetworks(on: boolean) { hideNetworks = on; },
