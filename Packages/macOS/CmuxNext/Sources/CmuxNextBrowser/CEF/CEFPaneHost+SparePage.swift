@@ -27,7 +27,7 @@ extension CEFPaneHost {
     /// was made with an empty URL, so it has no history entry before it). Nil: no spare page, or it
     /// could not move (it closes; the caller makes the tab's browser with `tab_add`).
     func joinSparePage(_ tab: CEFTab, anchor: Int32, activates: Bool) -> Int32? {
-        guard let shim = runtime.shim, let page = CEFSpareWindow.shared.takePage(for: tab, in: self) else { return nil }
+        guard let shim = runtime.shim, let page = runtime.spareWindow.takePage(for: tab, in: self) else { return nil }
         if page.host !== self {
             let move = { shim.tabMoveToWindow(page.browser, anchor, -1) }
             #if DEBUG || CMUX_BENCH_HOOKS

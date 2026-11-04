@@ -4,8 +4,15 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
+/// The spare page suites' one parent. Their tests share the stand-in shim's statics (`SpareSpy`) and the
+/// `browserPage.sparePage` switch in `TunableStore.shared`, and `.serialized` orders only the tests under one
+/// suite: under this parent every test of both runs one at a time, in one process too. Each test has its own
+/// `CEFRuntime`, so its spare window and page (`runtime.spareWindow`) are no other suite's. Windows are checked
+/// once, here at the top level (`.closesItsWindows`).
+@MainActor @Suite(.serialized, .closesItsWindows) struct CEFSparePageSuites {}
+
 /// The stand-in shim and helpers shared by `CEFSparePageTests` and `CEFSparePageCloseTests`.
-extension CEFSparePageTests {
+extension CEFSparePageSuites.CEFSparePageTests {
     static let address = URL(string: "https://example.com/")!
 
     final class Count { var value = 0 }
@@ -25,15 +32,17 @@ extension CEFSparePageTests {
         let runtime = CEFRuntime(shim: try SpareSpy.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         SpareSpy.runtime = runtime
-        CEFSpareWindow.shared.drop(runtime: runtime)
-        CEFSpareWindow.shared.onNeeded = nil
         setSparePage(true)
         return (runtime, root)
     }
 
+    /// Ends a test: the main-actor work it left (a taken spare window's `closeSparePlaceholder` Task, a
+    /// `giveBack` close) runs now, while its runtime and the shim's records are still this test's; then the
+    /// spare closes and the switch goes back to its default.
     static func tearDown(_ runtime: CEFRuntime, _ root: URL) {
-        CEFSpareWindow.shared.drop(runtime: runtime)
-        CEFSpareWindow.shared.onNeeded = nil
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        runtime.spareWindow.drop(runtime: runtime)
+        runtime.spareWindow.onNeeded = nil
         setSparePage(nil)
         try? FileManager.default.removeItem(at: root)
     }
@@ -65,21 +74,21 @@ extension CEFSparePageTests {
     /// spare page in it. Returns the spare page's browser (-1 when none was made); the spy's
     /// records start empty after it.
     static func spareWithPage(_ runtime: CEFRuntime) throws -> Int32 {
-        #expect(CEFSpareWindow.shared.prepare(runtime: runtime), "the spare window starts")
-        let spare = try #require(CEFSpareWindow.shared.host)
+        #expect(runtime.spareWindow.prepare(runtime: runtime), "the spare window starts")
+        let spare = try #require(runtime.spareWindow.host)
         let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
         SpareSpy.windows[20] = 2
         runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
         #expect(spare.isLive && spare.placeholder?.browserID == 20)
         SpareSpy.clearRecords()
 
-        CEFSpareWindow.shared.prepare(runtime: runtime)
+        runtime.spareWindow.prepare(runtime: runtime)
         #expect(SpareSpy.added.map(\.anchor) == [20], "the next idle moment makes the spare page in the spare window")
         #expect(SpareSpy.added.map(\.activate) == [0], "in the background")
         #expect(SpareSpy.added.map(\.url) == [""], "with an empty URL: no blank history entry")
         let page = SpareSpy.added.first?.browser ?? -1
         #expect(runtime.tabsByBrowser[page] == nil, "the spare page belongs to no tab")
-        #expect(CEFSpareWindow.shared.takeParked().isEmpty, "its OnAfterCreated is no Chromium tab to adopt")
+        #expect(runtime.spareWindow.takeParked().isEmpty, "its OnAfterCreated is no Chromium tab to adopt")
         SpareSpy.clearRecords()
         return page
     }

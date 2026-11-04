@@ -35,7 +35,6 @@ import Foundation
 /// thread about 12 ms per new tab, as Chrome on Android's WarmupManager keeps a spare WebContents
 /// outside the tab model. Each take reports `onNeeded`, so the next idle moment makes the next one.
 final class CEFSpareWindow {
-    static let shared = CEFSpareWindow()
     static let panePrefix = "spare-"
 
     enum State: String {
@@ -285,7 +284,7 @@ final class CEFSpareWindow {
 
 extension CEFPaneHost {
     /// True while this host is the untaken spare window.
-    var isSpare: Bool { CEFSpareWindow.shared.isSpare(self) }
+    var isSpare: Bool { runtime.spareWindow.isSpare(self) }
 
     /// A spare window's host becomes another host key. The caller keeps the
     /// store (`take` and `giveBack` change only the pane): a key of another
@@ -305,14 +304,14 @@ extension CEFPaneHost {
         Task { @MainActor [weak self, weak tab] in
             guard let self, let tab, let blank = self.placeholder, self.tabs.contains(where: { $0 === tab }) else { return }
             // A spare page no tab took goes first: never the active tab, so Chromium's activation stays.
-            CEFSpareWindow.shared.closePage(in: self)
+            self.runtime.spareWindow.closePage(in: self)
             self.placeholder = nil
             // The joined tab is what this host shows: Chromium's activation
             // after the close is this host's own, never a foreign one.
             if let browser = tab.browserID { self.lastActivated = browser }
             self.removed(blank)
             blank.close()
-            for parked in CEFSpareWindow.shared.takeParked()
+            for parked in self.runtime.spareWindow.takeParked()
             where self.runtime.tabsByBrowser[parked.browser] == nil && !self.runtime.orphans.ledger.isClosed(parked.browser) {
                 self.adoptChromiumTab(browser: parked.browser, disposition: parked.disposition, bounds: parked.bounds)
             }
