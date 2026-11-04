@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
 import neko from "./cmuxIconsNeko.json";
-import { customIconPack, nekoFillInIconPack, nekoIconPack, overlaidIconPack } from "./iconPack";
+import { bundledIconPack, customIconPack, nekoFillInIconPack, nekoIconPack, overlaidIconPack } from "./iconPack";
 import type { IconPack } from "./types";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
