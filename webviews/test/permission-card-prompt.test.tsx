@@ -192,7 +192,7 @@ test("keys act only with nothing focused or focus in the card", () => {
   button.remove();
 });
 
-async function mount(permission: AcpmuxPermission, harness = "claude") {
+async function mount(permission: AcpmuxPermission, harness = "claude", fullAccessMode?: string) {
   const host = dom.window.document.getElementById("root")!;
   const root = createRoot(host);
   const answers: string[] = [];
@@ -202,6 +202,7 @@ async function mount(permission: AcpmuxPermission, harness = "claude") {
       <PermissionCard
         permission={permission}
         harness={harness}
+        fullAccessMode={fullAccessMode}
         onAnswer={(id) => answers.push(id)}
         onDenyWithFeedback={async (id, text) => {
           denials.push([id, text]);
@@ -422,4 +423,56 @@ test("the answer row is content-width buttons, never stretched to equal cells", 
   const button = rule(".acpmux-permission-ask .acpmux-permission-buttons button");
   expect(button).toContain("flex:none");
   expect(button).toContain("align-items:baseline");
+});
+
+// Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there's the
+// bypass permissions, it doesn't bypass every single thing ... We need to have that proper
+// rendering as well." In Bypass permissions an ask that still comes says the mode doesn't cover it.
+test("in the chat's highest mode an ask that still comes says the mode doesn't cover it, once", async () => {
+  const stillAsks: AcpmuxPermission = {
+    permissionId: "still-asks",
+    kind: "fetch",
+    title: "Open developer.apple.com/account in the browser",
+    pending: true,
+    options: [
+      { id: "allow_once", name: "Answer", kind: "allow_once", allow: true },
+      { id: "reject_once", name: "Reject", kind: "reject_once", allow: false },
+    ],
+  };
+  const line = (host: Element) => host.querySelectorAll(".acpmux-permission-one-time");
+
+  const plain = await mount(stillAsks);
+  expect(line(plain.host)).toHaveLength(0);
+  await plain.unmount();
+
+  const bypass = await mount(stillAsks, "claude", "Bypass permissions");
+  expect(line(bypass.host)).toHaveLength(1);
+  expect(line(bypass.host)[0]!.textContent).toBe(
+    translate("permission.fullAccessStillAsks", { mode: "Bypass permissions" }),
+  );
+  expect(line(bypass.host)[0]!.textContent).toContain("Bypass permissions");
+  expect(bypass.buttons()).toEqual([translate("permission.allowOnce"), translate("permission.deny")]);
+  await bypass.press("1");
+  expect(bypass.answers).toEqual(["allow_once"]);
+  await bypass.unmount();
+
+  // No one-time allow offered: the line says only that the ask needs an answer.
+  const denyOnly = await mount(
+    { ...stillAsks, permissionId: "deny-only", options: [stillAsks.options[1]!] },
+    "codex",
+    "Full access",
+  );
+  expect(line(denyOnly.host)[0]!.textContent).toBe(
+    translate("permission.fullAccessStillAsksNoOnce", { mode: "Full access" }),
+  );
+  await denyOnly.unmount();
+
+  // An answered ask (a record) draws no line.
+  const answered = await mount(
+    { ...stillAsks, permissionId: "answered", pending: false },
+    "claude",
+    "Bypass permissions",
+  );
+  expect(line(answered.host)).toHaveLength(0);
+  await answered.unmount();
 });
