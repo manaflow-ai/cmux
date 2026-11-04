@@ -10,12 +10,13 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# The Blacksmith outage failover reads a variable but only ever picks another
-# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
-OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
 WORKFLOWS = ROOT / ".github/workflows"
 SHA256_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$")
 
+
+# The Blacksmith outage failover reads a variable but only ever picks another
+# Blacksmith Linux size (an ephemeral VM, never a persistent runner).
+OVERFLOW_FAILOVER = re.compile(r"vars\.CI_CLOUD_OVERFLOW_SAVED && fromJSON\(vars\.RUNNER_POOLS\)\.linux(?:_\d+)? \|\| ")
 
 def workflow(name: str) -> dict:
     return yaml.load((WORKFLOWS / name).read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
