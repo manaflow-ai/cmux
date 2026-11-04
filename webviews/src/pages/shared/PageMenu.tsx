@@ -55,14 +55,7 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
 }
 
 /** The app path uses the same declarative native popup as every shared menu. */
-function NativePageMenu({
-  x,
-  y,
-  items,
-  onClose,
-  onRefused,
-  returnFocus,
-}: PageMenuProps & { onRefused(): void }) {
+function NativePageMenu({ x, y, items, onClose, onRefused, returnFocus }: PageMenuProps & { onRefused(): void }) {
   const finalFocus = useRef<HTMLElement | null>(returnFocus ?? null);
   const model = useMemo<NativePopupDescription>(
     () => ({
