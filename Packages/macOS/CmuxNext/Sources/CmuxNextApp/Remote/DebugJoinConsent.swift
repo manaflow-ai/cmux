@@ -10,18 +10,16 @@ import CmuxNextSettings
 /// the page's switch (the person's gesture) or the sheet's Allow writes, to a fixture person line.
 @MainActor
 enum DebugJoinConsent {
-    /// The status the app reads while set (``JoinConsentServices/app(_:)``).
-    static var status: JoinStatus?
-    static let line = FixtureLine()
-
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         // Only behind the Labs switch, as the feature itself: with it off, Mac Screen stays as it was.
         guard services.joinConsent.enabled else { return .object(["error": .string("labs.machineJoin is off")]) }
+        let fixtures = services.debugFixtures
         if params["joined"]?.boolValue == false {
-            status = JoinStatus(credentialPresent: false)
-        } else if status?.credentialPresent != true {
-            status = JoinStatus(credentialPresent: true, machineId: "m_fixture", teamId: "team_fixture",
-                                teamName: params["team"]?.stringValue ?? "Example Team", name: params["name"]?.stringValue ?? "studio")
+            fixtures.joinStatus = JoinStatus(credentialPresent: false)
+        } else if fixtures.joinStatus?.credentialPresent != true {
+            fixtures.joinStatus = JoinStatus(credentialPresent: true, machineId: "m_fixture", teamId: "team_fixture",
+                                              teamName: params["team"]?.stringValue ?? "Example Team",
+                                              name: params["name"]?.stringValue ?? "studio")
         }
         let model = services.joinConsent
         if params["settings"]?.boolValue ?? true { try? services.settingsWindow.show(section: nil, route: "#/settings/devices") }

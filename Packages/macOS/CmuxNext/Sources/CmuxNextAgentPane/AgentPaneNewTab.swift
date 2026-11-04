@@ -4,6 +4,18 @@ public import Foundation
 /// The kinds the new tab page offers in its Terminal | Browser | Agent switch.
 public nonisolated enum AgentPaneTabKind: String, CaseIterable, Codable, Sendable {
     case terminal, browser, agent
+
+    /// The right-column placement kind for the two tools that can reuse an existing pane.
+    public var rightColumnKind: RightColumnPlacement.Kind? {
+        switch self {
+        case .terminal: .terminal
+        case .browser: .browser
+        case .agent: nil
+        }
+    }
+
+    /// Terminal and browser picks leave an agent chat's dock; an agent pick stays in it.
+    public var opensBesideChat: Bool { self != .agent }
 }
 
 /// A tab opened as the new tab page (#16620): one field and a kind switch,
@@ -31,14 +43,19 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The tab the page opened from, as the location bar shows it (its URL or
     /// folder): in the field and selected, so typing replaces it.
     public var location: String?
+    /// What a new chat of this window left when its tab opened another chat (cmux#32276): the
+    /// field's draft, to edit and send or delete; nothing sends it. A page takes it once
+    /// (``AgentUnsentDrafts/takeLeftover(inWindow:)``); nil for none.
+    public var draft: String?
     /// What the location bar suggests besides the typed text.
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "composer", "threads",
-    /// "console", "classic" or "terminal"); nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "threads", "console",
+    /// "classic" or "terminal"); the legacy "composer" value is still forwarded so the web page
+    /// can migrate saved settings to Minimal. nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
@@ -84,6 +101,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
     /// chats only, never All chats; nil lists All chats where the template does.
     public var allChats: Bool?
+    /// Where the page's new chat starts, as this Mac already knows it (``AgentPaneStartFolders/local(of:)``):
+    /// the page draws its project, or Do not work in a project, on its first frame, and the handshake's
+    /// answer from the store replaces it only when it differs. Set on the context the page gets
+    /// (``AgentPaneModel/newTabForPage``), never on the tab's own, so it draws no other screen.
+    public var start: AgentPaneNewTabStart?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
@@ -265,5 +287,17 @@ public nonisolated struct AgentPaneOmnibar: Codable, Sendable, Equatable {
             "commands": commands,
             "history": history.map { optional([("url", $0.url), ("title", $0.title), ("icon", $0.icon)]) },
         ]
+    }
+}
+
+/// A new chat's start folder before the store's answer (``AgentPaneNewTab/start``): the folder, or
+/// none with Choose Folder… offered (the workspace's agent-home folder).
+public nonisolated struct AgentPaneNewTabStart: Codable, Sendable, Equatable {
+    public var cwd: String?
+    public var chooseFolder: Bool?
+
+    public init(cwd: String? = nil, chooseFolder: Bool? = nil) {
+        self.cwd = cwd
+        self.chooseFolder = chooseFolder
     }
 }

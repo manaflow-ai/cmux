@@ -4,7 +4,7 @@
 //! as a host with nothing on it (hq#4897 failure 4, hq#5075). While a live daemon holds this
 //! home's lock without serving yet (a restart's handover), the listing waits for its socket.
 
-use super::{HANDOVER_BUDGET, HANDOVER_RETRY, lock_has_live_holder};
+use super::{HANDOVER_BUDGET, HANDOVER_RETRY, lock_has_live_holder, not_serving_recovery};
 use crate::cli::errors::{AppError, Code};
 use crate::client::Client;
 use crate::config::{home, socket_path};
@@ -17,6 +17,15 @@ use std::time::Duration;
 pub async fn connect_running() -> Result<Arc<Client>> {
     let path = socket_path();
     let lock = home().join("daemon.lock");
+    // This home's daemon serves another socket: no wait makes it serve this one. Bounded like
+    // the listing's own connects: a socket that accepts but never answers its hello.
+    #[cfg(unix)]
+    if !matches!(tokio::time::timeout(HANDOVER_RETRY, Client::connect(&path)).await, Ok(Ok(_)))
+        && lock_has_live_holder(&lock)
+        && let Some(other) = super::holder_elsewhere(&path).await
+    {
+        return Err(super::serves_elsewhere(&path, &other));
+    }
     connect_running_with(
         &path,
         || lock_has_live_holder(&lock),
@@ -62,9 +71,10 @@ where
                 Code::Runtime,
                 "daemon_not_serving",
                 format!(
-                    "an acpmux daemon holds {} but does not answer at {} after {budget:?}",
+                    "an acpmux daemon holds {} but does not answer at {} after {budget:?}{}",
                     home().join("daemon.lock").display(),
-                    path.display()
+                    path.display(),
+                    not_serving_recovery(&home().join("daemon.lock")),
                 ),
             )
             .retryable()

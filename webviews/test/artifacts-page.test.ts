@@ -11,19 +11,35 @@ import { ArtifactsOps, type ArtifactsTree } from "../src/pages/artifacts/types";
 /** A host whose answers come from `answer`; every call is recorded. */
 class Host implements PageClient {
   calls: { op: string; params: Record<string, unknown> }[] = [];
+  authEvent?: () => void;
   constructor(private readonly answer: (op: string, params: Record<string, unknown>) => unknown) {}
   async call<R>(op: string, params: unknown): Promise<R> {
     const p = (params ?? {}) as Record<string, unknown>;
     this.calls.push({ op, params: p });
     return (await this.answer(op, p)) as R;
   }
-  async subscribe(): Promise<() => void> {
-    return () => {};
+  async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+    if (stream === "cmux.cloud.auth.watch") this.authEvent = () => onEvent({} as E, 1);
+    return () => {
+      this.authEvent = undefined;
+    };
   }
   handle(_op: string, _handler: PageHandler): () => void {
     return () => {};
   }
 }
+
+test("an auth change clears the old account's selected file immediately", async () => {
+  const mock = new MockArtifactsProvider();
+  const host = new Host((op, params) => mock.call(op, params));
+  const store = new ArtifactsStore(host);
+  await store.start();
+  expect(store.getSnapshot().file).toBeDefined();
+
+  host.authEvent?.();
+  expect(store.getSnapshot()).toMatchObject({ status: "loading", paths: [], selected: undefined, file: undefined });
+  await store.start();
+});
 
 test("the tree is read one folder per call and flattened to sorted file paths", async () => {
   const mock = new MockArtifactsProvider();
@@ -54,9 +70,15 @@ test("the tree is read one folder per call and flattened to sorted file paths", 
 test("the first file opens with its history and the newest revision's change", async () => {
   const store = new ArtifactsStore(new MockArtifactsProvider());
   await store.start();
+  expect(store.getSnapshot()).toMatchObject({
+    selected: "artifacts/release-dashboard/data.json",
+    fileLoading: false,
+    file: { path: "artifacts/release-dashboard/data.json", contentType: "application/json" },
+  });
   await store.select("memory/claude/artifacts-pane.md");
   const snapshot = store.getSnapshot();
   expect(snapshot.file?.content).toContain("History compares a revision with its parent");
+  expect(snapshot.file?.commit).toBe(snapshot.headSha);
   expect(snapshot.history.map((commit) => commit.message)).toEqual([
     "Note how history compares revisions",
     "Save the artifacts pane notes",
@@ -239,6 +261,7 @@ test("a refresh after a new save reads the chosen file again, keeping it on scre
   expect(seen).not.toContain(undefined);
   const snapshot = store.getSnapshot();
   expect(snapshot.file?.content).toBe("first\nsecond\n");
+  expect(snapshot.file?.commit).toBe(shas[1]);
   expect(snapshot.history).toHaveLength(2);
   expect(snapshot.diff).toEqual({ sha: shas[1], before: "first\n", after: "first\nsecond\n" });
 });
@@ -361,4 +384,40 @@ test("folders under the root are read several at once", async () => {
   expect(store.getSnapshot().paths).toHaveLength(6);
   expect(most).toBeGreaterThan(1);
   expect(most).toBeLessThanOrEqual(4);
+});
+
+test("a refresh that fails keeps the tree on screen", async () => {
+  const mock = new MockArtifactsProvider();
+  let failing = false;
+  const host = new Host((op, params) => {
+    if (failing) throw pageError("cmux.artifacts.unavailable", "Artifacts could not be reached.", true);
+    return mock.call(op, params);
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  const paths = store.getSnapshot().paths;
+  failing = true;
+  await store.start();
+  expect(store.getSnapshot().status).toBe("ready");
+  expect(store.getSnapshot().paths).toEqual(paths);
+});
+
+test("a refresh that finds the person signed out drops the tree", async () => {
+  const mock = new MockArtifactsProvider();
+  let signedOut = false;
+  const host = new Host((op, params) => {
+    if (signedOut) throw pageError("cmux.artifacts.signed_out", "Sign in to cmux to see your artifacts.", true);
+    return mock.call(op, params);
+  });
+  const store = new ArtifactsStore(host);
+  await store.start();
+  signedOut = true;
+  await store.start();
+  expect(store.getSnapshot()).toMatchObject({
+    status: "failed",
+    paths: [],
+    failure: { code: "cmux.artifacts.signed_out" },
+    selected: undefined,
+    file: undefined,
+  });
 });

@@ -41,6 +41,36 @@
   __export(exports_src, {
     RUNTIME_VERSION: () => RUNTIME_VERSION
   });
+  var exports_view = {};
+  __export(exports_view, {
+    Badge: () => Badge,
+    Button: () => Button,
+    Capsule: () => Capsule,
+    Circle: () => Circle,
+    Divider: () => Divider,
+    EmptyState: () => EmptyState,
+    ForEach: () => ForEach,
+    Group: () => Group,
+    HStack: () => HStack,
+    Icon: () => Icon,
+    Image: () => Image,
+    LazyVStack: () => LazyVStack,
+    Menu: () => Menu,
+    Panel: () => Panel,
+    ProgressView: () => ProgressView,
+    Rectangle: () => Rectangle,
+    Reorderable: () => Reorderable,
+    RoundedRectangle: () => RoundedRectangle,
+    Row: () => Row,
+    Slider: () => Slider,
+    Spacer: () => Spacer,
+    Text: () => Text,
+    TextField: () => TextField,
+    Toggle: () => Toggle,
+    VStack: () => VStack,
+    ViewNode: () => ViewNode,
+    ZStack: () => ZStack
+  });
   var currentComputation = null;
   var currentOwner = null;
   var dirty = new Set;
@@ -200,7 +230,7 @@
       this.name = "CmuxError";
     }
   }
-  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write"]);
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -208,6 +238,7 @@
     subscriptions: new Map,
     timers: new Map,
     app: { id: "", version: "" },
+    context: null,
     apiVersion: "0.0.0",
     allowedOps: null,
     knownOps: null,
@@ -358,6 +389,16 @@
       state.timers.delete(id);
     t.fn();
   }
+  var theme = Object.freeze({
+    accent: "accent",
+    text: Object.freeze({ primary: "primary", secondary: "secondary", tertiary: "tertiary" }),
+    success: "success",
+    warning: "warning",
+    danger: "danger",
+    separator: "separator",
+    hover: "hover",
+    selected: "selected"
+  });
   var sharedMembers = {};
   function createCmux(gesture) {
     const g = (name, params, options) => callWith(name, params ?? {}, options, gesture());
@@ -421,7 +462,18 @@
         },
         settings: Object.assign(() => state.settings[0](), {
           set: (values) => c("app.settings.set", { values })
-        })
+        }),
+        context: () => state.context ?? {}
+      },
+      theme,
+      toast: (options) => {
+        const o = typeof options === "string" ? { title: options } : options;
+        const params = { title: String(o?.title ?? "") };
+        if (o?.message)
+          params.message = String(o.message);
+        if (o?.tone)
+          params.tone = String(o.tone);
+        return c("toast.show", params);
       },
       gesture: () => gesture() ?? state.gesture,
       t: (key, fallbackOrParams, params) => {
@@ -502,34 +554,6 @@
       get: (_t, key) => cmuxObject[key]
     });
   }
-  var exports_view = {};
-  __export(exports_view, {
-    Badge: () => Badge,
-    Button: () => Button,
-    Capsule: () => Capsule,
-    Circle: () => Circle,
-    Divider: () => Divider,
-    EmptyState: () => EmptyState,
-    ForEach: () => ForEach,
-    Group: () => Group,
-    HStack: () => HStack,
-    Icon: () => Icon,
-    Image: () => Image,
-    LazyVStack: () => LazyVStack,
-    Menu: () => Menu,
-    ProgressView: () => ProgressView,
-    Rectangle: () => Rectangle,
-    Reorderable: () => Reorderable,
-    RoundedRectangle: () => RoundedRectangle,
-    Row: () => Row,
-    Spacer: () => Spacer,
-    Text: () => Text,
-    TextField: () => TextField,
-    VStack: () => VStack,
-    ViewNode: () => ViewNode,
-    ZStack: () => ZStack
-  });
-
   class ViewNode {
     type;
     children;
@@ -733,6 +757,38 @@
       node.handlers.cancel = options.onCancel;
     return node;
   }
+  function Toggle(value, options = {}) {
+    const node = new ViewNode("Toggle");
+    node.props.value = value;
+    if (options.label !== undefined)
+      node.props.label = options.label;
+    if (options.disabled !== undefined)
+      node.props.disabled = options.disabled;
+    if (options.onChange)
+      node.handlers.change = options.onChange;
+    return node;
+  }
+  function Slider(value, options = {}) {
+    const node = new ViewNode("Slider");
+    node.props.value = value;
+    node.props.min = options.min ?? 0;
+    node.props.max = options.max ?? 1;
+    if (options.step !== undefined)
+      node.props.step = options.step;
+    if (options.disabled !== undefined)
+      node.props.disabled = options.disabled;
+    if (options.onChange)
+      node.handlers.change = options.onChange;
+    return node;
+  }
+  function Panel(propsOrChildren, maybeChildren) {
+    const hasProps = propsOrChildren !== undefined && !Array.isArray(propsOrChildren);
+    const node = new ViewNode("Panel", clean((hasProps ? maybeChildren : propsOrChildren) ?? []));
+    if (hasProps)
+      Object.assign(node.props, propsOrChildren);
+    node.props.style ??= "glass";
+    return node;
+  }
   function Row(props) {
     return new ViewNode("Row").withProps(props);
   }
@@ -762,11 +818,13 @@
 
   class Mount {
     id;
+    context;
     owner;
     pending = [];
     nodeCount = 0;
-    constructor(id) {
+    constructor(id, context) {
       this.id = id;
+      this.context = context;
       this.owner = createOwner(null);
     }
   }
@@ -797,9 +855,9 @@
       return JSON.parse(JSON.stringify(v));
     return String(v);
   };
-  function mount(mountId, render) {
+  function mount(mountId, render, context = {}) {
     unmount(mountId);
-    const m = new Mount(mountId);
+    const m = new Mount(mountId, context);
     mounts.set(mountId, m);
     runWithOwner(m.owner, () => {
       const view = untrack(render);
@@ -855,7 +913,7 @@
     if (view.menu)
       staticProps.menu = null;
     const id = newNode(m, view.type, staticProps);
-    const record = { mount: m, handlers: { ...view.handlers }, menu: null, children: [] };
+    const record = { mount: m, kind: view.type, handlers: { ...view.handlers }, menu: null, children: [] };
     nodes.set(id, record);
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
@@ -1459,10 +1517,13 @@
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
-          mount(mountId, () => render(ctx));
+          state.context = ctx;
+          mount(mountId, () => render(ctx), ctx);
+          state.context = null;
         });
         return "";
       } catch (e) {
+        state.context = null;
         unmount(mountId);
         const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
@@ -1480,10 +1541,12 @@
         return;
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
       state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
+      state.context = record.mount.context;
       try {
         dispatchEvent(record, event, payload);
       } finally {
         state.gesture = null;
+        state.context = null;
       }
     }, undefined);
     function dispatchEvent(record, event, payload) {
@@ -1499,6 +1562,15 @@
         case "dragChange": {
           const h = record.handlers.dragChange;
           runHandler("dragChange", h && (() => h(payload.state ?? null)));
+          break;
+        }
+        case "change": {
+          const h = record.handlers.change;
+          const raw = payload.value;
+          const typed = record.kind === "Toggle" ? typeof raw === "boolean" ? raw : typeof raw === "number" ? raw !== 0 : undefined : typeof raw === "number" ? raw : typeof raw === "string" && raw.trim() !== "" ? Number(raw) : undefined;
+          if (typed === undefined || typeof typed === "number" && !Number.isFinite(typed))
+            break;
+          runHandler("change", h && (() => h(typed)));
           break;
         }
         case "submit":

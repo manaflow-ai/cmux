@@ -1,0 +1,1 @@
+Shipped in the cmux App Store as an example (scripts/cmux-next/sync-app-runtime.sh copies the whole package to AppPlatform/store; the Mac app hands that folder to its daemon as CMUX_APPS_DIRS).

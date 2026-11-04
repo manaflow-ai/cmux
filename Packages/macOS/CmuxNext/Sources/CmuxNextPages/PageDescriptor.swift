@@ -152,6 +152,7 @@ public extension PageDescriptor {
     static let cloud = PageDescriptor(
         id: "cmux.cloud", resource: "cloud", namespaces: ["cmux.cloud."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
+        actions: ["cloudPreviewShare", "cloudPreviewRevoke"],
         confirmedOps: [
             "cmux.cloud.machine.delete": .delete, "cmux.cloud.snapshot.delete": .delete,
             "cmux.cloud.publication.delete": .delete, "cmux.cloud.firewall.delete": .delete,
@@ -182,7 +183,7 @@ public extension PageDescriptor {
                   // Settings › Import's cards (CmuxNextImportCards): a card's button, and Import from Browser.
                   "import.card", "importFromBrowser"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true, acceptsFirstMouse: false)
+        dynamicPrefixes: ["backdrop", "museum", "icon", "symbol"], ownsSearchField: true, acceptsFirstMouse: false)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove, `set` and allowing a scope pass
     /// the host's native sheet before they reach the owner (the app's ConfirmingPageProvider); Open
@@ -215,7 +216,7 @@ public extension PageDescriptor {
     static let changelog = PageDescriptor(
         id: "cmux.changelog", resource: "changelog", namespaces: ["cmux.changelog."],
         nativeOps: [PageNativeOp.actionRun], actions: changelogTryItActions,
-        csp: PageCSP(media: [changelogReelSource]))
+        csp: PageCSP(media: ["data:", changelogReelSource]))
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.

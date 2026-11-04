@@ -16,8 +16,8 @@ import Security
 /// )
 /// ```
 public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
-    private static let accessTokenAccount = "cmux-auth-access-token"
-    private static let refreshTokenAccount = "cmux-auth-refresh-token"
+    static let accessTokenAccount = "cmux-auth-access-token"
+    static let refreshTokenAccount = "cmux-auth-refresh-token"
     #if canImport(Security)
     static let keychainAccessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String
     #endif
@@ -150,7 +150,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false) \(AccessTokenLifetime.logFields(newAccessToken))")
         guard matches else { return }
         if newRefreshToken == nil && newAccessToken == nil {
-            log.log("keychain.compareAndSet: cleared definitively-rejected session")
+            log.log("keychain.compareAndSet: refresh failed with a definitive rejection; cleared the stored session")
         }
         await setTokens(accessToken: newAccessToken, refreshToken: newRefreshToken)
     }

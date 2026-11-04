@@ -89,6 +89,21 @@ test("a turn the agent started on its own and the reader stopped offers Continue
   }
 });
 
+// Review at c3ec4170 (P2): with daemon turn ids, the agent's own turn in the tail names a turn other
+// than the prompt's; that is what makes it the agent's, and the reader's Stop of it still offers Continue.
+test("an agent-started turn with its own turn id, stopped by the reader, offers Continue", () => {
+  const rows = [
+    prompt("p1", 1_000, { turnId: "turn-a" }),
+    answer("a1", 30_000),
+    summary("s1", 41_000, { turnId: "turn-a" }),
+    answer("a2", 50_000),
+    summary("s2", 51_000, { status: "cancelled", turnId: "turn-b" }),
+  ];
+  const [first, second] = footers(rows);
+  expect(first!.resumable).toBeUndefined();
+  expect(second!.resumable).toBe(true);
+});
+
 test("a turn a prompt sent now ended is not a stop, so it offers no Continue", () => {
   const rows = [prompt("p1", 1_000), summary("s1", 41_000, { status: "cancelled", continued: true })];
   expect(footers(rows).every((row) => !row.resumable)).toBe(true);
@@ -124,8 +139,9 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   expect(withResume).toContain(translate("turn.stopped", { time: "40s" }));
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
-  // There a folded stopped turn with nothing else to show keeps no line for it.
-  const folded = { ...row, folded: true, text: undefined };
+  // There a folded stopped turn with nothing else to show (no answer and nothing it said to copy)
+  // keeps no line for it. One that said something keeps its Copy row (turns.ts endsChatOnWork).
+  const folded = { ...row, folded: true, text: undefined, turnCopy: undefined };
   expect(renderToStaticMarkup(<TurnFooter row={folded} />)).toContain("cv-turn-actions--empty");
   // A completed turn's footer never draws it, even with the action.
   const done = footers([prompt("p1", 1_000), answer("a1", 30_000), summary("s1", 41_000)])[0]!;

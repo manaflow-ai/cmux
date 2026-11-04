@@ -5,11 +5,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { galleryArtifactDocument } from "../../agent-session/acpmux/conversation/artifactSandbox";
 import { FileIcon } from "../../file-icons";
+import { SignInButton } from "../../ui/SignInButton";
 import { Tree, type TreeLine } from "../../ui/Tree";
-import { lineHunks } from "./lineDiff";
 import type { Strings } from "../shared/i18n";
+import { lineHunks } from "./lineDiff";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
-import type { ArtifactCommit, ArtifactFile } from "./types";
+import { SIGNED_OUT, type ArtifactCommit, type ArtifactFile } from "./types";
 
 export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -21,9 +22,13 @@ export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strin
     return (
       <div className="artifacts-message" role="alert">
         <p>{failureText(snapshot.failure, strings)}</p>
-        <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
-          {t("artifacts.page.retry")}
-        </button>
+        {snapshot.failure?.code === SIGNED_OUT ? (
+          <SignInButton label={t("artifacts.page.signIn")} onSignIn={() => void store.signIn()} />
+        ) : (
+          <button type="button" className="artifacts-retry" onClick={() => void store.start()}>
+            {t("artifacts.page.retry")}
+          </button>
+        )}
       </div>
     );
   if (snapshot.status === "empty")
@@ -69,7 +74,15 @@ function FileTree({
   const { paths, selected } = snapshot;
   const [expanded, setExpanded] = useState(() => foldersOf(paths));
   const [focused, setFocused] = useState(selected);
-  useEffect(() => setExpanded(foldersOf(paths)), [paths]);
+  // A refresh opens only folders it had not seen, so ones the person closed stay closed.
+  const [seen, setSeen] = useState(() => foldersOf(paths));
+  useEffect(() => {
+    const folders = foldersOf(paths);
+    const fresh = [...folders].filter((folder) => !seen.has(folder));
+    if (fresh.length === 0) return;
+    setSeen(new Set([...seen, ...fresh]));
+    setExpanded((current) => new Set([...current, ...fresh]));
+  }, [paths, seen]);
   // The store may choose another file (a refresh removed this one): the tree follows it.
   useEffect(() => setFocused(selected), [selected]);
   const files = useMemo(() => new Set(paths), [paths]);
@@ -165,6 +178,20 @@ function Preview({ snapshot, strings }: { snapshot: ArtifactsSnapshot; strings: 
   if (fileLoading || !snapshot.selected)
     return <div className="artifacts-preview artifacts-muted" aria-busy={fileLoading} />;
   if (!file) return <div className="artifacts-preview" />;
+  return (
+    <>
+      {/* A reload that failed keeps the file it had on screen and says so; a refresh tries again. */}
+      {fileFailure ? (
+        <p className="artifacts-note" role="alert">
+          {failureText(fileFailure, strings)}
+        </p>
+      ) : null}
+      <FileBody file={file} strings={strings} />
+    </>
+  );
+}
+
+function FileBody({ file, strings }: { file: ArtifactFile; strings: Strings }) {
   if (file.tooLarge) return <p className="artifacts-message artifacts-muted">{strings.t("artifacts.file.tooLarge")}</p>;
   const text = textOf(file);
   if (text === undefined)
@@ -197,7 +224,7 @@ function History({
   store: ArtifactsStore;
   strings: Strings;
 }) {
-  const { history, selectedCommit, diff, fileFailure, file } = snapshot;
+  const { history, selectedCommit, diff } = snapshot;
   if (!snapshot.selected || snapshot.fileLoading) return null;
   return (
     <section className="artifacts-history" aria-label={strings.t("artifacts.history.title")}>
@@ -220,11 +247,6 @@ function History({
                 </time>
                 <span className="artifacts-trailers artifacts-muted">{trailers(commit)}</span>
               </button>
-              {active && file && fileFailure ? (
-                <p className="artifacts-note" role="alert">
-                  {failureText(fileFailure, strings)}
-                </p>
-              ) : null}
               {active && diff?.sha === commit.sha ? (
                 <Change before={diff.before} after={diff.after} strings={strings} />
               ) : null}

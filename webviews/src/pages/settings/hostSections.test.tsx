@@ -263,6 +263,43 @@ test("only a paired client machine or phone has a Full access switch, off until 
   page.unmount();
 });
 
+test("each Full access switch stays disabled for its own in-flight request, whichever row settles first", async () => {
+  // One scalar "setting" id let the second row's click re-enable the first row, and let either
+  // completion clear the other's guard, so a third click sent a duplicate request.
+  const page = await renderPage({ path: "/settings/machines" });
+  const calls: { id: string; settle: () => void; reject: () => void }[] = [];
+  const original = page.store.setDeviceFullAccess.bind(page.store);
+  page.store.setDeviceFullAccess = (id, on) => {
+    const done = Promise.withResolvers<void>();
+    calls.push({ id, settle: () => done.resolve(), reject: () => done.reject(new Error("offline")) });
+    return done.promise.then(() => original(id, on));
+  };
+  const toggle = (id: string) =>
+    page.container.querySelector<HTMLButtonElement>(`[data-device-full-access="${id}"] [role="switch"]`)!;
+  const click = (id: string) => act(async () => toggle(id).click());
+  const settleCall = async (id: string) => {
+    await act(async () => calls.find((call) => call.id === id)!.settle());
+    await settle();
+  };
+  await click("paired:dv_leo");
+  await click("phone:p1");
+  expect(toggle("paired:dv_leo").disabled).toBe(true);
+  expect(toggle("phone:p1").disabled).toBe(true);
+  // The first row's request settles: only its switch frees; the second stays guarded.
+  await settleCall("paired:dv_leo");
+  expect(toggle("paired:dv_leo").disabled).toBe(false);
+  expect(toggle("phone:p1").disabled).toBe(true);
+  await click("phone:p1");
+  expect(calls.filter((call) => call.id === "phone:p1").length).toBe(1);
+  await settleCall("phone:p1");
+  expect(toggle("phone:p1").disabled).toBe(false);
+  await click("phone:p1");
+  await act(async () => calls.at(-1)!.reject());
+  await settle();
+  expect(toggle("phone:p1").disabled).toBe(false);
+  page.unmount();
+});
+
 // A machine's color (appearance.machineColors): each Machines row shows the color its marks draw in
 // (the sidebar row, the tab badge), a well that picks another, and Automatic, which takes the pick
 // back. The map is keyed by the machine's color key (its name trimmed and lowercased, as the app

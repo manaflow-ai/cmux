@@ -39,14 +39,19 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     /// page with no `newTab.context` round trip (`injectedNewTabContext`, bd cx-z9kz0). The host
     /// gives what is true at this load: a reloaded page that became a chat gets none.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        guard let model = view?.model, model.sessionId == nil, let page = model.newTab,
-              let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
+        guard let model = view?.model, model.sessionId == nil, var page = model.newTab else { return }
+        // Its start folder too, so the first frame draws the project or no project (``AgentPaneNewTab/start``).
+        page.start = model.startFolders.local(of: model)
+        guard let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("window.__cmuxNewTabContext = \(json);", completionHandler: nil)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
         AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         AgentPaneView.finishWarmup()
+        let pid = PageTermination.webContentPid(of: webView)
+        if pid != 0 { view?.knownWebContentPid = pid }
+        view?.pageLoadedAgain()
         view?.applyTheme(force: true)
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
@@ -57,12 +62,20 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
+        view?.announceSessionInfo()
     }
 
-    /// A crashed web content process leaves a blank pane; the view reloads
-    /// the page, which asks for a fresh handshake and reattaches the session.
+    /// A crashed web content process leaves a blank pane; the view shows the crash notice, whose
+    /// Reload asks for a fresh handshake and reattaches the session (only when pressed).
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        view?.webContentProcessDidTerminate()
+        view?.webContentProcessDidTerminate(PageTermination(reason: .unknown, pid: PageTermination.webContentPid(of: webView)))
+    }
+
+    /// The same with WebKit's reason (`WKNavigationDelegatePrivate`); a WebKit that has it calls
+    /// this instead of ``webViewWebContentProcessDidTerminate(_:)``.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        view?.webContentProcessDidTerminate(PageTermination(reason: .init(webKit: reason), pid: PageTermination.webContentPid(of: webView)))
     }
 
     enum Decision: Equatable {

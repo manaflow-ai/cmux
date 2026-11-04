@@ -1,39 +1,35 @@
 // Use recorded full contents, never read a path from disk or mistake an edit hunk for a document.
 import { useContext, useMemo } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
-import { pathKey, toolCanonical } from "../model";
 import { useT } from "../i18n";
 import { ArtifactContext, type Artifact } from "./artifactPreview";
+import { toolArtifacts } from "./artifactWrites";
+export { toolArtifacts } from "./artifactWrites";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-const cache = new WeakMap<Tool, Artifact[]>();
-export function toolArtifacts(tool: Tool): Artifact[] {
-  if (tool.status !== "completed" || !["edit", "fileChange"].includes(tool.kind ?? "")) return [];
-  const previous = cache.get(tool);
-  if (previous) return previous;
-  const full = (tool.diffs ?? []).filter((diff) => !diff.fragment || (diff.fromInput && diff.oldText == null));
-  // Claude/pi/OpenCode/Gemini may send the whole write in rawInput without a diff block; each names
-  // the file its own way (toolPaths.ts).
-  if (!full.length && /^(write|write_file|writefile|create_file)(?:\s|$)/i.test(tool.title)) {
-    try {
-      const input = JSON.parse(tool.inputSummary ?? "null");
-      const path = input?.file_path ?? input?.filePath ?? input?.absolute_path ?? input?.path;
-      if (typeof path === "string" && typeof input?.content === "string")
-        full.push({ path, canonical: toolCanonical(tool, path), newText: input.content });
-    } catch {
-      /* A truncated or non-JSON input is not a document. */
-    }
-  }
-  const result = full
-    .filter((diff) => /\.html?$/i.test(diff.path) && diff.newText.length > 0)
-    .map((diff): Artifact => ({ kind: "html", lang: "html", code: diff.newText, path: pathKey(diff) }));
-  cache.set(tool, result);
-  return result;
-}
 export function writtenArtifacts(rows: readonly AcpmuxRow[]): Artifact[] {
   return rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool ? toolArtifacts(item.tool) : [])));
 }
-/** The same Open action for a lone write, a folded edits group and the Inspector's Outputs. */
+/// A file's last completed write and when its tool ended (unset for a recording without end times).
+export type LatestWrite = { readonly artifact: Artifact; readonly endedAt?: number };
+/// Each file's last completed write, by when its tool ended rather than where its row sits: two
+/// concurrent writes to one file end in the order their contents landed. Without both end times the
+/// later write in the transcript wins.
+export function latestWrittenArtifacts(rows: readonly AcpmuxRow[]): Map<string, LatestWrite> {
+  const latest = new Map<string, LatestWrite>();
+  for (const row of rows)
+    for (const item of row.items ?? []) {
+      const tool = item.tool;
+      if (!tool) continue;
+      for (const artifact of toolArtifacts(tool)) {
+        const current = latest.get(artifact.path!);
+        if (current?.endedAt !== undefined && tool.endedAt !== undefined && tool.endedAt < current.endedAt) continue;
+        latest.set(artifact.path!, { artifact, endedAt: tool.endedAt });
+      }
+    }
+  return latest;
+}
+/** The same Open action for a lone write, a folded edits group and Session Info's Outputs. */
 export function WrittenArtifactButtons({ tools }: { tools: readonly Tool[] }) {
   const open = useContext(ArtifactContext);
   const t = useT();

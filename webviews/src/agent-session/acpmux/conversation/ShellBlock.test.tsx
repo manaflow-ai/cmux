@@ -186,6 +186,18 @@ test("the command draws in its colors, one Find run, its prompt skipped", async 
   expect(container.querySelector(".cv-shell__output")?.textContent).toBe("src/a.ts:1:todo\n");
 });
 
+test("a failed command reads $ command, then Exit code N, then its output, as Claude Code desktop opens one", async () => {
+  // Leo, 2026-11-03: "claude code desktop's summarization of tool calls/parsing of them seem kinda good?"
+  await act(async () =>
+    root!.render(<ShellBlock command="ls fixtures" output="ls: fixtures: No such file" exitCode={1} />),
+  );
+  const order = [...container.querySelectorAll(".cv-shell__command, .cv-shell__exit, .cv-shell__body")].map(
+    (node) => node.className.split(" ")[0],
+  );
+  expect(order).toEqual(["cv-shell__command", "cv-shell__exit", "cv-shell__body"]);
+  expect(container.querySelector(".cv-shell__exit")!.textContent).toBe("Exit code 1");
+});
+
 test("streaming output tokenizes the command once, and a sibling step's not at all", async () => {
   const lines = (n: number) => Array.from({ length: n }, (_, at) => `line ${at + 1}`).join("\n");
   const view = (n: number) => (
@@ -222,4 +234,89 @@ test("past eight lines the output is capped to scroll, with Show all to lift the
   // A command with no output yet draws no output box.
   await act(async () => root!.render(<ShellBlock command="sleep 5" live />));
   expect(container.querySelector(".cv-shell__body")?.textContent).toBe("");
+});
+
+test("while it runs, a reflow that grows the output keeps the newest line in view", async () => {
+  const observers: { run: (entries: { target: Element }[]) => void; targets: Element[] }[] = [];
+  Object.assign(dom!.window, {
+    ResizeObserver: class {
+      entry: { run: (entries: { target: Element }[]) => void; targets: Element[] };
+      constructor(run: (entries: { target: Element }[]) => void) {
+        this.entry = { run, targets: [] };
+        observers.push(this.entry);
+      }
+      observe(target: Element) {
+        this.entry.targets.push(target);
+      }
+      unobserve(target: Element) {
+        this.entry.targets = this.entry.targets.filter((watched) => watched !== target);
+      }
+      disconnect() {
+        this.entry.targets = [];
+      }
+    },
+  });
+  let height = 400;
+  const output = Array.from({ length: 30 }, (_, at) => `case ${at + 1}`).join("\n");
+  await act(async () => root!.render(<ShellBlock command="bun test" output={output} live />));
+  const body = container.querySelector<HTMLElement>(".cv-shell__body")!;
+  Object.defineProperty(body, "clientHeight", { configurable: true, get: () => 100 });
+  Object.defineProperty(body, "scrollHeight", { configurable: true, get: () => height });
+  let top = 300;
+  Object.defineProperty(body, "scrollTop", {
+    configurable: true,
+    get: () => top,
+    set: (value: number) => {
+      top = value;
+    },
+  });
+  // The mono font loads and the lines grow taller: no scroll event, only a resize of the output.
+  height = 520;
+  const lines = container.querySelector(".cv-shell__output")!;
+  const watching = observers.filter((entry) => entry.targets.includes(lines));
+  expect(watching.length).toBeGreaterThan(0);
+  for (const entry of watching) entry.run([{ target: lines }]);
+  expect(body.scrollTop).toBe(520);
+});
+
+test("one reflow watch per running block, on the output it shows, let go when the command ends", async () => {
+  const observers: { targets: Element[] }[] = [];
+  Object.assign(dom!.window, {
+    ResizeObserver: class {
+      entry = { targets: [] as Element[] };
+      constructor() {
+        observers.push(this.entry);
+      }
+      observe(target: Element) {
+        if (!this.entry.targets.includes(target)) this.entry.targets.push(target);
+      }
+      unobserve(target: Element) {
+        this.entry.targets = this.entry.targets.filter((watched) => watched !== target);
+      }
+      disconnect() {
+        this.entry.targets = [];
+      }
+    },
+  });
+  const lines = (n: number) => Array.from({ length: n }, (_, at) => `case ${at + 1}`).join("\n");
+  // Elements, compared by identity (a DOM node does not print).
+  const watches = (entry: { targets: Element[] }, ...elements: Element[]) =>
+    entry.targets.length === elements.length && entry.targets.every((target, at) => target === elements[at]);
+  // The same output, first finished, then running: the one observer that start makes is the
+  // follow watch (the sideways and fade watches observe the box too, and already did).
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(30)} />));
+  const before = observers.length;
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(30)} live />));
+  const follow = observers.slice(before);
+  expect(follow.length).toBe(1);
+  const body = container.querySelector(".cv-shell__body")!;
+  const first = container.querySelector(".cv-shell__output")!;
+  expect(watches(follow[0]!, body, first)).toBe(true);
+  // Streaming keeps that one observer on the box and the output it shows.
+  for (let n = 31; n <= 50; n++)
+    await act(async () => root!.render(<ShellBlock command="bun test" output={lines(n)} live />));
+  expect(watches(follow[0]!, body, first)).toBe(true);
+  // The command ends: the follow watch lets go of the box and the output.
+  await act(async () => root!.render(<ShellBlock command="bun test" output={lines(50)} />));
+  expect(follow[0]!.targets.length).toBe(0);
 });

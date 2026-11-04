@@ -346,7 +346,7 @@ class WrapperTests(unittest.TestCase):
 
 # Jobs on the nightly publish path whose gh calls go through the wrapper.
 PUBLISH_PATH = (
-    "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant-fallback",
+    "resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "publish-nightly-next-github", "publish-nightly-next-github-names", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
@@ -401,10 +401,13 @@ class WorkflowTests(unittest.TestCase):
 
     def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         job = self.jobs["attest-nightly-remote-daemon"]
-        # A quota wait never holds a Mac: the Linux runner set, as every Linux nightly job
-        # (test_nightly_trusted_routing).
+        # The all-nightly reservation, then our nightly-only pool, never Blacksmith (nightlies run only on our runners; run 41717500642
+        # attested on cmux7s-mac-mini-glaeda-nightly-only-3).
         self.assertNotIn("macos", job["runs-on"])
-        self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
+        self.assertIn("vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro'", job["runs-on"])
+        self.assertTrue(job["runs-on"].endswith("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"))
+        self.assertNotIn("blacksmith", job["runs-on"])
+        self.assertNotIn("RUNNER_POOLS", job["runs-on"])
         self.assertEqual(job["needs"], ["build-nightly-remote-daemon"])
         self.assertGreaterEqual(int(job["timeout-minutes"]), 65)
         # No consumer can put this advisory job back on the publication path,
@@ -433,7 +436,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(int(self.jobs["build-nightly-app"]["timeout-minutes"]), 90 + 60)
 
     def test_prepare_builds_when_its_reuse_probe_is_refused(self) -> None:
-        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             probe = next(s for s in self.jobs[name]["steps"] if s.get("id") == "reuse")["run"]
             self.assertIn('if ! count="$(gh api', probe, name)
             self.assertIn("count=0", probe, name)

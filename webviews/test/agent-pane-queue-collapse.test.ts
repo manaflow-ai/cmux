@@ -36,7 +36,12 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   const SESSION = "queue-collapse-session";
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   const PROMPTS = ["one", "two", "three", "four", "five", "six"];
-  let queue: { promptId: string; prompt: string }[] = [];
+  let queue: {
+    promptId: string;
+    prompt: string;
+    client?: string;
+    provenance?: { kind: string; subagentId: string; agentId: string; attempt: number; name?: string };
+  }[] = [];
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
@@ -46,7 +51,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     steering: true,
     queuePaused: false,
     queued: queue.length,
-    queue,
+    // As acpmux lists it: no provenance, a resume named in `subagentRetry`.
+    queue: queue.map(({ provenance, ...listed }) => ({
+      ...listed,
+      subagentRetry: provenance ? { agentId: provenance.agentId, name: provenance.name ?? null, error: null } : null,
+    })),
     turn,
     updatedAt: Date.now(),
   });
@@ -61,6 +70,20 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     },
   ];
   let seq = opening.length;
+  let recordsOnPage = true;
+  /// The `queued` record of each prompt acpmux sent with a provenance (its resume of a failed
+  /// subagent), which the attach replays as acpmux does; the listing names no provenance.
+  const queuedRecords = () =>
+    queue
+      .filter((q) => q.provenance)
+      .map((q, i) => ({
+        sessionId: SESSION,
+        seq: opening.length + 1 + i,
+        at: Date.now(),
+        dir: "mux",
+        kind: "queued",
+        msg: { text: q.prompt, promptId: q.promptId, client: q.client, _meta: { provenance: q.provenance } },
+      }));
   const edits: Record<string, any>[] = [];
 
   type Socket = { send(data: string): void };
@@ -81,7 +104,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       case "_acpmux/watch":
         return { sessions: [summary()] };
       case "_acpmux/attach":
-        return { session: summary(), lastSeq: seq, events: opening };
+        // `recordsOnPage` false: the resume's `queued` record fell outside the attach's page.
+        return { session: summary(), lastSeq: seq, events: [...opening, ...(recordsOnPage ? queuedRecords() : [])] };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: seq };
       case "_acpmux/queue_edit": {
@@ -117,6 +141,13 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
   }
 
   let daemon: ReturnType<typeof Bun.serve> | undefined;
+  /// The page's socket, for a record acpmux sends on its own (a prompt drained from the queue).
+  let lastSocket: Socket | undefined;
+  /// acpmux takes prompt `id` out of the queue on its own (it ran, or another client removed it).
+  const drain = (id: string) => {
+    queue = queue.filter((q) => q.promptId !== id);
+    event(lastSocket!, "queue_removed", { promptId: id });
+  };
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   beforeAll(async () => {
@@ -128,6 +159,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
+          lastSocket = ws;
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           const result = answer(ws, message.method, message.params ?? {});
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -149,10 +181,27 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  async function openChat(prompts: string[]): Promise<Page> {
-    queue = prompts.map((prompt, i) => ({ promptId: `q-${i + 1}`, prompt }));
+  async function openChat(prompts: string[], viewport = { width: 900, height: 760 }): Promise<Page> {
+    // acpmux's own resume of a failed subagent: its client, and the provenance its record carries.
+    queue = prompts.map((prompt, i) => ({
+      promptId: `q-${i + 1}`,
+      prompt,
+      ...(prompt.startsWith("Your subagent ")
+        ? {
+            client: "acpmux",
+            provenance: {
+              kind: "subagent_retry",
+              subagentId: "s/1",
+              agentId: "af0cbece62b15d0e1",
+              attempt: 1,
+              name: "Cap context cost",
+            },
+          }
+        : {}),
+    }));
+    seq = opening.length + queuedRecords().length;
     edits.length = 0;
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    const page = await browser!.newPage({ viewport });
     await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
@@ -413,6 +462,346 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    // Leo, 2026-10-30: "its expansion animation makes the hovered buttons shift layout". The list
+    // sits on the composer, so fitting it to an opened row grew it upward and carried the row, and
+    // the Steer, trash and ⋯ under the pointer, with it. Opening and closing a row under the pointer
+    // leaves its actions where they were on every painted frame; the list fits its rows again once
+    // the pointer leaves.
+    test("opening and closing a row under the pointer never moves its actions", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(6);
+      const page = await openChat(["one", long, "three"]);
+      const row = '.acpmux-queued[data-prompt-id="q-2"]';
+      const text = page.locator(`${row} .acpmux-queued-text`);
+      // A person clicks the row and clicks it again where the pointer rests: never a scroll to
+      // reach it (a locator click would scroll the opened, partly clipped row to its centre).
+      const at = (await text.boundingBox())!;
+      const [x, y] = [at.x + 24, at.y + at.height / 2];
+      await page.mouse.move(x, y);
+      await settled(page);
+      const rect = () =>
+        page.locator(`${row} .acpmux-queued-actions`).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          return [r.left, r.top, r.width, r.height].map((n) => Math.round(n * 2) / 2);
+        });
+      const rowHeight = () => page.locator(row).evaluate((el) => el.getBoundingClientRect().height);
+      /// The actions' rect on each of the next 24 painted frames after `act`.
+      const across = async (act: () => Promise<void>) => {
+        await page.evaluate((selector) => {
+          const w = window as unknown as { __rects: number[][] };
+          w.__rects = [];
+          window.cmuxAfterPaint(() => {
+            const r = document.querySelector(selector)!.getBoundingClientRect();
+            w.__rects.push([r.left, r.top, r.width, r.height].map((n) => Math.round(n * 2) / 2));
+            return w.__rects.length < 24;
+          });
+        }, `${row} .acpmux-queued-actions`);
+        await act();
+        await page.waitForFunction(() => (window as unknown as { __rects: number[][] }).__rects.length >= 24);
+        return page.evaluate(() => (window as unknown as { __rects: number[][] }).__rects);
+      };
+      const before = await rect();
+      const closedHeight = await rowHeight();
+      const opening = await across(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text[data-open]`).waitFor();
+      });
+      // It did open: the row took its whole text.
+      expect(await rowHeight()).toBeGreaterThan(closedHeight + 10);
+      expect(opening.filter((r) => r.join() !== before.join())).toEqual([]);
+      const closing = await across(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text:not([data-open])`).waitFor();
+      });
+      expect(closing.filter((r) => r.join() !== before.join())).toEqual([]);
+      expect(await rect()).toEqual(before);
+      await page.close();
+    });
+
+    test("acpmux's ask to resume a subagent waits as a labelled row with the subagent's name", async () => {
+      // Leo, 2026-10-30: "this looks weird and unrendered idk where it came from".
+      const page = await openChat([
+        'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529 overloaded). Resume it with SendMessage to "af0cbece62b15d0e1".',
+        "two",
+      ]);
+      const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
+      await expect(text.locator('.acpmux-queued-kind[data-kind="retry"]').textContent()).resolves.toBe(
+        "Resume subagent",
+      );
+      expect(await text.textContent()).toBe("Resume subagentCap context cost");
+      await page.close();
+    });
+
+    /// Opens (then closes) row `id` by a pointer click on its text, and reads, on every painted frame,
+    /// its actions' rect, its text button's bottom edge and what the click point hits. Then reads
+    /// whether the opened row shows whole in the list with no scroll.
+    const openUnderPointer = async (page: Page, id: string, below: string[] = []) => {
+      const row = `.acpmux-queued[data-prompt-id="${id}"]`;
+      const text = page.locator(`${row} .acpmux-queued-text`);
+      const at = (await text.boundingBox())!;
+      const [x, y] = [at.x + 24, at.y + at.height / 2];
+      await page.mouse.move(x, y);
+      await settled(page);
+      const read = () =>
+        page.evaluate(
+          ([row, x, y, below]) => {
+            const r = (el: Element | null) => {
+              const b = el!.getBoundingClientRect();
+              return [b.left, b.top, b.width, b.height].map((n) => Math.round(n * 2) / 2);
+            };
+            const button = document.querySelector(`${row} .acpmux-queued-text`)!;
+            return {
+              actions: r(document.querySelector(`${row} .acpmux-queued-actions`)),
+              buttonBottom: Math.round(button.getBoundingClientRect().bottom * 2) / 2,
+              hit: button.contains(document.elementFromPoint(x as number, y as number)),
+              below: (below as string[]).map((b) => r(document.querySelector(`.acpmux-queued[data-prompt-id="${b}"]`))),
+            };
+          },
+          [row, x, y, below] as const,
+        );
+      const frames = async (act: () => Promise<void>) => {
+        const seen: Awaited<ReturnType<typeof read>>[] = [];
+        await act();
+        for (let i = 0; i < 12; i++) {
+          await page.evaluate(() => window.cmuxPaintFrame());
+          seen.push(await read());
+        }
+        return seen;
+      };
+      const before = await read();
+      const opening = await frames(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text[data-open]`).waitFor();
+      });
+      const whole = await page.evaluate((row) => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const box = list.getBoundingClientRect();
+        const r = document.querySelector(row)!.getBoundingClientRect();
+        return { scrollTop: list.scrollTop, inside: r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5 };
+      }, row);
+      const closing = await frames(async () => {
+        await page.mouse.click(x, y);
+        await page.locator(`${row} .acpmux-queued-text:not([data-open])`).waitFor();
+      });
+      const near = (a: number[], b: number[]) => a.every((n, i) => Math.abs(n - b[i]!) <= 1);
+      const moved = [...opening, ...closing].filter(
+        (f) =>
+          !near(f.actions, before.actions) ||
+          Math.abs(f.buttonBottom - before.buttonBottom) > 1 ||
+          !f.hit ||
+          f.below.some((b, i) => !near(b, before.below[i]!)),
+      );
+      return { moved, whole };
+    };
+
+    test("opening the only row, a resume with its error, moves nothing under the pointer and shows it whole", async () => {
+      const page = await openChat([
+        'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529 overloaded). Resume it with SendMessage to "af0cbece62b15d0e1".',
+      ]);
+      const { moved, whole } = await openUnderPointer(page, "q-1");
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("opening a long prompt as the last row moves nothing under the pointer and shows it whole", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      const { moved, whole } = await openUnderPointer(page, "q-2");
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("opening a middle row leaves it, its actions and the rows below where they were", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long, "three"]);
+      const { moved, whole } = await openUnderPointer(page, "q-2", ["q-3"]);
+      expect({ moved, whole }).toEqual({ moved: [], whole: { scrollTop: 0, inside: true } });
+      await page.close();
+    });
+
+    test("in a short pane a very long prompt opened under the pointer keeps the composer on screen and scrolls in the list", async () => {
+      // Review (Codex astra) at f73b4db: an uncapped hold pushed the composer stack past the pane.
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(30);
+      const page = await openChat([long], { width: 900, height: 420 });
+      const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
+      const at = (await text.boundingBox())!;
+      await page.mouse.move(at.x + 24, at.y + at.height / 2);
+      await settled(page);
+      await page.mouse.click(at.x + 24, at.y + at.height / 2);
+      await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text[data-open]').waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
+      const drawn = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const box = document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        const row = document.querySelector<HTMLElement>('.acpmux-queued[data-prompt-id="q-1"]')!;
+        // The transcript keeps its least room above the stack (the pane's 44px header and 64px).
+        const main = document.querySelector<HTMLElement>(".acpmux-main")!.getBoundingClientRect();
+        // Scrolled to its end, the list shows the row's last line.
+        list.scrollTop = list.scrollHeight;
+        const r = row.getBoundingClientRect();
+        const lb = list.getBoundingClientRect();
+        return {
+          listInside: l.top >= 0 && l.bottom <= innerHeight,
+          composerInside: box.top >= 0 && box.bottom <= innerHeight,
+          transcriptKeepsRoom: l.top >= main.top + 44 + 64 - 1,
+          scrolls: list.scrollHeight > list.clientHeight + 1,
+          endReachable: Math.abs(r.bottom - lb.bottom) <= 8,
+        };
+      });
+      expect(drawn).toEqual({
+        listInside: true,
+        composerInside: true,
+        transcriptKeepsRoom: true,
+        scrolls: true,
+        endReachable: true,
+      });
+      await page.close();
+    });
+
+    /// Opens row `id` by a pointer click on its text and leaves the pointer on the list.
+    const openHeld = async (page: Page, id: string) => {
+      const text = page.locator(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text`);
+      const at = (await text.boundingBox())!;
+      await page.mouse.move(at.x + 24, at.y + at.height / 2);
+      await settled(page);
+      await page.mouse.click(at.x + 24, at.y + at.height / 2);
+      await page.locator(`.acpmux-queued[data-prompt-id="${id}"] .acpmux-queued-text[data-open]`).waitFor();
+      await page.evaluate(() => window.cmuxPaintFrame());
+    };
+    /// From now, on each of the next `count` painted frames: how far the list's height is past what its
+    /// rows need (its blank band), once row `gone` has left. Starts recording before `act` runs.
+    const blankFrames = async (page: Page, gone: string, act: () => Promise<void>, count = 16) => {
+      await page.evaluate(
+        ([gone, count]) => {
+          const w = window as unknown as { __blank: number[] };
+          w.__blank = [];
+          window.cmuxAfterPaint(() => {
+            const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+            if (!document.querySelector(`.acpmux-queued[data-prompt-id="${gone}"]`)) {
+              if (!list) w.__blank.push(0);
+              else {
+                const origin = list.getBoundingClientRect().top - list.scrollTop;
+                const need =
+                  list.lastElementChild!.getBoundingClientRect().bottom -
+                  origin +
+                  (parseFloat(getComputedStyle(list).paddingBottom) || 0);
+                w.__blank.push(Math.round(list.getBoundingClientRect().height - Math.min(need, list.scrollHeight)));
+              }
+            }
+            return w.__blank.length < (count as number);
+          });
+        },
+        [gone, count] as const,
+      );
+      await act();
+      await page.waitForFunction(
+        (count) => (window as unknown as { __blank: number[] }).__blank.length >= count,
+        count,
+      );
+      return page.evaluate(() => (window as unknown as { __blank: number[] }).__blank);
+    };
+    /// The list's height against what its rows need (their bottom and its padding), when it shows.
+    const band = (page: Page) =>
+      page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
+        if (!list) return null;
+        const last = list.lastElementChild!;
+        const origin = list.getBoundingClientRect().top - list.scrollTop;
+        const need =
+          last.getBoundingClientRect().bottom - origin + (parseFloat(getComputedStyle(list).paddingBottom) || 0);
+        return { blank: Math.round(list.getBoundingClientRect().height - Math.min(need, list.scrollHeight)) };
+      });
+
+    test("the row the pointer opened, drained from the queue with the pointer still on it, leaves no blank band", async () => {
+      // Review (Codex astra) at c291d38: the hold outlived its row and kept the list's height.
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      await openHeld(page, "q-2");
+      // acpmux drains it while the pointer rests on the list: no pointer event comes. From the first
+      // frame without it, the list is its remaining row's height, with no frame in between.
+      const frames = await blankFrames(page, "q-2", async () => drain("q-2"));
+      expect(frames.filter((blank) => blank > 1)).toEqual([]);
+      expect((await band(page))!.blank).toBeLessThanOrEqual(1);
+      await page.close();
+    });
+
+    test("trashing the row the pointer opened shrinks the list at once, with no frame of blank band", async () => {
+      // Review (Codex astra) at 879f871: the release re-enabled the max-height transition before it
+      // fitted the list, so the list animated down over a blank band for 180 ms.
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat(["one", long]);
+      await openHeld(page, "q-2");
+      const trash = page.locator('.acpmux-queued[data-prompt-id="q-2"] .acpmux-queued-action').nth(1);
+      const at = (await trash.boundingBox())!;
+      const frames = await blankFrames(page, "q-2", () => page.mouse.click(at.x + at.width / 2, at.y + at.height / 2));
+      expect(frames.filter((blank) => blank > 1)).toEqual([]);
+      await page.close();
+    });
+
+    test("the only row, opened under the pointer and then steered away, takes the queue with it", async () => {
+      const long = "a queued prompt long enough to take several lines once it is opened whole ".repeat(4);
+      const page = await openChat([long]);
+      await openHeld(page, "q-1");
+      const steer = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-action').nth(0);
+      const at = (await steer.boundingBox())!;
+      await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+      await page.locator(".acpmux-composer-queue").waitFor({ state: "detached", timeout: 5_000 });
+      expect(await band(page)).toBeNull();
+      await page.close();
+    });
+
+    test("in a short pane a held long row gives room back when a permission card arrives under the pointer", async () => {
+      // Review (Codex astra) at 5918647: the hold kept its min-height while the stack around it grew,
+      // so a card arriving under the pointer could not take room from it and drew over the queue.
+      const long = "a very long queued prompt that wraps across many lines once it is opened whole ".repeat(10);
+      const page = await openChat([long], { width: 900, height: 420 });
+      await openHeld(page, "q-1");
+      // acpmux asks for a permission while the pointer rests on the opened row.
+      event(lastSocket!, "permission_request", {
+        permissionId: "perm-held",
+        request: {
+          toolCall: { toolCallId: "t-held", title: "gh pr merge", kind: "execute" },
+          options: [
+            { optionId: "allow", name: "Allow once", kind: "allow_once" },
+            { optionId: "deny", name: "Deny", kind: "reject_once" },
+          ],
+        },
+      });
+      await page.locator(".acpmux-permission-card").waitFor({ timeout: 10_000 });
+      await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
+      const drawn = await page.evaluate(() => {
+        const box = document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const card = document.querySelector<HTMLElement>(".acpmux-permission-card")!.getBoundingClientRect();
+        const l = list.getBoundingClientRect();
+        return {
+          composerInside: box.top >= 0 && box.bottom <= innerHeight + 0.5,
+          cardInside: card.top >= 0 && card.bottom <= innerHeight + 0.5,
+          // The card sits above the queue, never over it: the held list gave it the room.
+          cardClearOfList: card.bottom <= l.top + 0.5,
+          listScrolls: list.scrollHeight > list.clientHeight + 1,
+        };
+      });
+      expect(drawn).toEqual({ composerInside: true, cardInside: true, cardClearOfList: true, listScrolls: true });
+      await page.close();
+    });
+
+    test("a reopened chat whose resume record is off the attach's page still draws the labelled row", async () => {
+      // review-28042-ux-4: the listing's subagentRetry names it with no `queued` record read.
+      recordsOnPage = false;
+      try {
+        const page = await openChat([
+          'Your subagent "Cap context cost" (agent id af0cbece62b15d0e1) failed on a transient upstream error (529 overloaded). Resume it with SendMessage to "af0cbece62b15d0e1".',
+          "two",
+        ]);
+        const text = page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text');
+        expect(await text.textContent()).toBe("Resume subagentCap context cost");
+        await page.close();
+      } finally {
+        recordsOnPage = true;
+      }
+    });
+
     test("opening the fold grows the bottom stack by about one row at most (capture, 2026-10-15)", async () => {
       // The capture at 935dada: opening eight queued prompts took the transcript from 312 to 156 px.
       const page = await openChat(["one", "two", "three", "four", "five", "six", "seven", "eight"]);
@@ -563,6 +952,9 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
         await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
         await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text').click();
         await page.locator('.acpmux-queued[data-prompt-id="q-1"] .acpmux-queued-text[data-open]').waitFor();
+        // The list keeps its height while the pointer that opened the row is on it (the test
+        // below), and fits whole rows again once it leaves.
+        await page.mouse.move(4, 4);
         expect({ lines, ...(await drawn(page)) }).toEqual({ lines, ...clean });
         await page.close();
       }

@@ -16,7 +16,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         .await
         .ok_or_else(|| anyhow::anyhow!("notifications already taken"))?;
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
-    let watch = client.request(method::MUX_WATCH, json!({"enabled": true})).await?;
+    let watch = client.whole_list(method::MUX_WATCH, json!({"enabled": true})).await?;
     let mut app = make_app(
         client.clone(),
         tx.clone(),
@@ -354,7 +354,7 @@ async fn reconnect(app: &mut App) -> Result<tokio::sync::mpsc::Receiver<Message>
         match crate::daemon::connect(true).await {
             Ok(c) => {
                 c.request(method::MUX_WATCH, json!({"enabled": true})).await?;
-                let sessions = c.request(method::MUX_SESSIONS, json!({})).await?;
+                let sessions = c.whole_list(method::MUX_SESSIONS, json!({})).await?;
                 let notes = c
                     .notifications()
                     .await

@@ -341,6 +341,23 @@
         }
       }
     },
+    "conversation.menu.replyWithSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply with Selection"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択部分で返信"
+          }
+        }
+      }
+    },
     "conversation.menu.select": {
       "extractionState": "manual",
       "localizations": {
@@ -746,6 +763,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "編集を保存"
+          }
+        }
+      }
+    },
+    "conversation.composer.sendReply": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信を送信"
           }
         }
       }

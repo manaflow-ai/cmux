@@ -9,6 +9,8 @@ import type { Root } from "react-dom/client";
 import { noChat, session } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
 import { mostRecentProject } from "../src/agent-session/acpmux/sessionList";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const HOME = "/Users/you";
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/ws-1";
@@ -48,6 +50,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -72,11 +76,11 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -90,6 +94,25 @@ afterAll(() => {
 });
 
 const noop = () => {};
+
+/// Types `text` into the New Tab prompt (the composer's Markdown field) once its editor is made.
+async function typePrompt(text: string) {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => {
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type(text);
+  });
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
+}
+
+/// Return in the prompt: the page asks.
+async function pressReturn(editor: HTMLElement) {
+  await act(async () =>
+    editor.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
+}
 
 async function askFrom(fields: { cwd?: string; startCwd?: string; knownProjects?: string[] }) {
   const { createRoot } = await import("react-dom/client");
@@ -115,14 +138,9 @@ async function askFrom(fields: { cwd?: string; startCwd?: string; knownProjects?
       />,
     ),
   );
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "fix the flaky upload test");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
+  const editor = await typePrompt("fix the flaky upload test");
   const location = host.querySelector(".nt-location")?.textContent ?? "";
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await pressReturn(editor);
   return { location, folder: calls[0]?.[2] };
 }
 
@@ -168,13 +186,8 @@ test("the start project stays put when a newer chat lands", async () => {
   const newer = session({ sessionId: "newer", cwd: "/Users/you/src/billing", updatedAt: Date.now() });
   await act(async () => root!.render(page([...sessions, newer])));
   expect(host.querySelector(".nt-location")?.textContent).toContain("atlas");
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "fix the flaky upload test");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const editor = await typePrompt("fix the flaky upload test");
+  await pressReturn(editor);
   expect(calls[0]?.[2]).toBe("/Users/you/src/atlas");
 });
 
@@ -220,13 +233,8 @@ test("Do not work in a project starts the chat in no project", async () => {
   expect(option).toBeDefined();
   await act(async () => option!.click());
   expect(host.querySelector(".nt-location")?.textContent).toContain("No project");
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
-  await act(async () => {
-    setValue.call(field, "sketch a name for the app");
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
-  });
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  const editor = await typePrompt("sketch a name for the app");
+  await pressReturn(editor);
   expect(calls[0]?.[2]).toBeUndefined();
   expect(calls[0]?.[4]).toBe(true);
 });
@@ -235,7 +243,9 @@ test("a no-project ask sends chat.new with noProject and no folder", async () =>
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
   const sent: [string, unknown][] = [];
   const actions = newTabScreenActions({
-    callNative: async (method, params) => void sent.push([method, params]),
+    // chat.new answers with the started session, as the host does: an empty answer is a failed
+    // start, whose rejection would land in the next test (#28543).
+    callNative: async (method, params) => (sent.push([method, params]), method === "chat.new" ? "started" : undefined),
     cwd: HOME,
     chatCwd: "/Users/you/src/billing",
     leave: noop,
@@ -243,7 +253,7 @@ test("a no-project ask sends chat.new with noProject and no folder", async () =>
     showAllChats: noop,
     runShell: noop,
   });
-  actions.onAsk("claude", "hi", undefined, undefined, true);
+  await actions.onAsk("claude", "hi", undefined, undefined, true);
   expect(sent.find(([method]) => method === "chat.new")?.[1]).toEqual({ harness: "claude", noProject: true });
 });
 

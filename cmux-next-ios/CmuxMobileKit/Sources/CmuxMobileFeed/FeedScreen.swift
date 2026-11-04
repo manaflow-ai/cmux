@@ -9,6 +9,7 @@ import SwiftUI
 /// workspace and tab, newest at the top. Selecting a cell opens that tab's chat.
 public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
+    let reconnect: @MainActor () async -> Void
     @State private var store = FeedStore.shared
     @Binding private var path: [AgentChatDestination]
     /// The list's scroll commands, whether it shows its top, and the events that arrived above the reader.
@@ -20,14 +21,16 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var markFailure: String?
     @State private var rowContext = FeedRowContext(store: FeedStore.shared)
     @Environment(AppStore.self) private var appStore
+    @Environment(\.openURL) private var openURL
     #if DEBUG
     private let director = DemoDirector.shared
     #endif
 
     /// `path`: the Feed's navigation stack, owned by the shell so the team
     /// drawer pan stays off while a chat is pushed (the back swipe wins).
-    public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    public init(path: Binding<[AgentChatDestination]>, reconnect: @escaping @MainActor () async -> Void = {}, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
         _path = path
+        self.reconnect = reconnect
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 2)
     }
@@ -84,7 +87,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                       let tab = workspace.tabs.first(where: { $0.id == item.tabID }) else {
                     // A chat with no tab in a workspace on the Mac (one the Mac started on its own):
                     // the reply was never sent, so it must not read as sent.
-                    return .failed("This chat isn't in a workspace tab on the Mac, so it can't be answered from here. Open it in cmux on the Mac.")
+                    return .failed("Open this chat in cmux on the Mac to answer it.")
                 }
                 let mac = appStore.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? "Mac"
                 let chat = AgentSessionDirectory.shared.store(workspace: workspace, tab: tab, macName: mac)
@@ -99,6 +102,11 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
 
     private func open(_ item: FeedItem) {
         store.markRead(item.id)
+        // A Mac Feed request (a PR held for trial) opens its page.
+        if let link = item.link {
+            openURL(link)
+            return
+        }
         // A terminal agent's event opens its terminal tab (Workspaces), not a chat.
         if item.opensTerminal, let openTerminal = FeedRouting.shared.openTerminal {
             openTerminal(item)
@@ -182,6 +190,8 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(message).font(.footnote).foregroundStyle(.secondary)
             Spacer(minLength: 8)
+            RetryButton { await store.retry(reconnect: reconnect) }
+                .accessibilityIdentifier("feed.retry")
             Button {
                 store.clearRefreshError()
             } label: {
@@ -210,6 +220,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             }
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityIdentifier("feed.newPill")
             .padding(.top, 8)
             .transition(.offset(y: -12).combined(with: .opacity))
         }
@@ -232,7 +243,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             Image(systemName: store.filter == .all ? "bubble.left.and.text.bubble.right" : "line.3.horizontal.decrease")
                 .font(.system(size: 28))
                 .padding(.bottom, 10)
-            Text(store.filter == .all ? "Nothing yet" : "No matching events").font(.headline)
+            Text(store.filter == .all ? "No events" : "No matching events").font(.headline)
             Text(store.filter == .all ? "Agent updates, questions and finished tasks show up here." : "Try another filter.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -258,16 +269,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, _):
-            swipe.demoReveal = id
-            swipe.demoPerform = nil
-            swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):
-            swipe.demoReveal = nil
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedSwipeClose:
-            swipe.openID = nil
         case .feedExpand, .feedReply, .answerQuestion:
             list.demo(command)
         default:

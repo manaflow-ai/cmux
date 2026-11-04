@@ -122,6 +122,76 @@ test("a theme previews live in the app before it is picked: hover or arrows, rig
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
 });
 
+test("a late theme save cannot end a newer preview after the picker reopens", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  let resolveSave!: () => void;
+  page.store.set = (() =>
+    new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
+  const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
+  await click(button);
+  const search = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "Enter" });
+  await click(button);
+  const reopened = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(reopened, "keydown", { key: "ArrowDown" });
+  await fire(reopened, "keydown", { key: "ArrowDown" });
+  expect(ops(page.provider, "cmux.settings.preview").length).toBe(2);
+  const endsBeforeSave = ops(page.provider, "cmux.settings.preview.end").length;
+  resolveSave();
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end").length).toBe(endsBeforeSave);
+});
+
+test("a late cleanup for one key cannot end the newer preview of another: the host holds one preview", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  const terminal = {};
+  const app = {};
+  page.store.preview("appearance.theme", "Dracula", terminal);
+  page.store.preview("appearance.appTheme", "Nord", app);
+  await settle();
+  page.store.previewEnd("appearance.theme", terminal);
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([]);
+  page.store.previewEnd("appearance.appTheme", app);
+  await settle();
+  expect(ops(page.provider, "cmux.settings.preview.end")).toEqual([{ key: "appearance.appTheme" }]);
+});
+
+test("a late theme save leaves the pointer's pending preview in the reopened picker alone", async () => {
+  const { DWELL_MS } = await import("./components/ThemePicker");
+  page = await renderPage({ path: "/settings/theme" });
+  let resolveSave!: () => void;
+  page.store.set = (() =>
+    new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
+  const button = theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!;
+  await click(button);
+  const search = document.querySelector<HTMLElement>(".theme-search")!;
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "ArrowDown" });
+  await fire(search, "keydown", { key: "Enter" });
+  await click(button);
+  const row = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!.closest("li")!;
+  const names = [...document.querySelectorAll<HTMLElement>("[data-theme-option]")].map((el) =>
+    el.getAttribute("data-theme-option")!,
+  );
+  const hovered = names.at(-1)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  const before = previews().length;
+  jest.useFakeTimers();
+  await act(async () => {
+    for (const type of ["pointerenter", "pointermove", "mousemove", "mouseenter"])
+      row(hovered).dispatchEvent(new window.MouseEvent(type, { bubbles: type.endsWith("move"), cancelable: true }));
+  });
+  resolveSave();
+  await act(async () => {});
+  await act(async () => void jest.advanceTimersByTime(DWELL_MS));
+  await act(async () => {});
+  jest.useRealTimers();
+  expect(previews().slice(before)).toEqual([{ key: "appearance.appTheme", value: hovered }]);
+});
+
 test("a pointer passing over themes previews nothing until it rests; the arrow keys preview at once", async () => {
   const { DWELL_MS } = await import("./components/ThemePicker");
   page = await renderPage({ path: "/settings/theme" });
@@ -250,4 +320,41 @@ test("a theme color below its contrast floor says so and Raise Contrast lifts it
   const reset = [...tuner()!.querySelectorAll("button")].find((button) => button.textContent === "Reset")!;
   await click(reset);
   expect(ops(page.provider, "cmux.settings.reset").at(-1)).toEqual({ key: "appearance.themeEdits" });
+});
+
+test("a light/dark pair shows the side for the Mac's appearance, not the window's", async () => {
+  // A dark App Theme makes the page's window dark (prefers-color-scheme: dark) while macOS is light:
+  // the terminals use the pair's light side, so Settings must show and edit that side.
+  const previous = window.matchMedia;
+  window.matchMedia = ((query: string) =>
+    ({
+      matches: query.includes("dark"),
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+    }) as unknown as MediaQueryList) as typeof window.matchMedia;
+  try {
+    page = await renderPage({
+      path: "/settings/theme",
+      mock: { values: { "appearance.theme": "light:GitHub Light,dark:Dracula" } },
+      setup: (provider) =>
+        provider.setHost({ ...provider.host, theme: { ...provider.host.theme!, system_scheme: "light" } }),
+    });
+    expect(theme(page).querySelector("[data-theme-preview]")?.getAttribute("data-theme-preview")).toBe("GitHub Light");
+    // Match System Appearance off keeps the side in effect on this Mac.
+    await click(theme(page).querySelector('[data-theme-row="match"] [role=switch]')!);
+    expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "GitHub Light" });
+  } finally {
+    window.matchMedia = previous;
+  }
+});
+
+test("with an App Theme set, a space or workspace theme says it replaces the App Theme in its window too", async () => {
+  // A workspace theme colors its window's chrome (the room shows its workspace's colors), App Theme
+  // or not: the note must not read as if only the terminal theme gave way.
+  page = await renderPage({ path: "/settings/theme", mock: { values: { "appearance.appTheme": "GitHub Light" } } });
+  const note = theme(page).querySelector<HTMLElement>('[data-override="workspace"]')!;
+  expect(note.textContent).toContain("Overridden in this workspace by Dracula, App Theme included");
+  await run(() => page!.store.reset("appearance.appTheme"));
+  expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
 });

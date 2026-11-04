@@ -336,6 +336,11 @@ fn send(
                     json!({"code": "transport.failed", "message": message, "details": {},
                            "retryable": true}),
                 ),
+                super::super::resolve::Failure::Refused => (
+                    FailureKind::NotRun,
+                    json!({"code": "session.busy", "message": "session is busy", "details": {},
+                           "retryable": true}),
+                ),
                 super::super::resolve::Failure::AppAction { action, .. } => (
                     FailureKind::NotRun,
                     json!({"code": "usage.invalid", "message": format!("{action} is an app action"),

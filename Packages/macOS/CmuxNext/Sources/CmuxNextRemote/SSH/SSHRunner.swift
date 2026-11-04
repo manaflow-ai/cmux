@@ -47,6 +47,11 @@ public struct SSHProcessRunner {
             inputPipe = pipe
             process.standardInput = pipe
         }
+        if let inputPipe {
+            // A remote command can close stdin while the caller is still writing. Handle EPIPE
+            // in the writer instead of allowing SIGPIPE to terminate the app.
+            _ = fcntl(inputPipe.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        }
         let output = Mutex(Output())
         let stdoutEnded = ExitLatch()
         stdout.fileHandleForReading.readabilityHandler = { handle in

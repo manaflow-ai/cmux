@@ -145,6 +145,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
@@ -252,7 +253,7 @@ impl Mux {
             _ => return None,
         };
         workspace_revision?;
-        let index = state.workspaces.iter().position(|workspace| workspace.key == workspace_key)?;
+        let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
         let decorations = self.tree_decorations_in_state(state);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;

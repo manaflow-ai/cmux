@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -12,7 +13,7 @@ import Testing
 /// "Bring your memory from …" row, and the Import Memories dialog with the sources found on a Mac. PNGs under
 /// `memory-import-gallery/` in the package, bundled to `memory-import-gallery.tar` for `cmux-ci run --artifact`.
 /// Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
-@MainActor @Suite(.serialized) struct AAMemoryImportGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAMemoryImportGalleryTests {
     private static let sources = MemorySource.parse(Data("""
     {"sources":[
       {"source":"claude-code","kind":"claude-code","count":95,"bytes":187814733,"path":"/Users/me/.claude/projects"},

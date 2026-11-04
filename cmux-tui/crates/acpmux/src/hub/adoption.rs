@@ -520,25 +520,32 @@ impl Hub {
         // be hundreds of megabytes, and the chat shows its newest turns first.
         let read = tokio::task::spawn_blocking(move || {
             if fam == "claude" {
-                let page =
-                    crate::adopt_replay::newest_claude_page(&file, crate::adopt_replay::PAGE_TURNS);
-                (page.turns, page.start)
+                let Ok(mut input) = std::fs::File::open(&file) else {
+                    return (Vec::new(), 0, None);
+                };
+                let page = crate::adopt_replay::claude_page_with_turns_open(
+                    &mut input,
+                    None,
+                    crate::adopt_replay::PAGE_TURNS,
+                );
+                let mark = super::native_history::mark(&mut input, page.start);
+                (page.turns, page.start, mark)
             } else {
-                (crate::adopt_replay::read(&fam, &file), 0)
+                (crate::adopt_replay::read(&fam, &file), 0, None)
             }
         })
         .await;
-        let Ok((turns, before)) = read else { return };
+        let Ok((turns, before, mark)) = read else { return };
         if turns.is_empty() {
             return;
         }
         // Older turns stay in the transcript: `before` is where the next older page ends.
-        if before > 0 {
+        if before > 0 && mark.is_some() {
             self.append(
                 session,
                 "mux",
                 "native_history",
-                json!({"family": family, "before": before, "turns": turns.len()}),
+                json!({"family": family, "before": before, "mark": mark, "turns": turns.len()}),
             );
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
@@ -558,86 +565,22 @@ impl Hub {
         }
         self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
-        let update = |fields: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": fields}});
         for (i, turn) in turns.iter().enumerate() {
-            let turn_id = format!("adopted-{i}");
-            let prompt_id = format!("adopted-prompt-{i}");
+            let ids = (format!("adopted-{i}"), format!("adopted-prompt-{i}"));
             // Each record keeps the transcript's time, so a fork through it cuts Claude's
-            // transcript there (`fork_at.rs`) and the turn shows its real time. The turn ends
-            // with its answer, or its last tool call when that ended later.
-            let started = turn.prompt_at;
-            let answered = turn.answer_at.or(started);
-            let ended = turn.tools.iter().filter_map(|t| t.ended_at).chain(answered).max();
-            let turn_seq = self
-                .append_at(
-                    session,
-                    "mux",
-                    "turn_started",
-                    json!({"prompt": turn.prompt.chars().take(200).collect::<String>(), "client": "adopt", "promptId": prompt_id, "turnId": turn_id, "control": "local"}),
-                    None,
-                    started,
-                )
-                .0
-                .seq;
-            // A page that begins inside a turn has that turn's prompt in the older page.
-            if !turn.prompt.is_empty() {
-                self.append_at(
-                    session,
-                    "mux",
-                    "user_message",
-                    json!({"text": turn.prompt, "client": "adopt", "promptId": prompt_id, "turnId": turn_id}),
-                    None,
-                    started,
-                );
+            // transcript there (`fork_at.rs`) and the turn shows its real time.
+            let mut turn_seq = 0;
+            for record in super::native_history::turn_records(turn, &agent_sid, &ids.0, &ids.1) {
+                let mut msg = record.msg;
+                if record.names_turn {
+                    msg.set("turnSeq", json!(turn_seq));
+                }
+                let seq =
+                    self.append_at(session, record.dir, record.kind, msg, None, record.at).0.seq;
+                if record.kind == "turn_started" {
+                    turn_seq = seq;
+                }
             }
-            // The turn's tool calls, before its answer, as a live turn sends them: each starts
-            // running and its update settles it, so the pane folds them under "Worked for".
-            for tool in &turn.tools {
-                let start = tool.started_at.or(tool.ended_at).or(started);
-                let mut call = tool.call.clone();
-                call.set("sessionUpdate", json!("tool_call"));
-                call.set("toolCallId", json!(tool.id));
-                call.set("status", json!("in_progress"));
-                self.append_at(session, "in", "tool_call", update(call), None, start);
-                let mut done = tool.done.clone();
-                done.set("sessionUpdate", json!("tool_call_update"));
-                done.set("toolCallId", json!(tool.id));
-                self.append_at(
-                    session,
-                    "in",
-                    "tool_call_update",
-                    update(done),
-                    None,
-                    tool.ended_at.or(start),
-                );
-            }
-            if !turn.answer.is_empty() {
-                self.append_at(
-                    session,
-                    "in",
-                    "agent_message_chunk",
-                    update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}})),
-                    None,
-                    answered,
-                );
-            }
-            self.append_at(
-                session,
-                "mux",
-                "turn_end",
-                json!({"stopReason": "end_turn", "turnId": turn_id, "turnSeq": turn_seq}),
-                None,
-                ended,
-            );
-            // A settled turn: clients and restart recovery read `turn_result`, not `turn_end`.
-            self.append_at(
-                session,
-                "mux",
-                "turn_result",
-                json!({"status": "completed", "stopReason": "end_turn", "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id}),
-                None,
-                ended,
-            );
         }
     }
 }

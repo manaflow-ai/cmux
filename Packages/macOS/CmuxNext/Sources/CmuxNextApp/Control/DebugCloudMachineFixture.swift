@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
 
-/// `debug.cloud_machine_fixture {sidebar?, fill?, menu?, folder?, name?, window?}` (DEBUG builds, captures of a Cloud
+/// `debug.cloud_machine_fixture {sidebar?, fill?, menu?, folder?, name?, status?, detail?, window?}` (DEBUG builds, captures of a Cloud
 /// machine's right-click menu). A capture slot is signed out of cmux Cloud and has no Cloud machine,
 /// so a Cloud machine header's menu there hides every row that needs `cloudWorkspace` (its Tools
 /// folder's Apply Machine Config and Deliver Secrets among them), and no menu change could show a
@@ -18,6 +18,8 @@ import CmuxNextSidebar
 /// - `fill: true`: the window takes its screen's visible height, at its own width (a folder of 20
 ///   rows is taller than the default window, and a capture is cut to the window). Its own step, so
 ///   the header is laid out at the new size before `menu`.
+/// - `backend: true`: Cloud reads as reachable though the build has no Cloud backend or client
+///   (``CloudService/debugBackendFixture``), so signed-out Cloud rows show their sign-in state; `false` ends it.
 /// - `menu: true`: a right-click on that header (`debug.mouse`), so its menu opens as the person's
 ///   does (`SidebarContextMenus.machineMenu`).
 /// - `folder: "Tools"`: with that menu open, types the folder's title (the menu's type-select) and
@@ -29,33 +31,59 @@ enum DebugCloudMachineFixture {
     /// The fixture machine's id when the call names none.
     static let defaultName = "demo-cloud"
 
-    /// The app services whose `cloudContextDidChange` keeps `cloudWorkspace` (AppServices+Cloud): one
-    /// app's, never another's (tests build their own). Only ``seed(_:_:)`` changes it, and this whole
-    /// type is DEBUG only, so a Release build never holds it.
-    private static var holders: Set<ObjectIdentifier> = []
-
-    static func holdsCloudWorkspace(_ services: AppServices) -> Bool { holders.contains(ObjectIdentifier(services)) }
+    /// The fixture accepts the sidebar's status names plus `starting`, which is the
+    /// Cloud API spelling for the sidebar's `resuming` state. Keeping this mapping
+    /// here makes capture inputs explicit and rejects typos instead of silently
+    /// rendering the connected state.
+    static func parseStatus(_ raw: String?) -> SidebarMachine.Status? {
+        guard let raw else { return .connected }
+        switch raw {
+        case "connected": return .connected
+        case "connecting": return .connecting
+        case "reconnecting": return .reconnecting
+        case "offline": return .offline
+        case "update-available", "updateAvailable": return .updateAvailable
+        case "update-required", "updateRequired": return .updateRequired
+        case "install-required", "installRequired": return .installRequired
+        case "installing": return .installing
+        case "auth-failed", "authFailed": return .authFailed
+        case "unreachable": return .unreachable
+        case "failed": return .failed
+        case "paused": return .paused
+        case "paused-idle", "pausedIdle": return .pausedIdle
+        case "pausing": return .pausing
+        case "starting", "resuming": return .resuming
+        case "deleting": return .deleting
+        default: return nil
+        }
+    }
 
     /// Holds (or, `false`, drops) `cloudWorkspace` in `services`' registry context, as a Cloud machine's
-    /// active workspace does, without a session or a sign-in.
+    /// active workspace does, without a session or a sign-in: only in that app's ``AppServices/DebugFixtures``, never
+    /// another's (tests build their own), and DEBUG only, so a Release build never holds it.
     static func seed(_ services: AppServices, _ on: Bool = true) {
-        if on { holders.insert(ObjectIdentifier(services)) } else { holders.remove(ObjectIdentifier(services)) }
+        services.debugFixtures.holdsCloudWorkspace = on
         services.cloudContextDidChange()
     }
 
     static func show(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         let name = params["name"]?.stringValue ?? defaultName
+        guard let status = parseStatus(params["status"]?.stringValue) else {
+            return .object(["error": .string("invalid cloud machine status: \(params["status"]?.stringValue ?? "")")])
+        }
+        let detail = params["detail"]?.stringValue
         let machine = MachineID(name)
         guard let controller = services.windows.controllers.first(where: { c in params["window"]?.stringValue.map { $0 == c.state.id } ?? true })
                 ?? services.windows.active else {
             return .object(["error": .string("no window")])
         }
         let sidebar = controller.sidebar
+        if let backend = params["backend"]?.boolValue { services.cloud.debugBackendFixture = backend }
         if let show = params["sidebar"]?.boolValue {
             // Machine headers are drawn only with a section per computer (`sidebar.groupByComputer`).
             DesignSettings.shared.sidebarSections.groupsByComputer = show
                 || (services.settings?.snapshot.sidebarSections ?? .defaults).groupsByComputer
-            sidebar.rows.fixture = show ? fixture(machine: machine, name: name) : nil
+            sidebar.rows.fixture = show ? fixture(machine: machine, name: name, status: status, detail: detail) : nil
             sidebar.container.sidebarView.renderNow()
             sidebar.container.layoutSubtreeIfNeeded()
             seed(services, show)
@@ -105,9 +133,10 @@ enum DebugCloudMachineFixture {
 
     /// This Mac with one workspace, then the Cloud machine with one, so its header shows (one machine's
     /// header titles the list instead).
-    private static func fixture(machine: MachineID, name: String) -> [SidebarSection] {
+    private static func fixture(machine: MachineID, name: String, status: SidebarMachine.Status,
+                                detail: String?) -> [SidebarSection] {
         let local = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        let cloud = SidebarMachine(id: machine, name: name, kind: .cloud, status: .connected)
+        let cloud = SidebarMachine(id: machine, name: name, kind: .cloud, status: status, detail: detail)
         return [
             SidebarSection(kind: .machine(local), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("w-local"), machineID: .local, title: "cmux"))]),
             SidebarSection(kind: .machine(cloud), nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("w-cloud"), machineID: machine, title: "api"))]),

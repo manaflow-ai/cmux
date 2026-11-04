@@ -97,8 +97,9 @@ export type ListFilter = {
 
 /** Matching rows of every category, in navigation order; an empty query with changedOnly lists
  * every changed row. */
-// Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes.
-const UNLISTED = new Set(["appearance.themeEdits"]);
+// Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes and
+// appearance.favoriteThemes their stars.
+const UNLISTED = new Set(["appearance.themeEdits", "appearance.favoriteThemes"]);
 
 export function filterRows({
   query,

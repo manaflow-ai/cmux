@@ -244,15 +244,29 @@ extension LinkMachine.Phase {
         }
     }
 
-    /// One line for the Mac's section header and Settings ("Connected ·
-    /// WireGuard direct · video WebRTC (TURN) · 27 ms"); `media` is the
-    /// WebRTC media session beside a WireGuard link.
-    public func statusLine(macName: String, media: VideoMediaState = .off) -> String? {
+    /// One short line for the Mac's section header and Settings. Transport,
+    /// path, latency, and daemon failures remain available to diagnostics;
+    /// the normal UI says what the person can do next.
+    public func statusLine(macName _: String, media _: VideoMediaState = .off) -> String? {
+        switch self {
+        case .idle: nil
+        case .macOffline: "Offline"
+        case .connecting: "Reconnecting…"
+        case .connected: "Connected"
+        case .waiting(_, _, let reason, _):
+            reason == LinkController.reason(LinkError(code: "offline", message: ""))
+                ? "Offline"
+                : "Reconnecting…"
+        }
+    }
+
+    /// Technical detail for the explicit diagnostics disclosure only.
+    public func diagnosticLine(macName: String, media: VideoMediaState = .off) -> String? {
         switch self {
         case .idle: nil
         case .macOffline: "\(macName) is offline"
         case .connecting(let transport, let attempt):
-            attempt > 1 ? "Reconnecting over \(transport.displayName)…" : "Connecting over \(transport.displayName)…"
+            "\(transport.displayName) connecting · attempt \(attempt)"
         case .connected(let transport, let path, let rtt):
             ["Connected", "\(transport.displayName) \(path.displayName)", media.statusLabel, rtt.map { "\($0) ms" }]
                 .compactMap { $0 }.joined(separator: " · ")

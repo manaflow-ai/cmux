@@ -34,7 +34,6 @@ export default componentEntry<Props>({
   id: "pages.artifacts",
   title: "Artifacts",
   area: "Pages",
-  experimental: true,
   height: 640,
   widths: { narrow: 560, normal: 900, wide: 1200 },
   covers: ["page:cmux.artifacts", "pages/artifacts/ArtifactsPage.tsx"],

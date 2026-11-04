@@ -20,7 +20,7 @@ mod command;
 pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
-    host_environment, pinned_preview_format, preview_format,
+    host_environment, pinned_preview_format, preview_format, resolved_profile_env,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,6 +29,14 @@ pub enum Direction {
     Out,
     /// agent -> acpmux (stdout)
     In,
+}
+
+/// Which pipe of an agent a line of `Inbound::Stderr` came from: its stderr, or a `[non-json
+/// stdout]` note. The hub cleans each as its own stream.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StderrPipe {
+    Stderr,
+    Stdout,
 }
 
 /// Something the agent sent that acpmux must act on.
@@ -58,8 +66,9 @@ pub enum Inbound {
         /// withdrawal marker is stored. The reader owns the receiver.
         persisted: Option<oneshot::Sender<bool>>,
     },
-    /// One stderr line; `host_seq` names the agent host entry it came from.
-    Stderr(String, Option<u64>),
+    /// One stderr line of the agent of `agent` (its generation and which of its pipes); `host_seq`
+    /// names the agent host entry it came from. A `[non-json stdout]` note is the agent's stdout.
+    Stderr(String, Option<u64>, Option<(u64, StderrPipe)>),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
     Exited { pid: Option<u32>, code: Option<i32>, host_seq: Option<u64> },
@@ -105,6 +114,11 @@ pub struct ClaudeState {
 
 /// The answer to one request, as `ChildAgent::request` returns it.
 pub type Response = oneshot::Receiver<Result<Value, RpcError>>;
+
+/// How long [`ChildAgent::runs_claude`] waits for a host's answer. Shorter than
+/// `agent_host::QUERY_BUDGET`: adoption at the daemon's start waits on it, and a host that does
+/// not answer in time is judged by its profile, then asked again when a prompt reaches it.
+const HOST_KIND_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// How long the reader waits for the Exit entry's ack to be written.
 const EXIT_ACK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
@@ -155,7 +169,7 @@ pub enum Attached {
 }
 
 /// How long `kill` lets the agent's process group exit after SIGTERM.
-const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
+pub(crate) const KILL_GRACE: std::time::Duration = std::time::Duration::from_millis(300);
 
 /// How often the reader checks that the agent process is still running.
 const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
@@ -622,12 +636,21 @@ pub struct ChildAgent {
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`), set
+    /// by the start that spawned it; unset for a harness another daemon started.
+    run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    /// Its harness was put in `run_class` (once).
+    run_class_entered: std::sync::atomic::AtomicBool,
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    /// The simulation's in-process agent (`sim_agent.rs`): true while it runs, in place of a
+    /// child's `try_wait`.
+    #[cfg(feature = "sim")]
+    sim_alive: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// The in-process Codex bridge of a direct child: its translator, and the
@@ -641,12 +664,116 @@ struct CodexLink {
     order: Mutex<()>,
 }
 
+/// A started agent's process (or, in the simulation, its in-process stand-in) and its pipes:
+/// what `ChildAgent::spawn_with` runs its reader and writer on.
+struct Spawned {
+    child: Option<Child>,
+    pid: Option<u32>,
+    stdin: Box<dyn tokio::io::AsyncWrite + Unpin + Send>,
+    stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
+    stderr: Box<dyn tokio::io::AsyncRead + Unpin + Send>,
+    launch: Option<crate::hub::LaunchServers>,
+    preview_format: Option<crate::hub::questions::PreviewFormat>,
+    run_class: std::sync::OnceLock<crate::cpu_class::CpuClass>,
+    #[cfg(windows)]
+    job: Option<crate::job::Job>,
+    #[cfg(feature = "sim")]
+    sim_alive: Option<Arc<std::sync::atomic::AtomicBool>>,
+}
+
+impl Spawned {
+    /// The harness's process, started from its profile.
+    async fn child(
+        name: &str,
+        profile: &HarnessProfile,
+        cwd: &std::path::Path,
+        command_line: Option<(String, Vec<String>)>,
+        session: Option<(&str, &str)>,
+    ) -> Result<Self> {
+        let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
+        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
+        let launch = crate::hub::LaunchServers::read(
+            &Launch::of(&cmd, cwd),
+            crate::config::derive_family(name, profile),
+            profile.kind,
+        )
+        .await;
+        let preview_format = Some(pinned_preview_format(&cmd));
+        #[cfg(windows)]
+        cmd.creation_flags(crate::job::AGENT_FLAGS);
+        // Never at background class while it starts; its class, from the harness's own env (its
+        // profile's value as resolved), is set once its session's start is over (`cpu_class.rs`).
+        let env = command_env(&cmd);
+        let run_class = crate::cpu_class::CpuClass::for_session(
+            env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+        );
+        crate::cpu_class::start_at_normal(&mut cmd);
+        let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
+        // Not at a background class another process set on this daemon (`cpu_class.rs`, item 1):
+        // the child is held and not reaped, so its pid is its own.
+        if let Some(pid) = child.id() {
+            crate::cpu_class::clear_running(pid);
+        }
+        #[cfg(windows)]
+        let job = {
+            let contained = child
+                .raw_handle()
+                .ok_or_else(|| std::io::Error::other("the agent has no process handle"))
+                .and_then(crate::job::Job::contain);
+            match contained {
+                Ok(job) => Some(job),
+                Err(e) => {
+                    let _ = child.start_kill();
+                    anyhow::bail!("spawn agent {name}: its job object: {e}");
+                }
+            }
+        };
+        let pid = child.id();
+        let stdin = child.stdin.take().context("agent stdin")?;
+        let stdout = child.stdout.take().context("agent stdout")?;
+        let stderr = child.stderr.take().context("agent stderr")?;
+        Ok(Self {
+            child: Some(child),
+            pid,
+            stdin: Box::new(stdin),
+            stdout: Box::new(stdout),
+            stderr: Box::new(stderr),
+            launch: Some(launch),
+            preview_format,
+            run_class: std::sync::OnceLock::from(run_class),
+            #[cfg(windows)]
+            job,
+            #[cfg(feature = "sim")]
+            sim_alive: None,
+        })
+    }
+
+    /// The simulation's in-process agent (`sim_agent.rs`): no process, no pid, no launch read.
+    #[cfg(feature = "sim")]
+    fn in_process(pipes: crate::sim_agent::Pipes) -> Self {
+        Self {
+            child: None,
+            pid: None,
+            stdin: pipes.stdin,
+            stdout: pipes.stdout,
+            stderr: pipes.stderr,
+            launch: None,
+            preview_format: None,
+            run_class: std::sync::OnceLock::new(),
+            #[cfg(windows)]
+            job: None,
+            sim_alive: Some(pipes.alive),
+        }
+    }
+}
+
 /// A session update whose news is only the agent process's own to give: Claude Code's /context
 /// breakdown, its account's usage limits. One a replaced process sends is not the chat's.
 pub fn process_state(params: &Value) -> bool {
     params
         .pointer("/update/_meta/acpmux")
         .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+        || params.pointer("/update/_meta/codexAppServer/rateLimits").is_some()
 }
 
 impl ChildAgent {
@@ -706,47 +833,34 @@ impl ChildAgent {
             crate::login_env::machine_env_fresh_before_spawn().await,
             "machine environment changed; login env refresh failed"
         );
-        let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
-        // Its MCP configs are read before it starts, never after (`hub/idle_census.rs`).
-        let launch = crate::hub::LaunchServers::read(
-            &Launch::of(&cmd, cwd),
-            crate::config::derive_family(name, profile),
-        )
-        .await;
-        let preview_format = Some(pinned_preview_format(&cmd));
-        #[cfg(windows)]
-        cmd.creation_flags(crate::job::AGENT_FLAGS);
-        // Below the GUI's CPU class (macOS), the tools it starts with it (`cpu_class.rs`).
-        // From the harness's own env: its profile's value as resolved.
-        let env = command_env(&cmd);
-        crate::cpu_class::CpuClass::for_session(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-            .apply(&mut cmd);
-        let mut child = cmd.spawn().map_err(|e| spawn_error(&format!("spawn agent {name}"), e))?;
-        #[cfg(windows)]
-        let job = {
-            let contained = child
-                .raw_handle()
-                .ok_or_else(|| std::io::Error::other("the agent has no process handle"))
-                .and_then(crate::job::Job::contain);
-            match contained {
-                Ok(job) => Some(job),
-                Err(e) => {
-                    let _ = child.start_kill();
-                    anyhow::bail!("spawn agent {name}: its job object: {e}");
-                }
-            }
+        #[cfg(feature = "sim")]
+        let spawned = match crate::sim_agent::take(name, profile) {
+            Some(pipes) => Spawned::in_process(pipes),
+            None => Spawned::child(name, profile, cwd, command_line, session).await?,
         };
-        let pid = child.id();
-        let stdin = child.stdin.take().context("agent stdin")?;
-        let stdout = child.stdout.take().context("agent stdout")?;
-        let stderr = child.stderr.take().context("agent stderr")?;
+        #[cfg(not(feature = "sim"))]
+        let spawned = Spawned::child(name, profile, cwd, command_line, session).await?;
+        let Spawned {
+            child,
+            pid,
+            stdin,
+            stdout,
+            stderr,
+            launch,
+            preview_format,
+            run_class,
+            #[cfg(windows)]
+            job,
+            #[cfg(feature = "sim")]
+            sim_alive,
+        } = spawned;
 
         let (stdin_tx, stdin_rx) = mpsc::channel::<(String, Option<Fence>)>(256);
         let pending =
             Arc::new(Mutex::new(Pending { map: HashMap::new(), orphans: Default::default() }));
         let agent = Arc::new(Self {
             name: name.to_owned(),
-            child: Arc::new(Mutex::new(Some(child))),
+            child: Arc::new(Mutex::new(child)),
             stdin_tx,
             next_id: AtomicI64::new(1),
             pending: pending.clone(),
@@ -758,16 +872,20 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             given_servers: std::sync::Mutex::new(None),
-            launch: std::sync::Mutex::new(Some(launch)),
+            launch: std::sync::Mutex::new(launch),
             retired: std::sync::Mutex::new(false),
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format,
+            run_class,
+            run_class_entered: std::sync::atomic::AtomicBool::new(false),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job,
+            #[cfg(feature = "sim")]
+            sim_alive,
         });
 
         #[cfg(test)]
@@ -813,10 +931,13 @@ impl ChildAgent {
 
         let stderr_done = {
             let inbound = inbound.clone();
+            let generation = agent.generation;
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = inbound.send(Inbound::Stderr(line, None)).await;
+                    let _ = inbound
+                        .send(Inbound::Stderr(line, None, Some((generation, StderrPipe::Stderr))))
+                        .await;
                 }
             })
         };
@@ -832,8 +953,8 @@ impl ChildAgent {
                 // open; watch it so its exit is reported regardless.
                 let mut leader_check = tokio::time::interval(LEADER_CHECK);
                 let mut leader_gone: Option<tokio::time::Instant> = None;
-                // A carry's hold was waited out (`claude_stdio/carry.rs`): once per hold.
-                let mut held = false;
+                // The carry whose hold was waited out (`claude_stdio/carry.rs`): once per carry.
+                let mut held: Option<u64> = None;
                 loop {
                     let next = tokio::select! {
                         next = lines.next_line() => next,
@@ -873,6 +994,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -911,6 +1033,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -945,6 +1068,7 @@ impl ChildAgent {
                                     .send(Inbound::Stderr(
                                         format!("[non-json stdout] {line}"),
                                         None,
+                                        Some((agent_for_exit.generation, StderrPipe::Stdout)),
                                     ))
                                     .await;
                                 continue;
@@ -990,14 +1114,16 @@ impl ChildAgent {
                     // Claude Code ended its turn and runs on with steers it had not read: its next
                     // line waits until the hub logged that turn's end and the next one's start
                     // (the next turn's prompt), bounded (`claude_stdio/carry.rs`).
-                    let holding = agent_for_exit.translator.as_ref().filter(|tr| tr.holding());
+                    // Each carry holds once, also one made while an earlier one still holds.
+                    let tr = agent_for_exit.translator.as_ref();
+                    let holding = tr.and_then(|tr| tr.holding().map(|carry| (tr, carry)));
                     match holding {
-                        Some(tr) if !held => {
+                        Some((tr, carry)) if held != Some(carry) => {
                             tr.wait_unheld(crate::claude_stdio::CARRY_HOLD_MAX).await;
-                            held = true;
+                            held = Some(carry);
                         }
                         Some(_) => {}
-                        None => held = false,
+                        None => held = None,
                     }
                 }
                 // Claude's background shells ended with it (cx-ncc.84).
@@ -1119,6 +1245,8 @@ impl ChildAgent {
 
     pub async fn kill(&self) {
         self.retire();
+        #[cfg(feature = "sim")]
+        self.end_sim();
         if self.hosted.is_some() {
             self.terminate(KILL_GRACE).await;
             return;
@@ -1163,6 +1291,8 @@ impl ChildAgent {
     /// included). Never waits on a lock or a pipe without a deadline.
     pub async fn terminate(&self, grace: std::time::Duration) {
         self.retire();
+        #[cfg(feature = "sim")]
+        self.end_sim();
         if let Some(h) = &self.hosted {
             if h.exited.load(Ordering::SeqCst) || h.link().is_closed() {
                 return;
@@ -1226,11 +1356,24 @@ impl ChildAgent {
         end_still_running(under).await;
     }
 
+    /// The simulation's in-process agent ends, as a killed child does: its task stops and its
+    /// stdout closes.
+    #[cfg(feature = "sim")]
+    fn end_sim(&self) {
+        if let Some(alive) = &self.sim_alive {
+            alive.store(false, Ordering::SeqCst);
+        }
+    }
+
     pub async fn is_alive(&self) -> bool {
         if let Some(h) = &self.hosted {
             return !h.exit_seen.load(Ordering::SeqCst)
                 && !h.broken.load(Ordering::SeqCst)
                 && !h.link().is_closed();
+        }
+        #[cfg(feature = "sim")]
+        if let Some(alive) = &self.sim_alive {
+            return alive.load(Ordering::SeqCst);
         }
         let mut guard = self.child.lock().await;
         match guard.as_mut() {
@@ -1623,13 +1766,13 @@ impl ChildAgent {
 
     /// Whether Claude Code's translator runs this agent: here, or in its host
     /// (only that translator answers the host's query with modes). None: the
-    /// host did not answer in time.
+    /// host did not answer within [`HOST_KIND_BUDGET`].
     pub async fn runs_claude(&self) -> Option<bool> {
         if self.translator.is_some() {
             return Some(true);
         }
         let Some(h) = &self.hosted else { return Some(false) };
-        h.link().query().await.ok().map(|reply| reply.modes.is_some())
+        h.link().query_within(HOST_KIND_BUDGET).await.ok().map(|reply| reply.modes.is_some())
     }
 
     /// The Claude translator's state, wherever the translator runs.
@@ -1648,6 +1791,47 @@ impl ChildAgent {
             modes: reply.modes?,
             config_options: reply.config_options.unwrap_or(Value::Null),
         })
+    }
+
+    /// The CPU class its harness runs at once its session's start is over (`cpu_class.rs`): the
+    /// start that attached a hosted harness sets it (a direct one has it from its spawn). Only
+    /// the first value counts.
+    pub fn set_run_class(&self, class: crate::cpu_class::CpuClass) {
+        let _ = self.run_class.set(class);
+    }
+
+    /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
+    /// True when this call lowered it. A harness with no class set (another daemon started it)
+    /// or one that ended is left alone.
+    pub async fn enter_run_class(&self) -> bool {
+        let Some(class) = self.run_class.get().copied() else { return false };
+        if self.run_class_entered.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        self.with_live_harness(|pid| class.enter(pid)).await.unwrap_or(false)
+    }
+
+    /// What its harness is doing now (`cpu_class::HarnessSeen`): ended, unread or its state.
+    pub async fn harness_seen(&self) -> crate::cpu_class::HarnessSeen {
+        use crate::cpu_class::HarnessSeen;
+        match self.with_live_harness(crate::cpu_class::harness_state).await {
+            None => HarnessSeen::Ended,
+            Some(None) => HarnessSeen::Unread,
+            Some(Some(state)) => HarnessSeen::Running(state),
+        }
+    }
+
+    /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped
+    /// (its slot locked across `f`, so no reap can free the pid meanwhile), or a hosted one its
+    /// host has not reported ended. None otherwise.
+    async fn with_live_harness<T>(&self, f: impl FnOnce(u32) -> T) -> Option<T> {
+        let pid = self.pid?;
+        if self.hosted.is_some() {
+            return self.is_alive().await.then(|| f(pid));
+        }
+        let mut guard = self.child.lock().await;
+        let child = guard.as_mut()?;
+        matches!(child.try_wait(), Ok(None)).then(|| f(pid))
     }
 
     /// The host record when this agent runs under a host.
@@ -1832,11 +2016,15 @@ impl ChildAgent {
             ended_on_purpose: std::sync::atomic::AtomicBool::new(false),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             preview_format: None,
+            run_class: std::sync::OnceLock::new(),
+            run_class_entered: std::sync::atomic::AtomicBool::new(false),
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job: None,
+            #[cfg(feature = "sim")]
+            sim_alive: None,
         });
         agent.start_reader(link);
         (agent, responses)
@@ -2051,7 +2239,13 @@ impl ChildAgent {
                 if !(self.tap)(Direction::In, &note, Some(h)) {
                     return false;
                 }
-                let _ = inbound.send(Inbound::Stderr(line, Some(h))).await;
+                let _ = inbound
+                    .send(Inbound::Stderr(
+                        line,
+                        Some(h),
+                        Some((self.generation, StderrPipe::Stderr)),
+                    ))
+                    .await;
                 true
             }
             Entry::Exit { code } => {

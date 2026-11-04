@@ -132,12 +132,14 @@
 }
 .acpmux-effort-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: calc(var(--acpmux-effort-inset) + (100% - 2 * var(--acpmux-effort-inset)) * var(--acpmux-effort));
+  inset: 0 var(--acpmux-effort-inset) 0 var(--acpmux-effort-inset);
+  width: auto;
   border-radius: 12px;
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 58%, transparent);
-  transition: width var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
-  will-change: width;
+  transition: transform var(--cmux-motion-standard) var(--cmux-ease-out), background-color var(--cmux-motion-standard) var(--cmux-ease-out);
+  transform-origin: left center;
+  transform: scaleX(var(--acpmux-effort));
+  will-change: transform;
 }
 .acpmux-effort-stop {
   position: absolute;
@@ -173,9 +175,7 @@
   background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, var(--surface-popup));
   box-shadow: var(--elevation-1), 0 0 0 1px color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
   pointer-events: none;
-  transition: left var(--cmux-motion-standard) cubic-bezier(0.22, 1, 0.36, 1), background-color var(--cmux-motion-standard) ease-out;
-  will-change: left;
-  transform: translateZ(0);
+  transition: background-color var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 /* Debug Settings agent.reasoningSliderStyle=minimal: a quieter comparison treatment that keeps
    the same stops and interaction while reducing the thumb's visual weight. */
@@ -277,12 +277,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.acpmux-goal { flex: none; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px var(--cv-edge,16px); color: var(--agent-soft); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
-.acpmux-goal-copy { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
-.acpmux-goal-state, .acpmux-goal-budget { flex: none; color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
-.acpmux-goal-objective { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-goal button { border: 0; border-radius: 6px; background: none; color: inherit; font: inherit; padding: 4px 8px; }
-.acpmux-goal button:hover { background: var(--acpmux-row-hover); }
-.acpmux-goal button:focus-visible { outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color); }
-.acpmux-goal-error { flex-basis: 100%; color: var(--agent-danger); }

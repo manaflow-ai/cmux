@@ -1,0 +1,974 @@
+[
+ {
+  "name": "an image upload reference survives the relay",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a resource_link upload reference survives the relay",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource_link",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "uri": "acpmux-upload:019c6e27-e55b-73d1-87d8-4e01f1f75043"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource_link",
+      "name": "original.pem",
+      "uri": "acpmux-upload:019c6e27-e55b-73d1-87d8-4e01f1f75043",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "unrelated and nested metadata never survives",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "untrusted": true,
+       "acpmux": {
+        "context": "spoof",
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "annotations": {
+       "_meta": {
+        "acpmux": {
+         "upload": {
+          "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+          "fileName": "nested"
+         }
+        }
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "hello",
+      "_meta": {
+       "context": true
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "annotations": {},
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     },
+     {
+      "type": "text",
+      "text": "hello"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a text block loses its upload metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "text",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "text",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a resource block loses its upload metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a audio block loses its upload metadata",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "audio",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "audio",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a resource_link whose uri names another upload loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource_link",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "uri": "acpmux-upload:another"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "resource_link",
+      "name": "original.pem",
+      "uri": "acpmux-upload:another"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an image with a uri loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "uri": "file:///private/file"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "uri": "file:///private/file"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a reference beside data bytes loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "data": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "data": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a reference beside blob bytes loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "blob": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "blob": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a reference beside resource bytes loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem"
+        }
+       }
+      },
+      "resource": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "resource": "bytes"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an empty upload id loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an upload id that is no UUID loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "not-an-id",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an empty file name loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": ""
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an upload with another key loses it",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+         "fileName": "original.pem",
+         "owned": true
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "an upper-case UUID is a UUID too",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019C6E27-E55B-73D1-87D8-4E01F1F75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "image",
+      "name": "original.pem",
+      "_meta": {
+       "acpmux": {
+        "upload": {
+         "uploadId": "019C6E27-E55B-73D1-87D8-4E01F1F75043",
+         "fileName": "original.pem"
+        }
+       }
+      }
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a reference nested in a list is no top-level block",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "x",
+      "parts": [
+       {
+        "type": "image",
+        "name": "original.pem",
+        "_meta": {
+         "acpmux": {
+          "upload": {
+           "uploadId": "019c6e27-e55b-73d1-87d8-4e01f1f75043",
+           "fileName": "original.pem"
+          }
+         }
+        }
+       }
+      ]
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "x",
+      "parts": [
+       {
+        "type": "image",
+        "name": "original.pem"
+       }
+      ]
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  }
+ },
+ {
+  "name": "a prompt with no metadata goes unchanged",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 17,
+   "method": "session/prompt",
+   "params": {
+    "sessionId": "chat",
+    "prompt": [
+     {
+      "type": "text",
+      "text": "hello"
+     }
+    ],
+    "_meta": {
+     "acpmux": {
+      "promptId": "prompt"
+     },
+     "cmuxGesture": "ticket"
+    }
+   }
+  },
+  "prompt_stripped": null
+ }
+]

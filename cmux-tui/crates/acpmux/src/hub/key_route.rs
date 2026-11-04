@@ -2,7 +2,8 @@
 //! and its peers alike (Leo, 2026-10-30: "various not as ergonomic/one-command-y as i'd liike set
 //! of commands for interacting with stuff"): a whole name or an id prefix names the one live
 //! session that has it across this daemon and every peer it lists (a name prefix still names a
-//! session here when nothing else matches, as it always did). Several live matches are refused
+//! session here when nothing else matches, as it always did; a sub-session's short name, on any
+//! host, comes last). Several live matches are refused
 //! with each one's `HOST/NAME`; nothing is picked silently, and a session here does not hide a
 //! peer's of the same name (as `locate.rs` already holds for control callers). Closed sessions
 //! count only when no live one matches. A sub-session's whole name (`parent/child`) is routed
@@ -57,57 +58,65 @@ impl Hub {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
-        let (named, prefixed) = self.key_candidates(key, &own);
+        let [named, prefixed, short] = self.key_candidates(key, &own);
         // Any other `/` is in a sub-session's whole name (`parent/child`): that name only, on
-        // every host, never a prefix of one.
+        // every host, never a prefix or a short name.
         let found = if slash.is_some() {
             named.into_iter().filter(|c| c.name == key).collect()
-        } else if named.is_empty() {
-            prefixed
         } else {
-            named
+            [named, prefixed, short].into_iter().find(|tier| !tier.is_empty()).unwrap_or_default()
         };
         pick(key, &found).map(|c| c.map(|c| c.route.clone()))
     }
 
     /// The sessions here and on peers that `key` names as a whole name or by their id (a prefix
     /// of it), all in one tier, so a name never hides an id another session has; then, only for
-    /// sessions here, those whose name starts with `key` (the rule this daemon always had). A
-    /// prefix of a peer's name names nothing, as `resolve_remote` never matched one: a short
-    /// key never reaches another machine's chat nobody named. Names are read under each
-    /// session's meta lock, never cloned (`resolve_here`).
-    fn key_candidates(&self, key: &str, own: &str) -> (Vec<Candidate>, Vec<Candidate>) {
-        let (mut named, mut prefixed) = (Vec::new(), Vec::new());
+    /// sessions here, those whose name starts with `key` (the rule this daemon always had); last,
+    /// on any host, the sub-sessions whose short name `key` is (`mac-ci-3` for
+    /// `claude-sr2/mac-ci-3`, `session_name::ends_with_segments`). A prefix of a peer's name
+    /// names nothing, as `resolve_remote` never matched one: a short key never reaches another
+    /// machine's chat nobody named. Names are read under each session's meta lock, never cloned
+    /// (`resolve_here`).
+    fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 3] {
+        let (mut named, mut prefixed, mut short) = (Vec::new(), Vec::new(), Vec::new());
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
             let meta = s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let by_key = meta.name == key || s.id.starts_with(key);
-            if !by_key && !meta.name.starts_with(key) {
+            let tier = if meta.name == key || s.id.starts_with(key) {
+                &mut named
+            } else if meta.name.starts_with(key) {
+                &mut prefixed
+            } else if crate::session_name::ends_with_segments(&meta.name, key) {
+                &mut short
+            } else {
                 continue;
-            }
-            let c = Candidate {
+            };
+            tier.push(Candidate {
                 host: own.to_owned(),
                 name: meta.name.clone(),
                 route: s.id.clone(),
                 closed: meta.status == SessionStatus::Closed,
-            };
-            if by_key { named.push(c) } else { prefixed.push(c) }
+            });
         }
         for (route, r) in
             self.remote_sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter()
         {
-            let name = r.summary["name"].as_str().unwrap_or_default();
+            let name = r.summary.get("name").and_then(Value::as_str).unwrap_or_default();
             let bare = name.strip_prefix(&format!("{}/", r.peer)).unwrap_or(name);
-            if bare != key && !r.receipt.mux_session_id.starts_with(key) {
+            let tier = if bare == key || r.receipt.mux_session_id.starts_with(key) {
+                &mut named
+            } else if crate::session_name::ends_with_segments(bare, key) {
+                &mut short
+            } else {
                 continue;
-            }
-            named.push(Candidate {
+            };
+            tier.push(Candidate {
                 host: r.peer.clone(),
                 name: bare.to_owned(),
                 route: route.clone(),
-                closed: r.summary["status"] == "closed",
+                closed: r.summary.get("status").and_then(Value::as_str) == Some("closed"),
             });
         }
-        (named, prefixed)
+        [named, prefixed, short]
     }
 }
 
@@ -250,6 +259,29 @@ mod tests {
         named(&hub, "0199aaaa").await;
         let e = hub.key_route("0199aaaa").unwrap_err();
         assert_eq!(e.data.unwrap()["choices"].as_array().unwrap().len(), 2);
+    }
+
+    /// A sub-session's short name is the last tier, on every host: one is routed, two tie with
+    /// each `HOST/NAME`, and a whole name or a name here starting with the key wins.
+    #[tokio::test]
+    async fn a_short_name_routes_to_its_one_sub_session_on_any_host() {
+        let hub = test_hub();
+        list(&hub, "hb", "0199aaaa-1111", "coord/lane-3", "idle");
+        assert_eq!(hub.key_route("lane-3").unwrap().as_deref(), Some("hb/0199aaaa-1111"));
+        let here = named(&hub, "boss/lane-3").await;
+        let e = hub.key_route("lane-3").unwrap_err();
+        let uses: Vec<String> = e.data.unwrap()["choices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|c| c["use"].as_str().map(str::to_owned))
+            .collect();
+        assert!(uses.contains(&"hb/coord/lane-3".to_owned()), "{uses:?}");
+        assert!(uses.iter().any(|u| u.ends_with("/boss/lane-3")), "{uses:?} {}", here.id);
+        // `ci-3` is no segment of either name.
+        assert_eq!(hub.key_route("ci-3").unwrap(), None);
+        let whole = named(&hub, "lane-3x").await;
+        assert_eq!(hub.key_route("lane-3").unwrap().as_deref(), Some(whole.id.as_str()));
     }
 
     /// Review of #28000: a sub-session's whole name has a `/`, and is routed like any name.

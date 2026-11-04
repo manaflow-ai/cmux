@@ -295,6 +295,21 @@ int main() {
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
 
+  // A ranged dynamic answer (a video's byte range) keeps only Content-Range and
+  // Accept-Ranges, never a page header, and never a value that splits a header.
+  {
+    auto kept = cmux_shim::PageRangeHeaders(
+        "Content-Range: bytes 0-9/100\naccept-ranges: bytes\nContent-Security-Policy: default-src *\n"
+        "X-Frame-Options: ALLOW\nContent-Range: bytes 1-2/3\rInjected: yes");
+    Expect(kept.size() == 2, "range headers keep two, got " + std::to_string(kept.size()));
+    Expect(kept.size() > 0 && kept[0].first == "Content-Range" && kept[0].second == "bytes 0-9/100", "range headers Content-Range");
+    Expect(kept.size() > 1 && kept[1].first == "Accept-Ranges" && kept[1].second == "bytes", "range headers Accept-Ranges");
+    Expect(cmux_shim::PageRangeHeaders("").empty(), "range headers empty");
+    Expect(std::string(cmux_shim::PageStatusText(206)) == "Partial Content", "status text 206");
+    Expect(std::string(cmux_shim::PageStatusText(416)) == "Range Not Satisfiable", "status text 416");
+    Expect(std::string(cmux_shim::PageStatusText(200)) == "OK", "status text 200");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

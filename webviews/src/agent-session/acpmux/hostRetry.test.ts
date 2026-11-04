@@ -7,6 +7,7 @@ import {
   HOST_ERROR_DEADLINE_MS,
   hostErrorShows,
   hostIsReconnecting,
+  hostRefusedTooLarge,
   nextRetryDelay,
   offersAcpmuxRestart,
 } from "./hostRetry";
@@ -158,7 +159,7 @@ test("a hard refusal is said at once", () => {
   expect(hostErrorShows({ code: "agent_session.untrusted" }, 0)).toBe(true);
 });
 
-test("a recovering pane asks again within 2 s; a refusal backs off to 30 s", () => {
+test("a recovering pane asks again within 2 s; a refusal keeps retrying without a terminal cap", () => {
   const waits = (recovering: boolean) => {
     let delay = 250;
     const out: number[] = [];
@@ -169,5 +170,18 @@ test("a recovering pane asks again within 2 s; a refusal backs off to 30 s", () 
     return out;
   };
   expect(waits(true)).toEqual([250, 500, 1000, 2000, 2000, 2000, 2000, 2000]);
-  expect(Math.max(...waits(false))).toBe(30_000);
+  expect(Math.max(...waits(false))).toBeGreaterThan(30_000);
+});
+
+/// A chat whose open reply passes one message is refused the same way at every ask (Leo,
+/// 2026-10-31: "this is completely hardlocked bc of message size"): the pane stops asking on its own.
+test("a handshake refused as message.too_large is told apart from every other refusal", () => {
+  const tooLarge = { code: -32000, reason: "message.too_large", message: "message too large to send: 16907300 bytes" };
+  expect(hostRefusedTooLarge(tooLarge)).toBe(true);
+  // Said at once, as any refusal: no waiting out the recovery deadline first.
+  expect(hostErrorShows(tooLarge, 0)).toBe(true);
+  expect(hostRefusedTooLarge({ code: "native.timed_out" })).toBe(false);
+  expect(hostRefusedTooLarge({ code: -32000, reason: "trust.pending" })).toBe(false);
+  expect(hostRefusedTooLarge(new Error("message too large to send"))).toBe(false);
+  expect(hostRefusedTooLarge(null)).toBe(false);
 });

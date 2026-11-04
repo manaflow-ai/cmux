@@ -386,6 +386,10 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
             &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
         )
         .unwrap();
+        // If cmux MCP is disabled or an older acpmux cannot fold servers,
+        // the standalone server must not expose bg_* or team_* to the turn.
+        let deny = settings["permissions"]["deny"].as_array().unwrap();
+        assert!(deny.iter().any(|v| v == "mcp__acpmux"), "{name}: {deny:?}");
         let allow = settings["permissions"]["allow"].as_array().unwrap();
         for tool in optchat_chief::approval::turn_allowed_tools() {
             assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
@@ -431,7 +435,7 @@ fn chief_zoom_and_date_answer_from_the_live_memory() {
 /// keeps `mux.parent` only.
 #[test]
 fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not() {
-    use optchat_chief::acpmux::{CHIEF_ROLE_TAG, CHIEF_TAG};
+    use optchat_chief::acpmux::{CHIEF_PARTICIPANT_TAG, CHIEF_ROLE_TAG, CHIEF_TAG};
     let mut h = harness_with(settings);
     h.connect();
     h.say("user_local", "hello");
@@ -441,8 +445,13 @@ fn the_chiefs_turn_and_compactor_sessions_carry_cmux_chief_and_children_do_not()
         let tags = &inner.specs[0].tags;
         assert_eq!(tags.get(CHIEF_TAG).map(String::as_str), Some("h0me"));
         assert_eq!(tags.get(CHIEF_ROLE_TAG).map(String::as_str), Some("turn"));
+        // The Chief's participant id, which acpmux stamps as `fromChief` (#27935).
+        assert_eq!(
+            tags.get(CHIEF_PARTICIPANT_TAG).map(String::as_str),
+            Some(cmux_chief::rules::AGENT_MUX)
+        );
         // Plus its names on an approval card (approval_display_tags.rs), never `mux.parent`.
-        assert_eq!(tags.len(), 4);
+        assert_eq!(tags.len(), 5);
         assert!(!tags.contains_key(cmux_chief::rules::PARENT_TAG));
     }
     let dir = tempfile::tempdir().unwrap();
@@ -653,12 +662,15 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     );
     assert_eq!(codex.system_prompt, None);
     let bare = turn_preset(&paths, &home, "codex", Family::Codex, false, "SYS").unwrap();
-    // Only acpmux's cmux MCP server in a turn (cx-4a5w2), and in it only
-    // the Chief's cmux tools (no code mode).
+    // cmux, its folded acpmux server and agent memory in a turn (cx-4a5w2),
+    // and in cmux only the Chief's cmux tools (no code mode).
     assert_eq!(
         bare.env,
         std::collections::BTreeMap::from([
-            ("ACPMUX_AGENT_TOOL_SERVERS".to_owned(), "cmux".to_owned()),
+            (
+                "ACPMUX_AGENT_TOOL_SERVERS".to_owned(),
+                "cmux,acpmux,cmux-agent-memory".to_owned()
+            ),
             (
                 "CMUX_MCP_TOOLS".to_owned(),
                 optchat_chief::session_dir::CHIEF_CMUX_TOOLS.join(","),
@@ -748,9 +760,8 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
             [
                 "--setting-sources",
                 "project,local",
-                "--disable-slash-commands",
                 "--tools",
-                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
+                "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch,Skill"
             ],
             "{harness}"
         );

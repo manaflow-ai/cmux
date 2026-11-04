@@ -20,7 +20,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -52,6 +51,10 @@ pub const UNSET_KEY: &str = "ACPMUX_ROUTE_UNSET";
 /// `cmux` harness: the `cmux` route). A chat or workspace binding still wins;
 /// it replaces a family or global binding. Internal: never reaches the harness.
 pub const PROFILE_ROUTE_KEY: &str = "ACPMUX_PROFILE_ROUTE";
+
+/// The profile-env key that carries the bound route's name to the spawn, for the `/status`
+/// card (`session_status.rs`). Internal: never reaches the harness.
+pub const NAME_KEY: &str = "ACPMUX_ROUTE_NAME";
 
 /// The built-in route to the hosted cmux model router through the local relay.
 /// A route file named `cmux` replaces it; `find` resolves it, `load` does not list it.
@@ -608,6 +611,8 @@ pub fn add(
 pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, RouteError> {
     let route = find(dir, id)?;
     let backups = backups_dir(home);
+    // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
+    crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
     std::fs::create_dir_all(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -815,7 +820,7 @@ pub fn local_router_with(
         ))
     };
     let stream = UnixStream::connect(&socket).map_err(|e| unavailable(e.to_string()))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
+    let _ = stream.set_read_timeout(Some(crate::rpc::ANSWER_WAIT));
     let mut writer = stream.try_clone().map_err(|e| unavailable(e.to_string()))?;
     let mut reader = BufReader::new(stream);
     let mut ask = |line: Value| -> Result<Value, RouteError> {
@@ -971,8 +976,7 @@ pub fn apply(env: &mut BTreeMap<String, String>, route_env: &RouteEnv) {
 
 pub(crate) fn resolve_reference(value: &str) -> Result<String, String> {
     if let Some(var) = value.strip_prefix("env:") {
-        return crate::login_env::allowed_var(var)
-            .or_else(|| std::env::var(var).ok())
+        return crate::login_env::reference_var(var)
             .ok_or_else(|| format!("{var} is not set in the login environment"));
     }
     if let Some(path) = value.strip_prefix("file:") {

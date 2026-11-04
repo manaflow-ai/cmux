@@ -75,6 +75,17 @@ impl InstallKey {
         })
     }
 
+    /// DER SubjectPublicKeyInfo (id-ecPublicKey, prime256v1, uncompressed point).
+    /// This public encoding is stable across PKCS#8 serialization and restarts.
+    pub fn public_spki(&self) -> Vec<u8> {
+        let mut der = vec![
+            0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+            0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
+        ];
+        der.extend_from_slice(self.pair.public_key().as_ref());
+        der
+    }
+
     /// ES256 over `message`: 64 bytes `r || s`, base64url.
     pub fn sign(&self, message: &[u8], rng: &dyn SecureRandom) -> Result<String, String> {
         let sig = self.pair.sign(rng, message).map_err(|_| "install key: signing failed")?;

@@ -18,9 +18,14 @@ public final class CmuxDialogView: NSView {
     private(set) var focusables: [NSView] = []
     private let stack = NSStackView()
     private(set) var surface: OverlaySurfaceView?
+    /// The window's active-look scope the card's glass keeps the key look with.
+    private let activeLook: ActiveLookScope?
 
-    public init(spec: CmuxDialogSpec) {
+    /// `activeLook` is the dialog window's ``ActiveLookScope`` (its `backdropActiveLook`): the card
+    /// keeps the key-window glass while it fades out. Nil follows the key state.
+    public init(spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil) {
         self.spec = spec
+        self.activeLook = activeLook
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
@@ -82,14 +87,14 @@ public final class CmuxDialogView: NSView {
         return true
     }
 
-    /// Gives the keyboard to the first text field, else the default button,
-    /// else Cancel (a question with no default: a key typed on must not tick
-    /// a check box), else the first control.
+    /// Gives the keyboard to the first text field, else to the dialog itself:
+    /// never to a button or check box the person did not choose, so a key typed
+    /// on as the dialog opens presses nothing (a Space pressed the focused
+    /// button: QA chrome-parity-v2-1, the paste confirm's Deny). The dialog
+    /// answers Return, Escape and Command keys (`CmuxDialogKeys`); Tab moves
+    /// onto the first control, where Space then presses what the person chose.
     public func focusInitial() {
-        let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
-        guard let target = field ?? fallback else { return }
-        window?.makeFirstResponder(target)
+        window?.makeFirstResponder(focusables.first { $0 is NSTextField } ?? self)
     }
 
     /// The index in `focusables` of the control with the keyboard.
@@ -184,27 +189,41 @@ public final class CmuxDialogView: NSView {
         for line in spec.lines {
             stack.addArrangedSubview(label(line, font: Typography.body, role: .secondary, width: contentWidth))
         }
-        for field in spec.fields {
+        // A safe-default dialog puts its check boxes under the buttons, as NSAlert puts its suppression button.
+        let safeDefault = spec.layout == .safeDefault
+        let trailing = safeDefault ? spec.fields.filter { if case .check = $0 { true } else { false } } : []
+        for field in spec.fields where !trailing.contains(field) {
             for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }
         }
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.spacing = Metrics.space2
-        row.addArrangedSubview(NSView())
         for button in spec.buttons {
-            let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
-            buttonViews.append(view)
-            row.addArrangedSubview(view)
+            // Native alerts draw no key glyphs; Return and Escape still answer (`CmuxDialogKeys`).
+            let hint = safeDefault ? nil : CmuxDialogKeys.hint(for: button, in: spec)
+            buttonViews.append(CmuxDialogButtonView(button, hint: hint, quiet: safeDefault && button.role == .destructive,
+                                                    target: self, action: #selector(pressed(_:))))
         }
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let main = buttonViews.filter { !$0.isQuiet }
+        let row = Self.buttonRow(main, width: contentWidth)
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
-        focusables += buttonViews
+        // Tab follows what the person sees: left to right on one line, top to bottom when stacked.
+        focusables += row.orientation == .vertical ? main.reversed() : main
+        let quiet = buttonViews.filter(\.isQuiet)
+        if !quiet.isEmpty {
+            let quietRow = Self.quietRow(quiet, width: contentWidth)
+            stack.setCustomSpacing(Metrics.space2, after: row)
+            stack.addArrangedSubview(quietRow)
+            focusables += quiet
+        }
+        for field in trailing {
+            for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }
+        }
         chainKeyViews()
 
         let content = NSView()
         content.addSubview(stack)
-        let surface = Glass.makeOverlayPanel(content: content, tone: .neutralGlass(.dialog))
+        // The card keeps the key-window glass: its panel gives key back as the close fade starts, and the
+        // inactive frost turned the card a lighter grey for the whole fade (debug.dialog_strip).
+        let surface = Glass.makeSurface(.sheet, content: content, activeLook: activeLook)
         addSubview(surface)
         self.surface = surface
         NSLayoutConstraint.activate([
@@ -219,6 +238,42 @@ public final class CmuxDialogView: NSView {
             widthAnchor.constraint(equalToConstant: CmuxDialogMetrics.width),
             heightAnchor.constraint(equalTo: stack.heightAnchor),
         ])
+    }
+
+    /// The buttons on one line, right-aligned, when they fit in `width`; else stacked, each `width` wide and the
+    /// default on top, as NSAlert stacks buttons that do not fit (the quit choice's four buttons, a long locale).
+    private static func buttonRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
+        let row = NSStackView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.spacing = Metrics.space2
+        let needed = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width }
+            + row.spacing * CGFloat(max(buttons.count - 1, 0))
+        guard needed > width else {
+            row.orientation = .horizontal
+            row.addArrangedSubview(NSView())
+            for button in buttons { row.addArrangedSubview(button) }
+            return row
+        }
+        row.orientation = .vertical
+        row.alignment = .leading
+        // The spec draws the primary button last (rightmost); stacked, it goes first (top).
+        for button in buttons.reversed() {
+            row.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: width).isActive = true
+        }
+        return row
+    }
+
+    /// A safe-default dialog's destructive choices: quiet text buttons, leading, on one line when they fit in
+    /// `width`, else one under another; never the card's width (they are not the answer to reach for).
+    private static func quietRow(_ buttons: [CmuxDialogButtonView], width: CGFloat) -> NSStackView {
+        let row = NSStackView(views: buttons)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.spacing = Metrics.space2
+        let needed = buttons.reduce(0) { $0 + $1.intrinsicContentSize.width } + row.spacing * CGFloat(max(buttons.count - 1, 0))
+        row.orientation = needed > width ? .vertical : .horizontal
+        row.alignment = row.orientation == .vertical ? .leading : .centerY
+        return row
     }
 
     /// Tab order closes on itself: the last control's next is the first.
@@ -238,7 +293,8 @@ public final class CmuxDialogView: NSView {
         label.preferredMaxLayoutWidth = width
         label.isSelectable = true
         label.focusRingType = .none
-        label.ink = role == .primary ? .primary : .secondary
+        // Fitted to the dialog's glass card, as its buttons are (GlassTextEveryThemeTests).
+        label.themeColor = role == .primary ? { Palette.sheetText(.primary) } : { Palette.sheetText(.secondary) }
         label.widthAnchor.constraint(equalToConstant: width).isActive = true
         return label
     }

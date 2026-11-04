@@ -7,9 +7,9 @@
 //! `peer_forward.rs` takes it to the daemon that owns it, and a peer that does not advertise
 //! [`FEATURE`] is refused before anything is sent.
 //!
-//! The old one-shot request is bounded to [`LEGACY_MAX_BYTES`] because it crosses the peer link as
-//! one WebSocket frame. New clients use the resumable methods below, whose chunks are bounded by
-//! [`CHUNK_BYTES`]: a file sent that way has no size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED
+//! The old one-shot request automatically uses the resumable upload path. Peer forwards split
+//! large requests into bounded frames; new clients stream with the resumable methods below, in
+//! chunks of [`CHUNK_BYTES`]. A file sent that way has no size cap (Leo, 2026-10-26: "I ALREADY SAID WE NEED
 //! ARBITARRILY LARGE FILES OF ANY TYPE"), only the disk it is written to.
 //!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
@@ -21,7 +21,7 @@
 use crate::rpc::RpcError;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +34,7 @@ pub(crate) mod web;
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
 /// `_acpmux/file_put_status`, finish `sha256`, `upload.*` reasons and `upload.diskFull`.
 pub const RESUME_FEATURE: &str = "uploadResume";
-/// The largest one-shot request accepted for compatibility with older peers.
+/// Largest one-shot frame sent to an older peer; larger files use chunked uploads.
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
 pub const CHUNK_BYTES: usize = 512 << 10;
@@ -209,15 +209,6 @@ fn windows_device_name(name: &str) -> bool {
             (chars.next(), chars.next()),
             (Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
         )
-}
-
-/// A one-shot `_acpmux/file_put` past [`LEGACY_MAX_BYTES`]: the resumable methods take it.
-fn too_large() -> RpcError {
-    RpcError::invalid_params(format!(
-        "a one-shot file_put is at most {} MiB: send a larger file with file_put_begin",
-        LEGACY_MAX_BYTES >> 20
-    ))
-    .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": LEGACY_MAX_BYTES}))
 }
 
 /// A chunk past the size its upload began with.
@@ -646,9 +637,8 @@ fn finished(path: &Path, size: u64, upload: &str) -> Value {
 }
 
 /// The request's `fileName` and `data` (base64) when they keep the contract, before anything is
-/// decoded or sent on: the daemon a request reaches first checks it, so no oversize frame goes
-/// over a peer link. (Not `name`: that names a session (`server::session_key`), and a forward to
-/// a peer drops it.)
+/// decoded or sent on: large peer forwards are split into resumable chunks. (Not `name`: that
+/// names a session (`server::session_key`), and a forward to a peer drops it.)
 pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
     let name = params
         .get("fileName")
@@ -662,9 +652,6 @@ pub fn check(params: &Value) -> Result<(&str, &str), RpcError> {
         .get("data")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("data (base64) is required"))?;
-    if decoded_len(data) > LEGACY_MAX_BYTES {
-        return Err(too_large());
-    }
     Ok((name, data))
 }
 
@@ -684,8 +671,8 @@ pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
 }
 
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
-/// so a one-shot file one byte past [`LEGACY_MAX_BYTES`] is refused here and never sent on.
-fn decoded_len(data: &str) -> usize {
+/// without materializing a second copy of the file.
+pub(crate) fn decoded_len(data: &str) -> usize {
     let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
     (data.len() / 4 * 3).saturating_sub(pad)
 }
@@ -828,24 +815,114 @@ pub(crate) fn upload_dir(session: &str, upload: &str) -> Option<PathBuf> {
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.
 /// Blocking: run it off the runtime.
 pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
-    use base64::Engine;
     let (name, data) = check(params)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data)
-        .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    let dir = session_dir(id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
-    let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save the file: {e}"));
-    crate::config::private_state_dir(&dir).map_err(failed)?;
-    let path = dir.join(uuid::Uuid::now_v7().to_string()).join(name);
-    crate::agent_tools::write_private(&path, &bytes).map_err(failed)?;
-    Ok(json!({"path": path.to_string_lossy()}))
+    let size = decoded_len(data) as u64;
+    let began = begin(id, &json!({"fileName": name, "size": size}))?;
+    let upload = began
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::internal("upload begin returned no id"))?;
+    let metadata = json!({"uploadId": upload, "fileName": name, "size": size});
+    let result = (|| {
+        let mut reader = base64::read::DecoderReader::new(
+            data.as_bytes(),
+            &base64::engine::general_purpose::STANDARD,
+        );
+        let mut buffer = vec![0; CHUNK_BYTES];
+        let mut offset = 0;
+        loop {
+            let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
+            if bytes.is_empty() {
+                break;
+            }
+            append(id, upload, offset, bytes)?;
+            offset += bytes.len() as u64;
+        }
+        finish(id, &metadata)
+    })();
+    if result.is_err() {
+        let _ = cancel(id, &metadata);
+    }
+    result
+}
+
+/// Decode only one bounded chunk, checking the tail too (including malformed empty inputs).
+fn legacy_chunk<'a>(
+    reader: &mut impl Read,
+    remaining: u64,
+    buffer: &'a mut [u8],
+) -> Result<&'a [u8], RpcError> {
+    let n = remaining.min(buffer.len() as u64) as usize;
+    let bytes =
+        buffer.get_mut(..n).ok_or_else(|| RpcError::internal("invalid upload chunk length"))?;
+    let invalid = |e: std::io::Error| RpcError::invalid_params(format!("data is not base64: {e}"));
+    if n == 0 {
+        let mut tail = [0];
+        if reader.read(&mut tail).map_err(invalid)? != 0 {
+            return Err(RpcError::invalid_params("data is not padded base64"));
+        }
+    } else {
+        reader.read_exact(bytes).map_err(invalid)?;
+    }
+    Ok(bytes)
+}
+
+/// Adapt a legacy request to the peer's resumable upload API. Only one decoded chunk and
+/// its wire encoding are held at a time, besides the caller's already-received legacy string.
+/// `header` has the resolved session and the forwarder's trusted provenance, without `data`.
+pub(crate) async fn forward_put(
+    peer: &crate::peer::Peer,
+    header: Value,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    use crate::rpc::method;
+    use base64::Engine as _;
+    if !peer.supports_file_put_chunks() {
+        return Err(peer_unsupported(peer));
+    }
+    let (name, data) = check(params)?;
+    let size = decoded_len(data) as u64;
+    let mut request = header;
+    request.set("fileName", json!(name));
+    request.set("size", json!(size));
+    let began = peer.request(method::MUX_FILE_PUT_BEGIN, request.clone()).await?;
+    let upload = began
+        .get("uploadId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::internal("peer upload begin returned no id"))?;
+    request.set("uploadId", json!(upload));
+    let result = async {
+        let mut reader = base64::read::DecoderReader::new(
+            data.as_bytes(),
+            &base64::engine::general_purpose::STANDARD,
+        );
+        let mut buffer = vec![0; CHUNK_BYTES];
+        let mut offset = 0;
+        loop {
+            let bytes = legacy_chunk(&mut reader, size - offset, &mut buffer)?;
+            if bytes.is_empty() {
+                break;
+            }
+            let mut chunk = request.clone();
+            chunk.set("offset", json!(offset));
+            chunk.set("data", json!(base64::engine::general_purpose::STANDARD.encode(bytes)));
+            peer.request(method::MUX_FILE_PUT_CHUNK, chunk).await?;
+            offset += bytes.len() as u64;
+        }
+        peer.request(method::MUX_FILE_PUT_FINISH, request.clone()).await
+    }
+    .await;
+    if result.is_err() {
+        let _ = peer.request(method::MUX_FILE_PUT_CANCEL, request).await;
+    }
+    result
 }
 
 /// The refusal for a peer that does not take `_acpmux/file_put`: the app answers that the chat
 /// takes no uploads.
 pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     RpcError::method_not_found(&format!(
-        "{} (peer {} runs acpmux build {}; run `acpmux host update {}`)",
+        "{} (peer {} runs acpmux build {}; run `acpmux machine update {}`)",
         crate::rpc::method::MUX_FILE_PUT,
         peer.name,
         peer.remote_build().unwrap_or_else(|| "unknown".into()),
@@ -915,16 +992,12 @@ mod tests {
     }
 
     #[test]
-    fn one_byte_past_the_cap_is_refused_before_it_is_sent() {
+    fn legacy_requests_past_the_old_cap_are_validated_without_decoding_the_file() {
         use base64::Engine;
-        let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
-        for n in [0, 1, 2, 3, 4, LEGACY_MAX_BYTES] {
-            assert_eq!(decoded_len(&encode(n)), n, "{n}");
-        }
-        for n in [LEGACY_MAX_BYTES + 1, LEGACY_MAX_BYTES + 2] {
-            let params = json!({"fileName": "big.bin", "data": encode(n)});
-            let err = check(&params).expect_err("past the cap");
-            assert_eq!(err.data.as_ref().unwrap()["reason"], "filePut.tooLarge", "{n}");
+        for n in [0, 1, 2, 3, 4, LEGACY_MAX_BYTES, LEGACY_MAX_BYTES + 1, LEGACY_MAX_BYTES + 2] {
+            let data = base64::engine::general_purpose::STANDARD.encode(vec![0u8; n]);
+            assert_eq!(decoded_len(&data), n);
+            assert!(check(&json!({"fileName": "big.bin", "data": data})).is_ok());
         }
     }
 

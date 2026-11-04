@@ -40,6 +40,7 @@ struct ScreensPage: View {
                     .accessibilityIdentifier("screens.rename.field")
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") { Task { await source.renameScreen(screen, to: screenName) } }
+                    .keyboardShortcut(.defaultAction)
             }
             // Close Screen's question when a tab on it is busy (the workspace's own is under this page).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
@@ -76,7 +77,7 @@ struct ScreensPage: View {
             .scrollContentBackground(.hidden)
         } else {
             ContentUnavailableView("No Screens Yet", systemImage: "rectangle.stack",
-                                   description: Text("\(source.macName) hasn't listed this workspace's screens yet."))
+                                   description: Text("\(source.macName) hasn't listed this workspace's screens."))
         }
     }
 
@@ -97,6 +98,7 @@ struct ScreensPage: View {
                     if !screen.isActive {
                         Button("Select Screen", systemImage: "checkmark.rectangle.stack") { Task { await source.selectScreen(screen) } }
                     }
+                    Button("Duplicate Screen", systemImage: "plus.square.on.square") { Task { await source.duplicateScreen(screen) } }
                     Button("Rename Screen…", systemImage: "pencil") {
                         // The current name, so Rename without typing keeps it.
                         screenName = screen.name

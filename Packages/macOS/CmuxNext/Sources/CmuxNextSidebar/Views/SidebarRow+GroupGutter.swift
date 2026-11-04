@@ -9,7 +9,7 @@ extension SidebarRow {
     /// (`SidebarSection.resolvingGroupDepths`): a stale stored depth or a missing parent draws at the top level.
     var indentLevel: Int {
         switch key {
-        case .workspace, .tab, .item, .doneFold, .showMore, .emptyGroup: group == nil ? 0 : max(1, depth)
+        case .workspace, .item, .doneFold, .showMore, .emptyGroup: group == nil ? 0 : max(1, depth)
         case .group: depth + 1
         default: 0
         }

@@ -112,6 +112,13 @@ public final class AddDeviceModel {
         }
     }
 
+    /// "Set up a new device" for a computer also offers Other Computer… (add by host name): the card
+    /// opens there when the network lists nothing, and a computer the person already reaches with
+    /// ssh needs no setup line (HQ #4877 break 5).
+    public var offersOtherComputer: Bool {
+        way == .newDevice && platform.setupLine != nil
+    }
+
     /// Runs a control (its click or its key). Returns true when the card should close.
     @discardableResult
     public func perform(_ action: AddDeviceAction) -> Bool {
@@ -144,6 +151,10 @@ public final class AddDeviceModel {
         case .makeJoinLine, .newJoinLine:
             mintJoinLine()
             return false
+        case .signIn:
+            services.signIn()
+            closeCard()
+            return true
         case .showMachines:
             services.showMachines()
             closeCard()
@@ -165,6 +176,8 @@ public final class AddDeviceModel {
         switch joinLine?.phase {
         case .showing: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .copyJoinLine, key: .return)]
         case .joined: [AddDeviceButton(action: .showMachines, key: nil), AddDeviceButton(action: .done, key: .return)]
+        // Signed out, a new line would be refused again: Sign In instead (msg 3790).
+        case .failed(.signedOut): [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .signIn, key: .return)]
         case .expired, .failed: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .newJoinLine, key: .return)]
         case .idle: [AddDeviceButton(action: .cancel, key: .escape), AddDeviceButton(action: .makeJoinLine, key: .return)]
         case .minting, nil: [AddDeviceButton(action: .cancel, key: .escape)]

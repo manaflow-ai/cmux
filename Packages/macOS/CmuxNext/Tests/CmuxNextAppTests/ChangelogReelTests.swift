@@ -60,8 +60,8 @@ import Testing
     @Test func thePagePolicyAdmitsTheReelFolder() throws {
         let store = ReleaseMediaStore(cache: FileManager.default.temporaryDirectory, bundledDirectories: [])
         let base = try #require(store.reelBase)
-        #expect(PageDescriptor.changelog.csp.media == [base.absoluteString])
-        #expect(PageDescriptor.changelog.csp.header.contains("media-src \(base.absoluteString)"))
+        #expect(PageDescriptor.changelog.csp.media == ["data:", base.absoluteString])
+        #expect(PageDescriptor.changelog.csp.header.contains("media-src data: \(base.absoluteString)"))
     }
 
     @Test func aBuildWithAReelLinksItsVideo() async throws {

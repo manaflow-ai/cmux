@@ -166,6 +166,31 @@ fn compaction_cuts_long_strings_and_keeps_every_field_a_reader_takes() {
     assert_eq!(store.compacted_seq("c1"), Some(15));
 }
 
+/// A tool result's image (a Claude Read of a PNG) is not cut to a broken prefix: its data goes
+/// whole, so the pane falls back to the image's path, and the call keeps its text and status.
+#[test]
+fn compaction_drops_a_long_image_whole_instead_of_cutting_it() {
+    let (_home, store) = Home::new();
+    closed(&store, "c2");
+    let image = json!({"type": "image", "mimeType": "image/png", "data": "A".repeat(4000)});
+    let small = json!({"type": "image", "mimeType": "image/png", "data": "QUFB"});
+    let update = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a",
+        "update": {"sessionUpdate": "tool_call_update", "toolCallId": "r1", "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text", "text": ""}},
+                    {"type": "content", "content": image}, {"type": "content", "content": small}]}}});
+    store.append("c2", &record(1, "in", "tool_call_update", update)).unwrap();
+    store.close_log("c2");
+    let staged =
+        store.stage_compaction("c2", CompactMode::Write { archive: None }).unwrap().unwrap();
+    assert!(store.commit_compaction("c2", staged).unwrap());
+    let after = log(&store, "c2");
+    let content = &after[0].msg["params"]["update"]["content"];
+    assert_eq!(content[0]["content"]["text"], "");
+    assert_eq!(content[1]["content"], json!({"type": "image", "mimeType": "image/png"}));
+    assert_eq!(content[2]["content"]["data"], "QUFB", "a small image stays");
+    assert_eq!(after[0].msg["params"]["update"]["status"], "completed");
+}
+
 #[test]
 fn a_compacted_closed_chat_is_never_taken_for_a_purged_one() {
     let (_home, store) = Home::new();

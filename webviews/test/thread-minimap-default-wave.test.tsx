@@ -52,6 +52,11 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 
+// This test checks the command's target, not its animation clock. Keep the step synchronous even
+// when another jsdom test has installed a different matchMedia implementation in the shared Bun
+// worker: reducedMotion() also honors the app's motion token.
+dom.window.document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+
 // jsdom has no layout: a 600 px viewport in a pane wide enough for any rail (1040 px).
 const VIEWPORT = 600;
 const PANE = 1040;
@@ -292,6 +297,23 @@ test("at rest the lit band glides as it moves (the wave); hover, scrub and Reduc
     expect(query).toBeGreaterThan(-1);
     // No block closes the query between it and the rule.
     expect(css.slice(query, at)).not.toMatch(/\}\s*\}/);
+  }
+});
+
+test("keyboard focus on a rail tick has a visible focus treatment", async () => {
+  const css = minimapCss();
+  const focus = /\.acpmux-minimap__tick:focus-visible\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  expect(focus).toMatch(/outline:.*var\(--cmux-focus-ring-width/);
+  expect(focus).toMatch(/outline-offset:\s*-1\.5px/);
+  expect(css).toMatch(
+    /@media \(prefers-contrast: more\)[\s\S]*\.acpmux-minimap__tick:focus-visible[\s\S]*outline-offset:\s*2px/,
+  );
+  const { host, root } = await render();
+  try {
+    expect(host.querySelector('[data-tick="2"]')?.getAttribute("data-focus-ring")).toBe("tick");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });
 

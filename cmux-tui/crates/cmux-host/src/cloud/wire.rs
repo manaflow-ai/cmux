@@ -21,8 +21,8 @@ pub const VM_KIND_FILE: &str = "/etc/cmux/vm-kind";
 pub const STATE_DIR: &str = "/var/lib/cmux";
 pub const INSTALL_KEY_FILE: &str = "/var/lib/cmux/install/key.json";
 pub const WG_KEY_FILE: &str = "/var/lib/cmux/wg/key.json";
-/// JSON lines `{"activity": {...}}`, `{"event": {...}}` or `{"resume": true}`
-/// (root and group cmux).
+/// JSON lines `{"activity": {...}}`, `{"acp_activity": {...}}`, `{"event": {...}}`
+/// or `{"resume": true}` (root and group cmux).
 pub const AGENT_SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
 /// Diagnostic: the last report's outcome (never a secret).
 pub const AGENT_STATE_FILE: &str = "/run/cmux-vm-agent/state.json";
@@ -37,11 +37,29 @@ pub const CLOUD_GATED_DAEMON_CAPABILITIES: [&str; 2] = ["fs-v1", "loopback-forwa
 pub const AGENT_CAPABILITY: &str = "vm-agent-v1";
 /// Advertised only while the activity stream to the daemon is live.
 pub const ACTIVITY_CAPABILITY: &str = "activity";
+/// Advertised with `activity` while acpmux's `acp_activity` lines arrive (each within
+/// [`ACP_ACTIVITY_TTL_MS`] of the last): the report's `active_sessions` also counts acpmux's
+/// sessions at work (a turn running, queued or waiting on a permission or question, a
+/// background task or subagent), and their agents' actions move `last_agent_action_at`. The
+/// Cloud short-idle-pauses a machine only when its report advertises this, so a chat mid-turn
+/// with no app attached is never paused, also not right after the agent restarted.
+pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds also says what
+/// each of its sessions at work waits on: the report's `activity.phases`
+/// (`{"relayed": bool, "turns": [{"phase", "since", ...}]}`, one entry per acpmux session at
+/// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
+/// its turns only from a report that advertises this (cmux#34298).
+pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// How long acpmux's count of sessions at work holds without a new `acp_activity` line
+/// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
+/// daemon that died mid-turn does not keep the machine awake for good.
+pub const ACP_ACTIVITY_TTL_MS: u64 = 90_000;
 /// The daemon capability that serves `subscribe-activity`.
 pub const DAEMON_ACTIVITY_CAPABILITY: &str = "vm-activity-v1";
 
 pub const STATUS_REPORT_OP: &str = "cloud.vm.status.report";
 pub const EVENT_EMIT_OP: &str = "cloud.vm.event.emit";
+pub const ATTENTION_EMIT_OP: &str = "cloud.vm.attention.emit";
 
 pub const VM_EVENT_KINDS: [&str; 9] = [
     "agent.started",
@@ -72,9 +90,19 @@ impl Env {
     /// The only API origin each environment may bind to.
     pub fn api_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-api-development.debussy.workers.dev",
-            Env::Stg => "https://cloud-api-staging.cmux.dev",
-            Env::Prod => "https://cloud-api.cmux.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
+            Env::Stg => cmux_cloud_environment::STAGING_API,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_API,
+        }
+    }
+
+    /// The connector owner for this environment. Socket callers cannot
+    /// choose an origin and redirect the machine's bearer elsewhere.
+    pub fn platform_origin(self) -> &'static str {
+        match self {
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_PLATFORM,
+            Env::Stg => cmux_cloud_environment::STAGING_PLATFORM,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_PLATFORM,
         }
     }
 
@@ -166,12 +194,20 @@ pub struct DaemonInfo {
 }
 
 impl DaemonInfo {
-    /// The same block with `activity` on (the stream is live) or off.
-    pub fn with_activity(&self, on: bool) -> DaemonInfo {
+    /// The same block with `activity` on (the stream is live) or off, `activity-turns` with it
+    /// while acpmux's count is known (`turns`), and `activity-phases` with that while acpmux's
+    /// phases are known too (`phases`).
+    pub fn with_activity(&self, on: bool, turns: bool, phases: bool) -> DaemonInfo {
         let mut capabilities: Vec<String> =
-            self.capabilities.iter().filter(|c| *c != ACTIVITY_CAPABILITY).cloned().collect();
+            self.capabilities.iter().filter(|c| !is_activity_capability(c)).cloned().collect();
         if on {
             capabilities.push(ACTIVITY_CAPABILITY.to_owned());
+            if turns {
+                capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
+                if phases {
+                    capabilities.push(ACTIVITY_PHASES_CAPABILITY.to_owned());
+                }
+            }
         }
         DaemonInfo { version: self.version.clone(), capabilities }
     }
@@ -179,6 +215,10 @@ impl DaemonInfo {
     pub fn to_json(&self) -> Value {
         json!({ "version": self.version, "capabilities": self.capabilities })
     }
+}
+
+fn is_activity_capability(c: &str) -> bool {
+    c == ACTIVITY_CAPABILITY || c == ACTIVITY_TURNS_CAPABILITY || c == ACTIVITY_PHASES_CAPABILITY
 }
 
 /// The daemon block from one `identify` answer's `data`: version plus the
@@ -216,6 +256,13 @@ pub struct Activity {
     pub active_sessions: u64,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
+    /// acpmux's `phases` block, while every daemon whose count holds sent one
+    /// ([`ACTIVITY_PHASES_CAPABILITY`]).
+    pub phases: Option<Value>,
+    /// When a person last prompted one of acpmux's chats (Unix ms), the newest any daemon sent:
+    /// the Cloud keeps the machine running for a while after it (cmux-platform `IdlePolicy.ts`,
+    /// the post-chat warm window).
+    pub last_person_prompt_at: Option<u64>,
 }
 
 impl Activity {
@@ -228,7 +275,34 @@ impl Activity {
         if let Some(at) = self.last_agent_action_at {
             out.insert("last_agent_action_at".to_owned(), json!(at));
         }
+        if let Some(phases) = &self.phases {
+            out.insert("phases".to_owned(), phases.clone());
+        }
+        if let Some(at) = self.last_person_prompt_at {
+            out.insert("last_person_prompt_at".to_owned(), json!(at));
+        }
         Value::Object(out)
+    }
+}
+
+impl Activity {
+    /// The report's activity from the daemon's (or the socket's `activity` lines) and acpmux's
+    /// sessions at work: the counts add up, the newest agent action wins, and acpmux's person's
+    /// prompt time rides along.
+    pub fn with_acp(
+        &self,
+        acp_sessions: u64,
+        acp_action_at: Option<u64>,
+        acp_phases: Option<Value>,
+        acp_prompt_at: Option<u64>,
+    ) -> Activity {
+        Activity {
+            active_sessions: self.active_sessions.saturating_add(acp_sessions),
+            last_user_input_at: self.last_user_input_at,
+            last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
+            phases: acp_phases,
+            last_person_prompt_at: acp_prompt_at,
+        }
     }
 }
 

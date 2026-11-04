@@ -39,7 +39,24 @@ actor FakeCloudDaemon: CloudConversationCommands {
         blobs["\(hash):\(variant.rawValue)"] = (bytes, mimeType)
     }
 
-    func inboxList(limit: Int) async throws -> CloudInboxList { CloudInboxList(entries: []) }
+    /// `cloud-inbox-list` pages by cursor ("" for the first page); none scripted: an empty inbox.
+    private var inboxPages: [String: CloudInboxList] = [:]
+    /// The cursor of each `cloud-inbox-list` call, in order.
+    private(set) var inboxCursors: [String?] = []
+
+    /// Cursors whose `cloud-inbox-list` fails as the Cloud not answering.
+    private var failingInboxCursors: Set<String> = []
+
+    func scriptInbox(_ pages: [String: CloudInboxList], failing: Set<String> = []) {
+        inboxPages = pages
+        failingInboxCursors = failing
+    }
+
+    func inboxList(cursor: String?) async throws -> CloudInboxList {
+        inboxCursors.append(cursor)
+        if failingInboxCursors.contains(cursor ?? "") { throw DaemonError.notConnected }
+        return inboxPages[cursor ?? ""] ?? CloudInboxList(entries: [])
+    }
 
     func snapshot(_ conversation: String, tail: Int) async throws -> CloudConversationSnapshot {
         throw DaemonError.notConnected

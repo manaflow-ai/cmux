@@ -322,3 +322,122 @@ fn a_corrupt_old_history_page_does_not_stop_the_open() {
     assert!(database.exists(), "the registry stays in place");
     let _ = fs::remove_dir_all(root);
 }
+
+/// The local feed's start trims its folded set against the notification
+/// receipts only: it read every stored receipt's outcome (a scan of all of
+/// resource_effect_receipts, 0.40 s cold of the 0.38 s restore step on a
+/// 41.6 GB registry, Lawrence 2026-10-30).
+#[test]
+fn feed_folded_trim_reads_only_notification_receipts() {
+    const RECEIPTS: usize = 2_000;
+    let registry = WorkspaceRegistry::in_memory("open-cost-feed-trim").unwrap();
+    // A folded notification whose receipt is still stored: the trim keeps
+    // it, and checking that is what reads the receipts.
+    let notification = "notif_0000000000000000000000000000feed";
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO resource_effect_receipts(
+               idempotency_key, operation, fingerprint, intent_json, state,
+               outcome_json, committed_revision
+             ) VALUES('notify-1', 'notification.create', '{}', '{}', 'committed', ?1, 1)",
+            [json!({"kind": "success", "value": {"id": notification}}).to_string()],
+        )
+        .unwrap();
+    registry
+        .connection
+        .get()
+        .execute(
+            "INSERT INTO feed_local_folded(notification_id, item_id, created_at_ms)
+             VALUES(?1, 'fi_00000000000000000000', 1)",
+            [notification],
+        )
+        .unwrap();
+    let trim_steps = |registry: &WorkspaceRegistry| {
+        let db = registry.connection.get();
+        vm_steps(&db, || {
+            let tx = db.unchecked_transaction().unwrap();
+            feed_local_store::trim_feed_local_folded(&tx).unwrap();
+            tx.commit().unwrap();
+        })
+    };
+    let empty = trim_steps(&registry);
+    finished_receipts(&registry, RECEIPTS);
+    let full = trim_steps(&registry);
+    let kept: i64 = registry
+        .connection
+        .get()
+        .query_row("SELECT COUNT(*) FROM feed_local_folded", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 1, "the trim keeps a folded notification whose receipt is stored");
+    assert!(
+        full.saturating_sub(empty) < 512,
+        "the feed trim reads receipts that are not notifications: {empty} -> {full} VM steps \
+         with {RECEIPTS} terminal receipts"
+    );
+}
+
+/// The closed-item history (reopen closed tab, screen, workspace) only grows
+/// until its bound and is read only to reopen: the open touches its tail and
+/// the maintenance worker checks it in full (2,630 groups, 4.5 MB: 90 ms of
+/// the 260 ms cold integrity check on a 41.6 GB registry, Lawrence
+/// 2026-10-30). A damaged old page stops the next open after the background
+/// check finds it, as for the other history tables.
+#[test]
+fn a_corrupt_old_closed_history_page_does_not_stop_the_open() {
+    const GROUPS: i64 = 3_000;
+    let root = temp_root("closed-history-corrupt");
+    let registry = WorkspaceRegistry::open(&root, "open-cost").unwrap();
+    let database = registry.session_journal_database_path().unwrap();
+    {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        for index in 1..=GROUPS {
+            tx.execute(
+                "INSERT INTO closed_groups(closed_id, kind, window_id, closed_at_ms, record_json)
+                 VALUES(?1, 'tab', NULL, ?2, ?3)",
+                params![
+                    format!("closed-{index:06}"),
+                    index,
+                    format!("{{\"marker\":\"closed-row-{index:06}\"}}")
+                ],
+            )
+            .unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    drop(registry);
+    let page_size = {
+        let connection = Connection::open(&database).unwrap();
+        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+        connection.query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0)).unwrap()
+    };
+    let mut bytes = fs::read(&database).unwrap();
+    let marker = b"closed-row-000100";
+    let offset = bytes.windows(marker.len()).position(|window| window == marker).unwrap();
+    let page_size = usize::try_from(page_size).unwrap();
+    let page_start = offset - offset % page_size;
+    bytes[page_start] = 0xff;
+    fs::write(&database, bytes).unwrap();
+
+    let reopened = WorkspaceRegistry::open(&root, "open-cost");
+    assert!(
+        reopened.is_ok(),
+        "a corrupt old closed history page stops the open: {:#}",
+        reopened.err().unwrap()
+    );
+    let reopened = reopened.unwrap();
+    let damaged = history_check::scan_background_checked_tables(&database).unwrap();
+    let (table, report) = damaged
+        .iter()
+        .find(|(table, _)| *table == "closed_groups")
+        .expect("the background check finds the damaged closed history page");
+    reopened.require_full_open_check(table, report).unwrap();
+    drop(reopened);
+    let Err(error) = WorkspaceRegistry::open(&root, "open-cost") else {
+        panic!("the full check of a damaged registry stops the open");
+    };
+    assert!(format!("{error:#}").contains("integrity check failed"), "{error:#}");
+    let _ = fs::remove_dir_all(root);
+}

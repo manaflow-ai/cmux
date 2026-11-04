@@ -11,8 +11,16 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
     case swatch(GroupColor)
     /// One emoji, drawn as text, on a chip of `chip` when set.
     case emoji(String, chip: GroupColor? = nil)
-    /// The front tab's favicon, drawn as is.
+    /// The front tab's favicon, drawn as `SidebarFaviconStyle` says (a low-contrast mono icon in the label colour).
     case favicon(SidebarFavicon)
+    /// A site whose page has no favicon (none, or not loaded yet): a neutral globe (``pagePlaceholderSymbol``) in the
+    /// secondary label colour, in the favicon's slot, so the title stays on the icon column; the favicon replaces it
+    /// when it loads (Lawrence default: "a site with no favicon gets a placeholder").
+    case pagePlaceholder
+
+    /// The SF Symbol ``pagePlaceholder`` draws, on every surface that shows a page's favicon (workspace rows, band
+    /// items, the hover card's tab rows).
+    public static let pagePlaceholderSymbol = "globe"
 
     /// This icon without the workspace's color (`sidebar.showColors` off): a swatch is no icon, a
     /// symbol is untinted and an emoji has no chip; a favicon is the page's own.
@@ -21,7 +29,18 @@ public nonisolated enum WorkspaceIcon: Hashable, Sendable {
         case .swatch: nil
         case let .symbol(name, _): .symbol(name, tint: nil)
         case let .emoji(text, _): .emoji(text, chip: nil)
-        case .favicon: self
+        case .favicon, .pagePlaceholder: self
+        }
+    }
+
+    /// The workspace color a swatch or a symbol's tint draws, for a row restored from the snapshot
+    /// (no `SidebarWorkspace.color` yet). Nil for an emoji: Reset Workspace Color keeps its chip
+    /// (`SidebarEdits`), so the chip cannot say the workspace still has a color.
+    public var color: GroupColor? {
+        switch self {
+        case let .swatch(color): color
+        case let .symbol(_, tint): tint
+        case .emoji, .favicon, .pagePlaceholder: nil
         }
     }
 

@@ -7,6 +7,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { ScrollArea as BaseScrollArea } from "@base-ui/react/scroll-area";
 import { cx } from "./cx";
+import { useScrollEdges } from "./scrollEdges";
 
 export interface ScrollAreaProps {
   /** Classes on the outer box (size, border, background). */
@@ -17,6 +18,8 @@ export interface ScrollAreaProps {
   viewportProps?: HTMLAttributes<HTMLDivElement>;
   /** Also draw a horizontal scrollbar (wide content such as code). */
   horizontal?: boolean;
+  /** Fade overflowing list rows at their vertical edges. */
+  fade?: boolean;
   children: ReactNode;
 }
 
@@ -26,23 +29,30 @@ const scrollbar =
 const thumb =
   "rounded-full bg-(--ui-scroll-thumb,color-mix(in_srgb,currentColor_32%,transparent)) " +
   "hover:bg-(--ui-scroll-thumb-hover,color-mix(in_srgb,currentColor_48%,transparent)) " +
-  // Base UI updates the thumb size through --scroll-area-thumb-{height,width}. Keep that size
-  // transition smooth when content changes, but follow a live pointer immediately while dragging.
-  "transition-[height,width,background-color] duration-(--cmux-motion-standard) ease-[cubic-bezier(0.22,1,0.36,1)] " +
-  "will-change-[height,width] data-scrolling:transition-none motion-reduce:transition-none";
+  // Base UI updates the thumb size through --scroll-area-thumb-{height,width}. Size changes
+  // apply immediately so the scrollbar never animates layout; only its colour uses the motion scale.
+  "transition-[background-color] duration-(--cmux-motion-standard) ease-(--cmux-ease-out) " +
+  "data-scrolling:transition-none motion-reduce:transition-none";
 
 export function ScrollArea({
   className,
   viewportClassName,
   viewportProps,
   horizontal = false,
+  fade = false,
   children,
 }: ScrollAreaProps) {
+  const edges = useScrollEdges();
   return (
     <BaseScrollArea.Root className={cx("relative min-h-0 min-w-0 overflow-hidden", className)}>
       <BaseScrollArea.Viewport
         {...viewportProps}
-        className={cx("h-full max-h-[inherit] w-full overscroll-contain outline-none", viewportClassName)}
+        ref={fade ? edges : undefined}
+        className={cx(
+          "h-full max-h-[inherit] w-full overscroll-contain outline-none",
+          fade && "ui-scroll-edge-fade",
+          viewportClassName,
+        )}
       >
         {/* Content is what Base UI watches for size changes: without it the thumb keeps its first size when
             the list grows or shrinks in place. Its default min-width (fit-content) would stop long rows from

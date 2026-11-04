@@ -558,10 +558,11 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         if (!scenario.toolEnding) expect(Math.abs(moved)).toBeLessThanOrEqual(1);
         else {
           // A finished turn folds its tool rows into "Worked for" above the reply (80e6a34d0b9c,
-          // on purpose): the tool row that ran after the reply leaves from under it, so the reply
-          // drops by what went from under it, once, in the settle's frame, and rests there.
+          // on purpose): whatever ran after the reply leaves from under it, so the reply drops by
+          // what went from under it, once, in the settle's frame, and rests there. The live line
+          // holds the finished call until the turn ends (Leo, 2026-11-01: "it should just keep
+          // going"), and the footer takes the line's place at its height, so that may be nothing.
           const left = before!.under! - after!.under!;
-          expect(left).toBeGreaterThan(20);
           expect(Math.abs(moved - left)).toBeLessThanOrEqual(1);
           const rested = measured.filter((frame) => frame.settled).map((frame) => frame.messageBottom!);
           expect(Math.max(...rested) - Math.min(...rested)).toBeLessThanOrEqual(1);

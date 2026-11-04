@@ -76,9 +76,8 @@ impl Hub {
             .remote_sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .filter(|r| r.peer == peer)
-            .map(|r| r.summary.clone())
+            .of_peer(peer)
+            .map(|(_, r)| r.summary.clone())
             .collect();
         let link = p.link();
         let saved = Saved {
@@ -111,7 +110,7 @@ impl Hub {
         peer.cache_saved_outage
             .store(saved.down_since.is_some(), std::sync::atomic::Ordering::SeqCst);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if map.values().any(|r| r.peer == peer.name) {
+        if map.has_peer(&peer.name) {
             return;
         }
         for mut summary in saved.sessions {
@@ -141,6 +140,20 @@ impl Hub {
         // current (under this lock) has sent its op already and none after it does, so no
         // listing that lets a page start a copy again comes after this.
         self.peer_snapshots.forget_peer(peer);
+    }
+
+    /// A peer `name` that is registered but whose link is down, having listed `rows` and taken
+    /// attachments before it went: what a server test sends to while the peer is unreachable.
+    #[cfg(test)]
+    pub(crate) fn seed_down_peer(&self, name: &str, rows: Vec<Value>) -> Arc<crate::peer::Peer> {
+        use crate::peer::PeerNotice;
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
+        peer.seed_send_attach(true);
+        self.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(rows));
+        self.apply_peer_notice(name, peer.generation, PeerNotice::Disconnected("down".into()));
+        peer
     }
 
     /// The refusal for `PEER/name` when PEER is a peer that is down and

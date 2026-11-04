@@ -79,6 +79,10 @@ describe("Cloud plan entitlements in the production config", () => {
     expect(teamPlan(config, null)).toBeNull()
   })
 
+  it("CLOUD_ALLOWED_TEAMS \"*\" gives no stub plan in production", () => {
+    expect(teamPlan(productionWith({ CLOUD_ALLOWED_TEAMS: "*" }, {}), "team_unpaid")).toBeNull()
+  })
+
   it("an unknown plan id is no plan", () => {
     expect(teamPlan(productionWith({}, { team_x: "enterprise" }), "team_x")).toBeNull()
   })
@@ -109,5 +113,10 @@ describe("Cloud plan entitlements in the production config", () => {
     const vars = productionVars()
     if (!entitlementsOn(vars)) return
     expect(canCreate({ ...vars, CLOUD_FREESTYLE_API_KEY: "secret-name-only", CLOUD_VM_API_SERVICE_KEY: "secret-name-only" }), "CLOUD_PLAN_ENTITLEMENTS is on in production, but production has no Cloud image or provider").toBe(true)
+  })
+
+  it("production names the production VM API origin, so Native network target owner checks can answer", () => {
+    // cmux-platform reads the mesh with its own key and requires this origin to match its own (vm.cmux.dev).
+    expect(productionVars().CLOUD_VM_API_ORIGIN).toBe("https://vm.cmux.dev")
   })
 })

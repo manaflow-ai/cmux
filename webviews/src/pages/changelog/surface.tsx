@@ -6,12 +6,15 @@
 // Updated card also reads the notes of every build the update spans (`cmux.changelog.list` and
 // `get`, the page's own ChangelogStore), so it sums up skipped nightlies too.
 import { createRoot } from "react-dom/client";
+import { languageDirection, UiProvider } from "../../ui/UiProvider";
+import { routeChipHost } from "./ChangePullRequest";
 import { CARD_SCROLL_ATTRIBUTE } from "../../scrollers";
+import { NATIVE_GLASS_ATTRIBUTE } from "../../ui/glass/glassState";
 import type { PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
-import type { IndexEntry, ReleaseNotes } from "./types";
+import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 import "../shared/pageBase.css";
@@ -35,9 +38,13 @@ export function parseSurface(hash: string): SurfaceKind | null {
 }
 
 export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client: PageClient | null): void {
+  routeChipHost(client);
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.documentElement.dataset.surface = kind;
+  // The sidebar draws the Updated card's glass natively under this page (SidebarUpdatedCardHost):
+  // the lens draws no wallpaper copy over it, not even around a tooltip's glass.
+  if (kind === "updated") document.documentElement.setAttribute(NATIVE_GLASS_ATTRIBUTE, "");
   const call = (op: string, params: unknown = {}) => void client?.call(op, params).catch(() => undefined);
   const actions: UpdateSurfaceActions =
     kind === "updated"
@@ -62,35 +69,42 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   const render = (data: UpdateHighlights | null) => {
     latest = data;
     react.render(
-      data === null ? null : kind === "ready" ? (
-        <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
-      ) : (
-        <UpdatedCard
-          data={data}
-          span={spans?.notes(data.changelog)}
-          builds={spans?.builds}
-          strings={strings}
-          actions={actions}
-          closeButton={false}
-        />
-      ),
+      <UiProvider container={root} dir={languageDirection(strings.language)} overlayPosition="fixed">
+        {data === null ? null : kind === "ready" ? (
+          <UpdateReadyHighlights data={data} strings={strings} actions={actions} />
+        ) : (
+          <UpdatedCard
+            data={data}
+            span={spans?.notes(data.changelog)}
+            strings={strings}
+            actions={actions}
+            closeButton={false}
+            glass={false}
+          />
+        )}
+      </UiProvider>,
     );
     // The new rows exist after React's commit: size them from the next frame on.
     requestAnimationFrame(observeCard);
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
   // A scrolling card (the popover) reports its whole content, not the part the page view shows.
-  let reported = -1;
+  // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
+  // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
+  let reported = "";
   const sizer = new ResizeObserver(() => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
     const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
-    if (height === reported) return;
-    reported = height;
-    call(SurfaceOps.size, { height });
+    const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
+    const key = `${height}x${width}`;
+    if (key === reported) return;
+    reported = key;
+    call(SurfaceOps.size, { height, width });
   });
   sizer.observe(root);
   const observeCard = () => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    if (card) sizer.observe(card);
     for (const child of card?.children ?? []) sizer.observe(child);
   };
   if (!client) return;
@@ -105,9 +119,6 @@ class SpanNotes {
   private key = "";
   private store: ChangelogStore | null = null;
   private settled: ReleaseNotes[] | undefined;
-  /** The channel's published builds (the notes index), newest first, once listed: the card says how
-      far the installed build is from the newest. */
-  builds: IndexEntry[] | undefined;
 
   constructor(
     private readonly client: PageClient,
@@ -123,23 +134,12 @@ class SpanNotes {
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
     this.settled = undefined;
-    this.builds = undefined;
     const store = new ChangelogStore(this.client);
     this.store = store;
-    // The index is the store's first answer (`list`): the build line shows its place at once, not
-    // after every note of the span has loaded.
-    const listed = store.subscribe(() => {
-      const { builds } = store.getSnapshot();
-      if (this.store !== store || builds.length === 0) return;
-      listed();
-      this.builds = builds;
-      this.onChange();
-    });
     void store
       .start(span)
       .then(() => store.firstScreen())
       .then(() => {
-        listed();
         if (this.store !== store) return;
         const snapshot = store.getSnapshot();
         const notes = snapshot.inSpan.flatMap((build) => snapshot.loaded[build] ?? []);

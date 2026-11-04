@@ -3,7 +3,10 @@
 // the person already left is dropped.
 import { isPageError, type PageClient } from "../shared/pageClient";
 import {
+  ACTION_RUN,
+  ArtifactsActions,
   ArtifactsOps,
+  SIGNED_OUT,
   type ArtifactCommit,
   type ArtifactFile,
   type ArtifactHistory,
@@ -14,6 +17,7 @@ import {
 export const MAX_FOLDERS = 200;
 /** Folder reads in flight at once. */
 const FOLDER_READS = 4;
+const AUTH_WATCH = "cmux.cloud.auth.watch";
 /** Revisions shown for a file. */
 export const HISTORY_LIMIT = 50;
 
@@ -49,6 +53,8 @@ export class ArtifactsStore {
   private listeners = new Set<() => void>();
   private treeRequest = 0;
   private fileRequest = 0;
+  private watchingAuth = false;
+  private unwatchAuth?: () => void;
   /** The head the chosen file was last read at; a refresh at another head reads it again. */
   private fileHead?: string;
 
@@ -67,6 +73,7 @@ export class ArtifactsStore {
    */
   async start(): Promise<void> {
     if (!this.client) return this.set({ ...INITIAL, status: "unavailable" });
+    await this.watchAuth();
     const request = ++this.treeRequest;
     // A refresh keeps the tree on screen until the new one arrives.
     if (this.snapshot.status !== "ready") this.set({ status: "loading", failure: undefined });
@@ -81,7 +88,68 @@ export class ArtifactsStore {
     } catch (error) {
       if (request !== this.treeRequest) return;
       const failure = failureOf(error);
-      this.set({ status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed", failure, paths: [] });
+      // A refresh that fails keeps the tree it had on screen; the next one tries again. Signed out
+      // (or nothing saved any more) drops it, so another account's tree never stays up.
+      const keep = !["cmux.artifacts.not_found", SIGNED_OUT].includes(failure.code);
+      if (this.snapshot.status === "ready" && keep) return;
+      this.fileRequest += 1;
+      this.fileHead = undefined;
+      this.set({
+        status: failure.code === "cmux.artifacts.not_found" ? "empty" : "failed",
+        failure,
+        paths: [],
+        truncated: false,
+        headSha: undefined,
+        selected: undefined,
+        file: undefined,
+        fileLoading: false,
+        fileFailure: undefined,
+        history: [],
+        selectedCommit: undefined,
+        diff: undefined,
+      });
+    }
+  }
+
+  /** Runs the app's Sign In. The auth watch reads the tree again once the person is signed in. */
+  async signIn(): Promise<void> {
+    try {
+      await this.client?.call(ACTION_RUN, { action: ArtifactsActions.signIn });
+    } catch {
+      // The app shows its own error for a sign-in that did not start; the page stays as it is.
+    }
+  }
+
+  /** Drop the old account's tree and preview as soon as the host reports an auth change. */
+  private async watchAuth(): Promise<void> {
+    if (!this.client || this.unwatchAuth || this.watchingAuth) return;
+    this.watchingAuth = true;
+    try {
+      const unwatch = await this.client.subscribe(AUTH_WATCH, () => {
+        this.treeRequest += 1;
+        this.fileRequest += 1;
+        this.fileHead = undefined;
+        this.set({
+          status: "loading",
+          failure: undefined,
+          paths: [],
+          truncated: false,
+          headSha: undefined,
+          selected: undefined,
+          file: undefined,
+          fileLoading: false,
+          fileFailure: undefined,
+          history: [],
+          selectedCommit: undefined,
+          diff: undefined,
+        });
+        void this.start();
+      });
+      this.unwatchAuth = unwatch;
+    } catch {
+      // Older hosts have no auth stream; visibility refresh still remains available.
+    } finally {
+      this.watchingAuth = false;
     }
   }
 
@@ -115,7 +183,7 @@ export class ArtifactsStore {
         ),
       ]);
       if (request !== this.fileRequest) return;
-      this.set({ file, history: history.commits, fileLoading: false });
+      this.set({ file, history: history.commits, fileLoading: false, fileFailure: undefined });
       const newest = history.commits[0];
       // Read at this head only once its newest change shows too; otherwise a refresh tries again.
       if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;

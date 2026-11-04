@@ -225,7 +225,7 @@ impl LocalStore {
             write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
-                w.close(id);
+                w.close(id, &self.sync_failed);
             }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.
@@ -309,6 +309,15 @@ fn cut_long_strings(value: &mut Value) -> bool {
             true
         }
         Value::Array(items) => items.iter_mut().fold(false, |cut, v| cut_long_strings(v) | cut),
+        // An image's base64 cut short draws as a broken image: it goes whole, so the pane falls
+        // back to the image's path, as before tool results kept their images.
+        Value::Object(fields)
+            if fields.get("type").and_then(Value::as_str) == Some("image")
+                && fields.get("data").and_then(Value::as_str).is_some_and(|d| d.len() > LONG) =>
+        {
+            fields.remove("data");
+            true
+        }
         Value::Object(fields) => {
             fields.values_mut().fold(false, |cut, v| cut_long_strings(v) | cut)
         }

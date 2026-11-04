@@ -17,6 +17,9 @@ mod context_window;
 // The account's plan usage limits a Claude chat reports, which share these helpers too.
 #[path = "usage_limits.rs"]
 mod usage_limits;
+// What a Claude chat spent and holds, read from its transcript, which shares these helpers too.
+#[path = "usage_stats.rs"]
+mod usage_stats;
 // Claude's todo list as an ACP plan, which shares these helpers too.
 #[path = "todo_plan.rs"]
 mod todo_plan;
@@ -26,6 +29,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// Claude Code's turns of its own, which the person did not start, which share these helpers too.
+#[path = "background_turns.rs"]
+mod background_turns;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
@@ -38,6 +44,9 @@ mod processes;
 #[cfg(unix)]
 #[path = "codex_processes.rs"]
 mod codex_processes;
+#[cfg(unix)]
+#[path = "codex_usage_limits.rs"]
+mod codex_usage_limits;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
@@ -52,6 +61,9 @@ mod turn_usage;
 // A fork of a chat whose turn runs, which shares these helpers too.
 #[path = "fork_running.rs"]
 mod fork_running;
+
+#[path = "fork_before.rs"]
+mod fork_before;
 
 const FORK_OP: &str = "acp.session.fork";
 

@@ -94,9 +94,10 @@ public final class MacScreenApprovalPrompt {
         }
     }
 
-    private func settle(_ id: String, hub: DeviceHub) {
+    func settle(_ id: String, hub: DeviceHub) {
         settled.insert(id)
-        current = nil
+        // Keep the old request until update observes the transition to no request. Clearing it
+        // here made update's nil == nil guard skip closing the last request's panel.
         update(hub.pendingRequests)
     }
 

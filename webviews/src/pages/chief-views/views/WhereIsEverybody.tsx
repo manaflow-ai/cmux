@@ -3,6 +3,7 @@
 // the same order (what needs you first) and the same filter, plus each agent's folder, the time
 // since its last output and its pull request.
 import { useMemo, useState } from "react";
+import { Input } from "../../../ui/Input";
 import { branchPRs, byMachine, stateCounts } from "../model";
 import { AgentRow, agentsOf, Loaded, machineLabel, stateKey, StateMark } from "../parts";
 import type { ChiefViewProps } from "../registry";
@@ -29,7 +30,8 @@ export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgen
             </li>
           ))}
         </ul>
-        <input
+        <Input
+          size="sm"
           className="cv-filter"
           type="search"
           value={filter}

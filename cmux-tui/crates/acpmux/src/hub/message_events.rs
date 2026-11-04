@@ -1,6 +1,7 @@
 //! Durable message projections, repaired from accepted prompt records after a restart.
 
 use super::*;
+use cmux_json::JsonSet as _;
 
 #[derive(Clone)]
 pub(super) struct MessageContext {
@@ -94,15 +95,18 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
     // describe the parent's delivery and must never recreate a sender-side copy in the child.
     // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
     let mut inherited = session.meta().fork_seq.is_some();
-    let _ =
-        hub.store.scan_kinds(&session.id, &["queued", "user_message", "forked"], &mut |record| {
+    let _ = hub.store.scan_kinds(
+        &session.id,
+        &["queued", "user_message", "inbox", "forked"],
+        &mut |record| {
             if inherited {
                 if record.kind == "forked" {
                     inherited = false;
                 }
                 return true;
             }
-            if !matches!(record.kind.as_str(), "queued" | "user_message") {
+            // An inbox message (`inbox.rs`) is accepted as a queued one is, under its own kind.
+            if !matches!(record.kind.as_str(), "queued" | "user_message" | "inbox") {
                 return true;
             }
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
@@ -110,7 +114,8 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             };
             collect_message_contexts(&provenance, &session.id, &mut pending);
             true
-        });
+        },
+    );
     for message in pending {
         append_or_repair(hub, &session.id, &message, None);
         if message.record_sender_copy && message.sender_session != session.id {
@@ -234,6 +239,34 @@ pub(super) fn message_context(
     })
 }
 
+/// Remembers which message `prompt_id`'s acceptance named on `session` (`Session::kept_messages`).
+pub(super) fn keep_message(session: &Session, prompt_id: &str, message: &MessageContext) {
+    let mut kept = session.kept_messages.lock().unwrap_or_else(|e| e.into_inner());
+    kept.retain(|(id, _, _)| id != prompt_id);
+    kept.push_back((
+        prompt_id.to_owned(),
+        message.message_id.clone(),
+        message.sender_session.clone(),
+    ));
+    while kept.len() > super::session::KEPT_MESSAGES {
+        kept.pop_front();
+    }
+}
+
+/// Names on a duplicate's acceptance the message `prompt_id`'s first acceptance named, when the
+/// session still remembers it: a direct send that came after its `send_queue` copy was accepted
+/// hears the kept message, as the first send did (`server/peer_forward.rs` `kept_another`).
+pub(super) fn name_kept_message(accepted: &mut Value, session: &Session, prompt_id: &str) {
+    let kept = session.kept_messages.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((_, message_id, sender)) = kept.iter().rev().find(|(id, _, _)| id == prompt_id) else {
+        return;
+    };
+    if let Some(fields) = accepted.as_object_mut() {
+        fields.insert("messageId".to_owned(), Value::String(message_id.clone()));
+        fields.insert("messageSenderId".to_owned(), Value::String(sender.clone()));
+    }
+}
+
 /// The acceptance `_acpmux/prompt_accepted` carries names the message this journal kept and its
 /// sender's session, so a peer forwarding the prompt records its sender's copy only for that
 /// message: every send of one prompt id to one chat (a direct send and its `send_queue` retry,
@@ -253,7 +286,7 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(id) = sender.get("sessionId").and_then(Value::as_str) else { return };
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
-    provenance["sessionId"] = json!(id);
+    provenance.set("sessionId", json!(id));
     opts.provenance = Some(provenance);
 }
 

@@ -165,12 +165,19 @@ public struct DaemonLauncher: Sendable {
     /// state in `stateDirectory`, shared by every build of one account. It
     /// spawns no terminals, so `server ensure` gets the process environment
     /// without any app or terminal identity, and it is never handed off to a
-    /// connecting build's binary.
+    /// connecting build's binary for being another build; only once an update
+    /// deleted its executable (`ChiefConversationOwner.restartIfReplaced`).
+    ///
+    /// `ownerEnvironment`, when given, replaces `processEnvironment` as the base of the owner's
+    /// environment and runs only when `server ensure` spawns an owner, never here: the Chief's
+    /// (`ChiefConversationOwner.ownerEnvironment`) checks the acpmux executable's signature, a
+    /// read of the whole file that held the main thread 2.86 s at launch.
     public static func forChief(
         session: String,
         stateDirectory: URL,
         bundle: Bundle = .main,
-        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        ownerEnvironment: (@Sendable () async -> [String: String])? = nil
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
         // An unsigned (DEV) build proves it is the app to an owner it started with this home's
@@ -180,17 +187,27 @@ public struct DaemonLauncher: Sendable {
         let installKey = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)?.loadOrCreate()
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           installKey: installKey, binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+        if let ownerEnvironment {
+            return DaemonLauncher(configuration: configuration, environment: { chiefEnvironment(await ownerEnvironment()) })
+        }
         let environment = chiefEnvironment(processEnvironment)
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }
 
     /// The Chief owner's `server ensure` environment: the user's basic
     /// variables only, never a build's `CMUX_*` identity; the brain's tools socket (chief.*) and
-    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`).
+    /// what the owner needs to run the other Chiefs' brains (`CMUX_TUI_CHIEF_BRAINS`). Also the
+    /// R-LIFECYCLE keepers switch from the app's launch knob (``DaemonDiagnosticKnobs``): the Chief
+    /// owner follows the same rule as the app's own daemon, so its off switch must reach it too.
     static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
         let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL", "CMUX_TUI_CHIEF_TOOLS_SOCKET",
                     "CMUX_TUI_CHIEF_BRAINS"]
-        return base.filter { kept.contains($0.key) }
+        var environment = base.filter { kept.contains($0.key) }
+        let knobs = DaemonDiagnosticKnobs(processEnvironment: base).daemonEnvironment
+        if let keepers = knobs[DaemonDiagnosticKnobs.ownerKeepersDaemonName] {
+            environment[DaemonDiagnosticKnobs.ownerKeepersDaemonName] = keepers
+        }
+        return environment
     }
 
     /// The app launcher's `server ensure` environment: the login

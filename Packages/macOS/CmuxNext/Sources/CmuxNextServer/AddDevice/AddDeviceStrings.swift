@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Text of the Add Device card (Resources/AddDevice.xcstrings). Plain words for a person who
@@ -33,6 +34,8 @@ public nonisolated struct AddDeviceStrings {
     static var networkHelp: String {
         s("addDevice.network.help", "Pick a computer to run your agents on it. cmux installs what it needs and checks each step.")
     }
+    /// Before Add: enroll reaches the computer with ssh in batch mode, so a password prompt fails it.
+    static var sshKeyHint: String { s("addDevice.network.sshKeyHint", "It needs ssh that signs in with a key, not a password.") }
     static var networkLoading: String { s("addDevice.network.loading", "Looking for your computers…") }
     static var networkEmpty: String {
         s("addDevice.network.empty", "Every computer on your network is already added. Set up a new device instead.")
@@ -50,6 +53,10 @@ public nonisolated struct AddDeviceStrings {
 
     static var newDeviceHelp: String {
         s("addDevice.newDevice.help", "Run this line on the new computer. It installs cmux and shows a code with four words; then choose “It shows a code”.")
+    }
+    /// Beside Other Computer… on "Set up a new device": a computer already reached with ssh needs no line.
+    static var otherComputerHint: String {
+        s("addDevice.newDevice.otherComputerHint", "Already reach it with an ssh key? Add it by name.")
     }
     static var phoneHelp: String {
         s("addDevice.newDevice.phone", "Open cmux on your iPhone and sign in with this account. The first time it connects, this Mac asks you to allow it.")
@@ -69,6 +76,7 @@ public nonisolated struct AddDeviceStrings {
         case .copyJoinLine: copied ? s("addDevice.copied", "Copied") : s("addDevice.copyLine", "Copy Line")
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
+        case .signIn: SignInButton.defaultTitle
         case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .done: s("addDevice.done", "Done")
         case .cancel: s("addDevice.cancel", "Cancel")

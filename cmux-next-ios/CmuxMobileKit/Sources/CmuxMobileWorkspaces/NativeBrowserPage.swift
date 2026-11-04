@@ -67,6 +67,9 @@ struct NativeBrowserPage: View {
                         .accessibilityIdentifier("browser.native.mirror")
                 }
             }
+            // Both actions are capsules of one height, whatever the title length.
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
             .padding(.top, 4)
         }
         .padding(24)
@@ -83,6 +86,10 @@ struct NativeBrowserPage: View {
     }
 
     static func detail(_ problem: BrowserTabModel.Problem, macName: String) -> String {
+        // The Mac's own words ("Nothing is listening on port 3000 on this Mac."), named.
+        if let detail = problem.detail {
+            return detail.replacingOccurrences(of: "this Mac", with: macName).replacingOccurrences(of: "the Mac", with: macName)
+        }
         if problem.isInsecure {
             return String(localized: "It isn't a secure (https) page, and iOS opens only secure pages in cmux. \(macName)'s mirrored page can show it.")
         }

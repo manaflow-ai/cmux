@@ -129,10 +129,11 @@ public final class GhosttyRuntime {
         configDiagnostics = diagnostics
     }
 
-    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
+    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`). The caller hands over
+    /// its own clone of it (`GhosttyActionDecoder`), which this keeps and later frees.
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
         adoptedDuringReload = true
-        replaceConfig(ghostty_config_clone(applied))
+        replaceConfig(applied)
     }
 
     private func replaceConfig(_ fresh: ghostty_config_t?) {

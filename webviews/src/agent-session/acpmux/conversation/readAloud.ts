@@ -39,9 +39,12 @@ export function setReadAloudState(value: unknown): void {
 }
 
 /// Reads `text` (Markdown) aloud as message `id`, in `lang`; stops instead when `id` is being read.
-export function readAloud(id: string, text: string, lang?: string): void {
+export function readAloud(id: string, text: string, paneLanguage?: string): void {
   if (!canReadAloud()) return;
   const again = speaking === id;
+  // The voice follows the message's script when it is not the pane's (a Japanese reply under an
+  // English pane would go to an English voice).
+  const lang = again ? paneLanguage : spokenLanguage(spokenText(text), paneLanguage);
   if (hosted) {
     // Drawn at once; the app's next `readAloud` event is the truth (a refusal clears it).
     set(again ? undefined : id);
@@ -105,6 +108,58 @@ function followEscape(on: boolean) {
   escapeOn = on;
   if (on) window.addEventListener("keydown", onEscape, true);
   else window.removeEventListener("keydown", onEscape, true);
+}
+
+// Scripts that name their language well enough to pick a voice, tested on letters only (digits and
+// punctuation of a script's block, such as Arabic-Indic digits, say nothing about the language). Latin
+// text cannot tell English from Spanish by its letters, so it keeps the pane's language.
+const SCRIPTS = [
+  { id: "kana", pattern: /^[\p{scx=Hiragana}\p{scx=Katakana}]$/u, language: "ja", family: ["ja"] },
+  { id: "hangul", pattern: /^\p{scx=Hangul}$/u, language: "ko", family: ["ko"] },
+  // Han alone is ambiguous between Japanese and Chinese: a pane in either keeps its own voice.
+  { id: "han", pattern: /^\p{scx=Han}$/u, language: "zh-CN", family: ["zh", "yue", "ja"] },
+  {
+    id: "cyrillic",
+    pattern: /^\p{scx=Cyrillic}$/u,
+    language: "ru",
+    family: ["ru", "uk", "bg", "sr", "be", "mk", "kk"],
+  },
+  { id: "arabic", pattern: /^\p{scx=Arabic}$/u, language: "ar", family: ["ar", "fa", "ur"] },
+  { id: "hebrew", pattern: /^\p{scx=Hebrew}$/u, language: "he", family: ["he"] },
+  { id: "thai", pattern: /^\p{scx=Thai}$/u, language: "th", family: ["th"] },
+  { id: "greek", pattern: /^\p{scx=Greek}$/u, language: "el", family: ["el"] },
+  { id: "devanagari", pattern: /^\p{scx=Devanagari}$/u, language: "hi", family: ["hi", "mr", "ne"] },
+] as const;
+
+/// The language to speak `text` in: the pane's `fallback` unless the text's letters are mostly another
+/// script (a Japanese reply read by an English voice is noise). Kana marks Japanese even among Han
+/// characters; a fallback in the same script's family (zh-Hant for Han text) is kept.
+export function spokenLanguage(text: string, fallback?: string): string | undefined {
+  let letters = 0;
+  const counts = new Map<string, number>();
+  for (const [letter] of text.matchAll(/\p{L}/gu)) {
+    letters++;
+    const script = SCRIPTS.find((candidate) => candidate.pattern.test(letter));
+    if (script) counts.set(script.id, (counts.get(script.id) ?? 0) + 1);
+  }
+  if (!letters) return fallback;
+  // Japanese mixes Han with kana, which Chinese has none of, so with enough kana among the CJK letters
+  // the Han are Japanese too. A stray quoted kana word in a Chinese sentence is too few to turn it.
+  const kana = counts.get("kana") ?? 0;
+  const han = counts.get("han") ?? 0;
+  const japanese = kana > 0 && kana * 5 >= kana + han;
+  if (japanese) counts.set("kana", kana + han);
+  let best: (typeof SCRIPTS)[number] | undefined;
+  let bestCount = 0;
+  for (const script of SCRIPTS) {
+    if (script.id === "han" && japanese) continue;
+    const count = counts.get(script.id) ?? 0;
+    if (count > bestCount) [best, bestCount] = [script, count];
+  }
+  // Under a third of the letters is a quoted word or name, not the message's language.
+  if (!best || bestCount * 3 < letters) return fallback;
+  const base = fallback?.split("-")[0]?.toLowerCase();
+  return base && (best.family as readonly string[]).includes(base) ? fallback : best.language;
 }
 
 /// Markdown as it should be heard: link and image text without their addresses, no emphasis or

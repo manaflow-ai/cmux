@@ -1,10 +1,14 @@
 #if os(iOS)
 import CmuxMobileArtifacts
+public import CmuxMobileRealtime
 import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
 import Observation
+import OSLog
 import UIKit
+
+private let modelLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 
 /// The terminal screen's state, shared by the UIKit controller (surface,
 /// scrolling, keyboard tracking) and the SwiftUI chrome (toolbar, composer,
@@ -12,6 +16,8 @@ import UIKit
 @MainActor
 @Observable
 public final class TerminalModel {
+    /// Recovery supplied by the shell: retries the owning Mac and its attach.
+    public var reconnect: (@MainActor () async -> Void)?
     public let session: any TerminalSession
     public let artifactSource: any ArtifactSource
 
@@ -30,6 +36,9 @@ public final class TerminalModel {
 
     // Composer
     public var composerText = ""
+    /// Voice mode on this terminal's agent (set by the shell); the composer's
+    /// voice button shows only when there is one.
+    public var voiceSource: (any AgentVoiceSource)?
     var composerFocused = false
     /// Incremented to ask the composer field to take focus.
     var composerFocusRequest = 0
@@ -317,6 +326,79 @@ public final class TerminalModel {
         keyBar(.chord(letter))
     }
 
+    /// Clear Screen and Scrollback can run now: on a Mac terminal while it is attached
+    /// (as on the Mac, a full-screen app is left as it is), else as Ctrl-L.
+    public var canClearScreenAndScrollback: Bool {
+        session.clearsHistory ? connectionState.isAttached : true
+    }
+
+    /// The Mac's Clear Screen and Scrollback (Cmd-K): the Mac's daemon clears the terminal,
+    /// so its scrollback goes on the Mac and on every phone (`clear-history`). A session
+    /// with no Mac behind it gets Ctrl-L.
+    public func clearScreenAndScrollback() {
+        guard session.clearsHistory else { return sendControl("l") }
+        let session = session
+        Task { @MainActor in
+            do {
+                try await session.clearHistory()
+            } catch {
+                // Nothing changed on the Mac (an inline program's input reaches into the
+                // history, the link dropped): the person feels it did not clear.
+                modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+        }
+    }
+
+    /// A web link tapped in the terminal: a cmux browser tab beside it in the workspace
+    /// (the page sets it, like the Mac's Cmd-click); without one, Safari. Not observed: the
+    /// page sets it while SwiftUI builds it.
+    @ObservationIgnored public var linkOpener: (@MainActor (URL) -> Void)?
+
+    /// Opens a web link the person tapped: a cmux browser tab, or (`external`) Safari.
+    public func openLink(_ url: URL, external: Bool = false) {
+        if !external, let linkOpener { return linkOpener(url) }
+        UIApplication.shared.open(url)
+    }
+
+    /// Find… (the page menu, Cmd-F): the find bar over the terminal's rows.
+    public func showFind() {
+        controller?.presentFind()
+    }
+
+    /// Copy Mode is on (Select Text…, Shift-Cmd-M).
+    public internal(set) var copyModeActive = false
+
+    /// Select Text… (the page menu): Copy Mode with the cursor's row selected; vi keys from a
+    /// hardware keyboard or the handles move it, Copy copies it.
+    public func selectText() {
+        controller?.presentCopyMode()
+    }
+
+    /// Copy Mode can start: the shell's rows (a full-screen app selects with a long press).
+    public var canSelectText: Bool { !isTUI }
+
+    /// The Mac's Select All: every row, scrollback included, with Copy in the edit menu.
+    public func selectAll() {
+        controller?.selectAllText()
+    }
+
+    /// The Mac's Scroll to Top: the first row of the scrollback.
+    public func scrollToTop() {
+        controller?.scrollToTop()
+    }
+
+    /// Send Text… (the page menu): asks for the text.
+    public func showSendText() {
+        controller?.presentSendText()
+    }
+
+    /// The Mac's Send Text…: `text` typed into the terminal as is, with no Return.
+    public func sendText(_ text: String) {
+        guard !text.isEmpty, connectionState.composerNotSentNotice == nil else { return }
+        controller?.surface.sendText(text, pressReturn: false, fullScreenApp: isTUI)
+    }
+
     #if DEBUG
     /// DEBUG: the controller's layout and viewport state, for demo timelines.
     public var debugState: String { controller?.debugState ?? "-" }
@@ -375,6 +457,17 @@ public final class TerminalModel {
         }
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
         composerText = ""
+    }
+
+    /// Voice mode's prompt: the user's words typed into the terminal with
+    /// Return, as the composer's send does, without touching the draft. Words
+    /// for a Mac that can't take them now are dropped, never queued (D5).
+    /// Returns false when nothing was typed.
+    @discardableResult
+    public func sendVoicePrompt(_ text: String) -> Bool {
+        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
     }
 
     public func sendWithoutReturn() {
@@ -457,6 +550,15 @@ public final class TerminalModel {
     func clearAttachmentError() { attachmentError = nil }
 
     // MARK: Key bar
+
+    #if DEBUG
+    /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
+    public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
+        guard let surface = controller?.surface else { return }
+        surface.tapSticky(modifier)
+        sticky = surface.input.sticky
+    }
+    #endif
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }
