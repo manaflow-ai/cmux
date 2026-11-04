@@ -12,7 +12,7 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process starts the stand-in agent only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&["CMUX_CI_STEP_KEY"]);
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
