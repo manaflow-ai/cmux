@@ -174,12 +174,14 @@ pub struct GoalState {
 }
 
 impl GoalState {
-    /// Normalize legacy `_meta.goal` payloads. Invalid or empty objectives are
-    /// discarded so a stale malformed update cannot create a banner.
+    /// Normalize legacy `_meta.goal` payloads. Invalid objectives are discarded
+    /// so a stale malformed update cannot create a banner; Claude's autonomous
+    /// loop sentinel is intentionally allowed to have an empty objective.
     pub fn from_value(value: &Value, family: Option<&str>) -> Option<Self> {
         let object = value.as_object()?;
         let objective = object.get("objective")?.as_str()?.trim();
-        if objective.is_empty() {
+        let autonomous = object.get("autonomous").and_then(Value::as_bool).unwrap_or(false);
+        if objective.is_empty() && !autonomous {
             return None;
         }
         let status = object
@@ -271,7 +273,24 @@ impl GoalState {
     }
 
     pub fn to_value(&self) -> Value {
-        serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()))
+        let mut value = serde_json::to_value(self).unwrap_or_else(|_| Value::Object(Map::new()));
+        // Older clients only understand Codex's status spellings. Keep that
+        // wire contract while exposing the canonical lifecycle separately;
+        // newer clients prefer `lifecycle` and accept either status spelling.
+        if let Some(object) = value.as_object_mut() {
+            object.insert("lifecycle".to_owned(), Value::String(self.lifecycle().to_owned()));
+            let legacy = match self.status {
+                GoalStatus::Running | GoalStatus::Active => "active",
+                GoalStatus::Stalled | GoalStatus::Blocked => "blocked",
+                GoalStatus::UsageLimited => "usageLimited",
+                GoalStatus::BudgetLimited => "budgetLimited",
+                GoalStatus::Paused => "paused",
+                GoalStatus::Done => "complete",
+                GoalStatus::Unknown(_) => self.status.as_str(),
+            };
+            object.insert("status".to_owned(), Value::String(legacy.to_owned()));
+        }
+        value
     }
 }
 
@@ -315,7 +334,8 @@ mod tests {
         assert_eq!(goal.elapsed_seconds, Some(42));
         assert_eq!(goal.steps.as_ref().unwrap().len(), 1);
         assert_eq!(goal.to_value()["timeUsedSeconds"], 42);
-        assert_eq!(goal.to_value()["status"], "running");
+        assert_eq!(goal.to_value()["status"], "active");
+        assert_eq!(goal.to_value()["lifecycle"], "running");
     }
 
     #[test]
@@ -331,6 +351,12 @@ mod tests {
         assert!(
             GoalState::from_value(&json!({"objective": "  ", "status": "running"}), None).is_none()
         );
+        let autonomous = GoalState::from_value(
+            &json!({"objective": "", "autonomous": true, "status": "active", "provider": "claude"}),
+            None,
+        )
+        .unwrap();
+        assert_eq!(autonomous.provider, GoalProvider::Claude);
     }
 
     #[test]
