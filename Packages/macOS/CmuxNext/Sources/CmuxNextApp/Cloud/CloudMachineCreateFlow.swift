@@ -97,14 +97,14 @@ struct CloudMachineCreateFlow {
     /// `approved`: the approval an earlier attempt with `key` answered; `onApproved` hears each new answer.
     /// `answering`: the approval an earlier attempt with `key` began answering; `onAnswering` hears each, before it goes out.
     /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
+    func create(name: String?, startedByPerson: Bool, asksFirst: Bool = true, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
                 gate: Gate = .allowed, environment: String? = nil, request: CloudMachineRequest? = nil,
                 madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
         if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
-        if !startedByPerson { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
+        if !startedByPerson, asksFirst { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         let requestedMemory = request?.memoryMb ?? machine.memoryMB
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(requestedMemory)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }

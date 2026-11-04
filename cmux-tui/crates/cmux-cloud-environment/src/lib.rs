@@ -345,8 +345,9 @@ impl Resolver {
         let path = self.state_path();
         match fs::read_to_string(&path) {
             Ok(text) => {
-                if let Ok(current) = serde_json::from_str::<Persisted>(&text) {
-                    if Environment::parse(&current.name).ok().as_ref() == Some(&environment) {
+                if let Ok(current) = serde_json::from_str::<Persisted>(&text)
+                    && Environment::parse(&current.name).ok().as_ref() == Some(&environment)
+                {
                         return self.selection_with_legacy(
                             environment,
                             current.revision.unwrap_or(0),

@@ -78,6 +78,13 @@ import Testing
         #expect(calls.approved == ["apr_1"])
     }
 
+    @Test func aCreateNobodyStartedMayBypassTheCardWhenPolicyAllows() async throws {
+        let calls = Calls()
+        _ = try await flow(calls).create(name: nil, startedByPerson: false, asksFirst: false)
+        #expect(calls.prompts.isEmpty)
+        #expect(calls.approved == ["apr_1"])
+    }
+
     @Test func aHoldAnsweredElsewhereFirstGoesOnWithTheSameKey() async throws {
         let calls = Calls()
         calls.closedElsewhere = true
