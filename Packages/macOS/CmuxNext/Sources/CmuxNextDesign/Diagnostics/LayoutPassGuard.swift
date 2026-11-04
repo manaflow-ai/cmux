@@ -99,6 +99,28 @@ public final class LayoutPassGuard {
         classCounts.values.map { (String(describing: $0.type), $0.count) }.sorted { $0.1 > $1.1 }
     }
 
+    /// Scratch (REOPEN-F7): the layout counts at the first window frame's commit, with the views in that window per class (JSON).
+    public private(set) var firstFrame: String?
+
+    public func snapshotFirstFrame(_ window: NSWindow?) {
+        var views: [String: (all: Int, hidden: Int)] = [:]
+        func walk(_ view: NSView) {
+            let name = String(describing: type(of: view))
+            var entry = views[name] ?? (0, 0)
+            entry.all += 1
+            if view.isHiddenOrHasHiddenAncestor { entry.hidden += 1 }
+            views[name] = entry
+            view.subviews.forEach(walk)
+        }
+        if let root = window?.contentView?.superview ?? window?.contentView { walk(root) }
+        let classes: [[String: Any]] = passesByClass.prefix(60).map { entry in
+            ["c": entry.viewClass, "layouts": entry.passes, "views": views[entry.viewClass]?.all ?? 0, "hidden": views[entry.viewClass]?.hidden ?? 0]
+        }
+        let object: [String: Any] = ["view_layout_calls": viewLayoutCalls, "window_layout_passes": windowLayoutPasses, "classes": classes,
+                                     "tree_views": views.values.reduce(0) { $0 + $1.all }]
+        firstFrame = (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
     /// Clears the counts and reports (`debug.layers` `reset`, stress runs).
     public func reset() {
         classCounts.removeAll()
