@@ -229,6 +229,72 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.first?.cwd == Self.canonical(folder))
     }
 
+    /// The reply's error code and message.
+    private static func refusal(_ reply: [String: Any]) -> (code: String?, message: String?) {
+        let error = reply["error"] as? [String: Any]
+        return (error?["code"] as? String, error?["userMessage"] as? String)
+    }
+
+    /// cmux#35006: a Cloud start never copies a credential folder under home (~/.ssh, ~/.aws, …), one
+    /// inside it, or a folder that holds one (~/.config holds gcloud's), by any spelling of its case;
+    /// its refusal names the folder. A project folder under the same home still starts.
+    @Test func aCredentialFolderOrOneHoldingItIsNeverCopiedAndTheRefusalNamesIt() async throws {
+        let starts = Starts()
+        let (home, project) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        for folder in [".ssh/keys", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library/Keychains"] {
+            try FileManager.default.createDirectory(atPath: (home as NSString).appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        let cases: [(String, String)] = [(".ssh", "~/.ssh"), (".ssh/keys", "~/.ssh"), (".aws", "~/.aws"), (".gnupg", "~/.gnupg"),
+                                         (".config", "~/.config/gcloud"), (".config/gcloud", "~/.config/gcloud"), (".kube", "~/.kube"),
+                                         (".docker", "~/.docker"), (".secrets", "~/.secrets"), (".azure", "~/.azure"),
+                                         ("Library", "~/Library/Keychains"), ("Library/Keychains", "~/Library/Keychains"), (".SSH", "~/.ssh")]
+        for (relative, named) in cases {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": (home as NSString).appendingPathComponent(relative)]) { $1 }))
+            #expect(reply["ok"] as? Bool != true, "\(relative)")
+            #expect(Self.refusal(reply).code == "cloud_folder_secret", "\(relative): \(reply)")
+            #expect(Self.refusal(reply).message == named, "\(relative): \(reply)")
+            #expect(model.transport.replacements.beginSandbox())
+        }
+        #expect(starts.seen.isEmpty)
+        // A project folder still starts, and so does one in iCloud Drive or a cloud-storage folder
+        // under ~/Library (review of #35019 at 8f03b2c: all of ~/Library refused them).
+        let iCloud = (home as NSString).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/paint")
+        let dropbox = (home as NSString).appendingPathComponent("Library/CloudStorage/Dropbox/paint")
+        for folder in [iCloud, dropbox] { try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+        for cwd in [project, iCloud, dropbox] {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let started = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(started["ok"] as? Bool == true, "\(cwd): \(started)")
+        }
+    }
+
+    /// cmux#35005: a folder that is gone, and home or above it, each get their own code, never the
+    /// "isn't open in this tab" refusal (`transport.path_outside_roots`).
+    @Test func aMissingFolderAndHomeOrAboveEachSayWhy() async throws {
+        let starts = Starts()
+        let (home, project) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let file = (project as NSString).appendingPathComponent("notes.txt")
+        try "x".write(toFile: file, atomically: true, encoding: .utf8)
+        let cases = [(project + "/missing", "cloud_folder_missing"), (file, "cloud_folder_missing"),
+                     (home, "cloud_folder_home"), ((home as NSString).deletingLastPathComponent, "cloud_folder_home"), ("/", "cloud_folder_home")]
+        for (cwd, code) in cases {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(Self.refusal(reply).code == code, "\(cwd): \(reply)")
+            #expect(AgentPaneHandOff.refusedHere(reply) == code)
+        }
+        #expect(starts.seen.isEmpty)
+    }
+
     // The send's create, tab and copy keys are cmux-tui's (`link/start_chat_cli/tests.rs`).
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {
