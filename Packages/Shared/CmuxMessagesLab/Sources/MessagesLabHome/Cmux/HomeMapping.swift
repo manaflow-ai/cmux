@@ -145,7 +145,13 @@ enum HomeMapping {
         }
         let markdown = isAgent(item.author, summary)
         var parts: [Part] = [], owners: [Int] = []
+        // An agent's table that shows an attachment in a cell (the Chief's before/after shots) draws it
+        // there: the attachment does not draw a second time under the text.
+        let inTables: Set<String> = markdown ? item.parts.reduce(into: []) { hashes, p in
+            if case .text(let text, _) = p { hashes.formUnion(tableAttachmentHashes(text)) }
+        } : []
         for (i, p) in item.parts.enumerated() {
+            if case .attachment(let ref) = p, inTables.contains(ref.hash) { continue }
             let shown: [Part]
             if summary?.owner == .local, isChief(item.author, summary), case .question(let question) = p,
                let card = HomeApprovalRowProvider.part(question) { shown = [card] }
@@ -214,7 +220,7 @@ enum HomeMapping {
         if case .work(let work) = p, work.shownText == nil { return [] }
         // An agent's pipe tables are cards of their own (HomeTableRowProvider), between its text.
         func text(_ piece: String) -> [Part] {
-            if markdown, let split = tableParts(piece, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
+            if markdown, let split = tableParts(piece, media: media, { textParts(.text($0), media: media, progress: progress, markdown: markdown, links: links) }) {
                 return split
             }
             return textParts(.text(piece), media: media, progress: progress, markdown: markdown, links: links)
@@ -232,7 +238,10 @@ enum HomeMapping {
     /// `text` cut at its pipe tables: the text pieces by `textParts`, each table a table or plan card.
     /// nil when it has no table, or tables are off (Debug Settings > Home > Rich tables), or no provider
     /// is installed: the text then maps as it always did, tables as written in the bubble.
-    static func tableParts(_ text: String, _ textParts: (String) -> [Part]) -> [Part]? {
+    /// A table's pictures (`![alt](source)` in its cells) resolve to local files with `media`: a
+    /// `cmux-attachment:<hash>` source is the message's attachment of that hash (the Chief's uploads), a
+    /// file in Home's media folder is itself; any other source has no file (its alt text shows).
+    static func tableParts(_ text: String, media: Media = { _ in nil }, _ textParts: (String) -> [Part]) -> [Part]? {
         guard HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return nil }
         let segments = HomeTableSplitter().segments(in: text)
         guard segments.contains(where: { if case .table = $0 { return true } else { return false } }) else { return nil }
@@ -247,7 +256,8 @@ enum HomeMapping {
             switch segment {
             case .text(let piece):
                 pending += pending.isEmpty ? piece : "\n" + piece
-            case .table(let table, let raw):
+            case .table(var table, let raw):
+                table.pictures = pictures(of: table, media: media)
                 if let card = HomeTableRowProvider.part(table, raw: raw) {
                     flush()
                     out.append(card)
@@ -257,6 +267,38 @@ enum HomeMapping {
             }
         }
         flush()
+        return out
+    }
+
+    /// The scheme of a table picture that is one of the message's attachments (`cmux-attachment:<hash>`).
+    static let tableAttachmentScheme = "cmux-attachment:"
+
+    /// `table`'s picture sources with a local file (see ``tableParts(_:media:_:)``); nil when it names none.
+    static func pictures(of table: HomeTable, media: Media) -> [String: String]? {
+        let sources = ([table.header] + table.rows).flatMap { $0 }.flatMap { HomeTableCell(markdown: $0).images.map(\.source) }
+        guard !sources.isEmpty else { return nil }
+        var out: [String: String] = [:]
+        for source in sources {
+            if source.hasPrefix(tableAttachmentScheme) {
+                if let path = media(String(source.dropFirst(tableAttachmentScheme.count))) { out.updateValue(path, forKey: source) }
+            } else if let url = source.hasPrefix("/") ? URL(fileURLWithPath: source) : URL(string: source), url.isFileURL {
+                out.updateValue(url.path, forKey: source)
+            }
+        }
+        return out
+    }
+
+    /// The attachment hashes `text`'s tables show in their cells (each one draws there, not again below).
+    static func tableAttachmentHashes(_ text: String) -> Set<String> {
+        guard text.contains(tableAttachmentScheme), HomeTableRowProvider.isOn, HomeTableRowProvider.installed != nil else { return [] }
+        var out: Set<String> = []
+        for case .table(let table, _) in HomeTableSplitter().segments(in: text) {
+            for cell in ([table.header] + table.rows).flatMap({ $0 }) {
+                for image in HomeTableCell(markdown: cell).images where image.source.hasPrefix(tableAttachmentScheme) {
+                    out.insert(String(image.source.dropFirst(tableAttachmentScheme.count)))
+                }
+            }
+        }
         return out
     }
 
