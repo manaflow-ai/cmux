@@ -12,13 +12,14 @@ public import Foundation
 /// Besides settings, a theme file may carry its own terminal colors, which become
 /// `appearance.themeEdits` of the terminal theme it names:
 /// - `"colors"`: `{"background": "#1a1b26", "foreground": "#c0caf5", "cursor", "selection", "accent",
-///   "0"..."15"}`, or `"palette": [16 colors]`.
+///   "0"..."15"}`, with `"palette": [16 colors]` inside it for the ANSI slots.
 /// - `"ghostty"`: a Ghostty theme block (a string or a list of lines: `background = #1a1b26`,
 ///   `palette = 4=#7aa2f7`), read as Ghostty theme files are (`ThemeFileColors`).
 ///
-/// Contrast is guarded: a foreground under 4.5:1 on the file's background is replaced by the app
-/// theme contract's text color (`AppTheme.derive`), so neither the terminal nor the chrome paints it
-/// as written, and a `.correctedValue` diagnostic at `appearance.themeFile` says so in Settings.
+/// Contrast is guarded: in any theme the file colors, a foreground under 4.5:1 on its background is
+/// replaced by the app theme contract's text color (`AppTheme.derive`), so neither the terminal nor
+/// the chrome paints it as written, and a `.correctedValue` diagnostic at `appearance.themeFile` says
+/// so in Settings.
 public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// The theme file's name (`appearance.themeFile`).
     public let name: String
@@ -136,6 +137,8 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return refuse(descriptor.id, value, "a theme file sets only look settings")
             }
             guard descriptor.accepts(value) else { return refuse(descriptor.id, value, OmnibarSettingsSchema.expectation(descriptor)) }
+            // A key written twice (nested and dotted) keeps the later one in key order.
+            values.removeAll { $0.path == descriptor.path }
             values.append((descriptor.path, value))
         }
 
@@ -148,23 +151,30 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: message, file: file, value: value?.compactText))
         }
 
-        /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`) names.
+        /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`)
+        /// names, over `base`'s edits; then the contrast guard over every theme the file colors.
         private mutating func readColors(_ members: [String: JSONValue], base: JSONValue) {
+            let editsPath = ThemeEditsSetting().configPath
+            let ownEdits = values.first { $0.path == editsPath }?.value.objectValue ?? [:]
             var colors: [String: String] = [:]
             if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
             if let value = members["colors"] { readColorMap(value, into: &colors) }
-            guard !colors.isEmpty else { return }
-            let themePath = AppThemeSetting().configPath
-            let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
-            guard let theme, let spec = ThemeSpec(theme) else {
-                return refuse("colors", nil, "colors need appearance.theme: they edit that terminal theme")
+            var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
+            var edits = (base.value(at: editsPath)?.objectValue ?? [:]).merging(ownEdits) { $1 }
+            if !colors.isEmpty {
+                let themePath = AppThemeSetting().configPath
+                let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
+                if let theme, let spec = ThemeSpec(theme) {
+                    for name in Set([spec.light, spec.dark]) {
+                        themes.insert(name)
+                        for (token, color) in colors { edits[ThemeEditsSetting.key(theme: name, token: token)] = .string(color) }
+                    }
+                } else {
+                    refuse("colors", nil, "colors need appearance.theme: they edit that terminal theme")
+                }
             }
-            guardContrast(&colors)
-            let editsPath = ThemeEditsSetting().configPath
-            var edits = values.first { $0.path == editsPath }?.value.objectValue ?? base.value(at: editsPath)?.objectValue ?? [:]
-            for name in Set([spec.light, spec.dark]) {
-                for (token, color) in colors { edits[ThemeEditsSetting.key(theme: name, token: token)] = .string(color) }
-            }
+            guard !themes.isEmpty else { return }
+            for name in themes.sorted() { guardContrast(&edits, theme: name) }
             values.removeAll { $0.path == editsPath }
             values.append((editsPath, .object(edits)))
         }
@@ -206,20 +216,21 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             if let color = theme.accent { colors["accent"] = AppTheme.hex(color) }
         }
 
-        /// A foreground under 4.5:1 on the background takes the app theme's text color for them.
-        private mutating func guardContrast(_ colors: inout [String: String]) {
-            guard let background = colors["background"].flatMap(ThemeRGB.init(cssHex:)),
-                  let foreground = colors["foreground"].flatMap(ThemeRGB.init(cssHex:)),
+        /// A foreground under 4.5:1 on its background takes the app theme's text color for them
+        /// (`AppTheme.derive`, the contract every chrome token meets).
+        private mutating func guardContrast(_ edits: inout [String: JSONValue], theme: String) {
+            func color(_ token: String) -> ThemeRGB? { edits[ThemeEditsSetting.key(theme: theme, token: token)]?.stringValue.flatMap(ThemeRGB.init(cssHex:)) }
+            guard let background = color("background"), let foreground = color("foreground"),
                   foreground.contrast(with: background) < AppTheme.textMinimum else { return }
-            let palette = (0..<16).map { colors[String($0)].flatMap(ThemeRGB.init(cssHex:)) }
-            let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: palette)[.text])
+            let written = AppTheme.hex(foreground)
+            let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0)) })[.text])
             let ratio = (foreground.contrast(with: background) * 10).rounded() / 10
             diagnostics.append(SettingsDiagnostic(
                 kind: .correctedValue, path: ThemeFileSetting.path.joined(separator: "."),
-                message: "\(file): the foreground \(colors["foreground"] ?? "") is \(ratio):1 on its background, so cmux shows \(fixed) (4.5:1 or more)",
-                file: file, value: colors["foreground"].map { JSONValue.string($0).compactText }))
-            colors["foreground"] = fixed
-            corrected.append("foreground")
+                message: "\(theme)'s foreground \(written) is \(ratio):1 on its background, so cmux shows \(fixed) (4.5:1 or more)",
+                file: file, value: JSONValue.string(written).compactText))
+            edits[ThemeEditsSetting.key(theme: theme, token: "foreground")] = .string(fixed)
+            if !corrected.contains("foreground") { corrected.append("foreground") }
         }
     }
 }

@@ -63,4 +63,14 @@ extension SettingsController {
         return [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }
     }
+
+    /// `value` without the entries the active theme file adds to `descriptor`'s object (its
+    /// `appearance.themeEdits` colors), unless the person's own file holds the same entry.
+    func strippingThemeFileEntries(_ descriptor: SettingDescriptor, _ value: JSONValue?) -> JSONValue? {
+        guard case .object(var members)? = value,
+              let added = themeFile?.values.first(where: { $0.path == descriptor.path })?.value.objectValue else { return value }
+        let own = fileRoot.value(at: descriptor.path)?.objectValue ?? [:]
+        for (key, entry) in added where members[key] == entry && own[key] != entry { members[key] = nil }
+        return .object(members)
+    }
 }

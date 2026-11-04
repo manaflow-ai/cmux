@@ -61,7 +61,7 @@ extension SettingsController {
 
     /// `root` with `path` set to `value` (nil removes it), creating objects
     /// on the way.
-    static func replacing(_ path: [String], with value: JSONValue?, in root: JSONValue) -> JSONValue {
+    nonisolated static func replacing(_ path: [String], with value: JSONValue?, in root: JSONValue) -> JSONValue {
         guard let key = path.first else { return value ?? .null }
         var members: [String: JSONValue] = if case .object(let existing) = root { existing } else { [:] }
         if path.count == 1 {

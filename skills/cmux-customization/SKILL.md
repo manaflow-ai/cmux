@@ -126,7 +126,8 @@ top, so a block copies between the two:
   "ui.animationSpeed": "fast",
   // The terminal theme's own colors, as appearance.themeEdits of the theme above.
   "colors": { "background": "#16161e", "foreground": "#c0caf5", "accent": "#bb9af7" },
-  // Or a Ghostty theme block: "ghostty": ["background = #16161e", "palette = 4=#7aa2f7"]
+  // Or a Ghostty theme block:
+  // "ghostty": ["background = #16161e", "foreground = #c0caf5", "palette = 4=#7aa2f7"]
 }
 ```
 
@@ -136,8 +137,9 @@ top, so a block copies between the two:
   theme file and the key (`themes/tokyo.json: appearance.accent = "purple" was
   ignored: ...`); the rest still applies. Look keys up as in
   [cmux-settings](../cmux-settings/SKILL.md).
-- The theme file wins over the same keys in cmux-next.json, and a managed (MDM or
-  team) value wins over it.
+- The theme file wins over the same keys in cmux-next.json (their Settings rows say
+  so), and a managed (MDM or team) value wins over it. To change one of those keys,
+  edit the theme file, or unset `appearance.themeFile`.
 - Contrast is guarded: a `foreground` under 4.5:1 on its `background` shows as the
   app theme's text color instead, and Settings says so at the Theme File row.
 

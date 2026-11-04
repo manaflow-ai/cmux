@@ -149,6 +149,7 @@ import Testing
 
     @Test func theNamedFileAppliesOverCmuxNextJSONAndListsTheFolder() async throws {
         let home = try Home()
+        defer { withExtendedLifetime(home) {} }
         try home.write(#"{ "appearance": { "accent": "blue", "borders": "none" } }"#, theme: "tokyo")
         try home.write(#"{ "appearance.accent": "red" }"#, theme: "ember")
         let settings = try Self.controller(home, config: #"{ "appearance": { "accent": "green", "themeFile": "tokyo" } }"#)
@@ -158,6 +159,10 @@ import Testing
         #expect(settings.fileRoot.value(at: Self.accent) == "green")
         #expect(settings.themeFile?.name == "tokyo")
         #expect(settings.themeFileSources.keys.sorted() == ["ember", "tokyo"])
+        // Each row the file sets says so, and no toast announces it.
+        let note = try #require(settings.diagnostics.first { $0.path == "appearance.accent" })
+        #expect(note.kind == .setByThemeFile)
+        #expect(note.pageMessage.hasPrefix("themes/tokyo.json: set by the theme file"))
 
         // Previewing another file shows it whole, and ending the preview restores the active one.
         let descriptor = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.path))
@@ -172,6 +177,7 @@ import Testing
     /// applied settings are printed (the native half of save-to-pixels).
     @Test func savingTheActiveFileReappliesItLive() async throws {
         let home = try Home()
+        defer { withExtendedLifetime(home) {} }
         try home.write(#"{ "appearance.accent": "blue" }"#, theme: "tokyo")
         let settings = try Self.controller(home, config: #"{ "appearance": { "themeFile": "tokyo" } }"#)
         settings.start()
@@ -193,5 +199,31 @@ import Testing
         try await Task.sleep(for: .milliseconds(50))
         try home.write(#"{ "appearance.accent": "cyan" }"#, theme: "later")
         #expect(await Self.waitForAccent(.cyan, in: settings))
+    }
+
+    /// Theme Studio writes the whole edits map it shows; the theme file's colors never land in
+    /// cmux-next.json, so unsetting the file leaves none of them behind.
+    @Test func aWriteNeverCopiesTheThemeFilesColorsIntoCmuxNextJSON() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "appearance.theme": "Nord", "colors": { "background": "#2e3440" } }"#, theme: "nord")
+        let settings = try Self.controller(home, config: #"{ "appearance": { "theme": "Nord", "themeFile": "nord", "themeEdits": { "Nord/1": "#bf616a" } } }"#)
+        await settings.reload()
+        let descriptor = try #require(SettingsSchema.descriptor(for: Self.edits))
+        var shown = try #require(settings.snapshot.root.value(at: Self.edits)?.objectValue)
+        #expect(shown["Nord/background"] == "#2e3440")
+        shown["Nord/2"] = "#a3be8c"
+        try await settings.setSetting(descriptor, to: .object(shown), by: .user)
+        #expect(settings.fileRoot.value(at: Self.edits) == .object(["Nord/1": "#bf616a", "Nord/2": "#a3be8c"]))
+        #expect(settings.snapshot.root.value(at: Self.edits)?["Nord/background"] == "#2e3440")
+    }
+
+    @Test func aNameThatIsNoThemeFileNameIsReported() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        let settings = try Self.controller(home, config: #"{ "appearance": { "themeFile": "tokyo.json" } }"#)
+        await settings.reload()
+        #expect(settings.themeFile == nil)
+        #expect(settings.diagnostics.contains { $0.path == "appearance.themeFile" && $0.kind == .invalidValue })
     }
 }

@@ -22,6 +22,9 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         /// A value applies changed, not as written: a theme file's text color raised to 4.5:1
         /// contrast (`ThemeFileOverlay`). Settings says so at the row; no toast.
         case correctedValue
+        /// The active theme file sets the key, over cmux-next.json's value (`ThemeFileOverlay`).
+        /// Settings says so at the row; no toast.
+        case setByThemeFile
     }
     public let kind: Kind
     /// Dotted key path of the offending entry.
@@ -38,5 +41,7 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         self.file = file
         self.value = value
     }
+    /// The message as a Settings row shows it: a theme file's entry names that file first.
+    public var pageMessage: String { file.map { "\($0): \(message)" } ?? message }
     public var description: String { "\(kind.rawValue) \(file.map { "\($0): " } ?? "")\(path): \(message)" }
 }
