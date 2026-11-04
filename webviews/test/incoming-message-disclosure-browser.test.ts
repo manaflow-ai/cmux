@@ -457,9 +457,12 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
           // The line's last words: its first line's, or the sender's (its text, not its padded box) in
-          // the stacked gallery look.
+          // the stacked gallery look. The preview first: in the default one-line look (#34464) the
+          // sender comes before it on the same line, and a list selector returns the earlier node.
           const range = document.createRange();
-          range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
+          range.selectNodeContents(
+            line.querySelector(".cv-received__preview") ?? line.querySelector(".cv-received__from")!,
+          );
           const words = range.getBoundingClientRect();
           const hover = line.querySelector<HTMLElement>(".cv-received__hover");
           return {
