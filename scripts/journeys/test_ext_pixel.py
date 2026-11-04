@@ -1129,7 +1129,7 @@ class PixelCasesTests(unittest.TestCase):
             # s0125: the terminal-only S2b cases (x0.125, the slowest speed every spring takes: a response is clamped to 2 s).
             self.assertEqual(labels, {"s0125", "s025", "s05", "s1", "s2", "s4", "reduce"})
             self.assertEqual(sorted(s["id"] for s in specs if any(n.endswith("-s0125") for n in s["recordings"])),
-                             ["px-keys-then-drag-3t", "px-keys-then-split-drag-2st"])
+                             ["px-keys-then-clamp-3x", "px-keys-then-drag-3t", "px-keys-then-split-drag-2st"])
             for s in specs:
                 self.assertLessEqual(s["budget_seconds"], 250, s["id"])
                 films = [st for st in s["steps"] if st["do"] == "px_film"]
@@ -1699,10 +1699,13 @@ class SpringApp(FakeApp):
 
     S = round(0.05 * 1304, 2)
 
-    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.40, hit_pt=24.0, drag_ms=400):
+    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.40, hit_pt=24.0, drag_ms=400, vsplit=False):
         super().__init__()
         self.clock, self.offset, self.response, self.key_ms, self.latency_s = clock, offset, response, key_ms, latency_s
         self.hit_pt, self.drag_ms = hit_pt, drag_ms
+        # vsplit: a vertical split divider x in column 2 (between the two column edges: vertical divider 1). It slides with
+        # the key's spring; grabbed ("vsplit") it holds where the press found it and moves with the pointer.
+        self.vsplit = vsplit
         self.key_down = self.mouse_down = None
         self.grabbed = None  # "column" | "split" | None
         self.by = (0.0, 0.0)
@@ -1726,8 +1729,14 @@ class SpringApp(FakeApp):
             elif self.grabbed == "split":
                 split_y += self.by[1] * share
         w = 24.0 if self.hit_pt >= 24 else 7.0
-        return [["column:c0", d0 - w / 2, 0, w, 857, 1, 2], ["column:c1", d1 - w / 2, 0, w, 857, 1, 3],
-                ["split:s1", d0 + 4, split_y - 3.5, 430, 7, 1, 4]]
+        out = [["column:c0", d0 - w / 2, 0, w, 857, 1, 2], ["column:c1", d1 - w / 2, 0, w, 857, 1, 3],
+               ["split:s1", d0 + 4, split_y - 3.5, 430, 7, 1, 4]]
+        if self.vsplit:
+            x = self.edge(857.5, t)
+            if self.grabbed == "vsplit" and self.mouse_down is not None and t >= self.mouse_down:
+                x = self.edge(857.5, self.mouse_down) + self.by[0] * min(1.0, (t - self.mouse_down) / (self.drag_ms / 1000.0))
+            out.append(["split:x", x - w / 2, 0, w, 857, 1, 5])
+        return out
 
     def samples(self, until):
         t0 = 9000.0
@@ -1761,7 +1770,10 @@ class SpringApp(FakeApp):
         d = {k[0]: k for k in self.dividers(self.mouse_down)}
         c1 = d["column:c1"]
         sp = d["split:s1"]
-        if abs(point[0] - (c1[1] + c1[3] / 2)) <= c1[3] / 2 and abs(by[1]) < 1e-9:
+        vx = d.get("split:x")
+        if vx is not None and abs(point[0] - (vx[1] + vx[3] / 2)) <= vx[3] / 2 and abs(by[1]) < 1e-9:
+            self.grabbed = "vsplit"
+        elif abs(point[0] - (c1[1] + c1[3] / 2)) <= c1[3] / 2 and abs(by[1]) < 1e-9:
             self.grabbed = "column"
         elif sp[1] <= point[0] <= sp[1] + sp[3] and abs(point[1] - (sp[2] + sp[4] / 2)) <= sp[4] / 2:
             self.grabbed = "split"
@@ -1890,6 +1902,43 @@ class KeyThenDragTests(unittest.TestCase):
         self.assertFalse(note["grabbed"])
         self.assertIsNone(app.grabbed)
         self.assertIn("missed the edge", j.px["film_not_run"])
+
+
+    def still_drag(self, app):
+        j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
+        j.px = {"speed": 0.125, "reduce": False, "springs": {"move": {"response": 1.2, "damping": 1.0}},
+                "springs_source": "overrides", "tunables": {}, "films": []}
+        X.step_px_key_then_drag(j, {"key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                                    "drag": {"target": {"divider": 1}, "by": [1, 0], "duration_ms": 1500}, "mark": "kc"})
+        return j, j.video["notes"]["pixel"]["key_then_drag"]
+
+    def test_a_still_drag_is_a_grab_when_its_edge_leaves_the_next_dividers_slide(self):
+        """S2B clamp case (gen_pixel px-keys-then-clamp-3x): the split x in column 2 pressed during a x0.125 key spring, 1 pt
+        right, then held. Grabbed, it moves its 1 pt while the column edge right of it slides on (about 20 pt). Its own
+        travel against the drag's 1 pt cannot tell a grab: a missed press leaves it sliding too."""
+        app = SpringApp(self.clock, 8000.0, response=1.2, drag_ms=1500, vsplit=True)
+        j, note = self.still_drag(app)
+        self.assertEqual(app.grabbed, "vsplit")
+        self.assertEqual(note["drag"]["divider"], "split:x")
+        self.assertTrue(note["grabbed"])
+        self.assertEqual(note["still_drag"]["next_divider"], "column:c1")
+        self.assertGreater(note["still_drag"]["next_travel_pt"], 10)
+        # Its 1 pt, plus at most one refresh of slide (the trace sample at the mouse-down is the tick before it).
+        self.assertLess(abs(note["dragged_travel_pt"] - 1.0), 0.5)
+        self.assertEqual(note["verdict"], "overlap")
+        self.assertNotIn("film_not_run", j.px)
+
+    def test_a_still_drag_whose_edge_slides_on_is_a_miss(self):
+        """The same press on a 7 pt hit band after a later mouse-down: it misses x, which slides on with its column, as the
+        next divider does; the travel share alone (20 pt of a 1 pt drag) would have called it a grab."""
+        app = SpringApp(self.clock, 8000.0, response=1.2, latency_s=0.9, hit_pt=7.0, drag_ms=1500, vsplit=True)
+        j, note = self.still_drag(app)
+        self.assertIsNone(app.grabbed)
+        self.assertGreater(note["dragged_travel_pt"] / 1.0, X.GRAB_SHARE)
+        self.assertLess(abs(note["dragged_travel_pt"] - note["still_drag"]["next_travel_pt"]), 0.01)
+        self.assertFalse(note["grabbed"])
+        self.assertIn("missed the edge", j.px["film_not_run"])
+        self.assertIn("a still drag", j.px["film_not_run"])
 
 
 class FilmNotRunTests(unittest.TestCase):

@@ -328,6 +328,13 @@ C3T = Layout("3t", "columns p0 T | p1 T | p2 T",
 C2ST = Layout("2st", "columns p0 T | (p1 T / p2 T)",
               [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("splitDown", None))],
               window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
+# Stage S2B rule D, the clamp case (SharedEdgeDuringSpringTests.anchorPushesSplitToMinimum, frame-owner-s2 2026-11-04):
+# A | B (split x: b1 | b2) | C, terminals only, each column a third of the viewport (about 435 pt: b1 and b2 about 213 pt,
+# 13 pt above the 200 pt layout.minimumPaneWidth). Before each film the split goes to b1's minimum plus CLAMP_ROOM_PT.
+C3X = Layout("3x", "columns p0 T | (p1 T | p2 T) | p3 T",
+             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("splitRight", None)),
+              ("p3", "tui", GREEN, ("newColumn", None))],
+             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
 C3 = Layout("c3", "columns p0 T | p1 T | p2 A",
             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "agent", AGENT_FILL, ("newColumn", None))])
 
@@ -456,6 +463,32 @@ def key_then_drag_play(target, by, what):
     return play, (lambda speed: 1.0 + land(speed))
 
 
+# b1's width above its minimum before each clamp film. The key's step is 5% of the viewport (about 65 pt) and about 30%
+# of it is left at a x0.125 mouse-down (about 20 pt), so the clamp takes the held split about 14 pt; a press that missed
+# leaves b1 at this room above its minimum, a grab ends it at its minimum (px_key_then_drag: a still drag's grab).
+CLAMP_ROOM_PT = 6
+
+
+def clamp_before():
+    """Before each clamp film: the split x (vertical divider 1) dragged left into b1's minimum, then right by CLAMP_ROOM_PT,
+    so every film starts with b1 at its minimum plus the room; then p0 focused for the key."""
+    return [G.kit_drag({"divider": 1}, [-80, 0], 400, "minimum", "set-up: the split x 80 pt left (b1 stops at its minimum)"),
+            rest(0.6, "the split rests at b1's minimum"),
+            G.kit_drag({"divider": 1}, [CLAMP_ROOM_PT, 0], 300, "room", f"set-up: the split x {CLAMP_ROOM_PT} pt right"),
+            rest(0.6, "the split rests at the pointer"), focus("p0")]
+
+
+def key_then_clamp_play(speed):
+    """Ctrl-Shift-L on p0 (A's edge springs right, B and C slide), then 60 ms after its key-down a real press on the split x
+    as it slides, 1 pt right and held still for 1.5 s: rule D holds x where it is drawn; A's rest edge leaves b1 less than
+    its minimum, so x springs to A's rest edge plus b1's minimum and stops there."""
+    return [{"do": "px_key_then_drag", "key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+             "drag": {"target": {"divider": 1}, "by": [1, 0], "duration_ms": 1500},
+             "spring_default": {"response": RESPONSE["move"], "damping": DAMPING["move"]}, "mark": "kc",
+             "title": "Ctrl-Shift-L on p0, then 60 ms after its key-down a real press on the split x, 1 pt right, held 1.5 s"},
+            rest(land(speed), "A's spring and the split's clamp land and rest")]
+
+
 def key_then_drag_rebuild(target, by, speed=None):
     """The layout back for the next film: the dragged edge back by -BY (at rest now), then Ctrl-Shift-H on p0 (its spring at
     the films' SPEED, x0.25 unless named)."""
@@ -567,6 +600,11 @@ def cases():
                         f"spring ({layout.text}; terminals only)", layout, play, "move", "key then drag", before=[focus("p0")],
                         rebuild=key_then_drag_rebuild(target, by, speed=SPEEDS_S2BT[0][1]), play_seconds=secs,
                         fixture_tunables=[(HIT_WIDTH, 24)] if hit else [], speeds=SPEEDS_S2BT))
+    out.append(Case(f"px-keys-then-clamp-{C3X.key}", f"Ctrl-Shift-L on p0, then the split x in B held still during its spring: A's "
+                    f"rest edge leaves b1 under its minimum, x stops at A's rest edge plus b1's minimum ({C3X.text}; terminals only)",
+                    C3X, key_then_clamp_play, "move", "key then held split (clamp)", before=clamp_before(),
+                    rebuild=[focus("p0"), press(H, "unkey"), rest(land(SPEEDS_S2BT[0][1]), "p0's column back (its key spring lands)")],
+                    play_seconds=lambda s: 2.0 + land(s), fixture_tunables=[(HIT_WIDTH, 24)], speeds=SPEEDS_S2BT))
     return out
 
 

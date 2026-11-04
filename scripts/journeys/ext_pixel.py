@@ -881,6 +881,11 @@ DRAG_DOWN_S = 0.40  # a CuaDriver drag's mouse-down reaches the app 390-407 ms a
                     # cmux24, 2026-11-04; 260-400 ms on cmux22 on 2026-11-03): at 0.33 the x0.125 column press missed the edge
 MOVING_PT = 0.25  # an edge moved this far in the 3 refreshes before the mouse-down is still moving (half a device px at 2x)
 GRAB_SHARE = 0.5  # the dragged edge followed the pointer: it moved at least this share of the drag
+# A drag shorter than STILL_DRAG_PT holds its edge still (the S2B clamp case: 1 pt, then held). Its own travel cannot tell a
+# grab from a miss (a missed press leaves the edge sliding with its column), so the grab shows as the edge leaving the slide of
+# the next divider on its axis by STILL_GRAB_PT or more between the mouse-down and the end of the drag.
+STILL_DRAG_PT = 5.0
+STILL_GRAB_PT = 3.0
 
 
 def spring_fraction(t, response, damping=1.0):
@@ -1095,10 +1100,21 @@ def step_px_key_then_drag(j, step):
             travel = end[dragged][k] - shown[k]
         want = by[0] if axis == "x" else by[1]
         info["dragged_travel_pt"] = None if travel is None else round(travel, 3)
-        info["grabbed"] = travel is not None and want != 0 and travel / want >= GRAB_SHARE
+        if abs(want) < STILL_DRAG_PT:
+            k = 0 if axis == "x" else 1
+            nxt = ids[index + 1] if index + 1 < len(ids) else None
+            shown_next = at.get(nxt) if nxt else None
+            travel_next = end[nxt][k] - shown_next[k] if shown_next and nxt in end else None
+            info["still_drag"] = {"next_divider": nxt, "next_travel_pt": None if travel_next is None else round(travel_next, 3),
+                                  "grab_pt": STILL_GRAB_PT}
+            info["grabbed"] = travel is not None and travel_next is not None and abs(travel - travel_next) >= STILL_GRAB_PT
+        else:
+            info["grabbed"] = travel is not None and want != 0 and travel / want >= GRAB_SHARE
         if not info["grabbed"]:
             verdict = (f"the press missed the edge: {dragged} moved {travel} pt of the drag's {want} pt (pressed at {press}, "
-                       f"the edge at the mouse-down {info['dragged_at_down']})")
+                       f"the edge at the mouse-down {info['dragged_at_down']}"
+                   + (f"; a still drag: the next divider moved {info['still_drag']['next_travel_pt']} pt" if "still_drag" in info else "")
+                   + ")")
         elif not info["edge_moving_at_down"]:
             verdict = (f"no overlap: the key's spring edge {spring_edge} was not moving at the drag's mouse-down "
                        f"({info['mouse_down_after_key_ms']} ms after the key-down)")
