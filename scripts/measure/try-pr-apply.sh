@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Measurement only (cmuxterm-hq#7111 track 4); not landed. A fleet ci-step runs it only from the
-# controller's reviewed list (measureScripts), so until then apply-nightly / apply-dev rows are
-# CLASSIFIER-ONLY.
+# Measurement only (cmuxterm-hq#7111 track 4); not landed. A fleet ci-step runs a script only when
+# its bytes equal feat-cmux-next's or main's (the worker's reviewed-bytes check), so this file runs on
+# the fleet only after it lands there, at that commit; running it at a PR head would also take a
+# controller measurement-list entry. Until then apply-nightly / apply-dev rows are CLASSIFIER-ONLY.
 #
 # Times, on a fleet display Mac, "select a PR" to "the PR's change visible" when the change is
 # applied into an already-built NIGHTLY or DEV instead of waiting for a new DEV build. The step's
