@@ -20,6 +20,26 @@ const CREATED: u8 = 1;
 /// the replay never writes an older image over a newer one.
 const JOURNAL_LSN_KEY: &str = "journalLsn";
 
+/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
+/// says so on the first channel and waits for the second.
+#[cfg(test)]
+type SettleHold = (String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+#[cfg(test)]
+pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+
+/// Tests: the stop of [`SETTLE_HOLD`].
+#[cfg(test)]
+fn hold_settle(id: &str) {
+    let held = {
+        let mut slot = SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.as_ref().is_some_and(|(chat, _, _)| chat == id) { slot.take() } else { None }
+    };
+    if let Some((_, arrived, release)) = held {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
+
 /// One chat folder: its file id and birth time (0 where the file system has none). A folder
 /// renamed away and back keeps it; another folder made under the same path does not.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -233,6 +253,8 @@ impl Inner {
         let Some(pending) = self.order.lock_or_recover().metas.get(id).cloned() else {
             return Ok(());
         };
+        #[cfg(test)]
+        hold_settle(id);
         self.journal
             .wait_durable(pending.lsn, SEAL_WAIT)
             .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;

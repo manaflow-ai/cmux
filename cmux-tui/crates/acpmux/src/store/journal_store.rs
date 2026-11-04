@@ -60,6 +60,8 @@ mod repair;
 
 use checkpoint::{read_checkpoint, remove_checkpoint_temporaries};
 pub(super) use fenced::FencedStorage;
+#[cfg(test)]
+pub(super) use meta::SETTLE_HOLD;
 use repair::Replay;
 #[cfg(test)]
 pub(super) use repair::STOP_AFTER_CUT;
