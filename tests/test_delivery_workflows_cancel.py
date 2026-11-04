@@ -483,5 +483,126 @@ class StaleRuleTests(unittest.TestCase):
         self.assertIn("waited 24 min", why)
 
 
+
+# --- DEV publish runs a newer publish covered (2026-10-31: 115 queued, oldest 37 h) ----------------------------
+DEV_NOW = dw._dt.datetime(2026, 10, 31, 5, 0, tzinfo=dw._dt.timezone.utc)
+OLD_SRC, NEW_SRC = sha("a"), sha("b")
+
+
+def dev_run(source, *, ident=10, status="queued", conclusion=None, created="2026-10-29T15:34:57Z", attempt=1):
+    return {"id": ident, "path": ".github/workflows/cmux-next-dev-daily.yml",
+            "name": f"cmux NEXT DEV daily · publish {source}", "display_title": f"cmux NEXT DEV daily · publish {source}",
+            "status": status, "conclusion": conclusion, "head_sha": sha("m"), "head_branch": "main",
+            "event": "workflow_dispatch", "run_attempt": attempt, "created_at": created}
+
+
+def dev_waiting_jobs(mac="blacksmith-12vcpu-macos-26"):
+    early = "2026-10-29T15:40:00Z"
+    return [job("Build the signer", start=early, end=early), job("Sign cmux NEXT DEV", start=early, end=early),
+            job("runner", start=early, end=early),
+            job("Verify signed cmux NEXT DEV", "queued", labels=(mac,), start=early),
+            job("Build the unsigned cmux NEXT DEV tip DMG", "queued", labels=(mac,), start=early)]
+
+
+def dev_published_jobs():
+    return [*[job(n) for n in ("Build the signer", "Sign cmux NEXT DEV", "runner", "Verify signed cmux NEXT DEV",
+                                "Build the unsigned cmux NEXT DEV tip DMG", "Publish cmux NEXT DEV")],
+            job("Publish the cmux NEXT DEV tip feed", "completed", "skipped")]
+
+
+class DevPublishSupersededTests(unittest.TestCase):
+    def decide(self, run=None, jobs=None, *, newer=None, newer_jobs=None, old=OLD_SRC, new=NEW_SRC, contains=True):
+        run = run or dev_run(100)
+        newer = newer or dev_run(200, ident=20, status="completed", conclusion="success")
+        return dw.dev_publish_superseded(
+            run, dev_waiting_jobs() if jobs is None else jobs, source_sha=old, newer=newer,
+            newer_jobs=dev_published_jobs() if newer_jobs is None else newer_jobs, newer_source_sha=new,
+            contains=lambda a, b: contains, now=DEV_NOW)
+
+    def test_a_publish_run_waiting_on_a_mac_behind_a_newer_published_source_is_superseded(self):
+        ok, why = self.decide()
+        self.assertTrue(ok, why)
+        self.assertIn("certain not to publish", why)
+
+    def test_the_source_id_comes_from_the_title_only_for_the_dev_publisher(self):
+        self.assertEqual(dw.dev_publish_source(dev_run(41153639573)), 41153639573)
+        self.assertIsNone(dw.dev_publish_source({**dev_run(5), "path": ".github/workflows/nightly.yml"}))
+        self.assertIsNone(dw.dev_publish_source({**dev_run(5), "name": "cmux NEXT DEV daily", "display_title": ""}))
+
+    def test_a_started_mac_job_keeps_it(self):
+        jobs = dev_waiting_jobs()
+        jobs[3] = job("Verify signed cmux NEXT DEV", "in_progress", labels=("glaeda-std-xcode-26.6",),
+                      start="2026-10-29T15:40:00Z")
+        ok, why = self.decide(jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("running", why)
+
+    def test_a_queued_mac_job_a_runner_took_keeps_it(self):
+        jobs = dev_waiting_jobs()
+        jobs[3]["runner_name"] = "cmux9s-mac-mini-glaeda"
+        self.assertFalse(self.decide(jobs=jobs)[0])
+
+    def test_a_running_or_finished_publish_job_keeps_it(self):
+        jobs = [*dev_waiting_jobs(), job("Publish cmux NEXT DEV", "in_progress", start="2026-10-29T15:40:00Z")]
+        ok, why = self.decide(jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("running", why)
+        early = "2026-10-29T15:40:00Z"
+        jobs = [*dev_waiting_jobs(), job("Publish cmux NEXT DEV", "completed", "failure", start=early, end=early)]
+        ok, why = self.decide(jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("Publish job has run", why)
+
+    def test_a_finished_tip_dmg_with_verify_still_waiting_is_superseded(self):
+        # Run 40946510427 on 2026-10-31: its tip DMG built on a Mac; Verify had waited on a Mac since.
+        early = "2026-10-29T15:40:00Z"
+        jobs = dev_waiting_jobs()
+        jobs[4] = job("Build the unsigned cmux NEXT DEV tip DMG", labels=("blacksmith-6vcpu-macos-26",),
+                      start=early, end=early)
+        jobs.append(job("Sign, notarize and staple the cmux NEXT DEV tip DMG", start=early, end=early))
+        ok, why = self.decide(jobs=jobs)
+        self.assertTrue(ok, why)
+
+    def test_a_recent_run_keeps_it(self):
+        jobs = [job(j["name"], j["status"], j["conclusion"] or "success", labels=j["labels"],
+                    start="2026-10-31T04:50:00Z", end="2026-10-31T04:50:00Z") for j in dev_waiting_jobs()]
+        ok, why = self.decide(run=dev_run(100, created="2026-10-31T04:45:00Z"), jobs=jobs)
+        self.assertFalse(ok)
+        self.assertIn("condition 2", why)
+
+    def test_a_newer_run_that_did_not_publish_keeps_it(self):
+        jobs = dev_published_jobs()
+        jobs[5] = job("Publish cmux NEXT DEV", "completed", "skipped")
+        self.assertFalse(self.decide(newer_jobs=jobs)[0])
+        failed = dev_run(200, ident=20, status="completed", conclusion="failure")
+        self.assertFalse(self.decide(newer=failed)[0])
+
+    def test_an_older_or_equal_winner_keeps_it(self):
+        ok, why = self.decide(run=dev_run(300))
+        self.assertFalse(ok)
+        self.assertIn("later source run", why)
+
+    def test_unread_or_unrelated_sources_keep_it(self):
+        self.assertFalse(self.decide(contains=None)[0])
+        self.assertFalse(self.decide(contains=False)[0])
+        self.assertFalse(self.decide(old="")[0])
+        self.assertTrue(self.decide(old=NEW_SRC, new=NEW_SRC, contains=None)[0])  # the same commit
+
+    def test_unread_jobs_or_a_finished_run_keep_it(self):
+        run = dev_run(100)
+        self.assertFalse(dw.dev_publish_superseded(run, None, source_sha=OLD_SRC, newer=None, newer_jobs=None,
+                                                   newer_source_sha=None, contains=lambda a, b: True, now=DEV_NOW)[0])
+        self.assertFalse(self.decide(run=dev_run(100, status="completed", conclusion="cancelled"))[0])
+        self.assertFalse(dw.dev_publish_superseded(run, dev_waiting_jobs(), source_sha=OLD_SRC, newer=None,
+                                                   newer_jobs=None, newer_source_sha=NEW_SRC,
+                                                   contains=lambda a, b: True, now=DEV_NOW)[0])
+
+    def test_the_publish_job_and_title_match_the_workflow(self):
+        text = (ROOT / ".github/workflows/cmux-next-dev-daily.yml").read_text()
+        names = set(re.findall(r"^    name: (.+)$", text, re.MULTILINE))
+        self.assertIn(dw.DEV_PUBLISH_JOB, names)
+        self.assertRegex(text, r"cmux NEXT DEV daily · publish \{0\}")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -266,7 +266,7 @@ extension Workspace {
             }
             newPanelId = panel.id
         case .chief:
-            guard let panel = newChiefSurface(inPane: focusedPaneId, focus: focus) else {
+            guard ChiefSettings.isEnabled, let panel = newChiefSurface(inPane: focusedPaneId, focus: focus) else {
                 return nil
             }
             newPanelId = panel.id

@@ -184,8 +184,14 @@ check(build_job["needs"] == ["sign", "runner"] and "verify" not in build_job["if
 # the runner job's dmg_label (two owned machines free now) and every re-run takes Blacksmith.
 check(build_job["runs-on"] == "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
       "(github.run_attempt == 1 && needs.runner.outputs.dmg_label || github.run_attempt > 1 && "
+      "needs.runner.outputs.cloud_dead == 'true' && needs.runner.outputs.owned || github.run_attempt > 1 && "
       "needs.runner.outputs.attempt != github.run_attempt && needs.runner.outputs.alternate || needs.runner.outputs.cloud || 'blacksmith-6vcpu-macos-26') }}",
-      "tip-dmg-build takes an owned pick on attempt 1 only, else Blacksmith macOS")
+      "tip-dmg-build takes an owned pick on attempt 1, an owned label on a re-run while Blacksmith macOS 26 is dead, "
+      "else Blacksmith macOS")
+check(jobs["verify"]["runs-on"] == build_job["runs-on"].replace("outputs.dmg_label", "outputs.label"),
+      "verify falls back exactly as tip-dmg-build does")
+check(jobs["runner"]["outputs"]["owned"] == "${{ steps.pool.outputs.owned }}",
+      "the runner job hands the owned fallback to re-runs")
 runner_job = jobs["runner"]
 pick = next(step for step in runner_job["steps"] if step.get("id") == "pool")
 check(runner_job["outputs"]["dmg_label"] == "${{ steps.pool.outputs.dmg_label }}"

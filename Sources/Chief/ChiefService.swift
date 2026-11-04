@@ -49,6 +49,9 @@ final class ChiefService {
     /// changes only with ``workingConversations``, so Observation tracks that.
     @ObservationIgnored private(set) var turnStarts: [ConversationID: ContinuousClock.Instant] = [:]
     @ObservationIgnored private var started = false
+    /// Bumped by each ``start()`` and ``stopBecauseDisabled()``; an owner load
+    /// that finishes after a stop sees a newer value and shuts itself down.
+    @ObservationIgnored private(set) var startGeneration = 0
     /// The list's preview lines by conversation (ChiefService+Previews.swift), with the row state
     /// each was read at.
     @ObservationIgnored var previewLines: [ConversationID: ChiefPreviewEntry] = [:]
@@ -125,10 +128,12 @@ final class ChiefService {
 
     /// Opens the Chief home and starts the store. Idempotent, and cheap on
     /// the main thread: the owner loads on a background task and the store
-    /// connects when it is ready.
+    /// connects when it is ready. Does nothing while `chief.enabled` is off.
     func start() {
-        guard !started else { return }
+        guard !started, ChiefSettings.isEnabled else { return }
         started = true
+        startGeneration &+= 1
+        let generation = startGeneration
         let (home, temporary) = Self.resolveHome()
         let settings = ChiefSettingsAccess().current
         engine = settings
@@ -156,11 +161,48 @@ final class ChiefService {
         Task { @MainActor [weak self] in
             do {
                 let owner = try await loading.value
-                self?.ownerLoaded(owner)
+                guard let self, self.startGeneration == generation else {
+                    await owner.shutdown()
+                    return
+                }
+                self.ownerLoaded(owner)
             } catch {
+                guard self?.startGeneration == generation else { return }
                 self?.ownerFailed(error)
             }
         }
+    }
+
+    /// `chief.enabled` turned off: ends every turn and the brain's processes
+    /// and drops the store, so nothing reaches a harness until Chief is
+    /// enabled and started again. Open Chief views keep the stopped store and
+    /// can no longer send.
+    func stopBecauseDisabled() {
+        guard started else { return }
+        started = false
+        startGeneration &+= 1
+        let owner = self.owner
+        storeIfStarted?.stop()
+        storeIfStarted = nil
+        startFailure = nil
+        self.owner = nil
+        ownerLoad = nil
+        home = nil
+        allowRules = nil
+        brainSwitch = nil
+        workingWatch?.cancel()
+        workingWatch = nil
+        workingConversations = []
+        turnStarts = [:]
+        previewLines = [:]
+        previewReads = []
+        if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
+        settingsObserver = nil
+        if let quitObserver { NotificationCenter.default.removeObserver(quitObserver) }
+        quitObserver = nil
+        guard let owner else { return }
+        // task-owner: one shutdown of the stopped owner; ends when its turns and processes end
+        Task.detached { await owner.shutdown() }
     }
 
     private func ownerLoaded(_ owner: ChiefConversationOwner) {
@@ -262,6 +304,10 @@ final class ChiefService {
     }
 
     private func applySettingsIfChanged() {
+        guard ChiefSettings.isEnabled else {
+            stopBecauseDisabled()
+            return
+        }
         let settings = ChiefSettingsAccess().current
         guard settings != engine, let brainSwitch else { return }
         engine = settings

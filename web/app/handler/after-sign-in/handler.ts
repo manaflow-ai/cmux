@@ -518,7 +518,7 @@ function nativeReturnFlow(
   const trustedPurchaseReturnTo = verifiedAppPricingNativeReturnTo(request.nextUrl);
   if (
     trustedPurchaseReturnTo === nativeReturnTo ||
-    isAllowedNativeReturnTo(nativeReturnTo, request)
+    isAllowedNativeReturnTo(nativeReturnTo)
   ) {
     const href = buildNativeHref(nativeReturnTo, refreshToken, accessCookie);
     if (href) {
