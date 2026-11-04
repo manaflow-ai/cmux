@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, cliExecNeedsDirectFallback, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { nativeProofSkip } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -20,11 +21,10 @@ describe("cloud journey", () => {
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
   });
-  test("CLI exec falls back only for the documented unsupported provider response", () => {
+  test("CLI exec falls back only for the structured unsupported provider response", () => {
     expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" }))).toBe(true);
     expect(cliExecNeedsDirectFallback(1, "", JSON.stringify({ code: "cloud_client_session.failed", message: "cmux: the cmux API refused the client session: 502 Bad Gateway cloud.provider.unsupported" }))).toBe(false);
-    expect(cliExecNeedsDirectFallback(1, "", "HTTP 501 cloud.provider.unsupported")).toBe(false);
-    expect(cliExecNeedsDirectFallback(1, "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported", "")).toBe(false);
+    expect(cliExecNeedsDirectFallback(1, "HTTP 501 cloud.provider.unsupported", "")).toBe(false);
     expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
@@ -86,5 +86,21 @@ describe("cloud journey", () => {
     expect(validLogin("claude", auth)).toBe(false);
     expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
     expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
+  });
+});
+
+describe("cloud journey: link_token on a Native machine", () => {
+  const refusal = (code: string, reason?: string) => ({ ok: false, error: { code, message: "m", ...(reason ? { details: { reason } } : {}) } });
+  test("skips only a refusal for want of a Native device enrollment", () => {
+    for (const reason of ["host_missing", "host_unconfirmed", "proof_missing"])
+      expect(nativeProofSkip(refusal("auth.forbidden", reason))).toContain(`needs a Native device proof (app-only): link_token refused ${reason}`);
+  });
+  test("keeps every other answer red", () => {
+    expect(nativeProofSkip(refusal("auth.forbidden"))).toBeNull(); // an older backend names no check
+    expect(nativeProofSkip(refusal("auth.forbidden", "vm_services"))).toBeNull();
+    expect(nativeProofSkip(refusal("auth.forbidden", "host_grant"))).toBeNull();
+    expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
+    expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
+    expect(nativeProofSkip(undefined)).toBeNull();
   });
 });
