@@ -66,6 +66,18 @@ evidence = {
 }
 
 
+def has_browser_proof_reply(text: str) -> bool:
+    """Accept the marker line when the agent wraps it, while rejecting other prose."""
+    expected = re.sub(r"\s+", " ", BROWSER_PROOF_REPLY).strip()
+    for line in (text or "").splitlines():
+        candidate = line.strip()
+        candidate = candidate.strip("`*_\"'")
+        candidate = re.sub(r"\s+", " ", candidate).strip()
+        if candidate == expected:
+            return True
+    return False
+
+
 def clean(text: str, limit: int = 2000) -> str:
     text = (text or "").strip()
     for pattern in SECRET_PATTERNS:
@@ -235,7 +247,7 @@ reply = answer.get("reply")
 turn = answer.get("turn") if isinstance(answer.get("turn"), dict) else {}
 tool_calls = turn.get("toolCalls")
 reply_text = reply if isinstance(reply, str) else ""
-browser_marker = reply_text.strip() == BROWSER_PROOF_REPLY
+browser_marker = has_browser_proof_reply(reply_text)
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
 reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
 record("cloud start-chat", code, "", "", reply=reply_for_evidence,
