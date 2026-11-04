@@ -145,8 +145,10 @@ impl Feed {
                     item.actor = notice.actor;
                     item.context = notice.context;
                     item.count = item.count.saturating_add(1);
+                    // An echo leaves the time alone: the window stays measured from the
+                    // agent's own notice, so a program's frequent notices cannot hold it open.
+                    item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
                 }
-                item.updated_at_ms = notice.at_ms.max(item.updated_at_ms);
                 item.aliases.push(notice.dedupe_key);
                 if item.aliases.len() > MAX_ALIASES {
                     let excess = item.aliases.len() - MAX_ALIASES;
@@ -432,7 +434,8 @@ mod echo_tests {
     fn an_agents_notice_after_its_programs_echo_replaces_it() {
         let mut feed = Feed::default();
         feed.post(notice("fi_b", "terminal", "claude-code is done", "", 1_000)).unwrap();
-        let (outcome, _) = feed.post(notice("fi_a", "agent", "Claude finished", "", 1_003)).unwrap();
+        let (outcome, _) =
+            feed.post(notice("fi_a", "agent", "Claude finished", "", 1_003)).unwrap();
         let item = outcome.item();
         assert_eq!(item.title, "Claude finished");
         assert_eq!(item.source, "agent");
@@ -443,9 +446,8 @@ mod echo_tests {
     fn a_later_programs_notice_still_coalesces_as_news() {
         let mut feed = Feed::default();
         feed.post(notice("fi_a", "agent", "Claude finished", "", 1_000)).unwrap();
-        let (outcome, _) = feed
-            .post(notice("fi_b", "terminal", "build is done", "", 1_000 + 10_001))
-            .unwrap();
+        let (outcome, _) =
+            feed.post(notice("fi_b", "terminal", "build is done", "", 1_000 + 10_001)).unwrap();
         let item = outcome.item();
         assert_eq!(item.title, "build is done");
         assert_eq!(item.count, 2);

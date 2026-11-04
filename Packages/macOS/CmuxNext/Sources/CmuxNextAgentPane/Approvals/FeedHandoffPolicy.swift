@@ -10,7 +10,8 @@ public import Foundation
 /// source (agents on; terminal off, title or full) and the alert policy would
 /// have alerted for it: its workspace is not muted, its newest text did not
 /// arrive in quiet hours, and banners are on for its source. The text is the item's
-/// own title and body (its agent's `detail` when the daemon still keeps it), scrubbed of
+/// own title and body (its agent's `detail`, while the daemon keeps it and
+/// `feed.agentPermissionPrompts` is on), scrubbed of
 /// known secret shapes; title mode drops the body. An incognito window's item never leaves (leo-workspace
 /// design/spaces.md "Incognito"; #31210): handing it off is what puts it in
 /// the Feed and pushes it to the iPhone. So an item leaves only once the
@@ -69,8 +70,11 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
     private func mirrored(_ item: FeedLocalItem) -> (title: String, body: String)? {
         let mirror = preferences.feedMirror
         // What the agent said, while the daemon keeps it (a terminal agent's answer, question or
-        // approval command); else the durable row's body.
-        let body = item.detail ?? item.body
+        // approval command), only with `feed.agentPermissionPrompts` on: that setting is the
+        // person's consent to agent prompt text in the Cloud feed, as it is for a GUI chat's
+        // prompts (AcpmuxPermissionFeedBridge). Otherwise the durable row's body, as before; the
+        // phone still shows the text, read from this Mac (TerminalFeed, list-notifications).
+        let body = mirror.agentPermissionPrompts ? item.detail ?? item.body : item.body
         let text: (String, String)?
         switch NotificationSource(wire: item.source) {
         case .terminal:
