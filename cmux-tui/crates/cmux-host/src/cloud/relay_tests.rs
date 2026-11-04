@@ -152,3 +152,42 @@ fn frames_an_event() {
     let f: Value = serde_json::from_str(&up("c1", json!({"kind": "done"}))).unwrap();
     assert_eq!(f, json!({"v": 1, "t": "event", "id": "c1", "event": {"kind": "done"}}));
 }
+
+#[test]
+fn a_stop_drops_the_socket_at_once() {
+    struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Socket {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    for gone in [false, true] {
+        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let socket = Socket(dropped.clone());
+        let (tx, mut rx) = watch::channel(false);
+        let serving = async move {
+            let _socket = socket;
+            std::future::pending::<()>().await
+        };
+        let started = std::time::Instant::now();
+        let out = rt.block_on(async {
+            let stopper = async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                // A rebind drops the Relay: the sender goes, or it says stop.
+                if gone {
+                    drop(tx)
+                } else {
+                    tx.send_replace(true);
+                }
+            };
+            tokio::join!(or_stop(&mut rx, serving), stopper).0
+        });
+        assert_eq!(out, None);
+        assert!(
+            dropped.load(std::sync::atomic::Ordering::SeqCst),
+            "the socket is dropped with its chats"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
+    }
+}

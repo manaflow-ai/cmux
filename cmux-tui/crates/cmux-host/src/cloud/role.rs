@@ -32,9 +32,9 @@ use super::client::{
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
 use super::handoff::{self, HandoffReport};
+use super::relay::{Relay, Runner};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
-use super::relay::{Relay, Runner};
 use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
@@ -939,7 +939,7 @@ impl Worker {
                 Err(e) => log(&format!("trajectory mirror: {e}")),
             }
         }
-        // A rebind replaces the relay: the old thread stops at its next wake.
+        // A rebind replaces the relay: dropping the old one closes its socket and ends its chats at once.
         self.relay = None;
         match (github_client(&bound, &key), relay_runner()) {
             (Ok(client), Ok(runner)) => {
@@ -1152,7 +1152,13 @@ fn relay_runner() -> Result<Runner, String> {
         .or_else(|| lookup_user("root"))
         .ok_or_else(|| "no work user and no root user".to_owned())?;
     let home = if user.uid == 0 { PathBuf::from(ROOT_HOME) } else { PathBuf::from(WORK_HOME) };
-    Ok(Runner { bin: binary_path(&home), user: user.name.clone(), uid: user.uid, gid: user.gid, home })
+    Ok(Runner {
+        bin: binary_path(&home),
+        user: user.name.clone(),
+        uid: user.uid,
+        gid: user.gid,
+        home,
+    })
 }
 
 /// The harness-login sync (removed) kept its state here on machines that ran

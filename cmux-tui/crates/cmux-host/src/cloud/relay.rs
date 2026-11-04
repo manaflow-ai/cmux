@@ -23,14 +23,12 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -279,14 +277,29 @@ impl Runner {
     }
 }
 
-/// The relay thread; dropping it stops the thread at its next wake.
+/// The relay thread; dropping it stops the thread at once: its socket closes and that socket's chats end (a
+/// rebind must not leave the old machine's socket taking chats).
 pub struct Relay {
-    stop: Arc<AtomicBool>,
+    stop: watch::Sender<bool>,
 }
 
 impl Drop for Relay {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.stop.send_replace(true);
+    }
+}
+
+/// Resolves once `stop` is set or its `Relay` is gone.
+async fn stopped(stop: &mut watch::Receiver<bool>) {
+    let _ = stop.wait_for(|s| *s).await;
+}
+
+/// Runs `work` unless `stop` comes first, which drops it (and so a socket and its chats) at once.
+async fn or_stop<T>(stop: &mut watch::Receiver<bool>, work: impl Future<Output = T>) -> Option<T> {
+    tokio::select! {
+        biased;
+        () = stopped(stop) => None,
+        out = work => Some(out),
     }
 }
 
@@ -297,11 +310,10 @@ impl Relay {
         now_wall_ms: fn() -> u64,
         log: fn(&str),
     ) -> std::io::Result<Relay> {
-        let stop = Arc::new(AtomicBool::new(false));
-        let stopping = Arc::clone(&stop);
+        let (stop, stopping) = watch::channel(false);
         std::thread::Builder::new()
             .name("cmux-host-relay".to_owned())
-            .spawn(move || run(client, runner, now_wall_ms, log, &stopping))?;
+            .spawn(move || run(client, runner, now_wall_ms, log, stopping))?;
         Ok(Relay { stop })
     }
 }
@@ -311,7 +323,7 @@ fn run<H: Http>(
     runner: Runner,
     now_wall_ms: fn() -> u64,
     log: fn(&str),
-    stop: &AtomicBool,
+    mut stop: watch::Receiver<bool>,
 ) {
     let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
@@ -323,9 +335,12 @@ fn run<H: Http>(
     };
     let mut backoff = Duration::from_secs(1);
     let mut last_error = String::new();
-    while !stop.load(Ordering::SeqCst) {
+    while !*stop.borrow() {
         let outcome = match client.token(now_wall_ms()) {
-            Ok(token) => rt.block_on(serve(&url, &token, &runner, stop)),
+            Ok(token) => match rt.block_on(or_stop(&mut stop, serve(&url, &token, &runner))) {
+                Some(outcome) => outcome,
+                None => break,
+            },
             Err(e) => Err(format!("token: {e}")),
         };
         match outcome {
@@ -339,8 +354,9 @@ fn run<H: Http>(
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }
         }
-        std::thread::sleep(backoff);
+        rt.block_on(or_stop(&mut stop, tokio::time::sleep(backoff)));
     }
+    // Dropping the runtime drops every chat task left, which kills its acpmux children (kill_on_drop).
 }
 
 /// One connection, until it drops. `Ok` once it was up.
@@ -356,7 +372,7 @@ impl Drop for Chats {
     }
 }
 
-async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Result<(), String> {
+async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
     let mut request = url.into_client_request().map_err(|e| format!("request: {e}"))?;
     let bearer =
         HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| "bearer".to_owned())?;
@@ -386,6 +402,11 @@ async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Re
                 match parse_down(text.as_str()) {
                     Down::Chat(chat) => {
                         chats.0.retain(|_, h| !h.is_finished());
+                        // One task per chat id: a repeated id (a retry) would run the prompt twice.
+                        if chats.0.contains_key(&chat.id) {
+                            let _ = tx.send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.duplicate", "message": "a chat with this id is already running"})));
+                            continue;
+                        }
                         if chats.0.len() >= MAX_CHATS {
                             let _ = tx.send(up(&chat.id, json!({"kind": "error", "code": "cloud.relay.busy", "message": "too many chats at once"})));
                             continue;
@@ -405,7 +426,7 @@ async fn serve(url: &str, token: &str, runner: &Runner, stop: &AtomicBool) -> Re
                 if sink.send(Message::text(frame)).await.is_err() { return Ok(()) }
             }
             _ = ping.tick() => {
-                if stop.load(Ordering::SeqCst) || heard.elapsed() > DEAD_AFTER {
+                if heard.elapsed() > DEAD_AFTER {
                     let _ = sink.close().await;
                     return Ok(());
                 }
