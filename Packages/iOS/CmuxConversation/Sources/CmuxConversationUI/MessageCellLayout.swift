@@ -364,12 +364,13 @@ extension MessageCellLayout {
         return ConversationBubbleGeometry.iOSTailDrop(radius: radius)
     }
 
-    // Messages' reply preview (iPhone 17 Pro Max, iOS 27, Large text): one
-    // caption2 line, truncated, its text 10 pt in from each side; the outline
-    // shows 29.33 pt tall (this frame plus its hairline), and grows with the
-    // font under Dynamic Type.
+    // Messages' reply preview (simulator Messages 27.0, iPhone 17 Pro and Pro
+    // Max, Large text): one caption2 line, truncated, its text 10 pt in from
+    // each side; the outline shows 27.33 pt tall (this frame plus its
+    // hairline), and grows with the font under Dynamic Type. (A 2026-10-30
+    // device screenshot read 29.33 pt.)
     static let quoteTextInset: CGFloat = 10
-    static let quoteHeight: CGFloat = 28
+    static let quoteHeight: CGFloat = 26
     static let quoteMinimumWidth: CGFloat = 48
     /// "N Replies" under the quote: its glyphs 7.33 pt under the quote, and
     /// 12 pt in from the quote's trailing edge (a quote of mine) or from the
@@ -386,11 +387,9 @@ extension MessageCellLayout {
     static let quoteToSameSideReply: CGFloat = 12
     static let quoteToOtherSideReply: CGFloat = 31.0 / 3
     static let repliesToSameSideReply: CGFloat = 32.0 / 3
-    static let repliesToOtherSideReply: CGFloat = 7.0 / 3
-    /// Under a quote of theirs, a reply of mine starts 11 pt under the
-    /// label's glyphs (simulator Messages 27.0; the device screenshot had no
-    /// labeled quote of theirs).
-    static let repliesOfTheirsToMyReply: CGFloat = 10
+    /// Across, 11 pt from the label's glyphs either way (simulator Messages
+    /// 27.0; the 2026-10-30 device screenshot read 3 pt for a quote of mine).
+    static let repliesToOtherSideReply: CGFloat = 10
 
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
@@ -471,7 +470,7 @@ extension MessageCellLayout {
                     ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                     : CGRect(x: max(bodyMinX, column + ConversationReplyThread.lineWidth / 2) + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                 y += Self.quoteRepliesGap + h
-                y += sameSide ? Self.repliesToSameSideReply : quote.isOutgoing ? Self.repliesToOtherSideReply : Self.repliesOfTheirsToMyReply
+                y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
             } else {
                 y += sameSide ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
             }

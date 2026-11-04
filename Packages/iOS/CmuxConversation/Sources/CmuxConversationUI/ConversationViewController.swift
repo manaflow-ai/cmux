@@ -2002,11 +2002,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
         let overhang = previousLayout.tailOverhang
         var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
-        // A thread block stands apart: Messages adds `selfReplyTranscriptSpace`
-        // above its quote and under its last reply (iPhone 17 Pro Max, iOS 27),
-        // none between the replies of one block (iOS 27.0 simulator).
-        if model.replyQuote != nil || (previous.replyThread != nil && model.replyThread?.arrival == nil) {
-            gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpace)
+        // A thread block stands apart: Messages adds space above its quote and
+        // under its last reply, none between the replies of one block
+        // (simulator Messages 27.0).
+        if model.replyQuote != nil {
+            gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpaceAbove)
+        } else if previous.replyThread != nil, model.replyThread?.arrival == nil {
+            gap += ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.replyBlockSpaceBelow)
         }
         // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
         // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
