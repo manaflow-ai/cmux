@@ -46,14 +46,22 @@ export function TaskGoalStrip({
 function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
   const t = useT();
   const lang = usePaneLanguage();
+  const [expanded, setExpanded] = useState(false);
   // The page's shared second clock (ui/pageClock.ts), only while the next run is ahead: the render
   // after that time passes stops it, as does unmounting, and a hidden page runs no timer.
   const at = goal.nextRunAt;
   const time = usePageNow(at !== undefined && now() < at, now);
   const next = at === undefined ? undefined : loopNextText(time, at, lang);
   const objective = goal.autonomous ? t("goal.loopAutonomous") : goal.objective;
+  const hasDetails = Boolean(goal.steps?.length || goal.detail);
   return (
-    <section className="acpmux-goal" data-state={goal.status} data-kind="loop" aria-label={t("goal.label")}>
+    <section
+      className="acpmux-goal"
+      data-state={goal.status}
+      data-kind="loop"
+      aria-label={t("goal.label")}
+      aria-expanded={hasDetails ? expanded : undefined}
+    >
       <span className="acpmux-goal-copy">
         <span className="acpmux-goal-state">{t("goal.loop")}</span>
         <span className="acpmux-goal-objective" title={goal.reason ?? objective}>
@@ -66,6 +74,29 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
           </span>
         )}
       </span>
+      {hasDetails && (
+        <button
+          type="button"
+          className="acpmux-goal-action"
+          aria-expanded={expanded}
+          aria-label={t("goal.label")}
+          title={t("goal.label")}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <Expand size={15} />
+        </button>
+      )}
+      {expanded && (
+        <div className="acpmux-goal-details">
+          {goal.detail && <p>{goal.detail}</p>}
+          {goal.steps?.map((step, index) => (
+            <div className="acpmux-goal-step" key={`${step.label}-${index}`} data-status={step.status}>
+              <span aria-hidden="true">{step.status === "done" || step.status === "completed" ? "✓" : "·"}</span>
+              <span>{step.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -96,10 +127,11 @@ function GoalStrip({
   const current = useNow(live);
   const start = goal.startedAt;
   const elapsed =
-    goal.elapsedMs ??
-    (start !== undefined
-      ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
-      : undefined);
+    goal.elapsedMs !== undefined
+      ? goal.elapsedMs + (live ? Math.max(0, current - (goal.updatedAt ?? goal.startedAt ?? current)) : 0)
+      : start !== undefined
+        ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
+        : undefined;
   const status =
     goal.status === "running" || goal.status === "active"
       ? t("goal.active")
@@ -157,7 +189,7 @@ function GoalStrip({
           {goal.status === "running" || goal.status === "active" ? (
             <PauseCircle size={16} />
           ) : (
-            <PlayTriangle size={16} />
+            <PlayTriangle size={16} style={{ color: "inherit" }} />
           )}
         </button>
       )}
