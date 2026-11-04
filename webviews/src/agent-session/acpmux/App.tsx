@@ -14895,13 +14895,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
-          {!showNewTab && snapshot.summary?.goal && (
-            <TaskGoalStrip
-              key={snapshot.summary.sessionId}
-              goal={snapshot.summary.goal}
-              command={(action) => callNative("chat.send", { text: `/goal ${action}`, attachments: [] })}
-            />
-          )}
           {showNewTab && folderAskView}
           {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
             <>
@@ -15419,6 +15412,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
                   fallback={snapshot.presence}
                 />
+                {!showNewTab && composerSnapshot.summary?.goal && (
+                  <TaskGoalStrip
+                    key={composerSnapshot.summary.sessionId}
+                    goal={composerSnapshot.summary.goal}
+                    harness={composerSnapshot.summary.harness}
+                    command={(action) => {
+                      return callNative("chat.send", {
+                        text: `/goal ${action === "delete" ? "clear" : action}`,
+                        attachments: [],
+                      });
+                    }}
+                  />
+                )}
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {(!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && composer}
               </div>

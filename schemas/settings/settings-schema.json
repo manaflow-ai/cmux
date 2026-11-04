@@ -12714,7 +12714,7 @@
       },
       "help" : {
         "key" : "settings.cloud.agentsStartWithoutAsking.help",
-        "text" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."
+        "text" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this."
       },
       "kept_on_reset_all" : false,
       "key" : "cloud.agentsStartWithoutAsking",
@@ -12725,9 +12725,13 @@
         "agent",
         "start",
         "session",
+        "create",
+        "new machine",
+        "move",
         "ask",
         "approve",
         "permission",
+        "bypass",
         "without asking",
         "delegate"
       ],
@@ -12829,7 +12833,7 @@
       },
       "title" : {
         "key" : "settings.cloud.agentsStartWithoutAsking",
-        "text" : "Let Agents Start Cloud Sessions Without Asking"
+        "text" : "Let Agents Use Cloud Without Asking"
       },
       "validation" : "portable"
     },
