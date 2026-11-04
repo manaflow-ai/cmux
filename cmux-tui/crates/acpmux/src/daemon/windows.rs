@@ -256,12 +256,6 @@ pub(super) async fn start_daemon(home: &Path, prefix: &[OsString]) -> Result<Str
     let line = loop {
         match tokio::time::timeout(crate::daemon::START_BUDGET, &mut rx).await {
             Ok(line) => break line.unwrap_or_default(),
-            Err(_)
-                if super::lock_has_live_holder(&home.join("daemon.lock"))
-                    && super::live_holder_pid(&home.join("daemon.lock")) != Some(child_pid) =>
-            {
-                // A live winner may be slow; the lock and pipe remain the liveness signal.
-            }
             Err(_) => {
                 return Err(anyhow!(
                     "daemon did not come up at {} within {:?}; see {}",
@@ -411,7 +405,7 @@ fn spawn_this(
 
 /// Starts `<exe> [prefix] daemon run --ready-fd <handle>` (see the module
 /// comment) and returns the read end of its readiness pipe.
-pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<(File, u32)> {
+pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
     crate::config::private_state_dir(home)?;
     let log_path = home.join("daemon.log");
     // Owner-only, as on Unix: the log can carry agent output and requests.

@@ -98,19 +98,35 @@ fn holder_pid(file: &std::fs::File) -> Option<u32> {
     alive.then_some(pid as u32)
 }
 
+#[cfg(unix)]
+fn lock_is_held(file: &std::fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+    // SAFETY: flock only probes this descriptor and the shared lock is released
+    // before returning.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) };
+    if rc == 0 {
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        false
+    } else {
+        std::io::Error::last_os_error().raw_os_error() == Some(libc::EWOULDBLOCK)
+    }
+}
+
 /// Whether a live daemon holds the lock at `path`, read from the pid it wrote there, without
 /// taking the lock or creating the file: a listing asks this to tell a daemon in a restart's
 /// handover (wait for it) from none at all (start none, `running.rs`).
 #[cfg(unix)]
 pub(super) fn lock_has_live_holder(path: &Path) -> bool {
-    std::fs::File::open(path).ok().as_ref().and_then(holder_pid).is_some()
+    std::fs::File::open(path).is_ok_and(|file| lock_is_held(&file))
 }
 
 /// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
 /// the lock or creating the file.
 #[cfg(unix)]
 pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
-    std::fs::File::open(path).ok().as_ref().and_then(holder_pid)
+    let file = std::fs::File::open(path).ok()?;
+    let pid = holder_pid(&file)?;
+    lock_is_held(&file).then_some(pid)
 }
 
 /// What to say of a lock holder that serves no socket: its pid, and how to recover. A holder

@@ -14,10 +14,12 @@ mod lock;
 #[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
+use lock::live_holder_pid;
+#[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, live_holder_pid, lock_has_live_holder,
-    wait_for_lock_release, wait_for_lock_release_with_budget,
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
+    wait_for_lock_release_with_budget,
 };
 mod running;
 pub use running::connect_running;
@@ -1477,10 +1479,7 @@ where
     let mut next_start = tokio::time::Instant::now();
     loop {
         if tokio::time::Instant::now() >= next_start {
-            let start = tokio::process::Command::new(systemctl.clone())
-                .args(["--user", "start", "acpmux.service"])
-                .output();
-            let _ = tokio::time::timeout(PROBE_BUDGET, start).await;
+            let _ = run_systemctl(systemctl.clone(), &["--user", "start", "acpmux.service"]).await;
             next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
         }
         if let Ok(value) = connect().await {
@@ -1489,14 +1488,34 @@ where
         // If systemd has already marked the unit inactive, its socket peer is
         // gone; let the ordinary detached launch path recover it. A live unit
         // keeps this wait open regardless of how long its request takes.
-        let active = tokio::process::Command::new(systemctl.clone())
-            .args(["--user", "is-active", "acpmux.service"])
-            .output();
-        match tokio::time::timeout(PROBE_BUDGET, active).await {
-            Ok(Ok(output)) if output.status.success() => {}
+        match run_systemctl(systemctl.clone(), &["--user", "is-active", "acpmux.service"]).await {
+            Ok(Some(status)) if status.success() => {}
             _ => return Ok(None),
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
+    }
+}
+
+/// Run a systemd probe without leaving a timed-out child behind. The timeout is
+/// only for this advisory health probe; the daemon request itself waits on its
+/// socket and lock liveness.
+// timeout: cleanup for a wedged systemctl probe before retrying it.
+#[cfg(target_os = "linux")]
+async fn run_systemctl<S>(
+    systemctl: S,
+    args: &[&str],
+) -> std::io::Result<Option<std::process::ExitStatus>>
+where
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut child = tokio::process::Command::new(systemctl).args(args).spawn()?;
+    match tokio::time::timeout(PROBE_BUDGET, child.wait()).await {
+        Ok(status) => status.map(Some),
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            Ok(None)
+        }
     }
 }
 

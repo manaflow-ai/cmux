@@ -11,6 +11,7 @@ use crate::config::{home, socket_path};
 use anyhow::Result;
 use std::path::Path;
 use std::sync::Arc;
+#[cfg(test)]
 use std::time::Duration;
 
 /// Connect to the daemon that serves this home, starting none. No daemon: a `no_daemon` error.
@@ -128,14 +129,28 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn the_lock_holder_is_read_without_taking_the_lock_or_making_the_file() {
+    fn the_lock_probe_requires_the_kernel_lock_not_just_a_pid_file() {
         let dir = tempfile::tempdir().unwrap();
         let lock = dir.path().join("daemon.lock");
         assert!(!lock_has_live_holder(&lock));
         assert!(!lock.exists(), "a probe made the lock file");
         std::fs::write(&lock, format!("{}\n", std::process::id())).unwrap();
+        assert!(!lock_has_live_holder(&lock), "a stale pid is not a lock holder");
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&lock).unwrap();
+        // SAFETY: this test owns the descriptor and releases the probe lock below.
+        assert_eq!(
+            unsafe {
+                libc::flock(
+                    std::os::unix::io::AsRawFd::as_raw_fd(&file),
+                    libc::LOCK_EX | libc::LOCK_NB,
+                )
+            },
+            0
+        );
         assert!(lock_has_live_holder(&lock));
-        // A pid no process has (above the default pid_max): no holder.
+        unsafe { libc::flock(std::os::unix::io::AsRawFd::as_raw_fd(&file), libc::LOCK_UN) };
+        drop(file);
+        // A pid no process has (above the default pid_max) is still not a holder.
         std::fs::write(&lock, "999999999\n").unwrap();
         assert!(!lock_has_live_holder(&lock));
     }
