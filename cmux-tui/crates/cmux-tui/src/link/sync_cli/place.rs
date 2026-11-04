@@ -160,16 +160,14 @@ impl Dir {
         }
     }
 
-    /// Writes `bytes` as the file `name` with `mode`: to a new hidden name,
-    /// then put at `name`, which may be missing or a regular file (never a
-    /// folder or a symlink). Every step is one atomic rename, so nothing
-    /// swapped in at `name` meanwhile is overwritten: a missing name is
-    /// taken only while still missing, and an existing one is exchanged and
-    /// what came out is removed only when it is a regular file (anything
-    /// else is exchanged back).
-    pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+    /// Writes `bytes` as the new file `name` with `mode`: to a hidden name
+    /// first, then renamed to `name` in one atomic step that takes the name
+    /// only while it is still missing. Anything already at `name` (a file,
+    /// a folder, a symlink, or one made meanwhile) stays untouched, and the
+    /// answer is `AlreadyExists`.
+    pub(super) fn new_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
         use std::io::Write as _;
-        if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+        if !matches!(self.entry(name)?, Entry::Missing) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists));
         }
         let part = format!(".{name}.cmux-sync-part");
@@ -180,29 +178,19 @@ impl Dir {
         let mut file = self.create_file(&part, mode)?;
         let written = file.write_all(bytes).and_then(|()| file.sync_all());
         drop(file);
-        let placed = written.and_then(|()| self.put_part(&part, name));
+        let placed = written.and_then(|()| {
+            let fd = self.0.as_raw_fd();
+            match rename_noreplace(fd, &c_name(&part)?, &c_name(name)?) {
+                Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {
+                    Err(io::Error::from(io::ErrorKind::AlreadyExists))
+                }
+                other => other,
+            }
+        });
         if placed.is_err() {
             let _ = self.unlink(&part, false);
         }
         placed
-    }
-
-    /// Puts the file `part` at `name` (see [`Dir::replace_file`]).
-    fn put_part(&self, part: &str, name: &str) -> io::Result<()> {
-        let (part_c, name_c) = (c_name(part)?, c_name(name)?);
-        let fd = self.0.as_raw_fd();
-        match rename_noreplace(fd, &part_c, &name_c) {
-            Ok(()) => return Ok(()),
-            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {}
-            Err(error) => return Err(error),
-        }
-        exchange_names(fd, &part_c, &name_c)?;
-        // `part` now holds what was at `name`.
-        if matches!(self.entry(part)?, Entry::File { .. }) {
-            return self.unlink(part, false);
-        }
-        exchange_names(fd, &part_c, &name_c)?;
-        Err(io::Error::from(io::ErrorKind::AlreadyExists))
     }
 
     /// The text of the symlink `name` (never followed).
@@ -715,19 +703,6 @@ fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
     #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
     {
         let _ = (fd, from, to);
-        Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
-}
-
-/// Exchanges `left` and `right` in one folder, atomically.
-fn exchange_names(fd: RawFd, left: &CStr, right: &CStr) -> io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    return renameat2(fd, left, right, libc::RENAME_EXCHANGE);
-    #[cfg(target_vendor = "apple")]
-    return renameatx(fd, left, right, libc::RENAME_SWAP);
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-    {
-        let _ = (fd, left, right);
         Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 }

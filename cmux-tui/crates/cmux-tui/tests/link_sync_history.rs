@@ -367,8 +367,8 @@ fn overlapping_edits_conflict_without_touching_this_macs_file() {
     assert!(!setup.remote.join("a.txt.cmux-sync-conflict").exists(), "{pushed}");
 }
 
-/// A symlink by a conflict merge's name is never replaced by the merge, and
-/// never pushed.
+/// A symlink by a conflict merge's name is never replaced by the merge (it
+/// goes to the next name), and never pushed.
 #[test]
 fn a_symlink_by_the_merge_files_name_is_left_alone() {
     let setup = setup("clash-link");
@@ -383,7 +383,7 @@ fn a_symlink_by_the_merge_files_name_is_left_alone() {
     let (ok, answer) = cmux(&setup, &["pull", "--socket", socket, folder, remote]);
     assert!(!ok, "{answer}");
     assert_eq!(answer["conflicts"], json!(["a.txt"]), "{answer}");
-    assert_eq!(answer["merge_files"], json!([]), "{answer}");
+    assert_eq!(answer["merge_files"], json!(["a.txt.2.cmux-sync-conflict"]), "{answer}");
     let side = setup.folder.join("a.txt.cmux-sync-conflict");
     assert!(std::fs::symlink_metadata(&side).unwrap().file_type().is_symlink());
     assert_eq!(std::fs::read_link(&side).unwrap(), Path::new("a.txt"));
@@ -391,6 +391,35 @@ fn a_symlink_by_the_merge_files_name_is_left_alone() {
 
     synced(&setup, "push");
     assert!(std::fs::symlink_metadata(setup.remote.join("a.txt.cmux-sync-conflict")).is_err());
+}
+
+/// A file already at the conflict merge's name (the user's own, or a merge
+/// they edited) is kept byte for byte: the merge goes to the next name, and
+/// the same conflict pulled again reuses that file instead of adding more.
+#[test]
+fn a_file_by_the_merge_files_name_is_never_overwritten() {
+    let setup = setup("clash-file");
+    std::fs::write(setup.folder.join("a.txt"), "1\n2\n3\n").unwrap();
+    synced(&setup, "push");
+    std::fs::write(setup.folder.join("a.txt.cmux-sync-conflict"), "my notes\n").unwrap();
+    std::fs::write(setup.folder.join("a.txt"), "1\ntwo here\n3\n").unwrap();
+    std::fs::write(setup.remote.join("a.txt"), "1\ntwo there\n3\n").unwrap();
+
+    let socket = setup.socket.to_str().unwrap();
+    let (folder, remote) = (setup.folder.to_str().unwrap(), setup.remote.to_str().unwrap());
+    for _ in 0..2 {
+        let (ok, answer) = cmux(&setup, &["pull", "--socket", socket, folder, remote]);
+        assert!(!ok, "{answer}");
+        assert_eq!(answer["merge_files"], json!(["a.txt.2.cmux-sync-conflict"]), "{answer}");
+    }
+    assert_eq!(
+        std::fs::read_to_string(setup.folder.join("a.txt.cmux-sync-conflict")).unwrap(),
+        "my notes\n"
+    );
+    let side = std::fs::read_to_string(setup.folder.join("a.txt.2.cmux-sync-conflict")).unwrap();
+    assert!(side.contains("two here") && side.contains("two there"), "{side}");
+    assert!(!setup.folder.join("a.txt.3.cmux-sync-conflict").exists());
+    assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "1\ntwo here\n3\n");
 }
 
 /// A binary file both sides changed stays a whole-file conflict, with no

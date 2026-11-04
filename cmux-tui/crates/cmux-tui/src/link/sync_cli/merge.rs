@@ -113,17 +113,43 @@ pub(super) fn merge(
     })
 }
 
-/// Writes `bytes` beside `relative` under `root` as its conflict file,
-/// replacing one an earlier pull wrote (never a folder or a symlink).
-/// Its path relative to the folder.
+/// How many conflict file names a file gets: `NAME.cmux-sync-conflict`,
+/// then `NAME.2.cmux-sync-conflict` up to this.
+const CONFLICT_NAMES: u32 = 9;
+
+/// Writes `bytes` beside `relative` under `root` as a conflict file, its
+/// path relative to the folder. It never replaces anything: a name that is
+/// taken (a merge from an earlier pull, the user's own file, a folder or a
+/// symlink) is left as it is and the next name is used, except that a
+/// regular file already holding exactly these bytes is the answer.
 pub(super) fn write_conflict(root: &Dir, relative: &str, bytes: &[u8]) -> anyhow::Result<String> {
     let Some((dir, name)) = place::parent_of(root, relative)? else {
         anyhow::bail!("{relative} has no folder here");
     };
-    let side = format!("{name}{CONFLICT_SUFFIX}");
-    dir.replace_file(&side, bytes, 0o644)?;
-    Ok(match relative.rsplit_once('/') {
-        Some((folder, _)) => format!("{folder}/{side}"),
-        None => side,
-    })
+    for n in 1..=CONFLICT_NAMES {
+        let side = if n == 1 {
+            format!("{name}{CONFLICT_SUFFIX}")
+        } else {
+            format!("{name}.{n}{CONFLICT_SUFFIX}")
+        };
+        let placed = match dir.new_file(&side, bytes, 0o644) {
+            Ok(()) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                matches!(dir.entry(&side)?, Entry::File { .. })
+                    && dir
+                        .open_file(&side)
+                        .ok()
+                        .and_then(|file| read_capped(file).ok().flatten())
+                        .is_some_and(|there| there == bytes)
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if placed {
+            return Ok(match relative.rsplit_once('/') {
+                Some((folder, _)) => format!("{folder}/{side}"),
+                None => side,
+            });
+        }
+    }
+    anyhow::bail!("every conflict file name for {relative} is taken; nothing was replaced")
 }
