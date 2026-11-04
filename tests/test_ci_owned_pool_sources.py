@@ -163,7 +163,10 @@ class OwnedPoolSources(unittest.TestCase):
             if text is None:
                 continue
             with self.subTest(tree=str(tree)):
-                self.assertTrue(sources.sign_stall_candidates(text), f"{tree}: no sign or verify job found; "
+                # The detector must still find nightly.yml's sign and verify jobs. Whether any of them can queue on
+                # Blacksmith macOS is that branch's routing: feat-cmux-next's nightly runs only on owned Macs
+                # (d5997935ef7, 2026-11-04), so it has none for the rescue to move, and that is not a failure.
+                self.assertTrue(sources.sign_jobs(text), f"{tree}: no sign or verify job found; "
                                 "the detector no longer matches nightly.yml")
                 missing = sources.uncovered_sign_jobs(text, table)
                 self.assertFalse(missing, "\n".join(
@@ -191,6 +194,18 @@ class OwnedPoolSources(unittest.TestCase):
         """)
         self.assertEqual(sorted(sources.sign_stall_candidates(workflow)),
                          ["signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        self.assertEqual(sorted(sources.sign_jobs(workflow)), [
+            "pick-nightly-sign-runner", "signer-build", "signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"])
+        owned_only = textwrap.dedent("""
+            jobs:
+              build-sign-notarize-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.sign_owned || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER }}
+              verify-signed-nightly:
+                runs-on: ${{ needs.pick-nightly-sign-runner.outputs.owned || 'glaeda-std-xcode-26.6' }}
+        """)
+        self.assertEqual(sorted(sources.sign_jobs(owned_only)), ["build-sign-notarize-nightly", "verify-signed-nightly"])
+        self.assertEqual(sources.sign_stall_candidates(owned_only), {})
+        self.assertEqual(sources.uncovered_sign_jobs(owned_only, {}), {})
         self.assertEqual(sources.uncovered_sign_jobs(workflow, {**table, "verify-final-dmg-nightly": ("x",)}), {
             "signer-dmg-image": f"not in {sources.SIGN_TABLE_NAME}",
             "verify-final-dmg-nightly": "its runs-on takes none of its alternate-label expressions on a re-run"})
