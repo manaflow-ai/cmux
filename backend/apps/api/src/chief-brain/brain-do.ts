@@ -35,7 +35,7 @@ import { chiefJobWake, type ChiefJob, type JobDelivery } from "../chief-brain-cc
 import { jobsSendDue, jobsStore, type StoreOp } from "../chief-brain-cc/jobs-store.ts"
 import { upstashSender } from "../chief-brain-cc/jobs-upstash.ts"
 import { githubCall, githubDump, type GithubHost, githubPoll, type GithubStatus, githubTurn } from "../chief-brain-cc/github.ts"
-import { ccSandbox, ccSandboxPurge, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
+import { ccSandbox, ccSandboxPurge, ccComputerStatus, ccComputerScreen, ccSandboxRetire } from "../chief-brain-cc/sandbox.ts"
 import type { MemoryExport } from "../chief-durable/durable-do.ts"
 import { type AppendBody, type AppendResult, type UndoBody, type UndoResult, IMPORT_SCHEMA, type ImportBody, type ImportFail, type ImportStatus, appendBatch, undoBatch, importBatch, importing, importStatus } from "./memory-import.ts"
 import { authorizeDefaultMachine } from "../chief-default-hand.ts"
@@ -615,6 +615,16 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The Chief was deleted: its sandboxes are deleted and its Freestyle identity goes. */
   async ccSandboxPurge(): Promise<{ deleted: number; left: number; revoked: boolean }> {
     return ccSandboxPurge(this)
+  }
+
+  /** The Chief's computer for its owner (chief-brain-cc/sandbox-computer.ts), on its `<agent>/sandboxes` object only. */
+  async ccComputerStatus(agent: string): Promise<Awaited<ReturnType<typeof ccComputerStatus>>> {
+    return ccComputerStatus(this, agent)
+  }
+
+  /** The Chief's computer screen for its owner: a JPEG (base64) while it runs; never wakes it. */
+  async ccComputerScreen(agent: string): Promise<Awaited<ReturnType<typeof ccComputerScreen>>> {
+    return ccComputerScreen(this, agent)
   }
 
   /** A run of one of this Chief's jobs (chief-brain-cc/jobs.ts, AutomationRunWorkflow): its note starts a turn here. */

@@ -2,7 +2,10 @@ import Foundation
 
 /// The Chief Settings card's Computer section (``HomeChiefComputerSection``).
 extension HomeEngineStrings {
-    static var computerSection: String { String(localized: "home.engine.computer", defaultValue: "Computer", table: "Home", bundle: .module) }
+    /// The section's title: the Chief's own computer.
+    static func computerTitle(_ chief: String) -> String {
+        String(localized: "home.engine.computer.title", defaultValue: "\(chief)’s Computer", table: "Home", bundle: .module)
+    }
     static var computerAsleep: String {
         String(localized: "home.engine.computer.asleep", defaultValue: "Computer is asleep", table: "Home", bundle: .module)
     }

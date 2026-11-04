@@ -62,13 +62,23 @@ public struct ChiefSettingsView: View {
     }
 
     private var hasControl: Bool { session.control != nil }
+    @Environment(\.scenePhase) private var scenePhase
+    /// The Cloud Chief whose computer the card shows: this page's Chief when it is the Cloud one.
+    private var computerChief: String? {
+        session === ChiefSources.shared.cloud ? ChiefSources.shared.cloudChief?.id : nil
+    }
+    private struct ComputerFollow: Equatable {
+        var chief: String?
+        var name: String
+        var active: Bool
+    }
     private var name: String { session.title ?? session.identity.title }
 
     public var body: some View {
         Form {
             engineSection
             if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
-            // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
+            // Messages' Find My slot: the Cloud Chief's own computer (hidden until it has used one).
             ChiefComputerSection(computer: computer)
             notificationsSection
             #if DEBUG
@@ -116,8 +126,12 @@ public struct ChiefSettingsView: View {
         // Mac or its model server is down, until the page closes; again
         // once Chief connects with the page open.
         .task(id: hasControl) { await session.watchEngine() }
-        // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
-        .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
+        // The Computer card follows the Cloud Chief's computer while this page is on screen and the
+        // app is active; in the background nothing reads it.
+        .task(id: ComputerFollow(chief: computerChief, name: name, active: scenePhase == .active)) {
+            guard scenePhase == .active else { return }
+            await computer.follow(chief: computerChief, name: name)
+        }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
         .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }

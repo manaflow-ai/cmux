@@ -12,7 +12,6 @@ import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
 import CmuxNextPages
-import CmuxNextRemoteViewSessions
 import CmuxNextSidebar
 import CmuxNextWakeups
 import ImageIO
@@ -108,8 +107,9 @@ final class HomeHostView: NSView {
         petRows.onRefusal = { [settingsView] in settingsView.showNote($0) }  // why an upload was refused
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
-        settingsView.computer.source = .init(directory: { [weak services] in (services?.machines.cloudLimits?.paysForCloud == true, services?.machines.cloud.map(\.machine) ?? []) },
-            frames: { [weak services] id, frame, ended in services?.cloudDesktopTransport(machine: id).map { CloudDesktopFrames.view(machine: id, open: $0, frame: frame, ended: ended) } })
+        settingsView.computer.source = .init(paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true },
+            chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+            route: HomeChiefComputerRoute(agent: { [weak self] in self?.control.cloudAgentID }, send: service.hostedChief.brainRoute))
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
             // Each Chief's tile reads its own brain home: this re-reads them, so only the

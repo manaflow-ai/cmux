@@ -69,16 +69,3 @@ public final class CloudDesktopFrames {
         ended(reason)
     }
 }
-
-extension CloudDesktopFrames {
-    /// One view-only session for a viewer that only shows frames (the Chief Settings card's
-    /// Computer section, cmux issue 31488): starts it and returns its stop. `ended` runs once if
-    /// the stream ends by itself, never after the stop.
-    public static func view(machine: String, open: @escaping @Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream,
-                            frame: @escaping @MainActor (CVPixelBuffer) -> Void,
-                            ended: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
-        let frames = CloudDesktopFrames(machine: machine, open: open)
-        frames.start(frame: frame, ended: { _ in ended() })
-        return { frames.stop() }
-    }
-}
