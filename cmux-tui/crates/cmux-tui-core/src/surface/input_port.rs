@@ -205,8 +205,8 @@ struct PortState {
     /// Tests: the writer panics after it took its next frame (a writer lost during a write).
     #[cfg(test)]
     panic_after_take: bool,
-    /// Tests: the writer thread's QoS class when it last took a frame (`qos_class_t` as u32; 0 off macOS).
-    #[cfg(test)]
+    /// Tests (macOS, where a thread has a QoS class): the writer thread's QoS class when it last took a frame.
+    #[cfg(all(test, target_os = "macos"))]
     writer_qos: Option<u32>,
 }
 
@@ -467,8 +467,8 @@ impl InputPort {
             Some(wait);
     }
 
-    /// Tests: the writer thread's QoS class when it last took a frame.
-    #[cfg(test)]
+    /// Tests (macOS): the writer thread's QoS class when it last took a frame.
+    #[cfg(all(test, target_os = "macos"))]
     pub(crate) fn writer_qos_for_test(&self) -> Option<u32> {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).writer_qos
     }
@@ -592,8 +592,11 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
                 let _ = paused.recv();
                 shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
             }
-            shared.state.lock().unwrap_or_else(PoisonError::into_inner).writer_qos =
-                Some(crate::server::current_input_thread_qos());
+            #[cfg(target_os = "macos")]
+            {
+                shared.state.lock().unwrap_or_else(PoisonError::into_inner).writer_qos =
+                    Some(crate::server::current_input_thread_qos());
+            }
             let lost = std::mem::take(
                 &mut shared.state.lock().unwrap_or_else(PoisonError::into_inner).panic_after_take,
             );
