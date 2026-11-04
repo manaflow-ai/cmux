@@ -341,6 +341,50 @@ fn a_repository_the_machine_cannot_clone_is_copied_and_leaves_nothing_behind() {
 }
 
 #[test]
+fn a_clone_failure_fallback_does_not_copy_newly_skipped_secret_blobs() {
+    let w = World::new(Serves::Seed);
+    write(&w.work.join(".env.local"), "FAKE_UNTRACKED_SECRET_FOR_TEST_ONLY\n");
+    write(&w.work.join("README.md"), "staged\n");
+    git(&w.work, &["add", "README.md"]);
+    write(&w.work.join("README.md"), "unstaged\n");
+    write(&w.work.join("notes.txt"), "ordinary untracked file\n");
+
+    let secret_id = git(&w.work, &["hash-object", ".env.local"]);
+    let has_secret = |folder: &Path| {
+        Command::new("git")
+            .arg("-C")
+            .arg(folder)
+            .args(["cat-file", "-e", &format!("{secret_id}^{{blob}}")])
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stderr(std::process::Stdio::null())
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(!has_secret(&w.work), "the fixture started with the excluded blob");
+
+    // Force a clone failure after Mac-side seed planning. It then uses the
+    // real fs-v1 fallback copy, including the copied Git object directory.
+    std::fs::rename(w.github.join("acme"), w.github.join("gone")).unwrap();
+    let remote = w.remote("secrets-fallback");
+    let (ok, copied, _) = w.push(&w.work, &remote, false);
+    assert!(ok, "{copied}");
+    assert_eq!(copied["mode"], json!("copy"), "{copied}");
+    assert_eq!(copied["fallback_code"], json!("seed.clone_failed"), "{copied}");
+    assert!(!remote.join(".env.local").exists(), "secret worktree file copied");
+    assert!(!has_secret(&w.work), "planning wrote an excluded local Git blob");
+    assert!(!has_secret(&remote), "fallback transferred an excluded Git blob");
+
+    assert_eq!(git(&remote, &["diff", "--cached", "--name-only"]), "README.md");
+    assert_eq!(std::fs::read_to_string(remote.join("README.md")).unwrap(), "unstaged\n");
+    assert_eq!(
+        std::fs::read_to_string(remote.join("notes.txt")).unwrap(),
+        "ordinary untracked file\n"
+    );
+}
+
+#[test]
 fn a_machine_without_git_seed_gets_the_copy() {
     let w = World::new(Serves::CopyOnly);
     let remote = w.remote("widget");
