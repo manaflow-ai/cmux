@@ -26,7 +26,7 @@ struct PaneCloseCameraGroundTests {
         defer { rig.close() }
         let screen = try rig.screen
         try #require(screen.scroll.value > 100, "SETUP: the camera does not show the right column (offset \(screen.scroll.value))")
-        try Self.check(rig, closing: "p3", neighbour: "p2", vertical: false) {
+        try Self.check(rig, closing: ["p3"], vertical: false) {
             try #require(screen.hasMotion, "SETUP: the close does not move the strip")
         }
     }
@@ -39,24 +39,41 @@ struct PaneCloseCameraGroundTests {
         let screen = try rig.screen
         let before = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the column's rows do not scroll")
         try #require(before.value > 100, "SETUP: the rows do not show the fourth (offset \(before.value))")
-        try Self.check(rig, closing: "p4", neighbour: "p3", vertical: true) {
+        try Self.check(rig, closing: ["p4"], vertical: true) {
             let after = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the rows stopped scrolling")
             try #require(abs(after.target - after.value) > 0.5, "SETUP: the row scroll does not spring back (\(after.value) -> \(after.target))")
         }
     }
 
-    /// Closes `pane` and checks each frame along the line through the window's middle (`vertical`: top to bottom, else left
-    /// to right). `moving`: the SETUP checks after the close's turn. `neighbour`: the live pane beside the closing one.
-    static func check(_ rig: Rig, closing pane: PaneID, neighbour: PaneID, vertical: Bool, moving: () throws -> Void) throws {
+    /// Two last-row closes in a row (Cmd-W twice): five rows scrolled to the fifth, the fifth closes, and six frames later
+    /// the fourth, while the row scroll still springs back for the first. The second close takes the scroll to another
+    /// target, and the first closing pane rides the second: neither leaves the shell between them, below them, or for the
+    /// landing.
+    @Test func twoLastRowClosesInARowLeaveNoHole() throws {
+        let rig = Rig(ColumnCloseScrollMotionTests.rows([400, 400, 400, 400, 400]), focused: "p5")
+        defer { rig.close() }
+        let screen = try rig.screen
+        let before = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the column's rows do not scroll")
+        try #require(before.value > 100, "SETUP: the rows do not show the fifth (offset \(before.value))")
+        try Self.check(rig, closing: ["p5", "p4"], vertical: true) {
+            let after = try #require(screen.rowScrolls["c1"]?.state.spring, "SETUP: the rows stopped scrolling")
+            try #require(abs(after.target - after.value) > 0.5, "SETUP: the row scroll does not spring back (\(after.value) -> \(after.target))")
+        }
+    }
+
+    /// Closes `panes`, each `every` frames after the one before, and checks each frame along the line through the window's
+    /// middle (`vertical`: top to bottom, else left to right). `moving`: the SETUP checks after the first close's turn.
+    static func check(_ rig: Rig, closing panes: [PaneID], every: Int = 6, vertical: Bool, moving: () throws -> Void) throws {
         rig.root.context.contentPolicyOverride = true
         let screen = try rig.screen
         let bounds = screen.convert(screen.bounds, to: nil)
         func span(_ rect: CGRect) -> (CGFloat, CGFloat) { vertical ? (rect.minY, rect.maxY) : (rect.minX, rect.maxX) }
-        /// What of the line no shown pane host (live or closing) covers, in points.
-        func uncovered() -> CGFloat {
+        /// What of the line no shown pane host covers (live or closing; `liveOnly`: live), in points.
+        func uncovered(liveOnly: Bool = false) -> CGFloat {
             let line = vertical ? bounds.midX : bounds.midY
             var gaps = [span(bounds)]
-            for host in screen.subviews.compactMap({ $0 as? PaneHostView }) where !host.isHidden && host.alphaValue > 0.01 {
+            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden && $0.alphaValue > 0.01 }
+            for host in hosts where !(liveOnly && host.showsClosingGround) {
                 let shown = host.convert(host.bounds, to: nil)
                 let (crossLo, crossHi) = vertical ? (shown.minX, shown.maxX) : (shown.minY, shown.maxY)
                 guard crossLo <= line, crossHi >= line else { continue }
@@ -66,22 +83,24 @@ struct PaneCloseCameraGroundTests {
             return gaps.reduce(0) { $0 + ($1.1 - $1.0) }
         }
         let atRest = uncovered()
-        let closing = try #require(rig.root.context.hosts[pane])
-        _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        try moving()
-        var widths: [(frame: Int, width: CGFloat)] = [(0, uncovered())]
+        let closing = try panes.map { try #require(rig.root.context.hosts[$0], "SETUP: no host for \($0)") }
+        var widths: [(frame: Int, width: CGFloat)] = []
         var lastGround: CGFloat?
         var frames = 0
-        while frames < 240, rig.frame() {
-            frames += 1
+        for (index, pane) in panes.enumerated() {
+            _ = try #require(rig.model.showPaneClose(pane), "\(pane) did not close")
+            rig.root.syncWithModel()
+            rig.root.layoutSubtreeIfNeeded()
+            if index == 0 { try moving() }
             widths.append((frames, uncovered()))
-            if closing.superview != nil, !closing.isHidden, let live = rig.root.context.hosts[neighbour] {
-                // The closing ground in the window, less what the live neighbour covers of it.
-                let ground = closing.convert(closing.bounds, to: nil).intersection(bounds)
-                let (lo, hi) = ground.isNull ? (0, 0) : span(ground), (coverLo, coverHi) = span(live.convert(live.bounds, to: nil))
-                lastGround = max(0, hi - lo) - max(0, min(hi, coverHi) - max(lo, coverLo))
+            let until = index == panes.count - 1 ? 240 : frames + every
+            while frames < until, rig.frame() {
+                frames += 1
+                widths.append((frames, uncovered()))
+                // What of the line only closing grounds cover: in the landing's frame it is gone at once.
+                if closing.contains(where: { $0.superview != nil && !$0.isHidden && $0.showsClosingGround }) {
+                    lastGround = uncovered(liveOnly: true) - uncovered()
+                }
             }
         }
         rig.commit()
@@ -89,7 +108,7 @@ struct PaneCloseCameraGroundTests {
         let open = widths.filter { $0.width > max(atRest, rest) + 1 }
         #expect(frames > 3, "the close did not spring (\(frames) frames)")
         #expect(open.isEmpty, "\(open.count) frames show the shell in the window (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        if let lastGround { #expect(lastGround < 1, "the closing pane's last frame shows \(lastGround) pt of its ground: the landing takes it away") }
-        #expect(closing.superview == nil, "the closed host is left in the tree after the landing")
+        if let lastGround { #expect(lastGround < 1, "the closing panes' last frame shows \(lastGround) pt of their ground: the landing takes it away") }
+        #expect(closing.allSatisfy { $0.superview == nil }, "a closed host is left in the tree after the landing")
     }
 }
