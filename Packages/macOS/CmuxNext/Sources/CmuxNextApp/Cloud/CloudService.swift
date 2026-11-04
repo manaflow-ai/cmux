@@ -334,8 +334,13 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
+            // The account and selected team fence the old stream before reconnecting.
+            // A team switch remains signed in but changes the event authorization scope.
+            // The wire is started only after auth restoration has completed.
+            // It is stopped on sign-out and policy disable below.
+            // This observer is the single lifecycle owner for account changes.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if accountScope != nil { if self.machineWire == nil { let auth = self.auth; self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; self.machineWire?.start { [weak self] change in self?.portChanged(change) }; AgentPaneTailCache.shared.resume()
+                if accountScope != nil && !self.policyDisabled { if self.machineWire == nil { let auth = self.auth; self.machineWire = CloudMachineWire(apiBaseURL: self.configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; self.machineWire?.start { [weak self] change in self?.portChanged(change) }; AgentPaneTailCache.shared.resume()
                     await self.hub?.resume() // sign-out revoked the WireGuard peer and parked the hub
                     let switched = await self.link.sessionBegan(user: self.auth.user?.id, team: self.auth.teamID)
                     if switched { self.dropAllMachines() }
@@ -345,6 +350,8 @@ final class CloudService {
                     await self.ensureLink()
                     await self.refresh()
                 } else {
+                    // Signing out invalidates the bearer used by the wire.
+                    // Stop before dropping machine state so no event races a new account.
                     self.machineWire?.stop(); self.dropAllMachines()
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
@@ -394,17 +401,21 @@ final class CloudService {
         // adapter tears down holders asynchronously and retains their private
         codexBroker.setAvailable(!disabled)
         if disabled {
+            // Policy disable fences Cloud event delivery synchronously.
+            // Existing machines disconnect below while their local records remain.
             machineWire?.stop(); changes.stop()
             signedOutCreation.cancel()
             for session in machines.cloud {
                 session.daemon.policyBlock.set(true)
                 session.disconnect()
             }
+            // task-owner: one teardown hop; hub.stop() is idempotent
             if let hub { Task { await hub.stop() } }
             link.policyTurnedOff()
         } else {
             changes.start(); if auth.isSignedIn { if machineWire == nil { let auth = auth; machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), token: { [auth] in try await auth.tokens().access }, team: { [auth] in await auth.teamID }) }; machineWire?.start { [weak self] change in self?.portChanged(change) } }
             dropAllMachines()
+            // task-owner: one list fetch after the policy lifted
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
@@ -415,6 +426,7 @@ final class CloudService {
     }
 
     func stop() {
+        // Stop the socket before cancelling the remaining Cloud observers.
         refreshGate.cancel(); machineWire?.stop()
         signedOutCreation.cancel()
         for observer in observers { observer.cancel() }
