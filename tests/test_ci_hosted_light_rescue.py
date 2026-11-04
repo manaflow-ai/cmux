@@ -280,6 +280,23 @@ class Sweep(unittest.TestCase):
         self.assertIsNone(before)
         self.assertEqual(after, 3)
 
+    def test_rotating_overflow_pages_do_not_drop_an_eligible_run_before_it_is_read(self):
+        """A run outside each page's first 40 still receives bounded eventual service."""
+        rows = [run(index) for index in range(1, 902)]
+        eligible_id = 400
+        jobs = {item["id"]: [job("PR size"), job("build", status="in_progress", runner_id=7)]
+                for item in rows}
+        jobs[eligible_id] = [job("PR size")]
+        fake = Fake({"pr-checks.yml": rows}, jobs)
+        cursor = [None]
+
+        for _ in range(35):
+            sweep(fake, cursor=cursor)
+            if ("rerun", eligible_id) in mutations(fake):
+                break
+
+        self.assertIn(("rerun", eligible_id), mutations(fake))
+
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs}, settles_after=3)
