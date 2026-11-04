@@ -5,7 +5,9 @@ in a tagged app on the GUI lane (`nx-remote --needs gui --app-from-fleet cmux --
 On a scratch Chief home: `cmux chief new` makes a second Chief; both Chiefs' conversations get
 MESSAGES long messages (debug.home.api submit, the owner's own send path). Then Home opens the
 default Chief, the second Chief (home.openConversation: the path a list row's click takes), the
-default Chief again and the second Chief again. Each open is followed by a window snapshot and the
+default Chief again and the second Chief again. Then the person scrolls up in the shown Chief, leaves
+Home for a new workspace and comes back (home.show: the kept view shows again,
+https://github.com/manaflow-ai/cmux/issues/34562). Each open is followed by a window snapshot and the
 transcript's scroll state (debug.home.drive geometry: `scrollOffset`, `scrollBottom`, `scrollTop`,
 `pinned` when the build reports them; the snapshots otherwise).
 
@@ -114,6 +116,27 @@ def open_and_check(conv_id, step):
     say("PASS" if rest else ("SEE-SNAPSHOT" if rest is None else "FAIL"), step, json.dumps(g)[:400])
 
 
+def return_and_check(conv_id, step):
+    """Scrolled up, the person leaves Home for another workspace and comes back to the same chat."""
+    rpc("debug.home.drive", {"action": "scroll", "dy": -3000})
+    time.sleep(1)  # test harness: let the scroll settle before reading it
+    up = geometry()
+    scrolled = "scrollOffset" in up and up["scrollBottom"] - up["scrollOffset"] > 500
+    say("scrolled up" if scrolled else "SCROLL-DID-NOT-MOVE", json.dumps({k: up.get(k) for k in ("scrollOffset", "scrollBottom", "pinned")}))
+    rpc("action.run", {"id": "workspace.new"})
+    time.sleep(2)  # test harness: the new workspace shows
+    rpc("action.run", {"id": "home.show", "focus": True})
+    wait(lambda: (home().get("page") or {}).get("shown") == conv_id, 30)
+    time.sleep(3)  # test harness: let the return settle before the snapshot
+    g = geometry()
+    shot(step)
+    rest = None
+    if scrolled and "scrollOffset" in g and "scrollBottom" in g:
+        rest = abs(g["scrollOffset"] - g["scrollBottom"]) < 1 and g.get("pinned", 1) == 1
+    ROWS.append({"step": step, "conversation": conv_id, "scrolled_up": scrolled, "at_newest": rest, "geometry": g})
+    say("PASS" if rest else ("SEE-SNAPSHOT" if rest is None else "FAIL"), step, json.dumps({k: g.get(k) for k in ("scrollOffset", "scrollBottom", "pinned")}))
+
+
 def app_env():
     config = os.path.join(SCRATCH, "cmux.json")
     open(config, "w").write("{}")
@@ -159,6 +182,7 @@ try:
     open_and_check(second["id"], "02-second-chief-from-list")
     open_and_check(default["id"], "03-default-chief-again")
     open_and_check(second["id"], "04-second-chief-again")
+    return_and_check(second["id"], "05-second-chief-returned-after-scrolling-up")
     code = 1 if any(r["at_newest"] is False for r in ROWS) else 0
 except SystemExit:
     pass
