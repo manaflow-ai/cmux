@@ -92,13 +92,16 @@ impl Inner {
     }
 
     fn checkpoint_once(&self) -> Result<()> {
-        let (lsn, dirty) = {
+        let (lsn, dirty, metas) = {
             let mut order = self.order.lock_or_recover();
             anyhow::ensure!(
                 !order.frozen,
                 "the event journal's checkpoint is frozen (a log sync failed): a restart writes the logs again"
             );
-            if order.applied <= order.checkpointed && order.dirty.is_empty() {
+            if order.applied <= order.checkpointed
+                && order.dirty.is_empty()
+                && order.metas.is_empty()
+            {
                 let checkpointed = order.checkpointed;
                 drop(order);
                 self.retire(checkpointed);
@@ -106,9 +109,23 @@ impl Inner {
             }
             // A failed checkpoint waits for the timer or another `CHECKPOINT_BYTES`.
             order.bytes = 0;
-            // Never past the journal's durable end: a crash right after is a normal one.
-            (order.applied.min(self.journal.durable_lsn()), std::mem::take(&mut order.dirty))
+            (order.applied, std::mem::take(&mut order.dirty), order.metas.clone())
         };
+        // Every record up to `lsn` durable first (one group commit, on this background thread):
+        // the checkpoint is never past the journal's durable end, and a metadata image written
+        // below names only lines the journal holds (E13).
+        if lsn > 0
+            && let Err(error) = self.journal.wait_durable(lsn, SEAL_WAIT)
+        {
+            self.order.lock_or_recover().dirty.extend(dirty);
+            anyhow::bail!("the event journal did not sync through {lsn}: {error}");
+        }
+        // Each chat's newest image through `lsn` (the overlay held it when `lsn` was read): the
+        // sessions folder's sync below covers a new chat's folder.
+        if let Err(error) = self.project_metas(metas) {
+            self.order.lock_or_recover().dirty.extend(dirty);
+            return Err(error);
+        }
         if let Err(error) = self.sync_logs(&dirty) {
             self.order.lock_or_recover().dirty.extend(dirty);
             return Err(error);

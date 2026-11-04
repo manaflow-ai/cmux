@@ -71,10 +71,16 @@ UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
 REQUEST_FAILED = "GitHub evidence request failed: "
 
 
+# Notes an agent host's gh wrappers write before the real gh's own stderr (a wait on a repeated read).
+WRAPPER_NOTE_PREFIXES = ("glaeda-gh:", "gh-quota:")
+
+
 def escape_flag_unknown(stderr: str) -> bool:
-    """Whether an old gh rejected the optional ANSI-output flag itself."""
-    lines = (stderr or "").strip().splitlines()
-    return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
+    """Whether an old gh rejected the optional ANSI-output flag itself: gh's first line, after any
+    wrapper notes, is exactly the refusal. Another unknown flag first still refuses."""
+    lines = [line.strip() for line in (stderr or "").strip().splitlines()]
+    gh_lines = [line for line in lines if not line.startswith(WRAPPER_NOTE_PREFIXES)]
+    return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
 class GitHub(_evidence.GitHub):

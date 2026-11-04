@@ -919,6 +919,12 @@ pub trait Store: Send + Sync {
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
     }
+    /// The chat's folder path only, for a caller that needs the path or its parent and reads or
+    /// moves none of the chat's own files: no lock, no wait, no write. `session_dir` is for code
+    /// that reads or moves them (the journal store writes the chat's metadata first).
+    fn session_path(&self, id: &str) -> Option<PathBuf> {
+        self.session_dir(id)
+    }
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
     fn handoff_dir(&self) -> Option<PathBuf> {
@@ -1815,11 +1821,17 @@ impl Store for LocalStore {
 #[cfg(unix)]
 fn sync_directory(path: &Path) -> Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(test)]
+    if log_sync::fail_dir_sync(path) {
+        return Err(SyncFailed(std::io::Error::other("a failed folder sync (a test)")).into());
+    }
     let dir = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
         .open(path)?;
     dir.sync_all().map_err(SyncFailed)?;
+    #[cfg(test)]
+    sync_model::folder_synced(path);
     Ok(())
 }
 
@@ -2119,6 +2131,8 @@ fn is_zero(v: &u64) -> bool {
 #[cfg(test)]
 mod head_tests;
 
+#[cfg(all(test, unix))]
+mod journal_meta_tests;
 #[cfg(all(test, unix))]
 mod journal_store_tests;
 

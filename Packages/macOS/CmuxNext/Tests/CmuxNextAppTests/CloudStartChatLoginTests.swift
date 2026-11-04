@@ -60,6 +60,23 @@ struct CloudStartChatLoginTests {
         #expect(start.reason == .guestNotOwner && !start.guestTakesLogin)
     }
 
+    /// A machine created just now has no guest kind until its guest binds: the start reads it again, as the
+    /// transfer does, instead of skipping the login. A recorded kind or a failed exec is read once.
+    @Test func aNewMachinesGuestKindIsReadAgainUntilItBinds() async throws {
+        var start = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+        start.callerOwns = true
+        var answers = ["vm-kind:\n", "vm-kind:\n", "vm-kind:owner\n"], pauses = 0
+        try await start.readGuest(exec: { _ in answers.removeFirst() }, pause: { pauses += 1 })
+        #expect(start.guestKind == "owner" && start.guestTakesLogin && pauses == 2 && answers.isEmpty)
+        for answer in ["vm-kind:team\n", nil] {
+            var other = Decision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+            other.callerOwns = true
+            var reads = 0
+            try await other.readGuest(exec: { _ in reads += 1; return answer }, pause: { pauses += 1 })
+            #expect(reads == 1 && pauses == 2)
+        }
+    }
+
     /// The decision's rules and their cases are Rust's (cmux-cloud-start-core `harness_login`); this
     /// checks only that the app reaches them in the one call and reads every field back.
     @Test func theDecisionComesFromTheRustRules() {

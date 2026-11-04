@@ -713,9 +713,7 @@ final class AppServices {
         }
         (NSApp as? CmuxApplication)?.keyUpOrClickInterceptor = { [weak self] in self?.linkHints.inputWillDispatch($0) ?? false }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
-            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
-            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
-            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+            CrossWindowInputGuard.drops(keyTypedInto: event.window, keyWindow: keyWindow, router: self?.keyRouter)
         }
         (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
             guard let self else { return body() }
