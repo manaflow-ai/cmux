@@ -107,6 +107,9 @@ public protocol ControlSystemContext: AnyObject {
     ///   - routing: The routing selectors.
     ///   - actionKey: The normalized action key, or `nil` when missing.
     ///   - title: The trimmed `title` param, if any.
+    ///   - badge: The `badge` param (`set_badge`), if any; the app validates it.
+    ///   - badgeColor: The `color` param (`set_badge`): a named color or
+    ///     `#RRGGBB`, if any; the app resolves it.
     ///   - rawURL: The trimmed `url` param, if any.
     ///   - surfaceID: The explicit `surface_id` / `tab_id`, if any.
     ///   - requestedFocus: The requested `focus` flag (the app applies the
@@ -119,6 +122,8 @@ public protocol ControlSystemContext: AnyObject {
         routing: ControlRoutingSelectors,
         actionKey: String?,
         title: String?,
+        badge: String?,
+        badgeColor: String?,
         rawURL: String?,
         surfaceID: UUID?,
         requestedFocus: Bool,

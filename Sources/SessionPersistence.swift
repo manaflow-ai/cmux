@@ -1766,6 +1766,10 @@ struct SessionPanelSnapshot: Codable, Sendable {
     /// case. Older builds ignore this field and read the encoded source as
     /// `.user`; newer builds restore the remote provenance from the marker.
     var customTitleWasRemote: Bool? = nil
+    /// The panel's badge (``Workspace/panelBadges``); absent in older snapshots.
+    var badge: String? = nil
+    /// The badge's color as `#RRGGBB`; absent when the badge has none.
+    var badgeColor: String? = nil
     var directory: String?
     var directoryIsTrustedRemoteReport: Bool? = nil
     var directoryRequiresRemoteTrust: Bool? = nil

@@ -6,7 +6,7 @@ internal import Foundation
 extension ControlCommandCoordinator {
     /// The supported `tab.action` keys (the legacy `supportedActions`).
     private static let tabActionSupportedActions = [
-        "rename", "clear_name",
+        "rename", "clear_name", "set_badge", "clear_badge",
         "close_left", "close_right", "close_others",
         "new_terminal_right", "new_browser_right",
         "reload", "duplicate", "move_to_new_workspace", "detach_to_workspace", "detach_to_new_workspace",
@@ -31,6 +31,8 @@ extension ControlCommandCoordinator {
             routing: routingSelectors(params),
             actionKey: action,
             title: string(params, "title"),
+            badge: string(params, "badge"),
+            badgeColor: string(params, "color"),
             rawURL: string(params, "url"),
             surfaceID: surfaceID ?? tabID,
             requestedFocus: bool(params, "focus") ?? false,
@@ -69,6 +71,18 @@ extension ControlCommandCoordinator {
             )
         case .invalidTitle:
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
+        case .invalidBadge(let maximumCharacters):
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid badge: use 1-\(maximumCharacters) visible characters on one line, without control or bidi formatting characters",
+                data: .object(["max_characters": .int(Int64(maximumCharacters))])
+            )
+        case .invalidBadgeColor(let namedColors):
+            return .err(
+                code: "invalid_params",
+                message: "Invalid badge color. Use a hex value (#RRGGBB) or a named color.",
+                data: .object(["named_colors": .array(namedColors.map { .string($0) })])
+            )
         case .invalidURL(let rawURL):
             return .err(
                 code: "invalid_params",
@@ -126,6 +140,9 @@ extension ControlCommandCoordinator {
                 break
             case .title(let title):
                 payload["title"] = .string(title)
+            case .badge(let badge, let color):
+                payload["badge"] = orNull(badge)
+                payload["badge_color"] = orNull(color)
             case .pinned(let pinned):
                 payload["pinned"] = .bool(pinned)
             case .fullWidthTabMode(let enabled):

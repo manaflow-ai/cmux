@@ -412,6 +412,8 @@ struct TabActionCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?
     @Option(name: .customLong("window"), completion: windowCompletion) var windowID: String?
     @Option(name: .customLong("title")) var title: String?
+    @Option(name: .customLong("badge")) var badge: String?
+    @Option(name: .customLong("color")) var color: String?
     @Option(name: .customLong("url")) var url: String?
     @Option(name: .customLong("focus")) var focus: String?
     @Flag(name: .customLong("force")) var force = false

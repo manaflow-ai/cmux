@@ -2921,6 +2921,7 @@
 		29694FC4AD416A43C96FED5B /* PaneFocusFindResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */; };
 		C2921FC48AE4BDA2BF67A845 /* PaneFocusTestWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */; };
 		A5001400 /* Panel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001410 /* Panel.swift */; };
+		918030F80A6D398C9322807F /* PanelBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */; };
 		A5001405 /* PanelContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001415 /* PanelContentView.swift */; };
 		986900050000000000000001 /* PanelHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900050000000000000002 /* PanelHost.swift */; };
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
@@ -4548,6 +4549,7 @@
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */; };
 		9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */; };
 		8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */; };
+		C2DE23026C312DF93D83F5C8 /* Workspace+PanelBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADCF1F0F7C181E6DCB06F961 /* Workspace+PanelBadge.swift */; };
 		1828BDC4C9B442F8A327FBFA /* Workspace+PanelCustomTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DA836A743294BF0A7154177 /* Workspace+PanelCustomTitle.swift */; };
 		C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */; };
 		6E105774324C4357B85DA653 /* Workspace+PanelTitleOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29D51D04837340F896573F0B /* Workspace+PanelTitleOwnership.swift */; };
@@ -4658,6 +4660,7 @@
 		BD8175EB8F7ABA14B7F13AE9 /* WorkspaceMergeIntoMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306581A539D0F3790629C8B0 /* WorkspaceMergeIntoMenu.swift */; };
 		20576B3B8ECAA81D585E1108 /* WorkspaceMergeIntoMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D15BBB4534F253CA11F428B9 /* WorkspaceMergeIntoMenuTests.swift */; };
 		7A5CB79CC6593B900E8120CE /* WorkspacePaneFlashModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */; };
+		85FD3A1E644861133AA9CB0E /* WorkspacePanelBadgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F26C0C1B8389B5597E895CA5 /* WorkspacePanelBadgeTests.swift */; };
 		E3B7A4000000000000000005 /* WorkspacePlacement+Resolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */; };
 		D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */; };
 		A13296000000000000000211 /* WorkspacePresenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13296000000000000000201 /* WorkspacePresenceController.swift */; };
@@ -7605,6 +7608,7 @@
 		E960400B0C66CA43D219BC5B /* PaneFocusFindResponderTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusFindResponderTests.swift; sourceTree = "<group>"; };
 		EC905DADF2BA91C8C865D37B /* PaneFocusTestWindow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PaneFocusTestWindow.swift; sourceTree = "<group>"; };
 		A5001410 /* Panel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/Panel.swift; sourceTree = "<group>"; };
+		FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelBadge.swift; sourceTree = "<group>"; };
 		A5001415 /* PanelContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelContentView.swift; sourceTree = "<group>"; };
 		986900050000000000000002 /* PanelHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelHost.swift; sourceTree = "<group>"; };
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
@@ -9211,6 +9215,7 @@
 				B11D00000000000000000004 /* Workspace+MobileAgentStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MobileAgentStatus.swift"; sourceTree = "<group>"; };
 		9504A0010000000000000002 /* Workspace+MovingTabSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+MovingTabSplit.swift"; sourceTree = "<group>"; };
 		688C3F45DAA548B3B57DE780 /* Workspace+NotificationsPane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+NotificationsPane.swift"; sourceTree = "<group>"; };
+		ADCF1F0F7C181E6DCB06F961 /* Workspace+PanelBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelBadge.swift"; sourceTree = "<group>"; };
 		1DA836A743294BF0A7154177 /* Workspace+PanelCustomTitle.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelCustomTitle.swift"; sourceTree = "<group>"; };
 		C3744E020000000000000001 /* Workspace+PanelLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelLifecycle.swift"; sourceTree = "<group>"; };
 		29D51D04837340F896573F0B /* Workspace+PanelTitleOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+PanelTitleOwnership.swift"; sourceTree = "<group>"; };
@@ -9321,6 +9326,7 @@
 		306581A539D0F3790629C8B0 /* WorkspaceMergeIntoMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceMergeIntoMenu.swift; sourceTree = "<group>"; };
 		D15BBB4534F253CA11F428B9 /* WorkspaceMergeIntoMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceMergeIntoMenuTests.swift"; sourceTree = "<group>"; };
 		6EE9AA5853CDDFC7B74F3B07 /* WorkspacePaneFlashModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePaneFlashModel.swift; sourceTree = "<group>"; };
+		F26C0C1B8389B5597E895CA5 /* WorkspacePanelBadgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePanelBadgeTests.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000006 /* WorkspacePlacement+Resolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspacePlacement+Resolution.swift"; sourceTree = "<group>"; };
 		D0B10005A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePortalPaneDrop.swift; sourceTree = "<group>"; };
 		A13296000000000000000201 /* WorkspacePresenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePresenceController.swift; sourceTree = "<group>"; };
@@ -12673,6 +12679,8 @@
 				9EEA4A95E38F9F819B101793 /* Workspace+SharedLiveAgentIndex.swift */,
 				C2452EDA6ED2355F908EE912 /* AppDelegate+KiroAgentMessages.swift */,
 				D4D9700C7689786CCDB82CAE /* TerminalController+AgentMessageClaim.swift */,
+				ADCF1F0F7C181E6DCB06F961 /* Workspace+PanelBadge.swift */,
+				FC95E723F5D224A3BF5BE715 /* PanelBadge.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -14320,6 +14328,7 @@
 				A6FA6CA3BD8C6FB44634D416 /* WorkspaceContentViewVisibilityTests+AgentIndex.swift */,
 				C978CC3C2D3FCCE66696C72C /* CLIKiroGlobalHooksTests.swift */,
 				B88325A2907EB7D69739349B /* ClaudeBackgroundWorkDrainTests.swift */,
+				F26C0C1B8389B5597E895CA5 /* WorkspacePanelBadgeTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16671,6 +16680,7 @@
 				D0B1001CA1B2C3D4E5F60001 /* PaneDropRoutingSupport.swift in Sources */,
 				42A979F1902C488385061842 /* PaneDropTargetRepresentable.swift in Sources */,
 				A5001400 /* Panel.swift in Sources */,
+				918030F80A6D398C9322807F /* PanelBadge.swift in Sources */,
 				A5001405 /* PanelContentView.swift in Sources */,
 				986900050000000000000001 /* PanelHost.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
@@ -17797,6 +17807,7 @@
 				B11D00000000000000000003 /* Workspace+MobileAgentStatus.swift in Sources */,
 				9504A0010000000000000001 /* Workspace+MovingTabSplit.swift in Sources */,
 				8B45A4329C234E6FB261E635 /* Workspace+NotificationsPane.swift in Sources */,
+				C2DE23026C312DF93D83F5C8 /* Workspace+PanelBadge.swift in Sources */,
 				1828BDC4C9B442F8A327FBFA /* Workspace+PanelCustomTitle.swift in Sources */,
 				C3744E010000000000000001 /* Workspace+PanelLifecycle.swift in Sources */,
 				6E105774324C4357B85DA653 /* Workspace+PanelTitleOwnership.swift in Sources */,
@@ -19670,6 +19681,7 @@
 				0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */,
 				D305133E351288EA04E14A27 /* WorkspaceMergeDropTests.swift in Sources */,
 				20576B3B8ECAA81D585E1108 /* WorkspaceMergeIntoMenuTests.swift in Sources */,
+				85FD3A1E644861133AA9CB0E /* WorkspacePanelBadgeTests.swift in Sources */,
 				98303425ACB3352DC719B54C /* WorkspaceProgramStatusTests.swift in Sources */,
 				1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */,
 				DCC935C5F55C1DCB33E25521 /* WorkspacePullRequestSidebarTests.swift in Sources */,

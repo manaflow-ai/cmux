@@ -174,7 +174,7 @@ Environment:
 | `move-surface` | Move a surface to another pane, workspace, window, or index. |
 | `split-off` | Move a surface into a new split without changing focus by default. |
 | `reorder-surface` | Reorder a surface within its pane. |
-| `tab-action` | Run horizontal tab context-menu actions. |
+| `tab-action` | Run horizontal tab context-menu actions. `set-badge` puts short text (`--badge <text>` or trailing text; `cmux tab-action --help` gives the length limit) in front of the tab's live title without replacing it, and `--color <name\|#hex>` also tints the tab (same names as `workspace-action set-color`); `clear-badge` removes both. |
 | `rename-tab` | Rename a tab. Compatibility wrapper for `tab-action rename`. |
 | `drag-surface-to-split` | Move a surface into a split direction. |
 | `canvas` | Canvas layout namespace: `info`, `mode`, `set-frame`, `align`, `reveal`, `overview`, `zoom`, `join`, `break`, `select-tab`, `set-viewport`, `new-pane`. Most take a required argument: `mode`, `align`, and `zoom` a direction or mode word, `set-frame` numeric `--x --y --width --height`, `set-viewport` numeric `--x --y` and an optional numeric `--zoom`, `join` a target. `set-frame`, `join`, `break`, and `select-tab` need a surface, positionally or with `--surface <id\|ref>`; `reveal` takes one optionally, and `align` takes none, because its positional is the align command. `new-pane` takes an optional `--type terminal\|browser\|simulator\|chief`. `--workspace <ref>` scopes the whole namespace. An unknown option, an option without a value, or an extra argument is rejected before any request is sent. |
@@ -613,7 +613,7 @@ Workspace and tab action names:
 | Command | Actions |
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
-| `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+| `tab-action` | `rename`, `clear-name`, `set-badge`, `clear-badge`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
 
 ### Workspace environment variables
 
