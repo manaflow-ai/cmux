@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T1 of cx-psxg (cx-0q7o slice 2d): the keyed acpmux start on a Cloud machine,
+"""T1 of cx-psxg (cx-0q7o slice 2d): the keyed acpmux start on a NEXT Cloud machine,
 at the HTTP boundary of ONE development stack (scripts/dev-backend.sh tag), on a
 real provider VM. Development only: it refuses an origin that is not loopback.
 
@@ -10,8 +10,9 @@ library only (the host has no bun or node).
   python3 -I acpmux_person_key_e2e.py --origin http://127.0.0.1:<port> \
       --container <web container> --db-container <postgres container> --out <dir> < secrets
 
-stdin: KEY=VALUE lines, never printed: CMUX_UITEST_STACK_EMAIL/_PASSWORD (the
-agent account), optional CMUX_AGENT2_STACK_EMAIL/_PASSWORD (a second agent
+stdin: KEY=VALUE lines, never printed: CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD (the
+agent account; the old CMUX_UITEST_STACK_EMAIL/_PASSWORD names remain accepted
+for local callers), optional CMUX_AGENT2_STACK_EMAIL/_PASSWORD (a second agent
 account, for the not-the-owner case), optional FREESTYLE_API_KEY (the
 development key; used only for the spool probe, on a VM of that account).
 
@@ -129,12 +130,33 @@ class Api:
         status, raw = http(method, f"{self.origin}{path}", h, data, timeout)
         return status, jbody(raw), raw
 
+    def op(self, name, params, key=None, timeout=120):
+        body = {"op": name, "params": params}
+        if key:
+            body["idempotency_key"] = key
+        status, response, raw = self.call("POST", "/v1/ops", body, timeout=timeout)
+        if status != 200 or response.get("ok") is not True:
+            error = response.get("error") if isinstance(response, dict) else response
+            raise RuntimeError(f"{name} answered {status} {error}")
+        return response.get("value")
+
+    def read(self, name, params, timeout=120):
+        status, response, _ = self.call("POST", "/v1/read", {"op": name, "params": params}, timeout=timeout)
+        if status != 200 or response.get("ok") is not True:
+            error = response.get("error") if isinstance(response, dict) else response
+            raise RuntimeError(f"{name} answered {status} {error}")
+        return response.get("value")
+
     def exec_root(self, vm, command, timeout_ms=60_000):
-        status, body, _ = self.call("POST", f"/api/vm/{vm}/exec", {"command": command, "timeoutMs": timeout_ms},
+        status, body, _ = self.call("POST", f"/v1/cloud/machines/{vm}/exec", {"command": command, "timeoutMs": timeout_ms},
                                     timeout=timeout_ms / 1000 + 30)
         if status != 200:
             raise RuntimeError(f"exec answered {status} {body.get('error')}")
         return body
+
+
+def acpmux_path(vm, action):
+    return f"/v1/cloud/machines/{vm}/acpmux/{action}"
 
 
 def holds_proof(key_hex, instance, nonce):
@@ -182,21 +204,27 @@ def main():
     key_hex = secrets.token_bytes(32).hex()
     needles = key_needles(key_hex)
     try:
-        agent = run.step("signin agent", lambda: (True, "agent account", sign_in(env["CMUX_UITEST_STACK_EMAIL"], env["CMUX_UITEST_STACK_PASSWORD"])))
+        agent_email = env.get("CMUX_DOGFOOD_STACK_EMAIL") or env.get("CMUX_UITEST_STACK_EMAIL")
+        agent_password = env.get("CMUX_DOGFOOD_STACK_PASSWORD") or env.get("CMUX_UITEST_STACK_PASSWORD")
+        if not agent_email or not agent_password:
+            raise RuntimeError("set CMUX_DOGFOOD_STACK_EMAIL/PASSWORD (or the legacy CMUX_UITEST_STACK_EMAIL/PASSWORD aliases)")
+        agent = run.step("signin agent", lambda: (True, "agent account", sign_in(agent_email, agent_password)))
         if not agent:
             return 1
         sessions.append(agent)
         api = Api(args.origin, agent)
 
         def create():
-            status, body, _ = api.call("POST", "/api/vm", {"displayName": "cmuxnp-dev-psxg-t1"},
-                                       {"idempotency-key": f"psxg-t1-{secrets.token_hex(8)}"}, timeout=700)
-            vm = body.get("id") or body.get("providerVmId") or (body.get("vm") or {}).get("id")
+            body = api.op("cloud.machine.create", {
+                "name": "cmuxnp-dev-psxg-t1",
+                "size": {"cpu": 2, "memory_mb": 4096, "disk_mb": 16384},
+            }, f"psxg-t1-{secrets.token_hex(8)}", timeout=700)
+            vm = (body.get("machine") or {}).get("id")
             if vm:
                 created.append(vm)
                 with open(machines_tsv, "a") as f:
                     f.write(f"{vm}\t{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")
-            return status in (200, 201) and bool(vm), f"HTTP {status} id {vm} status {body.get('status')}", vm
+            return bool(vm), f"NEXT Cloud machine id {vm} status {(body.get('machine') or {}).get('status')}", vm
         vm = run.step("create machine", create)
         if not vm:
             return 1
@@ -206,7 +234,7 @@ def main():
             t0 = time.monotonic()
             last = None
             while time.monotonic() - t0 < 600:
-                _, last, _ = api.call("GET", f"/api/vm/{vm}")
+                last = api.read("cloud.machine.get", {"machine": vm})
                 if last.get("status") == "running":
                     return True, "running", last
                 time.sleep(3)
@@ -290,11 +318,13 @@ def main():
         if not supported:
             def old_binary_refused():
                 before = api.exec_root(vm, "pgrep -f '[a]cp.*daemon run' | tr '\\n' ' '; echo")["stdout"].strip()
-                status, body, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", (secrets.token_hex(32) + "\n").encode(),
+                status, body, _ = api.call("POST", acpmux_path(vm, "keyed-start"), (secrets.token_hex(32) + "\n").encode(),
                                            {"content-type": "application/octet-stream"}, timeout=180)
                 after = api.exec_root(vm, "pgrep -f '[a]cp.*daemon run' | tr '\\n' ' '; echo")["stdout"].strip()
-                ok = status == 409 and body.get("error") == "vm_acpmux_unsupported" and before == after
-                return ok, f"HTTP {status} {body.get('error')}; acpmux daemon pids before [{before}] after [{after}]", ok
+                error = body.get("error") or {}
+                code = error.get("code") if isinstance(error, dict) else error
+                ok = status == 409 and code == "cloud.acpmux.unsupported" and before == after
+                return ok, f"HTTP {status} {code}; acpmux daemon pids before [{before}] after [{after}]", ok
             run.step("old cmux-tui: refused before any daemon stops", old_binary_refused)
             if not args.cmux_tui_commit:
                 run.record("keyed start", False, 0, "skipped: the guest cmux-tui has no keyed start (pass --cmux-tui-commit)")
@@ -336,15 +366,15 @@ def main():
         hostile_ready = run.step("hostile env value in the session daemon (setup)", hostile_env_setup)
 
         def bad_body():
-            s1, b1, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", b"not-a-key\n", {"content-type": "application/octet-stream"})
-            s2, b2, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", (key_hex.upper() + "\n").encode(), {"content-type": "application/octet-stream"})
-            s3, b3, _ = api.call("POST", f"/api/vm/{vm}/acpmux/person-holds", {"nonce": "zz"})
+            s1, b1, _ = api.call("POST", acpmux_path(vm, "keyed-start"), b"not-a-key\n", {"content-type": "application/octet-stream"})
+            s2, b2, _ = api.call("POST", acpmux_path(vm, "keyed-start"), (key_hex.upper() + "\n").encode(), {"content-type": "application/octet-stream"})
+            s3, b3, _ = api.call("POST", acpmux_path(vm, "person-holds"), {"nonce": "zz"})
             ok = s1 == 400 and s2 == 400 and s3 == 400
             return ok, f"short {s1} {b1.get('error')}; uppercase {s2} {b2.get('error')}; nonce {s3} {b3.get('error')}", ok
         run.step("bad bodies refused before any exec", bad_body)
 
         def unauthenticated():
-            status, raw = http("POST", f"{args.origin}/api/vm/{vm}/acpmux/keyed-start",
+            status, raw = http("POST", f"{args.origin}{acpmux_path(vm, 'keyed-start')}",
                                {"content-type": "application/octet-stream"}, (secrets.token_hex(32) + "\n").encode())
             return status == 401, f"HTTP {status}", status
         run.step("no session refused", unauthenticated)
@@ -353,12 +383,12 @@ def main():
 
         def keyed_start():
             t0 = time.monotonic()
-            status, body, _ = api.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", (key_hex + "\n").encode(),
+            status, body, _ = api.call("POST", acpmux_path(vm, "keyed-start"), (key_hex + "\n").encode(),
                                        {"content-type": "application/octet-stream"}, timeout=180)
-            started.update(body)
+            started.update(body.get("value") or {})
             elapsed = int((time.monotonic() - t0) * 1000)
-            ok = status == 200 and isinstance(body.get("personInstance"), str)
-            return ok, f"HTTP {status} {body.get('error') or ''} (whole route {elapsed} ms; the stdin exec is killed at 4.5 s) instance {body.get('personInstance')} in {int((time.monotonic()-t0)*1000)} ms {json.dumps(body.get('details') or {})[:160]}", ok
+            ok = status == 200 and body.get("ok") is True and isinstance(started.get("personInstance"), str)
+            return ok, f"HTTP {status} {body.get('error') or ''} (whole route {elapsed} ms; the stdin exec is killed at 4.5 s) instance {started.get('personInstance')} in {int((time.monotonic()-t0)*1000)} ms {json.dumps(body.get('details') or {})[:160]}", ok
         if not run.step("keyed start", keyed_start):
             return 1
         instance = started["personInstance"]
@@ -366,17 +396,19 @@ def main():
         def holds(label="person_holds matches HMAC(K)"):
             def check():
                 nonce = secrets.token_hex(32)
-                status, body, _ = api.call("POST", f"/api/vm/{vm}/acpmux/person-holds", {"nonce": nonce})
-                ok = status == 200 and body.get("instance") == instance and hmac.compare_digest(body.get("proof", ""), holds_proof(key_hex, instance, nonce))
-                return ok, f"HTTP {status} instance {body.get('instance')} proof-matches {ok}", ok
+                status, body, _ = api.call("POST", acpmux_path(vm, "person-holds"), {"nonce": nonce})
+                value = body.get("value") or {}
+                ok = status == 200 and body.get("ok") is True and value.get("instance") == instance and hmac.compare_digest(value.get("proof", ""), holds_proof(key_hex, instance, nonce))
+                return ok, f"HTTP {status} instance {value.get('instance')} proof-matches {ok}", ok
             return run.step(label, check)
         holds()
 
         def wrong_key_proof():
             nonce = secrets.token_hex(32)
-            status, body, _ = api.call("POST", f"/api/vm/{vm}/acpmux/person-holds", {"nonce": nonce})
+            status, body, _ = api.call("POST", acpmux_path(vm, "person-holds"), {"nonce": nonce})
             other = secrets.token_hex(32)
-            ok = status == 200 and not hmac.compare_digest(body.get("proof", ""), holds_proof(other, instance, nonce))
+            value = body.get("value") or {}
+            ok = status == 200 and body.get("ok") is True and not hmac.compare_digest(value.get("proof", ""), holds_proof(other, instance, nonce))
             return ok, "a proof under another key does not match", ok
         run.step("person_holds is bound to K", wrong_key_proof)
 
@@ -438,10 +470,14 @@ def main():
 
                 def not_owner():
                     oapi = Api(args.origin, other)
-                    s1, b1, _ = oapi.call("POST", f"/api/vm/{vm}/acpmux/keyed-start", (secrets.token_hex(32) + "\n").encode(), {"content-type": "application/octet-stream"})
-                    s2, b2, _ = oapi.call("POST", f"/api/vm/{vm}/acpmux/person-holds", {"nonce": secrets.token_hex(32)})
+                    s1, b1, _ = oapi.call("POST", acpmux_path(vm, "keyed-start"), (secrets.token_hex(32) + "\n").encode(), {"content-type": "application/octet-stream"})
+                    s2, b2, _ = oapi.call("POST", acpmux_path(vm, "person-holds"), {"nonce": secrets.token_hex(32)})
                     ok = s1 in (403, 404) and s2 in (403, 404)
-                    return ok, f"keyed-start {s1} {b1.get('error')}; person-holds {s2} {b2.get('error')}", ok
+                    e1 = b1.get("error") or {}
+                    e2 = b2.get("error") or {}
+                    c1 = e1.get("code") if isinstance(e1, dict) else e1
+                    c2 = e2.get("code") if isinstance(e2, dict) else e2
+                    return ok, f"keyed-start {s1} {c1}; person-holds {s2} {c2}", ok
                 run.step("another account's machine refused", not_owner)
                 holds("after the refusals the same run still holds K (no restart happened)")
 
@@ -486,8 +522,8 @@ def main():
         if not args.keep:
             for vm in created:
                 def delete(vm=vm):
-                    status, body, _ = Api(args.origin, sessions[0]).call("DELETE", f"/api/vm/{vm}", timeout=180)
-                    return status in (200, 202, 204), f"DELETE {vm} by exact id: HTTP {status}", None
+                    body = Api(args.origin, sessions[0]).op("cloud.machine.delete", {"machine": vm}, f"psxg-t1-delete-{vm}", timeout=180)
+                    return body.get("deleted") is True, f"cloud.machine.delete {vm} by exact id", None
                 run.step("delete machine", delete)
         for s in sessions:
             sign_out(s)
