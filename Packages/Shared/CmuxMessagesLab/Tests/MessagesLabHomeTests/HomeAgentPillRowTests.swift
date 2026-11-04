@@ -39,6 +39,7 @@ import Testing
         // Each pill's middle line has ink (the pill's fill), so no pill is left blank.
         for pill in pills.pills {
             let y = Int(pill.rect.midY)
+            guard y < h else { Issue.record("\(pill.peer): its pill is below the row"); continue }
             let line = bytes[(y * 420 * 4)..<((y + 1) * 420 * 4)]
             #expect(line.contains { $0 > 0 }, "\(pill.peer): its pill drew nothing")
         }
