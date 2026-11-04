@@ -5,7 +5,7 @@ import SwiftUI
 /// `Toggle`: the native switch, two-way bound like `TextField`. The scene's
 /// `value` is the state; with `onChange`, a flip shows at once and sends
 /// `change {value}`, and the next `value` the app sends wins. Without
-/// `onChange` it only shows the app's value: a click does not flip it.
+/// `onChange` it only shows the app's value, disabled.
 /// Inked with the scope's primary text, the emphasis cmux chrome uses (never
 /// system blue).
 struct AppSceneToggle: View {
@@ -38,6 +38,7 @@ struct AppSceneToggle: View {
             .controlSize(.mini)
             .tint(colors.primary)
             .labelsHidden()
+            .disabled(node.flag("disabled") || !node.flag("onChange"))
         }
         .onChange(of: node.flag("value")) { _, new in if new != isOn { isOn = new } }
     }
@@ -48,7 +49,7 @@ struct AppSceneToggle: View {
 /// hundred `change {value}` events). Tracked in the scope's primary ink.
 /// While a drag runs, the app's echoes of earlier values do not move the
 /// thumb; the app's value is applied when the drag ends. Without `onChange`
-/// it only shows the app's value.
+/// it only shows the app's value, disabled.
 struct AppSceneSlider: View {
     @Environment(\.appSceneColors) private var colors
     let model: AppSceneModel
@@ -80,6 +81,7 @@ struct AppSceneSlider: View {
         })
         .controlSize(.small)
         .tint(colors.primary)
+        .disabled(node.flag("disabled") || !node.flag("onChange"))
         .onChange(of: node.number("value")) { _, _ in if !editing { sync(range, step) } }
     }
 
@@ -107,7 +109,7 @@ struct AppSceneSlider: View {
         // Round to the step's own decimals, so a 0.1 step sends 0.3, not 0.30000000000000004.
         let decimals = Double(min(max(Int((-log10(step)).rounded(.up)) + 6, 0), 12))
         let scale = pow(10, decimals)
-        return min((snapped * scale).rounded() / scale, range.upperBound)
+        return min(max((snapped * scale).rounded() / scale, range.lowerBound), range.upperBound)
     }
 }
 

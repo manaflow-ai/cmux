@@ -57,7 +57,7 @@ public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
             throw AppHostCapabilityError(code: "invalid_params", message: "a toast tone is success, warning or danger")
         }
         // The detail names the app, so an app's notice never passes for one of cmux's own.
-        let source = "From \(request.app)"
+        let source = AppsStrings.toastSource(request.app)
         return CmuxToast(id: "app:\(request.app)", message: title, detail: message.map { "\($0)\n\(source)" } ?? source)
     }
 }

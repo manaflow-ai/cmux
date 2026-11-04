@@ -66,6 +66,7 @@ import Testing
         defer { window.contentView = nil; window.close() }
         let control = try #require(Self.all(NSSwitch.self, in: root).first, "the native switch")
         #expect(control.state == .on)
+        #expect(!control.isEnabled, "a display-only switch is disabled")
         control.performClick(nil)
         root.layoutSubtreeIfNeeded()
         #expect(control.state == .on, "a display-only switch keeps the app's value")
@@ -84,6 +85,8 @@ import Testing
         // A decimal step sends the step's own value, not its float drift.
         #expect(AppSceneSlider.snap(0.30000001, 0...1, 0.1) == 0.3)
         #expect(AppSceneSlider.snap(0.7, 0...1, 0.05) == 0.7)
+        // The rounding never leaves the range: a min finer than the step's decimals stays reachable.
+        #expect(AppSceneSlider.snap(0, 0.123456789...1, 0.1) >= 0.123456789)
         // No step: a hundredth of the range. A reversed range is the default 0...1.
         let plain = AppSceneNode(type: .slider, props: ["min": 1, "max": 0])
         #expect(AppSceneSlider.range(plain) == 0...1)
@@ -99,6 +102,7 @@ import Testing
         // SwiftUI may drive the NSSlider over a normalized range: compare the thumb's fraction, 25 in 5...60.
         let fraction = (slider.doubleValue - slider.minValue) / (slider.maxValue - slider.minValue)
         #expect(abs(fraction - 20.0 / 55.0) < 0.001)
+        #expect(!slider.isEnabled, "no onChange: the slider only shows the app's value")
     }
 
     @Test func aGlassPanelIsTheSidebarCardsSurfaceAndACardIsNot() throws {
