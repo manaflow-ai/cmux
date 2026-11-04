@@ -12,7 +12,7 @@ import Testing
 /// 6612204462) named as untested. The hold (`PaneHostView`, RESIZE KEYS K3, FRAME OWNER S1) holds only each pane's content
 /// area (`PaneContentAreaView`); these tests pin how it ends on the paths other than a landing: a host taken out of the
 /// screen, Reduce Motion turned on mid-spring, a split or a zoom taking the spring over (with the default live resize and
-/// with `motion.pane.holdContent`), and content shown during the hold; and how held content converts points and takes
+/// with content the provider holds), and content shown during the hold; and how held content converts points and takes
 /// clicks while its area's bounds origin keeps it on the held edges.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
@@ -36,7 +36,7 @@ struct FrameOwnerS1HoldPathsTests {
         }()
         var views: [PaneID: PaneContentView] = [:]
         var contents: [PaneID: Content] = [:]
-        /// `motion.pane.holdContent` for every pane (the provider's hook, as the app's is).
+        /// whether the provider holds every pane's content through a split, close or zoom spring (an agent chat does, S3).
         var holdsContent = false
 
         func makeContentView(for pane: PaneID) -> NSView {
@@ -205,7 +205,8 @@ struct FrameOwnerS1HoldPathsTests {
         }
     }
 
-    /// With `motion.pane.holdContent` on, a split taking a key spring over holds p2's content at the size its key hold kept
+    /// With content the provider holds (an agent chat), a split taking a key spring over holds p2's content at the size
+    /// its key hold kept
     /// (`endKeyResizeHold`: the held size, not the pane content view's size, which followed the pane). Ctrl-Shift-L on p2
     /// shrinks it, so that start size is the largest of the hold's sizes: the content takes no new size at the takeover nor
     /// during the split's spring, and its rest size once, when the pane reaches it (the hold ends at the rest geometry).
