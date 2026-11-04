@@ -17,12 +17,16 @@
 //!   the journal grew, past 64 MiB of it, at `flush` (shutdown) and before a retention rewrite. It
 //!   syncs every log written since the last one and the sessions folder, then writes, durably, an
 //!   LSN at or before the journal's durable end that every record up to has its log effect, then
-//!   retires the journal segments before it. A failed log sync (in it, or at a log's close)
-//!   freezes it: a later sync may report success for pages the kernel dropped, so the journal
-//!   keeps every line and the store asks the daemon to stop ([`Store::stop_reason`]); the next
-//!   start's replay writes the logs again. Ten failed checkpoints in a row ask the same.
+//!   retires the journal segments before it. A failed log sync (in it, at a log's close, or in
+//!   `flush_session`) freezes it: a later sync may report success for pages the kernel dropped,
+//!   so the journal keeps every line and the store asks the daemon to stop
+//!   ([`Store::stop_reason`]); the next start's replay writes the logs again. Ten failed
+//!   checkpoints in a row ask the same.
 //! - Recovery (open) repairs each log and never deletes a whole line or a folder: see
-//!   [`Inner::repair`]. A chat whose folder is gone is not written again. A log that moved on
+//!   [`Inner::repair`]. It writes every replayed chat's lines again from the point the journal
+//!   takes over, so the first checkpoint after it syncs bytes this process wrote (a killed
+//!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
+//!   back). A chat whose folder is gone is not written again. A log that moved on
 //!   without the journal (a run with the switch off, or an older build, after a crash) is left as
 //!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`, as do the lines of a
 //!   chat whose log cannot be read or written. A crash in the middle is repaired by the next open
@@ -309,6 +313,12 @@ fn encode_log(id: &str, line: &[u8]) -> Vec<u8> {
     payload
 }
 
+/// [`decode_log`], for the tests that read the journal itself.
+#[cfg(test)]
+pub(super) fn decode_log_for_test(payload: &[u8]) -> Option<(String, &[u8])> {
+    decode_log(payload)
+}
+
 fn decode_log(payload: &[u8]) -> Option<(String, &[u8])> {
     let len = usize::try_from(u32::from_le_bytes(payload.get(..4)?.try_into().ok()?)).ok()?;
     let end = 4usize.checked_add(len)?;
@@ -377,8 +387,14 @@ impl Store for JournalStore {
         }
         Ok(())
     }
+    /// A failed file sync here freezes the checkpoint, as one in a checkpoint or at a log's
+    /// close does: a later sync may report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
-        Store::flush_session(&self.inner.local, id)
+        Store::flush_session(&self.inner.local, id).inspect_err(|error| {
+            if error.chain().any(|cause| cause.is::<SyncFailed>()) {
+                self.inner.freeze(format!("an event log failed to sync: {error:#}"));
+            }
+        })
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         Store::events(&self.inner.local, id, after, limit)

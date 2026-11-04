@@ -162,7 +162,7 @@ impl Inner {
     }
 
     /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop.
-    fn freeze(&self, why: String) {
+    pub(super) fn freeze(&self, why: String) {
         self.order.lock_or_recover().frozen = true;
         self.ask_to_stop(why);
     }

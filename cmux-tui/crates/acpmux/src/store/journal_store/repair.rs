@@ -101,13 +101,19 @@ impl Inner {
     /// Repairs `id`'s log with its journaled lines (`journaled`, in LSN order): it never deletes a
     /// whole line or a folder.
     ///
-    /// The log is read from just after its last line with a `seq` below the first journaled one.
-    /// Its lines and the journal's merge by `seq`: a line in both must be the same bytes; a line
-    /// only the log has stays; a line only the journal has goes in its place. If that only adds
-    /// lines after the log's last one, they are appended. Otherwise (bytes that do not read, or a
-    /// line to put before a later one), the lines that only the log has from that point are
-    /// journaled and made durable first; then the log is cut there and the merged lines written,
-    /// so a crash at any step loses no line: the next open repairs the same way.
+    /// The log is read from just after its last line with a `seq` below the first journaled one
+    /// (the repair start). Its lines and the journal's merge by `seq`: a line in both must be the
+    /// same bytes; a line only the log has stays; a line only the journal has goes in its place.
+    /// A line is a whole JSON line: bytes that do not parse (a torn tail, a hole of zeros, a line
+    /// a hole ran into a later one) are not a line and go.
+    ///
+    /// Every merged line is written again from the repair start, even when the log has them all:
+    /// a killed daemon's log writes may be in the page cache only, and after a failed sync the
+    /// kernel may have dropped pages it still shows and that a later sync reports as written. So
+    /// the first checkpoint after this open syncs bytes this process wrote before it retires their
+    /// records (review 2 of #34901, finding 1). The lines that only the log has from the repair
+    /// start are journaled and made durable first; then the log is cut there and the merged lines
+    /// written, so a crash at any step loses no line: the next open repairs the same way.
     fn repair(
         &self,
         id: &str,
@@ -146,48 +152,26 @@ impl Inner {
             merged.insert(*seq, bytes);
         }
         let merged: Vec<(u64, &[u8])> = merged.into_iter().collect();
-        // How far the log already is the merged lines, and the first piece that is not.
-        let mut same = 0usize;
-        let mut cut = None;
-        for piece in &pieces {
-            let next = merged.get(same).copied();
-            match (&piece.line, next) {
-                (Some((seq, bytes)), Some((want, line)))
-                    if *seq == want && bytes.as_slice() == line =>
-                {
-                    same = same.saturating_add(1);
-                }
-                _ => {
-                    cut = Some((piece.segment, piece.offset));
-                    break;
-                }
-            }
-        }
-        let rest = merged.get(same..).unwrap_or_default();
-        if let Some((segment, offset)) = cut {
-            // The lines only the log holds from the cut on: into the journal first.
-            let only_logged: Vec<&[u8]> = rest
+        let keep_merged = || merged.iter().map(|(_, line)| line.to_vec()).collect::<Vec<_>>();
+        if let Some(start) = pieces.first() {
+            // The lines only the log holds from the repair start: into the journal first.
+            let only_logged: Vec<&[u8]> = merged
                 .iter()
                 .filter(|(seq, _)| !wanted.contains_key(seq))
                 .map(|(_, line)| *line)
                 .collect();
             self.journal_lines(id, &only_logged).map_err(chat_error)?;
-            let keep_rest = || rest.iter().map(|(_, line)| line.to_vec()).collect::<Vec<_>>();
-            self.cut_at(id, segment, offset)
-                .map_err(|error| RepairError::Chat { error, keep: keep_rest() })?;
+            self.cut_at(id, start.segment, start.offset)
+                .map_err(|error| RepairError::Chat { error, keep: keep_merged() })?;
             #[cfg(test)]
             if STOP_AFTER_CUT.with(std::cell::Cell::get) {
                 return Err(RepairError::Stopped);
             }
-            for (_, line) in rest {
-                self.local
-                    .append_line(id, line)
-                    .map_err(|error| RepairError::Chat { error, keep: keep_rest() })?;
-            }
-        } else {
-            for (_, line) in rest {
-                self.local.append_line(id, line).map_err(chat_error)?;
-            }
+        }
+        for (_, line) in &merged {
+            self.local
+                .append_line(id, line)
+                .map_err(|error| RepairError::Chat { error, keep: keep_merged() })?;
         }
         Ok(Repaired::Done)
     }
@@ -230,14 +214,16 @@ impl Inner {
     }
 
     /// Cuts `id`'s log at `offset` of segment `segment`: later segments go, and that one is
-    /// shortened. The kind-index copy of each segment that changes goes first: a crash between a
-    /// cut and its copy's removal would leave a copy that a log written back to the same length
-    /// passes for current.
+    /// shortened. The kind-index copy of each segment that changes goes first, durably: a crash
+    /// between a cut and its copy's removal would leave a copy that a log written back to the same
+    /// length passes for current. The removals are durable before the merged lines are written
+    /// again: else a crash could bring a removed segment back beside them.
     fn cut_at(&self, id: &str, segment: u32, offset: u64) -> Result<()> {
         let segments = self.local.segments(id)?;
         for (index, _) in segments.iter().filter(|(index, _)| *index >= segment) {
             self.forget_index_copy(id, *index)?;
         }
+        sync_if_there(&self.local.dir(id).join(kind_index::DIR))?;
         for (index, path) in segments.iter().rev() {
             if *index > segment {
                 crate::config::refuse_lost_home(path)?;
@@ -246,7 +232,7 @@ impl Inner {
                 truncate_private(path, offset)?;
             }
         }
-        Ok(())
+        sync_directory(&self.local.dir(id).join("events"))
     }
 
     fn forget_index_copy(&self, id: &str, index: u32) -> Result<()> {
@@ -311,11 +297,11 @@ fn read_pieces(path: &Path, segment: u32, from: u64, out: &mut Vec<Piece>) -> Re
         // line after them another.
         let zeros = line.iter().take_while(|byte| **byte == 0).count();
         let after_zeros = line.get(zeros..).unwrap_or_default();
-        if whole && let Some(seq) = line_seq(&line) {
+        if whole && let Some(seq) = piece_seq(&line) {
             out.push(Piece { segment, offset, line: Some((seq, line.clone())) });
         } else if whole
             && zeros > 0
-            && let Some(seq) = line_seq(after_zeros)
+            && let Some(seq) = piece_seq(after_zeros)
         {
             out.push(Piece { segment, offset, line: None });
             let at = offset.saturating_add(u64::try_from(zeros).unwrap_or(u64::MAX));
@@ -324,6 +310,23 @@ fn read_pieces(path: &Path, segment: u32, from: u64, out: &mut Vec<Piece>) -> Re
             out.push(Piece { segment, offset, line: None });
         }
         offset = offset.saturating_add(len);
+    }
+}
+
+/// The `seq` of a piece that is one whole JSON line; `None` for bytes that are not. A hole an OS
+/// crash left inside a line runs that line into a later one's tail: it keeps the first line's
+/// `{"seq":N,` head but is not JSON (review 2 of #34901, finding 2).
+fn piece_seq(line: &[u8]) -> Option<u64> {
+    serde_json::from_slice::<serde::de::IgnoredAny>(line).ok()?;
+    line_seq(line)
+}
+
+/// Syncs the folder at `path`; nothing when it is not there.
+fn sync_if_there(path: &Path) -> Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => sync_directory(path),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(anyhow::Error::from(error).context(format!("stat {}", path.display()))),
     }
 }
 
@@ -361,6 +364,8 @@ fn truncate_private(path: &Path, len: u64) -> Result<()> {
     }
     let file = options.open(path).with_context(|| format!("open {}", path.display()))?;
     file.set_len(len).with_context(|| format!("shorten {}", path.display()))?;
-    file.sync_all()?;
+    #[cfg(all(test, unix))]
+    sync_model::cut(&file, len);
+    log_sync::sync_segment(&file, true)?;
     Ok(())
 }
