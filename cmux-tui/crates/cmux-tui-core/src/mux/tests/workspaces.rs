@@ -590,20 +590,33 @@ fn assert_journal_states_the_session(mux: &Mux) {
     }
 }
 
-/// `count` workspaces, then one full topology projection (as a session's first terminal create runs), so the
-/// journal's public fold is seeded as in a live session.
+/// `count` workspaces, then one full resource effect projection (as a session's first terminal create runs when the
+/// fold is empty), which restates every resource and seeds the journal's public fold, as in a live session.
 fn mux_with_workspaces(count: usize) -> Arc<Mux> {
     let mux = test_mux();
     for index in 0..count {
         let key = format!("018f6e21-7b70-7e70-8000-{index:012}");
         mux.create_empty_workspace(Some(format!("ws {index}")), Some(key), None).unwrap();
     }
-    mux.commit_ordinary_full_resource_projection(
-        &Actor::Daemon,
-        "test.seed_public_fold",
-        serde_json::json!({}),
+    let (key, operation) = ("seed-public-fold", "test.seed_public_fold");
+    let fingerprint = serde_json::json!({"operation": operation, "fixture": key});
+    let expected_revision = mux.with_state(|state| state.resource_revision);
+    mux.prepare_resource_effect(
+        &WorkspaceMutation::daemon(key, "test").unwrap(),
+        operation,
+        &fingerprint,
+        &serde_json::json!({}),
+        None,
+        Some(expected_revision),
     )
     .unwrap();
+    mux.mark_resource_effect_executing(key, operation, &fingerprint).unwrap();
+    mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
+        .unwrap();
+    assert!(
+        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
+        "the full projection did not seed the fold"
+    );
     mux
 }
 
