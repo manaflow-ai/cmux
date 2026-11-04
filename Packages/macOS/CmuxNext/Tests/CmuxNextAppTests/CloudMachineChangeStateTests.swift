@@ -241,18 +241,38 @@ struct CloudMachineChangeStateTests {
         #expect(await resolver.attempts == 0)
     }
 
-    @Test(.timeLimit(.seconds(10)))
+    @Test(.timeLimit(.minutes(1)))
     func userConnectRetriesAnAppLinkDuringPassiveStarting() async throws {
         let services = MachineIconTests.services()
-        let resolver = StartingLinkResolver()
-        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .paused),
+        let resolver = HeldFailingLinkResolver()
+        let session = CloudMachineSession(machine: CloudMachine(id: "passive-start", status: .starting),
             appLink: CloudLinkSession(key: CloudLinkKey(machine: "passive-start"), resolver: resolver),
             localIdentity: { nil }, mainWork: services.mainWork)
         defer { session.disconnect() }
-        session.machine.pendingChange = .starting
+
+        // This is the authoritative raw `starting` record from a passive wake. The user's
+        // connect must survive the provider's asynchronous failure, rather than being treated
+        // as a transition cancellation with no mutation id to recover.
         session.connect(origin: .user)
-        await resolver.waitForAttempts(1)
+        await resolver.waitForOpen()
         #expect(await resolver.attempts == 1)
+        await resolver.release()
+
+        for await ended in ObservationStream({ session.linkEnded != nil }) where ended { break }
+        guard case .failed = session.linkPhase else {
+            Issue.record("an explicit retry during passive starting was treated as cancellation: \(session.linkPhase)")
+            return
+        }
+
+        // The provider's failed resume is now authoritative: the machine is paused with its
+        // reason, and the same app link remains available for an explicit retry.
+        session.applyRecord(CloudMachine(id: session.machineID, status: .paused,
+                                         lastChangeFailure: .init(code: "cloud.provider.unavailable", message: "provider refused")))
+        #expect(session.machine.status == .paused)
+        #expect(session.machine.lastChangeFailure?.text == "provider refused")
+        session.retryNow()
+        await resolver.waitForAttempts(2)
+        #expect(await resolver.attempts == 2)
     }
 
     @Test func killAcknowledgementReportsPendingDeletion() {
