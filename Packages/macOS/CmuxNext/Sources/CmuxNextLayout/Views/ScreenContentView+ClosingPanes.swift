@@ -7,9 +7,9 @@ import CmuxNextDesign
 /// (read at the close): the host hides in the close's turn, as before.
 extension ScreenContentView {
     /// The panes `closing` left the layout in a close that springs (`reconcile`): each host retires, shown with its ground
-    /// on what its neighbours and its space's camera have not covered yet with the policy on (read now), else hidden.
-    /// Which ones nothing closes over is known once the change's camera is set (``settleClosing()``). `frame`: where it
-    /// showed, before this change carried the strip.
+    /// on what its neighbours and its row column's scroll have not covered yet with the policy on (read now), else hidden.
+    /// Which ones nothing closes over is known once the change's cameras are set (``settleClosing()``): the panes the strip
+    /// carries start moving only then. `frame`: where it showed, before this change carried the strip.
     func retireClosing(_ closing: [(pane: PaneID, frame: AnimatedFrame?)], before: ScreenGeometry, carried: Bool, offset: CGFloat) {
         guard !closing.isEmpty else { return }
         guard context.followsContentPolicy, !isCanvas else {
@@ -28,14 +28,14 @@ extension ScreenContentView {
         for (pane, _) in closing { context.retire(pane, from: screenID, showsGround: closingPanes.entries[pane] != nil) }
     }
 
-    /// The change's camera is set (`syncScroll`, before the change's first frame): the panes it began closing take the
-    /// travel of their space's camera (``ClosingPanes/settle(frames:strip:row:)``), the ones nothing moves over hide now,
-    /// as before S3c, and with nothing moving on the screen the hosts its closes retired go now (`reconcile` leaves that
-    /// to this while closing panes wait for the camera).
+    /// The change's cameras are set (`syncScroll`, before the change's first frame: the strip's, with the panes it carried
+    /// from where they showed, and the row columns' scrolls): the panes it began closing take their row column's scroll
+    /// travel (``ClosingPanes/settle(frames:row:)``), the ones nothing moves over hide now, as before S3c, and with
+    /// nothing moving on the screen the hosts its closes retired go now (`reconcile` leaves that to this while closing panes
+    /// wait for the cameras).
     func settleClosing() {
         guard closingPanes.hasAwaiting else { return }
-        let strip: ClosingPanes.Travel? = geometry.isColumns && !isUserScrolling ? (now: scroll.value, target: scroll.target) : nil
-        let still = closingPanes.settle(frames: paneFrames, strip: strip) { column in
+        let still = closingPanes.settle(frames: paneFrames) { column in
             rowScrolls[column].map { (now: $0.state.spring.value, target: $0.state.spring.target) }
         }
         for pane in still {
@@ -62,7 +62,7 @@ extension ScreenContentView {
     func presentClosingPanes(strip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return ([], false) }
         var hosts: [(host: PaneHostView, scrolls: Bool)] = [], changed = false
-        let rects = closingPanes.rects(frames: paneFrames, strip: scroll.value) { rowScrolls[$0]?.state.spring.value }
+        let rects = closingPanes.rects(frames: paneFrames) { rowScrolls[$0]?.state.spring.value }
         for (pane, entry) in closingPanes.entries {
             guard let host = context.closingHost(pane, of: screenID), host.superview === self, let rect = rects[pane] else {
                 closingPanes.drop(pane)
