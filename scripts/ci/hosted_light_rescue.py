@@ -26,9 +26,9 @@ cancels or re-runs target jobs itself. Each pass:
 
 Bounds: only pull request runs (never push, schedule, dispatch, nightly, DEV, promote or release runs), only attempt
 1 (so a job is failed over at most once), only runs at their pull request's current head, at most MAX_RESCUES
-re-runs a pass, and a run with any other unfinished job is left alone and reported. A cancel that does not settle
-in time is reported and left; it is never re-run blind on a later pass, since a later pass cannot tell this cancel
-from a person's or a concurrency group's.
+recovery attempts a pass, and a run with any other unfinished job is left alone and reported. Confirmed rescue
+cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
+the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
 """
 
 from __future__ import annotations
@@ -60,6 +60,9 @@ MAX_RESCUES = 10
 MAX_RUN_LIST_PAGES = 10
 SETTLE_BUDGET_S = 90.0
 SETTLE_INTERVAL_S = 5.0
+RERUN_TRIES = 3
+LIGHT_CANCEL_SENT = "hosted-light rescue: cancel sent, re-run to follow:"
+LIGHT_CANCEL_SETTLED = "hosted-light rescue: cancel settled:"
 EVENTS = frozenset({"pull_request"})
 IN_FLIGHT = ("queued", "in_progress")
 # Workflows a pass never touches, whatever runners.json declares: the nightly picks its own routes.
@@ -128,6 +131,28 @@ class GitHub:
         self.write_token = write_token or token
 
         self.etags: dict[str, tuple[str, Any]] = {}
+        self.history: Any = None
+
+    def pending_cancellations(self, now: dt.datetime) -> set[int]:
+        """Restore only this worker's confirmed cancellations from the existing durable rescue log journal.
+
+        The shared reader bounds history pages and log bytes and refuses incomplete history. It uses this
+        worker's workflow token; the routing App is never involved. A live predecessor is not judged.
+        """
+        import owned_pool_rescue
+        if self.history is None:
+            self.history = owned_pool_rescue.GitHub(self.token, self.repo)
+            self.history.own_run = int(os.environ.get("GITHUB_RUN_ID") or 0)
+            self.history.no_rate_limit_waits()
+        states: dict[tuple[int, int], str] = {}
+        for job_id in self.history.rescue_jobs(now - WINDOW):
+            marks = self.history.job_marks(job_id)
+            if marks is None:
+                raise RuntimeError(f"rescue job {job_id}'s recovery journal could not be read whole")
+            for pair, state in marks.items():
+                states.setdefault(pair, state)  # newest completed rescue jobs first
+        return {run_id for (run_id, attempt), state in states.items()
+                if attempt == 1 and state == "sent hosted-light"}
 
     def request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> Any:
         token = self.token if method == "GET" else self.write_token
@@ -194,7 +219,7 @@ def at_head(run: Mapping[str, Any]) -> bool:
         for pr in prs)
 
 
-def pull_at_head(client: Any, run: Mapping[str, Any]) -> bool:
+def pull_at_head(client: Any, run: Mapping[str, Any], *, strict: bool = False) -> bool:
     """A pull request of the run is open at the run's head.
 
     Read from the pull request itself; when the token may not read pull requests (HTTP 403 or 404: the overflow
@@ -208,10 +233,57 @@ def pull_at_head(client: Any, run: Mapping[str, Any]) -> bool:
             if client.pull_head(number) == run.get("head_sha"):
                 return True
         except RuntimeError as error:
-            if not re.search(r"HTTP (403|404)$", str(error)):
+            if strict or not re.search(r"HTTP (403|404)$", str(error)):
                 raise
             refused = True
-    return refused and at_head(run)
+    return not strict and refused and at_head(run)
+
+
+def finish_cancel(client: Any, run_id: int, workflows: Sequence[str], *, pending: set[int],
+                  deadline: float, sleep: Callable[[float], None], clock: Callable[[], float],
+                  log: Callable[[str], None]) -> tuple[bool, str]:
+    """Finish only an owned cancellation, checking the live attempt and open PR before every rerun POST.
+
+    A failed response may conceal an accepted rerun: a later attempt ends recovery without another POST.
+    Unread state and exhausted retries retain the journal entry for the next minute or successor.
+    """
+    def settled(message: str, reran: bool = False) -> tuple[bool, str]:
+        log(f"{LIGHT_CANCEL_SETTLED} run {run_id} attempt 1")
+        pending.discard(run_id)
+        return reran, message
+
+    last = "the cancellation has not settled"
+    for retry in range(RERUN_TRIES):
+        if clock() >= deadline:
+            break
+        try:
+            run = client.run(run_id)
+            if run.get("run_attempt") != 1:
+                return settled("a later attempt already exists; no further rerun sent")
+            workflow = str(run.get("path") or "").split("@", 1)[0].rsplit("/", 1)[-1]
+            if run.get("event") not in EVENTS or workflow not in workflows or not at_head(run):
+                return settled("the run is no longer eligible; left alone")
+            if not pull_at_head(client, run, strict=True):
+                return settled("the pull request closed or moved on; left alone")
+            if run.get("status") != "completed":
+                return False, last
+            if run.get("conclusion") != "cancelled":
+                return settled("the run finished without a cancellation; left alone")
+            if clock() >= deadline:
+                break
+            client.rerun_failed(run_id)
+        except Exception as error:  # noqa: BLE001 - keep confirmed ownership through transient failures
+            last = f"rerun not confirmed ({error})"
+            if retry + 1 >= RERUN_TRIES or clock() >= deadline:
+                break
+            # Permanent refusals are visible and retained, not hammered within this pass.
+            status = re.search(r"HTTP (\d{3})$", str(error))
+            if status and int(status[1]) in {401, 403, 404, 422}:
+                break
+            sleep(min(SETTLE_INTERVAL_S, max(0.0, deadline - clock())))
+            continue
+        return settled("re-ran its failed jobs on their fallback route", reran=True)
+    return False, f"{last}; owned recovery remains pending"
 
 
 def candidate(run: Mapping[str, Any]) -> bool:
@@ -271,8 +343,22 @@ def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None
 
 def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: bool,
           sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+          pending: set[int] | None = None, log: Callable[[str], None] = print,
           scan_state: ScanState | None = None) -> list[str]:
     lines: list[str] = []
+    pending = set() if pending is None else pending
+    recovering = set(pending)
+    rescued, attempted = 0, 0
+    deadline = clock() + SETTLE_BUDGET_S
+    for run_id in sorted(recovering)[:MAX_RESCUES]:
+        if dry_run:
+            lines.append(f"run {run_id}: would resume its owned cancellation (dry run)")
+            continue
+        attempted += 1
+        reran, outcome = finish_cancel(client, run_id, workflows, pending=pending, deadline=deadline,
+                                       sleep=sleep, clock=clock, log=log)
+        rescued += int(reran)
+        lines.append(f"run {run_id}: {outcome}")
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
     state = scan_state if scan_state is not None else ScanState()
     # Overflow pages rotate independently of the job-read cursor. Retain the discovered union so a page
@@ -281,7 +367,8 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     listed = state.candidates
     for run_id, run in list(listed.items()):
         created = parse_time(run.get("created_at"))
-        if created is None or created < start or run.get("_workflow") not in workflows:
+        if (created is None or created < start or run.get("_workflow") not in workflows
+                or run_id in recovering):
             del listed[run_id]
     for workflow in workflows:
         for status in IN_FLIGHT:
@@ -299,6 +386,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
                     full_overflow = len(page) >= 100
                 for run in page:
                     if (isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run)
+                            and run["id"] not in recovering
                             and (created := parse_time(run.get("created_at"))) is not None and created >= start):
                         listed[run["id"]] = {**run, "_workflow": workflow}
             if full_overflow:
@@ -310,8 +398,6 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
     runs, state.cursor = scan_slice(runs, state.cursor)
     if candidate_count > MAX_RUNS:
         lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
-    rescued = 0
-    deadline = clock() + SETTLE_BUDGET_S
     for run in runs:
         try:
             jobs = client.jobs(run["id"])
@@ -327,7 +413,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if kind == "gated":
             lines.append(f"{where}: {names} stalled on hosted Ubuntu, but other jobs are unfinished; left alone")
             continue
-        if rescued >= MAX_RESCUES:
+        if attempted >= MAX_RESCUES:
             lines.append(f"{where}: {names} stalled; over this pass's {MAX_RESCUES} re-runs, left to the next")
             continue
         if not dry_run and clock() >= deadline:
@@ -337,6 +423,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         if dry_run:
             lines.append(f"{where}: {names} stalled; would cancel and re-run its failed jobs (dry run)")
             rescued += 1
+            attempted += 1
             continue
         # Right before the cancel: the run is still attempt 1 and in flight at its pull request's head (read again,
         # so a concurrent re-run is never cancelled), the pull request is still open at this head, and nothing has
@@ -345,7 +432,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             fresh = {**client.run(run["id"])}
             live_head = candidate(fresh) and fresh.get("head_sha") == run.get("head_sha")
             if live_head:
-                live_head = pull_at_head(client, fresh)
+                live_head = pull_at_head(client, fresh, strict=True)
             again, _ = verdict(client.jobs(run["id"]), now) if live_head else ("none", [])
         except Exception as error:  # noqa: BLE001 - unread means unknown: leave the run
             lines.append(f"{where}: could not re-read before the cancel ({error}); left alone")
@@ -361,6 +448,10 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
         except Exception as error:  # noqa: BLE001
             lines.append(f"{where}: cancel refused ({error})")
             continue
+        attempted += 1
+        pending.add(run["id"])
+        # Immediate log output is GitHub's durable receipt; a successor reads it if this worker stops.
+        log(f"{LIGHT_CANCEL_SENT} run {run['id']} attempt 1")
         settled = False
         while True:
             try:
@@ -375,15 +466,12 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             sleep(SETTLE_INTERVAL_S)
         if not settled:
             lines.append(f"{where}: {names} stalled; cancelled, but the cancel did not settle in this pass's "
-                         f"{SETTLE_BUDGET_S:.0f} s, so it was not re-run")
+                         f"{SETTLE_BUDGET_S:.0f} s; owned recovery remains pending")
             continue
-        try:
-            client.rerun_failed(run["id"])
-        except Exception as error:  # noqa: BLE001
-            lines.append(f"{where}: cancelled, re-run refused ({error})")
-            continue
-        rescued += 1
-        lines.append(f"{where}: {names} stalled; cancelled and re-ran its failed jobs on their fallback route")
+        reran, outcome = finish_cancel(client, run["id"], workflows, pending=pending, deadline=deadline,
+                                       sleep=sleep, clock=clock, log=log)
+        rescued += int(reran)
+        lines.append(f"{where}: {names} stalled; cancelled; {outcome}")
     lines.append(f"{len(listed)} candidate runs, {len(runs)} read, {rescued} failed over")
     return lines
 
@@ -418,8 +506,18 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
     workflows = with_callers(declared_workflows(runners), directory / "workflows")
     client = GitHub(token, repo)
     scan_state = ScanState()
+    pending: set[int] = set()
+    restored = False
     def once() -> None:
-        for line in sweep(client, workflows, now=now(), dry_run=False, scan_state=scan_state):
+        nonlocal restored
+        if not restored:
+            try:
+                pending.update(client.pending_cancellations(now()))
+                restored = True
+            except Exception as error:  # noqa: BLE001 - incomplete journal cannot authorize a rerun
+                log(f"hosted light recovery journal unavailable ({error}); existing cancellations left alone")
+        for line in sweep(client, workflows, now=now(), dry_run=False, pending=pending, log=log,
+                          scan_state=scan_state):
             log(f"[hosted light] {line}")
     return once
 

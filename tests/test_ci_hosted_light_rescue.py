@@ -76,7 +76,8 @@ class Fake:
         if self.cancelled.get(run_id) is None:
             return {**listed, **self.fresh.get(run_id, {})}
         done = self.reads[run_id] - self.cancelled[run_id] >= self.settles_after
-        return {**listed, "status": "completed" if done else "in_progress", "run_attempt": 1}
+        return {**listed, "status": "completed" if done else "in_progress", "run_attempt": 1,
+                "conclusion": "cancelled" if done else None}
 
     def cancel(self, run_id):
         self.calls.append(("cancel", run_id))
@@ -209,6 +210,7 @@ class WorkflowToken(unittest.TestCase):
             env = {"HOSTED_LIGHT_TOKEN": "workflow-token", "READ_TOKEN": "routing-app-token",
                    "GH_TOKEN": "bot-token", "HOSTED_LIGHT_POLICY": str(policy)}
             with mock.patch.object(rescue, "GitHub") as client, mock.patch.object(rescue, "sweep", return_value=[]):
+                client.return_value.pending_cancellations.return_value = set()
                 callback = rescue.from_env(env, "o/r", now=lambda: NOW, log=lambda text: None)
                 callback()
             client.assert_called_once_with("workflow-token", "o/r")
@@ -362,11 +364,11 @@ class Sweep(unittest.TestCase):
         self.assertEqual(mutations(fake), [])
         self.assertTrue(any("moved on" in line for line in lines))
 
-    def test_a_token_that_may_not_read_pull_requests_falls_back_to_the_fresh_run(self):
+    def test_a_token_that_may_not_read_pull_requests_never_cancels(self):
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
         fake.pull_error = RuntimeError("GET /pulls/7: HTTP 403")
         sweep(fake)
-        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+        self.assertEqual(mutations(fake), [])
         fake = Fake({"pr-checks.yml": [run(8)]}, {8: [job("PR size")]})
         fake.pull_error = RuntimeError("GET /pulls/8: HTTP 403")
         fake.fresh[8] = {"pull_requests": [{"number": 8, "head": {"sha": "e" * 40}}]}
@@ -439,6 +441,114 @@ class Sweep(unittest.TestCase):
             runners = Path(tmp) / "runners.json"
             runners.write_text(json.dumps({"hosted_light_jobs": {"pr-checks.yml#size": {}}}))
             self.assertEqual(rescue.main(["--runners", str(runners)], {}), 0)
+
+
+class RecoverCancelled(unittest.TestCase):
+    """A confirmed rescue cancellation survives transient rerun failures and a handover."""
+
+    def fake(self, failures=1, *, accepted=False):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        original = fake.run
+        def current(run_id):
+            state = original(run_id)
+            if state.get("status") == "completed":
+                state["conclusion"] = "cancelled"
+            if accepted and any(call[0] == "rerun" for call in fake.calls):
+                state.update(run_attempt=2, status="queued", conclusion=None)
+            return state
+        fake.run = current
+        def rerun(run_id):
+            fake.calls.append(("rerun", run_id))
+            if sum(call[0] == "rerun" for call in fake.calls) <= failures:
+                raise RuntimeError("POST rerun: HTTP 502")
+        fake.rerun_failed = rerun
+        return fake
+
+    def test_a_transient_rerun_error_recovers_without_another_cancel(self):
+        fake = self.fake()
+        lines = sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7), ("rerun", 7)])
+        self.assertIn("1 failed over", lines[-1])
+
+    def test_a_rerun_accepted_before_a_transport_error_is_not_sent_again(self):
+        fake = self.fake(accepted=True)
+        sweep(fake)
+        self.assertEqual(mutations(fake), [("cancel", 7), ("rerun", 7)])
+
+    def test_exhausted_retries_leave_an_owned_journal_entry_for_the_next_pass(self):
+        fake = self.fake(failures=100)
+        pending, journal = set(), []
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=journal.append, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(pending, {7})
+        self.assertTrue(any("cancel sent, re-run to follow: run 7 attempt 1" in line for line in journal))
+        fake.rerun_failed = lambda run_id: fake.calls.append(("rerun", run_id))
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=journal.append, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(pending, set())
+        self.assertEqual(sum(call[0] == "cancel" for call in fake.calls), 1)
+        self.assertTrue(any("cancel settled: run 7 attempt 1" in line for line in journal))
+
+    def test_restored_owned_cancellation_is_retried_but_an_unmarked_one_is_not(self):
+        fake = self.fake(failures=0)
+        fake.cancelled[7] = -1
+        pending = {7}
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(mutations(fake), [("rerun", 7)])
+        self.assertEqual(pending, set())
+        fake = self.fake(failures=0)
+        fake.cancelled[7] = -1
+        sweep(fake)
+        self.assertEqual(mutations(fake), [])
+
+    def test_closed_or_advanced_pending_runs_are_not_retried(self):
+        for closed in (False, True):
+            fake = self.fake(failures=0)
+            fake.cancelled[7] = -1
+            if closed:
+                fake.heads[7] = None
+            else:
+                previous = fake.run
+                fake.run = lambda run_id: dict(previous(run_id), run_attempt=2)
+            pending = {7}
+            rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                         log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+            self.assertEqual(mutations(fake), [])
+            self.assertEqual(pending, set())
+
+    def test_a_successor_reads_only_hosted_light_intents_and_newest_settlements(self):
+        import owned_pool_rescue
+        client = rescue.GitHub("workflow-token", "o/r")
+        history = mock.Mock()
+        client.history = history
+        history.rescue_jobs.return_value = [100, 99]
+        history.job_marks.side_effect = [
+            owned_pool_rescue.cancel_marks([
+                f"{rescue.LIGHT_CANCEL_SETTLED} run 7 attempt 1",
+                f"{owned_pool_rescue.CANCEL_SENT} run 8 attempt 1"]),
+            owned_pool_rescue.cancel_marks([
+                f"{rescue.LIGHT_CANCEL_SENT} run 7 attempt 1",
+                f"{rescue.LIGHT_CANCEL_SENT} run 9 attempt 1"])]
+        self.assertEqual(client.pending_cancellations(NOW), {9})
+
+    def test_an_incomplete_journal_cannot_authorize_a_recovery(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        client.history = mock.Mock()
+        client.history.rescue_jobs.return_value = [100]
+        client.history.job_marks.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "could not be read whole"):
+            client.pending_cancellations(NOW)
+
+    def test_an_unavailable_pr_read_keeps_the_owned_intent_without_a_rerun(self):
+        fake = self.fake(failures=0)
+        fake.cancelled[7] = -1
+        fake.pull_error = RuntimeError("GET /pulls/7: HTTP 403")
+        pending = {7}
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+        self.assertEqual(mutations(fake), [])
+        self.assertEqual(pending, {7})
 
 
 if __name__ == "__main__":
