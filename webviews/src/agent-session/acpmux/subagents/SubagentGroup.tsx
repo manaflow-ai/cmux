@@ -164,7 +164,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const stop = useContext(SubagentStopContext);
   const tones = useContext(AgentTonesContext);
   const agent = row.subagents?.[0];
-  const now = useNow(agent ? running(agent) : false);
+  const now = useNow(agent ? ticking(agent) : false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
