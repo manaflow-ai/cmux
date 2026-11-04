@@ -221,6 +221,11 @@ export class AcpmuxPerf {
       this.startState = { shown, first: state.first, final: now, changes: state.changes + 1 };
   }
 
+  /** The start the frames show now (`noteStartState`), for a bench to compare runs. */
+  startStateShown(): string | undefined {
+    return this.startState?.shown;
+  }
+
   /** A New Tab page adopted again (Cmd-T on a spare): its start state is measured from there. */
   resetStartState(): void {
     this.startState = undefined;
@@ -233,6 +238,8 @@ export class AcpmuxPerf {
     if (this.startState) {
       value.start_state_final_ms = round2(this.startState.final - this.startState.first);
       value.start_state_changes = this.startState.changes;
+      // Wall-clock time of the final one, so a bench on the same Mac times it from its own key press.
+      value.start_state_final_epoch_ms = round2(performance.timeOrigin + this.startState.final);
     }
     for (const [name, at] of Object.entries(this.agentMarks)) {
       if (at === undefined) continue;
