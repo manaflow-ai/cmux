@@ -19,6 +19,10 @@ public final class CloudAuth {
     @ObservationIgnored public let browserSignIn: HostBrowserSignInFlow
     @ObservationIgnored private let callbackRouter: AuthCallbackRouter
     @ObservationIgnored private let usesCaptureFixture: Bool
+    /// This build's stored session (refresh token, and the access token when one is stored), read off the
+    /// main actor: what cmux NIGHTLY hands to another local cmux build (`auth.session.handoff`). Nil when
+    /// signed out. The two tokens are one pair (``consistentSession(refresh:access:)``).
+    @ObservationIgnored public nonisolated let storedSession: @Sendable () async -> (accessToken: String?, refreshToken: String)?
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
     public var isRestoring: Bool { coordinator.isRestoringSession }
@@ -87,9 +91,13 @@ public final class CloudAuth {
     /// Captures the auth launch keys; call in main before LaunchIdentity.stripInheritedEnvironment().
     public nonisolated static func captureLaunchEnvironment() { _ = launchEnvironment }
 
+    /// Asks a running cmux NIGHTLY for its session (`auth.session.handoff`); nil when there is none.
+    public typealias NightlySession = @Sendable () async -> (accessToken: String?, refreshToken: String)?
+
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
+    /// `nightlySession` is where a build that ``CloudConfiguration/adoptsNightlySession`` gets its session.
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard, captureFixture: Bool = false) {
+                defaults: UserDefaults = .standard, captureFixture: Bool = false, nightlySession: NightlySession? = nil) {
         #if DEBUG
         let useCaptureFixture = captureFixture && configuration.isDebugBuild
         #else
@@ -110,17 +118,22 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = Self.tokenStore(configuration: configuration)
+            let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
             tokenStore = productionStore
             authDefaults = defaults
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
-        let productionStore = Self.tokenStore(configuration: configuration)
+        let productionStore = Self.tokenStore(configuration: configuration, nightlySession: nightlySession)
         tokenStore = productionStore
         authDefaults = defaults
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         #endif
+        let sessionStore = tokenStore
+        storedSession = {
+            await Self.consistentSession(refresh: { await sessionStore.getStoredRefreshToken() },
+                                         access: { await sessionStore.getStoredAccessToken() })
+        }
         let config = AuthConfig(
             stack: CMUXAuthConfig(projectId: configuration.stackProjectID, publishableClientKey: configuration.stackPublishableClientKey),
             magicLinkCallbackURL: configuration.authWebOrigin.appendingPathComponent("auth/callback").absoluteString,
@@ -196,21 +209,22 @@ public final class CloudAuth {
     }
 
     /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
-    /// (``CloudConfiguration/nightlySession``) adopts cmux NIGHTLY's session into it when it has none:
-    /// NIGHTLY's Keychain item (readable only when DEV is signed with NIGHTLY's access group), then
-    /// NIGHTLY's file fallback. NIGHTLY's own session is only read, never changed or cleared.
-    static func tokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
-        let own = FallbackTokenStore(
-            primary: KeychainStackTokenStore(service: configuration.keychainService),
-            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-        )
-        guard let nightly = configuration.nightlySession else { return own }
-        let keychain = KeychainTokenReader(service: nightly.keychainService, accessGroup: nightly.accessGroup)
-        let file = FileStackTokenStore(directory: nightly.credentialsDirectory)
-        return ImportingTokenStore(primary: own, sources: [
-            { keychain.read() },
-            { ImportedTokenPair(accessToken: await file.getStoredAccessToken(), refreshToken: await file.getStoredRefreshToken()) },
-        ])
+    /// (``CloudConfiguration/adoptsNightlySession``) instead keeps its session in memory only and, when it
+    /// has none, adopts the one a running cmux NIGHTLY hands over (`nightlySession`). NIGHTLY's own session
+    /// is only read, never changed or cleared, and a sign-out here leaves it alive on the server
+    /// (``stackClient(configuration:tokenStore:)``). Without `nightlySession` (no NIGHTLY to ask) that
+    /// build starts signed out.
+    static func tokenStore(configuration: CloudConfiguration, nightlySession: NightlySession?) -> any StackAuthTokenStoreProtocol {
+        guard configuration.adoptsNightlySession else {
+            return FallbackTokenStore(
+                primary: KeychainStackTokenStore(service: configuration.keychainService),
+                fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
+            )
+        }
+        let sources: [ImportingTokenStore.Source] = nightlySession.map { fetch in
+            [{ await fetch().flatMap { ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken) } }]
+        } ?? []
+        return ImportingTokenStore(primary: MemoryStackTokenStore(), sources: sources)
     }
 
     private static func stackClient(configuration: CloudConfiguration,
@@ -304,5 +318,20 @@ extension CloudAuth {
     nonisolated static func mask(_ email: String) -> String {
         guard let at = email.firstIndex(of: "@") else { return "***" }
         return String(email.prefix(1)) + "***" + String(email[at...])
+    }
+}
+
+extension CloudAuth {
+    /// The stored pair, read so a refresh that rotates the tokens between the two reads is never handed out
+    /// half old: the refresh token is read before and after the access token, and the read is retried (three
+    /// times at most) until both agree. Nil when signed out or when the tokens keep rotating.
+    nonisolated static func consistentSession(refresh: () async -> String?, access: () async -> String?) async
+        -> (accessToken: String?, refreshToken: String)? {
+        for _ in 0 ..< 3 {
+            guard let before = await refresh(), !before.isEmpty else { return nil }
+            let accessToken = await access()
+            if await refresh() == before { return (accessToken, before) }
+        }
+        return nil
     }
 }
