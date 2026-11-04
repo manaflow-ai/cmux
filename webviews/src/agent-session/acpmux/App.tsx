@@ -71,7 +71,7 @@ import {
 } from "./model";
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { isVisiblyEmptyMessage } from "./conversation/visibleMessage";
-import { pendingMessagesRow, searchablePendingRows } from "./conversation/pendingMessages";
+import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { LaneNoticeBatch } from "./conversation/LaneNoticeBatch";
 import { PendingMessagesCard } from "./conversation/PendingMessagesCard";
 import {
@@ -7500,8 +7500,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const group = pendingMessagesRow(steers, agents, lastPending.current);
     lastPending.current = group;
     const merged = mergeInboxNotices(turnRowsShown);
-    const shown = people.length ? [...merged, ...people] : merged;
-    const rows = group ? [...shown, group] : shown;
+    const rows = withWaitingRows(merged, group ? [...people, group] : people);
     return childRows ? rows : btwNotes.rows(rows, snapshot.sessionId, btwSnapshot);
   }, [chatPresentation, childRows, turnRowsShown, queuedRows, btwNotes, btwSnapshot, snapshot.sessionId]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
