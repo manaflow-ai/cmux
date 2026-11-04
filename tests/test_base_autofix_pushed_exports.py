@@ -12,15 +12,19 @@ push's own pack, and otherwise misses so cmux-next-base-autofix.yml's Mac job ru
 from __future__ import annotations
 
 import hashlib
+import http.server
 import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 import yaml
 
@@ -120,6 +124,161 @@ class FakeApi(px.Api):
 
 def lookup(api: FakeApi, history, sha: str, tree: str, into: Path, **kw):
     return px.lookup(api, lambda: history, sha, tree, ENV, NAMES, into, poll=60, first_run_grace=kw.get("grace", 0))
+
+
+class ConditionalApiReads(unittest.TestCase):
+    """Exercise urllib's real 304/HTTPError path against an ephemeral HTTP origin."""
+
+    def setUp(self):
+        self.responses = {}
+        self.requests = []
+        responses, requests = self.responses, self.requests
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                status, etag, body = responses.get(self.path, (404, None, b"missing"))
+                conditional = self.headers.get("If-None-Match")
+                if status == 200 and etag and conditional == etag:
+                    status = 304
+                requests.append((self.path, conditional, status))
+                self.send_response(status)
+                if etag:
+                    self.send_header("ETag", etag)
+                self.end_headers()
+                if status != 304:
+                    self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.stop_server)
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+        self.api = self.new_api()
+
+    def stop_server(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+
+    def new_api(self):
+        return px.Api("synthetic-read-token", REPO, self.base, time.monotonic() + 60)
+
+    def reply(self, path, data=None, *, etag='"v1"', status=200, body=None):
+        self.responses[f"/repos/{REPO}/{path}"] = (status, etag, body if body is not None else json.dumps(data).encode())
+
+    def test_thirty_unchanged_polls_revalidate_five_endpoints(self):
+        # The existing 45-minute / 90-second wait, with one runs and four jobs reads per poll.
+        paths = [f"actions/workflows/{px.WORKFLOW_FILE}/runs?branch={px.BRANCH}&per_page=50",
+                 *[f"actions/runs/{run_id}/jobs?filter=latest&per_page=100" for run_id in range(1, 5)]]
+        for path in paths:
+            self.reply(path, {"status": "in_progress", "path": path})
+        for _ in range(30):
+            for path in paths:
+                self.assertEqual(self.api.json(path), {"status": "in_progress", "path": path})
+        counts = {"requests": len(self.requests), "charged_200": sum(r[2] == 200 for r in self.requests),
+                  "revalidated_304": sum(r[2] == 304 for r in self.requests)}
+        print("pushed-exports conditional-read harness: " + json.dumps(counts, sort_keys=True))
+        self.assertEqual(counts, {"requests": 150, "charged_200": 5, "revalidated_304": 145})
+
+    def test_changed_jobs_are_returned_on_the_next_read_and_mutation_is_not_retained(self):
+        path = "actions/runs/7/jobs?filter=latest&per_page=100"
+        self.reply(path, {"jobs": [{"status": "in_progress"}]})
+        self.api.json(path)["jobs"].clear()
+        self.assertEqual(self.api.json(path), {"jobs": [{"status": "in_progress"}]})
+        self.reply(path, {"jobs": [{"status": "completed"}]}, etag='"v2"')
+        self.assertEqual(self.api.json(path), {"jobs": [{"status": "completed"}]})
+        self.assertEqual(self.api.json(path), {"jobs": [{"status": "completed"}]})
+        self.assertEqual([r[2] for r in self.requests], [200, 304, 200, 304])
+
+    def test_lookup_takes_a_new_pack_after_unchanged_304_reads(self):
+        sha, tree = oid(1), oid(101)
+        run = push_run(7, sha, status="in_progress")
+        runs_path = f"actions/workflows/{px.WORKFLOW_FILE}/runs?branch={px.BRANCH}&per_page=50"
+        jobs_path = "actions/runs/7/jobs?filter=latest&per_page=100"
+        packs_path = f"actions/artifacts?name={px.pack_name(tree)}&per_page=10"
+        self.reply(runs_path, {"workflow_runs": [run]})
+        self.reply(jobs_path, {"jobs": [{"name": px.GENERATED_JOB, "status": "in_progress"}]})
+        self.reply(packs_path, {"artifacts": []})
+        self.reply("actions/runs/7", run)
+        sleeps = []
+
+        def publish_after_one_unchanged_poll(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) == 2:
+                self.reply(jobs_path, {"jobs": [{"name": px.GENERATED_JOB, "status": "in_progress",
+                                                "steps": [{"name": px.UPLOAD_STEP, "status": "completed"}]}]}, etag='"v2"')
+                self.reply(packs_path, {"artifacts": [artifact(tree, 7, 70)]}, etag='"v2"')
+
+        with tempfile.TemporaryDirectory() as scratch, \
+                mock.patch.object(self.api, "sleep", side_effect=publish_after_one_unchanged_poll), \
+                mock.patch.object(self.api, "download", side_effect=lambda _url, dest: dest.write_bytes(pack_zip(tree, 7, sha))):
+            into = Path(scratch) / "into"
+            hit = px.lookup(self.api, lambda: [(sha, tree)], sha, tree, ENV, NAMES, into, poll=1, first_run_grace=0)
+            self.assertEqual(hit["hit"], "true")
+            self.assertEqual(hit["source_run_id"], "7")
+            for rel in NAMES:
+                self.assertEqual((into / rel).read_bytes(), f"fresh {rel}\n".encode())
+        self.assertEqual(sleeps, [1, 1])
+        self.assertIn(304, [r[2] for r in self.requests])
+
+    def test_an_etag_removed_by_the_server_is_not_sent_again(self):
+        path = "actions/runs/7"
+        self.reply(path, {"status": "in_progress"})
+        self.api.json(path)
+        self.reply(path, {"status": "completed"}, etag=None)
+        for _ in range(2):
+            self.assertEqual(self.api.json(path), {"status": "completed"})
+        self.assertEqual([r[1] for r in self.requests], [None, '"v1"', None])
+
+    def test_cache_is_scoped_to_one_api_instance_and_exact_query(self):
+        for path in ("actions/artifacts?name=one", "actions/artifacts?name=two"):
+            self.reply(path, {"name": path})
+            self.assertEqual(self.api.json(path), {"name": path})
+        self.new_api().json("actions/artifacts?name=one")
+        self.assertEqual([r[1] for r in self.requests], [None, None, None])
+
+    def test_http_errors_never_fall_back_to_cached_success_or_include_response_bodies(self):
+        path = "actions/runs/7"
+        self.reply(path, {"status": "in_progress"})
+        self.api.json(path)
+        for status in (403, 404, 429, 500):
+            with self.subTest(status=status):
+                self.reply(path, status=status, body=b"secret-bearing-error-body")
+                with self.assertRaises(px.Miss) as caught:
+                    self.api.json(path)
+                self.assertIn(f"GET {path} failed: HTTP Error {status}", str(caught.exception))
+                self.assertNotIn("secret-bearing", str(caught.exception))
+
+    def test_304_without_a_retained_response_is_a_miss(self):
+        self.reply("actions/runs/7", status=304)
+        with self.assertRaisesRegex(px.Miss, "HTTP Error 304"):
+            self.api.json("actions/runs/7")
+
+    def test_invalid_or_oversized_json_is_still_a_miss(self):
+        path = "actions/runs/7"
+        self.reply(path, {"status": "in_progress"})
+        self.api.json(path)
+        self.reply(path, etag='"v2"', body=b"not JSON")
+        with self.assertRaisesRegex(px.Miss, "answered no JSON"):
+            self.api.json(path)
+        with mock.patch.object(px, "MAX_JSON_BYTES", 16):
+            self.reply(path, etag='"v3"', body=b"x" * 17)
+            with self.assertRaisesRegex(px.Miss, "answered over 16 bytes"):
+                self.api.json(path)
+
+    def test_entry_and_byte_budgets_evict_responses(self):
+        for limit in ("JSON_CACHE_ENTRIES", "JSON_CACHE_BYTES"):
+            with self.subTest(limit=limit), mock.patch.object(px, limit, 2, create=True):
+                api = self.new_api()
+                self.requests.clear()
+                for path in ("actions/runs/1", "actions/runs/2", "actions/runs/3", "actions/runs/1"):
+                    self.reply(path, {"id": path})
+                    self.assertEqual(api.json(path), {"id": path})
+                self.assertTrue(all(r[2] == 200 for r in self.requests))
 
 
 class TakesOnlyTrustedIntactPacks(unittest.TestCase):

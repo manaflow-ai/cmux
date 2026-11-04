@@ -2935,7 +2935,8 @@ CmuxNextApp	let	fallbackLogger	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextApp	protocol	SurfacePresenter	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache.swift	from class TabContentCache:22: page/surface cache (platform ~420); LRU 8 and warm-set eviction policy (logic ~97)
 CmuxNextApp	struct	WeakPresenter	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache.swift	from class TabContentCache:22: page/surface cache (platform ~420); LRU 8 and warm-set eviction policy (logic ~97)
 CmuxNextApp	enum	TabMirror	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabMirror.swift	tab-to-tree mirror gap rule (refuse "no tab")
-CmuxNextApp	enum	TabPreviewFitting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabPreviewFitting.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextBridge	extension	PreviewImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/PreviewImageCache+Fitting.swift	Picture scaling and off-main decode for the preview cache (moved from the App's TabPreviewFitting)
+CmuxNextBridge	extension	PreviewImageCache	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/PreviewImageCache+Compression.swift	Compressed page pictures for the preview cache, encoded off the waiting path (moved from the App's HibernationSnapshots)
 CmuxNextApp	class	TabPreviewSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabPreviewSource.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	AppServices	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppServices+RevealTab.swift	Reveal tab wiring
 CmuxNextApp	extension	AppServices	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabSearch/AppServices+RevealTab.swift	Reveal tab wiring
@@ -3561,6 +3562,7 @@ CmuxNextBrowser	extension	CEFEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextBrowser	let	cefPasswordRevealCallback	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+Passwords.swift	from extension CEFEngine:7: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	extension	CEFEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+RendererPages.swift	from struct CEFRendererPage:5: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFRendererPage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+RendererPages.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
+CmuxNextBrowser	extension	CEFEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine+SpareWindow.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	class	CEFEngine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEngine.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFEvaluationResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEvaluationResult.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	enum	CEFEventTrace	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFEventTrace.swift	from enum CEFEventTrace:5: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
@@ -3601,6 +3603,7 @@ CmuxNextBrowser	enum	CEFNativeMessaging	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextBrowser	struct	CEFNavigationEntries	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFNavigationEntries.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	class	CEFOmniboxKeywords	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	class	CEFOrphanTabs	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFOrphanTabs.swift	from class CEFOrphanTabs:8: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
+CmuxNextBrowser	enum	CEFPageFreeze	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageFreeze.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFPageMessage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageMessage.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFPageResponse	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageResponse.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	CEFPageSchemes	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPageSchemes.swift	from struct CEFPageSchemes:9: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
@@ -3614,6 +3617,7 @@ CmuxNextBrowser	extension	CEFPaneHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextBrowser	extension	CEFPaneHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost+Show.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	func	tabSwitchMark	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost+Show.swift	from extension CEFPaneHost:4: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	let	tabSwitchLog	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost+Show.swift	from extension CEFPaneHost:4: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
+CmuxNextBrowser	extension	CEFPaneHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost+SparePage.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	class	CEFPaneHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	struct	WeakCEFTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift	from class CEFPaneHost:12: CEF/Chromium shim binding, host view or engine plumbing (engine-forced)
 CmuxNextBrowser	enum	CEFPasswordPolicy	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFPasswordPolicy.swift	CEF/Chromium shim binding, host view or engine plumbing (engine-forced)

@@ -37,6 +37,7 @@ mod imessage;
 pub mod scroll;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
+pub mod tab_drag;
 pub mod typed;
 use sidebar_mirror::Mirror;
 
