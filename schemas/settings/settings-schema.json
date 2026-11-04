@@ -571,6 +571,7 @@
               "sidebar.density",
               "sidebar.textSize",
               "workspaceColors.indicatorStyle",
+              "sidebar.groupPinMark",
               "sidebar.minimalMode",
               "sidebar.side"
             ],
@@ -592,7 +593,6 @@
               "sidebar.showTimestamps",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
-              "sidebar.groupPinMark",
               "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount",
               "sidebar.priorityView.enabled",
@@ -2941,7 +2941,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "minimal",
+      "default" : "standard",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
@@ -55166,7 +55166,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "off",
+      "default" : "leading",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
