@@ -7,9 +7,10 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-/// How long a start waits for a DEV daemon it asked to hand over before going on as usual.
+/// How long a start spends asking a DEV daemon to hand over and waiting for it to let go, before
+/// going on as usual. Under the app's launch stall limit (20 s without a log write).
 #[cfg(unix)]
-const RECLAIM_WAIT: Duration = Duration::from_secs(30);
+const RECLAIM_WAIT: Duration = Duration::from_secs(15);
 
 pub(super) enum Started {
     /// The old daemon was stopping; this start is its successor.
@@ -54,21 +55,126 @@ pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
     }
 }
 
+/// What asking a lock's holder to hand its home over came to.
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ask {
+    /// It took the request: its lock is about to go.
+    Accepted,
+    /// It does not answer yet (a holder still starting has no socket): ask again.
+    NotYet,
+    /// It refused, or what answers is not the holder this start classified: leave it alone.
+    Stop,
+}
+
 /// A start of a home of NIGHTLY's whose lock a DEV build holds asks that daemon to hand the home
 /// over (agents kept) and waits for it to let go, so this launch serves the home instead of
 /// reporting the DEV daemon as its winner (`exe_path::reclaims_home`). Any other holder is left
-/// alone. Best effort: a holder that stays is waited on as any holder is ([`wait`]).
+/// alone. The ask and the wait share [`RECLAIM_WAIT`]; a holder still there after it is waited on
+/// as any holder is ([`wait`]).
 #[cfg(unix)]
-pub(super) async fn reclaim_from_dev(lock: &Path, socket: &Path) {
+pub(super) async fn reclaim_from_dev(lock: &Path, socket: &Path, home: &Path) {
     let Some(pid) = super::lock::live_holder_pid(lock) else { return };
     let Some(exe) = crate::agent_host::tree::exe(pid) else { return };
     if !super::exe_path::current_reclaims_home(&exe) {
         return;
     }
     tracing::warn!(pid, exe = %exe.display(), "a DEV build's daemon holds this home; taking it back");
-    super::take_over_holder(socket).await;
+    let ask = || ask_holder(socket, home, pid);
     let release = super::wait_for_lock_release(lock.to_owned());
-    if tokio::time::timeout(RECLAIM_WAIT, release).await.is_err() {
-        tracing::warn!(pid, "the DEV build's daemon has not let go of this home yet");
+    if !drive_reclaim(ask, release, RECLAIM_WAIT, super::HANDOVER_RETRY).await {
+        tracing::warn!(pid, "the DEV build's daemon did not hand this home over");
+    }
+}
+
+/// Asks until the holder takes the request or refuses, then waits for `release`, all within
+/// `budget`. True once the holder let go.
+#[cfg(unix)]
+async fn drive_reclaim<A, AF, R>(mut ask: A, release: R, budget: Duration, retry: Duration) -> bool
+where
+    A: FnMut() -> AF,
+    AF: std::future::Future<Output = Ask>,
+    R: std::future::Future,
+{
+    let run = async {
+        loop {
+            match ask().await {
+                Ask::Accepted => break,
+                Ask::Stop => return false,
+                Ask::NotYet => tokio::time::sleep(retry).await,
+            }
+        }
+        release.await;
+        true
+    };
+    tokio::time::timeout(budget, run).await.unwrap_or(false)
+}
+
+/// One ask of the daemon at `socket`: `_acpmux/shutdown` with its agents kept, once its status
+/// names this `home`, this `socket` and the `pid` that was classified as a DEV build's.
+#[cfg(unix)]
+async fn ask_holder(socket: &Path, home: &Path, pid: u32) -> Ask {
+    let Ok(client) = crate::client::Client::connect(socket).await else { return Ask::NotYet };
+    let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, json!({})).await else {
+        return Ask::NotYet;
+    };
+    let names = |key: &str, want: &Path| {
+        status
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|got| super::same_path(Path::new(got), want))
+    };
+    if !names("home", home)
+        || !names("socket", socket)
+        || status.get("pid").and_then(Value::as_u64) != Some(u64::from(pid))
+    {
+        return Ask::Stop;
+    }
+    // A refusal, or a holder that closed the connection as it stopped: nothing more to ask.
+    match client.request(crate::rpc::method::MUX_SHUTDOWN, json!({})).await {
+        Ok(_) => Ask::Accepted,
+        Err(_) => Ask::Stop,
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    const BUDGET: Duration = Duration::from_secs(15);
+    const RETRY: Duration = Duration::from_millis(50);
+
+    #[tokio::test(start_paused = true)]
+    async fn a_holder_still_starting_is_asked_again_once_it_answers() {
+        let asks = Cell::new(0);
+        let ask = || {
+            asks.set(asks.get() + 1);
+            let answer = if asks.get() < 3 { Ask::NotYet } else { Ask::Accepted };
+            async move { answer }
+        };
+        assert!(drive_reclaim(ask, std::future::ready(()), BUDGET, RETRY).await);
+        assert_eq!(asks.get(), 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_refusal_or_a_foreign_daemon_ends_the_wait_at_once() {
+        let started = tokio::time::Instant::now();
+        let ask = || async { Ask::Stop };
+        assert!(!drive_reclaim(ask, std::future::pending::<()>(), BUDGET, RETRY).await);
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_holder_that_never_answers_or_never_lets_go_costs_only_the_budget() {
+        let started = tokio::time::Instant::now();
+        let silent = || std::future::pending::<Ask>();
+        assert!(!drive_reclaim(silent, std::future::ready(()), BUDGET, RETRY).await);
+        assert_eq!(started.elapsed(), BUDGET);
+
+        let started = tokio::time::Instant::now();
+        let accepted = || async { Ask::Accepted };
+        assert!(!drive_reclaim(accepted, std::future::pending::<()>(), BUDGET, RETRY).await);
+        assert_eq!(started.elapsed(), BUDGET);
     }
 }

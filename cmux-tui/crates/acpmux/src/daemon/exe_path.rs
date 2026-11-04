@@ -334,7 +334,13 @@ pub fn shutdown_refusal(
 /// [`verdict`] and [`shutdown_refusal`] keep a DEV build with those rules out, but a DEV build from
 /// before them can still start there while the home is free, and clients then use it as the
 /// home's daemon (cmux#29050: 28 DEV daemons in `~/.acpmux` between 2026-10-31 and 2026-11-03).
-pub fn reclaims_home(holder_exe: &Path, own_exe: &Path, home: &Path, default_home: &Path, temp_dir: &Path) -> bool {
+pub fn reclaims_home(
+    holder_exe: &Path,
+    own_exe: &Path,
+    home: &Path,
+    default_home: &Path,
+    temp_dir: &Path,
+) -> bool {
     dev_app(holder_exe) && !dev_app(own_exe) && nightly_home(home, default_home, temp_dir)
 }
 

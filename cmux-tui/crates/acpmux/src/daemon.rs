@@ -208,7 +208,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
     #[cfg(unix)]
-    handover::reclaim_from_dev(&lock, &socket_path()).await;
+    handover::reclaim_from_dev(&lock, &socket_path(), &home()).await;
     let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
         Ok(lock) => lock,
         Err(e) => {
