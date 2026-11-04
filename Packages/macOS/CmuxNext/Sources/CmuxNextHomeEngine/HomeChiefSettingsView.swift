@@ -18,6 +18,9 @@ import UniformTypeIdentifiers
 /// - Agent: Harness, Model, Effort and (where the harness has a fast tier) Speed rows; "Default"
 ///   names what it runs. The Model menu groups by family (``HomeChiefModelMenu``) and Effort offers
 ///   only the levels the shown model takes.
+/// - Computer: the account's Cloud machine's screen, live while it runs (``HomeChiefComputerSection``).
+/// - Vault: the names of the credentials the Chief and its agents use (``HomeChiefVaultSection``).
+/// - Connections: Gmail and Google Calendar, connect and disconnect (``HomeChiefConnectionsSection``).
 /// - Reactions: whether a tapback wakes the Chief, and the classifier that decides (``HomeChiefReactionRows``).
 /// - Appearance: rows other features add (`addAppearanceRow`), hidden while empty.
 /// - Diagnostics: the last turns, where the brain runs, traces and memory,
@@ -55,6 +58,14 @@ public final class HomeChiefSettingsView: NSView {
     let speed = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The models picked per harness, the Model menu's Recent section; the app passes its defaults.
     public var recents = HomeChiefModelRecents()
+    /// The account's Cloud machine and its screen, where Messages shows Find My (cmux issue 31488);
+    /// the app sets its ``HomeChiefComputerSection/source``. Hidden without a paid plan and a machine that ran.
+    public let computer = HomeChiefComputerSection()
+    /// The names of the credentials the Chief and its agents use (cmux issue 34263); the app sets
+    /// ``HomeChiefVaultSection/names``. Hidden until it does.
+    public let vault = HomeChiefVaultSection()
+    /// Gmail and Google Calendar (cmux issue 34263); the app sets ``HomeChiefConnectionsSection/source``.
+    public let connections = HomeChiefConnectionsSection()
     /// UniiChat's one-line sign-in note under the Harness row (``ChiefBackend/hint``);
     /// hidden for every other harness.
     let harnessHint = ThemedLabel(wrappingLabelWithString: "")
@@ -201,6 +212,16 @@ public final class HomeChiefSettingsView: NSView {
         note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
         addFullWidth(note)
         stack.setCustomSpacing(Metrics.space4, after: note)
+        computer.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(computer)
+        stack.setCustomSpacing(Metrics.space4, after: computer)
+        // The Chief's vault and the accounts it acts through (cmux issue 34263).
+        vault.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(vault)
+        stack.setCustomSpacing(Metrics.space4, after: vault)
+        connections.onResize = { [weak self] in self?.onResize() }
+        addFullWidth(connections)
+        stack.setCustomSpacing(Metrics.space4, after: connections)
         // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
         addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
         reactionRows.onPick = { [weak self] fields in self?.pick(fields) }

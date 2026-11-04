@@ -78,7 +78,16 @@ public final class HomeChiefSettingsPopover {
             }
         }
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
-        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else { return false }
+        // The Computer section takes its first state before the card is measured.
+        content.computer.open()
+        content.vault.open()
+        content.connections.open()
+        guard popup.show(size: size(), anchor: rect, in: window, preferred: .below, centered: true, makeKey: true) != nil else {
+            content.computer.close()
+            content.vault.close()
+            content.connections.close()
+            return false
+        }
         // Like an NSPopover opened by a click: keys reach the card (Tab enters it, Escape closes
         // it), but no control shows a focus ring until the keyboard moves there. A ring on the
         // picture drew while open and vanished on the close's first frame (recording 2026-10-20).
