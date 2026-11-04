@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import Foundation
 public import WebKit
@@ -29,7 +30,11 @@ public final class GalleryStageTabs {
 
     /// The tab `key`'s stage view.
     public func view(for key: String) -> NSView? {
-        if let next { urls[key] = next }
+        // Only the one tab a run opens takes it, not a restored one built in the same pass.
+        if let next {
+            urls[key] = next
+            self.next = nil
+        }
         guard let url = urls[key] ?? WebDevOverride.galleryServer.flatMap({ Self.stageURL(gallery: $0, entry: nil, variant: nil) })
         else { return nil }
         return GalleryStageView(url: url)
@@ -90,6 +95,8 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
     /// The theme payload the loaded page last got, so a repaint with the same colors is free.
     private var appliedTheme: String?
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// Follows `app.uiScale` and the interface scale, which change without a theme repaint.
+    private var scaleObservation: Task<Void, Never>?
 
     public init(url: URL) {
         origin = (url.scheme?.lowercased(), url.host?.lowercased(), url.port)
@@ -112,6 +119,19 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         webView.pageZoom = DesignSettings.shared.uiScale
         addSubview(webView)
         webView.load(URLRequest(url: url))
+        // task-owner: one per stage view; ends with the view (weak self) or its deinit
+        scaleObservation = Task { [weak self] in
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
+                guard let self else { return }
+                self.applyScale()
+            }
+        }
+    }
+
+    // Not an isolated deinit, as PageWebView's (cx-t7hu).
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { scaleObservation?.cancel() }
     }
 
     @available(*, unavailable)
@@ -140,8 +160,14 @@ public final class GalleryStageView: NSView, WKNavigationDelegate {
         let theme = performWithTheme { Self.theme(themeScope) }
         guard theme.payloadJSON != appliedTheme else { return }
         appliedTheme = theme.payloadJSON
+        webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
+        applyScale()
+    }
+
+    /// The app's page zoom and its `--cmux-ui-scale` / `--cmux-interface-scale` tokens.
+    private func applyScale() {
         webView.pageZoom = DesignSettings.shared.uiScale
-        webView.evaluateJavaScript(theme.applyScript + ";" + DesignSettings.shared.interfaceScaleScript(), completionHandler: nil)
+        webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript(), completionHandler: nil)
     }
 
     private static func theme(_ scope: ThemeScope) -> WebTheme {

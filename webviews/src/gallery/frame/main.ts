@@ -10,7 +10,7 @@ import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
 import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
-import { appHostTheme, isAppHosted } from "./appHost";
+import { appHostSeeThrough, appHostTheme, isAppHosted } from "./appHost";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
 import { deriveAppTheme } from "../../theme/appTheme";
@@ -102,7 +102,8 @@ const pair =
     : { dark: themeNamed(DEFAULT_DARK_THEME, DEFAULT_DARK_THEME), light: theme };
 const tokens = themeTokens(theme, env.accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
-const seeThrough = overPicture(env);
+// In the app, see-through follows the app's own window (its page background is clear over a backdrop).
+const seeThrough = appHosted ? appHostSeeThrough() : overPicture(env);
 
 // The app's web view answers these from its window and the system settings itself.
 if (!appHosted)

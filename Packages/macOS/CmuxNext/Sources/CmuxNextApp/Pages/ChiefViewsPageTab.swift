@@ -30,7 +30,7 @@ enum ChiefViewsPageTab {
     /// Gallery Stage (``GalleryStageTabs``, CmuxNextPages), the other DEV gallery: one more page tab per run.
     static func bindGalleryStage(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services, stages = GalleryStageTabs()
-        services.pages.register(WebPageTab(galleryStage, symbol: GalleryStageTabs.symbol, title: GalleryStageTabs.title, view: stages.view(for:)))
+        services.pages.register(WebPageTab(galleryStage, symbol: GalleryStageTabs.symbol, title: GalleryStageTabs.title, view: { stages.view(for: $0) }))
         registry.bindEffect(ActionID(rawValue: GalleryStageTabs.actionID), unavailable: { GalleryStageTabs.unavailableReason }) { [weak services] invocation in
             let refusal = stages.open(entry: invocation["entry"]?.stringValue, variant: invocation["variant"]?.stringValue) {
                 services?.pages.openNew(galleryStage, in: services?.windows.active, focus: invocation.allowsViewChange) != nil

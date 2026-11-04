@@ -636,7 +636,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
             ),
             // Gallery Stage: a stage of the live gallery as a tab of this app, in its own theme and
-            // backdrop (GalleryStagePageTab, CmuxNextApp); Move Tab to New Window separates it out.
+            // backdrop (GalleryStageTabs, CmuxNextPages); Move Tab to New Window separates it out.
             // NIGHTLY, cmux NEXT DEV and Debug only.
             ActionDescriptor(
                 id: "gallery.openStage",

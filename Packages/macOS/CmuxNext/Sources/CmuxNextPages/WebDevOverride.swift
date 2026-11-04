@@ -18,7 +18,7 @@ import CmuxNextCompat
 ///   A surface whose folder or entry is missing there keeps its bundled files.
 /// - `gallery`: the live gallery's server (`bun run gallery:dev`, `http://127.0.0.1:4178/` from
 ///   `scripts/cmux-next/web-dev.sh`), whose stages Gallery Stage (`gallery.openStage`) shows as tabs
-///   of this app, in its own theme and backdrop (`GalleryStagePageTab`, CmuxNextApp). Pages ignore it.
+///   of this app, in its own theme and backdrop (``GalleryStageTabs``). Pages ignore it.
 ///
 /// A server wins over an overlay for the files it serves. `"enabled": false`, an empty object or
 /// a deleted file restores the bundled pages. ``WebDevOverrideWatcher`` keeps ``current`` and
