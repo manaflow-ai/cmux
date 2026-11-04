@@ -1,0 +1,756 @@
+{
+ "id": "rinput-first-chord-b",
+ "priority": "P1",
+ "title": "R-INPUT first-key menu stall (b): the first Control-C or Command-C of 12 fresh launches, per-key probe CSV each (scratch, never merge)",
+ "why": "STATUS 10240/11007: the first chord of a process ran 75-224 ms on the main thread (AppKit's Windows menu fill on the first key-equivalent walk). Lead 2026-11-04: before/after over at least 10 fresh launches, first Ctrl-C and first Cmd chord.",
+ "source": "REWRITE R-INPUT agent a80216a78adfb7d0f",
+ "budget_seconds": 130,
+ "options": {
+  "key_path": "real"
+ },
+ "continue_not_judged": true,
+ "finally": [
+  {
+   "do": "smoke_close_all"
+  }
+ ],
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_remember_workspaces"
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "smoke_key",
+   "key": "n",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "ws"
+  },
+  {
+   "do": "expect",
+   "title": "set-up: Cmd-N makes the workspace",
+   "since": "ws",
+   "timeout": 20,
+   "all": [
+    {
+     "smoke_workspaces": {
+      "new": 1
+     }
+    },
+    {
+     "smoke_frame": {}
+    }
+   ]
+  },
+  {
+   "do": "smoke_key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "term"
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "smoke_type",
+   "text": "echo first-chord-${nonce}",
+   "enter": true
+  },
+  {
+   "do": "expect",
+   "title": "set-up: the terminal runs its line",
+   "since": "term",
+   "timeout": 30,
+   "all": [
+    {
+     "smoke_daemon_lines": {
+      "lines": [
+       "first-chord-${nonce}"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l13",
+   "file": "probe-13ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first13",
+   "title": "launch 13: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 13: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 13: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 13: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l14",
+   "file": "probe-14cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first14",
+   "title": "launch 14: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 14: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 14: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l15",
+   "file": "probe-15ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first15",
+   "title": "launch 15: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 15: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 15: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 15: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l16",
+   "file": "probe-16cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first16",
+   "title": "launch 16: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 16: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 16: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l17",
+   "file": "probe-17ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first17",
+   "title": "launch 17: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 17: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 17: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 17: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l18",
+   "file": "probe-18cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first18",
+   "title": "launch 18: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 18: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 18: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l19",
+   "file": "probe-19ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first19",
+   "title": "launch 19: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 19: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 19: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 19: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l20",
+   "file": "probe-20cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first20",
+   "title": "launch 20: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 20: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 20: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l21",
+   "file": "probe-21ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first21",
+   "title": "launch 21: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 21: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 21: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 21: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l22",
+   "file": "probe-22cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first22",
+   "title": "launch 22: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 22: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 22: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l23",
+   "file": "probe-23ctrl.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "first23",
+   "title": "launch 23: the FIRST chord is Control-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "title": "launch 23: then Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 23: a Control-C closes the Command-C sample"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 23: the watchdog's stalls (over 4 ms) with stacks"
+  },
+  {
+   "do": "probe_relaunch",
+   "mark": "l24",
+   "file": "probe-24cmd.csv"
+  },
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0,
+   "title": "a person's first chord comes after the window shows"
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "cmd"
+   ],
+   "mark": "first24",
+   "title": "launch 24: the FIRST chord is Command-C"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.0
+  },
+  {
+   "do": "hid_key",
+   "key": "c",
+   "modifiers": [
+    "control"
+   ],
+   "title": "launch 24: then Control-C (closes the Command-C sample)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "rpc",
+   "method": "debug.hangs",
+   "params": {
+    "limit": 6
+   },
+   "title": "launch 24: the watchdog's stalls (over 4 ms) with stacks"
+  }
+ ]
+}

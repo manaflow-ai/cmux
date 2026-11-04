@@ -26,6 +26,7 @@ Steps (`do`):
                    movie each: the recorder records at most 120 s). Real keys only (key_path=real).
 """
 import json
+import re
 import os
 import signal
 import subprocess
@@ -236,18 +237,22 @@ def step_probe_relaunch(j, step):
     out = j.out
     out.mkdir(parents=True, exist_ok=True)
     (out / "flows").mkdir(exist_ok=True)
+    # `file`: this launch's own CSV (R-INPUT first-chord rounds relaunch many times; the app truncates its CSV at launch).
+    name = str(step.get("file", "probe.csv"))
+    if not re.fullmatch(r"probe(?:-\d{2}[a-z]*)?\.csv", name):
+        raise D.StepError(f"probe_relaunch: file {name!r} is not probe.csv or probe-NN<word>.csv")
     app = j.app
     env = app.launch_env()
     if not env.get("HOME"):
         raise D.NotRun(f"probe_relaunch: no launch variables read from pid {app.pid}")
-    env.update({"CMUX_NEXT_TYPING_PROBE": str(out / "probe.csv"), "CMUX_NEXT_TRACE_FLOWS": str(out / "flows"),
+    env.update({"CMUX_NEXT_TYPING_PROBE": str(out / name), "CMUX_NEXT_TRACE_FLOWS": str(out / "flows"),
                 "CMUX_NEXT_HANG_THRESHOLD_MS": str(step.get("hang_ms", 4))})
     app.launch_env = lambda: dict(env)
     try:
         rec = j.step_relaunch({"how": "quit", "mark": step.get("mark")})
     finally:
         del app.launch_env
-    return dict(rec, probe=str(out / "probe.csv"), flows=str(out / "flows"))
+    return dict(rec, probe=str(out / name), flows=str(out / "flows"))
 
 
 def step_probe_mark(j, step):
