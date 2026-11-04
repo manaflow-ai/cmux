@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -173,8 +174,10 @@ class CandidateInputs(unittest.TestCase):
                 "window_seconds": 86400, "false_skip_rate": 0,
                 "complete": 1, "measured_at": "2026-11-04T00:00:00Z"}
         evidence.write_text(json.dumps(base))
-        self.assertEqual(mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence),
-                         (True, "eligible"))
+        measured = datetime.datetime(2026, 11, 4, tzinfo=datetime.timezone.utc).timestamp() + 60
+        with mock.patch.object(mirror.time, "time", return_value=measured):
+            self.assertEqual(mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence),
+                             (True, "eligible"))
         for field, value in (("policy", "wrong"), ("window_seconds", 86399),
                              ("false_skip_rate", 0.01), ("complete", 0), ("enabled", False)):
             with self.subTest(field=field):

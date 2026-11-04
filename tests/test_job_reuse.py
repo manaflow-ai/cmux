@@ -103,6 +103,12 @@ class Lookup(unittest.TestCase):
         outputs, _, code = lookup([artifact(86)], **environment)
         self.assertEqual((code, outputs["hit"]), (0, "false"))
 
+    def test_legacy_lookup_rejects_incomplete_artifact_identity(self):
+        item = artifact(87)
+        item["workflow_run"].pop("repository_id")
+        outputs, _, code = lookup([item])
+        self.assertEqual((code, outputs["hit"]), (0, "false"))
+
     def test_without_a_listing_or_a_token_it_reuses_nothing(self):
         environment = {"PATH": os.environ.get("PATH", ""), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                        "GITHUB_REPOSITORY_ID": str(REPO_ID)}
