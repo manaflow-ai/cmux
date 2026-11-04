@@ -11,8 +11,12 @@ import AppKit
 final class ScreenDividerPointer: NSResponder {
     private weak var screen: ScreenContentView?
     private var trackingArea: NSTrackingArea?
-    /// The resize cursor this screen set last; nil while it shows none.
+    /// The resize cursor this screen set last (its hover, or a handle's `cursorUpdate`); nil while it shows none.
     private(set) var shownCursor: NSCursor?
+
+    /// A handle answered AppKit's `cursorUpdate` with its resize cursor: the screen gives it back when the pointer
+    /// leaves the dividers or the screen hides, as for its own.
+    func handleDidShow(_ cursor: NSCursor) { shownCursor = cursor }
 
     init(screen: ScreenContentView) {
         self.screen = screen
@@ -83,5 +87,12 @@ extension ScreenContentView {
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil { dividerPointer.show(nil, in: self, pointer: nil, event: nil) }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    /// In a window: the divider tracking area goes on at once. AppKit calls `updateTrackingAreas` when tracking areas
+    /// need recomputing, not for a view that has none yet (px-divider-hover: the pointer on a divider got no event).
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { dividerPointer.installTrackingArea(in: self) }
     }
 }

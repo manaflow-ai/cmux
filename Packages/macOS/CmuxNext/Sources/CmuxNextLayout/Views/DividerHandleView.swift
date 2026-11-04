@@ -188,6 +188,7 @@ final class DividerHandleView: NSView {
     override func cursorUpdate(with event: NSEvent) {
         guard cursorRectInBounds.contains(convert(event.locationInWindow, from: nil)) else { return super.cursorUpdate(with: event) }
         resizeCursor.set()
+        (superview as? ScreenContentView)?.dividerPointer.handleDidShow(resizeCursor)
     }
 
     /// Leaving the view tree mid-drag: the mouse-up will never arrive here,
