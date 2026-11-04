@@ -1270,3 +1270,34 @@ fn loose_object_push_bench() {
         summary["written"]
     );
 }
+
+/// Loose objects only their owner can read (git under `umask 077` makes
+/// them 0400) arrive in a pack only its owner can read.
+#[test]
+fn a_pack_of_private_objects_is_private() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = dirty_repo(&root);
+    let objects_here = repo.join(".git/objects");
+    for relative in object_files(&objects_here).into_iter().filter(|path| is_loose(path)) {
+        let path = objects_here.join(relative);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+    }
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/app");
+
+    push(&socket, &repo, &remote);
+    let packs = remote.join(".git/objects/pack");
+    let made: Vec<PathBuf> = std::fs::read_dir(&packs)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "pack"))
+        .collect();
+    assert_eq!(made.len(), 1, "{made:?}");
+    for path in made.iter().flat_map(|pack| [pack.clone(), pack.with_extension("idx")]) {
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{} is {mode:o}", path.display());
+    }
+    git(&remote, &["fsck", "--full", "--no-dangling"]);
+}
