@@ -106,15 +106,14 @@ export function setCloudPreviewContext(next: CloudPreviewContext): void {
     ]);
     knownByContext.set(key, knownPorts);
   }
-  if (pending.length === 0) return;
   const queued = pending;
   pending = [];
-  let changedCards = changed;
+  const before = current;
   for (const value of queued) {
     const event = parseEvent(value);
-    if (event && apply(event, next)) changedCards = true;
+    if (event) apply(event, next);
   }
-  if (changedCards) for (const listener of listeners) listener();
+  if (changed || before !== current) for (const listener of listeners) listener();
 }
 
 export function addCloudPreviewPort(value: unknown): boolean {
@@ -124,8 +123,9 @@ export function addCloudPreviewPort(value: unknown): boolean {
     pending = [...pending, value];
     return false;
   }
+  const before = current;
   const added = apply(event, context);
-  if (added) for (const listener of listeners) listener();
+  if (before !== current) for (const listener of listeners) listener();
   return added;
 }
 
@@ -157,11 +157,11 @@ export function resetCloudPreviewPorts(): void {
   for (const listener of listeners) listener();
 }
 
-function subscribe(listener: () => void): () => void {
+export function subscribeCloudPreviewPorts(listener: () => void): () => void {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 }
 
 export function useCloudPreviewPorts(): readonly CloudPreviewPort[] {
-  return useSyncExternalStore(subscribe, cloudPreviewPorts, cloudPreviewPorts);
+  return useSyncExternalStore(subscribeCloudPreviewPorts, cloudPreviewPorts, cloudPreviewPorts);
 }

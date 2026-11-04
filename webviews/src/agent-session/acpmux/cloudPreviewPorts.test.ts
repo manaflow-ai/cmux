@@ -5,6 +5,7 @@ import {
   resetCloudPreviewPorts,
   seedCloudPreviewPorts,
   setCloudPreviewContext,
+  subscribeCloudPreviewPorts,
 } from "./cloudPreviewPorts";
 
 describe("Cloud preview port cards", () => {
@@ -150,5 +151,23 @@ describe("Cloud preview port cards", () => {
     expect(addCloudPreviewPort({ port: 3000, state: "down" })).toBe(false);
     expect(addCloudPreviewPort({ port: 3000, state: "up" })).toBe(true);
     expect(cloudPreviewPorts()).toEqual([{ port: 3000 }]);
+  });
+
+  test("notifies the pane when closed ports or a new turn remove cards", () => {
+    const context = { machineID: "machine-a", sessionId: "chat-a", turnId: "turn-a", active: true };
+    setCloudPreviewContext(context);
+    const renderedPorts: number[][] = [];
+    const unsubscribe = subscribeCloudPreviewPorts(() => {
+      renderedPorts.push(cloudPreviewPorts().map((app) => app.port));
+    });
+    try {
+      addCloudPreviewPort({ port: 3000 });
+      addCloudPreviewPort({ port: 3000, state: "down" });
+      addCloudPreviewPort({ port: 3001 });
+      setCloudPreviewContext({ ...context, turnId: "turn-b" });
+      expect(renderedPorts).toEqual([[3000], [], [3001], []]);
+    } finally {
+      unsubscribe();
+    }
   });
 });
