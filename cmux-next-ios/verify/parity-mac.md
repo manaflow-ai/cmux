@@ -630,3 +630,31 @@ a file read's timeout racing its last chunk, a written-then-failed-edit file lab
 | Mac action | Mac sends | Phone | State | Notes |
 | --- | --- | --- | --- | --- |
 | Home Allow / Deny for a hidden local owner subagent | Person-proven local `_acpmux/permission_respond`, exact pending request, `allow_once` / `reject_once` | No new phone authority | not from a phone | This surface requires the Mac app's local person proof and a fresh native click. SECURITY.md's “phone acts for the person, but is not the app” rule excludes this proof; existing phone questions retain their separate asking-mode policy. Other-person `ask` children and cloud peers remain excluded. |
+
+## Mac features after 2026-10-26 (new-mac-rows batch)
+
+Rows from the re-audit of the Mac's catalog after 2026-10-26 that need no host change. Cloud rows
+call the service with the phone's own account (`CmuxMobileChief/AccountCloud.swift`), never a Mac
+or the relay. Rig flows: `verify/parity/pq_newrows.py`.
+
+| Mac action | Mac sends | Phone | State | Notes |
+| --- | --- | --- | --- | --- |
+| Automations page (list, Run now, Pause / Resume, Delete) | `cloud.automation`: `automation.list`, `automation.runs.list` (`/v1/read`), `automation.run` / `update {enabled}` / `delete` (`/v1/ops`) | Settings → Cloud → **Automations**: Needs you / Today / Later / Paused; a row pushes its page (Run Now, Pause or Resume, Delete, History); swipe to pause or delete | works (live) | Cloud automations only: this Mac's local runner (`cmux automation list`) is the Mac's own store, not on the phone's lane. Delete asks first; its run history stays. |
+| Show Artifacts (synced tree, preview, history) | platform `/v1/artifacts/tree`, `/file`, `/history` with the app's bearer | Settings → Cloud → **Artifacts**: folders push, a file opens in the shared preview (HTML and SVG with scripts off), **History** lists revisions; a file's revision opens the file as it was | works (live) | Read only, as on the Mac. The token goes only to `*.debussy.workers.dev` platform deployments; no redirects, no cache. |
+| Delete Conversation from List / Show Hidden Conversations | the Mac's Home source (local) | Home row menu **Delete Conversation from List** (asks first); **Show N Hidden Conversations** under the list | works (live) | Kept per account on this iPhone, like the Mac's; a newer message brings the row back. |
+| Next-step card (a tagged ask at a turn's end) | the agent pane's `nextStepAsk.ts`; an answer is a `session/prompt` | the same card under the answer: question, muted line, answer buttons; a tap sends the answer; the card folds to the answer once a prompt follows | works (live) | `NextStepAsk.swift` is a port of the Mac's reading, as strict (one tagged question, 2-4 answers or a yes-or-no question). |
+| Continue or Retry leads a failed turn's error card | `_acpmux/retry` | **Continue** when the turn had done work (or had no prompt of its own), else **Retry** | works (live) | Both are acpmux's turn retry, as on the Mac. |
+| New Agent Chat on… | palette picks the machine, then `session/new` there | Workspaces → New Workspace (hold) → **New Agent Chat on…** → a Mac → one of its folders | works (live) | This Mac's acpmux only. A peer machine or a Cloud machine as the destination is not from a phone: `_acpmux/route/*` is unix-socket only (acpmux `remote_guard.rs`), a trust decision for #13742. |
+| Toggle Prompt Queueing | the page's `queueing.ts` (app-wide), `_meta.acpmux.steer` | a chat's page menu **Turn Off / Turn On Prompt Queueing** (the same choice as Settings → Composer) | works (live) | App-wide on this iPhone, as the Mac's is app-wide. |
+| Copy Session File Paths / Transcript File / Harness Config / Harness Settings / acpmux Session File | `_acpmux/session_files` | — | not from a phone | acpmux answers it only over its local unix socket (`server/session_files.rs`, `session_files.local_only`); a Web origin would need a guard change (#13742). |
+| Move Workspace Above… / Below… | `set-personal-workspace {index}` / `move-workspace` | a row's menu → Move → **Move Workspace Above…** / **Below…** → a row of the same container | works (live) | |
+| Reveal Workspace in Sidebar | the sidebar scrolls to the row and flashes it | a workspace page's menu **Reveal in Workspaces List** | works (live) | A row behind the Mac filter or in an offline Mac's fold shows first. |
+| Compact Workspace List | the sidebar's one-line rows | Settings → **Compact workspace list** | works (live) | |
+| Toggle Editor Minimap | the Mac's code editor | — | not applicable | The phone's file preview is a read-only view with no minimap. |
+| Help: Troubleshooting and Support, Join the cmux Discord, Follow @cmux on X, cmux on GitHub | open the page | Settings → About rows | works | The Mac's `StaticURL` addresses. |
+| Copy Logs | the error journal report | Settings → About → **Copy Logs**: this app's own log (last hour, this launch) with its version | works (live) | Private values stay redacted (OSLog). |
+| Chat Colors… | the Mac's Home transcript colors (local) | — | missing (blocked) | The phone's chats draw in CmuxConversation, which has no bubble color hook and must stay byte-identical to its upstream; needs a CmuxConversation change upstream first. |
+| Make Primary Chief | `chief.update {is_default: true, expected_rev}` | the Cloud Chief row's menu **Make Primary Chief** | works | The account's own write; one revision conflict reads the list again. |
+| Connect GitHub | `integration.list`, `integration.connect {provider: github}`, the App's installation page | Settings → Cloud → **Connect GitHub** (state from `integration.list`; a tap opens the installation page) | works (live) | Only `https://github.com/apps/<app>/installations/new` may open (the Mac's check). |
+| Fork Conversation to New Column Right | `new-conversation-tab`, `move-tab-to-column` | Fork Conversation → **In a New Column** | works (live) | |
+| Customize Right-Click Menus… | the Mac's menu editor | Settings → **Long-Press Menus**: each item of the workspace row and Home row menus on or off | partial | Hiding only; the Mac also reorders. Close Workspace always stays. |
