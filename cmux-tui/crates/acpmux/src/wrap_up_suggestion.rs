@@ -24,11 +24,18 @@ const FOLDED: &str = "acpmux_wrap_up";
 const EXEC: &str = "cmux_exec";
 
 /// One chat's wrap-up calls seen this turn and the answer its last completed one left.
+/// A watched call: a wrap-up with its arguments, or a `cmux_exec` script whose output says what
+/// it showed.
+#[derive(Debug)]
+enum Call {
+    Args(Value),
+    Script,
+}
+
 #[derive(Debug, Default)]
 pub struct Watch {
-    /// The arguments of each wrap-up call still running, by tool call id (a later update carries
-    /// only the status), or `None` for a `cmux_exec` call whose output is read when it completes.
-    calls: HashMap<String, Option<Value>>,
+    /// Each wrap-up call still running, by tool call id (a later update may carry only the status).
+    calls: HashMap<String, Call>,
     pending: Option<String>,
 }
 
@@ -40,8 +47,15 @@ impl Watch {
             return;
         }
         let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
-        if let Some(call) = recognise(update) {
-            self.calls.insert(id.to_owned(), call);
+        match recognise(update) {
+            Some(call @ Call::Args(_)) => {
+                self.calls.insert(id.to_owned(), call);
+            }
+            // A later update naming the call again without its input keeps the input seen first.
+            Some(Call::Script) => {
+                self.calls.entry(id.to_owned()).or_insert(Call::Script);
+            }
+            None => {}
         }
         let status = update.get("status").and_then(Value::as_str);
         if !matches!(status, Some("completed" | "failed")) {
@@ -52,12 +66,11 @@ impl Watch {
             return;
         }
         let args = match call {
-            Some(args) => Some(args),
-            None => shown_in_output(update),
+            Call::Args(args) => Some(args),
+            Call::Script => shown_in_output(update),
         };
-        if let Some(answer) = args.as_ref().and_then(first_answer) {
-            self.pending = Some(answer);
-        }
+        // The last completed wrap-up decides, a recap alone included: it takes back an earlier ask.
+        self.pending = args.as_ref().and_then(first_answer);
     }
 
     /// The turn ended: its answer, if any, and a clean slate for the next turn.
@@ -67,42 +80,39 @@ impl Watch {
     }
 }
 
-/// Whether an update names a wrap-up call: `Some(Some(args))` with its arguments, `Some(None)`
-/// for a `cmux_exec` script that calls it (its output says what it showed), `None` otherwise.
-fn recognise(update: &Value) -> Option<Option<Value>> {
+/// Whether an update names a wrap-up call with its arguments, or a `cmux_exec` script that calls
+/// it. An update that names a wrap-up without its input says nothing new.
+fn recognise(update: &Value) -> Option<Call> {
     let input = update.get("rawInput");
     let title = update.get("title").and_then(Value::as_str).map(str::trim).unwrap_or("");
     // Claude Code: `mcp__<server>__<tool>` with the arguments as the input.
     if let Some((server, tool)) = title.strip_prefix("mcp__").and_then(|rest| rest.split_once("__"))
     {
-        return named(server, tool, input.cloned(), input);
+        return named(server, tool, input);
     }
     // Codex: `{server, tool, arguments}`.
     if let Some(Value::Object(o)) = input
         && let (Some(server), Some(tool)) =
             (o.get("server").and_then(Value::as_str), o.get("tool").and_then(Value::as_str))
     {
-        return named(server, tool, o.get("arguments").cloned(), o.get("arguments"));
+        return named(server, tool, o.get("arguments"));
     }
     // A bare or dotted name.
     match title {
         "wrap_up" | "acpmux.wrap_up" | "acpmux_wrap_up" | "cmux.acpmux_wrap_up" => {
-            Some(input.cloned())
+            input.cloned().map(Call::Args)
         }
         _ => None,
     }
 }
 
-fn named(
-    server: &str,
-    tool: &str,
-    args: Option<Value>,
-    raw: Option<&Value>,
-) -> Option<Option<Value>> {
+fn named(server: &str, tool: &str, args: Option<&Value>) -> Option<Call> {
     match (server, tool) {
-        ("acpmux", TOOL) | ("cmux", FOLDED) => Some(args),
+        ("acpmux", TOOL) | ("cmux", FOLDED) => args.cloned().map(Call::Args),
         // Only a script that names the wrap-up; the others are not watched.
-        ("cmux", EXEC) if raw.is_some_and(|r| r.to_string().contains(FOLDED)) => Some(None),
+        ("cmux", EXEC) if args.is_some_and(|a| a.to_string().contains(FOLDED)) => {
+            Some(Call::Script)
+        }
         _ => None,
     }
 }

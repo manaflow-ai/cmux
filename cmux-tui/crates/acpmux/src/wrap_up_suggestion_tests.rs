@@ -130,3 +130,25 @@ fn the_update_names_its_source_for_the_gate() {
     assert_eq!(gate.prompted("s", "Yes, add README", false), Some(true));
     assert!(gate.tally("codex/wrap_up").taken > 0.0);
 }
+
+#[test]
+fn a_later_recap_alone_takes_back_an_earlier_ask() {
+    let mut w = Watch::default();
+    w.observe(&started("a", "mcp__acpmux__wrap_up", args()));
+    w.observe(&ended("a", "completed"));
+    w.observe(&started("b", "mcp__acpmux__wrap_up", json!({"recap": "Done after all."})));
+    w.observe(&ended("b", "completed"));
+    assert_eq!(w.take(), None);
+}
+
+#[test]
+fn a_completion_that_names_the_call_without_its_input_keeps_the_input() {
+    let mut w = Watch::default();
+    w.observe(&started("a", "mcp__acpmux__wrap_up", args()));
+    w.observe(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "a", "title": "wrap_up", "status": "completed"}));
+    assert_eq!(w.take().as_deref(), Some("Yes, add README"));
+    let mut w = Watch::default();
+    w.observe(&started("b", "mcp__acpmux__wrap_up", args()));
+    w.observe(&json!({"sessionUpdate": "tool_call_update", "toolCallId": "b", "title": "mcp__acpmux__wrap_up", "status": "completed"}));
+    assert_eq!(w.take().as_deref(), Some("Yes, add README"));
+}
