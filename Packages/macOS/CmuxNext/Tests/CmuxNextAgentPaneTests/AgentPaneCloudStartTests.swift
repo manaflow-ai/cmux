@@ -98,10 +98,48 @@ struct AgentPaneCloudStartTests {
         let reply = await model.respond(to: request)
         #expect(reply["ok"] as? Bool == false)
         let error = reply["error"] as? [String: Any]
-        #expect(error?["code"] as? String == "cloud_chat_already_started")
-        #expect(error?["userMessage"] as? String == "A chat opened while you were signing in. This prompt was not sent to Cloud.")
+        #expect(error?["code"] as? String == "not_signed_in")
         #expect(starts.seen.isEmpty)
         #expect(model.transport.replacements.beginSandbox())
+    }
+
+    /// The person switched the composer off Cloud (or left the chat) while the browser was open:
+    /// the page's `cloud.signInCancel` keeps the preserved prompt from going to Cloud.
+    @Test func leavingCloudDuringInlineSignInSendsNothing() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = {
+            #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+            return true
+        }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == false)
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "cloud_sign_in_cancelled")
+        #expect(starts.seen.isEmpty)
+        #expect(model.transport.replacements.beginSandbox())
+    }
+
+    /// A chat adopted this pane while the browser was open: Cloud never starts over it.
+    @Test func aChatOpenedDuringInlineSignInKeepsThePromptOffCloud() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        model.onCloudSignIn = {
+            model.adoptSession("chat-1")
+            return true
+        }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        let reply = await model.respond(to: request)
+        #expect(reply["ok"] as? Bool == false)
+        let error = reply["error"] as? [String: Any]
+        #expect(error?["code"] as? String == "cloud_chat_already_started")
+        #expect(starts.seen.isEmpty)
     }
 
     @Test func theMachinesChatStartsWithThePromptAgentAndModelThePagePicked() throws {

@@ -8761,6 +8761,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
+  /// A `cloud.signIn` waits on the browser: leaving Cloud (another mode, chat or tab) withdraws its send.
+  const cloudSignInPending = useRef(false);
+  const cancelCloudSignIn = () => {
+    if (!cloudSignInPending.current) return;
+    cloudSignInPending.current = false;
+    void callNative("cloud.signInCancel").catch(() => undefined);
+  };
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
@@ -8789,13 +8796,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!started) return undefined;
     cloudSignInSend.current = () => beginCloudSend(request, true);
     cloudStartPending.current = true;
+    if (signingIn) cloudSignInPending.current = true;
     setCloudStart(
       cloudStartBegun(key, text, start.cwd, start.harness ? harnessLabel(start.harness) : undefined, start.home),
     );
     void started.then((answer) => {
       cloudStartKeys.ended(request, answer);
       cloudStartPending.current = false;
+      if (signingIn) cloudSignInPending.current = false;
       setCloudStartsEnded((count) => count + 1);
+      if (!answer.ok && answer.code === "cloud_sign_in_cancelled") {
+        // The person left Cloud while signing in: the prompt stays in the composer for their new pick.
+        setCloudStart((current) => (current?.key === key ? undefined : current));
+        return;
+      }
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
         cloudSignInRetry.reset();
@@ -8827,17 +8841,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandboxWake.current = undefined;
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    cancelCloudSignIn();
     cloudSignInRetry.reset();
     setCloudStart(undefined);
     cloudSignInSend.current = () => undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
+      cancelCloudSignIn();
       cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
       cloudSignInSend.current = () => undefined;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the retry is made once (useState); the cancel reads only refs
   }, [sandbox.mode]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
