@@ -127,6 +127,29 @@ import CmuxNextTestSupport
         #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "A's own panel did not take A's keys")
     }
 
+    /// The app's check of a key-down (`CmuxApplication.sendEvent`) tells a key typed now from a held key run again: a key
+    /// typed now in A may still reach a panel no cmux window owns that became key after it was typed (the person opened
+    /// the panel and typed into it at once, `typedNow`); a held key run again never does. Neither reaches window B, and a
+    /// held key still reaches its own window and a panel over it.
+    @Test func onlyAKeyTypedNowReachesAPanelThatBecameKeyAfterIt() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
+        let keyGuard = CrossWindowInputGuard(windows: harness.services.windows)
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 80), styleMask: [.titled, .nonactivatingPanel],
+                            backing: .buffered, defer: true)
+        panel.isReleasedWhenClosed = false
+        defer { panel.close() }
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: true), "a key typed now did not reach the panel the person opened")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: false), "a held key typed in A reached a panel no cmux window owns")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, typedNow: true), "a key typed now in A reached B")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, typedNow: false), "a held key typed in A reached B")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA, typedNow: false), "a held key did not reach its own window")
+        shellA.addChildWindow(panel, ordered: .above)
+        defer { shellA.removeChildWindow(panel) }
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: false), "a held key did not reach a panel over its window")
+    }
+
     /// A workspace a person picks in window A's sidebar (a pinned item listing a workspace that
     /// window B shows) shows in window A; window B is left as it was.
     @Test func aSidebarPickInWindowAShowsTheWorkspaceInWindowA() throws {

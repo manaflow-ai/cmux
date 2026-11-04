@@ -29,8 +29,8 @@ final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// The person's new terminals' claims on their windows' keyboards (``beginWorkspace(in:)``).
     private let claims = CreationKeyboardClaims()
-    /// Set while a captured key runs again (`lane`: it was held for a terminal), so it is not captured a second time.
-    private var replaying: (on: Bool, lane: Bool) = (false, false)
+    /// Set while a captured key runs again (`lane`: it was held for a terminal): not captured a second time; `CrossWindowInputGuard` judges it as held.
+    private(set) var replaying: (on: Bool, lane: Bool) = (false, false)
     /// The longest a key waits for a selected terminal's surface (the slowest takes about 350 ms).
     var holdLimit: Duration = .seconds(2)
     private let replay: HeldKeyReplay // a held key runs again (``HeldKeyReplay``)
