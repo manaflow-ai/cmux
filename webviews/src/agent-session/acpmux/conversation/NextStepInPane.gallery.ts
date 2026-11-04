@@ -6,7 +6,7 @@
 // called `cmux.acpmux_wrap_up` from a `cmux_exec` script, and the call_log below is what that DEV
 // chat recorded (code_mode.rs keeps the shown box as `shown`).
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, noChat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 
 const ASK =
   "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first";
@@ -77,7 +77,8 @@ export default agentPaneEntry({
     "wrap-up-click": {
       note: "The same turn on the in-page mock acpmux, so a click on an answer sends it as the next prompt.",
       ready: { transport: "mock", sessionId: "mock-wrap-up-code-mode" },
-      snapshot: codeModeTurn,
+      // The mock's own session draws the turn, so the box's answer reaches its chat.
+      snapshot: noChat(),
     },
   },
 });

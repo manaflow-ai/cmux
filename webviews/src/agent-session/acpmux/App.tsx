@@ -11002,12 +11002,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // await in the mock branch so the native handshake still starts in the same turn.
         const mockModule = mock ? (preparedMockTransport() ?? (await import("./mock"))) : undefined;
         if (cancelled) return;
-        // A new chat in mock mode starts without a session too, as against a real daemon.
+        // A new chat in mock mode starts without a session too, as against a real daemon. A host
+        // that names a mock session (a gallery scene) opens that one.
         const config: AcpmuxHostConfig = mockModule
           ? host.newSession
             ? { ...mockModule.mockHost, sessionId: undefined, newSession: true }
-            : // A host that names a mock session (a gallery scene) opens that one.
-              { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
+            : { ...mockModule.mockHost, sessionId: host.sessionId || mockModule.mockHost.sessionId }
           : (host as AcpmuxHostConfig);
         let connectingClient: AcpmuxDirectClient | undefined;
         const client = await AcpmuxDirectClient.connect(

@@ -174,7 +174,12 @@ describe("a wrap-up from a code-mode script", () => {
     const failed = exec([wrapped]);
     failed.tool = { ...failed.tool!, status: "failed" };
     const drawn = turnView(
-      [user("Fix it", 6), assistant("Done.", 5), activity([failed], 5), summary(5, { status: "completed" })] as AcpmuxRow[],
+      [
+        user("Fix it", 6),
+        assistant("Done.", 5),
+        activity([failed], 5),
+        summary(5, { status: "completed" }),
+      ] as AcpmuxRow[],
       new Set(),
     );
     expect(JSON.stringify(drawn)).toContain(failed.tool.id);
