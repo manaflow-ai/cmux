@@ -257,7 +257,12 @@ final class ShellModel {
         if live == nil, mockMode { deviceDirectory = MockDeviceDirectory(store: store) }
         #endif
         live?.onMacRemoved = { [weak self] macID in self?.macRemoved(macID) }
+        #if DEBUG
+        // Mock mode shows Screen Sharing's entries too (its hub can't be reached there).
+        attachScreenSharing(signedIn: live != nil || mockMode)
+        #else
         attachScreenSharing(signedIn: live != nil)
+        #endif
         updateShownMacs()
         if let live {
             // Tab ids repeat across Macs: every call names the tab's Mac, and
