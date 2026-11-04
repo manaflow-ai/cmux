@@ -24,6 +24,16 @@ if [[ -e "$fixture" || -L "$fixture" ]]; then
   echo "live-apply-matrix: $fixture already exists; this measurement writes and deletes it" >&2; exit 1
 fi
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
+# Base provenance: the commit every row's prebuilt and full build come from, and a clean view shell
+# at that commit (an edited source would make the "base" something other than the commit).
+base_sha="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [[ "$base_sha" == unknown ]]; then
+  echo "live-apply-matrix: $root is not a git checkout; the base commit cannot be checked" >&2; exit 1
+fi
+if [[ -n "$(git -C "$root" status --porcelain -- Prototypes/ViewShell)" ]]; then
+  echo "live-apply-matrix: Prototypes/ViewShell differs from $base_sha; refusing to call that the base" >&2
+  git -C "$root" status --porcelain -- Prototypes/ViewShell >&2; exit 1
+fi
 work="$(mktemp -d "${TMPDIR:-/tmp}/live-apply-matrix.XXXXXX")"
 mkdir -p "$work/orig"
 cp "$badge" "$main_swift" "$work/orig/"
@@ -238,6 +248,7 @@ sw_vers >"$out/sw_vers.txt" 2>&1 || true
 
 # The prebuilt: the seeded base's Debug build, made once.
 seed
+seeded_digest="$(cat "$fixture" "$badge" "$main_swift" | shasum -a 256 | cut -d' ' -f1)"
 b0=$(now)
 swift build --package-path "$package" --scratch-path "$work/prebuilt" --product cmux-view-shell >"$out/prebuilt-build.log" 2>&1 \
   || { echo "live-apply-matrix: the seeded base does not build"; tail -40 "$out/prebuilt-build.log"; exit 1; }
@@ -249,8 +260,12 @@ export CMUX_VIEW_SHELL_BUILD="$work/prebuilt/debug"
 for spec in "${ROWS[@]}"; do
   IFS='|' read -r name category names edit <<<"$spec"
   if (( ${#want[@]} )) && [[ " ${want[*]} " != *" $name "* ]]; then continue; fi
-  dir="$out/$name"; mkdir -p "$dir"
+  dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
   seed
+  # Every row starts from the very tree the prebuilt was built from.
+  if [[ "$(cat "$fixture" "$badge" "$main_swift" | shasum -a 256 | cut -d' ' -f1)" != "$seeded_digest" ]]; then
+    echo "live-apply-matrix: row $name: the seeded base drifted from the prebuilt's" >&2; exit 1
+  fi
   cp "$fixture" "$dir/MatrixFixture.before.swift"; cp "$badge" "$dir/Badge.before.swift"; cp "$main_swift" "$dir/main.before.swift"
   edit_ok=yes; "$edit" 2>"$dir/edit.err" || edit_ok=no
   for f in MatrixFixture Badge main; do
@@ -330,9 +345,15 @@ import json, sys
 num = lambda s: int(s) if s else None
 fl = lambda s: float(s) if s else None
 base_w, patch_w, full_w = num(base_w), num(patch_w), num(full_w)
+row_valid = (full_w is not None and base_w is not None and full_w != base_w) if compile_checked == "pass" else None
 if outcome == "applied":
-    verdict = "match" if patch_w is not None and patch_w == full_w else "MISMATCH"
     runtime = "pass"
+    if row_valid is False:
+        verdict = "invalid_row"  # the change did not move the full build's pixels: proves nothing
+    elif patch_w is not None and patch_w == full_w:
+        verdict = "match"
+    else:
+        verdict = "MISMATCH"
 elif outcome in ("refused", "inject_failed"):
     verdict = "detected_fallback"; runtime = "not_run"
 else:
@@ -347,7 +368,10 @@ row = {
                  "incremental_build_s": fl(full_s)},
   "new_code_ran_in_patch": (patch_w != base_w) if outcome == "applied" and patch_w and base_w else None,
   # The change moved the full build's pixels: otherwise the row cannot tell old code from new.
-  "row_valid": (full_w is not None and base_w is not None and full_w != base_w) if compile_checked == "pass" else None,
+  "row_valid": row_valid,
+  # A mismatch, a detected fallback, an error or an invalid row all mean the PR still needs the
+  # full build: only a valid match counts as covered by prebuilt + patch.
+  "needs_full_build": verdict != "match",
   "verdict": verdict,
 }
 open(path, "a").write(json.dumps(row) + "\n")
@@ -355,14 +379,19 @@ print(json.dumps(row))
 PY
 done
 
-python3 - "$out" "$(python3 -c "print(round($b1-$b0,2))")" <<'PY'
-import json, sys
+base_sha="$base_sha" seeded_digest="$seeded_digest" python3 - "$out" "$(python3 -c "print(round($b1-$b0,2))")" <<'PY'
+import json, os, sys
 out, prebuilt_s = sys.argv[1:]
+base_sha, seeded_digest = os.environ["base_sha"], os.environ["seeded_digest"]
 rows = [json.loads(l) for l in open(f"{out}/rows.jsonl")]
 summary = {}
 for r in rows:
     summary[r["verdict"]] = summary.get(r["verdict"], 0) + 1
+covered = sum(1 for r in rows if r["verdict"] == "match")
 result = {"label": "IMPLEMENTED", "harness": "Prototypes/ViewShell headless, seeded base",
+          "base_sha": base_sha, "seeded_base_sha256": seeded_digest,
+          "covered_by_patch": covered, "needs_full_build": len(rows) - covered,
+          "note": "needs_full_build counts MISMATCH, detected_fallback, error and invalid_row: every row stays in the denominator",
           "swift": open(f"{out}/swift-version.txt").read().strip(),
           "prebuilt_debug_build_s": float(prebuilt_s), "rows": len(rows), "verdicts": summary,
           "mismatch_rows": [r["row"] for r in rows if r["verdict"] == "MISMATCH"],
