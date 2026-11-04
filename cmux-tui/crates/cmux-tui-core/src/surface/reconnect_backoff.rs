@@ -85,7 +85,7 @@ impl TerminalHostReconnectBackoff {
                 host.disconnect();
             }
             // Input waiting out the reconnect (surface/input.rs) fails now.
-            pty.stream_progress.notify();
+            pty.reader_gave_up();
             return false;
         };
         #[cfg(test)]
