@@ -491,14 +491,15 @@ def clamp_before():
             rest(0.6, "the split rests at the pointer"), focus("p0")]
 
 
-def key_then_clamp_play(speed):
-    """Ctrl-Shift-L on p0 (A's edge springs right, B and C slide), then 60 ms after its key-down a real press on the split x
-    as it slides, 1 pt right and held still for 1.5 s: rule D holds x where it is drawn; A's rest edge leaves b1 less than
-    its minimum, so x springs to A's rest edge plus b1's minimum and stops there."""
+def key_then_clamp_play(speed, by=1, ms=1500):
+    """Ctrl-Shift-L on p0 (A's edge springs right into B: the key trades A's and B's widths), then 60 ms after its key-down
+    a real press on the split x as it moves, BY pt right in MS (1 pt held 1.5 s: rule D holds x where it is drawn; A's rest
+    edge leaves b1 less than its minimum, so x springs to A's rest edge plus b1's minimum and stops there; 30 pt in 0.6 s:
+    the pointer passes that clamp, and x never shows behind the pointer and ends under it)."""
     return [{"do": "px_key_then_drag", "key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
-             "drag": {"target": {"divider": 1}, "by": [1, 0], "duration_ms": 1500},
+             "drag": {"target": {"divider": 1}, "by": [by, 0], "duration_ms": ms},
              "spring_default": {"response": RESPONSE["move"], "damping": DAMPING["move"]}, "mark": "kc",
-             "title": "Ctrl-Shift-L on p0, then 60 ms after its key-down a real press on the split x, 1 pt right, held 1.5 s"},
+             "title": f"Ctrl-Shift-L on p0, then 60 ms after its key-down a real press on the split x, {by} pt right in {ms / 1000:g} s"},
             rest(land(speed), "A's spring and the split's clamp land and rest")]
 
 
@@ -621,6 +622,13 @@ def cases():
                     C3X, key_then_clamp_play, "move", "key then held split (clamp)", before=clamp_before(),
                     rebuild=[focus("p0"), press(H, "unkey"), rest(land(SPEEDS_S2BT[0][1]), "p0's column back (its key spring lands)")],
                     play_seconds=lambda s: 2.0 + land(s), fixture_tunables=[(HIT_WIDTH, 24)], speeds=SPEEDS_S2BT))
+    # The pointer chases the clamp (frame-owner-s2's SharedEdgeClamp.follow, #35775 ddf0ac45b40): 30 pt right in 0.6 s, past
+    # the clamp (8-18 pt away at x0.125).
+    out.append(Case(f"px-keys-then-clamp-chase-{C3X.key}", f"Ctrl-Shift-L on p0, then the split x in B dragged 30 pt right in 0.6 s during "
+                    f"its spring, past the clamp at A's rest edge plus b1's minimum ({C3X.text}; terminals only)",
+                    C3X, lambda s: key_then_clamp_play(s, by=30, ms=600), "move", "key then drag past the clamp", before=clamp_before(),
+                    rebuild=[focus("p0"), press(H, "unkey"), rest(land(SPEEDS_S2BT[0][1]), "p0's column back (its key spring lands)")],
+                    play_seconds=lambda s: 1.1 + land(s), fixture_tunables=[(HIT_WIDTH, 24)], speeds=SPEEDS_S2BT))
     return out
 
 
