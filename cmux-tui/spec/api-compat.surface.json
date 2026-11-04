@@ -20568,9 +20568,18 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_frame_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/request_effect_commits": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/write_path/wal_commits": {
+        "ty": "uint64"
+      },
+      "/data/write_path/wal_synced_commits": {
+        "ty": "uint64"
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",

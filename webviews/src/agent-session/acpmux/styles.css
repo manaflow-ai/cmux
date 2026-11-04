@@ -168,6 +168,18 @@
 .acpmux-slash-icon{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;color:var(--agent-text)}
 .acpmux-mention-row .acpmux-slash-name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-mention-row .acpmux-slash-description{flex:0 1000 auto}
+/* The `:shortcode` emoji menu (EmojiMenu.tsx): the @ menu's rows with the glyph first. Compact and strip open over the typed `:` (left set from the caret as it mounts); wide spans the box as @ and / do. */
+.acpmux-emoji-menu.is-caret{right:auto;width:232px}
+.acpmux-emoji-menu.is-strip{right:auto;width:auto;max-width:100%}
+.acpmux-emoji-row{width:100%;box-sizing:border-box;margin:0;border:0;background:none;color:inherit;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
+.acpmux-emoji-row b{font-weight:var(--weight-emphasis,600);color:var(--agent-text)}
+.acpmux-emoji-glyph{flex:none;display:inline-flex;align-items:center;justify-content:center;width:20px;font-size:var(--text-title);line-height:1;font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+.acpmux-emoji-code{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--acpmux-composer-dim)}
+.acpmux-emoji-row.acpmux-slash-active .acpmux-emoji-code{color:var(--agent-text)}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-rows{display:flex;gap:0}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-row{width:var(--ds-control-primary);height:var(--ds-control-primary);padding:0;justify-content:center}
+.acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
+.acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
@@ -747,7 +759,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
 /* Inline marks in a question, an option or its description (question/inlineText.tsx): code as the transcript's inline code, a tint behind the mono face at the line's own size. */
 .acpmux-question-code{padding:0.5px 4px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:0.92em;overflow-wrap:anywhere}
-.acpmux-question-mark{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;margin-top:1.5px;border:1px solid color-mix(in srgb,var(--agent-text) 35%,transparent);border-radius:50%;color:var(--agent-page-bg,var(--acpmux-base))}
+.acpmux-question-mark{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;margin-top:1.5px;border:1px solid color-mix(in srgb,var(--agent-text) 35%,transparent);border-radius:50%;color:var(--acpmux-base)}
 .acpmux-question-mark[data-multi]{border-radius:4px}
 .acpmux-question-mark[data-chosen]{border-color:var(--agent-text)}
 .acpmux-question-mark[data-chosen]:not([data-multi])::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--agent-text)}
@@ -847,7 +859,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-request-head{display:flex;align-items:center;gap:var(--ds-space-2);min-width:0}
 .acpmux-permission-request-icon{display:inline-flex;flex-shrink:0;color:var(--agent-muted)}
 .acpmux-permission-request-label{min-width:0;font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:1.35;color:var(--agent-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-permission-request-description,.acpmux-permission-waiting{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-permission-request-description,.acpmux-permission-waiting,.acpmux-permission-one-time{margin:0;color:var(--agent-muted);font-size:var(--text-detail);line-height:1.4;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-permission-command{display:flex;flex-direction:column;align-items:flex-start;gap:var(--ds-space-1);min-width:0}
 .acpmux-permission-command-preview{align-self:stretch;padding:var(--ds-space-2);border-radius:var(--ds-radius-control);background:color-mix(in srgb,var(--agent-text) 5%,transparent);color:var(--agent-soft);font:var(--text-detail)/1.5 var(--font-mono)}
 .acpmux-permission-command-preview code{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font:inherit;white-space:pre-wrap;overflow-wrap:anywhere}

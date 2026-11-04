@@ -168,6 +168,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.setComposerRing":
+            // The composer ring's Context or Plan Usage choice; the page writes only this key with it.
+            if let ring = (params?["ring"] as? String).flatMap(AgentPaneComposerRing.init(rawValue:)) {
+                self = .displaySetting(path: AgentPaneComposerSetting.composerRingPath, value: .string(ring.rawValue))
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.setRemoteControl":
             // Session Info's Remote Control switch: one Bool, nothing else.
             if let on = params?["on"] as? Bool, Set((params ?? [:]).keys) == ["on"] {

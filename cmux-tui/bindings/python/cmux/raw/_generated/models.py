@@ -1674,6 +1674,9 @@ class ServerStatsWritePath:
     effect_intents: int
     request_effect_commits: int
     writer_registry_locks: int
+    registry_wal_frame_bytes: Union[int, MissingType] = field(default=MISSING)
+    wal_commits: Union[int, MissingType] = field(default=MISSING)
+    wal_synced_commits: Union[int, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

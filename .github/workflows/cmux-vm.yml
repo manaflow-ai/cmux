@@ -65,9 +65,9 @@
 #                         tracking table) and runs db-release.ts plan and rehearse on a
 #                         throwaway branch copy; dry_run=false makes sure the PlanetScale
 #                         role cmux-vm-owner owns cmux_vm, adopts 0001-0009 when untracked,
-#                         and runs db-release.ts apply (it rehearses again, then runs the
-#                         cmux-old compat gate, which also needs VERCEL_TOKEN and
-#                         CMUX_UITEST_STACK_EMAIL/_PASSWORD). Only schema cmux_vm changes;
+#                         and runs db-release.ts apply (it rehearses again; the cmux-old
+#                         compat gate is skipped, the change being confined to cmux_vm,
+#                         prod-owner.ts). Only schema cmux_vm changes;
 #                         scripts/cmux-next/release/prod-owner.ts, release-rails.md
 #                         "Production migrations from CI".
 
@@ -731,21 +731,12 @@ jobs:
           HAS_PSCALE_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID != '' }}
           HAS_PSCALE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN != '' }}
           HAS_DB: ${{ secrets.CMUX_VM_DATABASE_URL != '' }}
-          HAS_VERCEL: ${{ secrets.VERCEL_TOKEN != '' }}
-          HAS_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL != '' }}
-          HAS_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD != '' }}
         run: |
           set -euo pipefail
           missing=()
           [ "$HAS_PSCALE_ID" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN_ID)
           [ "$HAS_PSCALE_TOKEN" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN)
           [ "$HAS_DB" = true ] || missing+=(CMUX_VM_DATABASE_URL)
-          if [ "$DRY_RUN" != true ]; then
-            # The apply's cmux-old compat gate (compat.ts): the web revision compare and the signed-in replay.
-            [ "$HAS_VERCEL" = true ] || missing+=(VERCEL_TOKEN)
-            [ "$HAS_STACK_EMAIL" = true ] || missing+=(CMUX_UITEST_STACK_EMAIL)
-            [ "$HAS_STACK_PASSWORD" = true ] || missing+=(CMUX_UITEST_STACK_PASSWORD)
-          fi
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error title=migrate-production::cmux-vm-production lacks ${missing[*]}; nothing ran (PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN are a PlanetScale service token of org cmux with access to cmux-prod)"
             exit 1
@@ -787,12 +778,6 @@ jobs:
           tar -xzf "$tarball" -C "$dir" pscale
           "$dir/pscale" version
           echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
-      - name: Install the Vercel CLI 58.8.0 (compat gate's web revision compare)
-        if: ${{ !inputs.dry_run }}
-        run: |
-          set -euo pipefail
-          npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/vercel" vercel@58.8.0
-          echo "VERCEL_BIN_DIR=$RUNNER_TEMP/vercel/node_modules/.bin" >> "$GITHUB_ENV"
       # Production steps run with only the variables they need (release-rails.md, "Hardening 1"): every other
       # exported variable is unset in the subshell first, so nothing else reaches the rails or a child.
       - name: ${{ inputs.dry_run && 'Inspect, plan and rehearse (dry run; production unchanged)' || 'Inspect, owner, adopt and apply (production)' }}
@@ -803,11 +788,6 @@ jobs:
           PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
           CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
-          # The apply's compat gate only: the newest release (gh, read-only), the web revisions and the replay login.
-          GH_TOKEN: ${{ !inputs.dry_run && github.token || '' }}
-          VERCEL_TOKEN: ${{ !inputs.dry_run && secrets.VERCEL_TOKEN || '' }}
-          CMUX_UITEST_STACK_EMAIL: ${{ !inputs.dry_run && secrets.CMUX_UITEST_STACK_EMAIL || '' }}
-          CMUX_UITEST_STACK_PASSWORD: ${{ !inputs.dry_run && secrets.CMUX_UITEST_STACK_PASSWORD || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$CMUX_RELEASE_RECEIPTS_DIR"
@@ -815,7 +795,6 @@ jobs:
           mode="$MODE"
           tools="$(dirname "$PSCALE_BIN"):$(dirname "$(command -v bun)"):$(dirname "$(command -v node)")${VERCEL_BIN_DIR:+:$VERCEL_BIN_DIR}"
           keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
-          if [ "$mode" = migrate ]; then keep="$keep GH_TOKEN VERCEL_TOKEN CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD "; fi
           (
             for v in $(compgen -e); do
               case "$keep" in *" $v "*) ;; *) unset "$v" 2>/dev/null || true ;; esac
