@@ -5,7 +5,7 @@ The Release build compiles its Rust parts with `cargo build --locked` (for examp
 scripts/build-diff-sidecar.sh for Native/DiffSidecar). When a change adds a
 dependency to a crate that another workspace uses by path, that other
 workspace's Cargo.lock goes stale, and the Release build fails with
-"cannot update the lock file ... because --locked was passed". The Linux compile
+"cannot update (or create) the lock file ... because --locked was passed". The Linux compile
 check does not build those workspaces, so it stays green (#34782 added
 serde_json to cmux-tui/crates/cmux-git; Native/DiffSidecar/Cargo.lock was not
 updated; every Release dogfood build failed until #34935).
@@ -59,7 +59,7 @@ RELEASE_DIRS = (
 )
 DEFAULT_PIN = "cmux-tui/rust-toolchain.toml"
 TOOLCHAIN_FILES = ("rust-toolchain.toml", "rust-toolchain")
-STALE = re.compile(r"cannot update the lock file .* because --locked was passed"
+STALE = re.compile(r"cannot (?:update|create) the lock file .* because --locked was passed"
                    r"|the lock file .* needs to be updated but --locked was passed")
 LIMIT = 600
 
