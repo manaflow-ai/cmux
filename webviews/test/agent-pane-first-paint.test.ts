@@ -19,6 +19,7 @@ import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { HANDOFF_OPS } from "../src/agent-session/acpmux/handoff/protocol";
 import { PERMISSION_GROUP_OPS } from "../src/agent-session/acpmux/permissions/protocol";
+import { askOnSingleCard } from "../src/agent-session/acpmux/permissionKeys";
 
 const START = Date.UTC(2026, 10, 1, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -424,13 +425,26 @@ test("a grouped ask draws on the card at once while its group read is out, then 
     expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
     await turns();
     expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
-    // The first frame of B has its ask on the card, with the group read still out.
+    // The first frame of B has its ask on the card the pane draws, with the group read still out.
     expect(last().permission?.permissionId).toBe(`perm-${B}`);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(true);
     daemon.release();
     await turns();
     // The read landed: the group's card holds the ask, and no single card repeats it.
     expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
-    expect(last().permission).toBeUndefined();
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
+    // Back to A, then B again: B's groups come back from its last read while the refresh is out, and
+    // its ask is the group's card only, never a single card beside it.
+    expect(await settlesWithin(client.select(A), 1_000)).toBe(true);
+    await turns();
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
+    daemon.release();
+    await turns();
+    expect(askOnSingleCard(last().permission, last().permissionGroups)).toBe(false);
   } finally {
     client.close();
   }
