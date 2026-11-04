@@ -6370,7 +6370,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () =>
       new CloudTypingPrewarm({
         prewarm: (machineID) =>
-          callNative<boolean>("cloudMachine.prewarm", { id: machineID }).catch(() => false),
+          callNative<unknown>("cloudMachine.prewarm", { id: machineID }).then(
+            () => true,
+            () => false,
+          ),
       }),
   );
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
