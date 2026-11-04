@@ -216,6 +216,11 @@ class WorkflowToken(unittest.TestCase):
                 callback = rescue.from_env(env, "o/r", now=lambda: NOW, log=lambda text: None)
                 callback()
             client.assert_called_once_with("workflow-token", "o/r")
+            with mock.patch.object(rescue, "GitHub") as client, mock.patch.object(rescue, "sweep", return_value=[]):
+                client.return_value.pending_cancellations.return_value = set()
+                rescue.from_env(dict(env, HOSTED_LIGHT_TOKEN="bot-token", HOSTED_LIGHT_FALLBACK_TOKEN="workflow-token"),
+                                "o/r", now=lambda: NOW, log=lambda text: None)()
+            client.assert_called_once_with("bot-token", "o/r", fallback="workflow-token", mint=None)
             self.assertIsNone(rescue.from_env(dict(env, HOSTED_LIGHT_DISABLED="1"), "o/r",
                                              now=lambda: NOW, log=lambda text: None))
 
@@ -730,6 +735,69 @@ class Quota(unittest.TestCase):
                 callback()
                 self.assertEqual(journal.call_count, 2)
 
+
+
+class BotTokenFirst(unittest.TestCase):
+    """Reads go out as cmux-bot; the shared workflow token answers only while cmux-bot is low or refused."""
+
+    def answer(self, remaining: int, body: bytes = b'{"workflow_runs": []}'):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = body
+        response.headers = {"X-RateLimit-Remaining": str(remaining), "X-RateLimit-Reset": str(NOW.timestamp() + 900)}
+        return response
+
+    def sent(self, opened) -> list[str]:
+        return [call.args[0].get_header("Authorization") for call in opened.call_args_list]
+
+    def client(self, **kwargs):
+        return rescue.GitHub("bot-token", "o/r", fallback="workflow-token", clock=lambda: NOW.timestamp(), **kwargs)
+
+    def test_reads_use_the_bot_and_writes_the_workflow_token(self):
+        client = self.client()
+        with mock.patch.object(rescue.urllib.request, "urlopen",
+                               side_effect=[self.answer(4000), self.answer(4000, b"")]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+            client.cancel(7)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+
+    def test_a_low_bot_pool_moves_reads_to_the_workflow_token_until_its_reset(self):
+        client = self.client()
+        with mock.patch.object(rescue.urllib.request, "urlopen",
+                               side_effect=[self.answer(rescue.POOL_RESERVE), self.answer(900)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+            client.runs(None, "in_progress", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+        self.assertTrue(client.spare(NOW))
+        self.assertEqual(client.remaining, 900)
+
+    def test_a_refused_bot_read_is_asked_again_with_the_workflow_token(self):
+        client = self.client()
+        refused = urllib.error.HTTPError("url", 403, "rate limited", {"X-RateLimit-Remaining": "0"}, None)
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[refused, self.answer(900)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token", "Bearer workflow-token"])
+        self.assertEqual(client.read_pool(), "fallback")
+
+    def test_both_pools_low_stop_the_pass(self):
+        client = self.client()
+        client.pools["primary"].remaining = client.pools["fallback"].remaining = rescue.POOL_RESERVE
+        client.pools["primary"].reset = client.pools["fallback"].reset = NOW.timestamp() + 600
+        self.assertFalse(client.spare(NOW))
+
+    def test_the_bot_token_is_minted_again_before_its_hour_is_up(self):
+        clock = [NOW.timestamp()]
+        client = rescue.GitHub("bot-token", "o/r", fallback="workflow-token", mint=lambda: "bot-token-2",
+                               clock=lambda: clock[0])
+        clock[0] += rescue.APP_TOKEN_SECONDS
+        with mock.patch.object(rescue.urllib.request, "urlopen", side_effect=[self.answer(4000)]) as opened:
+            client.runs(None, "queued", NOW - rescue.WINDOW, NOW)
+        self.assertEqual(self.sent(opened), ["Bearer bot-token-2"])
+
+    def test_the_workflow_mints_the_bot_token_for_the_pass(self):
+        text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text()
+        self.assertIn("HOSTED_LIGHT_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}", text)
+        self.assertIn("HOSTED_LIGHT_FALLBACK_TOKEN: ${{ github.token }}", text)
 
 if __name__ == "__main__":
     unittest.main()
