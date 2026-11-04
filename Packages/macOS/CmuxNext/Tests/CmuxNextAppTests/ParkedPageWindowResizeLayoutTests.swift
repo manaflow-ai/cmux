@@ -9,14 +9,15 @@ import Testing
 /// FRAME OWNER REFACTOR S7b. In a window's live resize every page parked in a pane laid its tree out on every step:
 /// in the S7 films (ab-s7p5-22, cmux22) the docked Home, hidden in its pane while a workspace shows, laid out its views
 /// 141 times in an ON film of 72 steps and 191 in an OFF film of 142 (`debug.layers` `top_instances`). A parked page
-/// shows nothing and takes no events; the pane sized it on every step (`layoutParked`, `retire`) so that showing it again
-/// needs no layout at a new size. Chrome lays out no `display: none` box. Now a parked page does not lay out while it is
-/// hidden; it lays out once at its pane's size when it shows.
+/// shows nothing and takes no events; the pane sized it on every step (`layoutParked`) so that showing it again needed
+/// no layout at a new size. Chrome lays out no `display: none` box. Now a parked page keeps its frame while it is hidden
+/// and is sized once when it shows: its AppKit views lay nothing out per step.
 ///
-/// Counted with probe views in the page (an `NSButton`, a SwiftUI hosting view, Liquid Glass and a plain view, the kinds
-/// of view the docked Home has), across five steps of a window resize from its lower-left corner as the films drag.
-/// `theSpareKindOfViewLaysOutOnlyWhenItsFrameChanges` asks the same of a view that keeps its frame: the New Tab spare's
-/// views laid out 143 times per ON film in the films while their frame never changed.
+/// Counted with probe views in the page (an `NSButton`, Liquid Glass and a plain view, kinds of view the docked Home has),
+/// across five steps of a window resize from its lower-left corner as the films drag. A SwiftUI hosting view in the page
+/// is not counted: in the window it lays out on each step even hidden at a fixed frame (5 calls over 5 steps at
+/// 3dfa3a9a5a9; the New Tab spare's, whose frame never changes, 143 per ON film). Only a view out of the window stops
+/// that: the docked Home's Messages view leaves the window while it is parked (HomeDockParkedMessagesTests).
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct ParkedPageWindowResizeLayoutTests {
@@ -139,7 +140,9 @@ struct ParkedPageWindowResizeLayoutTests {
         let parkedFrame = page.frame
 
         for _ in 1...5 { Self.resizeStep(window) }
-        #expect(counts.total == 0, "the parked page laid out over 5 window resize steps: \(counts.calls) (its frame \(parkedFrame) -> \(page.frame))")
+        #expect(page.frame == parkedFrame, "the parked page followed the window: \(parkedFrame) -> \(page.frame)")
+        let appKit = counts.calls.filter { $0.key != "hosting" }
+        #expect(appKit.isEmpty, "the parked page's AppKit views laid out over 5 window resize steps: \(appKit)")
 
         // Shown again: at the size the pane shows it at now, laid out there.
         counts.reset()
@@ -149,37 +152,5 @@ struct ParkedPageWindowResizeLayoutTests {
         let shows = (pane.parkedFrame(of: page) ?? pane.contentHost.bounds).size
         #expect(page.frame.size == shows, "shown again, the page is \(page.frame.size), not the \(shows) the pane shows it at")
         #expect((counts.calls["view"] ?? 0) >= 1, "shown again, the page did not lay out at its new size: \(counts.calls)")
-    }
-
-    @Test func theSpareKindOfViewLaysOutOnlyWhenItsFrameChanges() throws {
-        let window = Self.window()
-        defer { window.close() }
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
-        window.contentView = root
-        // What the window shows: it follows the window.
-        let shown = NSView(frame: root.bounds)
-        shown.autoresizingMask = [.width, .height]
-        root.addSubview(shown)
-        // The New Tab spare's parking: in the window, shown, transparent and far outside the content, at a fixed size.
-        let offscreen = LayoutCounts(), hidden = LayoutCounts()
-        let parking = NSView(frame: NSRect(x: -100_000, y: -100_000, width: 700, height: 500))
-        parking.alphaValue = 0
-        parking.autoresizingMask = []
-        parking.addSubview(Self.probes(offscreen, frame: parking.bounds))
-        root.addSubview(parking)
-        // A hidden view that keeps its frame (a parked page that no longer follows its pane).
-        let parked = Self.probes(hidden, frame: NSRect(x: 0, y: 0, width: 700, height: 500))
-        parked.isHidden = true
-        parked.autoresizingMask = []
-        root.addSubview(parked)
-        window.orderFrontRegardless()
-        Self.settle(root)
-        window.displayIfNeeded()
-        offscreen.reset()
-        hidden.reset()
-
-        for _ in 1...5 { Self.resizeStep(window) }
-        #expect(offscreen.total == 0, "the spare's kind of view laid out over 5 window resize steps with its frame unchanged: \(offscreen.calls)")
-        #expect(hidden.total == 0, "a hidden view that keeps its frame laid out over 5 window resize steps: \(hidden.calls)")
     }
 }

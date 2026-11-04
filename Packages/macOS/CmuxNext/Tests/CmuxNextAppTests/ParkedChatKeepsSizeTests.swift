@@ -116,7 +116,10 @@ import Testing
         try await watch(chat, in: pane, stays: onScreen)
     }
 
-    @Test func aParkedChatStillFollowsTheWindow() async throws {
+    /// FRAME OWNER REFACTOR S7b: a parked chat no longer follows the window (it laid its tree out on every step of a
+    /// window's live resize while hidden). It keeps its frame while parked and takes the pane's new size once, as it shows;
+    /// an agent page's paint hold keeps what showed until it drew there (`AgentPageRedraw.awaits`).
+    @Test func aParkedChatTakesTheWindowsNewSizeOnceWhenItShows() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -127,15 +130,16 @@ import Testing
         settle(pane)
         _ = pane.show(Other())
         settle(pane)
+        let parked = chat.view.frame
+        chat.reset()
         pane.setFrameSize(NSSize(width: 1000, height: 600))
         settle(pane)
-        // Parked, it is sized as it will show, so showing it needs no redraw at a new size.
-        #expect(chat.view.frame.size == pane.bounds.size)
-        chat.reset()
+        #expect(chat.sizes.isEmpty && chat.view.frame == parked, "the parked chat followed the pane: \(chat.sizes)")
         _ = pane.show(chat.view)
         settle(pane)
-        #expect(chat.sizes.isEmpty, "the chat shown again was resized to \(chat.sizes)")
+        #expect(chat.sizes == [pane.bounds.size], "the chat shown again took the sizes \(chat.sizes), not the pane's once")
         #expect(chat.view.frame.size == pane.bounds.size)
+        chat.reset()
         try await watch(chat, in: pane, stays: chat.view.convert(chat.view.bounds, to: nil))
     }
 }
