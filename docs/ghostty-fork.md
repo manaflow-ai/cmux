@@ -479,6 +479,12 @@ pin does not have it. cmux-next does not use that flag.
 
 - Branch: `cmux-displaylink-main-thread` ([manaflow-ai/ghostty#276](https://github.com/manaflow-ai/ghostty/pull/276))
 - Commits: `6b6d011c5`, `43118b22d` (close on any thread, no lost running request)
+- Coverage: [build-ghosttykit run 41822212355](https://github.com/manaflow-ai/cmux/actions/runs/41822212355)
+  compiled and published GhosttyKit at `43118b22d`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-43118b22ddb4facecbcad3b1c059e330e786321a-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `16ea2c6305600de69d9e01f3992c6f70bba25f41e908170030df97de8538d1df`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Summary: port of upstream `ffaaf5d7` (ghostty-org/ghostty#14691, fix for
   ghostty-org/ghostty#14150). `CVDisplayLinkStop` waits once, without a
   predicate, for the link's IO thread to exit. CoreVideo also starts and
