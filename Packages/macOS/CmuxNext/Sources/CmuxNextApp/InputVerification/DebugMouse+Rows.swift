@@ -23,11 +23,7 @@ extension DebugMouse {
     /// leftmost) or a divider's mouse-area id or its prefix (`split:`, `column:`, `row:`), so a tour can hover or drag a
     /// divider on any runner's window size.
     static func dividerPoint(_ name: String, controller: WindowController, window: NSWindow) -> NSPoint? {
-        guard let root = controller.content?.layoutView else { return nil }
-        let areas = root.dividerMouseAreas.sorted { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }
-        guard let area = name == "first" ? areas.first : areas.first(where: { $0.id == name }) ?? areas.first(where: { $0.id.hasPrefix(name) })
-        else { return nil }
-        let center = root.convert(NSPoint(x: area.rect.midX, y: area.rect.midY), to: nil)
+        guard let center = controller.content?.layoutView.debugDividerCenter(named: name) else { return nil }
         return InputJournal.topLeftPoint(center, in: window, relativeTo: window)
     }
 
