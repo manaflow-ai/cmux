@@ -115,6 +115,7 @@ fn file_id(_path: &Path) -> Option<FileId> {
 /// the path was replaced. macOS: the path the kernel reports for it now (`proc_pidpath` follows a
 /// rename of its bundle); once that fails, the exec path it falls back to names the new file, so a
 /// replaced (not moved) binary reads as current there and is left to the next restart.
+#[cfg(unix)]
 fn running_file(pid: u32) -> Option<FileId> {
     if cfg!(target_os = "linux") {
         file_id(Path::new(&format!("/proc/{pid}/exe")))
@@ -123,11 +124,23 @@ fn running_file(pid: u32) -> Option<FileId> {
     }
 }
 
+/// Windows has no process tree reader here, so no host reads as stale.
+#[cfg(not(unix))]
+fn running_file(_pid: u32) -> Option<FileId> {
+    None
+}
+
 /// The file now at the path `pid` was started as (its argv0, absolute only), symlinks followed.
+#[cfg(unix)]
 fn launched_file(pid: u32) -> Option<FileId> {
     let argv0 = crate::agent_host::tree::argv(pid)?.into_iter().next()?;
     let path = Path::new(&argv0);
     path.is_absolute().then(|| file_id(path)).flatten()
+}
+
+#[cfg(not(unix))]
+fn launched_file(_pid: u32) -> Option<FileId> {
+    None
 }
 
 #[cfg(test)]
