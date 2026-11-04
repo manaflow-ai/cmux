@@ -101,7 +101,13 @@ export function RacePanel({
           >
             <label className="race-field">
               {t("race.task")}
-              <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} required rows={4} />
+              <textarea
+                aria-label={t("race.task")}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                required
+                rows={4}
+              />
             </label>
             <fieldset disabled={starting}>
               <legend>{t("race.models")}</legend>
@@ -110,6 +116,7 @@ export function RacePanel({
                   <label key={choice.key}>
                     <input
                       type="checkbox"
+                      aria-label={choice.label}
                       checked={selected.includes(choice.key)}
                       onChange={(event) =>
                         setSelected((previous) =>
@@ -127,6 +134,7 @@ export function RacePanel({
             <label className="race-field">
               {t("race.reviewer")}
               <select
+                aria-label={t("race.reviewer")}
                 value={reviewer}
                 onChange={(event) => setReviewer(event.target.value)}
                 required

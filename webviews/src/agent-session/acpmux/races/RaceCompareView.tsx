@@ -47,7 +47,7 @@ export function RaceCompareView({
       {current && (
         <>
           <div className="race-heading">
-            <p role="status">{t(`race.${current.state}`)}</p>
+            <output>{t(`race.${current.state}`)}</output>
             {(current.state === "running" || current.state === "reviewing" || current.state === "failed") && (
               <button
                 type="button"
