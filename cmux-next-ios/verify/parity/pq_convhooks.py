@@ -276,7 +276,7 @@ def colors_flow(j, label):
     tap_menu(j, "Chat Colors…")
     j.sim.wait(ident="chief.colors.reset", timeout=8)
     reset = j.sim.find(ident="chief.colors.reset")
-    out["reset_enabled"] = bool(reset) and reset[0].get("enabled", True) is not False
+    out["reset_enabled"] = bool(reset) and reset[0].get("enabled") is True
     j.sim.tap_q(ident="chief.colors.reset")
     time.sleep(1.2)
     j.sim.tap_q(ident="chief.colors.done")

@@ -351,7 +351,7 @@ private final class HooksBackend: ConversationBackend, Sendable {
 
     /// One saved chat this build cannot read never drops the others.
     @Test func oneUnreadableChatKeepsTheRest() throws {
-        let saved = Data(#"{"mac|a":{"sent":"#34C759"},"mac|b":{"sent":"not a colour"}}"#.utf8)
+        let saved = Data(##"{"mac|a":{"sent":"#34C759"},"mac|b":{"sent":"not a colour"}}"##.utf8)
         let chats = ChiefChatColors.decode(saved)
         #expect(chats.keys.sorted() == ["mac|a"])
         #expect(chats["mac|a"]?.sent?.hex == "#34C759")
