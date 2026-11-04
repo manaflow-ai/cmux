@@ -125,6 +125,7 @@ class ClassicApiGuardTests(unittest.TestCase):
         self.assertNotIn("changes.body", text)
         self.assertIn("--expected-files", text)
         self.assertIn("--listed-records", text)
+        self.assertIn("grep -q -- '--listed-records' scripts/ci/classic_api_guard.py", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
         self.assertNotIn("pull_request_target", text)

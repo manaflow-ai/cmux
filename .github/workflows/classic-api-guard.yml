@@ -61,6 +61,11 @@ jobs:
             --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
           records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
           tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          # The guard comes from the base: a base older than --listed-records gets the old count.
+          listed=()
+          if grep -q -- '--listed-records' scripts/ci/classic_api_guard.py; then
+            listed=(--listed-records "$records")
+          fi
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
-            --expected-files "$CHANGED_FILES" --listed-records "$records"
+            --expected-files "$CHANGED_FILES" "${listed[@]}"
