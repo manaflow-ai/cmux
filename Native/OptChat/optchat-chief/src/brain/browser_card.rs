@@ -366,14 +366,19 @@ impl Brain {
                     *live = true;
                     changed = true;
                 }
-                let same_surface = *surface == browsing.surface;
-                let next_target = browsing
-                    .target
-                    .or_else(|| same_surface.then(|| target.clone()).flatten());
+                // Only a step that names the card's own tab carries its page and
+                // screenshot on. A step that names another tab, or none (a
+                // browser MCP tool, `cmux browser <tab>`), may be on any page:
+                // the card keeps no earlier target, URL or picture for it, so
+                // Open never reveals a page the step was not on.
+                let same_target = *surface == browsing.surface
+                    && browsing.target.is_some()
+                    && browsing.target == *target;
+                let next_target = browsing.target;
                 let next_url = browsing
                     .url
-                    .or_else(|| same_surface.then(|| url.clone()).flatten());
-                if !same_surface && shown.take().is_some() {
+                    .or_else(|| same_target.then(|| url.clone()).flatten());
+                if !same_target && shown.take().is_some() {
                     changed = true;
                 }
                 if *surface != browsing.surface
