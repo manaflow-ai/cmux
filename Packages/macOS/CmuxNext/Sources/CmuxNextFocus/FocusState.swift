@@ -197,9 +197,10 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     /// shown and focused in the key's frame), else the focused terminal's tab. A creation hold binds
     /// each held key to it (P0 1193). The machine's rule (`FocusState::typing_tab`), from its reply.
     public var typingTab: String?
-    /// The person-intent target: ``typingTab`` as the person's own focus moves left it (``FocusEvent/isPersonsOwn``: mouse,
-    /// keyboard, palette), set by the machine on each of them; a script's, the CLI's, MCP's or an agent's move never changes
-    /// it. A creation hold's keys go to their press-time terminal only while it did not change (cmux-ad m12, #35275).
+    /// The person-intent target: ``typingTab`` as the person's own focus events left it (``FocusEvent/isPersonsOwn``: mouse,
+    /// keyboard or palette source, also the responder report of a click), set by the machine on each of them; a script's,
+    /// the CLI's, MCP's, an agent's or the app's never changes it. A creation hold's keys go to their press-time terminal
+    /// only while it did not change (cmux-ad m12, #35275).
     public var personTarget: String?
 
     /// What the settle observers act on: they run only when it changed.
