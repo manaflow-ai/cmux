@@ -235,6 +235,16 @@ impl Hub {
                     params.get("epoch").and_then(Value::as_u64),
                 )
             }
+            "renew" => {
+                let transfer_id = text("transferId");
+                let dir = inside(&transfers_dir(), transfer_id)?;
+                require_epoch(transfer_epoch(&dir)?, params.get("epoch").and_then(Value::as_u64))?;
+                if !dir.is_dir() {
+                    return Err(transfer_error("unknown", format!("no move {transfer_id} here")));
+                }
+                super::transfer_watch::note_activity(&dir, None);
+                Ok(json!({"transferId": transfer_id, "epoch": transfer_epoch(&dir)?}))
+            }
             "commit" => {
                 let session = self.resolve(text("sessionId"))?;
                 let to = params.get("to").cloned().unwrap_or(Value::Null);
