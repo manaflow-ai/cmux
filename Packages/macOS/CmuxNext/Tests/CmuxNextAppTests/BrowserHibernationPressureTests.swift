@@ -33,4 +33,22 @@ struct BrowserHibernationPressureTests {
         #expect(hibernation.pressure == .critical)
         withExtendedLifetime((services, hibernation)) {}
     }
+
+    /// The app may start under pressure, and the kernel sends no event for a level that does not change:
+    /// `start()` reads the level now, so the hibernation (and the warm set, through `onPressureChange`) starts at it.
+    @Test func startReadsTheLevelNow() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let source = ManualMemoryPressureSource()
+        source.level = .warning
+        let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: source),
+                                             lowPower: LowPowerMode(enabled: false))
+        var changes: [MemoryPressureLevel] = []
+        hibernation.onPressureChange = { changes.append($0) }
+        hibernation.start()
+        #expect(hibernation.pressure == .warning, "started at normal while the kernel read warning")
+        #expect(changes == [.warning])
+        hibernation.stop()
+        withExtendedLifetime((services, hibernation)) {}
+    }
 }

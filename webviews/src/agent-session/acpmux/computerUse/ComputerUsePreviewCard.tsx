@@ -73,7 +73,7 @@ export function ComputerUsePreviewCard({
               <span className="acpmux-cu-preview__mark" data-icon={shown.icon ? "" : undefined}>
                 {shown.icon && <img src={shown.icon} alt="" draggable={false} />}
                 <span className="acpmux-cu-preview__check">
-                  <Check size={shown.icon ? 10 : 12} strokeWidth={2.5} />
+                  <Check size={shown.icon ? 10 : 12} />
                 </span>
               </span>
             </span>

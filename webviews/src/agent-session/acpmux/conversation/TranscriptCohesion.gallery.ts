@@ -1,5 +1,5 @@
 // l10n-allow-file: synthetic transcript fixtures, not shipped UI.
-// One rhythm across harnesses; a finished Claude turn folds under Worked for too (cmux#34774). References:
+// One rhythm across harnesses, without giving Claude a whole-turn fold. References:
 // chatgpt/live/transcript-thinking-and-tool-calls-consolidation and
 // claude/live/transcript-agent-text-and-collapsed-tool-row.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -93,7 +93,7 @@ export default agentPaneEntry({
       },
     },
     claude: {
-      note: "Claude: the finished turn folds under one 22px Worked for, 16px from the reply, as Codex does.",
+      note: "Claude: each tool run has its own summary; the reply remains visible with no whole-turn Worked for.",
       snapshot: transcript("claude"),
     },
   },

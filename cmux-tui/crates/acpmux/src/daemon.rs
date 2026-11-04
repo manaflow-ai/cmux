@@ -14,10 +14,12 @@ mod lock;
 #[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
+use lock::live_holder_pid;
+#[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, not_serving_recovery,
-    wait_for_lock_release,
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
+    wait_for_lock_release_with_budget,
 };
 mod running;
 pub use running::connect_running;
@@ -54,6 +56,7 @@ mod stop_causes;
 #[cfg(unix)]
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
+pub use stop_causes::{EXIT_REPAIR, exit_status};
 #[cfg(unix)]
 pub(crate) mod term_sender;
 pub(crate) mod unused_exit;
@@ -719,7 +722,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
     // event journal checkpoint, whose logs only the next start's replay writes again.
-    let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.store.stop_reason()));
+    let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.clone()));
     let shutdown = async {
         // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
@@ -743,9 +746,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
                 // A restart handoff: the next start repairs what the store could not.
-                () = &mut store_stop => {
-                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
-                },
+                () = &mut store_stop => {},
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -799,9 +800,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
-                () = &mut store_stop => {
-                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
-                },
+                () = &mut store_stop => {},
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -1061,7 +1060,6 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
     }
     // Another daemon is stopping or starting: start again until this key's daemon has the lock,
     // never leaving the caller to start an unkeyed one.
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon_with(Some(key.clone())).await?;
         if !lock_held(&ready) {
@@ -1073,12 +1071,6 @@ pub async fn start_keyed(fd: i32) -> Result<String> {
                 home().join("daemon.log").display()
             );
             return Ok(ready);
-        }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
-            return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?}; the keyed daemon did not start",
-                home().join("daemon.lock").display()
-            ));
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
         if Client::connect(&path).await.is_ok() {
@@ -1262,9 +1254,10 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
                     asked = true;
                     take_over_holder(&socket_path()).await;
                 }
-                if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
-                    return Err(error);
-                }
+                // The kernel lock is the liveness signal: a live holder keeps it and a
+                // dead holder releases it. Do not turn a busy but healthy daemon into a
+                // startup failure with an arbitrary wall-clock cutoff.
+                wait_for_lock_release(path.to_owned()).await;
             }
             Err(error) => return Err(error),
         }
@@ -1276,17 +1269,13 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
 /// effort: a holder that does not answer, or one that is already stopping, is waited out by the
 /// caller.
 async fn take_over_holder(socket: &std::path::Path) {
-    let Ok(Ok(client)) =
-        tokio::time::timeout(Duration::from_secs(5), crate::client::Client::connect(socket)).await
+    // Client::connect and request finish promptly on a closed socket. If the
+    // peer is alive but busy, keep the handover request alive until it answers.
+    let Ok(client) = crate::client::Client::connect(socket).await else { return };
+    let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
     else {
         return;
     };
-    let status = tokio::time::timeout(
-        Duration::from_secs(5),
-        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
-    )
-    .await;
-    let Ok(Ok(status)) = status else { return };
     let same = |key: &str, want: &std::path::Path| {
         status
             .get(key)
@@ -1300,11 +1289,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
-    let _ = tokio::time::timeout(
-        Duration::from_secs(10),
-        client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})),
-    )
-    .await;
+    let _ = client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})).await;
 }
 
 /// Whether two paths name the same file: equal, or equal once canonical (a missing file through
@@ -1338,8 +1323,17 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
     DAEMON_PREFIX.get().cloned().unwrap_or_default()
 }
 
-/// How long a started daemon may take to report that its socket is bound.
-const START_BUDGET: Duration = Duration::from_secs(8);
+/// A detached daemon that remains alive but never binds its socket is a hung start.
+/// This is the caller's fallback for that real hazard; lock-holder paths use
+/// process/socket liveness instead of this bound.
+// timeout: cleanup for a child that never reaches readiness must return to the CLI.
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(8);
+
+/// Test-only upper bound used by integration assertions that dead-socket
+/// failures remain prompt; production handover waits use peer liveness.
+// timeout: test-only fast-failure assertion.
+#[doc(hidden)]
+pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
 
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
@@ -1348,7 +1342,9 @@ pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_
 /// Wait until no daemon holds this home's lock (the running one exited),
 /// at most [`EXIT_BUDGET`]. True when it was released.
 pub async fn wait_for_exit() -> bool {
-    wait_for_lock_release(home().join("daemon.lock"), EXIT_BUDGET).await
+    // timeout: shutdown cleanup must return even if a crashed supervisor leaves
+    // a lock held forever; ordinary client handover waits on lock liveness.
+    wait_for_lock_release_with_budget(home().join("daemon.lock"), Some(EXIT_BUDGET)).await
 }
 
 /// Connect to the daemon, starting one if needed.
@@ -1408,18 +1404,11 @@ where
     start_and_connect(path, connect).await
 }
 
-/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
-/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
-/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
-/// `START_BUDGET`.
-pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
-
-// A detached start may wait for the old owner before binding its own socket.
-// Keep its launcher alive through both phases, including the Windows pipe reader.
-const READINESS_BUDGET: Duration = HANDOVER_BUDGET.saturating_add(START_BUDGET);
-
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
+// timeout: cleanup for a wedged systemctl health probe; the daemon request waits on liveness.
+#[cfg(target_os = "linux")]
+const PROBE_BUDGET: Duration = Duration::from_secs(1);
 
 /// A CLI may be launched without the service's `ACPMUX_HOME` (for example,
 /// from a session shell) while its daemon is owned by the user systemd unit.
@@ -1439,7 +1428,6 @@ where
     F: Fn() -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
-    const PROBE_BUDGET: Duration = Duration::from_secs(1);
     let show = tokio::process::Command::new(systemctl.clone())
         .args(["--user", "show", "acpmux.service", "-p", "LoadState", "--value"])
         .output();
@@ -1448,9 +1436,9 @@ where
         Ok(Ok(_)) => false,
         Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Ok(Err(error)) => return Err(error.into()),
-        Err(_) => {
-            return Err(anyhow!("systemd did not report acpmux.service within {PROBE_BUDGET:?}"));
-        }
+        // Health discovery is advisory. A slow systemd must not prevent the
+        // normal detached launch path below from serving the real request.
+        Err(_) => return Ok(None),
     };
     if !loaded {
         return Ok(None);
@@ -1470,11 +1458,7 @@ where
             ));
         }
         Ok(Err(error)) => return Err(error.into()),
-        Err(_) => {
-            return Err(anyhow!(
-                "systemd did not report acpmux.service environment within {PROBE_BUDGET:?}"
-            ));
-        }
+        Err(_) => return Ok(None),
     };
     let unit_home =
         unit_environment_path(&env, "ACPMUX_HOME").unwrap_or_else(crate::config::default_home);
@@ -1490,48 +1474,48 @@ where
         return Ok(None);
     }
 
-    // A unit start can overlap the old daemon's graceful handover. Give the
-    // unit the same bounded window clients use for that handover, rather than
-    // failing after the shorter socket-bind budget while it still owns the
-    // lock and is waiting for the old process to exit.
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
-    let mut last_start_error = None;
+    // A unit start can overlap the old daemon's graceful handover. The socket
+    // is the authoritative liveness signal; a slow start command is retried.
     let mut next_start = tokio::time::Instant::now();
     loop {
         if tokio::time::Instant::now() >= next_start {
-            let start = tokio::process::Command::new(systemctl.clone())
-                .args(["--user", "start", "acpmux.service"])
-                .output();
-            match tokio::time::timeout(PROBE_BUDGET, start).await {
-                Ok(Ok(output)) if output.status.success() => last_start_error = None,
-                Ok(Ok(output)) => {
-                    last_start_error = Some(format!(
-                        "systemd could not start acpmux.service: {}",
-                        String::from_utf8_lossy(&output.stderr).trim()
-                    ));
-                }
-                Ok(Err(error)) => last_start_error = Some(error.to_string()),
-                Err(_) => {
-                    last_start_error = Some(format!(
-                        "systemd did not start acpmux.service within {PROBE_BUDGET:?}"
-                    ))
-                }
-            }
+            let _ = run_systemctl(systemctl.clone(), &["--user", "start", "acpmux.service"]).await;
             next_start = tokio::time::Instant::now() + HANDOVER_RETRY;
         }
         if let Ok(value) = connect().await {
             return Ok(Some(value));
         }
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if left.is_zero() {
-            return Err(anyhow!(last_start_error.unwrap_or_else(|| {
-                format!(
-                    "acpmux.service did not provide a socket at {} within {HANDOVER_BUDGET:?}",
-                    path.display()
-                )
-            })));
+        // If systemd has already marked the unit inactive, its socket peer is
+        // gone; let the ordinary detached launch path recover it. A live unit
+        // keeps this wait open regardless of how long its request takes.
+        match run_systemctl(systemctl.clone(), &["--user", "is-active", "acpmux.service"]).await {
+            Ok(Some(status)) if status.success() => {}
+            _ => return Ok(None),
         }
-        tokio::time::sleep(HANDOVER_RETRY.min(left)).await;
+        tokio::time::sleep(HANDOVER_RETRY).await;
+    }
+}
+
+/// Run a systemd probe without leaving a timed-out child behind. The timeout is
+/// only for this advisory health probe; the daemon request itself waits on its
+/// socket and lock liveness.
+// timeout: cleanup for a wedged systemctl probe before retrying it.
+#[cfg(target_os = "linux")]
+async fn run_systemctl<S>(
+    systemctl: S,
+    args: &[&str],
+) -> std::io::Result<Option<std::process::ExitStatus>>
+where
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut child = tokio::process::Command::new(systemctl).args(args).spawn()?;
+    match tokio::time::timeout(PROBE_BUDGET, child.wait()).await {
+        Ok(status) => status.map(Some),
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            Ok(None)
+        }
     }
 }
 
@@ -1640,7 +1624,6 @@ where
     if let Some(other) = holder_elsewhere(path).await {
         return Err(serves_elsewhere(path, &other));
     }
-    let deadline = tokio::time::Instant::now() + HANDOVER_BUDGET;
     loop {
         let ready = start_daemon().await?;
         let error = match connect().await {
@@ -1653,15 +1636,6 @@ where
         // The lock's holder serves this home at another socket: no wait makes it serve this one.
         if let Some(other) = holder_elsewhere(path).await {
             return Err(serves_elsewhere(path, &other));
-        }
-        if tokio::time::Instant::now() + HANDOVER_RETRY >= deadline {
-            return Err(anyhow!(
-                "another acpmux daemon still holds {} after {HANDOVER_BUDGET:?} and serves no socket at {}{}; see {}",
-                home().join("daemon.lock").display(),
-                path.display(),
-                not_serving_recovery(&home().join("daemon.lock")),
-                home().join("daemon.log").display()
-            ));
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
         if let Ok(c) = connect().await {
@@ -1744,12 +1718,12 @@ async fn holder_elsewhere(path: &std::path::Path) -> Option<std::path::PathBuf> 
     }
     for socket in candidates {
         // The connect too: a stopped (suspended) daemon accepts and never answers `initialize`.
-        let asked = tokio::time::timeout(START_BUDGET, async {
-            let client = Client::connect(&socket).await?;
+        let Ok(client) = Client::connect(&socket).await else { continue };
+        let Ok(status) =
             client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
-        })
-        .await;
-        let Ok(Ok(status)) = asked else { continue };
+        else {
+            continue;
+        };
         let serves =
             |key: &str| status.get(key).and_then(Value::as_str).map(std::path::PathBuf::from);
         if serves("home").as_deref() == Some(home.as_path())
@@ -1819,10 +1793,11 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
             }
         }
     }
-    // Async pipe I/O, so the timeout cancels the read; a blocking read on a
-    // worker thread would keep runtime teardown waiting on a hung daemon.
-    let ready = tokio::net::unix::pipe::Receiver::from_file(spawn_detached(key)?)
-        .context("wait for acpmux daemon")?;
+    // Async pipe I/O keeps the client runtime responsive while the detached
+    // process writes readiness or closes the pipe on exit.
+    let (ready, child_pid) = spawn_detached(key)?;
+    let ready =
+        tokio::net::unix::pipe::Receiver::from_file(ready).context("wait for acpmux daemon")?;
     // The daemon writes one line to the pipe once its socket is bound, or
     // the pipe reaches end of file when it exits first (another daemon won
     // the lock, bad config). Either way the caller connects once afterwards.
@@ -1831,13 +1806,28 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         let mut line = String::new();
         tokio::io::BufReader::new(ready).read_line(&mut line).await.map(|_| line)
     };
-    match tokio::time::timeout(READINESS_BUDGET, wait).await {
-        Ok(read) => Ok(read.unwrap_or_default()),
-        Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {READINESS_BUDGET:?}; see {}",
-            path.display(),
-            home().join("daemon.log").display()
-        )),
+    // EOF means the detached child exited; a live child keeps the pipe open
+    // until it writes readiness. The pipe itself is the liveness signal, so a
+    // busy machine never turns a slow but live daemon into a startup failure.
+    let mut wait = std::pin::pin!(wait);
+    loop {
+        match tokio::time::timeout(START_BUDGET, &mut wait).await {
+            Ok(read) => return Ok(read?),
+            Err(_)
+                if lock_has_live_holder(&home().join("daemon.lock"))
+                    && live_holder_pid(&home().join("daemon.lock")) != Some(child_pid) =>
+            {
+                // A live winner may be slow on a busy machine; keep waiting on
+                // its lock/pipe liveness instead of failing the caller.
+            }
+            Err(_) => {
+                return Err(anyhow!(
+                    "daemon did not come up at {} within {START_BUDGET:?}; see {}",
+                    path.display(),
+                    home().join("daemon.log").display()
+                ));
+            }
+        }
     }
 }
 /// The readiness line of a daemon that found the lock taken (`run`).
@@ -1848,9 +1838,8 @@ const LOCK_HELD_LINE: &str = r#"{"ready":false,"lockHeld":true}"#;
 /// readiness (an empty line; the caller connects). A job that ended before its socket answered
 /// most likely found the lock taken by a daemon still stopping (`daemon shutdown`, `host
 /// update`): that is reported as [`LOCK_HELD_LINE`], so `start_and_connect` waits for that
-/// daemon within its handover budget and starts the next one, as it does for a daemon it
-/// spawned. launchd is asked every half second, each answer bounded by what is left of
-/// `START_BUDGET` (at most one second), so the wait never outlasts it by more than a poll.
+/// daemon while it still owns the lock and starts the next one, as it does for a daemon it
+/// spawned. launchd is asked every half second; the lock and job state are the liveness signals.
 #[cfg(target_os = "macos")]
 async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
     let deadline = tokio::time::Instant::now() + START_BUDGET;
@@ -1860,10 +1849,11 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
             return Ok(String::new());
         }
         tries += 1;
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries.is_multiple_of(5) && !left.is_zero() {
+        if tries.is_multiple_of(5) {
             let job = job.clone();
-            let budget = left.min(Duration::from_secs(1));
+            // timeout: launchd's status probe must not pin the async runtime;
+            // a live job is checked again on the next pass.
+            let budget = Duration::from_secs(1);
             let running =
                 tokio::task::spawn_blocking(move || login_session::job_running(&job, budget))
                     .await
@@ -1884,7 +1874,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    windows::start_daemon(&home(), &daemon_prefix(), READINESS_BUDGET).await
+    windows::start_daemon(&home(), &daemon_prefix()).await
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
@@ -1960,7 +1950,7 @@ fn daemon_command(this: &crate::self_command::SelfCommand) -> std::process::Comm
 /// gets `--person-key-fd M`, one end of a socket pair: the key is written
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
-fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
+fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<(std::fs::File, u32)> {
     let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
@@ -2022,6 +2012,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         }
     }
     let mut child = tokio::process::Command::from(cmd).spawn().context("spawn acpmux daemon")?;
+    let child_pid = child.id().unwrap_or_default();
     // A lock-race loser exits promptly. Reap it even when its CLI caller keeps
     // running (stdio/TUI); dropping std::process::Child left a zombie per retry.
     // This async wait never holds runtime teardown open or kills the winner.
@@ -2032,9 +2023,14 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     drop(writer);
     if let (Some(key), Some((ours, theirs))) = (key, pair) {
         drop(theirs);
-        hand_key(ours, &key);
+        // The daemon may be alive but busy before it can read its person key.
+        // Keep that handoff off the caller's path and let EOF signal a dead
+        // child instead of imposing a wall-clock cutoff.
+        let _ = std::thread::Builder::new()
+            .name("acpmux-person-key".into())
+            .spawn(move || hand_key(ours, &key));
     }
-    Ok(reader)
+    Ok((reader, child_pid))
 }
 
 /// Write the key on the daemon's key socket after the daemon said it is
@@ -2043,6 +2039,8 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
 #[cfg(unix)]
 fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     use std::io::{Read, Write};
+    // timeout: a child that never reaches KEY_READY must not retain the
+    // person key or strand a handoff thread forever.
     let _ = link.set_read_timeout(Some(START_BUDGET));
     let mut said = [0u8; KEY_READY.len()];
     if link.read_exact(&mut said).is_err() || said != KEY_READY {

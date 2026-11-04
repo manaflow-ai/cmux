@@ -95,27 +95,23 @@ public struct CloudConfiguration: Sendable, Equatable {
     public enum DevAccount: String, Sendable, Equatable {
         /// The staging agent test account (the seeded sign-in file CI and agents launch with).
         case staging
-        /// The person's own production account, adopted from cmux NIGHTLY's Keychain session.
+        /// The person's own production account, handed over by a running cmux NIGHTLY
+        /// (``adoptsNightlySession``).
         case nightly
     }
 
-    /// Where a signed NEXT DEV launch signed in as ``DevAccount/nightly`` finds cmux NIGHTLY's session:
-    /// the Keychain service and access group NIGHTLY's ``CloudAuth`` writes (its default group, the
-    /// first of its signed `keychain-access-groups`), and its file-fallback directory.
-    public struct NightlySession: Sendable, Equatable {
-        public var keychainService: String
-        public var accessGroup: String
-        public var credentialsDirectory: URL
+    /// Whether this build adopts cmux NIGHTLY's session: a signed NEXT DEV build on the production
+    /// account. It asks a running NIGHTLY over NIGHTLY's control socket (`auth.session.handoff`) and keeps
+    /// the session in memory only, never in its own Keychain item or a file.
+    public var adoptsNightlySession: Bool {
+        !isDebugBuild && bundleID == Self.signedDEVBundleID && isProductionAuth
     }
 
-    /// cmux NIGHTLY's session, for a signed NEXT DEV build on the production account; nil otherwise.
-    public var nightlySession: NightlySession? {
-        guard !isDebugBuild, bundleID == Self.signedDEVBundleID, isProductionAuth else { return nil }
-        let nightly = "com.cmuxterm.app.nightly"
-        return NightlySession(
-            keychainService: "\(nightly).auth", accessGroup: "7WLXT3NR37.\(nightly)",
-            credentialsDirectory: Self.bundleSupportDirectory(
-                homeDirectory: FileManager.default.homeDirectoryForCurrentUser, bundleID: nightly))
+    /// The account a signed NEXT DEV launch uses: the chosen one, except ``DevAccount/nightly`` while no
+    /// cmux NIGHTLY runs to hand its session over, which is ``DevAccount/staging``. The choice itself is
+    /// kept, so the next launch with NIGHTLY running is on the NIGHTLY account again.
+    public static func launchAccount(chosen: DevAccount, nightlyIsRunning: () -> Bool) -> DevAccount {
+        chosen == .nightly && !nightlyIsRunning() ? .staging : chosen
     }
 
     static let devAccountDefaultsKey = "cmux.next.dev.account"
@@ -289,12 +285,17 @@ public struct CloudConfiguration: Sendable, Equatable {
     }
 
     /// `benchHooks`: whether this compile has the bench hooks (``benchHooksCompiled`` unless a test says).
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled) -> CloudConfiguration {
+    /// `nightlyIsRunning`: whether cmux NIGHTLY runs now; signed NEXT DEV on the ``DevAccount/nightly``
+    /// account falls back to staging, as before that account existed, when it does not
+    /// (``launchAccount(chosen:nightlyIsRunning:)``).
+    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled,
+                               nightlyIsRunning: () -> Bool) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         let debug = isDebugBuild || isCaptureBuild(bundleID: bundle.bundleIdentifier, benchHooks: benchHooks)
         let process = ProcessInfo.processInfo.environment
         let account = !debug && bundle.bundleIdentifier == signedDEVBundleID
-            ? devAccount(environment: process, defaults: .standard) : .staging
+            ? launchAccount(chosen: devAccount(environment: process, defaults: .standard), nightlyIsRunning: nightlyIsRunning)
+            : .staging
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled, process: process, isDebugBuild: debug,
                        devAccount: account)
     }

@@ -58,6 +58,7 @@ PICKS: dict[str, int] = {
     "cloud-capture-provision.yml": 1,
     "cloud-devbox-image-rebake.yml": 1,
     "cloud-image-staleness.yml": 1,
+    "cloud-vm-dogfood.yml": 3,
     "cloud-vm-image-bake.yml": 3,
     "cloud-vm-image-contract.yml": 1,
     "cloud-vm-image-promote.yml": 2,

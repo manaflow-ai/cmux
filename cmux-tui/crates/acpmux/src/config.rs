@@ -2050,7 +2050,7 @@ pub use discover::{
 mod peer;
 pub use peer::PeerConfig;
 mod store_config;
-pub use store_config::{StoreConfig, StoreMode};
+pub use store_config::{StoreConfig, StoreMode, store_journal_enabled};
 mod pool;
 pub use pool::PoolConfig;
 mod btw;

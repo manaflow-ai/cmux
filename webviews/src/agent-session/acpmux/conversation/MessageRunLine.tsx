@@ -47,11 +47,7 @@ export function MessageRunLine({
           </span>
           <FailedCount n={run.failed} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${expanded ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${expanded ? " is-open" : " is-hover"}`} />
       </button>
     </div>
   );

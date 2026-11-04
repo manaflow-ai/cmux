@@ -256,6 +256,10 @@ fn the_link_entry_gate_admits_only_the_fs_ops() {
         let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "seed_1" }).to_string();
         assert!(gate.admit(&peer, &frame), "{cmd}");
     }
+    for cmd in cmux_tui_core::blob_fetch::BLOB_FETCH_COMMANDS {
+        let frame = serde_json::json!({ "id": 1, "cmd": cmd, "job": "fetch_1" }).to_string();
+        assert!(gate.admit(&peer, &frame), "{cmd}");
+    }
     for frame in [
         r#"{"id":1,"cmd":"git.seed.cancel","job":"seed_1"}"#,
         r#"{"id":1,"cmd":"git.clone","url":"https://github.com/o/n.git"}"#,

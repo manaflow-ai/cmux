@@ -872,3 +872,51 @@ fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
     let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
     assert!(reason.is_some(), "the store did not ask the daemon to stop");
 }
+
+// ---------------------------------------------------------------- review of #35400 (S2c)
+
+/// F1: a read that shows a line returns only once that line's record is appended, so the reply
+/// built from it raises its connection's gate to that record. Before, a read saw the log line
+/// between the log write and the record, and the reply went out with no wait for it.
+#[test]
+fn a_read_that_shows_a_line_covers_its_record() {
+    use super::journal_store::PAUSE_AFTER_LOG_WRITE;
+    use std::sync::atomic::Ordering;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(47);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((arrived_tx, release_rx));
+    let appender = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.append(CHAT, &record(2, "queued")))
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    let reader = {
+        let store = Arc::clone(&store);
+        let acked = Arc::clone(&durability.acked);
+        std::thread::spawn(move || {
+            let seen = seqs(store.as_ref(), CHAT);
+            (seen, acked.load(Ordering::SeqCst))
+        })
+    };
+    std::thread::sleep(Duration::from_millis(200));
+    let _ = release.send(());
+    appender
+        .join()
+        .unwrap_or_else(|_| panic!("append panicked"))
+        .unwrap_or_else(|e| panic!("{e:#}"));
+    let (seen, acked_then) = reader.join().unwrap_or_else(|_| panic!("read panicked"));
+    let acked_now = durability.acked.load(Ordering::SeqCst);
+    if seen.contains(&2) {
+        assert_eq!(
+            acked_then, acked_now,
+            "a read showed line 2 before its record was appended (acked {acked_then}, then {acked_now})"
+        );
+    }
+}

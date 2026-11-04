@@ -173,7 +173,6 @@
 {"file":"agent-session/acpmux/conversation/DispatchCard.css","kind":"spacing","property":"margin-top","values":{"6px":1}}
 {"file":"agent-session/acpmux/conversation/DynamicWorkflow.gallery.css","kind":"font-weight","property":"font-weight","values":{"650":9,"700":1}}
 {"file":"agent-session/acpmux/conversation/DynamicWorkflow.gallery.css","kind":"radius","property":"border-radius","values":{"14px":2,"10px":1,"9px":1,"11px":1,"7px 7px 0 0":1,"7px":1}}
-{"file":"agent-session/acpmux/conversation/icons.tsx","kind":"color","property":"color","values":{"#3a3b36":1,"#3b3c37":1}}
 {"file":"agent-session/acpmux/conversation/InboxNoticeCard.css","kind":"spacing","property":"margin","values":{"2px 0":1}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"font-weight","property":"font-weight","values":{"650":3}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"radius","property":"border-radius","values":{"9px":1}}

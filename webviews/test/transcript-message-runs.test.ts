@@ -76,11 +76,9 @@ function turn(): AcpmuxRow[] {
 
 const claude = { liveRuns: true, agentFamily: "claude" } as const;
 const ids = (rows: readonly AcpmuxRow[]) => rows.map((row) => row.id);
-// A finished Claude turn folds under one "Worked for" too (Leo, 2026-11-04); its runs fold inside it.
-const worked = new Set(["worked-prompt"]);
 
 test("a finished Claude turn's run of sends, another agent's line and a compaction folds into one line", () => {
-  const view = turnView(turn(), worked, claude);
+  const view = turnView(turn(), new Set(), claude);
   const lines = view.filter((row) => row.kind === MESSAGE_RUN);
   expect(lines).toHaveLength(1);
   // The agent message and the subagent's report join the run instead of breaking it, and so does
@@ -90,7 +88,6 @@ test("a finished Claude turn's run of sends, another agent's line and a compacti
   // The prompt, the line, then the answer and the footer: the answer stays last.
   expect(view.map((row) => row.kind).filter((kind) => kind !== "date")).toEqual([
     "user",
-    "worked",
     MESSAGE_RUN,
     "assistant",
     "turnSummary",
@@ -98,9 +95,9 @@ test("a finished Claude turn's run of sends, another agent's line and a compacti
 });
 
 test("the line opens on click to the rows exactly as they drew before", () => {
-  const closed = turnView(turn(), worked, claude);
+  const closed = turnView(turn(), new Set(), claude);
   const line = closed.find((row) => row.kind === MESSAGE_RUN)!;
-  const open = turnView(turn(), new Set([...worked, line.id]), claude);
+  const open = turnView(turn(), new Set([line.id]), claude);
   const at = open.findIndex((row) => row.id === line.id);
   expect(open[at]!.foldOpen).toBe(true);
   expect(ids(open.slice(at + 1, at + 5))).toEqual(["run-1", "report", "compacted", "run-2"]);
@@ -110,7 +107,7 @@ test("the line opens on click to the rows exactly as they drew before", () => {
 
 test("the line counts what the run did, messages first", async () => {
   const { messageRunSummary } = await import("../src/agent-session/acpmux/conversation/messageRuns");
-  const line = turnView(turn(), worked, claude).find((row) => row.kind === MESSAGE_RUN)!;
+  const line = turnView(turn(), new Set(), claude).find((row) => row.kind === MESSAGE_RUN)!;
   expect(messageRunSummary(translate, line.messageRun!)).toBe(
     "Sent 6 messages, read 3 files, ran a command, received a message",
   );
@@ -135,18 +132,18 @@ test("a run with no message, and a lone send, keep drawing as before", () => {
     row("assistant", { text: "Done." }),
     row("turnSummary", { status: "completed" }),
   ];
-  expect(turnView(plain, new Set(["worked-p2"]), claude).some((row) => row.kind === MESSAGE_RUN)).toBe(false);
+  expect(turnView(plain, new Set(), claude).some((row) => row.kind === MESSAGE_RUN)).toBe(false);
   const lone = [
     row("user", { id: "p3", text: "Tell lane-a" }),
     activity([send("lane-a", "rebase")], "lone"),
     row("assistant", { text: "Sent." }),
     row("turnSummary", { status: "completed" }),
   ];
-  expect(ids(turnView(lone, new Set(["worked-p3"]), claude))).toContain("lone");
+  expect(ids(turnView(lone, new Set(), claude))).toContain("lone");
 });
 
 test("the closed line is estimated as one line, so its mount moves nothing below it", () => {
-  const view = turnView(turn(), worked, claude);
+  const view = turnView(turn(), new Set(), claude);
   const at = view.findIndex((row) => row.kind === MESSAGE_RUN);
   const heights = [...layoutConversation(view as never, 720).heights];
   // The frame of a one-call tool run's line (model.ts lineRow), in the same place.

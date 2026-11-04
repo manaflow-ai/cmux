@@ -169,4 +169,16 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     public var readsMachine: Bool { verdict.readsMachine }
     /// One line for the log and the `cloud.machines` row; no token, path or provider output.
     public var summary: String { verdict.summary }
+
+    /// Reads the guest's kind (``Verdict/guestKindProbe``, through `exec`; nil when the exec failed), again while a
+    /// new machine's guest has none yet: its cmux-host writes /etc/cmux/vm-kind only once it binds. The transfer's
+    /// budget and spacing (``CloudCredentialTransfer/guestCheckTries``). A failed exec or any recorded kind ends it.
+    public mutating func readGuest(exec: (String) async -> String?, pause: () async throws -> Void) async throws {
+        let deadline = ContinuousClock.now + CloudCredentialTransfer.guestCheckBudget
+        for attempt in 1...CloudCredentialTransfer.guestCheckTries {
+            guestStdout = await exec(verdict.guestKindProbe)
+            guard guestKind == "", attempt < CloudCredentialTransfer.guestCheckTries, ContinuousClock.now < deadline else { return }
+            try await pause()
+        }
+    }
 }
