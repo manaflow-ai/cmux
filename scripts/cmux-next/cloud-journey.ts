@@ -341,14 +341,49 @@ export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxN
  * CloudCredentialTransfer.allowsCreatorTeamGuest): the machine's creator may also copy a login to a team guest.
  */
 export function claudeLoginPrograms(installerSwift: string, creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
+  return loginPrograms(installerSwift, "claude", creatorTeamGuest);
+}
+
+/** The same programs for either provider CloudCredentialTransfer copies (claude or codex). */
+export function loginPrograms(installerSwift: string, provider: "claude" | "codex", creatorTeamGuest = false): { preflight: string; install: (payloadPath: string) => string } {
   const preflight = swiftRawString(installerSwift, creatorTeamGuest ? "creatorTeamPreflight" : "preflight");
   const script = swiftRawString(installerSwift, "script");
   return {
     preflight,
     install: (payloadPath) =>
       "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n" +
-      `python3 - ${shq("claude")} ${shq(payloadPath)} ${creatorTeamGuest ? "owner,team" : "owner"} <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
+      `python3 - ${shq(provider)} ${shq(payloadPath)} ${creatorTeamGuest ? "owner,team" : "owner"} <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
   };
+}
+
+/** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
+export function validLogin(provider: "claude" | "codex", value: string): boolean {
+  if (Buffer.byteLength(value) > 12_000) return false;
+  if (provider === "claude") return /^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(value);
+  try {
+    const auth = JSON.parse(value);
+    const tokens = auth?.tokens;
+    return (auth.OPENAI_API_KEY == null) && !!tokens && ["access_token", "refresh_token", "id_token"].every((k) => typeof tokens[k] === "string" && tokens[k].length > 0);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A made-up Codex ChatGPT sign-in (auth.json) for --model stub: unsigned JWTs whose claims Codex reads (plan, account,
+ * an expiry far ahead) and a fresh last_refresh, so Codex never tries to refresh it against OpenAI.
+ */
+export function stubCodexAuth(seed = randomBytes(16).toString("hex"), now = new Date()): string {
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const exp = Math.floor(now.getTime() / 1000) + 30 * 86400;
+  const claims = { email: "journey-stub@cmux.invalid", exp, "https://api.openai.com/auth": { chatgpt_plan_type: "pro", chatgpt_account_id: "acct_journeystub", chatgpt_user_id: `user_${seed.slice(0, 8)}` } };
+  const jwt = (extra: object) => `${b64({ alg: "none", typ: "JWT" })}.${b64({ ...claims, ...extra })}.journeystub`;
+  return JSON.stringify({ OPENAI_API_KEY: null, tokens: { id_token: jwt({}), access_token: jwt({ jti: `journeystub-${seed}` }), refresh_token: `journeystub-refresh-${seed}`, account_id: "acct_journeystub" }, last_refresh: now.toISOString() });
+}
+
+/** The bearer a harness sends the model endpoint for a copied login: Claude's token, Codex's ChatGPT access token. */
+export function loginBearer(provider: "claude" | "codex", value: string): string {
+  return provider === "codex" ? (JSON.parse(value).tokens.access_token as string) : value;
 }
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
@@ -510,12 +545,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const claudeLogin = modelStub
     ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
     : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+  // Codex's login is its auth.json (a ChatGPT sign-in), as the app copies it; CODEX_AUTH_JSON for a real run.
+  const codexLogin = modelStub ? stubCodexAuth() : (process.env.CODEX_AUTH_JSON || creds.CODEX_AUTH_JSON || "").trim();
+  const provider: "claude" | "codex" | undefined = agent === "claude" || agent === "codex" ? agent : undefined;
+  const login = provider === "codex" ? codexLogin : provider === "claude" ? claudeLogin : "";
+  const loginStep = provider === "codex" ? "pass Codex login" : "pass Claude login";
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
+  if (codexLogin) {
+    J.secrets.push(codexLogin);
+    try {
+      const t = JSON.parse(codexLogin).tokens ?? {};
+      for (const k of ["access_token", "refresh_token", "id_token"]) if (typeof t[k] === "string" && t[k]) J.secrets.push(t[k]);
+    } catch { /* validLogin names a malformed login */ }
+  }
   const appCli = argValue("--app-cli", argv);
   if (appCli) {
     J.meta.exec = `app CLI ${appCli}`;
@@ -636,19 +683,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
 
-    if (agent !== "claude" || only.has("chat") || only.has("login")) {
-      J.skip("pass Claude login", agent !== "claude" ? `agent ${agent}` : "--skip");
-    } else if (!claudeLogin) {
-      J.skip("pass Claude login", "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+    if (!provider || only.has("chat") || only.has("login")) {
+      J.skip(loginStep, !provider ? `agent ${agent}` : "--skip");
+    } else if (!login) {
+      J.skip(loginStep, provider === "codex" ? "no CODEX_AUTH_JSON: the reply needs the person's Codex login on the machine" : "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
     } else {
       // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
       // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
-      await J.step("pass Claude login", async () => {
-        // CloudCredentialTransfer.validate: a setup-token login, printable ASCII, at most 12,000 bytes.
-        if (!/^sk-ant-oat01-[\x21-\x7e]{19,11987}$/.test(claudeLogin)) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
+      await J.step(loginStep, async () => {
+        if (!validLogin(provider, login)) throw new Error(provider === "codex" ? "CODEX_AUTH_JSON is not a Codex ChatGPT sign-in (auth.json with tokens)" : "CLAUDE_CODE_OAUTH_TOKEN is not a `claude setup-token` login");
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
-        const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), Boolean(team));
+        const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
         const pre = await exec(programs.preflight);
         if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
         const folder = "/home/cmux/.cmux/credential-transfer";
@@ -656,7 +702,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
         const file = `${folder}/${randomUUID().toUpperCase()}.json`;
         try {
-          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(claudeLogin).toString("base64"), mode: 0o644 });
+          const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
           if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
           const done = await exec(programs.install(file));
           if (done.code !== 0) throw new Error(`installer exit ${done.code}`); // its output is never shown: it may name the token
@@ -665,16 +711,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await exec(`rm -f -- ${shq(file)}`).catch(() => null);
           throw error;
         }
-        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
-        if (!own.stdout.includes("own-login")) throw new Error("installed, but the image's launcher does not see an own Claude login");
+        const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
+        if (!own.stdout.includes("own-login")) throw new Error(`installed, but the image's launcher does not see an own ${provider} login`);
         return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
       });
     }
 
     const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
-    if (modelStub && agent === "claude" && !only.has("chat")) {
-      // The stub listens on the machine's loopback only; Claude Code's own settings point it there, after the login
-      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub.
+    if (modelStub && provider && !only.has("chat")) {
+      // The stub listens on the machine's loopback only; the harness's own settings point it there, after the login
+      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub:
+      // Claude Code's settings.json ANTHROPIC_BASE_URL, or a Codex model provider that uses the ChatGPT sign-in.
       await J.step("model stub on the machine", async () => {
         const file = "/home/cmux/.cmux/journey-model-stub.py";
         const script = "/home/cmux/.cmux/journey-model-stub.json";
@@ -683,15 +730,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path, dataBase64: data.toString("base64"), mode: 0o644 });
           if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write ${path}: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
         }
-        const port = 18000 + Math.floor(Math.random() * 1000);
+        // Port 0: the stub binds a free port and writes it to the ready file.
+        const point = provider === "codex"
+          ? `python3 - "$port" <<'PY'\nimport pathlib, re, sys\np = pathlib.Path('/home/cmux/.codex/config.toml')\nold = p.read_text() if p.exists() else ''\nold = re.sub(r'(?m)^model_provider\\s*=.*\\n?', '', old)\np.write_text('model_provider = "journeystub"\\n' + old + '\\n[model_providers.journeystub]\\nname = "journey stub"\\nbase_url = "http://127.0.0.1:' + sys.argv[1] + '/v1"\\nwire_api = "responses"\\nrequires_openai_auth = true\\n')\nprint('stub-ready')\nPY`
+          : `python3 - "$port" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`;
         const r = await exec(
-          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port ${port} --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
+          `rm -f ${shq(stubLog)} ${shq(ready)}; (nohup python3 ${shq(file)} --port 0 --script ${shq(script)} --nonce ${shq(nonce)} --log ${shq(stubLog)} --ready-file ${shq(ready)} >${shq(stubLog)}.out 2>&1 &); ` +
             `for i in $(seq 50); do [ -s ${shq(ready)} ] && break; sleep 0.2; done; ` +
-            `curl -fsS -m 2 "http://127.0.0.1:${port}/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
-            `python3 - ${port} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
+            `port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' ${shq(ready)} 2>/dev/null); ` +
+            `[ -n "$port" ] && curl -fsS -m 2 "http://127.0.0.1:$port/__stub/info" | grep -q ${shq(nonce)} || { echo stub-down; tail -5 ${shq(stubLog)}.out; exit 1; }; ` +
+            `echo "@@port $port"; ` + point,
         );
         if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
-        return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one Bash tool round trip` };
+        const port = /@@port (\d+)/.exec(r.stdout)?.[1];
+        return { value: null, detail: `the shared model stub at 127.0.0.1:${port}, nonce ${nonce}, one shell tool round trip (${provider})` };
       });
     }
     const session = `journey-${tag}`;
@@ -730,19 +782,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
       });
-      if (modelStub && agent === "claude") {
+      if (modelStub && provider) {
         await J.step("stub: forwarded login and a tool round trip", async () => {
           const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
           const rows = r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-          // Every model request Claude Code made (streamed or not, count_tokens too); the journey's own readiness
-          // pings send an empty body, so they name no model.
-          // Every model request Claude Code made: streamed or not, count_tokens and title side requests too.
-          const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith("/v1/messages"));
-          const want = createHash("sha256").update(claudeLogin).digest("hex");
-          if (!turns.some((x: any) => x.stream && !x.side)) throw new Error("Claude Code sent the stub no streamed /v1/messages turn");
-          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error("a model request did not carry the login the journey passed (the forwarded credential did not reach Claude Code)");
-          if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the Bash call's result");
-          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); Bash ran and its output came back` };
+          // Every model request the harness made: streamed or not, count_tokens and title side requests too.
+          const route = provider === "codex" ? "/v1/responses" : "/v1/messages";
+          const turns = rows.filter((x: any) => x.method === "POST" && String(x.path).startsWith(route));
+          const want = createHash("sha256").update(loginBearer(provider, login)).digest("hex");
+          if (!turns.some((x: any) => x.stream && !x.side)) throw new Error(`${agent} sent the stub no streamed ${route} turn`);
+          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error(`a model request did not carry the login the journey passed (the forwarded credential did not reach ${agent})`);
+          if (!turns.some((x: any) => x.step === 1 && x.tool_results >= 1)) throw new Error("no tool round trip: no request came back with the shell call's result");
+          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); the shell call ran and its output came back` };
         });
       }
     }

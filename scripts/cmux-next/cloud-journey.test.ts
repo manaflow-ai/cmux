@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { claudeLoginPrograms, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { nativeProofSkip } from "./cloud-journey";
 
 describe("cloud journey", () => {
@@ -72,6 +72,14 @@ describe("cloud journey", () => {
     expect(team.preflight).toContain("owner|team");
     expect(team.install("/p.json")).toContain("'/p.json' owner,team <<");
     expect(claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8")).install("/p.json")).toContain("'/p.json' owner <<");
+  });
+  test("Codex: the made-up sign-in passes the app's validation and the installer gets the codex provider", () => {
+    const auth = stubCodexAuth("ab".repeat(16), new Date("2026-11-04T00:00:00Z"));
+    expect(validLogin("codex", auth)).toBe(true);
+    expect(validLogin("codex", JSON.stringify({ OPENAI_API_KEY: "sk-x", tokens: {} }))).toBe(false);
+    expect(validLogin("claude", auth)).toBe(false);
+    expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
+    expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
   });
 });
 
