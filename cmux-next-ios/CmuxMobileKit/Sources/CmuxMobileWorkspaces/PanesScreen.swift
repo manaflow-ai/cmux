@@ -103,17 +103,16 @@ struct PanesScreen: View {
     private func resizeSection(_ screen: WorkspaceLayout.Screen) -> some View {
         Section {
             ForEach(screen.resizableSplits) { split in
-                Stepper {
+                // A step past 10% or 90% is off: the button shows disabled, not a tap that does nothing.
+                let more: (() -> Void)? = split.stepped(1) == nil ? nil : { Task { await source.resize(split, 1) } }
+                let less: (() -> Void)? = split.stepped(-1) == nil ? nil : { Task { await source.resize(split, -1) } }
+                Stepper(onIncrement: more, onDecrement: less) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(source.resizeTitle(split)).lineLimit(1)
                         Text(split.axis == .horizontal ? "Left side \(split.percent)%" : "Top side \(split.percent)%")
                             .font(theme.type.meta)
                             .foregroundStyle(theme.colors.label2.color)
                     }
-                } onIncrement: split.stepped(1) == nil ? nil : {
-                    Task { await source.resize(split, 1) }
-                } onDecrement: split.stepped(-1) == nil ? nil : {
-                    Task { await source.resize(split, -1) }
                 }
                 .accessibilityIdentifier("panes.resize.\(split.split)")
                 .accessibilityValue("\(split.percent) percent")
