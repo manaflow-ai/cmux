@@ -43,8 +43,10 @@ use cmux_json::JsonSet as _;
 
 mod base;
 mod git_back;
+mod history;
 mod links;
 mod local;
+mod merge;
 mod names;
 mod packs;
 mod place;
@@ -71,7 +73,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -194,6 +196,9 @@ pub(super) fn run(args: &[String]) -> i32 {
         println!("{USAGE}");
         return 0;
     }
+    if let Some(code) = run_history(args) {
+        return code;
+    }
     let Some((action, socket, local, remote)) = parse(args) else {
         eprintln!("{USAGE}");
         return 64;
@@ -253,7 +258,7 @@ pub(super) fn pull_back(
     }
     match pull::pull_kept(socket, local, remote_root, keep_new, false) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -265,7 +270,7 @@ pub(super) fn pull_back(
 pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back {
     match pull::pull(socket, local, remote_root) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -323,7 +328,7 @@ pub(super) fn copy_file_with_progress(
         source: Source::File(local.to_path_buf()),
         permissions: local::permissions_of(meta.permissions().mode()),
     };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     write_with_progress(&mut remote, target, &file, progress).map(|_| ())
@@ -359,7 +364,7 @@ pub(super) fn upload(
     }
     let read = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut reader = Counted { inner: file, read: read.clone() };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     let (parent, _) = remote::split(target)?;
     remote.mkdir_all(parent)?;
     remote.write_with_progress(target, &mut reader, 0o600, &mut || progress(read.get()))?;
@@ -379,7 +384,7 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
             println!("{summary}");
             return 0;
         }
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => {
+        Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(
                 "{} changed both here and on the machine; nothing was brought back",
                 conflicts.join(", ")
@@ -388,13 +393,61 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
                 error = format!("{error} ({})", reasons.join("; "));
             }
             json!({ "ok": false, "error": error, "error_code": "sync_conflict",
-                    "conflicts": conflicts })
+                    "conflicts": conflicts, "merge_files": merge_files })
         }
         Err(error) => json!({ "ok": false, "error": format!("{error:#}"),
                               "error_code": pull::failure_code(&error) }),
     };
     println!("{line}");
     1
+}
+
+/// `history`, `undo` and `restore`: this Mac's snapshots of a synced
+/// folder ([`history`]); no machine is reached. None for another action.
+fn run_history(args: &[String]) -> Option<i32> {
+    let [action, rest @ ..] = args else { return None };
+    if !matches!(action.as_str(), "history" | "undo" | "restore") {
+        return None;
+    }
+    let usage = || {
+        eprintln!("{USAGE}");
+        Some(64)
+    };
+    if rest.iter().any(|arg| arg.starts_with('-')) {
+        return usage();
+    }
+    let (local, remote, which) = match (action.as_str(), rest) {
+        ("history" | "undo", [local, remote]) => (local, remote, history::Which::Undo),
+        ("restore", [local, remote, seq]) => match seq.parse() {
+            Ok(seq) => (local, remote, history::Which::Seq(seq)),
+            Err(_) => return usage(),
+        },
+        _ => return usage(),
+    };
+    if !remote.starts_with('/') {
+        return usage();
+    }
+    let remote = remote.trim_end_matches('/');
+    let local = PathBuf::from(local);
+    let answer = if action == "history" {
+        history::history_line(&local, remote)
+    } else {
+        history::restore(&local, remote, &which)
+    };
+    let line = match answer {
+        Ok(line) => {
+            println!("{line}");
+            return Some(0);
+        }
+        Err(error) => match error.downcast_ref::<history::Refused>() {
+            Some(refused) => json!({ "ok": false, "error": refused.error,
+                                     "error_code": refused.code, "paths": refused.paths }),
+            None => json!({ "ok": false, "error": format!("{error:#}"),
+                            "error_code": "sync_failed" }),
+        },
+    };
+    println!("{line}");
+    Some(1)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -501,6 +554,19 @@ fn push_inner(
     }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
+    // A pull's conflict merges stay here, and so does anything by that name.
+    let merges: Vec<String> = set
+        .files
+        .keys()
+        .chain(set.links.keys())
+        .filter(|relative| merge::is_conflict_file(relative))
+        .cloned()
+        .collect();
+    for relative in merges {
+        set.files.remove(&relative);
+        set.links.remove(&relative);
+        set.skips.note(&relative, skips::Why::ConflictMerge);
+    }
     // The manifest's own name is never pushed over it, as a file or a symlink.
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
@@ -524,7 +590,7 @@ fn push_inner(
     }
     // What a pull compares the machine's branch and staged changes with.
     let git = if git_record { Some(git_back::base_of(&local)?) } else { None };
-    let mut remote = Remote::connect(socket)?;
+    let mut remote = Remote::connect_negotiated(socket)?;
     remote.mkdir_all(remote_root)?;
     let manifest_path = format!("{remote_root}/{manifest_name}");
     let mut previous: Manifest = remote
@@ -683,7 +749,41 @@ fn push_inner(
         .context("cannot save the sync manifest")?;
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
+    // What this push left, for `cmux link sync undo`: every file's blob this
+    // Mac does not keep yet, and a snapshot ([`history`]). Neither can fail
+    // the push.
+    snapshot_push(&local, remote_root, &next, &set.files, git_record);
     Ok(summary)
+}
+
+/// Keeps the blobs and the snapshot of a push that left `next`.
+fn snapshot_push(
+    local: &Path,
+    remote_root: &str,
+    next: &Manifest,
+    files: &BTreeMap<String, LocalFile>,
+    git: bool,
+) {
+    let Ok(root) = place::Dir::open(local) else { return };
+    for (relative, pushed) in &next.files {
+        if history::is_worktree_path(relative)
+            && matches!(files.get(relative).map(|file| &file.source), Some(Source::File(_)))
+            && history::blob(&pushed.sha256).is_none()
+        {
+            history::keep_blob(&root, relative, &pushed.sha256);
+        }
+    }
+    let git = if git { history::git_now(local) } else { None };
+    // A push changes nothing here: nothing it records is ever put back.
+    let _ = history::record(
+        local,
+        remote_root,
+        "push",
+        history::paths_of(next),
+        git,
+        None,
+        history::Changed::default(),
+    );
 }
 
 /// Saves the manifest of a push still going on the machine: what it wrote
@@ -798,6 +898,8 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
+    // Asked right before each write, never from a listing read earlier: a
+    // symlink the machine put there since must stop this file.
     match remote.kind(target)?.as_deref() {
         Some("dir") if remote.list(target)?.is_some_and(|entries| entries.is_empty()) => {
             remote.delete(&[target.to_string()])?;
@@ -867,16 +969,24 @@ impl Listings {
     /// The revision of the file at `target`; None when it is missing or not
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .entry(remote, target)?
+            .filter(|entry| entry.kind == "file")
+            .and_then(|entry| entry.revision))
+    }
+
+    fn entry(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<RemoteEntry>> {
         let (parent, name) = remote::split(target)?;
         if !self.0.contains_key(parent) {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0[parent]
-            .as_ref()
+        Ok(self
+            .0
+            .get(parent)
+            .and_then(Option::as_ref)
             .and_then(|entries| entries.get(name))
-            .filter(|entry| entry.kind == "file")
-            .and_then(|entry| entry.revision.clone()))
+            .cloned())
     }
 
     fn clear(&mut self) {

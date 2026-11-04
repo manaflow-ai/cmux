@@ -162,6 +162,24 @@ test("a start this Mac's pane refused says why by its code, never the generic co
   ).toBeUndefined();
 });
 
+test("a gone, home or credential folder each says why, naming the credential folder (cmux#35005, cmux#35006)", () => {
+  const ended = (code: string, message: string) => cloudStartEnded(begun(), "k-1", { ok: false, code, message });
+  expect(ended("cloud_folder_missing", "cloud_folder_missing")).toEqual({
+    ...begun(),
+    state: "failed",
+    message: "This folder no longer exists; pick another one to send to Cloud.",
+    refusedHere: true,
+  });
+  expect(ended("cloud_folder_home", "cloud_folder_home")?.message).toBe(
+    "Cloud doesn't copy your home folder or a folder above it; pick a project folder.",
+  );
+  const secret = ended("cloud_folder_secret", "~/.ssh");
+  expect(secret?.message).toBe("Cloud never copies ~/.ssh, which holds keys or credentials; pick a project folder.");
+  expect(secret?.refusedHere).toBe(true);
+  for (const code of ["cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"])
+    expect(ended(code, "x")?.message).not.toBe(cloudRefusalText("transport.path_outside_roots"));
+});
+
 test("the pane's other refusals before Cloud (attachments, a busy pane) mark no step failed, as Swift counts them", () => {
   const attachment =
     "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.";

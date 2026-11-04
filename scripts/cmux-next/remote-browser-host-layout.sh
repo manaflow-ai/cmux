@@ -54,7 +54,7 @@ rbh_write_bundle() { # <binary> <app>
 # Signs the helper apps, then <app>, with <identity> by the rules of
 # sign-cef.sh: "-" signs ad hoc without the hardened runtime; a real identity
 # adds the hardened runtime and a secure timestamp (CMUX_TIMESTAMP=none skips
-# it), and the GPU and Renderer helpers get com.apple.security.cs.allow-jit.
+# it), and the plain, GPU and Renderer helpers get com.apple.security.cs.allow-jit.
 # The CEF framework inside <app> is signed by its owner first (a copy by the
 # caller, the embedded app's own framework by sign-cef.sh).
 rbh_sign() { # <app> <identity>
@@ -77,7 +77,7 @@ ENT
   for helper in "$app/Contents/Frameworks/$RBH_NAME Helper"*.app; do
     [[ -d "$helper" ]] || continue
     case "$helper" in
-      *" Helper (GPU).app"|*" Helper (Renderer).app")
+      *" Helper.app"|*" Helper (GPU).app"|*" Helper (Renderer).app")
         codesign "${flags[@]}" --entitlements "$jit" "$helper" || { rm -f "$jit"; return 1; } ;;
       *)
         codesign "${flags[@]}" "$helper" || { rm -f "$jit"; return 1; } ;;

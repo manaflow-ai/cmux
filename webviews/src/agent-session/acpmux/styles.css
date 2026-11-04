@@ -5,7 +5,7 @@
 .acpmux-shell{--acpmux-header-height:28px;--acpmux-glyph-slot:16px;--acpmux-glyph-line:20px;--acpmux-disclosure-slot:16px;--acpmux-row-compact:28px;--acpmux-row-expanded:40px}
 .acpmux-row-glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--acpmux-glyph-slot,16px);height:var(--acpmux-glyph-slot)}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}
-.acpmux-transcript-after-latest{flex:none;min-width:0}.acpmux-open-app-cards{display:flex;flex:none;flex-direction:column;gap:var(--ds-space-2);box-sizing:border-box;padding:var(--ds-space-2) var(--cv-inset,var(--ds-space-4))}.acpmux-open-app-card{display:flex;flex:none;align-items:center;justify-content:space-between;gap:var(--ds-space-3);box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:1px solid var(--agent-border);border-radius:var(--ds-radius-xl);background:var(--acpmux-composer-tray);color:var(--agent-text)}.acpmux-open-app-card__copy{display:flex;min-width:0;flex-direction:column;gap:var(--ds-space-1);overflow:hidden}.acpmux-open-app-card__copy strong,.acpmux-open-app-card__copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-open-app-card__copy strong{font-size:var(--text-control);font-weight:var(--weight-emphasis)}.acpmux-open-app-card__copy span{color:var(--agent-muted);font-size:var(--text-detail)}.acpmux-open-app-card__error{color:var(--agent-danger,#d35c5c)!important}.acpmux-open-app-card__button{flex:none;display:grid;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:pointer}.acpmux-open-app-card__button:disabled{opacity:.7;cursor:default}.acpmux-open-app-card__button-label{grid-area:1/1}.acpmux-open-app-card__button-label[aria-hidden="true"]{visibility:hidden}.acpmux-open-app-card__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+.acpmux-transcript-after-latest{flex:none;min-width:0}.acpmux-open-app-cards{display:flex;flex:none;flex-direction:column;gap:var(--ds-space-2);box-sizing:border-box;padding:var(--ds-space-2) var(--cv-inset,var(--ds-space-4))}.acpmux-open-app-card{display:flex;flex:none;align-items:center;justify-content:space-between;gap:var(--ds-space-3);box-sizing:border-box;padding:var(--ds-space-2) var(--ds-space-3);border:1px solid var(--agent-border);border-radius:var(--ds-radius-xl);background:var(--acpmux-composer-tray);color:var(--agent-text)}.acpmux-open-app-card__copy{display:flex;min-width:0;flex-direction:column;gap:var(--ds-space-1);overflow:hidden}.acpmux-open-app-card__copy strong,.acpmux-open-app-card__copy span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-open-app-card__copy strong{font-size:var(--text-control);font-weight:var(--weight-emphasis)}.acpmux-open-app-card__copy span{color:var(--agent-muted);font-size:var(--text-detail)}.acpmux-open-app-card__error{color:var(--agent-danger,#d35c5c)!important}.acpmux-open-app-card__button{flex:none;display:grid;border:0;border-radius:var(--ds-radius-control);padding:var(--ds-space-1) var(--ds-space-3);background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit}.acpmux-open-app-card__button:disabled{opacity:.7}.acpmux-open-app-card__button-label{grid-area:1/1}.acpmux-open-app-card__button-label[aria-hidden="true"]{visibility:hidden}.acpmux-open-app-card__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
@@ -103,7 +103,7 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
@@ -315,6 +315,10 @@
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
 .acpmux-unavailable-spinner{color:var(--acpmux-composer-placeholder)}
+/* The resume spinner's slot is there from the card's first frame (ChatUnavailableState.tsx), so the
+   spinner that fades in past the threshold (afterDelay.ts) moves nothing. */
+.acpmux-unavailable-progress{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;flex:none;color:var(--acpmux-composer-placeholder)}
+.acpmux-unavailable-progress-mark{display:inline-flex}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-spinner{grid-row:2;align-self:center;justify-self:center}
 .acpmux-unavailable-copy{display:contents}
 .acpmux-unavailable[data-unavailable="connecting"] .acpmux-unavailable-title{grid-row:1;min-height:0;max-width:none;overflow:auto;align-self:stretch;align-content:end}
@@ -759,7 +763,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-detail{color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
 /* Inline marks in a question, an option or its description (question/inlineText.tsx): code as the transcript's inline code, a tint behind the mono face at the line's own size. */
 .acpmux-question-code{padding:0.5px 4px;border-radius:4px;background:color-mix(in srgb,var(--agent-text) 10%,transparent);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:0.92em;overflow-wrap:anywhere}
-.acpmux-question-mark{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;margin-top:1.5px;border:1px solid color-mix(in srgb,var(--agent-text) 35%,transparent);border-radius:50%;color:var(--agent-page-bg,var(--acpmux-base))}
+.acpmux-question-mark{flex:none;position:relative;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:16px;height:16px;margin-top:1.5px;border:1px solid color-mix(in srgb,var(--agent-text) 35%,transparent);border-radius:50%;color:var(--acpmux-base)}
 .acpmux-question-mark[data-multi]{border-radius:4px}
 .acpmux-question-mark[data-chosen]{border-color:var(--agent-text)}
 .acpmux-question-mark[data-chosen]:not([data-multi])::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--agent-text)}
@@ -966,6 +970,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-project-folders { max-height: min(45vh, 300px); overflow-y: auto; }
 .acpmux-project-folders.ui-combobox-scroll { overflow: hidden; }
 /* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
+/* The peer copy's banner floats over the top of the transcript (PeerCopyBanner.tsx): its slot takes no
+   height, so the banner arriving or leaving moves no row. */
+.acpmux-peer-copy-slot{display:contents}.acpmux-peer-copy-slot:not([data-shown])>*{visibility:hidden;opacity:0}@media (prefers-reduced-motion:no-preference){.acpmux-peer-copy-slot[data-shown]>*{transition:opacity var(--agent-motion-in) var(--agent-ease-out)}}
 .acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
 .acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
 .acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
