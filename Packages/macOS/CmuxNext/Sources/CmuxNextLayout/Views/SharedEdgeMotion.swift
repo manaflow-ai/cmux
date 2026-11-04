@@ -23,7 +23,10 @@ import CoreGraphics
 ///   its spring. A component at rest lands on its new target exactly, so a drag with no spring running places frames
 ///   as before S2B.
 /// The dragged pane's size then has no spring leftover, so a drag never shows it past its rest size by one: nothing
-/// shows a negative width. A release's fling seeds only the edges it moved.
+/// shows a negative width. A shown extent the layout cannot hold (under its minimum, past the ratio range) is caught at
+/// the nearest one it can hold, and the edge springs there from where it shows. A press that cannot catch (no anchor
+/// frame, a value the probes cannot move, a row edge) while the screen moves turns the rule off for its drag: it is
+/// the drag from before S2B. A release's fling seeds only the edges it moved.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
     private struct Edges {
@@ -121,29 +124,42 @@ extension SharedEdgeMotion {
         var speedChange: CGFloat
     }
 
-    /// What a press on `kind` catches on `screen`. Nil when the line shows at its rest distance from its anchor and moves
-    /// with it (nothing to catch), when the screen has no frame for it or its anchor, and for a row edge (its drag lays
-    /// out a preview of rest rows).
-    static func caught(_ kind: DividerHandleView.Kind, on screen: ScreenContentView) -> Caught? {
+    /// What a press on `kind` finds on `screen`.
+    enum Press {
+        /// The line shows at its rest distance from its anchor and moves with it: nothing to catch.
+        case atRest
+        case caught(Caught)
+        /// No frame for the line or its anchor, or a row edge (its drag lays out a preview of rest rows).
+        case cannotCatch
+    }
+
+    /// What a press on `kind` catches on `screen`.
+    static func press(_ kind: DividerHandleView.Kind, on screen: ScreenContentView) -> Press {
+        guard let handle = screen.dividerFrames[kind] else { return .cannotCatch }
+        return caught(kind, handle: handle, on: screen)
+    }
+
+    private static func caught(_ kind: DividerHandleView.Kind, handle: AnimatedFrame, on screen: ScreenContentView) -> Press {
         let geometry = screen.baseGeometry, style = screen.context.style
-        guard let handle = screen.dividerFrames[kind] else { return nil }
         switch kind {
         case let .split(id):
             guard let divider = geometry.dividers.first(where: { $0.id == id }),
-                  let side = screen.layout.tree(containing: id)?.node(for: id)?.a else { return nil }
+                  let side = screen.layout.tree(containing: id)?.node(for: id)?.a else { return .cannotCatch }
             let horizontal = divider.axis == .horizontal
             let base = horizontal ? divider.container.minX : divider.container.minY
             let line = horizontal ? divider.frame.minX : divider.frame.minY
-            guard let anchor = anchor(nearest: base, high: false, axis: divider.axis, of: side.panes, in: screen.paneFrames),
-                  let span = span(line: line, spring: horizontal ? handle.x : handle.y, base: base, anchor: anchor) else { return nil }
+            guard let anchor = anchor(nearest: base, high: false, axis: divider.axis, of: side.panes, in: screen.paneFrames) else {
+                return .cannotCatch
+            }
+            guard let span = span(line: line, spring: horizontal ? handle.x : handle.y, base: base, anchor: anchor) else { return .atRest }
             func ratio(_ extent: CGFloat) -> DividerDragValue {
                 .ratio(id, SplitGeometry.ratio(forPointer: base + extent, container: divider.container, axis: divider.axis, style: style,
                                                minimumA: divider.minimumA, minimumB: divider.minimumB))
             }
-            return Caught(value: ratio(span.extent), probes: [ratio(span.extent + probeStep), ratio(span.extent - probeStep)], axis: divider.axis,
-                          speedChange: anchor.velocity - span.velocity)
+            return .caught(Caught(value: ratio(span.extent), probes: [ratio(span.extent + probeStep), ratio(span.extent - probeStep)],
+                                  axis: divider.axis, speedChange: anchor.velocity - span.velocity))
         case let .columnEdge(id):
-            guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return nil }
+            guard let frame = geometry.columns[id], let column = screen.layout.columns.first(where: { $0.id == id }) else { return .cannotCatch }
             let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
             let band = edge?.isBand == true, axis: SplitAxis = band ? .vertical : .horizontal
             // The dragged line, its anchor across the column, whether the anchor is the column's high edge, and which
@@ -154,8 +170,10 @@ extension SharedEdgeMotion {
             case .bottom?: (frame.minY, frame.maxY, true, -1)
             case .left?, nil: (frame.maxX, frame.minX, false, 1)
             }
-            guard let anchor = anchor(nearest: base, high: high, axis: axis, of: column.root.panes, in: screen.paneFrames),
-                  let span = span(line: line, spring: band ? handle.y : handle.x, base: base, anchor: anchor) else { return nil }
+            guard let anchor = anchor(nearest: base, high: high, axis: axis, of: column.root.panes, in: screen.paneFrames) else {
+                return .cannotCatch
+            }
+            guard let span = span(line: line, spring: band ? handle.y : handle.x, base: base, anchor: anchor) else { return .atRest }
             let minimum = band ? column.minimumSize(style: style).height : column.minimumSize(style: style).width
             let viewport = switch edge {
             case nil: geometry.stripWidth
@@ -165,10 +183,10 @@ extension SharedEdgeMotion {
             func width(_ extent: CGFloat) -> DividerDragValue {
                 .width(id, ColumnStripGeometry.fraction(forPixelWidth: max(extent * sign, minimum), viewportWidth: viewport, gap: style.stripGap))
             }
-            return Caught(value: width(span.extent), probes: [width(span.extent + probeStep * sign), width(span.extent - probeStep * sign)], axis: axis,
-                          speedChange: anchor.velocity - span.velocity)
+            return .caught(Caught(value: width(span.extent), probes: [width(span.extent + probeStep * sign), width(span.extent - probeStep * sign)],
+                                  axis: axis, speedChange: anchor.velocity - span.velocity))
         case .rowEdge:
-            return nil
+            return .cannotCatch
         }
     }
 
@@ -201,7 +219,9 @@ extension SharedEdgeMotion {
 
     /// How far each edge moved with the dragged line between the caught layout and the probe layout, as a fraction of
     /// the line's move: 1 for an edge on the line or after it, 0 for an edge the value does not move, a part for an edge
-    /// a split shares out. The press gives each edge that fraction of the line's change of speed.
+    /// a split shares out. The press gives each edge that fraction of the line's change of speed. Both layouts are laid
+    /// out off the pixel grid (scale 0), so the two edges of a shared edge, a constant gap apart in both, move by the
+    /// same amount and get the same change.
     struct Influence {
         var caught: ScreenGeometry
         var probe: ScreenGeometry

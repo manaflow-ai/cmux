@@ -87,7 +87,8 @@ struct DividerDrag {
             if redraw { screen.reconcile(animated: false) }
         }
         model.cancelGesture(drag.transaction)
-        if let replaced = drag.replaced { putBack(replaced) }
+        // A press that caught a springing value: the release it replaced lands as it would have.
+        if let replaced = drag.replaced { set(replaced, transaction: .make(), phase: .ended) }
         model.setGestureActive(false)
         screen.resizeGestureReleased()
     }
@@ -139,7 +140,11 @@ struct DividerDrag {
             screen.activeDrag = drag
             return applyRowEdge(column, upper: upper, drag: drag, windowPoint: windowPoint, phase: phase)
         }
-        let keys = Set(targets.map(\.key))
+        var targets = targets, keys = Set(targets.map(\.key))
+        // The caught value is this drag's start for its key (rule C): a mode that stops setting it puts it back there.
+        if let caught = drag.caughtValue, drag.touched.contains(caught.key), !keys.contains(caught.key) {
+            (targets, keys) = (targets + [caught], keys.union([caught.key]))
+        }
         let restored = drag.touched.subtracting(keys)
         drag.touched = keys
         drag = phase == .ended ? drag : showingHint(drag)

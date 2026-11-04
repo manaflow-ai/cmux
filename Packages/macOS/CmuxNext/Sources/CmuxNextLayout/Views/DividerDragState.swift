@@ -11,9 +11,11 @@ struct DividerDragState {
     /// The press's pass that lays out the value it caught (rule C, `DividerDrag.catchShown`): every frame keeps where
     /// it shows.
     var catching = false
-    /// The value the press's catch replaced (its key, and the local value it showed over the daemon's, if any): a
-    /// cancel puts it back.
-    var replaced: (key: DividerDragValueKey, override: LayoutModel.Override?)?
+    /// The press's catch (`DividerDrag.catchShown`): the value it caught, the drag's start for that key (a modifier mode
+    /// that stops setting it puts it back there), and the local value the layout showed before it, if any (a release
+    /// the daemon has not confirmed): a cancel sends that again, in a new transaction.
+    var caughtValue: DividerDragValue?
+    var replaced: DividerDragValue?
     var grabOffset: CGFloat
     var container: CGRect
     var axis: SplitAxis
