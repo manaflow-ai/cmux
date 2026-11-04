@@ -956,3 +956,140 @@ code {
   gap: 12px;
   max-width: 360px;
 }
+
+/* The community registry (custom-panes-DESIGN.md 6.4): the Community section in Discover, Submit for
+   Review and My Submissions in Installed, and the reviewer's Review tab. They reuse the catalog's
+   card, row, split and detail parts; these rules only add the form fields and the file viewer. */
+.apps-catalog-section.apps-community {
+  margin-top: 24px;
+}
+
+.apps-community-note {
+  margin: 0;
+}
+
+.apps-community-head {
+  cursor: default;
+}
+
+.apps-submit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.apps-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+
+.apps-field-input {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--page-separator);
+  background: transparent;
+  color: var(--page-text);
+  font: inherit;
+  resize: vertical;
+}
+
+.apps-field-input:focus {
+  border-color: var(--page-text-3);
+}
+
+.apps-field-input[aria-invalid="true"] {
+  border-color: var(--page-text-2);
+}
+
+.apps-submit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.apps-submit-hint,
+.apps-review-form-error {
+  margin: 0;
+}
+
+.apps-submission-list,
+.apps-review-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apps-submission {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.apps-submission-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.apps-submission-reason {
+  overflow-wrap: anywhere;
+}
+
+.apps-review-note {
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.apps-review-queue {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+
+.apps-review-notes {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.apps-review-files {
+  gap: 0;
+}
+
+.apps-review-file {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: start;
+}
+
+.apps-review-file:hover {
+  background: var(--page-hover);
+}
+
+.apps-review-file.selected {
+  background: var(--page-selection);
+}
+
+.apps-review-viewer {
+  margin-top: 8px;
+}
+
+.apps-review-code {
+  max-height: 420px;
+  white-space: pre;
+}

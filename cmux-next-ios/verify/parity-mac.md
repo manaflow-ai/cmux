@@ -48,6 +48,13 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 | Move Tab Group Left / Right, to New Split (Right / Left / Above / Below), to New Column, to Workspace…, to New Workspace; New Tab in Group | `move-tab-group {group, pane, index}` (the Mac's `TabGroupReorder` index; another workspace's shown pane at its end), `move-tab-group-to-split {group, pane, edge}`, `move-tab-group-to-column {group, pane}`, `move-tab-group-to-new-workspace {group}`, `new-tab {pane}` + `add-tabs-to-tab-group` | the group's page > **Move**, **New Tab in Group** | works (groups-screens batch; live) | Left / Right show only when the group can move that way (not past the pane's edge or a pinned tab). A group in an agent chat dock is not split ("The agent chat can't be split.", as the Mac). Move Tab Group to Workspace… uses `move-tab-group` into the destination's first screen's default pane (never a chat dock), as the Mac's `tabGroup.moveToWorkspace`; the 2026-10-26 audit had it as off the lane, but that command is on it. No Move Tab Group to New Window (no windows on a phone). New Tab in Group's terminal is hostd's pane-folder shell (the phone names no folder). |
 | Reopen Saved Tab Group…, Delete Saved Tab Group… | `reopen-saved-tab-group {saved, pane}`, `delete-saved-tab-group {saved}`, read `list-saved-tab-groups`, `list-tab-groups` | page menu > **Reopen Saved Tab Group…** / **Delete Saved Tab Group…** (a chooser of the Mac's saved groups; an open one shows "Open" and is not reopened) | works (round 3; live: `saved_group` pass) | Params narrowed on both policies to the saved id, the pane and a transaction (no command, folder, env or host). The daemon reopens each terminal as the login shell in its saved folder (or reattaches it while it runs), on this Mac (SECURITY.md "Reopen Saved Tab Group"). Live: new login shells under the rig app's own terminal host, in the saved folders (SECURITY.md "Reopen Saved Tab Group"). |
 
+## Custom panes and App Store
+
+| Mac capability | Phone | State | Reason |
+| --- | --- | --- | --- |
+| Chief-built custom web panes, local package discovery and hot reload | — | not from a phone | Executes package content from the Mac’s filesystem in a Mac-owned sandbox. The remote relay refuses local package/content execution; a paired phone cannot supply or open executable pane content. |
+| App Store install/update, submission and reviewer decisions | — | not from a phone | These changes require the verified local native app connection and native consent. Forwarding them from a paired phone would bypass that trust boundary. No registry or package mutation commands are added to the remote allowlist. |
+
 ## Screens
 
 | Mac action | Mac sends | Phone | State | Notes |

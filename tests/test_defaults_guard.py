@@ -242,6 +242,50 @@ class DefaultsGuardTests(unittest.TestCase):
         result = self.check(head)
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_instance_method_named_like_a_tunable_helper_is_not_a_default(self):
+        factory = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        runtime = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Actions.swift"
+        self.repo.write(factory, """enum Factory {
+    static func toggle(_ value: Bool) -> Tunable<Bool> {
+        .toggle("factory.enabled", .status, "Enabled", default: value)
+    }
+    static let enabled = toggle(false)
+}
+""")
+        source = """class Sidebar {}
+enum Actions {
+    static func bind(_ sidebar: Sidebar) { sidebar.toggle(); Pane.opens() }
+}
+enum Pane { static func opens() -> Bool { false } }
+"""
+        self.repo.write(runtime, source)
+        self.base = self.repo.commit("an instance toggle beside tunable helpers")
+        result = self.check(self.head(extra={runtime: source.replace("{ false }", "{ true }")}))
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_empty_factory_calls_with_defaults_or_closures_require_review(self):
+        path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Factory.swift"
+        for signature, call in (
+            ("_ value: Double = 2", "Factory.points()"),
+            ("_ values: Double...", "Factory.points()"),
+            ("_ value: () -> Double", "Factory.points() { 2 }"),
+        ):
+            with self.subTest(signature=signature):
+                source = f"""enum Factory {{
+    static func points({signature}) -> Tunable<Double> {{
+        .number("factory.gap", .status, "Gap", default: 2)
+    }}
+}}
+enum Defaults {{
+    static func register() {{ store({call}); marker(2) }}
+}}
+"""
+                self.repo.write(path, source)
+                self.base = self.repo.commit("empty factory call")
+                result = self.check(self.head(extra={path: source.replace("marker(2)", "marker(3)")}))
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("DEFAULTS tunable-source.CmuxNextDesign/Factory.swift:register", result.stdout)
+
     def test_backticked_static_default_dependency_is_snapshotted(self):
         path = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DevTunables.swift"
         source = """enum DevTunables {

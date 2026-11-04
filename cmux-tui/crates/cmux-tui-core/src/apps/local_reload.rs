@@ -22,7 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, PoisonError, Weak};
 
 use notify::event::{AccessKind, AccessMode, EventKind};
 use serde_json::json;
@@ -68,12 +68,14 @@ impl Supervisor {
     }
 
     /// `reload_local_apps` with the catalog read given: a test lands a save
-    /// right after the read.
+    /// right after the read. Holds `catalog_updates` across the read and the
+    /// apply, so a registry update never interleaves with a reload.
     pub(super) fn reload_local_apps_from(
         &self,
         prints: &Prints,
         load: impl FnOnce(&catalog::Sources) -> catalog::Catalog,
     ) -> Prints {
+        let update = self.catalog_updates.lock().unwrap_or_else(PoisonError::into_inner);
         let before = PrintsBefore::take(&self.config.sources);
         let catalog = load(&self.config.sources);
         let next = before.of(&self.config.sources, &catalog);
@@ -117,6 +119,7 @@ impl Supervisor {
             outs.extend(Self::inventory_demand_locked(&mut inner));
             outs
         };
+        drop(update);
         self.emit(outs);
         next
     }

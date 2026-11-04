@@ -134,7 +134,7 @@ final class AppsService {
         guard let app = client.app(appID), app.installed else { throw .unknownApp }
         guard app.enabled else { throw .disabled }
         switch AppOpenTarget(app) {
-        case .scenePane:
+        case .scenePane, .webPane:
             guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
             guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
         case .web(let url):

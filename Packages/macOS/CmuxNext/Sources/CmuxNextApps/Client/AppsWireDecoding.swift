@@ -1,18 +1,19 @@
 public import CmuxNextDaemon
 import Foundation
 
-/// Reads the app supervisor's events (`event` plus top-level fields) and replies (`apps-v1`,
-/// plans/cmux-next/app-platform.md 13.2).
+/// Reads the supervisor's events (`event` plus top-level fields) and replies.
 public nonisolated struct AppsWireDecoding {
+    /// Creates a decoder for app supervisor events and replies.
     public init() {}
 
-    /// The transport event of daemon event `name`, nil for an event the client does not use.
+    /// Decodes one supervisor event; unknown or malformed events have no effect.
     public func event(name: String, payload: CmuxNextDaemon.JSONValue) -> AppsTransportEvent? {
         let json = AppJSON(payload)
         let date = json["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         switch name {
         case "apps-changed":
-            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) })
+            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
+                            app: json["app"]?.stringValue, transaction: json["transaction"]?.stringValue)
         case "apps-scene":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)
@@ -30,14 +31,14 @@ public nonisolated struct AppsWireDecoding {
         }
     }
 
-    /// The `apps-list` reply.
+    /// Decodes the supervisor's current catalog snapshot.
     public func list(_ value: CmuxNextDaemon.JSONValue) -> AppsListReply {
         let json = AppJSON(value)
         return AppsListReply(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
                              apps: (json["apps"]?.arrayValue ?? []).compactMap(AppRecord.init(json:)))
     }
 
-    /// The `apps-logs` reply's lines, numbered from 1.
+    /// Decodes the bounded log-ring reply in its original order.
     public func logs(_ value: CmuxNextDaemon.JSONValue) -> [AppLogLine] {
         (AppJSON(value)["lines"]?.arrayValue ?? []).enumerated().map { index, line in
             AppLogLine(id: index + 1, date: line["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) },

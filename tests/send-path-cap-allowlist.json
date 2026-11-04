@@ -107,6 +107,8 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {"count": 2, "reason": "safe: the custom pet-avatar image budget, not a chat message or attachment"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalClipboardRequests.swift": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/admin-outbox.ts": {"count": 2, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "backend/apps/api/src/app-registry-bundle.ts": {"count": 2, "reason": "safe: App Store bundle submission, not a message, prompt or attachment send; MAX_FILES and MAX_DECODED_BYTES bound one app package that a reviewer reads and the registry Durable Object stores (custom-panes-DESIGN.md 6.2)"},
+    "backend/apps/api/src/app-registry-routes.ts": {"count": 2, "reason": "safe: App Store registry request bodies, not a message, prompt or attachment send; MAX_SUBMIT_BODY is the base64 of one MAX_DECODED_BYTES bundle plus its manifest, MAX_DECIDE_BODY a reviewer's approve or reject note"},
     "backend/apps/api/src/billing-levels.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/billing-team-mode.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/chief-brain-cc/jobs.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

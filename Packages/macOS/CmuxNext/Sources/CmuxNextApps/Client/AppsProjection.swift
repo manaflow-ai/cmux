@@ -58,11 +58,14 @@ public nonisolated struct AppsProjection: Sendable, Hashable {
     /// An `apps-list` reply. An older revision than the one applied is
     /// stale (a reply that crossed a newer one) and ignored, and so is a
     /// reply to a request sent before the last confirmed change.
-    public mutating func applyList(_ records: [AppRecord], revision: UInt64?, request: Int? = nil) {
-        if let request, request < listFloor { return }
-        if let revision, let current = self.revision, revision < current { return }
+    /// Returns whether the snapshot was accepted.
+    @discardableResult
+    public mutating func applyList(_ records: [AppRecord], revision: UInt64?, request: Int? = nil) -> Bool {
+        if let request, request < listFloor { return false }
+        if let revision, let current = self.revision, revision < current { return false }
         mirror = records
         if let revision { self.revision = revision }
+        return true
     }
 
     public mutating func enqueue(_ intent: AppIntent) {

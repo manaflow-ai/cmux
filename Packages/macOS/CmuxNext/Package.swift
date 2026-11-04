@@ -715,7 +715,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextPages",
             dependencies: [
-                "CmuxNextBrowserCore", "CmuxNextChiefMemory", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
+                "CmuxNextBrowserCore", "CmuxNextChiefMemory", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextErrorJournal", "CmuxNextIcons", "CmuxNextFiles", "CmuxNextSettings", "CmuxNextWakeups",
             ],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
@@ -1060,7 +1060,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTestSupport", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):

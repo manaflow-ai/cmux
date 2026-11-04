@@ -256,6 +256,9 @@ pub struct Sources {
     pub extra: Vec<PathBuf>,
     /// The local development directory (`<state>/apps/local`).
     pub local: Option<PathBuf>,
+    /// Approved App Store apps the person got (`<state>/apps/registry`,
+    /// one `<namespace>/` folder per app; written only by `registry.rs`).
+    pub registry: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
     /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
@@ -289,6 +292,7 @@ impl Sources {
             bundled,
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
+            registry: state_dir.map(|d| d.join("apps").join("registry")),
             customize: customize_dir(),
             defaults,
         }
@@ -316,6 +320,7 @@ enum DirKind {
     Bundled,
     Extra,
     Local,
+    Registry,
 }
 
 pub fn load(sources: &Sources) -> Catalog {
@@ -325,6 +330,7 @@ pub fn load(sources: &Sources) -> Catalog {
     dirs.extend(sources.bundled.iter().map(|d| (d.clone(), DirKind::Bundled)));
     dirs.extend(sources.extra.iter().map(|d| (d.clone(), DirKind::Extra)));
     dirs.extend(sources.local.iter().map(|d| (d.clone(), DirKind::Local)));
+    dirs.extend(sources.registry.iter().map(|d| (d.clone(), DirKind::Registry)));
     let mut shipped_first_party = Vec::new();
     for (root, kind) in dirs {
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
@@ -410,6 +416,16 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
         DirKind::Local if publisher != "local" => {
             return Err(format!("{id}: the local directory only holds local/ apps"));
         }
+        // A registry app is a third-party app in its own namespace folder:
+        // never first-party, never local, never a folder named for another id.
+        DirKind::Registry
+            if first_party
+                || publisher == "local"
+                || dir.file_name().and_then(|n| n.to_str())
+                    != Some(cmux_app_manifest::app_namespace(&id).as_str()) =>
+        {
+            return Err(format!("{id}: not an App Store app of this folder"));
+        }
         DirKind::FirstParty if !first_party => {
             return Err(format!("{id}: the first-party directory only holds first-party apps"));
         }
@@ -426,6 +442,8 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     };
     let source = if kind == DirKind::Local || publisher == "local" {
         Source::Local
+    } else if kind == DirKind::Registry {
+        Source::Registry
     } else {
         Source::Bundled
     };

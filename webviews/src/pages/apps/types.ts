@@ -206,3 +206,102 @@ export const AppsOps = {
 
 /** Open is a host verb: the page runs the host action `app.open` (cx-hnmbt.13). */
 export const OPEN_ACTION = { op: "cmux.app.action.run", action: "app.open" } as const;
+
+// The community registry (custom-panes-DESIGN.md 6.3, 6.4): page ops the Mac answers
+// (`AppRegistryPageProvider`) over the signed-in Cloud session. Every call can fail with
+// `{code, message}`; `cloud.signed_out` and `cmux.page.cancelled` are expected.
+
+/** One approved app in `cmux.registry.listings`, at its latest approved version. */
+export interface RegistryListing {
+  app: string;
+  name: string;
+  description: string;
+  publisher: string;
+  version: string;
+  sha256: string;
+  size: number;
+  approved_at: string | number;
+  /** The package's manifest (manifest v2), as the submitter sent it. */
+  manifest: unknown;
+}
+
+export interface RegistryListingsResult {
+  listings: RegistryListing[];
+  cursor?: string | null;
+}
+
+/** `cmux.registry.me`. */
+export interface RegistryMe {
+  signedIn: boolean;
+  user?: string | null;
+  reviewer?: boolean;
+  publishers?: string[];
+}
+
+export type SubmissionStatus = "pending" | "approved" | "rejected";
+
+/** One of the caller's submissions (`cmux.registry.submissions`). */
+export interface RegistrySubmission {
+  id: string;
+  app: string;
+  version: string;
+  status: SubmissionStatus;
+  reason?: string | null;
+  submitted_at: string | number;
+  decided_at?: string | number | null;
+}
+
+export interface RegistrySubmissionsResult {
+  submissions: RegistrySubmission[];
+}
+
+/** `cmux.registry.submit`. */
+export interface RegistrySubmitResult {
+  submission: RegistrySubmission;
+}
+
+/** One pending submission in `cmux.registry.review.queue`. */
+export interface ReviewSubmission {
+  id: string;
+  app: string;
+  version: string;
+  submitted_at: string | number;
+  submitter: { user: string; email?: string | null };
+  manifest: unknown;
+  files: { path: string; size: number }[];
+  notes?: string | null;
+}
+
+export interface ReviewQueueResult {
+  submissions: ReviewSubmission[];
+}
+
+/** `cmux.registry.review.file`: one file of a pending submission. */
+export interface ReviewFileResult {
+  path: string;
+  base64: string;
+}
+
+export type ReviewDecision = "approve" | "reject";
+
+/** The reviewer's reason on a decision: required to reject (server rule, 6.3). */
+export const REJECT_REASON = { min: 8, max: 500 } as const;
+
+export const RegistryOps = {
+  listings: "cmux.registry.listings",
+  me: "cmux.registry.me",
+  submissions: "cmux.registry.submissions",
+  submit: "cmux.registry.submit",
+  reviewQueue: "cmux.registry.review.queue",
+  reviewFile: "cmux.registry.review.file",
+  reviewDecide: "cmux.registry.review.decide",
+  get: "cmux.registry.get",
+} as const;
+
+/** The host's code when the call needs a Cloud session and there is none. */
+export const SIGNED_OUT = "cloud.signed_out";
+
+/** A local app (`local/<name>`), the only kind a person submits for review. */
+export function isLocalApp(id: string): boolean {
+  return id.startsWith("local/");
+}
