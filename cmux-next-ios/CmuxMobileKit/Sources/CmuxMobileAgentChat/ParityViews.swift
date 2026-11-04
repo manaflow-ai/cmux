@@ -361,7 +361,7 @@ struct CheckpointsScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let checkpoints):
                 List {
@@ -499,7 +499,7 @@ struct HandoffScreen: View {
                 } description: {
                     Text(message)
                 } actions: {
-                    Button("Try again") { Task { await reload() } }
+                    RetryButton("Try Again") { await reload() }
                 }
             case .loaded(let targets):
                 List {

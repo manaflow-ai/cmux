@@ -52,9 +52,9 @@ export const agentBudgetAllows = <C>(caller: Named<C, Principal>, scope: KeyHasS
       upstream.getVmForWrite(vm, { owns, scope }).pipe(
         Effect.map((found) => estimatedUsdPerHour(found.resources.cpu, found.resources.memory)),
         // Gone upstream: it costs nothing, though it still counts until deleted here.
-        Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(0) : Effect.fail(unavailable()))),
+        Effect.catchAll((error) => (error.status === 404 ? Effect.succeed(0) : Effect.fail(unavailable(error)))),
       ),
-    ).pipe(Effect.catchTag("StoreError", () => Effect.fail(unavailable())));
+    ).pipe(Effect.catchTag("StoreError", (error) => Effect.fail(unavailable(error))));
     if (page.results.length >= budget.maxVms) {
       return yield* Effect.fail(
         new QuotaExceeded({ message: `This agent key already has its limit of ${budget.maxVms} VMs; delete one first`, budget: "agent_vms" }),
@@ -77,12 +77,12 @@ export const revokeVmClientSessions = (tenantId: TenantId, vmId: string) =>
   Effect.gen(function* () {
     const agents = yield* AgentStore;
     const upstream = yield* UpstreamClient;
-    const sessions = yield* agents.liveClientSessions(tenantId, vmId).pipe(Effect.mapError(() => unavailable()));
+    const sessions = yield* agents.liveClientSessions(tenantId, vmId).pipe(Effect.mapError(unavailable));
     let revoked = 0;
     for (const session of sessions) {
-      yield* upstream.deleteIdentity(session.upstreamIdentityId).pipe(Effect.mapError(() => unavailable()));
+      yield* upstream.deleteIdentity(session.upstreamIdentityId).pipe(Effect.mapError(unavailable));
       const at = new Date(yield* Clock.currentTimeMillis);
-      yield* agents.markClientSessionRevoked(tenantId, session.id, at).pipe(Effect.mapError(() => unavailable()));
+      yield* agents.markClientSessionRevoked(tenantId, session.id, at).pipe(Effect.mapError(unavailable));
       revoked += 1;
     }
     return revoked;
