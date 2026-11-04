@@ -514,6 +514,8 @@ extension TerminalController: ControlWorkspaceContext {
         let (transport, terminalTransport, skipDaemonBootstrap) =
             (remoteTransports.management, remoteTransports.terminal, remoteTransports.skipDaemonBootstrap)
         let terminalProfile = remoteTerminalProfile.profile
+        let eternalTerminal = remoteEternalTerminalConfiguration(params)
+        if let error = eternalTerminal.error { return error }
         let autoConnect = v2Bool(params, "auto_connect") ?? true
         var relayPort: Int?
         if v2HasNonNullParam(params, "relay_port") {
@@ -658,7 +660,7 @@ extension TerminalController: ControlWorkspaceContext {
                 "workspace_ref": controlWorkspaceRefValue(workspaceId),
             ]))
         }
-        let config = WorkspaceRemoteConfiguration(
+        var config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -686,6 +688,9 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
+        if terminalTransport == .et {
+            config.eternalTerminalOptions = eternalTerminal.options
+        }
         guard workspace.configureRemoteConnection(
             config,
             autoConnect: autoConnect
