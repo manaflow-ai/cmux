@@ -369,7 +369,13 @@ import {
   type ReferenceScope,
 } from "./conversation/bareReferences";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { MessageFooterRow, PromptActions, ReceivedActions, ReplyActions } from "./conversation/MessageActions";
+import {
+  MessageFooterRow,
+  PromptActions,
+  ReceivedActions,
+  ReplyActions,
+  SegmentActions,
+} from "./conversation/MessageActions";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState, stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight } from "./conversation/fold";
@@ -1446,6 +1452,7 @@ const MessageRow = memo(
           ) : (
             // An unread steer shows only queue controls; accepted or read prompts show normal hover actions.
             <>
+              {row.segmentCopy && <SegmentActions row={row} />}
               {row.author && <AuthorChip author={row.author} />}
               <UserBubble
                 row={row}

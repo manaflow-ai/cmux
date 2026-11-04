@@ -4,7 +4,7 @@
 // prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin, Read
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
-import { useContext, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -17,6 +17,7 @@ import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { RowReplyButton } from "./SelectionReply";
+import { turnCopyText } from "./turnCopy";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
 
@@ -372,6 +373,25 @@ export function ReplyActions({ row }: { row: AcpmuxRow }) {
         <MessageMore rowId={row.id} />
       </span>
       <ReplyTime at={row.at} />
+    </div>
+  );
+}
+
+/// The Copy of the part of a turn the person's steer ended (model.ts `segmentCopy`, turns.ts
+/// withSegmentCopy), as an ended turn's footer copies the turn: its replies and tool lines in order,
+/// with Read aloud. It lies in the gap over the steer, where a footer would sit, so it takes no room;
+/// it shows while the reader points at the steer or the row above it (conversation.css).
+export function SegmentActions({ row }: { row: AcpmuxRow }) {
+  const t = useT();
+  const parts = row.segmentCopy;
+  const text = useMemo(() => (parts ? turnCopyText(t, parts) : ""), [t, parts]);
+  if (!text) return null;
+  return (
+    <div className="cv-turn-actions cv-segment-actions">
+      <span className="cv-turn-action-group">
+        <MessageCopy text={text} />
+        <ReadAloudButton id={`${row.id}-segment`} text={text} />
+      </span>
     </div>
   );
 }

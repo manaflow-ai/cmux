@@ -4447,6 +4447,26 @@ a.cv-sha:focus-visible {
 .cv-reply-actions:focus-within .cv-turn-time {
   opacity: 1;
 }
+/* The Copy of the part of a turn the person's steer ended (MessageActions.tsx SegmentActions): an ended
+   turn's footer row, laid in the turn gap over the steer (transcriptGrid.ts: a message or a step over a
+   prompt is the turn gap) and centred in it, so it takes no room and moves nothing. The row
+   (`contain: layout`) is its box. It starts on the prose's left edge, as a footer does, and shows while
+   the reader points at the steer or the row above it, or a button in it has keyboard focus. */
+.cv-segment-actions {
+  position: absolute;
+  z-index: 1;
+  inset-inline: 0 auto;
+  top: calc(-1 * (var(--grid-gap-turn) + var(--cv-meta-row)) / 2);
+  margin: 0;
+  opacity: 0;
+}
+article.acpmux-row:hover .cv-segment-actions,
+article.acpmux-row:hover + article.acpmux-row .cv-segment-actions,
+.cv-segment-actions:has([data-popup-open]),
+.cv-segment-actions:focus-within,
+.cv-segment-actions:has(.cv-read-aloud[data-reading]) {
+  opacity: 1;
+}
 /* A reply's own row (MessageActions.tsx ReplyActions: a steer, another agent's message or a tool
    row follows the reply): the footer's line under it at the meta gap, its space kept, shown while
    the reader points at the reply or a button in it has keyboard focus. */

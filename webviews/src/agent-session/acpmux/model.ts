@@ -485,6 +485,10 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// The person's steer's copy of the part of its turn before it (conversation/turns.ts
+  /// withSegmentCopy): the steer ends that part for the reader, so it gets an ended turn's Copy, in
+  /// the gap over the steer (MessageActions.tsx SegmentActions). Undefined when the agent said nothing.
+  segmentCopy?: TurnCopyPart[];
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;

@@ -31,7 +31,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts } from "./turnCopy";
+import { turnCopyParts, type TurnCopyPart } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
@@ -737,7 +737,38 @@ function repliesIn(body: readonly AcpmuxRow[]): Set<string> {
   return replies;
 }
 
-function shapeTurn(
+function shapeTurn(...args: Parameters<typeof shapeTurnRows>): AcpmuxRow[] {
+  return withSegmentCopy(args[1], shapeTurnRows(...args));
+}
+
+/// `shaped` with each of the person's steers in `turn` carrying the copy of the part of the turn
+/// before it (model.ts `segmentCopy`): from the turn's start, or the steer before, to this one. The
+/// steer ends that part for the reader (``steerDialogueIn``), so it copies as an ended turn's footer
+/// does, as Claude Code's does when the person comes in (Leo, 2026-11-03: "a lot of these should've
+/// been counted as "ended"-ish turns that allow me to copy/paste your stuff / cuz look claude code
+/// lets that happen if the user comes in"). Read from the turn's own rows, so work a closed "Worked
+/// for" hides is copied too. One pass over the turn; `shaped` is returned as it is when no steer copies.
+function withSegmentCopy(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
+  let copies: Map<string, TurnCopyPart[]> | undefined;
+  let from = 0;
+  for (let at = 0; at < turn.length; at += 1) {
+    const row = turn[at]!;
+    if (row.kind === "turnSummary") from = at + 1;
+    if (row.kind !== "user" || row.incoming || row.steer === "waiting" || !continuesTurn(row)) continue;
+    const parts = turnCopyParts(turn.slice(from, at));
+    from = at + 1;
+    if (parts) (copies ??= new Map()).set(row.id, parts);
+  }
+  if (!copies) return shaped;
+  const found = copies;
+  // A new version, so the memoized row draws its copy (memos compare versions).
+  return shaped.map((row) => {
+    const parts = row.kind === "user" ? found.get(row.id) : undefined;
+    return parts ? { ...row, segmentCopy: parts, version: row.version * 2 + 1 } : row;
+  });
+}
+
+function shapeTurnRows(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
   expanded: Folds,
