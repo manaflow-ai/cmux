@@ -473,6 +473,13 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
+# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
+TRUSTED_SELECTOR_TAIL = [
+    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
+    "'blacksmith-4vcpu-ubuntu-2404'",
+]
 EPHEMERAL_MIRROR_TERM = re.compile(
     r"contains\(fromJSON\('\[\"blacksmith-\d+vcpu-ubuntu-2404\"(?:,\"blacksmith-\d+vcpu-ubuntu-2404\")*\]'\), "
     r"vars\.LINUX_RUNNER\) && vars\.LINUX_RUNNER")
@@ -503,9 +510,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
     """
     document = json.loads(map_path.read_text())
     declarations = document.get("hosted_light_jobs", {})
+    bootstraps = document.get("portable_light_jobs", {})
     classes = document.get("job_classes", {})
-    if not isinstance(declarations, dict):
-        return ["hosted_light_jobs must be an object"], []
+    if not isinstance(declarations, dict) or not isinstance(bootstraps, dict):
+        return ["hosted_light_jobs and portable_light_jobs must be objects"], []
+    declarations = {**declarations, **bootstraps}
     problems, allowed, seen = [], [], set()
     fork = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
     hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
@@ -522,6 +531,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 continue
             seen.add(key)
             entry = declarations[key]
+            bootstrap = key in bootstraps
             issue = ""
             if not isinstance(entry, dict) or classes.get(entry.get("class"), {}).get("needs") != "any" or not entry.get("reason"):
                 issue = "must declare a portable class and a reason"
@@ -552,6 +562,12 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             if used - set(permitted):
                 problems.append(f"hosted_light_jobs[{key!r}] references undeclared secrets: {', '.join(sorted(used - set(permitted)))}")
                 continue
+            if bootstrap and (used or job.get("environment")
+                    or not isinstance(job.get("permissions", {}), dict) or any(
+                    value != "read" for value in job.get("permissions", {}).values())
+                    or name != "portable-placement"):
+                problems.append(f"portable_light_jobs[{key!r}] must be a secretless read-only placement bootstrap")
+                continue
             route = job.get("runs-on", "")
             expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
             if len(expressions) != 1:
@@ -571,12 +587,16 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 problems.append(f"hosted_light_jobs[{key!r}] never permits hosted macOS")
                 continue
             if "ubuntu-24.04'" not in text:
-                # A declaration may precede the separate workflow routing change.
+                # An existing declaration may precede a workflow routing change.
+                # A new placement bootstrap must carry its verified fallback.
+                if bootstrap:
+                    problems.append(f"portable_light_jobs[{key!r}] must retain its hosted and Linux overflow routes")
                 continue
             track_hosted = "needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && 'ubuntu-24.04'"
             hosted_terms = [part for part in alternatives if part in (hosted, track_hosted)]
-            pool = "fromJSON(vars.RUNNER_POOLS).linux"
-            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not (alternatives[-1] == pool and not used):
+            pool = "fromJSON(vars.RUNNER_POOLS).linux_2" if bootstrap else "fromJSON(vars.RUNNER_POOLS).linux"
+            secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
+            if len(hosted_terms) != 1 or alternatives[-1] not in paid and not secretless_tail:
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -600,15 +620,24 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                         and tail[0].split(" && ", 1)[1] in paid)
             # Or, for a job that holds no secret, the reconciled Linux pool's live member.
             pooled = tail == [pool] and not used
-            if not (len(tail) == 1 and tail[0] in paid or switched or pooled
+            # Or, for a secretless job in a reusable workflow (which must not fromJSON a variable),
+            # the reviewed CI_TRUSTED_RUNNER selector: its own allowlist, else one ephemeral label.
+            trusted = tail == TRUSTED_SELECTOR_TAIL and not used
+            if not (len(tail) == 1 and tail[0] in paid or switched or pooled or trusted
                     or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]
                     or tail == [measured16_pool, "fromJSON(vars.RUNNER_POOLS).linux_32"]):
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
-            if any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
+            if bootstrap:
+                if alternatives[:position]:
+                    problems.append(f"portable_light_jobs[{key!r}] must start with hosted Ubuntu; fixed labels cannot bootstrap placement")
+                    continue
+            elif any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
                 problems.append(f"hosted_light_jobs[{key!r}] has an unverified label before hosted overflow")
                 continue
-            if any("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)" not in part for part in alternatives[:position]):
+            current_attempt = ("needs.decide.outputs.early_attempt == format('{0}', github.run_attempt)",
+                               "needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)")
+            if not bootstrap and any(not any(marker in part for marker in current_attempt) for part in alternatives[:position]):
                 problems.append(f"hosted_light_jobs[{key!r}] must consume only current-attempt placement")
                 continue
             if value_terms(text).count("'ubuntu-24.04'") != 1:
@@ -634,6 +663,7 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
 def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
     classes, table = load_table(map_path)
     pools = pool_members(map_path)
+    bootstraps = json.loads(map_path.read_text()).get("portable_light_jobs", {})
     problems, _ = hosted_light_policy(map_path, workflows)
     seen: dict[str, bool] = {}
     for job, on_macos in iter_jobs(workflows):
@@ -651,6 +681,10 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         spec = classes.get(entry["class"])
         if spec is None:
             problems.append(f"{job.key}: unknown job class {entry['class']!r}")
+            continue
+        # A bootstrap cannot depend on its own placement output. Its narrow
+        # secretless hosted/overflow route is checked above instead.
+        if job.key in bootstraps:
             continue
         bypass = bypasses_placement(job.runs_on)
         if bypass and not entry.get("placement_followup"):

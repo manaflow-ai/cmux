@@ -274,6 +274,12 @@ impl Translator {
                             let shell = BackgroundShell {
                                 sid: sid.clone(),
                                 command: command.to_owned(),
+                                description: input
+                                    .get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|d| !d.is_empty())
+                                    .map(str::to_owned),
                                 task: None,
                                 background: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
@@ -979,6 +985,7 @@ impl Translator {
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
+                    description: None,
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
@@ -1335,13 +1342,19 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
 
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    json!({
+    let mut update = json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    })
+    });
+    // The call's own words for it, so a client that never loaded the call
+    // (an older page, a peer) still names it by them.
+    if let Some(description) = &shell.description {
+        update.set("description", json!(description));
+    }
+    update
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
