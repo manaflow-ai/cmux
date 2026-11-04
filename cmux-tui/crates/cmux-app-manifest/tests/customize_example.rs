@@ -63,7 +63,7 @@ mod apps {
             Some(&serde_json::json!("bottom"))
         );
 
-        let exported = exported_names(&script);
+        let exported = exported_names(script);
         for interface in ["cmux.section/1", "cmux.session.info.section/1"] {
             let export = manifest["implements"][interface]["export"]
                 .as_str()
@@ -98,7 +98,7 @@ mod apps {
         assert_eq!(manifest["id"], "local/customize");
         let export = manifest["implements"]["cmux.section/1"]["export"].as_str().expect("export");
         assert!(script.contains(&format!("function {export}(")), "{export} is not defined");
-        assert_eq!(exported_names(&script), [export], "the template exports just its one view");
+        assert_eq!(exported_names(script), [export], "the template exports just its one view");
         for piece in ["Panel(", "Toggle(", "Slider(", "Row(", "Button(", "Menu(", "cmux.toast("] {
             assert!(script.contains(piece), "the template uses {piece}");
         }
