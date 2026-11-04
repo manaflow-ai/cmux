@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextDaemon
 import Foundation
 
 /// Forks a Cloud chat at its latest completed turn. ForkRuns snapshots the machine first;
@@ -11,13 +12,15 @@ enum CloudTryAnotherApproach {
     }
 
     static func run(chat key: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
-        guard throughSeq > 0, services.cloud.auth.isSignedIn,
-              let (sourceTab, sourcePane) = services.locateTab(key),
+        guard throughSeq > 0, services.cloud.auth.isSignedIn else { throw failure("Cloud chat is unavailable") }
+        guard let (sourceTab, sourcePane) = services.locateTab(key),
               let sourceRecord = sourceTab.agentSession,
               let sourceSession = sourceRecord.session,
-              let harness = sourceRecord.harness,
-              let sourceDaemon = services.machines.daemon(forTab: sourceTab),
-              let sourceCloud = services.machines.session(sourceDaemon.machineID),
+              let harness = sourceRecord.harness else {
+            throw failure("Cloud chat is unavailable")
+        }
+        let sourceDaemon = services.machines.daemon(forTab: sourceTab)
+        guard let sourceCloud = services.machines.session(sourceDaemon.machineID),
               let workspace = services.machines.allWorkspaces.first(where: { workspace, daemon in
                   daemon === sourceDaemon && workspace.screens.flatMap(\.panes).contains { $0 === sourcePane }
               })?.0 else {
