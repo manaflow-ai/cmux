@@ -27,7 +27,7 @@ enum TabLifecycle {
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let opensWorkspace = NewTerminalWorkspaceSetting.opensWorkspace(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
-            toggled: invocation["toggleWorkspace"]?.boolValue == true, byPerson: invocation.origin == .user, byKey: ctx.registry.isDispatchingKeyDown()
+            toggled: invocation["toggleWorkspace"]?.boolValue == true, byPerson: invocation.origin == .user, byKey: invocation.byShortcut
         )
         if opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
