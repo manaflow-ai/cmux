@@ -32,7 +32,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The disclosure chevron: one glyph that turns as the group opens and closes (Lawrence msg 15763).
     private let chevron = DisclosureChevronView()
     /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
+    /// It draws at its box's size whatever the scale setting, as the rows' badges do (`RowBadgeView`), so a header's
+    /// mark and its rows' marks read at one size (Leo 2026-11-03: "symbol size discrepancy groups vs workspaces").
+    private let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        view.usesStatusColors = true
+        view.ignoresScaleSetting = true
+        return view
+    }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -222,6 +229,10 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
+    var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
+    /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
+    var debugActivityIgnoresScale: Bool { activity.ignoresScaleSetting }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
@@ -430,8 +441,10 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
-        let ind = SidebarStyle.indicatorSize
-        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+        // The mark's box is a workspace row's for the same state (`SidebarStyle.statusMarkSide(for:)`): the warning's
+        // 14 pt, the spinner's status glyph size, on the column every row's mark centers on.
+        let markSide = SidebarStyle.statusMarkSide(for: activity.state)
+        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: markSide)
         setHoverSlotShown(activitySlot, onColumn, frame: slotFrame, fades: (fadesNextActivity || fades) && !showsActions) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
