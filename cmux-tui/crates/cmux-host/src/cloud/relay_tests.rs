@@ -296,7 +296,10 @@ fn a_chats_process_exit_is_seen_with_sigchld_blocked() {
             home: PathBuf::from("/"),
         };
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        rt.block_on(tokio::time::timeout(Duration::from_secs(10), runner.command(&[]).status()))
+        // Tokio's `status` spawns at once, so inside the runtime.
+        rt.block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), runner.command(&[]).status()).await
+        })
     })
     .join()
     .unwrap();
