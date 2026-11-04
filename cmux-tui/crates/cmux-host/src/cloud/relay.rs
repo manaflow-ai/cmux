@@ -66,7 +66,7 @@ fn id_like(s: &str, max: usize) -> bool {
     !s.is_empty()
         && s.len() <= max
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b))
-        && s.as_bytes()[0].is_ascii_alphanumeric()
+        && s.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
 }
 
 fn agent_like(s: &str) -> bool {
@@ -76,7 +76,7 @@ fn agent_like(s: &str) -> bool {
     };
     !harness.is_empty()
         && harness.len() <= 32
-        && harness.as_bytes()[0].is_ascii_alphanumeric()
+        && harness.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric)
         && harness.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b))
         // acpmux's HARNESS[/MODEL], where a model may nest (`opencode/zai/glm-5.1`).
         && model.is_none_or(|m| m.len() <= 128 && m.split('/').count() <= 4 && m.split('/').all(|seg| id_like(seg, 64)))
@@ -208,8 +208,8 @@ pub fn events_of(line: &str) -> Vec<Value> {
         }
         "_acpmux/event" => {
             let mut e = json!({"kind": "record", "record": params});
-            if let Some(seq) = params.get("seq").cloned() {
-                e["seq"] = seq;
+            if let (Some(seq), Some(o)) = (params.get("seq").cloned(), e.as_object_mut()) {
+                o.insert("seq".to_owned(), seq);
             }
             vec![e]
         }
@@ -235,8 +235,10 @@ pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) 
         let v = serde_json::from_str::<Value>(stdout.trim()).unwrap_or(Value::Null);
         let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
         let mut done = json!({"kind": "done", "stop_reason": stop});
-        if let Some(reply) = v.get("reply").and_then(Value::as_str) {
-            done["reply"] = json!(reply);
+        if let (Some(reply), Some(o)) =
+            (v.get("reply").and_then(Value::as_str), done.as_object_mut())
+        {
+            o.insert("reply".to_owned(), json!(reply));
         }
         return done;
     }
