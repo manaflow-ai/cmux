@@ -25,46 +25,52 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
         else void store.run();
       }}
     >
-      <header>
-        <h1>{t("history.title")}</h1>
-        <p className="history-lead">{t("history.subtitle")}</p>
-      </header>
-      <output className="history-notice" aria-live="polite">
-        {t(`history.state.${snapshot.phase}`)}
-      </output>
-      <div className="history-sources">
-        {snapshot.rows.map((row) => (
-          <SourceRow
-            key={row.id}
-            row={row}
-            store={store}
-            strings={strings}
-            busy={busy || snapshot.phase === "detecting"}
-          />
-        ))}
-      </div>
-      <button
-        className="history-link history-dot"
-        type="button"
-        disabled={busy || Boolean(snapshot.picking)}
-        onClick={() => void store.pickZip("dot")}
-      >
-        {t("history.savedDot")}
-      </button>
-      {(snapshot.error || snapshot.phase === "error") && (
-        <div className="history-error" role="alert">
-          <p>
-            {t("history.error")}
-            {detail && <span className="history-error-detail">{detail}</span>}
-          </p>
-          {snapshot.error && !busy && (
-            <button type="button" className="history-link" onClick={() => void store.retryDetection()}>
-              {t("history.retry")}
-            </button>
+      <div className="history-scroll">
+        <div className="history-content">
+          <header>
+            <h1>{t("history.title")}</h1>
+            <p className="history-lead">{t("history.subtitle")}</p>
+          </header>
+          <output className="history-notice" aria-live="polite">
+            {t(`history.state.${snapshot.phase}`)}
+          </output>
+          <div className="history-sources">
+            {snapshot.rows.map((row) => (
+              <SourceRow
+                key={row.id}
+                row={row}
+                store={store}
+                strings={strings}
+                busy={busy || snapshot.phase === "detecting"}
+              />
+            ))}
+            {!snapshot.rows.some((row) => row.id === "dot") && (
+              <SourceRow
+                key="dot"
+                row={SAVED_DOT_ROW}
+                title={t("history.savedDot")}
+                store={store}
+                strings={strings}
+                busy={busy}
+              />
+            )}
+          </div>
+          {(snapshot.error || snapshot.phase === "error") && (
+            <div className="history-error" role="alert">
+              <p>
+                {t("history.error")}
+                {detail && <span className="history-error-detail">{detail}</span>}
+              </p>
+              {snapshot.error && !busy && (
+                <button type="button" className="history-link" onClick={() => void store.retryDetection()}>
+                  {t("history.retry")}
+                </button>
+              )}
+            </div>
           )}
+          <p className="history-safety">{t("history.safety")}</p>
         </div>
-      )}
-      <p className="history-safety">{t("history.safety")}</p>
+      </div>
       <footer className="history-footer">
         <DialogButton dialogKey={null} className="history-button" onClick={() => void store.finish(false)}>
           {t("history.skip")}
@@ -99,20 +105,30 @@ export function ImportHistory({ store, strings, layout = "list" }: ImportHistory
   );
 }
 
+/** New Computer's discontinued Dot has no detectable source: until its saved zip is picked, it is an
+ * ordinary unchecked zip row (same checkbox column and Choose action), and picking replaces it with
+ * the model's real `dot` row. */
+const SAVED_DOT_ROW: HistoryRow = { id: "dot", kind: "zip", selected: false, phase: "idle" };
+
 function SourceRow({
   row,
+  title: titleOverride,
   store,
   strings,
   busy,
 }: {
   row: HistoryRow;
+  title?: string;
   store: ImportHistoryStore;
   strings: Strings;
   busy: boolean;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const t = strings.t;
-  const title = t(`history.source.${row.id}`);
+  // The Choose action names the source ("Choose a Dot (New Computer) export (.zip)"), not the
+  // placeholder's sentence.
+  const sourceName = t(`history.source.${row.id}`);
+  const title = titleOverride ?? sourceName;
   const unavailable = row.kind === "local" && !row.source;
   const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
   return (
@@ -162,7 +178,7 @@ function SourceRow({
               className="history-link"
               disabled={busy || Boolean(snapshot.picking)}
               onClick={() => void store.pickZip(row.id as "chatgpt" | "claude" | "dot")}
-              aria-label={strings.format("history.chooseFor", title)}
+              aria-label={strings.format("history.chooseFor", sourceName)}
             >
               {t(snapshot.picking === row.id ? "history.choosing" : "history.choose")}
             </button>

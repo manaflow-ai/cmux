@@ -1,9 +1,27 @@
 /* One quiet list, using the app's own type and color tokens. Alternate layouts remain gallery choices. */
+/* The page fills the sheet: the list scrolls above a footer that stays put. The footer paints no
+   background of its own, so it shows the same see-through sheet as the list (an opaque footer
+   strip read as a black bar over the glass, #34569). */
 .import-history {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  user-select: text;
+}
+.history-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.history-content,
+.history-footer {
+  width: 100%;
   max-width: 680px;
   margin: 0 auto;
-  padding: 32px 24px;
-  user-select: text;
+  padding-inline: 24px;
+}
+.history-content {
+  padding-block: 32px 0;
 }
 .import-history h1 {
   margin: 0;
@@ -71,10 +89,6 @@
   opacity: 0.5;
   cursor: default;
 }
-.history-dot {
-  margin: 12px 0 0;
-  color: var(--page-text-2);
-}
 .history-file,
 .history-report,
 .history-row-status,
@@ -121,11 +135,10 @@
   color: var(--page-text-2);
 }
 .history-footer {
+  flex-shrink: 0;
   justify-content: space-between;
-  position: sticky;
-  bottom: 0;
-  padding: 12px 0;
-  background: var(--cmux-surface-solid, Canvas);
+  padding-block: 12px 16px;
+  border-top: 1px solid var(--page-separator);
 }
 .history-button {
   border: 1px solid var(--page-separator);
@@ -135,6 +148,11 @@
   color: inherit;
   font: inherit;
 }
+/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
+.history-button .ui-keyhint {
+  color: inherit;
+  opacity: 0.7;
+}
 .history-button.is-primary {
   background: var(--page-text);
   color: var(--page-elevated);
@@ -143,7 +161,8 @@
 .history-button:hover:not(:disabled) {
   filter: brightness(0.94);
 }
-.layout-cards {
+.layout-cards .history-content,
+.layout-cards .history-footer {
   max-width: 860px;
 }
 .layout-cards .history-sources {
@@ -164,8 +183,12 @@
   margin-bottom: 0;
 }
 @media (max-width: 560px) {
-  .import-history {
-    padding: 24px 16px;
+  .history-content,
+  .history-footer {
+    padding-inline: 16px;
+  }
+  .history-content {
+    padding-top: 24px;
   }
   .layout-cards .history-sources {
     grid-template-columns: minmax(0, 1fr);
