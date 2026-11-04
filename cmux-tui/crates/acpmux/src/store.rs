@@ -1400,11 +1400,21 @@ fn first_seq(path: &Path) -> Result<Option<u64>> {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the next `LocalStore::sync_log` on this thread fails, as a failed fsync would.
+    pub(crate) static FAIL_NEXT_LOG_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 impl LocalStore {
     /// Syncs `id`'s open log segment and its folders, without holding the writers' lock while
     /// the disk works (the journal store's checkpoint, `store/journal_store.rs`). A segment that
     /// is not open was synced at its close (`SegmentWriter::close`, which notes a failure).
     pub(super) fn sync_log(&self, id: &str) -> Result<()> {
+        #[cfg(test)]
+        if FAIL_NEXT_LOG_SYNC.with(|fail| fail.replace(false)) {
+            return Err(std::io::Error::other("a failed sync (a test)").into());
+        }
         let open = {
             let writers = self.writers.lock_or_recover();
             match writers.open.get(id) {

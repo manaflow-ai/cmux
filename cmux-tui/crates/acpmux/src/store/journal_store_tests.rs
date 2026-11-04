@@ -422,27 +422,16 @@ fn a_delete_does_not_wait_for_the_journal_sync() {
 /// success for pages the kernel dropped), and the store asks the daemon to stop.
 #[test]
 fn a_failed_log_sync_freezes_the_checkpoint() {
-    use std::os::unix::fs::PermissionsExt;
-    // SAFETY: geteuid has no preconditions.
-    if unsafe { libc::geteuid() } == 0 {
-        eprintln!("skipped: root opens a folder of mode 000");
-        return;
-    }
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(26);
     let store = open(home.path(), &journal);
     store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
-    let events = home.path().join("sessions").join(CHAT).join("events");
-    let set_mode = |mode: u32| {
-        std::fs::set_permissions(&events, std::fs::Permissions::from_mode(mode))
-            .unwrap_or_else(|e| panic!("chmod {}: {e}", events.display()));
-    };
-    set_mode(0o000);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
     let failed = store.flush();
-    set_mode(0o700);
-    assert!(failed.is_err(), "the checkpoint synced a folder it cannot open");
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    assert!(failed.is_err(), "the checkpoint went on past a failed log sync");
     assert!(store.flush().is_err(), "a checkpoint after a failed sync went ahead");
     let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
     assert!(reason.is_some(), "the store did not ask the daemon to stop");
