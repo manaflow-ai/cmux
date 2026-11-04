@@ -13,22 +13,30 @@
 //!
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
-//! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits for the reader's next
-//!   stream change and writes to the new host, until `HOST_INPUT_RECONNECT_WAIT`.
+//! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
+//!   publishes another route ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline,
+//!   `HOST_INPUT_RECONNECT_WAIT` after the port took it. The old path's deadline started at the write call, so writes
+//!   queued behind a host that does not come back fail together, and a later loss gives its writes their own wait.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
 //! - A connection the reader shut down (`Failed`, it keeps retrying: [`InputRoute::Failed`]) or a reader that ended
 //!   takes no input: the write is refused at once, as the old path's write failed then
 //!   (`Surface::enqueue_on_input_port`). A replacement's route is accepted as soon as it is installed. While a lost
 //!   connection is still `Reconnecting`, input is accepted and the writer waits for the reconnect.
-//! - Input the port took and then could not write (the host is gone and no new one came) is lost, as a failed write
-//!   was before; the request had already been answered, so the port logs it.
-//! - Stage S1 step 6b, before the default flip: every other frame of the connection (viewer size, cell pixels,
-//!   receipted input, clear history, Kitty limits, clipboard replies, terminate) still writes directly, so while the
-//!   port is behind such a frame can go before a key the port still holds.
+//! - Only the person's keys answer when the port took them ([`InputReply::Accepted`]); a key the port then could not
+//!   write (the host is gone and no new one came) is lost, as a failed write was before, and the port logs it. Every
+//!   other write waits for its frame's result ([`InputPort::write`]), at most [`INPUT_WRITE_REPLY_WAIT`]: a wait that
+//!   ends before the writer took the frame cancels it, and one that ends during its write answers
+//!   [`InputMayBeWritten`].
+//! - Every other frame of the connection (viewer size, cell pixels, receipted input, clear history, Kitty limits,
+//!   clipboard replies, terminate) first waits for the frames the port took before it ([`PortOrder::barrier`], at most
+//!   2 s or its caller's sooner deadline). Order holds while the port drains within that bound: a frame still in its
+//!   write after it (a large paste to a host that reads slowly) lets the waiting frame go. The barrier does not wait
+//!   while the writer waits for a reconnect: the connection that frame goes to is gone, and the replacement is
+//!   installed under the runtime lock that frame's writer may hold. The install ends the writer's wait at once.
 
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -109,7 +117,28 @@ impl From<InputRefused> for std::io::Error {
 }
 
 /// Where the port reports one frame's write to a writer that waits for it ([`InputReply::Written`]).
-pub(crate) type FrameDone = std::sync::mpsc::SyncSender<std::io::Result<()>>;
+type FrameDone = std::sync::mpsc::SyncSender<std::io::Result<()>>;
+
+/// A waited-for frame is still queued, taken by the writer to write, or cancelled by its waiter.
+const FRAME_QUEUED: u8 = 0;
+const FRAME_TAKEN: u8 = 1;
+const FRAME_CANCELLED: u8 = 2;
+
+/// The writer waiting for one frame's result ([`InputPort::write`]).
+struct FrameWaiter {
+    done: FrameDone,
+    /// [`FRAME_QUEUED`], then [`FRAME_TAKEN`] (the port's writer) or [`FRAME_CANCELLED`] (the waiter gave up first).
+    state: Arc<AtomicU8>,
+}
+
+impl FrameWaiter {
+    /// The port's writer takes the frame to write it; false when its waiter already gave up on it.
+    fn take(&self) -> bool {
+        self.state
+            .compare_exchange(FRAME_QUEUED, FRAME_TAKEN, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+}
 
 /// What a write to a hosted terminal's input port answers (S1.6b): the person's keys return when the port took them;
 /// every other writer (a script's `send`, a resource input effect, the creating-input flush, an image paste) waits
@@ -125,8 +154,11 @@ pub(crate) enum InputReply {
 struct PortFrame {
     kind: MessageKind,
     bytes: Vec<u8>,
+    /// The end of this frame's wait for a lost connection to come back: `HOST_INPUT_RECONNECT_WAIT` after the port
+    /// took it, as the old path's write waited from its call.
+    reconnect_by: Instant,
     /// The waiting writer of an [`InputReply::Written`] write; dropped unanswered when the frame is dropped.
-    done: Option<FrameDone>,
+    waiter: Option<FrameWaiter>,
 }
 
 impl PortFrame {
@@ -149,6 +181,8 @@ struct PortState {
     /// The writer waits for a reconnect: a barrier does not wait then; the connection it would write to is gone, and
     /// the install it waits for may need the runtime lock that barrier's caller holds.
     reconnecting: bool,
+    /// Moves each time the terminal publishes a route ([`InputPort::route_changed`]): ends the writer's reconnect wait.
+    route_epoch: u64,
     /// Tests: the writer waits here before it writes each frame.
     #[cfg(test)]
     paused: Option<std::sync::mpsc::Receiver<()>>,
@@ -165,6 +199,12 @@ struct PortShared {
     changed: Condvar,
     /// Signalled when `finished` moves, the writer starts waiting for a reconnect, or the port closes.
     finished_changed: Condvar,
+}
+
+impl PortShared {
+    fn route_epoch(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).route_epoch
+    }
 }
 
 /// The order of one terminal's input port for the other writers of its host connection (DESIGN 2.6.1, S1.6b): a
@@ -210,20 +250,84 @@ impl Drop for InputPort {
 }
 
 impl InputPort {
-    /// Takes `bytes` for `terminal`'s current host connection and returns at once; the terminal's writer thread
-    /// writes them after every earlier write of the port.
+    /// Takes `bytes` for `terminal`'s current host connection and returns at once ([`InputReply::Accepted`]); the
+    /// terminal's writer thread writes them after every earlier write of the port.
     pub(crate) fn enqueue(
         &self,
         terminal: &Arc<PtyTerminalRuntime>,
         kind: MessageKind,
         bytes: &[u8],
-        done: Option<FrameDone>,
+    ) -> Result<(), InputRefused> {
+        self.enqueue_frame(terminal, kind, bytes, None)
+    }
+
+    /// [`Self::enqueue`] for a writer that waits for its frame's result ([`InputReply::Written`]), as the old path's
+    /// caller waited for its write, at most [`Self::reply_wait`]. A wait that ends before the port's writer took the
+    /// frame cancels it: the error says not written, and it never is. One that ends during its write answers the
+    /// write's result if it ended meanwhile, else [`InputMayBeWritten`].
+    pub(crate) fn write(
+        &self,
+        terminal: &Arc<PtyTerminalRuntime>,
+        kind: MessageKind,
+        bytes: &[u8],
+    ) -> std::io::Result<()> {
+        let (done, written) = std::sync::mpsc::sync_channel(1);
+        let state = Arc::new(AtomicU8::new(FRAME_QUEUED));
+        let waiter = FrameWaiter { done, state: Arc::clone(&state) };
+        self.enqueue_frame(terminal, kind, bytes, Some(waiter))?;
+        match written.recv_timeout(self.reply_wait()) {
+            Ok(result) => result,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "the terminal's input port stopped before it wrote the input",
+            )),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if state
+                    .compare_exchange(
+                        FRAME_QUEUED,
+                        FRAME_CANCELLED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok()
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "terminal input not written: the terminal's input port did not reach it in time",
+                    ));
+                }
+                written.try_recv().unwrap_or_else(|_| {
+                    Err(std::io::Error::new(std::io::ErrorKind::TimedOut, InputMayBeWritten))
+                })
+            }
+        }
+    }
+
+    /// The terminal published a new input route (a replacement connection, a failed link, an exited host; the caller
+    /// holds the runtime lock): a writer waiting for a reconnect tries the new route at once, and a frame of another
+    /// writer waits for the port again, whose next write goes to the new connection ahead of it.
+    pub(crate) fn route_changed(&self) {
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.route_epoch = state.route_epoch.wrapping_add(1);
+        state.reconnecting = false;
+        drop(state);
+        self.shared.changed.notify_all();
+    }
+
+    fn enqueue_frame(
+        &self,
+        terminal: &Arc<PtyTerminalRuntime>,
+        kind: MessageKind,
+        bytes: &[u8],
+        waiter: Option<FrameWaiter>,
     ) -> Result<(), InputRefused> {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
+        let reconnect_by =
+            Instant::now().checked_add(reconnect_wait(&self.shared)).unwrap_or_else(Instant::now);
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
-        let frame = PortFrame { kind, bytes: bytes.to_vec(), done };
+        let frame = PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter };
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(total) = state
             .queued_bytes
@@ -377,10 +481,13 @@ impl Drop for WriterUnwind<'_> {
 
 fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     let _unwind = WriterUnwind(shared);
-    // One reconnect wait for the queue: set by the first frame that finds the connection lost, cleared by the next
-    // write that succeeds, so frames queued behind a host that never comes back fail together, not 5 s each.
-    let mut reconnect_until = None;
     while let Some(frame) = next_frame(shared) {
+        // Its waiter gave up before the writer reached it (`InputPort::write`): it answered "not written", so the
+        // frame is not written.
+        if frame.waiter.as_ref().is_some_and(|waiter| !waiter.take()) {
+            finish_frames(shared, 1);
+            continue;
+        }
         #[cfg(test)]
         {
             let paused = shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused.take();
@@ -394,13 +501,12 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
             finish_frames(shared, 1);
             return;
         };
-        let written =
-            write_with_reconnect(shared, &runtime, frame.kind, &frame.bytes, &mut reconnect_until);
+        let written = write_with_reconnect(shared, &runtime, &frame);
         finish_frames(shared, 1);
-        match (written, frame.done) {
+        match (written, frame.waiter) {
             // The waiting writer answers its request with the result.
-            (written, Some(done)) => {
-                let _ = done.send(written);
+            (written, Some(waiter)) => {
+                let _ = waiter.done.send(written);
             }
             (Err(error), None) => eprintln!(
                 "cmux-tui: terminal input not written ({} bytes, already accepted): {error}",
@@ -411,39 +517,53 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     }
 }
 
-/// Marks the writer waiting for a reconnect while it lives, so barriers do not wait for it meanwhile.
-struct Reconnecting<'a>(&'a PortShared);
-
-impl<'a> Reconnecting<'a> {
-    fn start(shared: &'a PortShared) -> Self {
-        shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnecting = true;
-        shared.finished_changed.notify_all();
-        Self(shared)
+/// Waits until the terminal publishes a route after the one seen at epoch `observed` ([`InputPort::route_changed`]),
+/// until the port closes or until `deadline`; true when a new route came. Marks the writer waiting for a reconnect
+/// meanwhile, so barriers do not wait for it (a new route clears the mark at once).
+fn wait_for_route(shared: &PortShared, observed: u64, deadline: Instant) -> bool {
+    let mut state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+    if state.route_epoch != observed {
+        return true;
     }
-}
-
-impl Drop for Reconnecting<'_> {
-    fn drop(&mut self) {
-        self.0.state.lock().unwrap_or_else(PoisonError::into_inner).reconnecting = false;
+    if state.closed || Instant::now() >= deadline {
+        return false;
     }
+    state.reconnecting = true;
+    shared.finished_changed.notify_all();
+    let published = loop {
+        if state.route_epoch != observed {
+            break true;
+        }
+        let now = Instant::now();
+        if state.closed || now >= deadline {
+            break false;
+        }
+        state = shared
+            .changed
+            .wait_timeout(state, deadline.saturating_duration_since(now))
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
+    };
+    state.reconnecting = false;
+    published
 }
 
 /// One frame on the terminal's current host connection, across a lost connection: the rule of
-/// `Surface::send_hosted_input`, on the port's thread, reading the published route instead of the runtime lock.
+/// `Surface::send_hosted_input`, on the port's thread, reading the published route instead of the runtime lock. The
+/// frame waits for a reconnect until its own deadline (`PortFrame::reconnect_by`).
 fn write_with_reconnect(
     shared: &PortShared,
     runtime: &PtyTerminalRuntime,
-    kind: MessageKind,
-    bytes: &[u8],
-    reconnect_until: &mut Option<Instant>,
+    frame: &PortFrame,
 ) -> std::io::Result<()> {
     let mut first_error = None;
     loop {
-        // Read the revision before the send: an install after it wakes the wait below, so no reconnect is missed.
-        let observed = runtime.stream_progress.revision();
+        // Read the route epoch before the route: a route published after it ends the wait below, so no reconnect is
+        // missed (`PtyTerminalRuntime::replace_runtime` stores the route, then moves the epoch).
+        let observed = shared.route_epoch();
         let route = runtime.input_route.load_full();
         let sent = match route.as_deref() {
-            Some(InputRoute::Hosted(route)) => route.send(kind, bytes),
+            Some(InputRoute::Hosted(route)) => route.send(frame.kind, &frame.bytes),
             // Keep-on-exit: the final screen drops input; input that already failed keeps its error.
             Some(InputRoute::Exited) => return first_error.map_or(Ok(()), Err),
             Some(InputRoute::Failed) => {
@@ -464,17 +584,11 @@ fn write_with_reconnect(
             }
         };
         let error = match sent {
-            Ok(()) => {
-                *reconnect_until = None;
-                return Ok(());
-            }
+            Ok(()) => return Ok(()),
             Err(error) if super::input::host_connection_lost(&error) => error,
             Err(error) => return Err(error),
         };
         let error = first_error.take().unwrap_or(error);
-        let deadline = *reconnect_until.get_or_insert_with(|| {
-            Instant::now().checked_add(reconnect_wait(shared)).unwrap_or_else(Instant::now)
-        });
         let state = TerminalHostConnectionState::from_u8(
             runtime.host_connection_state.load(Ordering::Acquire),
         );
@@ -483,11 +597,7 @@ fn write_with_reconnect(
             TerminalHostConnectionState::Failed | TerminalHostConnectionState::Exited
         ) || runtime.reader_completion.is_complete()
             || runtime.owner_detaching.load(Ordering::Acquire)
-            || Instant::now() >= deadline
-            || {
-                let _reconnecting = Reconnecting::start(shared);
-                runtime.stream_progress.wait_for_change(observed, deadline).is_none()
-            }
+            || !wait_for_route(shared, observed, frame.reconnect_by)
         {
             return Err(error);
         }

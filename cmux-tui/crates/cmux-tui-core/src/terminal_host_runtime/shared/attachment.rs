@@ -13,9 +13,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-/// The longest a frame other than the input port's own waits for the port's earlier keys (S1.6b): as long as one
-/// frame write may block on a host socket.
+/// The longest a frame other than the input port's own waits for the frames the port took before it (S1.6b). Order
+/// holds while the port drains within it: a frame still in its write after it (a large paste to a host that reads
+/// slowly) lets the waiting frame go, and the frames the port queued behind that write may then follow it.
 const INPUT_ORDER_WAIT: Duration = Duration::from_secs(2);
+
+/// The end of a wait for the input port's earlier frames: [`INPUT_ORDER_WAIT`] from now, or the caller's own
+/// `deadline` when it is sooner.
+pub(super) fn input_order_deadline(deadline: Option<Instant>) -> Instant {
+    let cap = Instant::now().checked_add(INPUT_ORDER_WAIT).unwrap_or_else(Instant::now);
+    deadline.map_or(cap, |deadline| deadline.min(cap))
+}
 
 pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
@@ -196,7 +204,7 @@ impl HostAttachment {
     }
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
-        self.wait_input_order();
+        self.wait_input_order(None);
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
     }
 
@@ -205,17 +213,25 @@ impl HostAttachment {
         self.input_order = Some(order);
     }
 
-    /// Before a frame other than the port's own: the keys the port took before are written first (S1.6b).
-    pub(crate) fn wait_input_order(&self) {
+    /// Before a frame other than the port's own: the frames the port took before are written first (S1.6b), within
+    /// [`input_order_deadline`] of the caller's `deadline`.
+    pub(crate) fn wait_input_order(&self, deadline: Option<Instant>) {
         if let Some(order) = &self.input_order {
-            order
-                .barrier(Instant::now().checked_add(INPUT_ORDER_WAIT).unwrap_or_else(Instant::now));
+            order.barrier(input_order_deadline(deadline));
         }
     }
 
-    /// The writer for a frame other than the port's own, after the port's earlier keys (S1.6b).
+    /// The writer for a frame other than the port's own, after the port's earlier frames (S1.6b).
     fn direct_writer(&self) -> std::sync::MutexGuard<'_, HostStream> {
-        self.wait_input_order();
+        self.direct_writer_until(None)
+    }
+
+    /// [`Self::direct_writer`] for a caller with its own deadline: the wait for the port ends by it.
+    fn direct_writer_until(
+        &self,
+        deadline: Option<Instant>,
+    ) -> std::sync::MutexGuard<'_, HostStream> {
+        self.wait_input_order(deadline);
         self.writer.lock().recover_poison()
     }
 
@@ -428,7 +444,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.direct_writer();
+            let mut writer = self.direct_writer_until(Some(deadline));
             write_frame(&mut *writer, &frame).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
