@@ -176,6 +176,30 @@ class Preflight(Harness):
         self.assertIn("needs --vdisplay 60x1 or 60x2", rows["sixty"]["reason"])
         self.assertNotIn("run at 60 Hz", rows["sixty"]["reason"])
 
+    def test_vdisplay_reaches_the_lease_through_main(self):
+        # The flag's one way to the lease (main to run_lease): the display is made with the asked arguments, before the
+        # launch, for a rate journey and for one that names no rate (the P0 runner passes --vdisplay for typing-load-l6).
+        for jid, hz in (("pacing", 120), ("plain", None)):
+            with self.subTest(journey=jid):
+                self.scripts.clear()
+                (self.tmp / "ch.log").unlink(missing_ok=True)
+                self.specs = [journey(jid, require_hz=hz)]
+                self.main("--build", "JOB1", "--journey", jid, "--whole-host", "--vdisplay", "120x2")
+                log = self.calls()
+                made = [s for s in self.scripts if "vdisplay120.m" in s]
+                self.assertEqual(len(made), 1, log)
+                self.assertIn("VD.app --args 120 2 0 0", made[0])
+                self.assertLess(log.index("remote vdisplay"), next(i for i, c in enumerate(log) if c.startswith("launch ")),
+                                log)
+                self.assertTrue(any("driver.py" in s for s in self.scripts))
+                self.assertIn("release slot-cmux99-abc", log)
+
+    def test_a_higher_rate_is_refused_before_the_lease_too(self):
+        self.specs = [journey("pacing", require_hz=120)]
+        code, rows = self.main("--build", "JOB1", "--journey", "pacing", "--whole-host", "--vdisplay", "240x1")
+        self.assertIn("gives 240 Hz", rows["pacing"]["reason"])
+        self.assertFalse(any(c.startswith("acquire") for c in self.calls()))
+
     def test_another_rate_is_refused_before_the_lease(self):
         self.specs = [journey("pacing", require_hz=120)]
         code, rows = self.main("--build", "JOB1", "--journey", "pacing", "--whole-host", "--vdisplay", "60x1")
@@ -313,6 +337,11 @@ class VirtualDisplay(Harness):
     def test_no_ready_line_is_its_own_reason(self):
         self.refused("120x1", b"main 1 mode 1920x1080 pixels 1920x1080 refresh 60.00 interval 16.667 displays 1\n",
                      "no ready line")
+
+    def test_the_rate_is_the_fresh_processs_measurement_not_the_helpers(self):
+        # The helper measured 8.333 ms as it made the display; the fresh process sees 16.667 ms: what the app gets.
+        self.refused("120x1", b"ready 7 8.333\nmain 7 mode 1920x1080 pixels 1920x1080 refresh 120.00 interval 16.667 "
+                              b"displays 1\n", "16.667 ms")
 
     def test_the_tolerance_is_0_35_ms(self):
         # 1000/120 = 8.333 ms: 8.680 is 0.347 ms off (runs), 8.690 is 0.357 ms off (refused).
