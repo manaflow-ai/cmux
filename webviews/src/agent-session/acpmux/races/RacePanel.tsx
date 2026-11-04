@@ -140,7 +140,9 @@ export function RacePanel({
                 required
                 disabled={starting}
               >
-                <option value="" />
+                <option value="" disabled>
+                  {t("race.reviewer")}
+                </option>
                 {choices.map((choice) => (
                   <option key={choice.key} value={choice.key}>
                     {choice.label}
