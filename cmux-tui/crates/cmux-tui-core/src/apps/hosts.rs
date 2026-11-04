@@ -75,6 +75,7 @@ impl Supervisor {
                 key.clone(),
                 Mount {
                     host: host_key.clone(),
+                    interface: interface.to_string(),
                     export: export.clone(),
                     context: context.clone(),
                     reset: false,
@@ -226,7 +227,12 @@ impl Supervisor {
             strings: package.strings("en"),
             main,
         });
-        for (mount, record) in inner.mounts.iter().filter(|(_, m)| m.host == *key) {
+        for (mount, record) in inner.mounts.iter_mut().filter(|(_, m)| m.host == *key) {
+            // The package may have been saved since the mount (a local
+            // reload): its interface may now name another export.
+            if let Some(export) = package.export_for(&record.interface) {
+                record.export = export;
+            }
             process.send(&ToHost::Mount {
                 mount: mount.wire(),
                 export: record.export.clone(),

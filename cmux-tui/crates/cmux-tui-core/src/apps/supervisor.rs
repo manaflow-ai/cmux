@@ -154,6 +154,9 @@ impl MountKey {
 
 pub(super) struct Mount {
     pub host: HostKey,
+    /// The interface it renders (`cmux.section/1`), to find its export again
+    /// when the package is saved.
+    pub interface: String,
     pub export: String,
     pub context: Value,
     /// The next scene batch starts a fresh tree (after a host restart).
