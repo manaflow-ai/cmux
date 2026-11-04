@@ -177,7 +177,7 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
    */
   const settle = async (page: Page, names: string[], want: string[]) => {
     const pairs = names.map((name) => [name, chip(name)] as const);
-    await page.waitForFunction(
+    const settled = page.waitForFunction(
       ([pairs, want]) => {
         const open = pairs
           .filter(([, selector]) => {
@@ -253,6 +253,22 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       [pairs, want] as const,
       { timeout: 5_000 },
     );
+    const done = await settled.then(Boolean).catch(() => false);
+    if (!done) {
+      // Unsettled: the expect after it shows the chips that are open; say where the keyboard and
+      // the popups are, which the timeout alone threw away.
+      const seen = await page.evaluate(() => {
+        const active = document.activeElement;
+        return {
+          focus: active?.closest("[aria-label]")?.getAttribute("aria-label") ?? active?.tagName,
+          popups: [...document.querySelectorAll<HTMLElement>(".ui-popup")].map((popup) => {
+            const state = popup.hasAttribute("data-ending-style") ? "ending" : "live";
+            return [popup.getAttribute("aria-label"), state, getComputedStyle(popup).pointerEvents].join(" ");
+          }),
+        };
+      });
+      console.error(`settle: wanted [${want.join(", ")}]: ${JSON.stringify(seen)}`);
+    }
     return expanded(page, names);
   };
   /** Waits until the open menus have stopped moving, so a press lands where their rows rest. */
