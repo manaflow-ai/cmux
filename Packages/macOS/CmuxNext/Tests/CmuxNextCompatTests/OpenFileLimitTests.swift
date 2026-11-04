@@ -63,6 +63,38 @@ struct OpenFileLimitTests {
         #expect(OpenFileLimit.Change(before: 50_000, after: 50_000).childEnvironment.isEmpty)
     }
 
+    /// A launch under a hard limit of 256 (`ulimit -n 256` in a shell sets both) cannot raise it, and
+    /// Chromium aborted the app within 6 s there (`SeatbeltExecClient: pipe failed`, chaos fuzz row h,
+    /// cmux21, 2026-10-31): Chromium must not start.
+    @Test func aHardLimitOf256KeepsChromiumFromStarting() {
+        let fake = FakeLimit(soft: 256, hard: 256)
+        let limit = fake.limit()
+        #expect(limit.raise() == .init(before: 256, after: 256))
+        #expect(limit.chromiumShortfall() == 256)
+    }
+
+    /// launchd's soft 256 with an unlimited hard limit (Finder, the Dock, `open`) rises past the floor.
+    @Test func launchdsDefaultLetsChromiumStartAfterTheRaise() {
+        let fake = FakeLimit(soft: 256, hard: Self.unlimited)
+        let limit = fake.limit()
+        #expect(limit.chromiumShortfall() == 256)
+        _ = limit.raise()
+        #expect(limit.chromiumShortfall() == nil)
+    }
+
+    @Test func theFloorItselfIsEnough() {
+        #expect(FakeLimit(soft: OpenFileLimit.chromiumFloor, hard: OpenFileLimit.chromiumFloor).limit().chromiumShortfall() == nil)
+        #expect(FakeLimit(soft: OpenFileLimit.chromiumFloor - 1, hard: OpenFileLimit.chromiumFloor - 1).limit().chromiumShortfall()
+            == OpenFileLimit.chromiumFloor - 1)
+    }
+
+    /// A limit that cannot be read does not keep Chromium from starting.
+    @Test func anUnreadableLimitLetsChromiumStart() {
+        var limit = OpenFileLimit()
+        limit.read = { nil }
+        #expect(limit.chromiumShortfall() == nil)
+    }
+
     /// This process, through the real getrlimit/setrlimit: after the raise it can hold far more
     /// than 256 descriptors open at once (a 100-tab Chromium browser process needs that).
     @Test func thisProcessHoldsMoreThanLaunchdsLimitAfterTheRaise() throws {

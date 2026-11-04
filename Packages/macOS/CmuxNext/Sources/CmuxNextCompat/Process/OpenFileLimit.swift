@@ -43,6 +43,25 @@ package struct OpenFileLimit {
 
     package init() {}
 
+    /// The fewest open files the app must be allowed before it starts Chromium. Chromium treats a
+    /// failed pipe on its child-launch path as fatal
+    /// (`SeatbeltExecClient: pipe failed`, sandbox/mac/seatbelt_exec.cc), and under a hard limit of
+    /// 256 the browser process ran out within 6 s of a launch and aborted the whole app (chaos fuzz
+    /// row h, cmux21, 2026-10-31). Measured on cmux21 (2026-10-31 12:53Z, build of feat d1f0e63691a0,
+    /// the restored session plus 5 Chromium tabs, 25 s per launch): the app process peaked at 264-270
+    /// open descriptors, and hard limits of 512 (6 launches), 1024 (6) and 2048 (5) gave 0 aborts and
+    /// no EMFILE line. 1024 is the lowest clean limit, 512, with a 2x margin for more tabs and
+    /// services. A launch from Finder, the Dock or `open` raises past `OPEN_MAX` (10240), so only a
+    /// launch under a lowered hard limit (`ulimit -n` in a shell sets both) is below this floor.
+    package static let chromiumFloor: rlim_t = 1_024
+
+    /// The soft limit when it is below ``chromiumFloor``: Chromium must not start in this process.
+    /// Nil when it may start, or when the limit cannot be read. Read after ``raise()``.
+    package func chromiumShortfall() -> rlim_t? {
+        guard let (soft, _) = read(), soft < Self.chromiumFloor else { return nil }
+        return soft
+    }
+
     /// The soft limit before and after ``raise()``.
     package struct Change: Equatable {
         package var before: rlim_t

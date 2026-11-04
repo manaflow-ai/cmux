@@ -187,6 +187,12 @@ nonisolated enum Strings {
     static var cefUnavailable: String {
         String(localized: "browser.engine.cefUnavailable", defaultValue: "The Chromium engine is not available in this build.", bundle: .module)
     }
+    /// Chromium was not started: the app's open-file limit is too low (`CEFUnavailableReason.openFileLimit`).
+    static func cefOpenFileLimit(_ limit: UInt64) -> String {
+        String(format: String(localized: "browser.engine.openFileLimit",
+                              defaultValue: "cmux can’t open web pages: its open-file limit is %llu. Start cmux from Finder or the Dock, or raise the limit with ulimit -n before you start it.",
+                              bundle: .module), limit)
+    }
     static var loadFailedTitle: String {
         String(localized: "browser.error.loadFailed", defaultValue: "Can’t open this page", bundle: .module)
     }
