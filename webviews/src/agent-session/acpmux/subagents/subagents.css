@@ -1412,6 +1412,15 @@ button.cv-subagent > :last-child {
   height: auto;
   padding-block: var(--ds-space-1);
 }
+/* The mark stays on the title's line, centred on its words (glyph-alignment), while the latest line
+   sits under the title. */
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > :is(.acpmux-lineage__icon, .acpmux-summary-text) {
+  align-self: start;
+}
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  height: 1lh;
+  align-items: center;
+}
 
 /* Counts and warnings remain readable even when the name or action needs truncation. */
 .acpmux-agent-line__progress {
@@ -1563,5 +1572,8 @@ button.cv-subagent > :last-child {
     grid-template-rows: auto var(--ui-row-height, 28px);
     height: auto;
     padding-block: var(--ds-space-1) 0;
+  }
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+    top: var(--ds-space-1);
   }
 }
