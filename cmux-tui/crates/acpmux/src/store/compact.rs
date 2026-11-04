@@ -225,7 +225,7 @@ impl LocalStore {
             write_atomic(&self.marker(id), &serde_json::to_vec_pretty(&marker)?)?;
             // Its next append opens the compacted segment, not the old one's descriptor.
             if let Some(w) = writers.open.remove(id) {
-                w.close(id);
+                w.close(id, &self.sync_failed);
             }
             // Every segment stays, an empty one too: a reader that listed the segments a moment
             // ago opens each by its name.

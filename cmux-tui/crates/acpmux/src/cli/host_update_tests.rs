@@ -1763,7 +1763,7 @@ fn a_daemon_plist_launchd_cannot_read_stops_nothing() {
         (Outcome::Failed, Some("launchdRefused")),
         "{up:?}"
     );
-    assert!(up.error.as_deref().unwrap_or("").contains("acpmux host setup writes it again"));
+    assert!(up.error.as_deref().unwrap_or("").contains("acpmux machine setup writes it again"));
     assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
     assert!(peer.exists("loaded"));
     assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
