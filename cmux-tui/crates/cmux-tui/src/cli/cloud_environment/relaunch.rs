@@ -53,11 +53,7 @@ pub(super) fn after_exit(pid: i32, bundle: &Path) -> Result<(), String> {
         .arg(bundle)
         .status()
         .map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("could not reopen the app: {status}"))
-    }
+    if status.success() { Ok(()) } else { Err(format!("could not reopen the app: {status}")) }
 }
 
 #[cfg(not(target_os = "macos"))]
