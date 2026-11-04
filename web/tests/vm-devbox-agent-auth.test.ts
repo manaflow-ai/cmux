@@ -143,6 +143,15 @@ function signIn(m: Machine, agent: Agent = "claude"): void {
   writeFileSync(path.join(m.home, file), JSON.stringify(content));
 }
 
+/** A directory holding a python3 that fails, as a project venv or toolchain pin can. */
+function brokenPython(m: Machine): string {
+  const dir = path.join(m.root, "venv-bin");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "python3"), "#!/bin/sh\nexit 1\n");
+  chmodSync(path.join(dir, "python3"), 0o755);
+  return dir;
+}
+
 /** agent-config.sh with its launcher directory pointed at this machine's launchers. */
 function routedAgentConfig(m: Machine): string {
   const file = path.join(m.root, "agent-config.sh");
@@ -358,6 +367,27 @@ describe("Codex sign-in precedence", () => {
     expect(env.args).toBe('-c model_provider="openai" --resume x');
   });
 
+  test("issue 20063: codex login is found whatever python3 a project puts first on PATH", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    signIn(m, "codex");
+    const env = await launch(m, "codex", { FAKE_ACCESS: ALL }, `export PATH=${brokenPython(m)}:$PATH;`);
+    expect(env.args).toBe('-c model_provider="openai" --resume x');
+    expect(env.OPENAI_BASE_URL).toBe("<unset>");
+    expect(env.OPENAI_API_KEY).toBe("<unset>");
+  });
+
+  test("issue 20063: codex login is found from a project directory with its own json.py", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    signIn(m, "codex");
+    const project = path.join(m.root, "project");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(path.join(project, "json.py"), 'raise SystemExit("a project module ran")\n');
+    const env = await launch(m, "codex", { FAKE_ACCESS: ALL }, `cd ${project};`);
+    expect(env.args).toBe('-c model_provider="openai" --resume x');
+  });
+
   test("a model_provider inside a table is not the top-level provider", async () => {
     const m = machine();
     mkdirSync(path.join(m.home, ".codex"), { recursive: true });
@@ -408,6 +438,14 @@ describe("OpenCode sign-in precedence", () => {
     expect(existsSync(path.join(m.home, ".config/cmux/opencode-team.json"))).toBe(false);
   });
 
+  test("issue 20063: opencode auth login is found whatever python3 a project puts first on PATH", async () => {
+    const m = machine();
+    signIn(m, "opencode");
+    const env = await launch(m, "opencode", { FAKE_ACCESS: ALL }, `export PATH=${brokenPython(m)}:$PATH;`);
+    expect(env.OPENAI_BASE_URL).toBe("<unset>");
+    expect(env.OPENCODE_CONFIG).toBe("<unset>");
+  });
+
   test("with no choice, opencode auth login counts as choosing own", async () => {
     const m = machine();
     signIn(m, "opencode");
@@ -442,6 +480,14 @@ describe("the default for every agent", () => {
     expect((await launch(m, "claude", { FAKE_ACCESS: NONE })).ANTHROPIC_API_KEY).toBe("<unset>");
     expect((await launch(m, "codex", { FAKE_ACCESS: NONE })).args).toBe('-c model_provider="openai" --resume x');
     expect((await launch(m, "opencode", { FAKE_ACCESS: NONE })).OPENCODE_CONFIG).toBe("<unset>");
+  });
+
+  test("issue 20063: no team account means own sign-in whatever python3 a project puts first on PATH", async () => {
+    const m = machine();
+    cmuxCodexConfig(m);
+    const none = JSON.stringify({ agents: { claude: false, codex: false, opencode: false } });
+    const env = await launch(m, "codex", { FAKE_ACCESS: none }, `export PATH=${brokenPython(m)}:$PATH;`);
+    expect(env.args).toBe('-c model_provider="openai" --resume x');
   });
 
   test("no answer keeps the long-standing default (team)", async () => {
