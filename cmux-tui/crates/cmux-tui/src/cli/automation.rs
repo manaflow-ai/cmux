@@ -95,8 +95,12 @@ pub(super) fn run_json(
 /// human text into the MCP server's stdout.
 pub(super) struct Out {
     pub(super) mode: OutputMode,
-    captured: Option<std::cell::RefCell<Option<Result<Value, (Value, bool)>>>>,
+    captured: Option<std::cell::RefCell<Option<CapturedResult>>>,
 }
+
+/// What `Out` holds while captured: the result, or the error value and whether
+/// it is a usage error.
+type CapturedResult = Result<Value, (Value, bool)>;
 
 impl Out {
     pub(super) fn printing(mode: OutputMode) -> Out {

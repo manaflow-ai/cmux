@@ -584,6 +584,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
+        // Harness startup can itself run repository hooks and write files.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started. The idle pass never ends the harness meanwhile.
         self.touch(session);
@@ -1436,7 +1441,7 @@ impl Hub {
         }
         let opts: Vec<(String, Value)> = saved
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
@@ -1500,7 +1505,7 @@ impl Hub {
     /// Remember the models an agent lists so the picker can show them for
     /// harnesses without a live session.
     pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_ref(), meta.models.as_ref());
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
     }
 
     fn remember_models_from(
@@ -1745,6 +1750,12 @@ impl Hub {
         session: &Arc<Session>,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // A live full-access harness may execute tools without permission RPCs.
+        // Wait before handing it a new prompt, including the already-live path.
+        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+            session.stops.load(Ordering::SeqCst) != stops
+        })
+        .await?;
         // A watched chat starts no agent until Take Over: every lazy start (warm, model, mode, fork).
         if session.meta().watching.is_some() {
             return Err(super::watch::read_only());
