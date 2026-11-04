@@ -5899,9 +5899,12 @@ Params:
 | `dock` | `ColumnPin` | optional; `edge-docks-v1` | `{edge:"left"\|"right"\|"top"\|"bottom", mode:"docked"\|"overlay", role?:"agent_chat"}`: pins the new column to that edge in the same commit, with the rules of `set-column-dock` (the column that held the edge scrolls again); `role` needs `dock-column-role-v1`, and an unknown role is dropped |
 | `respawn` | `SplitRespawn` | optional; `tab-column-respawn-v1` | As in `move-tab-to-split`; only for the pane's only tab: the pane keeps a fresh tab of that kind, created before the move, so the column the tab leaves stays |
 | `keep_focus` | bool | default false; `tab-split-keep-focus-v1` | As in `move-tab-to-split`: the new column's pane does not take focus |
+| `pane_id` | `string` | default null; `tab-column-client-pane-v1` | Caller-minted id of the new column's pane, `pane_` and 32 lowercase hex digits, refused with `pane_id_exists` when a live or deleted resource has it; see "Client-minted pane ids" |
 | `transaction` | string | optional | As in `move-tab-to-split` |
 
 Result: as `move-tab-to-split`.
+
+With `tab-column-client-pane-v1`, a client that shows the new column before the reply (a lone agent chat docking left, its pane keeping a `respawn` tab) mints the column's pane id, so the daemon's `pane-added` replaces its provisional pane by id.
 
 ### move-tab-to-new-workspace
 
@@ -7081,6 +7084,56 @@ Params: `path` (required), `query` (optional map of strings).
 
 Result: `object{status:uint64, body?:JsonValue, error?:string}` (the brain's
 HTTP-like status, its JSON answer, or its reason).
+
+### chief-work
+
+| Field | Value |
+| --- | --- |
+| name | `chief-work` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-work-v1` |
+
+Reads a bounded snapshot of the named Chief's subagents and harness background
+commands on its configured machine. The capability is advertised when the daemon
+has a configured Chief home or tools socket. `chief` is an existing Chief
+participant id, never a client-supplied home path or acpmux session id. The daemon
+resolves that Chief's home, verifies its ownership identity, and includes its
+tagged sessions and descendants at any depth. Another Chief's explicitly tagged
+sessions and sessions on peer daemons are excluded. Chief turn and compactor
+roots supply command scope but do not appear as subagent rows.
+
+Only the owner's registered Unix connection or authenticated owner WebSocket may
+read it: the principal is `user_local`, no remote or bound agent, and a WebSocket
+has either no page and the daemon credential, or the scoped `home-channels` page
+credential. Other pages, paired devices and unregistered connections are refused
+with `origin.forbidden` before any work is read. This is the same owner-page
+admission as the Chief registry; it is a raw command, not a catalog operation.
+
+Params: `chief` (required string).
+
+Result: `object{agents:array<ChiefWorkAgent>, tasks:array<ChiefWorkTask>,
+truncated:boolean, taskSources:array<string>}`.
+
+- `ChiefWorkAgent = {id:string, name:string,
+  state:"working"|"waiting"|"idle"|"failed", task:string|null,
+  startedAt:uint64|null, updatedAt:uint64|null}`. Working and waiting take
+  precedence over a previous failed turn; failed or lost agents never look idle.
+- `ChiefWorkTask = {id:string, sessionId:string, title:string, command:string,
+  status:"running"|"done"|"failed"|"cancelled"|"unknown",
+  startedAt:uint64|null, endedAt:uint64|null, detail:string|null}`. Timestamps are
+  epoch milliseconds when supplied by acpmux. A lost process has `unknown`
+  status; a successful exit is `done`, a nonzero exit or start failure is
+  `failed`, and a killed process is `cancelled`.
+
+`taskSources` is currently `["harness"]`: only the harness process registry is
+read. Daemon-owned `bg` tasks keep their separate person-proof gate and are not
+included. No task mutation, subscription, or background polling is started.
+All paginated reads share a 15-second deadline; at most 200 owned sessions
+(active first) and 500 commands are returned. `truncated` reports those bounds,
+never a failed read. A failed or malformed source page returns
+`chief.work_unavailable` without a partial or empty success. An unknown Chief
+returns `chief.work_not_found`; an unconfigured machine returns
+`chief.work_not_configured`.
 
 ### conversation-attachment-upload
 
@@ -8390,6 +8443,8 @@ Protocol v9 adds `surface` for a single-terminal frontend. The server filters un
 Clients must require the `surface-subscribe-filter` capability before sending `surface`. A client connected to an older protocol-v9 build must ask the user to restart or upgrade the session instead of silently falling back to an unfiltered stream.
 
 A connection that applies no `scroll-changed` from its event stream echoes `subscribe-scroll-on-attach-v1` in `set-client-info` before `subscribe`; its subscription then carries no `scroll-changed` events, while each terminal's attach stream still does (the Mac app: its scrollbars come from its own surfaces, and with many hidden terminals printing these events woke its event pump about 15 times a second per terminal for nothing). Every other connection keeps them. `identify` lists the capability.
+
+A delta subscriber that echoes `tree-selection-deltas-v1` in `set-client-info` before `subscribe` gets a selection change that rides with a lifecycle delta (a created workspace takes the focus, a created tab becomes its pane's active tab) as `{"event":"selection-changed","workspace":W,"active":bool,"active_workspace":W|null,"screens":[{"id","active","active_pane","panes":[{"id","active_tab","focused_at"}]}]}`: the whole selection of that one workspace, read when the event is written, instead of a `tree-changed` that makes it read the whole tree again. A screen or pane the client does not hold yet comes with its own later delta and is skipped. A selection change that names no workspace is still `tree-changed`. A `workspace.update` of a workspace's title, color or icon (no workspace revision) comes to the same subscriber as `{"event":"workspace-presentation-changed","workspace":W,"entity":Workspace}`, the workspace as `list-workspaces` has it when the event is written. Other delta subscribers keep `tree-changed` for both. In the same way, a created terminal's first placement is its `screen-added` or `tab-added`, and a terminal that ends while its tabs stay is one `tab-changed` per tab, for every subscriber.
 
 Params:
 

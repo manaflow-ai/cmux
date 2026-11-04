@@ -16,6 +16,7 @@ fn call(command: AppCommand) -> (&'static str, Value) {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Version => {
@@ -434,11 +435,18 @@ fn action_runs_wait_by_default_and_no_wait_opts_out() {
 #[test]
 fn busy_is_retried_only_when_the_app_says_nothing_ran() {
     let not_run = json!({ "code": "busy", "data": { "state": "not_run" } });
-    assert!(busy_before_running(&not_run));
-    assert!(busy_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
-    assert!(!busy_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
-    assert!(!busy_before_running(&json!({ "code": "busy" })));
-    assert!(!busy_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&not_run));
+    assert!(retry_before_running(&json!({ "code": "busy", "data": { "not_run": true } })));
+    assert!(!retry_before_running(&json!({ "code": "busy", "data": { "state": "in_progress" } })));
+    assert!(!retry_before_running(&json!({ "code": "busy" })));
+    // #32724: a timeout before the work started, and a read barrier on a reconnecting daemon,
+    // are asked again too; one that may have started is not.
+    assert!(retry_before_running(&json!({ "code": "timeout", "data": { "state": "not_run" } })));
+    assert!(retry_before_running(&json!({ "code": "unavailable", "data": { "not_run": true } })));
+    assert!(!retry_before_running(
+        &json!({ "code": "timeout", "data": { "state": "in_progress" } })
+    ));
+    assert!(!retry_before_running(&json!({ "code": "not_found", "data": { "not_run": true } })));
     assert_eq!(busy_retry_delay(&not_run), BUSY_RETRY_DELAY);
     let later = json!({ "code": "busy", "data": { "state": "not_run", "retry_after_ms": 60_000 } });
     assert_eq!(busy_retry_delay(&later), MAX_BUSY_RETRY_DELAY);
@@ -1123,6 +1131,7 @@ fn only_a_confirmed_settings_write_waits_without_a_deadline() {
         | AppCommand::DebugCall { .. }
         | AppCommand::Screenshot { .. }
         | AppCommand::Right { .. }
+        | AppCommand::Renderers { .. }
         | AppCommand::Settings(_)
         | AppCommand::Nightly(_)
         | AppCommand::Version => {
@@ -1829,4 +1838,138 @@ fn open_as_text_sends_as_text_with_the_files() {
         )
         .is_err()
     );
+}
+
+/// A fake app that serves every connection at once, like the app's control socket: a plain
+/// `ping` gets `PONG`, `slow.get` answers after `slow`, any other method at once (its result
+/// names the method). Returns the socket and a guard that keeps it.
+fn concurrent_fake_app(slow: Duration) -> (PathBuf, cmux_unix_socket::TestDir) {
+    use std::os::unix::net::UnixListener;
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-busy");
+    let socket = dir.path().join("app.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(stream) = stream else { return };
+            std::thread::spawn(move || {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    if line.trim() == "ping" {
+                        let _ = writeln!(writer, "PONG");
+                    } else {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        let method = request["method"].as_str().unwrap_or_default().to_owned();
+                        if method == "slow.get" {
+                            std::thread::sleep(slow);
+                        }
+                        let reply = json!({ "id": 1, "ok": true, "result": { "method": method } });
+                        let _ = writeln!(writer, "{reply}");
+                    }
+                    line.clear();
+                }
+            });
+        }
+    });
+    (socket, dir)
+}
+
+/// #32724: a request the app answers after several read windows still gets its answer while
+/// the app is alive (it answers `ping`), and `identify` and the dialog list (`feed.list`) sent
+/// meanwhile complete at once instead of failing or waiting behind it.
+#[test]
+fn a_slow_request_waits_for_a_live_app_while_identify_and_dialog_list_complete() {
+    const WINDOW: Duration = Duration::from_millis(150);
+    const SLOW: Duration = Duration::from_millis(1500);
+    let (socket, _dir) = concurrent_fake_app(SLOW);
+    let slow_socket = socket.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+    let slow = std::thread::spawn(move || {
+        let mut stream = connect(&slow_socket).unwrap();
+        let answer = request(&mut stream, "slow.get", json!({}), WINDOW);
+        done.send("slow").unwrap();
+        answer
+    });
+    // The slow request is on the wire before the quick ones.
+    std::thread::sleep(WINDOW);
+    for method in ["system.identify", "feed.list"] {
+        let mut stream = connect(&socket).unwrap();
+        let answer = request(&mut stream, method, json!({}), WINDOW).unwrap().unwrap();
+        assert_eq!(answer["method"], method);
+        done_before(&finished, method);
+    }
+    let answer = slow.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["method"], "slow.get", "a live app's slow request failed");
+}
+
+fn done_before(finished: &std::sync::mpsc::Receiver<&str>, method: &str) {
+    assert!(finished.try_recv().is_err(), "{method} waited for the slow request");
+}
+
+/// #32724, under artificial CPU starvation (four spinning threads per core): a request whose
+/// answer comes long after its read window is answered, not failed, while the app answers `ping`.
+#[test]
+fn a_request_is_answered_not_failed_under_cpu_starvation() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (socket, _dir) = concurrent_fake_app(Duration::from_millis(1200));
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let cores = std::thread::available_parallelism().map_or(4, |count| count.get());
+    let spinners: Vec<_> = (0..cores * 4)
+        .map(|_| {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let mut spins = 0u64;
+                while !stop.load(Ordering::Relaxed) {
+                    spins = std::hint::black_box(spins.wrapping_add(1));
+                }
+            })
+        })
+        .collect();
+    let mut stream = connect(&socket).unwrap();
+    let slow = request(&mut stream, "slow.get", json!({}), Duration::from_millis(100));
+    let mut stream = connect(&socket).unwrap();
+    let identify = request(&mut stream, "system.identify", json!({}), Duration::from_millis(100));
+    stop.store(true, Ordering::Relaxed);
+    for spinner in spinners {
+        spinner.join().unwrap();
+    }
+
+    assert_eq!(slow.unwrap().unwrap()["method"], "slow.get");
+    assert_eq!(identify.unwrap().unwrap()["method"], "system.identify");
+}
+
+/// An app that does not answer `ping` either is gone or wedged: the read still ends at its window.
+#[test]
+fn a_request_to_an_app_that_does_not_answer_ping_ends_at_its_window() {
+    let dir = cmux_unix_socket::short_test_dir("cmux-app-silent");
+    let socket = dir.path().join("app.sock");
+    // Never accepted: the request and the `ping` wait in the backlog and nothing answers.
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let started = std::time::Instant::now();
+    let answer = request(&mut stream, "system.identify", json!({}), Duration::from_millis(200));
+    assert_eq!(answer, Err(wait::timeout_message(Duration::from_millis(200))));
+    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+}
+
+/// #32724: an app that says nothing ran because its daemon connection was reconnecting
+/// (`unavailable`, `not_run`) is asked again by the CLI; the caller sees only the answer.
+#[test]
+fn a_not_run_refusal_is_retried_inside_the_cli() {
+    let refused = json!({ "id": 1, "ok": false, "error": { "code": "unavailable",
+        "message": "the daemon connection closed", "data": { "not_run": true, "retry_after_ms": 1 } } });
+    let answered = json!({ "id": 1, "ok": true, "result": { "machines": [] } });
+    let (socket, app) = fake_app(vec![refused.clone(), refused, answered]);
+    let mut stream = connect(&socket).unwrap();
+    let answer = request_with_retry(
+        &mut stream,
+        "action.run",
+        &json!({ "action": "cloud.list" }),
+        READ_TIMEOUT,
+    );
+    drop(stream);
+    let connections = app.join().unwrap();
+    assert_eq!(answer.unwrap().unwrap()["machines"], json!([]));
+    assert_eq!(connections[0].len(), 3, "{connections:?}");
 }

@@ -93,6 +93,13 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
     let proxiedTabs = ProxiedBrowserTabs()
 
+    /// True when tab `key`'s localhost is never this Mac's: a Cloud proxy tab (``proxiedTabs``) or a
+    /// tab bound to a chat's machine (a Cloud chat's sign-in page, ChatMachineSignInTab). Neither
+    /// may get a WebKit page that loads its URL, which WebKit would load from this Mac.
+    func staysOffThisMacLocalhost(_ key: String) -> Bool {
+        proxiedTabs.isProxied(key) || services?.remoteLocalhost.boundMachine(ofTab: key) != nil
+    }
+
     /// Site settings of `site`, a site whose automatic-downloads setting
     /// blocked a download in tab `tab` (its profile's store). One path for
     /// the notice's button and `browser.download.openBlockedSiteSettings`.
@@ -116,6 +123,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // Not installed yet: its daemon tab is still being created.
             return pageClosedBeforeAdoption(page)
         }
+        // A page whose tab left its strip while it decided a person's close closes it (no handler, or Leave): through the held pane (HiddenPageCloses).
+        if case .close = intent, let key = services?.cache.key(of: page), let undo = services?.closedTabs?.undoToasts, let held = undo.hiddenPages.pageClosed(key, keepsHidden: undo.pageDecidedCloses.isWaiting) { return CloseUndoToasts.close(in: held, [StripTabID(key)]) }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
               let (openerTab, pane) = services.locateTabOnAnyMachine(key) else {
             // The opener is gone: nowhere to show a new page.
@@ -441,7 +450,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     func takeAdoption(for tab: TabModel) -> (any BrowserTab)? {
         if let page = adoptions.removeValue(forKey: tab.surface) { return page }
         guard tab.browserEngine != BrowserEngineTag.cef.rawValue, let services, services.machines.daemon(forTab: tab).isLocal,
-              !proxiedTabs.isProxied(tab.id) else { return nil }
+              !staysOffThisMacLocalhost(tab.id) else { return nil }
         let cache = services.cache, profile = cache.browserProfile?(tab.id) ?? .default
         guard let state = closedHistories.claim(tab.url, profile: profile, chromium: false, tab: tab.id) else { return nil }
         let page = cache.webKit.makeWebKitTab(profile: profile)

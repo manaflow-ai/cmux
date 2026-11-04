@@ -21,8 +21,10 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod automation_tools;
 mod browser_tools;
 mod caller_scope;
+mod chat_tools;
 mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
@@ -43,6 +45,8 @@ mod upstream_listing;
 mod v2_tools;
 mod video_tools;
 mod watch;
+mod workflow;
+mod workflow_tools;
 
 use std::collections::BTreeSet;
 use std::io::{self, BufRead, Read, Write};
@@ -83,6 +87,32 @@ pub(super) fn agent_app(
 /// one code path for the CLI and for MCP tools.
 pub(super) fn cli_backend(global: GlobalArgs) -> impl Backend {
     LiveBackend { global }
+}
+
+pub(super) fn workflow_run(global: GlobalArgs, run_id: String, generation: u64) -> i32 {
+    workflow::run(global, run_id, generation)
+}
+
+pub(super) fn workflow_command(global: GlobalArgs, arguments: Value) -> i32 {
+    let output = global.output;
+    let mut server = Server::new(LiveBackend { global }, None);
+    server.allowed = allowed_tools(std::env::var_os(ALLOWED_TOOLS_ENV));
+    match server.call(&json!({"name":workflow_tools::NAME,"arguments":arguments})) {
+        Ok(result) if result.get("isError").and_then(Value::as_bool) == Some(true) => {
+            super::wire::print_local_error(
+                result.pointer("/structuredContent/error").unwrap_or(&Value::Null),
+                output,
+                1,
+            )
+        }
+        Ok(result) => super::wire::print_local_success(
+            result.get("structuredContent").unwrap_or(&Value::Null),
+            output,
+        ),
+        Err((code, message)) => {
+            super::wire::print_local_error(&json!({"code":code,"message":message}), output, 2)
+        }
+    }
 }
 
 /// A failed owner call as the CLI prints it: the owner's error with its
@@ -177,6 +207,20 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// One `cmux automation WORDS…` verb, run by the CLI's own code
+    /// (`automation_tools`); `idempotency_key` keys a Cloud mutation.
+    fn automation(
+        &self,
+        _words: &[String],
+        _idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "automation.unavailable",
+            "this server cannot reach the automation store",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -296,6 +340,21 @@ impl Backend for LiveBackend {
 
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
+    }
+
+    fn automation(
+        &self,
+        words: &[String],
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        let mut global = self.global.clone();
+        global.output = OutputMode::Json;
+        global.idempotency_key = idempotency_key.map(str::to_owned);
+        super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
+            kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
+            error,
+            idempotency_key: idempotency_key.map(str::to_owned),
+        })
     }
 
     fn resource(
@@ -582,6 +641,9 @@ pub(super) struct Server<B> {
     /// `CMUX_MCP_TOOLS`: the only tools listed and callable. It turns code
     /// mode off (the few tools are listed directly).
     allowed: Option<BTreeSet<String>>,
+    /// Only the workflow host adapter can install this one-use operation.
+    /// Script arguments never create an authenticated daemon activity.
+    workflow_activity: Option<workflow::Internal>,
     /// The agent chat's other MCP servers (`upstream`), behind this one.
     upstreams: Vec<upstream::Proxied>,
     /// While a `cmux_exec` script runs: its time limit, which also bounds a
@@ -611,6 +673,7 @@ impl<B: Backend> Server<B> {
             code_mode: false,
             script_limits: code_mode::Limits::default(),
             allowed: None,
+            workflow_activity: None,
             upstreams: Vec::new(),
             call_cap: None,
             call_deadline: None,
@@ -678,12 +741,19 @@ impl<B: Backend> Server<B> {
         let params = object.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize" => {
+                chat_tools::remember_client(&params);
                 Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
                 let tools = self.list();
-                Ok(json!({ "tools": code_mode::descriptors(&tools) }))
+                let mut exposed = code_mode::descriptors(&tools);
+                if let Some(workflow) =
+                    tools.iter().find(|tool| tool["name"] == workflow_tools::NAME)
+                {
+                    exposed.push(workflow.clone());
+                }
+                Ok(json!({ "tools": exposed }))
             }
             "tools/list" => Ok(json!({ "tools": self.list() })),
             "tools/call" => {
@@ -730,7 +800,9 @@ impl<B: Backend> Server<B> {
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
         tools.extend(agent_dispatch_tools::descriptors());
+        tools.push(workflow_tools::descriptor());
         tools.extend(cloud_repo_tools::descriptors());
+        tools.extend(chat_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
@@ -740,6 +812,7 @@ impl<B: Backend> Server<B> {
         tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools.extend(automation_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -776,15 +849,7 @@ impl<B: Backend> Server<B> {
         }
     }
 
-    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
-        let name = params["name"]
-            .as_str()
-            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
-        let arguments = match params.get("arguments") {
-            None | Some(Value::Null) => Map::new(),
-            Some(Value::Object(arguments)) => arguments.clone(),
-            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
-        };
+    fn tool_refusal(&self, name: &str) -> Option<Value> {
         if let Some(path) = &self.config
             && let Some(message) = refusal(path)
         {
@@ -794,7 +859,7 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
         }
         if let Some(allowed) = &self.allowed
             && !allowed.contains(name)
@@ -805,7 +870,30 @@ impl<B: Backend> Server<B> {
                 "details": {},
                 "retryable": false,
             });
-            return Ok(tool_error(envelope(error, "not_run", None)));
+            return Some(tool_error(envelope(error, "not_run", None)));
+        }
+        None
+    }
+
+    fn call(&mut self, params: &Value) -> Result<Value, (i64, String)> {
+        let name = params["name"]
+            .as_str()
+            .ok_or_else(|| (-32602, "tools/call needs a tool name".to_string()))?;
+        let arguments = match params.get("arguments") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(arguments)) => arguments.clone(),
+            Some(_) => return Err((-32602, "tools/call arguments must be an object".into())),
+        };
+        if let Some(refusal) = self.tool_refusal(name) {
+            return Ok(refusal);
+        }
+        if name == "cmux_workflow"
+            && let Some(operation) = self.workflow_activity.take()
+        {
+            return Ok(workflow::internal_call(&self.backend, operation));
+        }
+        if name == workflow_tools::NAME {
+            return Ok(workflow_tools::call(&self.backend, &arguments));
         }
         if name == code_mode::DOCS {
             let tools = self.list();
@@ -838,6 +926,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(job) = self.proxied_tool(name, &arguments) {
             return Ok(job.run(self.call_cap));
+        }
+        if let Some(result) = chat_tools::call(name, &arguments) {
+            return Ok(result);
         }
         if let Some(result) = cloud_repo_tools::call(&self.backend, name, &arguments) {
             return Ok(result);
@@ -968,6 +1059,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(tool) = settings_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
@@ -1151,6 +1245,9 @@ impl<B: Backend> Server<B> {
         images: &mut Vec<Value>,
     ) -> Value {
         match request {
+            code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {
+                json!({"ok": false, "message": "workflow activities require a daemon-owned run"})
+            }
             code_mode::Request::Call { name, .. } if name == code_mode::EXEC => {
                 code_mode::script_answer(
                     Err((-32602, "a script cannot start another script".into())),

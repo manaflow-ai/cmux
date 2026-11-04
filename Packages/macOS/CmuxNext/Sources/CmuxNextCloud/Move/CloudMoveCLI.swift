@@ -220,15 +220,16 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// already finished there. The chat's folder there, whether it copied now, and whether this Mac's acpmux
     /// (its home `acpmuxHome`) trusts the chat's folder here (`source_trusted`).
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, copied: Bool, sourceTrusted: Bool)) {
+                              workRoots: [String], acpmuxHome: String?, stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
         let roots = workRoots.flatMap { ["--work-root", $0] } + (acpmuxHome.map { ["--acpmux-home", $0] } ?? [])
         let run = try await parsed(["link", "start-chat", "copy", "--key", key, "--account", account, "--machine", machine,
                                     "--socket", socket, "--local", local, "--subpath", subpath] + roots, stderrLine: stderrLine)
         let chat = run.object?["chat"] as? String ?? ""
-        guard !run.answer.ok || chat.hasPrefix("/") else {
-            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, false, false))
+        let folder = run.object?["folder"] as? String ?? ""
+        guard !run.answer.ok || (folder.hasPrefix("/") && (chat == folder || chat.hasPrefix(folder + "/"))) else {
+            return (Answer(ok: false, errorCode: Self.badAnswer, error: "link start-chat copy answered ok without its folder"), (chat, folder, false, false))
         }
-        return (run.answer, (chat, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
+        return (run.answer, (chat, folder, run.object?["copied"] as? Bool ?? false, run.object?["source_trusted"] as? Bool == true))
     }
 
     /// Longer than `link machine update`'s own wait for the machine (25 minutes) plus a first download.

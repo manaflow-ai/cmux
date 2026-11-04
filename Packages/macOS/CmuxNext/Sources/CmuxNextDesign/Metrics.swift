@@ -136,8 +136,11 @@ public struct Metrics {
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
-        return chrome.padding ?? paneSeparation.impliedPadding ?? tokens.resolve(compact: 2, comfortable: 4, token: "panePadding")
+        return chrome.padding ?? paneSeparation.impliedPadding ?? densityPanePadding
     }
+    /// The density's pane padding in points (unscaled), used for padded
+    /// panes when `layout.panePadding` is unset.
+    public static var densityPanePadding: CGFloat { tokens.resolve(compact: 2, comfortable: 4, token: "panePadding") }
 
     // MARK: Pane alignment
 

@@ -50,9 +50,15 @@ export type TrayItem =
 
 /// What the tray lists and its header counts: what runs or waits on the person, never what ended
 /// (Leo 2026-10-21 on "2 subagents running · 2 commands · 32 sessions": "THIS IS LYING"). The
-/// running subagents, each nested one right under the one that spawned it, then the background
-/// commands still running, then the started chats whose turn runs or that wait on the person.
+/// running subagents (each nested one right under the one that spawned it), the background commands
+/// still running and the started chats whose turn runs or that wait on the person, newest first.
 /// What ended is shown as bounded status cards after the live rows (``finishedTrayItems``).
+///
+/// Only the chat's own work: its subagents, its commands and the sub-sessions its agent started with
+/// its `start_session` tool (``StartedSession.subsession``). A lane a coordinator dispatched with
+/// `sessions new` or `acpmux new` from its shell is its own chat, in the sidebar, never a running line
+/// here (Leo, 2026-11-03, on a dispatched lane's line: "like why is this even in the "running" in the
+/// first place?"). Session Info still lists every chat it started.
 ///
 /// Between turns only work that outlives its turn shows. A foreground subagent a cancel or a
 /// reconnect left "running" pins nothing. A command shows whenever acpmux's process registry says
@@ -80,8 +86,23 @@ export function trayItems(
     if (command.state === "running" && (working || command.processId !== undefined))
       items.push({ kind: "command", id: command.id, command });
   for (const session of sessions)
-    if (liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
-  return items;
+    if (session.subsession && liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+  return newestFirst(items);
+}
+
+/// The open tray's lines newest first, as its folded header names them, so the top line is what just
+/// started (Leo, 2026-11-03: "this previews one of the latest but it doesn't show in latest it shows
+/// in oldest order"). A nested subagent keeps its place under its parent: a parent and its subtree
+/// move as one, by the parent's start. Those with no start time go last, in their list order.
+function newestFirst(items: readonly TrayItem[]): TrayItem[] {
+  const groups: { start: number; index: number; items: TrayItem[] }[] = [];
+  for (const item of items) {
+    const last = groups.at(-1);
+    if (last && item.kind === "agent" && item.depth > 0) last.items.push(item);
+    else groups.push({ start: itemStart(item) ?? Number.NEGATIVE_INFINITY, index: groups.length, items: [item] });
+  }
+  groups.sort((a, b) => b.start - a.start || a.index - b.index);
+  return groups.flatMap((group) => group.items);
 }
 
 /// The retry acpmux waits to run for `agent`, if any: a sub-session's is on its own session row
@@ -134,7 +155,7 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
     depth,
   }));
   const chats = sessions
-    .filter((session) => !liveSession(session))
+    .filter((session) => session.subsession && !liveSession(session))
     .sort((a, b) =>
       a.createdAt === undefined || b.createdAt === undefined
         ? Number(a.createdAt === undefined) - Number(b.createdAt === undefined)
@@ -177,6 +198,8 @@ function doneLine(
     agent.stopReason ?? "",
     retryKey(agent),
     inBackground ?? "",
+    // The chat's reaction to its end (ReactionMark.tsx): its new mark comes and goes, its reply grows.
+    agent.reaction ? `${agent.reaction.turn}:${agent.reaction.fresh ? 1 : 0}:${agent.reaction.text?.length ?? 0}` : "",
   ].join("\u0000");
   made.add(id);
   const kept = cache.get(id);

@@ -167,11 +167,12 @@ final class AgentPaneSessionInfoContent: NSView {
         scroll.contentView = clip
         clip.onGeometryChange = { [weak self] in self?.updateEdgeFades() }
         scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        // No scroller at all, as Claude Code's panel: the list scrolls by wheel, trackpad and keyboard,
+        // and the edge fades say there is more (Leo, 2026-11-03: "i mean there's literally no scrollbar
+        // in claude code it's just scrollable"). The web body hides its own the same way (sessionInfo.css).
+        scroll.hasVerticalScroller = false
         scroll.hasHorizontalScroller = false
-        scroll.autohidesScrollers = true
         scroll.documentView = list
-        SystemScrollers.followThin(scroll)
         scroll.contentView.wantsLayer = true
         edgeFadeMask.startPoint = CGPoint(x: 0.5, y: 1)
         edgeFadeMask.endPoint = CGPoint(x: 0.5, y: 0)

@@ -114,7 +114,11 @@ fn sidebar_requires_open(summary: &Value) -> bool {
 /// - `working` again: work the session started runs on past its last turn
 ///   (`subagentsWorkingSince`: a background subagent or a working
 ///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
-///   task is not done until its subagents are (manaflow-ai/cmux#25230).
+///   task is not done until its subagents are (manaflow-ai/cmux#25230). So
+///   is a background command its turn left running (`commandsRunning`, a
+///   Claude background shell): the chat shows it running, and its row spun
+///   for none (manaflow-ai/cmux#32727). Only the dot: the turn's unread mark
+///   and its end notice do not wait for the command.
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -144,6 +148,7 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         // (`disconnected`) still works while a sub-session it started runs.
         "unreachable" => answered.then_some("done"),
         _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
+        _ if summary["commandsRunning"].as_u64().unwrap_or(0) > 0 => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
@@ -456,6 +461,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),
@@ -753,6 +759,9 @@ impl Hub {
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),
+            // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
+            // `acpmux ls` says so, `acpmux send --status` lists them.
+            "outboxPending": self.outbox_unsettled(),
             "liveAgents": live,
             "stuckSessions": stuck,
             "disk": disk,

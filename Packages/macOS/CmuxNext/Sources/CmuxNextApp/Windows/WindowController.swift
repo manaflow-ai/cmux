@@ -247,7 +247,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
-        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
+        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
         if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
