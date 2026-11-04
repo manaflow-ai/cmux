@@ -47351,6 +47351,268 @@
         }
       }
     },
+    "settings.feed.needsYouInChief": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Needs You in Chief"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت «بحاجة إليك» في Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači „Treba te“ u Chiefu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør Har brug for dig i Chief"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Braucht dich“ im Chief anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar «Te necesita» en Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler « Vous attend » dans Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa «Serve a te» in Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief に「対応が必要」を固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់ «ត្រូវការអ្នក» ក្នុង Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief에 '확인 필요' 고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest «Trenger deg» i Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij „Czeka na Ciebie” w Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar “Precisa de você” no Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить «Ждёт вас» в Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุด \"ต้องการคุณ\" ใน Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief'te \"Seni bekliyor\"u sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити «Чекає на вас» у Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim \"Cần bạn\" trong Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中置顶“需要你”"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Chief 中釘選「需要你」"
+          }
+        }
+      }
+    },
+    "settings.feed.needsYouInChief.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُثبَّت الطلبات المفتوحة، مثل طلبات الأذونات والأسئلة، أعلى محادثة Chief. ويعرضها الموجز دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvoreni zahtjevi, poput upita za dozvole i pitanja, prikačeni su na vrh razgovora s tvojim Chiefom. Feed ih uvijek prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbne anmodninger, f.eks. tilladelsesforespørgsler og spørgsmål, fastgøres øverst i din Chiefs samtale. Feedet viser dem altid."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offene Anfragen wie Berechtigungsabfragen und Fragen werden oben im Gespräch mit deinem Chief angeheftet. Der Feed listet sie immer auf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las solicitudes abiertas, como avisos de permisos y preguntas, se fijan arriba en la conversación de tu Chief. El Feed siempre las muestra."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les demandes en attente, comme les demandes d'autorisation et les questions, sont épinglées en haut de la conversation de votre Chief. Le Feed les liste toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le richieste aperte, come le richieste di autorizzazione e le domande, vengono fissate in cima alla conversazione del tuo Chief. Il Feed le elenca sempre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限の確認や質問など未対応のリクエストを Chief の会話の上部に固定します。フィードには常に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំណើដែលនៅបើក ដូចជាការស្នើសុំសិទ្ធិ និងសំណួរ ត្រូវបានខ្ទាស់នៅខាងលើការសន្ទនារបស់ Chief។ Feed តែងតែបង្ហាញពួកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 요청이나 질문 같은 열린 요청을 Chief 대화 맨 위에 고정합니다. 피드에는 항상 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne forespørsler, som tillatelsesforespørsler og spørsmål, festes øverst i samtalen med Chief. Feeden viser dem alltid."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwarte prośby, takie jak prośby o uprawnienia i pytania, są przypinane na górze rozmowy z Twoim Chiefem. Feed zawsze je wyświetla."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solicitações abertas, como pedidos de permissão e perguntas, ficam fixadas no topo da conversa do seu Chief. O Feed sempre as lista."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открытые запросы, например запросы разрешений и вопросы, закрепляются вверху беседы с Chief. В ленте они видны всегда."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำขอที่ยังเปิดอยู่ เช่น คำขอสิทธิ์และคำถาม จะถูกปักหมุดไว้ด้านบนของการสนทนากับ Chief โดย Feed จะแสดงรายการเหล่านี้เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İzin istekleri ve sorular gibi açık istekler Chief sohbetinin en üstüne sabitlenir. Akış bunları her zaman listeler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкриті запити, як-от запити дозволів і запитання, закріплюються вгорі розмови з Chief. У стрічці вони видні завжди."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các yêu cầu đang mở, như yêu cầu cấp quyền và câu hỏi, được ghim ở đầu cuộc trò chuyện với Chief. Feed luôn liệt kê chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限请求和问题等待处理的请求会置顶在你与 Chief 的对话顶部。动态中始终会列出它们。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "權限請求和問題等待處理的請求會釘選在你與 Chief 的對話頂端。動態中一律會列出它們。"
+          }
+        }
+      }
+    },
     "settings.feed.agentPermissionPrompts": {
       "extractionState": "manual",
       "localizations": {
@@ -200182,6 +200444,60 @@
             "value": "對話在停止並等待你之前重試的次數。"
           }
         }
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking": {
+      "comment": "Settings > Machines: toggle that lets agents start Cloud machines and sessions with no Start card in their chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Let Agents Start Cloud Sessions Without Asking"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "السماح للوكلاء ببدء جلسات سحابية دون سؤال"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dozvoli agentima da pokreću Cloud sesije bez pitanja"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Lad agenter starte Cloud-sessioner uden at spørge"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Agents Cloud-Sitzungen ohne Nachfrage starten lassen"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Permitir que los agentes inicien sesiones en la nube sin preguntar"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Laisser les agents démarrer des sessions Cloud sans demander"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Consenti agli agenti di avviare sessioni Cloud senza chiedere"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "確認なしでエージェントにクラウドセッションを開始させる"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "អនុញ្ញាតឱ្យភ្នាក់ងារចាប់ផ្ដើមវគ្គ Cloud ដោយមិនសួរ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "묻지 않고 에이전트가 클라우드 세션 시작"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "La agenter starte Cloud-økter uten å spørre"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pozwól agentom uruchamiać sesje w chmurze bez pytania"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Permitir que agentes iniciem sessões na nuvem sem perguntar"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Разрешить агентам запускать облачные сеансы без вопроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ให้เอเจนต์เริ่มเซสชันคลาวด์โดยไม่ต้องถาม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Ajanların sormadan bulut oturumu başlatmasına izin ver"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Дозволити агентам запускати хмарні сеанси без запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Cho phép tác tử khởi động phiên đám mây mà không cần hỏi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "允许智能体无需询问即启动云端会话"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "允許代理程式不經詢問即啟動雲端工作階段"}}
+      }
+    },
+    "settings.cloud.agentsStartWithoutAsking.help": {
+      "comment": "Settings > Machines: help for the Let Agents Start Cloud Sessions Without Asking toggle (keep the command in backticks).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يُنشئ أمر `cmux cloud start-session` الخاص بالوكيل الجهاز السحابي أو يستأنفه ويبدأ جلسته دون بطاقة بدء في المحادثة. أنت وحدك من يمكنه تفعيل هذا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Agentov `cmux cloud start-session` kreira ili nastavlja Cloud mašinu i pokreće sesiju bez kartice Pokreni u četu. Samo ti ovo možeš uključiti."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` opretter eller genoptager Cloud-maskinen og starter sessionen uden Start-kort i chatten. Kun du kan slå dette til."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` eines Agents erstellt oder setzt die Cloud-Maschine fort und startet die Sitzung ohne Starten-Karte im Chat. Nur du kannst das einschalten."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El `cmux cloud start-session` de un agente crea o reanuda la máquina en la nube e inicia su sesión sin la tarjeta Iniciar en el chat. Solo tú puedes activarlo."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le `cmux cloud start-session` d'un agent crée ou reprend la machine Cloud et démarre sa session sans carte Démarrer dans le chat. Vous seul pouvez l'activer."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il `cmux cloud start-session` di un agente crea o riprende la macchina Cloud e avvia la sessione senza la scheda Avvia nella chat. Solo tu puoi attivarlo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "エージェントの `cmux cloud start-session` が、チャットに 開始 カードを出さずにクラウドマシンを作成または再開してセッションを開始します。これをオンにできるのはあなただけです。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` របស់ភ្នាក់ងារ បង្កើត ឬបន្តម៉ាស៊ីន Cloud ហើយចាប់ផ្ដើមវគ្គដោយគ្មានកាត ចាប់ផ្ដើម នៅក្នុងការជជែក។ មានតែអ្នកទេដែលអាចបើកវាបាន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "에이전트의 `cmux cloud start-session`이 채팅에 시작 카드 없이 클라우드 머신을 만들거나 재개하고 세션을 시작합니다. 이 설정은 본인만 켤 수 있습니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "En agents `cmux cloud start-session` oppretter eller gjenopptar Cloud-maskinen og starter økten uten Start-kort i chatten. Bare du kan slå dette på."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie `cmux cloud start-session` agenta tworzy lub wznawia maszynę w chmurze i uruchamia sesję bez karty Uruchom w czacie. Tylko Ty możesz to włączyć."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O `cmux cloud start-session` de um agente cria ou retoma a máquina na nuvem e inicia a sessão sem o cartão Iniciar no chat. Só você pode ativar isso."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента создаёт или возобновляет облачную машину и запускает сеанс без карточки «Запустить» в чате. Включить это можете только вы."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "`cmux cloud start-session` ของเอเจนต์จะสร้างหรือกลับมาใช้เครื่องคลาวด์และเริ่มเซสชันโดยไม่มีการ์ด เริ่ม ในแชท มีเพียงคุณเท่านั้นที่เปิดตัวเลือกนี้ได้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bir ajanın `cmux cloud start-session` komutu, sohbette Başlat kartı olmadan bulut makinesini oluşturur veya sürdürür ve oturumunu başlatır. Bunu yalnızca siz açabilirsiniz."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Команда `cmux cloud start-session` агента створює або відновлює хмарну машину й запускає сеанс без картки «Запустити» в чаті. Увімкнути це можете лише ви."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lệnh `cmux cloud start-session` của tác tử sẽ tạo hoặc tiếp tục máy đám mây và khởi động phiên mà không hiện thẻ Bắt đầu trong cuộc trò chuyện. Chỉ bạn mới có thể bật tùy chọn này."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "智能体的 `cmux cloud start-session` 会创建或恢复云端机器并启动会话，聊天中不显示“开始”卡片。只有你可以打开此项。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "代理程式的 `cmux cloud start-session` 會建立或恢復雲端機器並啟動工作階段，聊天中不顯示「開始」卡片。只有你可以開啟此項。"}}
       }
     }
   },

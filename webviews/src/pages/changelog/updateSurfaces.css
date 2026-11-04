@@ -232,6 +232,15 @@
   cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* No change list (2026-11-03, "stretched out wasted space"): as wide as its lines, up to the menu
+   width, and the link with the text instead of at the far edge under a rule. */
+.wn-pop.wn-pop-brief { width: max-content; max-width: 340px; padding: 8px 12px; }
+.wn-pop-brief .wn-pop-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.wn-pop-brief .wn-pop-title { min-width: 0; }
+.wn-pop-brief > .wn-pop-all { display: block; margin: 4px 0 0; }
+.wn-pop-brief .wn-pop-from .wn-pop-all { margin: 0; }
+.wn-pop-brief .wn-pop-head .wn-pop-all { flex: none; margin: 0; }
+.wn-pop-brief .wn-pop-more { margin-top: var(--ds-space-1); }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {

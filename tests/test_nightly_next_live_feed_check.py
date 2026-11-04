@@ -16,7 +16,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from nightly_workflow_text import nightly_text  # noqa: E402
+from nightly_workflow_text import nightly_text, write_out_step_aliases  # noqa: E402
 
 SCRIPT = ROOT / "scripts/ci/nightly_next_live_feed_check.py"
 spec = importlib.util.spec_from_file_location("nightly_next_live_feed_check", SCRIPT)
@@ -234,7 +234,7 @@ class WorkflowTests(unittest.TestCase):
     """Both nightly-next feed writers read their feed back right after the write."""
 
     def job(self, name: str, until: str) -> str:
-        text = nightly_text()
+        text = write_out_step_aliases(nightly_text())
         return text[text.index(f"\n  {name}:"):text.index(f"\n  {until}:")]
 
     def test_publish_nightly_reads_the_next_feed_back(self):

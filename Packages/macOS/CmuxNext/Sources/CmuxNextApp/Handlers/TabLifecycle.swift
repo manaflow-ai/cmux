@@ -191,7 +191,7 @@ enum TabLifecycle {
         guard let tab = pane.tab(id), tab.kind == .browser else { return ctx.refuse(RefusalStrings.notABrowserTab) }
         let current = BrowserEngineTag(rawValue: tab.browserEngine ?? "") ?? .webkit
         guard current != engine else { return }
-        if engine == .webkit, ctx.services.cache.pageRequests.proxiedTabs.isProxied(tab.id) {
+        if engine == .webkit, ctx.services.cache.pageRequests.staysOffThisMacLocalhost(tab.id) {
             return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
         }
         if engine == .cef, let reason = ctx.services.cache.browserTabs.cefUnavailableReason() {

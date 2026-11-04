@@ -7466,6 +7466,12 @@
         "ty": "string"
       }
     },
+    "request:chief-work": {
+      "/chief": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:clear-history": {
       "/fallback_key": {
         "ty": "object",
@@ -12730,6 +12736,108 @@
       },
       "/data/status": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:chief-work": {
+      "/data/agents": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/agents/*": {
+        "ty": "object"
+      },
+      "/data/agents/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/agents/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/agents/*/startedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/agents/*/state": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "failed",
+          "idle",
+          "waiting",
+          "working"
+        ]
+      },
+      "/data/agents/*/task": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/agents/*/updatedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/taskSources": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/taskSources/*": {
+        "ty": "string"
+      },
+      "/data/tasks": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/tasks/*": {
+        "ty": "object"
+      },
+      "/data/tasks/*/command": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tasks/*/detail": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/tasks/*/endedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/tasks/*/id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tasks/*/sessionId": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/tasks/*/startedAt": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/tasks/*/status": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "cancelled",
+          "done",
+          "failed",
+          "running",
+          "unknown"
+        ]
+      },
+      "/data/tasks/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/truncated": {
+        "ty": "boolean",
         "required": true
       }
     },
@@ -20460,9 +20568,18 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/write_path/registry_wal_frame_bytes": {
+        "ty": "uint64"
+      },
       "/data/write_path/request_effect_commits": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/write_path/wal_commits": {
+        "ty": "uint64"
+      },
+      "/data/write_path/wal_synced_commits": {
+        "ty": "uint64"
       },
       "/data/write_path/writer_registry_locks": {
         "ty": "uint64",

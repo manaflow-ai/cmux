@@ -539,7 +539,7 @@ final class CloudService {
             hasLoadedMachines = true
             loadedAccount = account
             listedMachineIDs = Set(list.filter { $0.status != .destroyed }.map(\.id))
-            listLoadedAt = .now
+            listLoadedAt = .now; codexBroker.machinesListed(list)
             await startHubForSSHRoutes()
             return true
         } catch {
@@ -823,13 +823,13 @@ final class CloudService {
         if let requested { return requested }
         return await current()
     }
-    /// Kill, Pause and Resume show their transition from the click until the next list settles it.
+    /// Deletes after the action registry's confirmation; the next list settles the transition.
     func deleteMachine(_ machineID: String) async throws {
-        // Retain credentials and broker registration until a list confirms removal. Both
-        // the request and the asynchronous provider deletion can still fail.
+        // Keep credentials and broker registration until a list confirms removal; the request or provider can fail.
         try await changes.run(.deleting, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await api.deleteMachine(machineID)
+            guard configuration.linkSource == .appServer else { return try await api.deleteMachine(machineID) }
+            _ = try await appServerApprovedCall("cloud.machine.delete", args: .object(["machine": .string(machineID)]), confirm: { true })
         }
         // A list in flight was asked while this machine still existed.
         listGeneration += 1

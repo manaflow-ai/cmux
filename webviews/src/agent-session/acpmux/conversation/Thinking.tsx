@@ -22,6 +22,29 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { compactTokens, hasTokens, tokenDetail, TurnTokens } from "./TurnTokens";
 import { verbLeads } from "./ToolVerb";
 import { useTicking, WorkingCountsContext, workingParts } from "./WorkingFor";
+import type { AcpmuxTurnRetry } from "../model";
+import type { Translate } from "../i18n";
+
+/// A rate limit or an overloaded model: the model answered and is busy, not out of reach.
+const BUSY = /\b(?:rate.?limit|overloaded|too many requests|capacity)\b/i;
+
+/// What the live line says while the harness retries a failed model request (acpmux
+/// `turn_retrying`): the cause in plain words, the retry's count, and the harness's error when it
+/// names one ("Can't reach the model · retrying (7 of 10) · 503 server error"). Calm: no sweep and
+/// no clock, since nothing works on the reply while it waits.
+export function retryParts(t: Translate, retry: AcpmuxTurnRetry): { label: string; count: string; error?: string } {
+  const words = retry.error?.replaceAll("_", " ");
+  const busy = retry.errorStatus === 429 || retry.errorStatus === 529 || BUSY.test(words ?? "");
+  const label = t(busy ? "turn.live.retry.busy" : "turn.live.retry.unreachable");
+  const count =
+    retry.attempt === undefined
+      ? t("turn.live.retry.retrying")
+      : retry.maxRetries === undefined
+        ? t("turn.live.retry.attemptOnly", { attempt: retry.attempt })
+        : t("turn.live.retry.attempt", { attempt: retry.attempt, max: retry.maxRetries });
+  const error = [retry.errorStatus, words].filter((part) => part !== undefined && part !== "").join(" ");
+  return { label, count, ...(error && { error }) };
+}
 
 /// How long streaming text must hold still before the live line comes back under it.
 export const QUIET_MS = 1200;
@@ -105,6 +128,7 @@ export function Thinking({
   quietAt,
   below = false,
   command = false,
+  retry,
 }: {
   /// The prompt waits for its agent to start (harnessSwitch.ts): the start look's arm draws it.
   starting?: boolean;
@@ -141,6 +165,9 @@ export function Thinking({
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
+  /// never "Thinking" (`retryParts`).
+  retry?: AcpmuxTurnRetry;
 } = {}) {
   const t = useT();
   const language = usePaneLanguage();
@@ -193,14 +220,48 @@ export function Thinking({
   // (App.tsx counts nothing while the tray lists it).
   const counts = useContext(WorkingCountsContext);
   const tokens = counts?.tokens;
-  const showTokens = Boolean(tokens) && timed;
+  // A send's line names who it goes to and for how long; the turn's token counts there are noise
+  // (Leo, 2026-11-02, on "Sending message to … 3m 56s · ↓1.4K out ↑819.5K in" among the message
+  // rows: "i also think this is quite weird looking").
+  const sending = doing !== undefined && sendName !== undefined;
+  const showTokens = Boolean(tokens) && timed && !sending;
   // One count, as Claude Code's live line says it ("47.4K tokens"): the turn's output, with the
-  // split on hover (liveLineTokens.experiment.ts).
+  // split on hover (liveLineTokens.experiment.ts). Never "↓ out ↑ in" in the line's words (the
+  // coordinator, relaying Leo's capture of "Thinking 7m 34s · ↓ 4.5K out ↑ 1.4M in").
   const oneCount = experimentArm(liveLineTokens) === "total";
   // The label already names the subagents it waits on: no second count of them.
   const parts = (counts && !waiting ? workingParts(t, counts) : []).filter(
     (part) => !(liveState === "subagents" && part.key === "agents"),
   );
+  // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
+  // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
+  if (retry && !waiting) {
+    const parts = retryParts(t, retry);
+    return (
+      <div
+        className={`cv-worked cv-worked--live${below ? " is-below" : ""}`}
+        data-find-skip
+        data-lead-slot
+        data-retrying=""
+      >
+        <output className="cv-thinking cv-retrying">{parts.label}</output>
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          {parts.count}
+        </span>
+        {parts.error && (
+          <span className="cv-worked__count cv-retrying__error" title={parts.error}>
+            <span className="cv-worked__sep" aria-hidden="true">
+              ·
+            </span>
+            <span className="cv-retrying__words">{parts.error}</span>
+          </span>
+        )}
+      </div>
+    );
+  }
   // The `silent` and `spinner` start looks keep the line's box (`.cv-worked`'s height) with no words.
   if (startLook !== "thinking")
     return (
@@ -212,13 +273,8 @@ export function Thinking({
       </div>
     );
   return (
-    // `cv-worked--live`: its words start on the icon rows' text column (conversation.css), its icon
-    // slot empty (`data-lead-slot`: gallery/invariants.ts reads its lead edge from the box, not the words).
-    <div
-      className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`}
-      data-find-skip
-      data-lead-slot
-    >
+    // `cv-worked--live`: its words start on the icon column, with no icon slot (conversation.css).
+    <div className={`cv-worked cv-worked--live${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
       {waiting ? (
         <output className="cv-thinking cv-waiting" data-waiting={waiting}>
           {t(WAITING_LABEL[waiting])}

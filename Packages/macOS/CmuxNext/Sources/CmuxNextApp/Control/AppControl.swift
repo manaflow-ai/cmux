@@ -182,9 +182,7 @@ final class AppControl {
                 DebugHints.watchMenus()
                 return .value(DebugHints.report(services.windowHints, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
-            },
+            .mainActor("debug.page_host_pool") { [weak services] call in .value(DebugPageHostPool.handle(call.params, services: services)) },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -229,6 +227,8 @@ final class AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
+            // Repeating Core Animation loops and whether anyone can see them (hq#3716).
+            .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in
@@ -282,6 +282,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
             },
+            // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
+            .async("debug.cef_page_devtools") { [weak services] call in
+                guard let services else { return .null }
+                return await debugCEFPageDevTools(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -428,8 +433,8 @@ final class AppControl {
                 guard let services else { return .null }
                 do {
                     let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
-                        let entry = BrowserEntry(tab: page)
-                        return (entry, entry.chrome)
+                        let entry = BrowserEntry(tab: page), pane = BrowserPaneChrome()
+                        return ((entry, pane) as AnyObject, pane.bind(page, state: entry.state))
                     }
                     return .object(result.mapValues(JSONValue.bool))
                 } catch {
