@@ -248,7 +248,25 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
               expect({ from, open: await settle(page, stage.chips, [from]) }).toEqual({ from, open: [from] });
               // A menu that covers the other chip takes the press itself.
               if (await onTop(page, to)) {
+                if (stage.variant === "new-chat-reasoning" && width === 760 && from === "Folder" && to === "Model") {
+                  await page.evaluate(() => {
+                    const events = ((window as unknown as { chipSwitchEvents?: unknown[] }).chipSwitchEvents = []);
+                    for (const type of ["pointerdown", "mousedown", "click"])
+                      document.addEventListener(
+                        type,
+                        (event) =>
+                          events.push({
+                            type,
+                            target: (event.target as Element | null)?.closest("button")?.getAttribute("aria-label"),
+                            defaultPrevented: event.defaultPrevented,
+                          }),
+                        true,
+                      );
+                  });
+                }
                 await pressAt(page, chip(to));
+                if (stage.variant === "new-chat-reasoning" && width === 760 && from === "Folder" && to === "Model")
+                  console.error("chip switch events", await page.evaluate(() => (window as unknown as { chipSwitchEvents?: unknown[] }).chipSwitchEvents));
                 expect({ from, to, open: await settle(page, stage.chips, [to]) }).toEqual({ from, to, open: [to] });
               }
               await page.keyboard.press("Escape");
