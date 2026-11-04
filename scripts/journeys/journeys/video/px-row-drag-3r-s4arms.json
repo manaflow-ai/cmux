@@ -273,9 +273,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-row-drag-3r-sw-terminals-off-s1",
+     "name": "px-row-drag-3r-s4arms-off-s1",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-row-drag-3r-sw-terminals-off-s1)"
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s4arms-off-s1)"
     }
    ],
    "after": [],
@@ -357,9 +357,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-row-drag-3r-sw-terminals-on-s1",
+     "name": "px-row-drag-3r-s4arms-on-s1",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-row-drag-3r-sw-terminals-on-s1)"
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s4arms-on-s1)"
     }
    ],
    "after": [],
@@ -455,9 +455,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-row-drag-3r-sw-terminals-on-s1",
+     "name": "px-row-drag-3r-s4arms-onrenderer-s1",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-row-drag-3r-sw-terminals-on-s1)"
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s4arms-onrenderer-s1)"
     }
    ],
    "after": [],
@@ -560,9 +560,9 @@
     },
     {
      "do": "video_stop",
-     "name": "px-row-drag-3r-sw-terminals-on-s1",
+     "name": "px-row-drag-3r-s4arms-ondirect-s1",
      "tail": 0.4,
-     "title": "the motion ends; stop the recording (px-row-drag-3r-sw-terminals-on-s1)"
+     "title": "the motion ends; stop the recording (px-row-drag-3r-s4arms-ondirect-s1)"
     }
    ],
    "after": [],
