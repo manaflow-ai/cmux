@@ -131,7 +131,7 @@ on:
       skip_rehearsal:
         description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (push and deploy-production always skip it); every other check still runs
         type: boolean
-        default: true
+        default: false
       tail_minutes:
         description: tail-production only, minutes to stream the production Worker's events (at most 25)
         type: string
