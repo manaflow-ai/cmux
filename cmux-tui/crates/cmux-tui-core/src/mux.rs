@@ -655,9 +655,6 @@ pub struct Mux {
     agent_hook_children: Mutex<HashMap<TerminalPublicId, agent_hook_children::HookChildren>>,
     agent_roster: Mutex<AgentRosterHost>,
     agent_roster_fold: Mutex<agent_roster_fold::AgentRosterFold>,
-    /// Roster work a request asked for while another thread held the fold: that thread does it
-    /// before it lets go, so no request waits for a fold (`agent_roster_fold.rs`, cmux-ad m11 2).
-    agent_roster_requests: Mutex<agent_roster_fold::RosterRequests>,
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
