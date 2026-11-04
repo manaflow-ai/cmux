@@ -30,7 +30,12 @@ function run(command: string, withNpm: boolean): { code: number; log: string[] }
   stub("cargo", `echo "cargo $*" >> "${log}"`);
   // Only builtins: PATH holds nothing but these stubs.
   stub("bash", `IFS= read -r script; echo "bash <$script>" >> "${log}"`);
-  stub("sh", `IFS= read -r script; echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"`);
+  // Keep the expected log stable even when the parent test runner exports the
+  // Codex installer flag. Only the Codex command intentionally sets it.
+  stub(
+    "sh",
+    `IFS= read -r script; if [ -n "$CODEX_NON_INTERACTIVE" ]; then echo "sh <$script> CODEX_NON_INTERACTIVE=$CODEX_NON_INTERACTIVE" >> "${log}"; else echo "sh <$script>" >> "${log}"; fi`,
+  );
   if (withNpm) stub("npm", `echo "npm $*" >> "${log}"`);
   const result = Bun.spawnSync(["/bin/sh", "-c", command], { env: { PATH: dir, HOME: dir } });
   return {
