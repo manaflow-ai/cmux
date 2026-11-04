@@ -324,9 +324,34 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look (the pick): Claude's button layout, + left of the prompt, the mic right of it, the mode, model, effort and ring in the quiet row under the box.",
+      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic and Send right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-chat-spacing-compact": {
+      note: "Spacing A: 16px after the prompt. Compact, but the placeholder and lower controls are closer than ChatGPT's reference.",
+      snapshot: startedChat(),
+      play: (ctx) =>
+        look(
+          ctx,
+          "codex",
+          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(16px * var(--cmux-interface-scale, 1)); }',
+        ),
+    },
+    "codex-chat-spacing-balanced": {
+      note: "Spacing B (selected): 24px after the prompt, 16px above it, + and the trailing actions 8px from the lower edges. Reference: chatgpt/live/composer-empty-placeholder-plus-button.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-chat-spacing-airy": {
+      note: "Spacing C: 32px after the prompt. More empty space than the reference without improving the control row's separation.",
+      snapshot: startedChat(),
+      play: (ctx) =>
+        look(
+          ctx,
+          "codex",
+          '.acpmux-composer[data-composer-look="codex"] { --acpmux-codex-prompt-gap: calc(32px * var(--cmux-interface-scale, 1)); }',
+        ),
     },
     "codex-chat-alt-in-box-row": {
       note: "Replaced (cmux #28901, last good commit 8b44a8a1dc2): Codex's own 52 px row in the box under the prompt. Replaced on Leo's \"we already have a good version\" (2026-11-01). Gallery-only CSS, close to the old layout.",

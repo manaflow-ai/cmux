@@ -22,6 +22,10 @@ use cmux_json::JsonSet as _;
 
 mod background;
 pub use background::TERMINATE;
+mod usage_limits;
+#[cfg(test)]
+mod usage_limits_tests;
+pub use usage_limits::{is_plan_snapshot, usage_limits};
 
 /// The cmux-codex-acp translator, with Codex's background terminals beside
 /// it (`background.rs`).

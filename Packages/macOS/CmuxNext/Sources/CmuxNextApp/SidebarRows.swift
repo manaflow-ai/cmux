@@ -102,7 +102,7 @@ final class SidebarRows {
         if let elsewhere { self.elsewhere = elsewhere }
         let reprojected = live != nil && shownAt != liveShownAt && !(creating ?? self.creating).rows.isEmpty
         if live != nil { liveShownAt = shownAt }
-        if unlessShown, !reprojected, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
+        if unlessShown, !reprojected, model.arrangedSortsAreCurrent, let live, let creating, live == self.live, creating == self.creating, sameElsewhere, sameVisibility { return }
         if let live { self.live = live }
         if let creating { self.creating = creating }
         #if DEBUG
@@ -167,9 +167,9 @@ final class SidebarRows {
         }
     }
 
-    /// Sends one personal-state command to `home` for `edit`.
-    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService,
+    /// Sends one personal-state command to `home` for `edit`; `until`: sent again while unanswered, never undone.
+    func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, until claim: PersonalWriteLedger.Claim? = nil,
               failed: @escaping @MainActor (ActionWorkFailure) -> Void, _ body: @escaping DaemonCommandBody) {
-        send(edit, [(label, home, body)], failed: failed)
+        if let claim { home.sendUntilAnswered(label, until: claim, edits.outcome(edit, failed: failed), body) } else { send(edit, [(label, home, body)], failed: failed) }
     }
 }
