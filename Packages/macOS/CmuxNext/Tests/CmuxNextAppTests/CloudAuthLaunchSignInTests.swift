@@ -6,8 +6,13 @@ import Testing
 struct CloudAuthLaunchSignInTests {
     private let file = ["CMUX_AUTH_CREDENTIALS_FILE": "/Users/me/.secrets/cmuxterm-dev.env"]
 
-    private func resolve(_ bundleID: String?, debug: Bool, process: [String: String] = [:]) -> CloudConfiguration {
-        CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: process, isDebugBuild: debug)
+    private func resolve(_ bundleID: String?, debug: Bool, backend: String? = nil) -> CloudConfiguration {
+        var configuration = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug)
+        if let backend, var selection = configuration.runtimeSelection {
+            selection.name = backend
+            configuration = CloudConfiguration.from(selection: selection, bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug)
+        }
+        return configuration
     }
 
     /// Leo, 2026-11-04: "when we launch dev builds, we wanted to be able to have all the stuff with auth included
@@ -41,7 +46,7 @@ struct CloudAuthLaunchSignInTests {
             == .init(devAuth: true, autoLogin: true, replacesSession: false))
         #expect(CloudAuth.launchSignIn(configuration: staging, environment: file)
             == .init(devAuth: true, autoLogin: true, replacesSession: true))
-        let production = resolve("com.cmuxterm.app.debug.mytag", debug: true, process: ["CMUX_AUTH_ENVIRONMENT": "production"])
+        let production = resolve("com.cmuxterm.app.debug.mytag", debug: true, backend: "prod")
         #expect(CloudAuth.launchSignIn(configuration: production, environment: [:])
             == .init(devAuth: false, autoLogin: false, replacesSession: false))
         #expect(CloudAuth.launchSignIn(configuration: production, environment: file)
