@@ -457,10 +457,21 @@ extension CloudStartSession {
                     throw ActionFailure(message: CloudStartSessionStrings.relayPromptRequired)
                 }
             } catch let refusal as ActionFailure {
+                // A person's own run (the palette) sees the refusal; a CLI or MCP run gets it as an undelivered answer.
+                if CloudHandlers.origin(of: invocation) == .user { throw refusal }
                 let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
                 return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
             }
             let promptID = invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces)
+            // A person's run waits for the whole turn and shows the reply, or why there is none.
+            guard CloudHandlers.origin(of: invocation) != .user else {
+                return CloudHandlers.runTracked("cloud relay chat", context) {
+                    guard let relay = cloud.relayChat else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
+                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd)
+                    let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
+                    CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
+                }
+            }
             CloudHandlers.result("cloud relay chat", context) {
                 guard let relay = cloud.relayChat else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
                 let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,

@@ -973,6 +973,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Tác tử bắt đầu trò chuyện Cloud bằng `cmux cloud start-session`, lệnh này sẽ hỏi người dùng trước."}}
       }
     },
+    "cloud.relayChat.replyTitle": {
+      "comment": "Title of the sheet that shows a relay chat's reply to the person who ran it.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Chat Reply"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud チャットの返信"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Antwort im Cloud-Chat"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Réponse du chat Cloud"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Respuesta del chat de Cloud"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "رد دردشة Cloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 채팅 응답"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Cloud 聊天回复"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Cloud 聊天回覆"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ответ в чате Cloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Risposta della chat Cloud"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Resposta do chat do Cloud"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Odpowiedź czatu Cloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Cloud sohbet yanıtı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відповідь у чаті Cloud"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Phản hồi trò chuyện Cloud"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คำตอบแชต Cloud"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Svar i Cloud-chat"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Svar i Cloud-chat"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Odgovor u Cloud chatu"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ការឆ្លើយតបជជែក Cloud"}}
+      }
+    },
     "cloud.relayChat.unavailable": {
       "comment": "Refusal: this sign-in has no relay chat (the legacy Cloud link).",
       "extractionState": "manual",
