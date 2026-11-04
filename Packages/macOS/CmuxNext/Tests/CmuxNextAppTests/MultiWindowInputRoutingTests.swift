@@ -109,7 +109,7 @@ import CmuxNextTestSupport
     }
 
     /// A key typed into cmux window A and run again later (a creation hold's held key) never reaches a window no cmux
-    /// window owns that became key since: a floating panel (the Quick Agent Chat, the Chief pet's reply box) or Settings.
+    /// window owns that became key since: a floating panel (the Quick Agent Chat, the Chief pet's reply box).
     /// A creation hold runs its held keys again with `NSApp.sendEvent`, which goes to the key window; a held line typed in
     /// A went into the panel's field, and its Return sent it to an agent (review of #35275; the dogfood v2.2.3 class). A
     /// key typed into that panel itself still goes on, and so do A's keys for a panel over A (A's own).
@@ -123,20 +123,21 @@ import CmuxNextTestSupport
         panel.isReleasedWhenClosed = false
         defer { panel.close() }
         #expect(keyGuard.owner(panel) == nil, "the test's panel is owned by a cmux window")
-        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "a held key typed in A reached a panel no cmux window owns")
+        let heldSincePanel = CrossWindowInputGuard.HeldRun(keyWindow: panel) // the held keys' run began while the panel was key
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key typed in A reached a panel no cmux window owns")
         #expect(!keyGuard.dropsKey(eventWindow: panel, keyWindow: panel), "a key typed into the panel did not reach it")
         #expect(!keyGuard.dropsKey(eventWindow: nil, keyWindow: panel), "a key with no window is not judged here")
         // A panel over A (a child window) is A's own: A's keys go on there.
         shellA.addChildWindow(panel, ordered: .above)
         defer { shellA.removeChildWindow(panel) }
-        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "A's own panel did not take A's keys")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "A's own panel did not take A's keys")
     }
 
-    /// The app's check of a key-down (`CmuxApplication.sendEvent`) tells a key typed now from a held key run again: a key
-    /// typed now in A may still reach a panel no cmux window owns that became key after it was typed (the person opened
-    /// the panel and typed into it at once, `typedNow`); a held key run again never does. Neither reaches window B, and a
-    /// held key still reaches its own window and a panel over it.
-    @Test func onlyAKeyTypedNowReachesAPanelThatBecameKeyAfterIt() throws {
+    /// A window no cmux window owns takes a key of A only when it became key after the key's moment: a key typed now
+    /// reaches a panel the person opened and typed into at once; a held key reaches one that a key of its own run made key
+    /// (Start Agent's key, then its line: review of #35832), never one that was key when its run began. Neither reaches
+    /// window B, and a held key still reaches its own window and a panel over it.
+    @Test func aPanelTakesAKeyOnlyWhenItBecameKeyAfterTheKeysMoment() throws {
         let harness = try Self.harness()
         defer { harness.close() }
         let shellA = try #require(harness.a.window), shellB = try #require(harness.b.window)
@@ -145,14 +146,16 @@ import CmuxNextTestSupport
                             backing: .buffered, defer: true)
         panel.isReleasedWhenClosed = false
         defer { panel.close() }
-        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: true), "a key typed now did not reach the panel the person opened")
-        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: false), "a held key typed in A reached a panel no cmux window owns")
-        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, typedNow: true), "a key typed now in A reached B")
-        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, typedNow: false), "a held key typed in A reached B")
-        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA, typedNow: false), "a held key did not reach its own window")
+        let heldSincePanel = CrossWindowInputGuard.HeldRun(keyWindow: panel), heldSinceA = CrossWindowInputGuard.HeldRun(keyWindow: shellA)
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel), "a key typed now did not reach the panel the person opened")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key reached a panel that was key when its run began")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSinceA), "a held key did not follow a panel its own run made key")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB), "a key typed now in A reached B")
+        #expect(keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellB, heldRun: heldSinceA), "a held key typed in A reached B")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: shellA, heldRun: heldSincePanel), "a held key did not reach its own window")
         shellA.addChildWindow(panel, ordered: .above)
         defer { shellA.removeChildWindow(panel) }
-        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, typedNow: false), "a held key did not reach a panel over its window")
+        #expect(!keyGuard.dropsKey(eventWindow: shellA, keyWindow: panel, heldRun: heldSincePanel), "a held key did not reach a panel over its window")
     }
 
     /// A workspace a person picks in window A's sidebar (a pinned item listing a workspace that
