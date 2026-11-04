@@ -135,7 +135,7 @@ async fn exchange(
     timeout: Duration,
 ) -> Result<Value, RpcError> {
     let id = bridge.next_id;
-    bridge.next_id += 1;
+    bridge.next_id = bridge.next_id.wrapping_add(1);
     let mut message = json!({"jsonrpc": "2.0", "id": id, "method": method});
     if !params.is_null() {
         message.set("params", params.clone());
@@ -144,7 +144,7 @@ async fn exchange(
     let read = async {
         while let Some(line) = bridge.lines.next_line().await.map_err(|e| e.to_string())? {
             let Ok(reply) = serde_json::from_str::<Value>(&line) else { continue };
-            if reply["id"] == json!(id) {
+            if reply.get("id") == Some(&json!(id)) {
                 return Ok(reply);
             }
         }

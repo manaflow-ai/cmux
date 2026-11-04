@@ -245,7 +245,7 @@ impl HubClient {
     pub async fn account_session(&self) -> Result<AccountSession, HubError> {
         let mut account = self.account.lock().await;
         if let Some(session) = account.as_ref()
-            && session.expires_at - 60_000 > unix_millis()
+            && session.expires_at.saturating_sub(60_000) > unix_millis()
         {
             return Ok(session.clone());
         }
@@ -292,7 +292,7 @@ impl HubClient {
             token: answer.session,
             user_id: answer.user_id,
             // The session is an hour long (PROTOCOL.md) when the answer has no expiry.
-            expires_at: answer.expires_at.unwrap_or_else(|| unix_millis() + 3_600_000),
+            expires_at: answer.expires_at.unwrap_or_else(|| unix_millis().saturating_add(3_600_000)),
         })
     }
 
@@ -486,11 +486,17 @@ async fn read_response(response: reqwest::Response) -> Result<Vec<u8>, HubError>
 }
 
 pub(crate) fn unix_seconds() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 pub(crate) fn unix_millis() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

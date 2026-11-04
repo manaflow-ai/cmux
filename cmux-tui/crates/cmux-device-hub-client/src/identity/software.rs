@@ -61,8 +61,11 @@ impl SoftwarePair {
         let private: [u8; 32] = private
             .try_into()
             .map_err(|_| IdentityError::Corrupt("a private key is not 32 bytes".into()))?;
-        let mut public_out = [0u8; 65];
-        public_out.copy_from_slice(signer.public_key().as_ref());
+        let public_out: [u8; 65] = signer
+            .public_key()
+            .as_ref()
+            .try_into()
+            .map_err(|_| IdentityError::Corrupt("a public key is not 65 bytes".into()))?;
         Ok(SoftwarePair { signer, private: Zeroizing::new(private), public: public_out })
     }
 }
@@ -186,21 +189,17 @@ fn der_next(input: &[u8]) -> Option<(u8, &[u8], &[u8])> {
     let length = if first < 0x80 {
         usize::from(first)
     } else {
-        let count = usize::from(first & 0x7f);
-        if count == 0 || count > 2 || rest.len() < count {
-            return None;
+        // Long form: one or two length bytes (a P-256 PKCS#8 document is short).
+        let (bytes, after) = rest.split_at_checked(usize::from(first & 0x7f))?;
+        rest = after;
+        match *bytes {
+            [one] => usize::from(one),
+            [high, low] => usize::from(u16::from_be_bytes([high, low])),
+            _ => return None,
         }
-        let mut length = 0usize;
-        for byte in &rest[..count] {
-            length = (length << 8) | usize::from(*byte);
-        }
-        rest = &rest[count..];
-        length
     };
-    if rest.len() < length {
-        return None;
-    }
-    Some((tag, &rest[..length], &rest[length..]))
+    let (contents, rest) = rest.split_at_checked(length)?;
+    Some((tag, contents, rest))
 }
 
 /// The private scalar and public point of ring's P-256 PKCS#8 v1 document:
@@ -241,10 +240,12 @@ fn parse_ring_pkcs8(document: &[u8]) -> Result<(Zeroizing<Vec<u8>>, Vec<u8>), Id
         let (tag, contents, after) = der_next(rest).ok_or_else(malformed)?;
         if tag == 0xa1 {
             let (bit_tag, bits, _) = der_next(contents).ok_or_else(malformed)?;
-            if bit_tag != 0x03 || bits.len() != 66 || bits[0] != 0 || bits[1] != 0x04 {
+            // A BIT STRING with no unused bits holding the 65-byte X9.63 point.
+            let (&unused, point) = bits.split_first().ok_or_else(malformed)?;
+            if bit_tag != 0x03 || unused != 0 || point.len() != 65 || point.first() != Some(&0x04) {
                 return Err(malformed());
             }
-            return Ok((Zeroizing::new(scalar.to_vec()), bits[1..].to_vec()));
+            return Ok((Zeroizing::new(scalar.to_vec()), point.to_vec()));
         }
         rest = after;
     }

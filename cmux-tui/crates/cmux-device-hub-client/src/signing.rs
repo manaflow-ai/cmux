@@ -61,30 +61,31 @@ pub fn path_and_query(url: &url::Url) -> String {
 /// signature is not 64 bytes or `s` is zero or not below `n`.
 pub fn low_s(signature: &[u8]) -> Option<[u8; 64]> {
     let raw: [u8; 64] = signature.try_into().ok()?;
-    let mut s = [0u8; 32];
-    s.copy_from_slice(&raw[32..]);
+    let (r, s) = raw.split_at_checked(32)?;
+    let s: [u8; 32] = s.try_into().ok()?;
     if s.iter().all(|byte| *byte == 0) || s >= ORDER {
         return None;
     }
-    let mut out = raw;
-    if s > HALF_ORDER {
-        out[32..].copy_from_slice(&sub_be(&ORDER, &s));
+    if s <= HALF_ORDER {
+        return Some(raw);
     }
+    let mut out = [0u8; 64];
+    let (out_r, out_s) = out.split_at_mut_checked(32)?;
+    out_r.copy_from_slice(r);
+    out_s.copy_from_slice(&sub_be(&ORDER, &s));
     Some(out)
 }
 
-/// `a - b` for big-endian 256-bit numbers with `a >= b`.
+/// `a - b` for big-endian 256-bit numbers with `a >= b` (wrapping per byte,
+/// carrying the borrow).
 fn sub_be(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
     let mut out = [0u8; 32];
-    let mut borrow = 0i16;
-    for index in (0..32).rev() {
-        let mut digit = i16::from(a[index]) - i16::from(b[index]) - borrow;
-        borrow = 0;
-        if digit < 0 {
-            digit += 256;
-            borrow = 1;
-        }
-        out[index] = digit as u8;
+    let mut borrow = false;
+    for ((digit, x), y) in out.iter_mut().zip(a).zip(b).rev() {
+        let (less, borrowed) = x.overflowing_sub(*y);
+        let (less, borrowed_again) = less.overflowing_sub(u8::from(borrow));
+        *digit = less;
+        borrow = borrowed || borrowed_again;
     }
     out
 }
@@ -92,7 +93,7 @@ fn sub_be(a: &[u8; 32], b: &[u8; 32]) -> [u8; 32] {
 /// Verifies an ECDSA-P256-SHA256 raw r||s signature of `message` with an X9.63
 /// uncompressed public key. High-S signatures verify: `s` is normalized first.
 pub fn verify(public_key_x963: &[u8], message: &[u8], signature: &[u8]) -> bool {
-    if public_key_x963.len() != 65 || public_key_x963[0] != 0x04 {
+    if public_key_x963.len() != 65 || public_key_x963.first() != Some(&0x04) {
         return false;
     }
     let Some(normalized) = low_s(signature) else {
@@ -126,6 +127,32 @@ mod tests {
             carry = byte & 1;
         }
         assert_eq!(shifted, HALF_ORDER);
+    }
+
+    #[test]
+    fn a_high_s_becomes_n_minus_s() {
+        // s = n - 1 is high; its low form is 1.
+        let mut high = [7u8; 64];
+        let mut s = ORDER;
+        s[31] -= 1;
+        high[32..].copy_from_slice(&s);
+        let low = low_s(&high).unwrap();
+        assert_eq!(&low[..32], &[7u8; 32]);
+        let mut one = [0u8; 32];
+        one[31] = 1;
+        assert_eq!(&low[32..], &one);
+        // s = n/2 is already low and stays.
+        let mut half = [9u8; 64];
+        half[32..].copy_from_slice(&HALF_ORDER);
+        assert_eq!(low_s(&half), Some(half));
+        // A borrow across bytes: n - (n/2 + 1).
+        let mut above = HALF_ORDER;
+        above[31] += 1;
+        let mut sig = [0u8; 64];
+        sig[32..].copy_from_slice(&above);
+        sig[0] = 1;
+        let lowered = low_s(&sig).unwrap();
+        assert_eq!(&lowered[32..], &HALF_ORDER, "n - (floor(n/2) + 1) = floor(n/2) for odd n");
     }
 
     #[test]

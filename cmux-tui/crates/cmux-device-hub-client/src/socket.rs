@@ -288,10 +288,9 @@ async fn serve(
     stopped: &mut watch::Receiver<bool>,
 ) -> ServeEnd {
     let (mut sink, mut source) = stream.split();
-    let mut ping = tokio::time::interval_at(
-        tokio::time::Instant::now() + options.ping_interval,
-        options.ping_interval,
-    );
+    let now = tokio::time::Instant::now();
+    let first_ping = now.checked_add(options.ping_interval).unwrap_or(now);
+    let mut ping = tokio::time::interval_at(first_ping, options.ping_interval);
     ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // wakeup-allow: each pass waits for a frame, the keepalive tick or shutdown.
     loop {
