@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 563,
+  "count": 564,
   "sections": [
     {
       "id": "general",
@@ -5529,6 +5529,14 @@
             "title",
             "full"
           ]
+        },
+        {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
         },
         {
           "key": "notifications.attention.agentChatBlinkCount",

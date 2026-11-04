@@ -1,6 +1,11 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "turn.live.retry.unreachable": {"comment":"Agent pane: the running turn's live line while its harness retries a model request that failed to connect (Can't reach the model · retrying (7 of 10) · 503 server error)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تعذّر الوصول إلى النموذج"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model nije dostupan"}},"da":{"stringUnit":{"state":"needs_review","value":"Kan ikke nå modellen"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell nicht erreichbar"}},"en":{"stringUnit":{"state":"translated","value":"Can't reach the model"}},"es":{"stringUnit":{"state":"needs_review","value":"No se puede contactar con el modelo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Impossible de joindre le modèle"}},"it":{"stringUnit":{"state":"needs_review","value":"Impossibile raggiungere il modello"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデルに接続できません"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនអាចភ្ជាប់ទៅម៉ូដែលបានទេ"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델에 연결할 수 없음"}},"nb":{"stringUnit":{"state":"needs_review","value":"Får ikke kontakt med modellen"}},"pl":{"stringUnit":{"state":"needs_review","value":"Brak połączenia z modelem"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Não foi possível acessar o modelo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель недоступна"}},"th":{"stringUnit":{"state":"needs_review","value":"เชื่อมต่อโมเดลไม่ได้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Modele ulaşılamıyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель недоступна"}},"vi":{"stringUnit":{"state":"needs_review","value":"Không kết nối được với mô hình"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"无法连接模型"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"無法連線至模型"}}}},
+    "turn.live.retry.busy": {"comment":"Agent pane: the running turn's live line while its harness retries a model request the provider refused as busy or rate limited (The model is busy · retrying (2 of 10) · 529 overloaded)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"النموذج مشغول"}},"bs":{"stringUnit":{"state":"needs_review","value":"Model je zauzet"}},"da":{"stringUnit":{"state":"needs_review","value":"Modellen er optaget"}},"de":{"stringUnit":{"state":"needs_review","value":"Modell ist ausgelastet"}},"en":{"stringUnit":{"state":"translated","value":"The model is busy"}},"es":{"stringUnit":{"state":"needs_review","value":"El modelo está ocupado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Le modèle est occupé"}},"it":{"stringUnit":{"state":"needs_review","value":"Il modello è occupato"}},"ja":{"stringUnit":{"state":"needs_review","value":"モデルが混雑しています"}},"km":{"stringUnit":{"state":"needs_review","value":"ម៉ូដែលកំពុងរវល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"모델이 사용 중임"}},"nb":{"stringUnit":{"state":"needs_review","value":"Modellen er opptatt"}},"pl":{"stringUnit":{"state":"needs_review","value":"Model jest zajęty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"O modelo está ocupado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Модель занята"}},"th":{"stringUnit":{"state":"needs_review","value":"โมเดลไม่ว่าง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Model meşgul"}},"uk":{"stringUnit":{"state":"needs_review","value":"Модель зайнята"}},"vi":{"stringUnit":{"state":"needs_review","value":"Mô hình đang bận"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"模型繁忙"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"模型忙碌中"}}}},
+    "turn.live.retry.attempt": {"comment":"Agent pane: after the cause on a running turn's live line, which retry of a failed model request this is. {attempt} and {max} are numbers (retrying (7 of 10))","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة ({attempt} من {max})"}},"bs":{"stringUnit":{"state":"needs_review","value":"ponovni pokušaj ({attempt} od {max})"}},"da":{"stringUnit":{"state":"needs_review","value":"prøver igen ({attempt} af {max})"}},"de":{"stringUnit":{"state":"needs_review","value":"neuer Versuch ({attempt} von {max})"}},"en":{"stringUnit":{"state":"translated","value":"retrying ({attempt} of {max})"}},"es":{"stringUnit":{"state":"needs_review","value":"reintentando ({attempt} de {max})"}},"fr":{"stringUnit":{"state":"needs_review","value":"nouvel essai ({attempt} sur {max})"}},"it":{"stringUnit":{"state":"needs_review","value":"nuovo tentativo ({attempt} di {max})"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行中（{attempt}/{max}）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្ដងទៀត ({attempt} នៃ {max})"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도 중 ({attempt}/{max})"}},"nb":{"stringUnit":{"state":"needs_review","value":"prøver igjen ({attempt} av {max})"}},"pl":{"stringUnit":{"state":"needs_review","value":"ponawianie ({attempt} z {max})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"tentando novamente ({attempt} de {max})"}},"ru":{"stringUnit":{"state":"needs_review","value":"повтор ({attempt} из {max})"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ ({attempt} จาก {max})"}},"tr":{"stringUnit":{"state":"needs_review","value":"yeniden deneniyor ({attempt}/{max})"}},"uk":{"stringUnit":{"state":"needs_review","value":"повтор ({attempt} з {max})"}},"vi":{"stringUnit":{"state":"needs_review","value":"đang thử lại ({attempt}/{max})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重试（第 {attempt} 次，共 {max} 次）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重試（第 {attempt} 次，共 {max} 次）"}}}},
+    "turn.live.retry.attemptOnly": {"comment":"Agent pane: after the cause on a running turn's live line, which retry of a failed model request this is when the harness names no limit. {attempt} is a number (retrying (try 2))","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة (المحاولة {attempt})"}},"bs":{"stringUnit":{"state":"needs_review","value":"ponovni pokušaj ({attempt}.)"}},"da":{"stringUnit":{"state":"needs_review","value":"prøver igen (forsøg {attempt})"}},"de":{"stringUnit":{"state":"needs_review","value":"neuer Versuch ({attempt}.)"}},"en":{"stringUnit":{"state":"translated","value":"retrying (try {attempt})"}},"es":{"stringUnit":{"state":"needs_review","value":"reintentando (intento {attempt})"}},"fr":{"stringUnit":{"state":"needs_review","value":"nouvel essai (essai {attempt})"}},"it":{"stringUnit":{"state":"needs_review","value":"nuovo tentativo (tentativo {attempt})"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行中（{attempt} 回目）"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្ដងទៀត (លើកទី {attempt})"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도 중 ({attempt}번째)"}},"nb":{"stringUnit":{"state":"needs_review","value":"prøver igjen (forsøk {attempt})"}},"pl":{"stringUnit":{"state":"needs_review","value":"ponawianie (próba {attempt})"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"tentando novamente (tentativa {attempt})"}},"ru":{"stringUnit":{"state":"needs_review","value":"повтор (попытка {attempt})"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่ (ครั้งที่ {attempt})"}},"tr":{"stringUnit":{"state":"needs_review","value":"yeniden deneniyor ({attempt}. deneme)"}},"uk":{"stringUnit":{"state":"needs_review","value":"повтор (спроба {attempt})"}},"vi":{"stringUnit":{"state":"needs_review","value":"đang thử lại (lần {attempt})"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重试（第 {attempt} 次）"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重試（第 {attempt} 次）"}}}},
+    "turn.live.retry.retrying": {"comment":"Agent pane: after the cause on a running turn's live line while its harness retries a failed model request, when it names no count (retrying)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إعادة المحاولة"}},"bs":{"stringUnit":{"state":"needs_review","value":"ponovni pokušaj"}},"da":{"stringUnit":{"state":"needs_review","value":"prøver igen"}},"de":{"stringUnit":{"state":"needs_review","value":"neuer Versuch"}},"en":{"stringUnit":{"state":"translated","value":"retrying"}},"es":{"stringUnit":{"state":"needs_review","value":"reintentando"}},"fr":{"stringUnit":{"state":"needs_review","value":"nouvel essai"}},"it":{"stringUnit":{"state":"needs_review","value":"nuovo tentativo"}},"ja":{"stringUnit":{"state":"needs_review","value":"再試行中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងព្យាយាមម្ដងទៀត"}},"ko":{"stringUnit":{"state":"needs_review","value":"재시도 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"prøver igjen"}},"pl":{"stringUnit":{"state":"needs_review","value":"ponawianie"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"tentando novamente"}},"ru":{"stringUnit":{"state":"needs_review","value":"повтор"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังลองใหม่"}},"tr":{"stringUnit":{"state":"needs_review","value":"yeniden deneniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"повтор"}},"vi":{"stringUnit":{"state":"needs_review","value":"đang thử lại"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在重试"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在重試"}}}},
     "transcript.sentFrom": {"comment":"Agent pane: small muted line, beside the Chief's avatar, above a prompt the Chief sent this chat on the person's behalf; {name} is the Chief's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أُرسلت من {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poslano iz {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Gesendet von {name}"}},"en":{"stringUnit":{"state":"translated","value":"Sent from {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Enviado desde {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Envoyé depuis {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Inviato da {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} から送信"}},"km":{"stringUnit":{"state":"needs_review","value":"បានផ្ញើពី {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}에서 보냄"}},"nb":{"stringUnit":{"state":"needs_review","value":"Sendt fra {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Wysłano z {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Enviado de {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отправлено из {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"ส่งจาก {name}"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} üzerinden gönderildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Надіслано з {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Gửi từ {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"从 {name} 发送"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"從 {name} 傳送"}}}},
     "needsYou.expand": {"comment":"Agent pane Needs you: button that expands an ask's row to its whole text, options and next steps","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار المزيد"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži više"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mere"}},"de":{"stringUnit":{"state":"needs_review","value":"Mehr anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show more"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar más"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher plus"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra altro"}},"ja":{"stringUnit":{"state":"needs_review","value":"さらに表示"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញបន្ថែម"}},"ko":{"stringUnit":{"state":"needs_review","value":"더 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż więcej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar mais"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать больше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงเพิ่มเติม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha fazla göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати більше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hiện thêm"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"显示更多"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"顯示更多"}}}},
     "needsYou.collapse": {"comment":"Agent pane Needs you: button that folds an expanded ask's row back to one card","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"إظهار أقل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikaži manje"}},"da":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"de":{"stringUnit":{"state":"needs_review","value":"Weniger anzeigen"}},"en":{"stringUnit":{"state":"translated","value":"Show less"}},"es":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Afficher moins"}},"it":{"stringUnit":{"state":"needs_review","value":"Mostra meno"}},"ja":{"stringUnit":{"state":"needs_review","value":"表示を減らす"}},"km":{"stringUnit":{"state":"needs_review","value":"បង្ហាញតិច"}},"ko":{"stringUnit":{"state":"needs_review","value":"간단히 보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Vis mindre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Pokaż mniej"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Mostrar menos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Показать меньше"}},"th":{"stringUnit":{"state":"needs_review","value":"แสดงน้อยลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Daha az göster"}},"uk":{"stringUnit":{"state":"needs_review","value":"Показати менше"}},"vi":{"stringUnit":{"state":"needs_review","value":"Ẩn bớt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"收起"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"收合"}}}},
@@ -122852,6 +122857,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "已中斷連線"
+          }
+        }
+      }
+    },
+    "subagents.close": {
+      "comment": "Agent pane: the × on a subagent's \"Subagent of\" pill that closes its view back to the chat (subagents/SubagentGroup.tsx)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق الوكيل الفرعي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori podagenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk underagent"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subagent schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close subagent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar subagente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer le sous-agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi subagente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェントを閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទភ្នាក់ងាររង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk underagent"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij podagenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar subagente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть субагента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดเอเจนต์ย่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt ajanı kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити субагента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng tác tử con"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭子代理"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉子代理"
           }
         }
       }
