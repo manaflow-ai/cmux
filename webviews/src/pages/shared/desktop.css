@@ -160,8 +160,7 @@ body {
    one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
    emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
    group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. A truncated row's title tooltip is as wide as the row (tooltipWidth sets
-   its min and max width). */
+   quicker than it came. Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
@@ -554,12 +553,12 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
-  --tooltip-max-width: 320px;
+  --tooltip-max-width: calc(var(--grid-base) * 80);
   /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
-  --tooltip-edge: var(--ds-space-1);
-  --tooltip-pad-block: var(--grid-half-step);
-  --tooltip-pad-inline: var(--ds-space-2);
-  --tooltip-detail-gap: var(--grid-half-step);
+  --tooltip-edge: var(--grid-base);
+  --tooltip-pad-block: calc(var(--grid-base) / 2);
+  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */

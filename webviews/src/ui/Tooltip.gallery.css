@@ -3,7 +3,7 @@
   place-items: center;
   align-content: center;
   gap: var(--ds-space-4);
-  min-height: 220px;
+  min-height: calc(var(--ds-space-56) * 4);
   padding: var(--ds-space-4);
   color: var(--cmux-text, CanvasText);
   font-family: var(--font-ui);
@@ -24,16 +24,5 @@
 }
 
 .tooltip-gallery-control {
-  min-width: var(--ds-control-row);
-  height: var(--ds-control-row);
-  padding-inline: var(--ds-space-3);
-  border: 0;
-  border-radius: var(--ds-radius-md);
-  background: var(--ds-color-hover);
-  color: inherit;
-  font: inherit;
-}
-
-.tooltip-gallery-control:hover {
-  background: var(--ds-color-pressed);
+  font-size: var(--text-body);
 }

@@ -1,6 +1,8 @@
 // Reference variants for the shared compact tooltip surface. The matrix captures the three
 // placement/content choices beside the ChatGPT and Claude references; the shipped choice is the
 // compact title/detail hierarchy with an above-first anchor.
+// l10n-allow-file: gallery fixture labels, not shipped UI.
+import { Button } from "./Button";
 import { Tooltip, TooltipProvider } from "./Tooltip";
 import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
@@ -16,9 +18,11 @@ function TooltipGallery({ mode = "detail" }: Props) {
             <strong>Compact title and detail</strong>
             <span>The selected hierarchy: an emphasized title with a dimmer second line.</span>
           </div>
-          <button className="tooltip-gallery-control" title="Fork from here" data-tooltip-detail="Start a new thread">
-            Fork
-          </button>
+          <Tooltip label="Fork from here" detail="Start a new thread. This one stays as it is.">
+            <Button className="tooltip-gallery-control" size="sm">
+              Fork
+            </Button>
+          </Tooltip>
         </div>
       </TooltipProvider>
     );
@@ -29,8 +33,10 @@ function TooltipGallery({ mode = "detail" }: Props) {
           <strong>{mode === "above" ? "Above, compact" : "Below, compact"}</strong>
           <span>Content-sized bubble with the same glass and shared spacing scale.</span>
         </div>
-        <Tooltip label={mode === "above" ? "Copy response" : "Copy response"} side={mode === "above" ? "top" : "bottom"}>
-          <button className="tooltip-gallery-control">Copy</button>
+        <Tooltip label="Copy response" side={mode === "above" ? "top" : "bottom"}>
+          <Button className="tooltip-gallery-control" size="sm">
+            Copy
+          </Button>
         </Tooltip>
       </div>
     </TooltipProvider>
@@ -55,7 +61,7 @@ export default componentEntry<Props>({
   },
   covers: ["ui/Tooltip.tsx#Tooltip", "ui/titleTooltips.ts#installTooltips"],
   load: async () => TooltipGallery,
-  styles: () => import("./Tooltip.gallery.css"),
+  styles: () => Promise.all([import("./Tooltip.gallery.css"), import("./controls.css")]),
   variants: {
     "above-compact": { props: { mode: "above" }, play: hover },
     "below-compact": { props: { mode: "below" }, play: hover },

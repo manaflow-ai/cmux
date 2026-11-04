@@ -6,48 +6,34 @@
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's;
 // a `data-tooltip-detail` on a line under it, also secondary (Fork from here, Claude's).
-// A `data-tooltip-side="top"` puts it above the element rather than below (a message's time).
+// Above by default; `data-tooltip-side="bottom"` explicitly prefers below.
 // A `data-tooltip-anchor` (a selector) places it at that part of the element instead of the whole
 // element: a row as wide as the pane shows its tooltip at its words, not under its middle.
-// Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
+// Text the element cuts off shows in full, wrapping in the same compact bubble.
 import { HOVER_INTENT, HoverGroup, HoverIntent, tooltipGroup, type HoverClock } from "./hoverIntent";
-import { UI_TOOLTIP_GAP } from "./anchor";
+import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } from "./tooltipTokens";
+export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
-/// Room kept between the tooltip and the window's edges, and its gap from the element.
-export const UI_TOOLTIP_EDGE = 4;
-/// After a scroll, how long the page stays still before the element under the pointer shows its
-/// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
+/// A scrolling row must settle before its tooltip opens under a resting pointer.
 const SCROLL_QUIET = 150;
-const GAP = UI_TOOLTIP_GAP;
 
 type Box = { left: number; top: number; width: number; height: number };
 
-/// The standard tooltip's widest, the native one's (TooltipPanel.maxWidth).
-export const UI_TOOLTIP_MAX_WIDTH = 320;
-/// The narrowest a truncated element's tooltip may wrap at, so a cut-off chip's text is not a column.
-const TRUNCATED_MIN_MAX = 480;
-
-/// The tooltip's min and max width for an element `width` px wide in a `view` px window. A tooltip
-/// for text the element cuts off shows it in full, wrapping, up to the element's width (at least
-/// 480 px) and never narrower than the element's line, unless the full text (`text`, its width on
-/// one line) is shorter: then it is just the text's width. Any other tooltip wraps at 320 px. Both
-/// stay inside the window's edges.
+/// A full label wraps inside the compact bubble; its source row never forces an empty wide box.
 export function tooltipWidth({
-  width,
-  truncated,
   view,
-  text,
+  scale = 1,
 }: {
   width: number;
   truncated: boolean;
   view: number;
   text?: number;
+  scale?: number;
 }) {
-  const room = Math.max(0, view - 2 * UI_TOOLTIP_EDGE);
-  if (!truncated) return { min: 0, max: Math.min(UI_TOOLTIP_MAX_WIDTH, room) };
-  const line = Math.ceil(width);
-  const min = text === undefined ? line : Math.min(line, Math.ceil(text));
-  return { min: Math.min(min, room), max: Math.min(Math.max(line, TRUNCATED_MIN_MAX), room) };
+  return {
+    min: 0,
+    max: Math.min(UI_TOOLTIP_MAX_WIDTH * scale, Math.max(0, view - 2 * UI_TOOLTIP_EDGE * scale)),
+  };
 }
 
 /// Whether `element` or anything inside it cuts its text off: a row can carry the title while its
@@ -67,22 +53,22 @@ export function tooltipPosition(
   size: { width: number; height: number },
   view: { width: number; height: number },
   side: "top" | "bottom" = "top",
+  scale = 1,
 ) {
-  const below = anchor.top + anchor.height + GAP;
-  const above = anchor.top - GAP - size.height;
+  const gap = UI_TOOLTIP_GAP * scale;
+  const edge = UI_TOOLTIP_EDGE * scale;
+  const below = anchor.top + anchor.height + gap;
+  const above = anchor.top - gap - size.height;
   const top =
     side === "top"
-      ? above >= EDGE || below + size.height + EDGE > view.height
-        ? Math.max(EDGE, above)
+      ? above >= edge || below + size.height + edge > view.height
+        ? Math.max(edge, above)
         : below
-      : below + size.height + EDGE <= view.height
+      : below + size.height + edge <= view.height
         ? below
-        : Math.max(EDGE, above);
+        : Math.max(edge, above);
   const centered = anchor.left + anchor.width / 2 - size.width / 2;
-  const left = Math.min(
-    Math.max(UI_TOOLTIP_EDGE, centered),
-    Math.max(UI_TOOLTIP_EDGE, view.width - UI_TOOLTIP_EDGE - size.width),
-  );
+  const left = Math.min(Math.max(edge, centered), Math.max(edge, view.width - edge - size.width));
   return { left: Math.round(left), top: Math.round(top) };
 }
 
@@ -186,7 +172,7 @@ export function installTooltips(
       tip.replaceChildren(hint, label, ...(note ? [note] : []));
     } else tip.replaceChildren(label, ...(note ? [note] : []));
     const anchor = anchorOf(target).getBoundingClientRect();
-    const truncated = clips(target);
+    const scale = tooltipScale(doc);
     const fadeIn = !instant && (tip.hidden === true || ending !== undefined);
     endFade();
     tip.toggleAttribute("data-instant", !fadeIn);
@@ -196,19 +182,11 @@ export function installTooltips(
     // room right of it, and its text would wrap inside a word ("Chat summar / y").
     tip.style.left = "0px";
     tip.style.top = "0px";
-    let natural: number | undefined;
-    if (truncated) {
-      // The full text's width on one line, so a short title gets no wide empty box.
-      tip.style.minWidth = "0";
-      tip.style.maxWidth = "none";
-      // Zero means no layout to measure (a detached or unrendered page): keep the line's width.
-      natural = tip.getBoundingClientRect().width || undefined;
-    }
     const width = tooltipWidth({
       width: anchor.width,
-      truncated,
+      truncated: false,
       view: doc.documentElement.clientWidth,
-      text: natural,
+      scale,
     });
     tip.style.minWidth = `${width.min}px`;
     tip.style.maxWidth = `${width.max}px`;
@@ -217,6 +195,7 @@ export function installTooltips(
       tip.getBoundingClientRect(),
       { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight },
       target.getAttribute("data-tooltip-side") === "bottom" ? "bottom" : "top",
+      scale,
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
