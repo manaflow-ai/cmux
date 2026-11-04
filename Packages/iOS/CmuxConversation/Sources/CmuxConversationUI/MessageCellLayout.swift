@@ -387,6 +387,10 @@ extension MessageCellLayout {
     static let quoteToOtherSideReply: CGFloat = 31.0 / 3
     static let repliesToSameSideReply: CGFloat = 32.0 / 3
     static let repliesToOtherSideReply: CGFloat = 7.0 / 3
+    /// Under a quote of theirs, a reply of mine starts 11 pt under the
+    /// label's glyphs (simulator Messages 27.0; the device screenshot had no
+    /// labeled quote of theirs).
+    static let repliesOfTheirsToMyReply: CGFloat = 10
 
     static func measure(_ text: NSAttributedString, maxWidth: CGFloat) -> CGSize {
         let rect = text.boundingRect(
@@ -467,7 +471,7 @@ extension MessageCellLayout {
                     ? CGRect(x: frame.maxX - Self.quoteRepliesInset - maxBubbleWidth, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                     : CGRect(x: max(bodyMinX, column + ConversationReplyThread.lineWidth / 2) + Self.quoteRepliesInset, y: y + Self.quoteRepliesGap, width: maxBubbleWidth, height: h)
                 y += Self.quoteRepliesGap + h
-                y += sameSide ? Self.repliesToSameSideReply : Self.repliesToOtherSideReply
+                y += sameSide ? Self.repliesToSameSideReply : quote.isOutgoing ? Self.repliesToOtherSideReply : Self.repliesOfTheirsToMyReply
             } else {
                 y += sameSide ? Self.quoteToSameSideReply : Self.quoteToOtherSideReply
             }

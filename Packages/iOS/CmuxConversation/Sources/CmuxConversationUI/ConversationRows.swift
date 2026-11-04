@@ -285,6 +285,9 @@ enum ConversationRowBuilder {
         // row is where `previous` had it, moved by the splice.
         var pageIDs = Set<String>()
         for message in messages[0..<boundary] { pageIDs.insert(message.id) }
+        // A reply quotes its thread's root, so a reply to a reply below the
+        // page re-roots too when the chain reaches the page.
+        for message in messages[boundary...] where message.replyToID.map(pageIDs.contains) == true { pageIDs.insert(message.id) }
         var rebuilt: [Int] = []
         for i in store.messageIndices(from: boundary + 1, replyingTo: pageIDs) {
             let rowID = messages[i].rowID
@@ -439,7 +442,7 @@ enum ConversationRowBuilder {
         let presentation = context.translations.presentation(for: original)
         let inputs = ConversationRowMemo.Inputs(
             message: original, entry: entry, translation: presentation?.text, caption: presentation?.caption,
-            quoted: original.replyToID.flatMap { context.store.message(id: $0) }
+            quoted: original.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: context.store.message(id:)) }
         )
         if let cached = memo.entries[original.rowID], cached.inputs == inputs {
             rows.append(contentsOf: cached.rows)
@@ -500,7 +503,8 @@ enum ConversationRowBuilder {
         // Only a block's first reply quotes the thread's root (Messages): a
         // reply right under the message it answers, or one joining the block
         // above it, shows none.
-        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }.map {
+        let root = entry.replyThread == nil ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }
+        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : root.map {
             ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
@@ -518,7 +522,8 @@ enum ConversationRowBuilder {
             isFirstInGroup: !groupedWithPrevious,
             footer: footer,
             replyQuote: quote,
-            replyThread: quote != nil || entry.replyThread?.arrival != nil ? entry.replyThread : nil,
+            // Without its root loaded the block has no quote, so no line either.
+            replyThread: root == nil ? nil : entry.replyThread,
             isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
             reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                 if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }

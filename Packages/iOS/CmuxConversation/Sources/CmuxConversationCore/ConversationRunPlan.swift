@@ -71,6 +71,14 @@ public struct ConversationRunPlan: Sendable, Equatable {
         case continued
     }
 
+    /// The walk's state at one message: its link, and the ids its block
+    /// answers to (the block's replies and the messages they answer), so a
+    /// reply to any of them joins the block as in Messages' flat threads.
+    struct ThreadState {
+        var link: ThreadLink = .none
+        var ids: Set<String> = []
+    }
+
     public var entries: [Entry]
 
     /// A gap this long starts a new timestamp section.
@@ -125,12 +133,13 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // groups as if they were not there.
         // Neighbors are read in place: copying whole messages into optionals
         // dominated this pass, which runs over every loaded message per update.
-        var link = range.isEmpty || !threadBlocks ? ThreadLink.none : Self.threadLink(messages: messages, at: range.lowerBound, firstScheduled: firstScheduled)
+        var thread = range.isEmpty || !threadBlocks ? ThreadState() : Self.threadState(messages: messages, at: range.lowerBound, firstScheduled: firstScheduled)
         for index in range {
             let message = messages[index]
             if threadBlocks, index > range.lowerBound {
-                link = index >= firstScheduled ? .none : Self.threadLink(of: message, previous: messages[index - 1], previousLink: link)
+                thread = index >= firstScheduled ? ThreadState() : Self.threadState(of: message, previous: messages[index - 1], previousState: thread)
             }
+            let link = thread.link
             if index >= firstScheduled {
                 let failed = message.delivery?.isFailed == true
                 entries.append(Entry(showsTimestamp: false, isFirstInRun: true, isLastInRun: true, status: failed ? .notDelivered : .none))
@@ -162,7 +171,7 @@ public struct ConversationRunPlan: Sendable, Equatable {
             }
             var replyThread: ReplyThread?
             if link == .quoted || link == .continued {
-                let nextLink = hasNext ? Self.threadLink(of: messages[index + 1], previous: message, previousLink: link) : .none
+                let nextLink = hasNext ? Self.threadState(of: messages[index + 1], previous: message, previousState: thread).link : .none
                 let arrival: ReplyThread.Arrival? = link == .quoted ? nil : (messages[index - 1].senderID == meID ? .line : .belowLeading)
                 replyThread = ReplyThread(showsQuote: link == .quoted, arrival: arrival, continuesBelow: nextLink == .continued)
             }
@@ -187,12 +196,10 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // of one thread in a row share a block and run together (the first
         // loses its tail).
         !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap
-            && (threadBlocks ? a.replyToID == b.replyToID : a.replyToID == nil && b.replyToID == nil)
+            && (threadBlocks ? a.replyToID == b.replyToID || (a.replyToID != nil && b.replyToID == a.id) : a.replyToID == nil && b.replyToID == nil)
             && a.reactions.isEmpty && b.reactions.isEmpty
     }
 
-    /// The thread link of `message` under `previous`, given the link of
-    /// `previous` itself. A timestamp section between them starts a new block.
     /// The message the thread of a reply to `id` started from. Messages keeps
     /// one flat thread per root, so a reply to a reply quotes the root.
     public static func threadRoot(of id: String, message: (String) -> ConversationMessage?) -> ConversationMessage? {
@@ -205,37 +212,42 @@ public struct ConversationRunPlan: Sendable, Equatable {
         return root
     }
 
-    static func threadLink(of message: ConversationMessage, previous: ConversationMessage, previousLink: ThreadLink) -> ThreadLink {
-        guard let root = message.replyToID, !message.isUnsent, !message.isSystemEvent else { return .none }
-        guard !previous.isUnsent, !previous.isSystemEvent, message.sentAt.timeIntervalSince(previous.sentAt) < timestampGap else { return .quoted }
-        if previous.id == root, previous.replyToID == nil { return .adjacent }
-        // Under a reply of the same thread (or under the reply it answers),
-        // it joins that reply's block, or reads as a bubble under one.
-        guard previous.id == root || previous.replyToID == root else { return .quoted }
-        switch previousLink {
-        case .adjacent: return .adjacent
-        case .quoted, .continued: return .continued
-        case .none: return .quoted
-        }
+    /// The thread state of `message` under `previous`, given the state of
+    /// `previous` itself. A timestamp section between them starts a new block.
+    static func threadState(of message: ConversationMessage, previous: ConversationMessage, previousState: ThreadState) -> ThreadState {
+        guard let parent = message.replyToID, !message.isUnsent, !message.isSystemEvent else { return ThreadState() }
+        let starts = ThreadState(link: .quoted, ids: [message.id, parent])
+        guard !previous.isUnsent, !previous.isSystemEvent, message.sentAt.timeIntervalSince(previous.sentAt) < timestampGap else { return starts }
+        if previous.id == parent, previous.replyToID == nil { return ThreadState(link: .adjacent, ids: [parent, message.id]) }
+        // Under a reply of the same thread (one answering any message of the
+        // block, or a message the block answers), it joins that reply's
+        // block, or reads as a bubble under one.
+        guard previousState.link != .none, previousState.ids.contains(parent) else { return starts }
+        var ids = previousState.ids
+        ids.insert(message.id)
+        return ThreadState(link: previousState.link == .adjacent ? .adjacent : .continued, ids: ids)
     }
 
-    /// The thread link of the message at `index`, read back only as far as
-    /// the chain of replies above it reaches.
-    static func threadLink(messages: [ConversationMessage], at index: Int, firstScheduled: Int) -> ThreadLink {
-        guard index < firstScheduled else { return .none }
+    /// The thread state of the message at `index`, read back only as far as
+    /// the run of replies above it reaches.
+    static func threadState(messages: [ConversationMessage], at index: Int, firstScheduled: Int) -> ThreadState {
+        guard index < firstScheduled else { return ThreadState() }
         var start = index
         // The reply chain above a message rarely runs past a few rows; the
         // bound keeps a pathological transcript from walking all of it.
-        while start > 0, index - start < 64, dependsOnPrevious(messages[start], messages[start - 1]) { start -= 1 }
-        var link: ThreadLink = messages[start].replyToID != nil && !messages[start].isUnsent && !messages[start].isSystemEvent ? .quoted : .none
+        while start > 0, index - start < 64, mayJoin(messages[start], messages[start - 1]) { start -= 1 }
+        let first = messages[start]
+        var state = first.replyToID.map { first.isUnsent || first.isSystemEvent ? ThreadState() : ThreadState(link: .quoted, ids: [first.id, $0]) } ?? ThreadState()
         if start < index {
-            for i in (start + 1)...index { link = threadLink(of: messages[i], previous: messages[i - 1], previousLink: link) }
+            for i in (start + 1)...index { state = threadState(of: messages[i], previous: messages[i - 1], previousState: state) }
         }
-        return link
+        return state
     }
 
-    private static func dependsOnPrevious(_ message: ConversationMessage, _ previous: ConversationMessage) -> Bool {
-        guard let root = message.replyToID else { return false }
-        return previous.id == root || previous.replyToID == root
+    /// Whether `message` can join the thread of `previous`: it is a reply, and
+    /// `previous` is a reply too or the message it answers.
+    private static func mayJoin(_ message: ConversationMessage, _ previous: ConversationMessage) -> Bool {
+        guard let parent = message.replyToID else { return false }
+        return previous.replyToID != nil || previous.id == parent
     }
 }

@@ -109,6 +109,9 @@ import Testing
             case 15, 16: "m14"
             case 21, 22, 23: "m21"
             case 25: "m24"
+            case 27: "m1"
+            case 28: "m28"
+            case 29: "m1"
             default: nil
             }
             messages.append(message(i + 1, sender, minute: Double(i) + (i == 18 ? 120 : 0), replyTo: replyTo))
@@ -146,5 +149,20 @@ import Testing
         // A root that is not loaded leaves the oldest loaded message of the chain.
         #expect(ConversationRunPlan.threadRoot(of: "m3") { $0 == "m1" ? nil : byID[$0] }?.id == "m2")
         #expect(ConversationRunPlan.threadRoot(of: "gone") { byID[$0] } == nil)
+    }
+
+    /// A reply to a reply, then a reply to the root: Messages keeps them in
+    /// the root's one thread, so the last joins the block (it quoted the
+    /// root again before), and my reply to my reply runs with it.
+    @Test func aReplyToAnyMessageOfTheBlockJoinsIt() {
+        let entries = plan([
+            message(1, "a", minute: 0), message(2, "a", minute: 1),
+            message(3, "me", minute: 2, replyTo: "m1"), message(4, "me", minute: 3, replyTo: "m3"),
+            message(5, "me", minute: 4, replyTo: "m1"),
+        ]).entries
+        #expect(entries[2].replyThread == .init(showsQuote: true, arrival: nil, continuesBelow: true))
+        #expect(entries[3].replyThread == .init(showsQuote: false, arrival: .line, continuesBelow: true))
+        #expect(entries[4].replyThread == .init(showsQuote: false, arrival: .line, continuesBelow: false))
+        #expect(!entries[2].isLastInRun && !entries[3].isFirstInRun, "a reply to my reply above runs with it")
     }
 }

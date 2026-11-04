@@ -666,7 +666,16 @@ final class MessageCell: UICollectionViewCell {
             threadLine.mask = nil
             return
         }
-        if layout.threadArrival != nil { thread.top = .cap(y: min(threadLeadIn, thread.bottom.y)) }
+        if layout.threadArrival != nil {
+            // Between two grouped replies of theirs there is no room: no line.
+            guard threadLeadIn < thread.bottom.y else {
+                threadLine.path = nil
+                threadLine.isHidden = true
+                threadLine.mask = nil
+                return
+            }
+            thread.top = .cap(y: threadLeadIn)
+        }
         threadLine.path = thread.path
         threadLine.isHidden = false
         let clipsTop = layout.threadArrival == .line
