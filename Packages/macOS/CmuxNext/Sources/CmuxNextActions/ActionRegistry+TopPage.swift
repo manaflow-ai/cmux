@@ -24,27 +24,46 @@ public struct ActionTopPageRules {
 }
 
 extension ActionRegistry {
-    /// Installs `rules` (after the actions are bound): every action whose only target is a tab and
-    /// that opens no content refuses while a page shows and the run names no tab, so menus, the
-    /// palette, the keys and the CLI agree.
+    /// Installs `rules` (after the actions are bound), so menus, the palette, the keys and the CLI
+    /// agree: while a page shows and the run names no tab, every action whose only target is a tab
+    /// and that opens no content refuses, and so does an action that opens content when automation
+    /// runs it (a script, an agent, the CLI, another client: automation never changes what the
+    /// person sees).
     public func install(_ rules: ActionTopPageRules) {
         topPageRules = rules
-        for descriptor in descriptors where descriptor.targets == [.tab] && !descriptor.opensWorkspaceContent {
+        for descriptor in descriptors where descriptor.opensWorkspaceContent || descriptor.targets == [.tab] {
+            let opens = descriptor.opensWorkspaceContent
             let previous = action(for: descriptor.id)?.targetUnavailableReason
             ActionTargetReasons.set(descriptor.id, in: self) { [weak self] invocation in
                 if let reason = previous?(invocation) { return reason }
-                guard invocation.target == nil, invocation["tab"] == nil, let rules = self?.topPageRules, rules.isShowing() else { return nil }
+                guard Self.namesNoObject(invocation), let rules = self?.topPageRules, rules.isShowing() else { return nil }
+                if opens, Self.origin(of: invocation) == .user { return nil }
                 return rules.noTabs()
             }
         }
     }
 
-    /// Before the handler: a person's run of an action that opens content, naming no tab or pane,
-    /// leaves the page, so the handler finds the workspace's focused pane and the new content shows
-    /// at once. The page is left, not closed. A script's or agent's run never takes the page away.
-    func leavesTopPage(for id: ActionID, _ invocation: ActionInvocation, run: ActionRunScope) {
-        guard let rules = topPageRules, run.origin == .user, run.allowsViewChange, descriptor(for: id)?.opensWorkspaceContent == true,
-              invocation.target == nil, invocation["tab"] == nil, invocation["pane"] == nil, rules.isShowing() else { return }
+    /// Just before the handler: a person's run of an action that opens content, naming no tab or
+    /// pane, leaves the page, so the handler finds the workspace's focused pane and the new content
+    /// shows at once. The page is left, not closed. False (refused): the leave showed no workspace
+    /// (classic Home stands for the hidden home workspace), so nothing runs into a workspace the
+    /// person cannot see.
+    func leavesTopPage(for id: ActionID, _ invocation: ActionInvocation) -> Bool {
+        guard let rules = topPageRules, descriptor(for: canonicalID(for: id))?.opensWorkspaceContent == true,
+              Self.namesNoObject(invocation), Self.origin(of: invocation) == .user, rules.isShowing() else { return true }
         rules.leave()
+        guard rules.isShowing() else { return true }
+        refuse(rules.noTabs())
+        return false
+    }
+
+    /// The run names no tab and no pane: it acts on "the focused one".
+    private static func namesNoObject(_ invocation: ActionInvocation) -> Bool {
+        invocation.target == nil && invocation["tab"] == nil && invocation["pane"] == nil
+    }
+
+    /// The run's effective origin: a person's invocation nested in a CLI run is the CLI's.
+    private static func origin(of invocation: ActionInvocation) -> ActionOrigin {
+        ActionRunScope(invocation, focuses: false).nested(in: ActionRunScope.current).origin
     }
 }
