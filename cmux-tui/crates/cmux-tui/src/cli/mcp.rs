@@ -744,7 +744,7 @@ impl<B: Backend> Server<B> {
                 chat_tools::remember_client(&params);
                 let code_mode = self.code_mode && self.allowed.is_none();
                 let wrap_up = code_mode
-                    && self.upstreams.iter().any(|up| up.name() == code_mode::WRAP_UP_SERVER);
+                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
                 Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
             }
             "ping" => Ok(json!({})),

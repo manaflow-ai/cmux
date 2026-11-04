@@ -53,18 +53,26 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
     for (const [variant, { buttons }] of Object.entries(VARIANTS))
       for (const scheme of ["dark", "light"] as const)
         test(`${variant} (${scheme})`, async () => {
-          const page = await browser!.newPage({ viewport: { width: WIDTH, height: HEIGHT }, deviceScaleFactor: 2 });
+          const page = await browser!.newPage({
+            viewport: { width: WIDTH, height: HEIGHT },
+            deviceScaleFactor: 2,
+          });
           const errors: string[] = [];
           page.on("pageerror", (error) => errors.push(error.message));
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(base + galleryFrame(ENTRY, { variant, width: WIDTH, height: HEIGHT, colorScheme: scheme }));
+            await page.goto(
+              base +
+                galleryFrame(ENTRY, { variant, width: WIDTH, height: HEIGHT, colorScheme: scheme }),
+            );
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
               { timeout: 90_000 },
             );
-            expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+            expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe(
+              "1",
+            );
             const card = page.locator(".acpmux-next-step").first();
             await card.waitFor();
             const layout = await page.evaluate(() => {
@@ -76,7 +84,9 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
                 text: card.textContent ?? "",
                 buttons: answers.length,
                 lines: new Set(answers.map((box) => Math.round(box.top))).size,
-                keycap: card.querySelector(".acpmux-next-step__answer.is-primary .acpmux-keycap") !== null,
+                keycap:
+                  card.querySelector(".acpmux-next-step__answer.is-primary .acpmux-keycap") !==
+                  null,
                 right: card.getBoundingClientRect().right,
                 width: document.documentElement.clientWidth,
               };
@@ -106,20 +116,30 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
     ] as const)
       for (const scheme of ["dark", "light"] as const)
         test(`${variant} (${scheme})`, async () => {
-          const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+          const page = await browser!.newPage({
+            viewport: { width: 760, height: 560 },
+            deviceScaleFactor: 2,
+          });
           try {
             const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
-            await page.goto(base + galleryFrame(PANE_ENTRY, { variant, width: 760, height: 560, colorScheme: scheme }));
+            await page.goto(
+              base +
+                galleryFrame(PANE_ENTRY, { variant, width: 760, height: 560, colorScheme: scheme }),
+            );
             await page.waitForFunction(
               () => ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
               undefined,
               { timeout: 90_000 },
             );
-            expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+            expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe(
+              "1",
+            );
             if (cards) await page.locator(".acpmux-next-step").first().waitFor();
             expect(await page.locator(".acpmux-next-step").count()).toBe(cards);
-            if (variant === "answered") expect(await page.locator(".acpmux-next-step__answer").count()).toBe(0);
-            if (out) await page.screenshot({ path: path.join(out, `pane-${variant}-${scheme}.png`) });
+            if (variant === "answered")
+              expect(await page.locator(".acpmux-next-step__answer").count()).toBe(0);
+            if (out)
+              await page.screenshot({ path: path.join(out, `pane-${variant}-${scheme}.png`) });
           } finally {
             await page.close();
           }
@@ -129,15 +149,28 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
   // The click path, headless: the box from a real chat's call_log (a wrap-up called from a
   // cmux_exec script), a click on an answer, and that answer sent as the next prompt.
   test("a wrap-up answer click sends the answer as the next prompt", async () => {
-    const page = await browser!.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    const page = await browser!.newPage({
+      viewport: { width: 760, height: 560 },
+      deviceScaleFactor: 2,
+    });
     try {
       const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
       await page.goto(
-        base + galleryFrame(PANE_ENTRY, { variant: "wrap-up-code-mode", width: 760, height: 560, colorScheme: "dark" }),
+        base +
+          galleryFrame(PANE_ENTRY, {
+            variant: "wrap-up-code-mode",
+            width: 760,
+            height: 560,
+            colorScheme: "dark",
+          }),
       );
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-        timeout: 90_000,
-      });
+      await page.waitForFunction(
+        () => document.documentElement.dataset.galleryReady === "1",
+        undefined,
+        {
+          timeout: 90_000,
+        },
+      );
       const card = page.locator(".acpmux-next-step").first();
       await card.waitFor();
       expect(await card.textContent()).toContain("Checked the folder: it is empty.");
@@ -147,18 +180,36 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
       ]);
       if (out) await page.screenshot({ path: path.join(out, "pane-wrap-up-code-mode-dark.png") });
       await card.locator(".acpmux-next-step__answer", { hasText: "Yes, add README" }).click();
-      const sent = await page.waitForFunction(
-        () => {
-          const log = (window as unknown as { cmuxGalleryLog: { method: string; params?: { prompt?: unknown } }[] })
-            .cmuxGalleryLog;
-          const prompt = log.find((entry) => entry.method === "acpmux session/prompt")?.params?.prompt;
-          return Array.isArray(prompt)
-            ? prompt.map((block: { text?: string }) => block.text ?? "").join("")
-            : undefined;
-        },
-        undefined,
-        { timeout: 30_000 },
-      );
+      // The pane's send path: `chat.send` to the host (this frame answers it as the app does), or
+      // `session/prompt` straight to acpmux on a direct link.
+      const sent = await page
+        .waitForFunction(
+          () => {
+            type Entry = { method: string; params?: { text?: unknown; prompt?: unknown } };
+            const log = (window as unknown as { cmuxGalleryLog: Entry[] }).cmuxGalleryLog;
+            for (const entry of log) {
+              if (entry.method === "chat.send" && typeof entry.params?.text === "string")
+                return entry.params.text;
+              if (entry.method === "acpmux session/prompt" && Array.isArray(entry.params?.prompt))
+                return (entry.params.prompt as { text?: string }[])
+                  .map((block) => block.text ?? "")
+                  .join("");
+            }
+            return undefined;
+          },
+          undefined,
+          { timeout: 30_000 },
+        )
+        .catch(async (error: unknown) => {
+          const calls = await page.evaluate(() =>
+            (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.map(
+              (entry) => entry.method,
+            ),
+          );
+          throw new Error(`no prompt was sent; the frame's calls: ${calls.join(", ")}`, {
+            cause: error,
+          });
+        });
       expect(await sent.jsonValue()).toBe("Yes, add README");
     } finally {
       await page.close();
