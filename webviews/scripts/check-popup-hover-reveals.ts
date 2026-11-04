@@ -25,6 +25,10 @@ type Rule = { selector: string; body: string; line: number; context: string };
 // These reveal a visual affordance, not a control that can own a popup. Keep each exemption
 // exact and named so a new row/action cannot silently skip the popup contract.
 const NON_POPUP_REVEALS = new Map<string, string>([
+  [
+    "agent-session/acpmux/subagents/TrayGrabber.css|.acpmux-tray-grabber:is(:hover, :focus-visible) > .acpmux-tray-grabber__pill",
+    "the grabber's own pill: the button opens no popup",
+  ],
   ["agent-session/acpmux/conversation/conversation.css|.cv-table-block:hover .cv-table-tools", "table tools"],
   ["agent-session/acpmux/conversation/conversation.css|.cv-worked:hover .cv-command__bg", "command status"],
   ["agent-session/acpmux/conversation/conversation.css|.cv-activity:hover .cv-command__bg", "command status"],

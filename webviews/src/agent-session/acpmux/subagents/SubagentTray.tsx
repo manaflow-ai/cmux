@@ -386,7 +386,7 @@ export const SubagentTray = memo(function SubagentTray({
         <TrayGrabber
           tucked
           side={grabberSide}
-          running={items.length}
+          running={runningCount(items, waiting)}
           waiting={waitingCount(items, waiting)}
           // Back folded to its header, or open with Option (Leo's plan: tucked, then folded, then open).
           onToggle={(openIt) => {
@@ -812,6 +812,16 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
+
+/// How many lines run now: the count on a tucked tray's grabber. A line that waits, on the person or
+/// for a run slot (`waitsForSlot`), does not run; the grabber's dot says the first.
+function runningCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
+  return items.filter((item) => {
+    if (item.kind === "agent") return subagentStatus(item.agent, waiting) !== "waiting";
+    if (item.kind === "session") return item.session.state === "running" && !item.session.waitsForSlot;
+    return true;
+  }).length;
+}
 
 /// How many lines wait on the person: the dot on a tucked tray's grabber.
 function waitingCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {

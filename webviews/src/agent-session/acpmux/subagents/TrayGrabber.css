@@ -10,7 +10,7 @@
   --acpmux-grabber-gap: 2px;
   --acpmux-grabber-dot: 5px;
   position: absolute;
-  z-index: 2;
+  z-index: calc(var(--layer-raised, 1) + 1);
   top: 0;
   left: calc(50% - var(--acpmux-grabber-band) / 2);
   display: flex;
@@ -75,7 +75,7 @@
    already on, and the tray's own children stay its header, then its fold. */
 .acpmux-dock > :is(.acpmux-tray-tucked, .acpmux-tray-band) {
   position: relative;
-  z-index: 2;
+  z-index: calc(var(--layer-raised, 1) + 1);
   flex: none;
   height: 0;
   min-height: 0;
