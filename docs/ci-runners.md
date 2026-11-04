@@ -1024,6 +1024,13 @@ malformed `RUNNER_POOLS` is rewritten from these declarations, never crashed
 on. Jobs already queued on a dead member keep that label (GitHub binds it when
 it creates the job); moving them is the queue janitor's dead-label re-dispatch
 (with #27114), whose re-run reads the pool's new member.
+`LINUX_RUNNER` predates the pools and most Linux `runs-on` still read it
+(`vars.LINUX_RUNNER || ...`), so each pass also writes the linux pool's live
+member to it, unless the overflow switch's record is set or it holds a value
+that is not a Blacksmith label. On 2026-10-31 it still named
+`blacksmith-4vcpu-ubuntu-2404`, a size outside the set that had stopped
+starting jobs, and about 520 jobs waited on it. `--check` fails while it names
+a label outside the linux pool.
 With no evidence at all (no probe health yet, no snapshot) it marks nothing
 dead: it fails closed and never retires a member on a guess. A pool not marked
 `hosted` never resolves to a GitHub-hosted label, whatever is dead.
@@ -1049,8 +1056,8 @@ on a dead pool needs force-cancel and then rerun.
 Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
-minutes its `probe` jobs ask for each Blacksmith Linux size compiles run on
-(`PROBE_LABELS`: `blacksmith-32vcpu-ubuntu-2404` and
+minutes its `probe` jobs ask for each member of the linux pool
+(`PROBE_LABELS`: `blacksmith-4vcpu-ubuntu-2404` and
 `blacksmith-16vcpu-ubuntu-2404`, one matrix job each) and print a line, and
 its `watch` job waits for them. Never one label: on 2026-10-28 the 4 vCPU
 label alone stalled four times while the other sizes started jobs, and each

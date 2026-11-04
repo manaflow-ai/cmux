@@ -206,6 +206,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
 
+      - name: Validate the classic API auto-deploy guard
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_classic_api_guard.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -660,6 +664,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
+      - name: Validate the UI test GUI activation preflight
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_preflight_gui_activation.py
+
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
@@ -852,6 +860,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate hosted light-job rescue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_hosted_light_rescue.py
+
       # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
       # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
       - name: Validate that the persistent-pool rescue watches every owned-pool workflow
@@ -900,7 +912,9 @@ jobs:
 
       - name: Validate the CLA guard reads each revision by git at its own sha
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_cla_guard_git_reads.py
+        run: |
+          python3 tests/test_cla_guard_git_reads.py
+          python3 tests/test_cla_guard_api_reads.py
 
       - name: Validate who may approve a CLA guard change
         if: ${{ matrix.group == 'ci' }}
@@ -928,7 +942,9 @@ jobs:
 
       - name: Validate triage severity and area rules
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_triage_rules.py
+        run: |
+          python3 tests/test_triage_rules.py
+          python3 tests/test_ci_auto_triage_event.py
 
       - name: Validate cmux-tui focused filter routing
         if: ${{ matrix.group == 'ci' }}
@@ -953,6 +969,10 @@ jobs:
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
+
+      - name: Validate owned-Mac signing claims
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_signing_runner_claim.py
 
       - name: Validate Release check architectures
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1413,6 +1433,10 @@ jobs:
           python3 tests/test_dev_app_linux.py
           python3 tests/test_verify_signed_dev_app.py
 
+      - name: Validate the diff sidecar handshake skip on hosts without Rosetta
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_diff_sidecar_handshake_runnable_arch.py
+
       - name: Validate the cmux NEXT tip Swift suite dispatcher
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_next_tip_swift_suite_dispatch.py
@@ -1486,6 +1510,8 @@ jobs:
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
+          python3 tests/test_defaults_guard_review_rerun.py
+          python3 tests/test_ci_intent_familiar_review_git.py
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_nightly_next_feed_watch.py

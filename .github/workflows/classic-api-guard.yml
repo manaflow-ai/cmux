@@ -1,0 +1,74 @@
+name: classic API guard
+
+# Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. A pull
+# request into main that changes one of the guarded paths in scripts/ci/classic-auto-deploy.json
+# fails until its description has a line `Classic API change: <reason>`.
+# scripts/ci/classic_api_guard.py decides; the head is read only through the API, as the pull
+# request's description and its list of changed paths. Editing the description re-runs it. New
+# NEXT Cloud backend code goes to manaflow-ai/cmux-platform.
+# Leo, 2026-11-04: "apparently the api if we change it it'll auto deploy so we wanna make extra
+# sure we dont change it for clasisc".
+#
+# Trust: this runs on pull_request_target, so GitHub takes this workflow from main and the
+# guard and deploy list are checked out at the pull request's base commit. A pull request can
+# therefore not edit the check into a no-op (a plain pull_request run would use its own copy).
+# NEVER check out the pull request's head or run anything from it here (no head ref, no
+# head sha, no merge ref, no scripts from the head): pull_request_target runs with the base
+# repository's token and runners, so head code here would run trusted. Keep the token
+# read-only and pass no secrets. feat-cmux-next keeps its own warn-only pull_request copy.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: classic-api-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  classic-api:
+    name: classic-api-guard
+    # Every edit re-runs it (a skipped run would read as a pass and replace a failing one).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target runs for forks too; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the guard from the base commit (never the head)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/classic_api_guard.py
+            scripts/ci/classic-auto-deploy.json
+          sparse-checkout-cone-mode: false
+
+      - name: Check the changed paths against classic's auto-deploys
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          BODY: ${{ github.event.pull_request.body }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/ci/classic_api_guard.py ]; then
+            # The pull request that adds the guard: its base has no guard to run yet.
+            echo "::notice::The base has no scripts/ci/classic_api_guard.py yet; nothing to check."
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          # One record per changed file; a rename's old path also counts as changed, but not as a record.
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          python3 scripts/ci/classic_api_guard.py --base "$BASE" \
+            --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
+            --expected-files "$CHANGED_FILES" --listed-records "$records"

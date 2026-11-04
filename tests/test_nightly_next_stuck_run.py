@@ -31,9 +31,10 @@ def ago(minutes: float) -> str:
 
 
 def job(name: str, minutes: float = 34, label: str = "blacksmith-4vcpu-ubuntu-2404", status: str = "queued",
-        runner: str | None = None, conclusion: str | None = None, job_id: int = 0) -> dict:
+        runner: str | None = None, conclusion: str | None = None, job_id: int = 0,
+        started_at: str | None = None) -> dict:
     return {"id": job_id or zlib.crc32(name.encode()) + 1, "name": name, "status": status, "conclusion": conclusion,
-            "runner_name": runner, "labels": [label], "created_at": ago(minutes),
+            "runner_name": runner, "labels": [label], "created_at": ago(minutes), "started_at": started_at,
             "completed_at": ago(minutes) if status == "completed" else None}
 
 
@@ -142,9 +143,48 @@ class StuckRun(unittest.TestCase):
         self.assertIn("decide was created 34 min ago and is queued with no runner on blacksmith-4vcpu-ubuntu-2404", out)
         self.assertIn("(nightly_next_cancelled_tip.sh) re-runs the tip", out)
 
+    def test_started_work_protects_a_run_with_a_later_queued_job(self):
+        started = job("build-nightly-app", status="completed", conclusion="success", runner="mini",
+                      started_at=ago(40))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [started, queued]})
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        self.assertIn("started, waiting on a runner", out)
+
+    def test_an_in_progress_job_with_started_at_also_protects_the_run(self):
+        started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(40))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [started, queued]})
+        tick(gh)
+        self.assertEqual(gh.writes(), [])
+
+    def test_a_healthy_started_job_keeps_the_generic_running_message(self):
+        started = job("build-nightly-app", status="in_progress", runner="mini", started_at=ago(2))
+        gh = FakeGh(runs=[run(7, "in_progress")], jobs={7: [started]})
+        out = "\n".join(tick(gh))
+        self.assertEqual(gh.writes(), [])
+        self.assertIn("running or waiting, no job stuck without a runner", out)
+        self.assertNotIn("started, waiting on a runner", out)
+
+    def test_a_skipped_job_does_not_count_as_started_work(self):
+        skipped = job("build-nightly-app", status="completed", conclusion="skipped", started_at=ago(40))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [skipped, queued]})
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
+
+    def test_a_timed_out_started_job_is_still_cancellable(self):
+        timed_out = job("build-nightly-app", status="completed", conclusion="timed_out", runner="mini",
+                        started_at=ago(80))
+        queued = job("signer-build", minutes=40)
+        gh = FakeGh(runs=[run(7)], jobs={7: [timed_out, queued]})
+        tick(gh)
+        self.assertEqual(gh.writes(), ["repos/o/r/actions/runs/7/cancel"])
+
     def test_a_run_that_is_running_waiting_or_briefly_queued_is_never_cancelled(self):
         cases = {
-            "briefly queued": [job("decide", 19)],
+            "briefly queued": [job("decide", 2)],
             "another job running": [job("decide"), job("build", 5, status="in_progress", runner="r")],
             "a gate job waits": [job("decide"), job("sign", status="waiting")],
             "a job pending on a concurrency group": [job("decide"), job("publish", status="pending")],
@@ -158,7 +198,7 @@ class StuckRun(unittest.TestCase):
                 self.assertEqual(gh.writes(), [])
 
     def test_a_newly_unblocked_job_does_not_inherit_its_dependency_build_time(self):
-        for minutes, cancel in ((1, False), (19, False), (20, True), (30, True)):
+        for minutes, cancel in ((1, False), (2, False), (3, True), (10, True)):
             with self.subTest(minutes_since_build=minutes):
                 build = dict(done("build-nightly-app"), created_at=ago(70), completed_at=ago(minutes))
                 gh = FakeGh(runs=[run(7)], jobs={7: [job("sign", minutes=70), build]})
@@ -267,7 +307,7 @@ class StuckRun(unittest.TestCase):
         bad_runs = {"id": [None, "7", True, 0], "event": [None, 3], "status": [None, "stuck", 3],
                     "conclusion": [3, {}, "weird"], "run_attempt": [None, "1", True, 0],
                     "head_sha": [None, "abc", TIP.upper()], "head_branch": [None, 3], "display_title": [None, 3]}
-        bad_jobs = {"id": [None, "7", True], "name": [None, 3], "status": [None, "stuck"],
+        bad_jobs = {"id": [None, "7", True], "name": [None, 3], "status": [None, "stuck"], "started_at": [3, {}, "yesterday"],
                     "conclusion": [3, {}, "weird"], "runner_name": [{}, [], 3],
                     "labels": [None, {}, [3], "x"], "created_at": [None, "yesterday", 3, "2026-02-30T00:00:00Z"]}
         for kind, good, cases in (("run", good_run, bad_runs), ("job", good_job, bad_jobs)):
@@ -387,25 +427,62 @@ class StuckRun(unittest.TestCase):
         self.assertIn("no unfinished", out)
 
     def test_the_tick_cancels_before_it_re_runs_a_cancelled_tip_in_its_serialized_group(self):
-        job_spec = yaml.safe_load(TICK.read_text())["jobs"]["request"]
+        # Its own job with one fixed group (cmuxterm-hq#6671): in the request job the 3-minute rule fired
+        # 10 minutes in (run 41706574247), behind that job's hosted runner and its 150-commit checkout.
+        tick = yaml.safe_load(TICK.read_text())
+        job_spec = tick["jobs"]["unstick"]
         steps = job_spec["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
         names = [step.get("name") for step in steps]
         step = steps[names.index("Cancel a nightly-next run stuck without a runner")]
         self.assertTrue(step["continue-on-error"])
-        self.assertLessEqual(step["timeout-minutes"], 5)
+        self.assertGreater(step["timeout-minutes"], 5)
         self.assertEqual(step["env"]["NIGHTLY_NEXT_TRAIN"], "${{ vars.NIGHTLY_NEXT_TRAIN }}")
-        self.assertEqual(step["run"], 'python3 .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
-        # Only in the shared tick group (no sha input), which runs one tick at a time.
-        self.assertEqual(step.get("if"), "inputs.sha == ''")
-        self.assertIn("|| 'nightly-next-tick' }}", job_spec["concurrency"]["group"])
-        self.assertFalse(job_spec["concurrency"]["cancel-in-progress"])
+        self.assertEqual(step["run"], 'python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"')
+        # Never for a dispatch with a sha; one fixed group, which runs one rescue at a time.
+        self.assertIn("inputs.sha == ''", job_spec["if"])
+        self.assertEqual(job_spec["concurrency"], {"group": "nightly-next-tick-unstick", "cancel-in-progress": False})
+        # Not behind the request job, and not on the hosted pool the jobs it rescues wait on.
+        self.assertNotIn("needs", job_spec)
+        self.assertNotIn("CI_CONTROL_RUNNER", job_spec["runs-on"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux_2", job_spec["runs-on"])
+        self.assertNotIn("Cancel a nightly-next run stuck without a runner",
+                         [s.get("name") for s in tick["jobs"]["request"]["steps"]])
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),
                         names.index("Cancel a nightly-next run stuck without a runner"))
         self.assertLess(names.index("Cancel a nightly-next run stuck without a runner"),
                         names.index("Re-run a cancelled nightly-next tip"))
         self.assertIn("python3 tests/test_nightly_next_stuck_run.py", CI_GUARDS.read_text())
+
+
+class TipRead(unittest.TestCase):
+    """2026-11-04: the installation's API budget ran out and the refs API read of nightly-next
+    failed. git ls-remote reads the head with no API budget; the refs API is the fallback."""
+
+    def refs_api(self, calls):
+        def gh(args, write):
+            calls.append(args[-1])
+            return json.dumps({"object": {"sha": "c" * 40}})
+        return gh
+
+    def test_ls_remote_answers_without_an_api_read(self):
+        calls = []
+        api = stuck.Api("o/r", self.refs_api(calls), ls_remote=lambda repo, branch: "a" * 40)
+        self.assertEqual(api.tip(), "a" * 40)
+        self.assertEqual(calls, [])
+
+    def test_a_failed_or_odd_ls_remote_falls_back_to_the_refs_api(self):
+        def broken(repo, branch):
+            raise OSError("no git")
+        for reader in (broken, lambda repo, branch: ""):
+            calls = []
+            api = stuck.Api("o/r", self.refs_api(calls), ls_remote=reader)
+            self.assertEqual(api.tip(), "c" * 40)
+            self.assertEqual(calls, ["repos/o/r/git/ref/heads/nightly-next"])
+
+    def test_main_reads_with_ls_remote(self):
+        self.assertIn("Api(argv[1], ls_remote=ls_remote_sha)", Path(stuck.__file__).read_text())
 
 
 if __name__ == "__main__":
