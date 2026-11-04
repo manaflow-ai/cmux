@@ -31,6 +31,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
@@ -1205,7 +1206,9 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "wait-timeout",
 ]
 
@@ -1735,6 +1738,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-config",
  "cmux-conversation",
+ "cmux-git",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1992,6 +1996,27 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-vault-egress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
 
 [[package]]
 name = "cmux-view-rows"
