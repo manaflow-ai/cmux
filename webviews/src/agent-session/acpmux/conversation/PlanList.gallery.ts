@@ -149,7 +149,11 @@ export default agentPaneEntry({
       note: 'The hat under the pointer: its chevron at the top middle tucks it away (Leo, 2026-11-04: "what if you wanted to collapse that one line?").',
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tuck"));
-        await ctx.hover({ selector: ".acpmux-running-tray__tuck" });
+        // A click on the header's middle opens the hat: the chevron takes only the hat's top band.
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 3);
+        // The pointer over the hat shows its chevron.
+        await ctx.hover({ selector: ".acpmux-running-tray__head" });
       },
       snapshot: chat(
         [

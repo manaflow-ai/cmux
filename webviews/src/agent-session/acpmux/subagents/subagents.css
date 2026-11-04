@@ -1621,10 +1621,14 @@ button.cv-subagent > :last-child {
   cursor: default;
   transform: translateX(-50%);
 }
+/* Only the hat's top 8px band takes the tuck's clicks: the button starts 12px above the hat, whose clip
+   hides that part, and its chevron sits at its foot. A click on the header's middle (its row is 24px or
+   more) still opens the hat, never tucks it. */
 .acpmux-running-tray__tuck {
-  top: 0;
+  top: -12px;
   width: 40px;
   height: 20px;
+  align-items: flex-end;
   opacity: 0;
   transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
 }
