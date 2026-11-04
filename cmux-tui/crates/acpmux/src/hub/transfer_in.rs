@@ -18,8 +18,8 @@
 
 use super::transfer_guard::{Guard, bundle_path_kind};
 use super::transfer_out::{
-    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, require_epoch,
-    transfers_dir,
+    DURABLE_TRANSFER_SCHEMA, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, reject_stale_epoch,
+    require_epoch, transfers_dir,
 };
 use super::*;
 use base64::Engine;
@@ -372,7 +372,7 @@ impl Hub {
         let here = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(existing) = here.as_ref() {
             // A delayed bundle for an older owner must not replace a newer moved copy.
-            require_epoch(existing.ownership_epoch(), Some(manifest_epoch(&manifest)))?;
+            reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
         }
         if here.is_some_and(|s| !self.moved_away(&s)) {
             return Err(transfer_error("exists", format!("chat {id} is here already")));
@@ -508,7 +508,7 @@ impl Hub {
         let old = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let old = old.filter(|s| self.moved_away(s));
         if let Some(existing) = old.as_ref() {
-            require_epoch(existing.ownership_epoch(), Some(manifest_epoch(&manifest)))?;
+            reject_stale_epoch(existing.ownership_epoch(), manifest_epoch(&manifest))?;
         }
         let replacing_durable = old.as_ref().is_some_and(|existing| {
             let existing_meta = existing.meta();

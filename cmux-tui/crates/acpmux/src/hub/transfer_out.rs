@@ -140,6 +140,20 @@ pub(super) fn require_epoch(expected: u64, supplied: Option<u64>) -> Result<(), 
     check_epoch(expected, supplied)
 }
 
+/// A target may receive a newer move after its closed copy was moved away, but never an older
+/// bundle that could resurrect a fenced owner. This is used only at receive admission; writes
+/// and finish remain exact-match checks against the persisted manifest.
+pub(super) fn reject_stale_epoch(current: u64, incoming: u64) -> Result<(), RpcError> {
+    if incoming < current {
+        return Err(transfer_error(
+            "stale_epoch",
+            format!("ownership epoch is {current}, request carried {incoming}"),
+        )
+        .with_data(json!({"epoch": current})));
+    }
+    Ok(())
+}
+
 /// The `moving` mark of a chat that moved away (`SessionMeta::moved_to`), restored at load: no
 /// move has that id, so it is never committed, aborted or watched again.
 pub(super) const MOVED_AWAY: &str = "moved-away";
@@ -696,6 +710,8 @@ mod fencing_tests {
         // A resumed owner can never accept the old epoch after a retry increments it.
         assert!(require_epoch(5, Some(4)).is_err());
         assert!(require_epoch(5, Some(5)).is_ok());
+        assert!(reject_stale_epoch(4, 5).is_ok());
+        assert!(reject_stale_epoch(5, 4).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }
