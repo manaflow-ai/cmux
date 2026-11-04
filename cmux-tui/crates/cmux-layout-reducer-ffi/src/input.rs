@@ -20,10 +20,12 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-/// One open window: its id as the router keeps it, and its reply buffers.
+/// One open window: its id as the router keeps it, and its reply buffers. The buffers are boxed: the windows' map moves
+/// its entries when it grows, and a reply the app holds for this window must stay where it is until the next call for
+/// this window (one allocation per window open, none per event).
 struct InputWindow {
     id: Arc<str>,
-    out: FocusReply,
+    out: Box<FocusReply>,
 }
 
 /// The input router and each open window's reply.
@@ -44,7 +46,7 @@ impl Input {
         if !self.windows.contains_key(window) {
             let id: Arc<str> = Arc::from(window);
             self.router.handle(&InputEvent::WindowOpened { window: id.clone() });
-            let out = FocusReply::new(self.router.focus(window)?);
+            let out = Box::new(FocusReply::new(self.router.focus(window)?));
             self.windows.insert(window.to_owned(), InputWindow { id, out });
         }
         Some(self.windows.get(window)?.out.reply())

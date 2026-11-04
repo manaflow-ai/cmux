@@ -375,7 +375,8 @@ uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t i
  * call is the cmux_focus_* call of the same name for the window `window`
  * (UTF-8 id bytes), with the same requests and the same reply bytes. A reply
  * is valid until the next cmux_input_* call for that window; never free it.
- * A call for a window that is not open returns null (0 for a number).
+ * A call for a window that is not open returns null (0 for a number; CMUX_LAYOUT_REDUCER_ERR_INVALID
+ * from cmux_input_focus_import_json, ERR_NULL for a null handle or bad id bytes).
  * memory: the machine's physical memory in bytes (it bounds the key lanes).
  */
 typedef struct CmuxInput CmuxInput;
