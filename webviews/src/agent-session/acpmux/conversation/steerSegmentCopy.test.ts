@@ -91,6 +91,9 @@ test("the steer draws again when a row its copy is read from changes", () => {
   const after = steer(edited);
   expect(turnCopyText(t, after.segmentCopy!)).toContain("Or not.");
   expect(after.version).not.toBe(before.version);
+  // Another row in its place at the same version is a change too.
+  const replaced = source.map((one) => (one.id === "a1" ? { ...one, id: "a1b", text: "Other words." } : one));
+  expect(steer(replaced).version).not.toBe(before.version);
   // The same rows give the same version, so an unchanged steer keeps its memo.
   expect(steer(source).version).toBe(before.version);
 });

@@ -773,8 +773,12 @@ function withSegmentCopy(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): Acpmu
 /// One number for the rows a steer's copy is read from: their ids' order and versions, kept below
 /// VERSION_SPAN - 1 so the steer's derived version stays unique to it (``withSegmentCopy``).
 function segmentRevision(rows: readonly AcpmuxRow[]): number {
+  const span = VERSION_SPAN - 1;
   let revision = rows.length;
-  for (const row of rows) revision = (revision * 31 + row.version) % (VERSION_SPAN - 1);
+  for (const row of rows) {
+    for (let at = 0; at < row.id.length; at += 1) revision = (revision * 31 + row.id.charCodeAt(at)) % span;
+    revision = (revision * 31 + row.version) % span;
+  }
   return revision;
 }
 
