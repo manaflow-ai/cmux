@@ -106,7 +106,9 @@
       "do": "probe_relaunch",
       "mark": "probed",
       "new_daemon": true,
-      "env": {}
+      "env": {
+        "CMUX_NEXT_TUI_RDS_INPUT": "0"
+      }
     },
     {
       "do": "smoke_ready",
@@ -162,7 +164,8 @@
     {
       "do": "daemon_arm",
       "as": "before",
-      "want": "off"
+      "want": "off",
+      "value": "0"
     },
     {
       "do": "load_start",
@@ -248,7 +251,8 @@
     {
       "do": "daemon_arm",
       "as": "after",
-      "want": "off"
+      "want": "off",
+      "value": "0"
     },
     {
       "do": "load_stop"

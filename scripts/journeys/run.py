@@ -497,7 +497,6 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
     left = lambda cap: max(10.0, min(cap, deadline - time.monotonic()))
     log(f"leased {lease}")
     facts, host, hog_started, work, drove, harness = {}, None, None, None, None, None
-    parked = None
     try:
         info = dict(kv.split("=", 1) for kv in run([ch, "slot-info", lease]).stdout.decode().split() if "=" in kv)
         host, root = info["host"], info["root"]
@@ -593,16 +592,12 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
-        # ext_video's movies (hundreds of MB) and the flow traces: moved out of the lease root on the mini (a rename,
-        # instant) and fetched AFTER the release, with no lease bound. Inside the lease the movie fetch had what was
-        # left of 540 s and timed out (round s1ab-v3b-1-off-21, 2026-11-04: 303 s, no movies, no flows).
-        if re.fullmatch(r"[A-Za-z0-9_-]+", str(ident.get("run_id") or "")):
-            parked = f"$HOME/.cache/cmux-journeys/fetch/{ident['run_id']}"
-            remote(host, f"f=$HOME/.cache/cmux-journeys/fetch; mkdir -p \"$f\"; "
-                         f"find \"$f\" -mindepth 1 -maxdepth 1 -mmin +360 -exec rm -rf {{}} + 2>/dev/null; "
-                         f"p={parked}; mkdir -p \"$p\"; setopt null_glob 2>/dev/null || shopt -s nullglob; cd {q(work + '/out')} && for d in */video */flows; do "
-                         f"[ -d \"$d\" ] && [ ! -L \"$d\" ] && mkdir -p \"$p/${{d%/*}}\" && mv \"$d\" \"$p/$d\"; done; true",
-                   timeout=left(60), check=False)
+        # The movies and the flow traces, INSIDE the lease: the mini is not touched after the release (R-HARNESS rule,
+        # 2026-11-04: the fetches this kit ran after the release took 3-15 min and ran during 49 other owners' rounds).
+        # Only the flow files a typing journey names (its daemon-arm records: the daemon and the typed host) are
+        # fetched; the other processes' files (1.6 GB, nothing reads them) stay. What does not fit in the lease time
+        # stays on the mini, named in OUT/kept-on-mini.json; its lease root goes with the release.
+        fetch_in_lease(host, work, out, set(ids), left)
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, OSError, tarfile.TarError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
@@ -628,38 +623,71 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         released = subprocess.run([ch, "release", lease], capture_output=True, timeout=120)
         log(f"released {lease}" if released.returncode == 0 else
             f"release of {lease} exited {released.returncode} (it expires within 10 minutes)")
-        if parked and host:
-            fetch_parked(host, parked, out, set(ids))
     return stamp_harness(collect(out, ids, host, missing_reason=f"{host}: the driver wrote no result (driver exit {drove.returncode}: "
                                                                f"{drove.stderr.decode(errors='replace').strip()[-300:]})",
                                  ident=ident), out, ident.get("harness"), harness)
 
 
-def fetch_parked(host, parked, out, ids):
-    """The movies and flow traces run_lease moved to PARKED on the mini, fetched after the lease (no lease bound),
-    then removed there. The mini may run another owner's job by then, so its tar and gzip run at nice 19. Each fetch
-    is best effort on its own: a failed fetch is logged, never a changed result."""
+def named_flow_files(out, ids):
+    """{journey id: [flows/<file>, ...]}: the flow files a journey's analysis reads, from its daemon-arm records (the
+    daemon's pid and the typed terminal's host pid): flows-<pid>.jsonl and <role>-<pid>.recording.cmxtrace of each.
+    A journey with no daemon-arm record names none."""
+    named = {}
+    for i in ids:
+        pids = set()
+        for rec in sorted((out / i).glob("daemon-arm-*.json")):
+            try:
+                arm = json.loads(rec.read_text())
+            except (OSError, ValueError):
+                continue
+            for pid in (arm.get("pid"), (arm.get("host") or {}).get("pid")):
+                if isinstance(pid, int) and pid > 0:
+                    pids.add(pid)
+        if pids:
+            named[i] = sorted(pids)
+    return named
+
+
+def fetch_in_lease(host, work, out, ids, left):
+    """The typing journeys' flow files and movies, fetched while the lease is still held: first the flow files named
+    by the journey's daemon-arm records (small), then the movies (about 620 MB a typing journey). Each fetch is bounded
+    by the lease time left (`left`), keeps 30 s for the release, and never changes a result. What is not fetched is
+    named in OUT/kept-on-mini.json (it goes with the lease root at the release)."""
+    named, kept = named_flow_files(out, ids), []
+    # Names built only from journey ids ([a-z0-9-]) and integer pids, so the mini's shell may expand the globs.
+    named = {i: v for i, v in named.items() if re.fullmatch(r"[a-z0-9][a-z0-9-]*", i)}
+    if named:
+        pats = " ".join(f"{i}/flows/{name}" for i, pids in named.items() for pid in pids
+                        for name in (f"flows-{pid}.jsonl", f"*-{pid}.recording.cmxtrace", f"*-{pid}.blackbox.cmxtrace"))
+        try:
+            budget = left(300) - 30
+            if budget < 10:
+                raise subprocess.TimeoutExpired("flows", 0)
+            flows = remote(host, f"cd {q(work + '/out')} && setopt null_glob 2>/dev/null || shopt -s nullglob; "
+                                 f"set -- {pats}; [ $# -gt 0 ] && tar c \"$@\" | gzip -1 || true",
+                           timeout=budget, check=False).stdout
+            if flows:
+                take_results(flows, out, ids)
+            log(f"flow traces of pids {sorted({p for v in named.values() for p in v})}: {len(flows or b'')} bytes (gzip) "
+                "fetched in the lease")
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
+            kept.append("flows")
+            log(f"flow traces not fetched in the lease: {str(error)[-200:]}")
     try:
-        videos = remote(host, f"cd {parked} && ls -d */video >/dev/null 2>&1 && nice -n 19 tar c */video || true",
-                        timeout=900, check=False).stdout
+        budget = left(420) - 30
+        if budget < 10:
+            raise subprocess.TimeoutExpired("movies", 0)
+        videos = remote(host, f"cd {q(work + '/out')} && ls -d */video >/dev/null 2>&1 && tar c */video || true",
+                        timeout=budget, check=False).stdout
         take_videos(videos, out, ids)
-        log(f"movies: {len(videos or b'')} bytes fetched after the release")
+        log(f"movies: {len(videos or b'')} bytes fetched in the lease")
     except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
-        log(f"parked movies not fetched: {str(error)[-200:]}")
-    try:
-        flows = remote(host, f"cd {parked} && ls -d */flows >/dev/null 2>&1 && nice -n 19 tar c */flows | "
-                             f"nice -n 19 gzip -1 | head -c {FLOWS_TAR_MAX_BYTES} || true",
-                       timeout=900, check=False).stdout
-        log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched after the release"
-            + (f"; CUT at the cap {FLOWS_TAR_MAX_BYTES}: the files after the cut are lost" if len(flows or b"") >= FLOWS_TAR_MAX_BYTES else ""))
-        if flows:
-            take_results(flows, out, ids)
-    except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
-        log(f"parked flow traces not fetched (or cut; the files before the error are kept): {str(error)[-200:]}")
-    try:
-        remote(host, f"rm -rf {parked}", timeout=60, check=False)
-    except (RuntimeError, subprocess.TimeoutExpired, OSError):
-        log(f"{parked} on {host} not removed (removed after 6 h by the next run)")
+        kept.append("movies")
+        log(f"movies not fetched in the lease: {str(error)[-200:]}")
+    if kept:
+        (out / "kept-on-mini.json").write_text(json.dumps({"host": host, "not_fetched": kept, "where": work + "/out",
+                                                           "note": "removed with the lease root at the release",
+                                                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}))
 
 
 VIDEO_FILE = re.compile(r"(?:\./)?([a-z0-9][a-z0-9-]*/video/[a-z0-9][a-z0-9-]*\.(?:mov|mov\.frames\.json|mov\.scan|trace\.json|events\.json|meta\.json))")

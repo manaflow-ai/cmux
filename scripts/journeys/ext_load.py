@@ -21,8 +21,10 @@ Steps (`do`):
   probe_relaunch {hang_ms?: 4, env?: {KEY: VALUE}, new_daemon?: false}  reopens the app with the in-app per-key
                    marks on (see the function); `env` adds launch variables (an A/B arm's CMUX_NEXT_* switch);
                    `new_daemon` stops the app's daemon while no app runs, so the reopen starts a new one with them.
-  daemon_arm  {as, want: on|off, name?: CMUX_TUI_RDS_INPUT}  proves the arm: `ps -wwE -p <daemon pid>` shows
-                   NAME=1 (on) or not (off); kept as OUT/daemon-arm-<as>.json. A mismatch: not run. It also
+  daemon_arm  {as, want: on|off, value?, name?: CMUX_TUI_RDS_INPUT}  proves the arm: `ps -wwE -p <daemon pid>`
+                   shows NAME=1 (on) or not (off); with `value` the word NAME=<value> must be there too (an OFF
+                   arm that sets 0, for a build where an unset switch is on). Kept as OUT/daemon-arm-<as>.json. A
+                   mismatch: not run. It also
                    records whether the current terminal's host has CMUX_TRACE_FLOWS (its flow trace is on).
   server_stats {as, include?: ["locks"]}  the raw line {"id":1,"cmd":"server-stats","include":[...]} on the app's
                    daemon socket; the reply as OUT/server-stats-<as>.json (the lock holds by code site). No
@@ -362,11 +364,13 @@ def step_daemon_arm(j, step):
     words = [w for w in text.split() if w.startswith(name + "=")]
     exe = D.process_exe(pid) or None  # ps comm: the whole path (the command words split a path with spaces)
     rec = {"as": step["as"], "pid": int(pid), "exe": exe, "words": words, "on": (name + "=1") in words,
-           "want": step.get("want"), "t": round(host_now(), 6), "host": _host_trace(j, name)}
+           "want": step.get("want"), "value": step.get("value"), "t": round(host_now(), 6), "host": _host_trace(j, name)}
     (j.out / f"daemon-arm-{step['as']}.json").write_text(json.dumps(rec))
-    want = step.get("want")
+    want, value = step.get("want"), step.get("value")
     if want in ("on", "off") and rec["on"] != (want == "on"):
         raise D.NotRun(f"daemon_arm {step['as']}: want {want}, daemon pid {pid} has {words or 'no ' + name}")
+    if value is not None and f"{name}={value}" not in words:
+        raise D.NotRun(f"daemon_arm {step['as']}: want {name}={value}, daemon pid {pid} has {words or 'no ' + name}")
     return rec
 
 

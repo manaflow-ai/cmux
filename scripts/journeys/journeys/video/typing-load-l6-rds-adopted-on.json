@@ -128,7 +128,8 @@
     {
       "do": "daemon_arm",
       "as": "before",
-      "want": "on"
+      "want": "on",
+      "value": "1"
     },
     {
       "do": "load_start",
@@ -214,7 +215,8 @@
     {
       "do": "daemon_arm",
       "as": "after",
-      "want": "on"
+      "want": "on",
+      "value": "1"
     },
     {
       "do": "load_stop"

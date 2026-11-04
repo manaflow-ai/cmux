@@ -114,7 +114,9 @@ def rds_journey(arm, target="new_tab"):
     last_play = max(i for i, step in enumerate(steps) if step["do"] == "typist_play")
     for i, step in enumerate(steps):
         if i == relaunch:
-            step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1"} if arm == "on" else {})
+            # Both arms set the switch: an OFF arm that left it unset would be ON once S1.7 makes on the default
+            # (REWRITE R-DAEMON-STATE, 2026-11-04); 0 is off on every build.
+            step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1" if arm == "on" else "0"})
         if step["do"] == "load_start":
             # 12 L1 workers, not 8: at ~66 ms a call, 120 calls/s keeps ~7.9 workers busy, so 8 workers were all busy
             # 79-82 % of the time and the storm reached 108.9-112.4 of 120 (build-2 rounds, 2026-11-04). The rate, the
@@ -131,13 +133,13 @@ def rds_journey(arm, target="new_tab"):
                     {"do": "smoke_adopt_line", "line": "rds-${nonce}", "as": "typing"}]
         out.append(step)
         if step["do"] == "echo_start":
-            out.append({"do": "daemon_arm", "as": "before", "want": arm})
+            out.append({"do": "daemon_arm", "as": "before", "want": arm, "value": "1" if arm == "on" else "0"})
         if step["do"] == "load_start":
             out.append({"do": "server_stats", "as": "before", "include": ["locks"]})
         if i == last_play:
             out.append({"do": "server_stats", "as": "after", "include": ["locks"]})
         if step["do"] == "probe_mark" and step["as"] == "after":
-            out.append({"do": "daemon_arm", "as": "after", "want": arm})
+            out.append({"do": "daemon_arm", "as": "after", "want": arm, "value": "1" if arm == "on" else "0"})
     spec["steps"] = out
     return spec
 
