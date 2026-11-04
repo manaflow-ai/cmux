@@ -54,7 +54,7 @@ struct SharedEdgeCatchFallbackTests {
         screen.dividerFrames[.split("x")] = divider
         for _ in 0..<3 { _ = rig.root.advanceFrame(1.0 / 120) }
         try #require(abs(screen.scroll.value - screen.scroll.target) > 20, "the camera nearly landed: \(screen.scroll.value) -> \(screen.scroll.target)")
-        try #require(screen.viewOffsetMoves(of: .split("x"), axis: .horizontal), "the strip camera does not move")
+        try #require(SharedEdgeMotion.viewOffsetMoves(of: .split("x"), axis: .horizontal, on: screen), "the strip camera does not move")
 
         let view = try rig.handle(.split("x")), press = try rig.center(.split("x"))
         view.mouseDown(with: rig.event(.leftMouseDown, press))

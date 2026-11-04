@@ -251,7 +251,7 @@ extension SharedEdgeMotion {
         init(screen: ScreenContentView, kind: DividerHandleView.Kind, axis: SplitAxis) {
             shift = axis == .horizontal ? (screen.scrolls(kind) ? screen.stripShift : 0) - screen.areaOffset(of: kind) : -screen.rowOffset(of: kind)
             scale = screen.scale
-            moves = screen.viewOffsetMoves(of: kind, axis: axis)
+            moves = SharedEdgeMotion.viewOffsetMoves(of: kind, axis: axis, on: screen)
         }
 
         func edge(_ value: CGFloat) -> CGFloat {
@@ -362,21 +362,21 @@ extension SharedEdgeMotion {
     }
 }
 
-extension ScreenContentView {
-    /// Whether the view offset that places `kind`'s line along `axis` still moves: the strip's camera (for a line that
-    /// scrolls, horizontal), its scroll area's spring (horizontal) or its scrolling row's spring (vertical).
-    func viewOffsetMoves(of kind: DividerHandleView.Kind, axis: SplitAxis) -> Bool {
+extension SharedEdgeMotion {
+    /// Whether the view offset that places `kind`'s line along `axis` on `screen` still moves: the strip's camera (for a
+    /// line that scrolls, horizontal), its scroll area's spring (horizontal) or its scrolling row's spring (vertical).
+    static func viewOffsetMoves(of kind: DividerHandleView.Kind, axis: SplitAxis, on screen: ScreenContentView) -> Bool {
         func moves(_ spring: SpringValue) -> Bool { abs(spring.value - spring.target) > 0.001 || abs(spring.velocity) > 0.001 }
         if axis == .horizontal {
-            if scrolls(kind), moves(scroll) { return true }
-            guard case let .split(id) = kind, let area = baseGeometry.scrollAreaOfSplit[id] else { return false }
-            return areaScrolls[area].map { moves($0.state.spring) } ?? false
+            if screen.scrolls(kind), moves(screen.scroll) { return true }
+            guard case let .split(id) = kind, let area = screen.baseGeometry.scrollAreaOfSplit[id] else { return false }
+            return screen.areaScrolls[area].map { moves($0.state.spring) } ?? false
         }
         let column: ColumnID? = switch kind {
-        case let .split(id): baseGeometry.rowColumnOfSplit[id]
+        case let .split(id): screen.baseGeometry.rowColumnOfSplit[id]
         case let .rowEdge(id, _): id
         case .columnEdge: nil
         }
-        return column.flatMap { rowScrolls[$0] }.map { moves($0.state.spring) } ?? false
+        return column.flatMap { screen.rowScrolls[$0] }.map { moves($0.state.spring) } ?? false
     }
 }
