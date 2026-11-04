@@ -291,6 +291,9 @@ async fn from_gh(gh: &OsString) -> Option<Value> {
     let mut command = std::process::Command::new(gh);
     command.args(["api", "user"]);
     crate::github_broker::login_env(&mut command, None);
+    // The Cloud gh shim would answer from cmux's connection, which the Cloud source already
+    // reports; this source is the person's own gh login only.
+    command.env(cmux_host::cloud::github_status::GH_OWN_LOGIN_ONLY_ENV, "1");
     command
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

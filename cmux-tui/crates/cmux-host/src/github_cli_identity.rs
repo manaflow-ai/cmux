@@ -58,6 +58,25 @@ fn github_host(host: Option<&String>) -> bool {
     host.is_some_and(|h| h.eq_ignore_ascii_case("github.com"))
 }
 
+/// Whether `hosts.yml` holds a login for any host (a top-level `HOST:` key): a GitHub
+/// Enterprise login counts, so gh keeps reporting it.
+pub fn hosts_has_any_login(hosts_yml: &str) -> bool {
+    hosts_yml.lines().any(|line| {
+        let t = line.trim_end();
+        !t.is_empty()
+            && !t.starts_with(|c: char| c.is_whitespace() || c == '#' || c == '-')
+            && t.ends_with(':')
+    })
+}
+
+/// Whether the shim may answer an identity question from cmux's connection: only when the
+/// person has no gh auth of their own (no token in the env, no login for any host in
+/// `hosts.yml`) and the caller did not ask for the own gh login only
+/// (`GH_OWN_LOGIN_ONLY_ENV`, set by acpmux's `github_status`).
+pub fn identity_applies(token_env: bool, hosts_yml: Option<&str>, own_login_only: bool) -> bool {
+    !token_env && !own_login_only && !hosts_yml.is_some_and(hosts_has_any_login)
+}
+
 /// The identity question `args` (gh's own arguments) asks, if it is one this
 /// answers. Any flag outside the listed ones leaves it to gh.
 pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {

@@ -807,7 +807,8 @@ fn real_gh() -> std::ffi::OsString {
 const GH_TOKEN_VARS: [&str; 4] =
     ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
 
-fn own_gh_login() -> bool {
+/// gh's `hosts.yml` text, when there is one.
+fn gh_hosts_text() -> Option<String> {
     let var = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     gh_hosts_path(
         var("GH_CONFIG_DIR").as_deref(),
@@ -815,7 +816,10 @@ fn own_gh_login() -> bool {
         var("HOME").as_deref(),
     )
     .and_then(|p| std::fs::read_to_string(p).ok())
-    .is_some_and(|text| hosts_has_github(&text))
+}
+
+fn own_gh_login() -> bool {
+    gh_hosts_text().is_some_and(|text| hosts_has_github(&text))
 }
 
 /// `gh --auto ARGS...`: plain gh on a Cloud machine (the image's shim).
@@ -831,7 +835,13 @@ fn gh_auto(args: &[String]) -> u8 {
         own_login: !token_env && own_gh_login(),
         gh_repo: gh_repo.as_deref(),
     };
-    if !cx.token_env && !cx.own_login {
+    let identity = crate::github_cli_identity::identity_applies(
+        token_env,
+        gh_hosts_text().as_deref(),
+        std::env::var_os(crate::cloud::github_status::GH_OWN_LOGIN_ONLY_ENV)
+            .is_some_and(|v| !v.is_empty()),
+    );
+    if identity {
         match crate::github_cli_identity::answer_from_agent(args, Path::new(AGENT_SOCKET)) {
             Some(Ok(out)) => return out.emit(),
             // No answer from cmux: gh runs as it would have.

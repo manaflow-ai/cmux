@@ -207,3 +207,15 @@ fn no_answer_leaves_gh_to_run_as_before() {
     let missing = Path::new("/nonexistent/agent.sock");
     assert!(answer_from_agent(&args(&["auth", "status"]), missing).unwrap().is_err());
 }
+
+#[test]
+fn the_persons_own_auth_or_an_own_login_probe_keeps_gh() {
+    assert!(identity_applies(false, None, false));
+    assert!(identity_applies(false, Some(""), false));
+    assert!(identity_applies(false, Some("# no hosts\n"), false));
+    // A token in the env, any host login (github.com or Enterprise), or acpmux's own-login probe.
+    assert!(!identity_applies(true, None, false));
+    assert!(!identity_applies(false, Some("github.com:\n    user: me\n"), false));
+    assert!(!identity_applies(false, Some("ghe.example.com:\n    user: me\n"), false));
+    assert!(!identity_applies(false, None, true));
+}
