@@ -274,7 +274,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
         startedAt: child.startedAt,
         endedAt: child.endedAt,
         // A nested workflow has no transcript of its own to open (its agents' are in its run).
-        ...(child.kind !== "workflow" && { agentId: child.id, harness: child.harness }),
+        ...(child.kind !== "workflow" && { agentId: child.id }),
+        ...(child.harness && { harness: child.harness }),
         ...(nodeState(child) === "running" && { stop: { kind: "agent", id: child.id } as StopTarget }),
       });
     // A nested workflow's agents are tasks of the top agent too, each opening its own transcript.
@@ -287,7 +288,8 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       state,
       startedAt: agent.startedAt,
       endedAt: agent.endedAt,
-      ...(!isWorkflow && { agentId: agent.id, harness: agent.harness }),
+      ...(!isWorkflow && { agentId: agent.id }),
+      ...(agent.harness && { harness: agent.harness }),
       ...(state === "running" && { stop: { kind: "agent", id: agent.id } as StopTarget }),
       ...split(tasks),
     });
@@ -301,7 +303,7 @@ export function backgroundGroups(input: BackgroundInput, cache: TaskCache = new 
       state,
       startedAt: session.createdAt,
       sessionId: session.sessionId,
-      harness: session.harness,
+      ...(session.harness && { harness: session.harness }),
       running: [],
       finished: [],
       total: 0,
