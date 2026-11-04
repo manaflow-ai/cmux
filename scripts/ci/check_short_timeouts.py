@@ -44,7 +44,8 @@ RUST_CONST_NAME = re.compile(r"\b(?:const|static)\s+\w*(?:TIMEOUT|BUDGET|DEADLIN
 RUST_TIMEOUT_CALL = re.compile(r"(?:tokio::time::timeout|\.timeout\s*\(|\bwait_timeout\b)")
 
 TS_HARD_TIMEOUT = re.compile(
-    rf"\b(?:timeoutMs|timeout_ms|deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b"
+    rf"\b(?:[A-Za-z_]*timeout(?:Ms|_ms)|[A-Za-z_]*deadline)\b\s*(?:\??\s*:\s*[^=,;]+)?(?:=|:)[^;\n]*?({NUM})\b",
+    re.I,
 )
 
 TIMEOUT_COMMENT = re.compile(r"(?:\/\/|#)\s*timeout:\s*\S", re.I)
@@ -159,7 +160,7 @@ def source_files(root: Path) -> Iterable[tuple[str, Path]]:
     tracked = root / ".git"
     if tracked.exists():
         prefixes = [p for p in PATH_PREFIXES if (root / p).is_dir()]
-        command = ["git", "-C", str(root), "grep", "-I", "-l", "-z", "-E", CANDIDATE_GIT_GREP, "--", *prefixes]
+        command = ["git", "-C", str(root), "grep", "-I", "-i", "-l", "-z", "-E", CANDIDATE_GIT_GREP, "--", *prefixes]
         result = subprocess.run(command, capture_output=True, check=False)
         if result.returncode not in (0, 1):
             raise RuntimeError(result.stderr.decode(errors="replace"))

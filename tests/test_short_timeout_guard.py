@@ -72,10 +72,14 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             ["rust-duration", "rust-duration", "rust-duration"],
         )
 
-        ts = "const deadline = performance.now() + 2_000;\nconst timeoutMs = 30_000;\n"
+        ts = (
+            "const deadline = performance.now() + 2_000;\n"
+            "const timeoutMs = 30_000;\n"
+            "const TRUST_READ_TIMEOUT_MS = 1_500;\n"
+        )
         self.assertEqual(
             [hit["pattern"] for hit in guard.scan_source(ts, "webviews/src/agent-session/acpmux/request.ts")],
-            ["ts-hard-timeout"],
+            ["ts-hard-timeout", "ts-hard-timeout"],
         )
 
     def test_ratchet_rejects_new_raised_and_unshrunk_entries(self) -> None:
