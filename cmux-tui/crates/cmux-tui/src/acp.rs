@@ -120,19 +120,6 @@ pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
     Some(daemon_socket(None, &daemon_acpmux_home()?, uid))
 }
 
-/// Windows: the socket of the standalone `acpmux.exe` daemon beside this
-/// one, the image cmux Remote's Computer Use worker trusts (`ACPMUX_SOCKET`,
-/// else `ACPMUX_HOME`, else `~\.acpmux`), by acpmux's own Windows rule. The
-/// daemon registers the process serving it with the host
-/// ([`cmux_tui_core::Mux::set_remote_host_acpmux_socket`]).
-#[cfg(windows)]
-pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    let value = |name: &str| std::env::var_os(name).filter(|value| !value.is_empty());
-    let configured = value("ACPMUX_SOCKET").map(|socket| socket.to_string_lossy().into_owned());
-    let home = value("ACPMUX_HOME").map(PathBuf::from).unwrap_or_else(acpmux::config::default_home);
-    Some(acpmux::config::socket_path_for_home(&home, configured.as_deref()))
-}
-
 /// The socket for a configured `ACPMUX_SOCKET` or an acpmux home, by the rule
 /// acpmux and every host share (cmux-agent-pane-policy `socket_path`).
 #[cfg(unix)]

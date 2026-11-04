@@ -1060,6 +1060,17 @@ fn nested_cua_helper(inputs: &Inputs) -> Option<PathBuf> {
     is_executable(&path).then_some(path)
 }
 
+#[cfg(all(test, unix))]
+#[path = "agent_tools_tests.rs"]
+mod tests;
+
+/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
+/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
+/// another home for it.
+fn home_env() -> String {
+    crate::config::home().to_string_lossy().into_owned()
+}
+
 #[cfg(test)]
 mod bridge_consent_tests {
     use super::*;
@@ -1082,15 +1093,4 @@ mod bridge_consent_tests {
         );
         assert!(!bridge_without_machine_consent(&server(&["mcp", "--socket", "/s"])));
     }
-}
-
-#[cfg(all(test, unix))]
-#[path = "agent_tools_tests.rs"]
-mod tests;
-
-/// The daemon's home, next to every `ACPMUX_SOCKET` a server gets: a socket pairs only with an
-/// explicit home (`config::autostart_refusal`), so the server's command starts no daemon in
-/// another home for it.
-fn home_env() -> String {
-    crate::config::home().to_string_lossy().into_owned()
 }
