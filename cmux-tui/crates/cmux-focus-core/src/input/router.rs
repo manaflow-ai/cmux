@@ -18,6 +18,7 @@ use crate::event::{FocusEffect, FocusEvent, Source};
 use crate::reducer;
 use crate::state::{Expectation, ExpectationKey, FocusState, Resolved, Target};
 use crate::topology::Kind;
+use crate::window::Reduction;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -273,10 +274,14 @@ impl InputRouter {
     fn focus_event(&mut self, window: &Arc<str>, event: &FocusEvent) {
         let Some(input) = self.windows.get_mut(window) else { return };
         let before = input.focus.derived.resolved.clone();
-        reducer::reduce(&mut input.focus, event, &mut self.focus_effects);
+        // Today: the router reduces every event again (a topology too), and it
+        // has no address bar memory.
+        let ran = reducer::reduce(&mut input.focus, event, &mut self.focus_effects);
         for effect in self.focus_effects.drain(..) {
             self.effects.push(InputEffect::Focus { window: window.clone(), effect });
         }
+        let reduction = Reduction { ran, omnibar_return: false, returns_to_omnibar: false };
+        self.effects.push(InputEffect::FocusReduced { window: window.clone(), reduction });
         let after = &input.focus.derived.resolved;
         if !is_return_field(after) {
             input.return_to = None;
