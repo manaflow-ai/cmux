@@ -24,9 +24,9 @@ cancels or re-runs target jobs itself. Each pass:
 
 Bounds: only pull request runs (never push, schedule, dispatch, nightly, DEV, promote or release runs), only attempt
 1 (so a job is failed over at most once), only runs at their pull request's current head, at most MAX_RESCUES
-re-runs a pass, and a run with any other unfinished job is left alone and reported. A cancel that does not settle
-in time is reported and left; it is never re-run blind on a later pass, since a later pass cannot tell this cancel
-from a person's or a concurrency group's.
+recovery attempts a pass, and a run with any other unfinished job is left alone and reported. Confirmed rescue
+cancellations have durable log receipts. A later minute or successor may resume only those receipts, after reading
+the live attempt and current open PR again; incomplete history and unmarked cancellations never authorize a rerun.
 """
 
 from __future__ import annotations
