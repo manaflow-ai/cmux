@@ -240,3 +240,221 @@ describe("cmux-tui state mount on a full disk", () => {
     expect(result.stderr).toBe("");
   }, TEST_TIMEOUT_MS);
 });
+
+// The daemon writes runtime.json and its lifecycle fence under the remote state
+// dir on every start and exits on ENOSPC, so that dir must not be on the root disk.
+describe("cmux-tui remote state on the reserved filesystem", () => {
+  const SESSION = "sessions/Y2xvdWQ";
+  type Scenario = {
+    /** Files already at ~/.local/state/cmux/remote. */
+    readonly onRoot?: Record<string, string>;
+    /** Files already in the reserved copy; omit for a machine that has none yet. */
+    readonly reserved?: Record<string, string>;
+    readonly noMarker?: boolean;
+    readonly alreadyBound?: boolean;
+    readonly daemonRunning?: boolean;
+    readonly mountFails?: boolean;
+    readonly copyFails?: boolean;
+    readonly instanceId?: string;
+  };
+
+  function writeTree(dir: string, files: Record<string, string>): void {
+    mkdirSync(dir, { recursive: true });
+    for (const [name, body] of Object.entries(files)) {
+      mkdirSync(path.dirname(path.join(dir, name)), { recursive: true });
+      writeFileSync(path.join(dir, name), body);
+    }
+  }
+
+  async function withEnsure(
+    scenario: Scenario,
+    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string }) => void,
+  ): Promise<void> {
+    const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-remote-state-"));
+    try {
+      const bin = path.join(root, "bin");
+      const varLib = path.join(root, "var/lib/cmux");
+      const etc = path.join(root, "etc/cmux");
+      const home = path.join(root, "home/cmux");
+      const state = path.join(home, ".local/state/cmux-tui");
+      const remote = path.join(home, ".local/state/cmux/remote");
+      const reserved = path.join(state, ".cmux-remote");
+      const bound = path.join(root, "bound");
+      mkdirSync(bin, { recursive: true });
+      mkdirSync(varLib, { recursive: true });
+      mkdirSync(etc, { recursive: true });
+      mkdirSync(state, { recursive: true });
+      writeFileSync(path.join(varLib, "cmux-tui-state.ext4"), "");
+      if (!scenario.noMarker) writeFileSync(path.join(etc, "cmux-tui-state-reservation"), "");
+      if (scenario.instanceId) writeFileSync(path.join(etc, "daemon-instance-id"), `${scenario.instanceId}\n`);
+      if (scenario.onRoot) writeTree(remote, scenario.onRoot);
+      if (scenario.reserved) writeTree(reserved, scenario.reserved);
+      if (scenario.alreadyBound) writeFileSync(bound, "");
+      stub(bin, "mountpoint", `case "$2" in */cmux/remote) test -e ${JSON.stringify(bound)} ;; *) exit 0 ;; esac`);
+      // mount --bind FROM TO records what was bound where.
+      stub(bin, "mount", scenario.mountFails ? "exit 1" : `echo "$2 $3" > ${JSON.stringify(bound)}`);
+      stub(bin, "pgrep", scenario.daemonRunning ? "exit 0" : "exit 1");
+      stub(bin, "chown", "exit 0");
+      stub(bin, "flock", "exit 0");
+      if (scenario.copyFails) stub(bin, "cp", "exit 1");
+      stub(bin, "df", 'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/x 100 0 1048576 0% /"');
+      const helper = path.join(root, "cmux-tui-state-mount");
+      writeFileSync(helper, helperSource.replaceAll("/var/lib/cmux", varLib).replaceAll("/etc/cmux", etc));
+      chmodSync(helper, 0o755);
+      const result = await runChild("/bin/sh", [helper, "ensure", home, "cmux"], {
+        timeout: TEST_TIMEOUT_MS - 5_000,
+        env: { PATH: `${bin}:/usr/bin:/bin` },
+      });
+      if (result.error) throw result.error;
+      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved });
+      if (existsSync(bound) && !scenario.alreadyBound) {
+        expect(readFileSync(bound, "utf8").trim()).toBe(`${reserved} ${remote}`);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+
+  const read = (dir: string, name: string) => readFileSync(path.join(dir, name), "utf8");
+
+  test("the first start copies the identity over and binds it", async () => {
+    await withEnsure({ onRoot: { [`${SESSION}/auth/identity.json`]: "identity" }, instanceId: "i-a" }, ({ status, bound, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(true);
+      expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("identity");
+      expect(read(reserved, ".instance-id")).toBe("i-a\n");
+      expect(existsSync(`${reserved}.new`)).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a machine with no remote state yet gets the bind before the daemon creates any", async () => {
+    await withEnsure({}, ({ status, bound, remote, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(true);
+      expect(existsSync(remote)).toBe(true);
+      expect(existsSync(reserved)).toBe(true);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("after a reboot the reserved copy wins over the stale one underneath", async () => {
+    await withEnsure(
+      { onRoot: { [`${SESSION}/auth/identity.json`]: "stale" }, reserved: { [`${SESSION}/auth/identity.json`]: "current" } },
+      ({ status, bound, reserved }) => {
+        expect(status).toBe(0);
+        expect(bound).toBe(true);
+        expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("current");
+      },
+    );
+  }, TEST_TIMEOUT_MS);
+
+  test("after a reboot a runtime marker with no shutdown record is dropped", async () => {
+    await withEnsure({ reserved: { [`${SESSION}/runtime.json`]: "{}" } }, ({ status, reserved }) => {
+      expect(status).toBe(0);
+      expect(existsSync(path.join(reserved, `${SESSION}/runtime.json`))).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("after a reboot a successful shutdown record is cleared with its marker", async () => {
+    const outcome = JSON.stringify({ version: 1, lifecycle_id: "x", status: "succeeded" });
+    await withEnsure({ reserved: { [`${SESSION}/runtime.json`]: "{}", [`${SESSION}/shutdown.json`]: outcome } }, ({ reserved }) => {
+      expect(existsSync(path.join(reserved, `${SESSION}/runtime.json`))).toBe(false);
+      expect(existsSync(path.join(reserved, `${SESSION}/shutdown.json`))).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  for (const [label, outcome] of [
+    ["failed", JSON.stringify({ version: 1, lifecycle_id: "x", status: "failed" })],
+    ["malformed", "{not json"],
+  ] as const) {
+    test(`after a reboot a ${label} shutdown record stays as a fence`, async () => {
+      await withEnsure({ reserved: { [`${SESSION}/runtime.json`]: "{}", [`${SESSION}/shutdown.json`]: outcome } }, ({ status, reserved }) => {
+        expect(status).toBe(0);
+        expect(read(reserved, `${SESSION}/runtime.json`)).toBe("{}");
+        expect(read(reserved, `${SESSION}/shutdown.json`)).toBe(outcome);
+      });
+    }, TEST_TIMEOUT_MS);
+  }
+
+  test("a clone booted from the disk drops its parent's identity", async () => {
+    await withEnsure(
+      {
+        instanceId: "i-clone",
+        reserved: { ".instance-id": "i-parent\n", [`${SESSION}/auth/identity.json`]: "parent", "connections/a": "parent" },
+      },
+      ({ status, bound, reserved }) => {
+        expect(status).toBe(0);
+        expect(bound).toBe(true);
+        expect(existsSync(path.join(reserved, `${SESSION}/auth`))).toBe(false);
+        expect(existsSync(path.join(reserved, "connections"))).toBe(false);
+        expect(read(reserved, ".instance-id")).toBe("i-clone\n");
+      },
+    );
+  }, TEST_TIMEOUT_MS);
+
+  test("the same machine rebooting keeps its identity", async () => {
+    await withEnsure(
+      { instanceId: "i-a", reserved: { ".instance-id": "i-a\n", [`${SESSION}/auth/identity.json`]: "mine", "connections/a": "mine" } },
+      ({ reserved }) => {
+        expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("mine");
+        expect(read(reserved, "connections/a")).toBe("mine");
+      },
+    );
+  }, TEST_TIMEOUT_MS);
+
+  test("a machine with no recorded owner keeps its identity", async () => {
+    await withEnsure({ instanceId: "i-a", reserved: { [`${SESSION}/auth/identity.json`]: "mine" } }, ({ reserved }) => {
+      expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("mine");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a live bind only refreshes the owner, so a forked machine's later reboot keeps its identity", async () => {
+    await withEnsure(
+      {
+        alreadyBound: true,
+        instanceId: "i-fork",
+        reserved: { ".instance-id": "i-parent\n", [`${SESSION}/runtime.json`]: "{}", [`${SESSION}/auth/identity.json`]: "fork" },
+      },
+      ({ status, reserved }) => {
+        expect(status).toBe(0);
+        expect(read(reserved, ".instance-id")).toBe("i-fork\n");
+        expect(read(reserved, `${SESSION}/runtime.json`)).toBe("{}");
+        expect(read(reserved, `${SESSION}/auth/identity.json`)).toBe("fork");
+      },
+    );
+  }, TEST_TIMEOUT_MS);
+
+  test("a running daemon's directory is never covered", async () => {
+    await withEnsure({ daemonRunning: true, onRoot: { [`${SESSION}/runtime.json`]: "{}" } }, ({ status, stderr, bound, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(false);
+      expect(existsSync(reserved)).toBe(false);
+      expect(stderr).toContain("remote state moves at its next start");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("an image without a reservation marker keeps its layout", async () => {
+    await withEnsure({ noMarker: true, onRoot: { [`${SESSION}/runtime.json`]: "{}" } }, ({ status, bound, reserved }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(false);
+      expect(existsSync(reserved)).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a failed bind does not defer the daemon", async () => {
+    await withEnsure({ mountFails: true }, ({ status, stderr, bound }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(false);
+      expect(stderr).toContain("remote state stays on the root filesystem");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a failed copy leaves no partial reserved copy for a later start to trust", async () => {
+    await withEnsure({ copyFails: true, onRoot: { [`${SESSION}/auth/identity.json`]: "identity" } }, ({ status, bound, reserved, stderr }) => {
+      expect(status).toBe(0);
+      expect(bound).toBe(false);
+      expect(existsSync(reserved)).toBe(false);
+      expect(existsSync(`${reserved}.new`)).toBe(false);
+      expect(stderr).toContain("remote state stays on the root filesystem");
+    });
+  }, TEST_TIMEOUT_MS);
+});
