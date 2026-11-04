@@ -872,3 +872,50 @@ fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
     let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
     assert!(reason.is_some(), "the store did not ask the daemon to stop");
 }
+
+// ---------------------------------------------------------------- bisect (never merge)
+
+/// The reviewer's test (review of #35866, finding 2's base part): a checkpoint in flight when a
+/// log sync fails on another thread (a request's `flush_session`; the store freezes). The
+/// checkpoint checked `frozen` only at its start, went on, and its own sync of that log may
+/// report success for the pages the failed sync dropped: it must not retire the line's record.
+#[test]
+fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(95);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // A checkpoint in flight: it waits in a 2 s sync of chat-b's record.
+    journal.set_sync_delay(Duration::from_secs(2));
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.flush())
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(true));
+    let failed = store.flush_session(CHAT);
+    FAIL_NEXT_LOG_SYNC.with(|fail| fail.set(false));
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let in_flight = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // The daemon stops for a restart (no crash); the restart's first checkpoint runs.
+    drop(store);
+    let store = open(home.path(), &journal);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.path().join("sessions"));
+    let store = open(home.path(), &crashed);
+    assert_eq!(
+        seqs(store.as_ref(), CHAT),
+        vec![1, 2],
+        "a checkpoint in flight went on past a freeze and retired the record of a line whose sync failed (it returned {})",
+        if in_flight.is_ok() { "ok" } else { "an error" }
+    );
+}
