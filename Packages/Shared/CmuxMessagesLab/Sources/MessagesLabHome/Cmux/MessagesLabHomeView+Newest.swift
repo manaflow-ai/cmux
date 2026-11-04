@@ -7,6 +7,10 @@ extension MessagesLabHomeView {
     /// until the person scrolls. Before the first page is installed the transcript is pinned
     /// already (a new window view starts pinned); nothing to do then.
     public func showNewest() {
-        controller.demo?.pinToBottom()
+        guard let demo = controller.demo else { return }
+        demo.pinToBottom()
+        // As a rebuild's pin does (HomeProjection.rebuild): the clip, a kept text selection, the
+        // field's chrome and a reply's quote card follow the new offset.
+        controller.afterEngine()
     }
 }
