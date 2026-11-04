@@ -72,6 +72,7 @@ mod fork_transcript_auth;
 pub mod forum;
 pub(crate) mod full_access_bound;
 mod handoff;
+mod held_asks;
 mod harness_view;
 mod harness_watch;
 mod health_view;
@@ -788,6 +789,8 @@ pub struct Hub {
     pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
+    /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
+    pub(crate) held_peer_asks: held_asks::HeldAsks,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -1001,6 +1004,7 @@ impl Hub {
             mesh: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
+            held_peer_asks: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]

@@ -25,6 +25,9 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
         /// A peer refused it for want of the person's proof (acpmux `permission.person_required`
         /// with `data.peer`, this Mac's daemon's name for that peer).
         case refused(peer: String)
+        /// A peer refused an answer that went without this Mac's signed allow because this Mac
+        /// had no record of the prompt (acpmux `permission.person_required` with `data.peer`).
+        case unproved(peer: String)
     }
 
     /// A permission group the page read (`_acpmux/permission_groups`): its revision and its pending
@@ -97,11 +100,12 @@ public nonisolated final class AcpmuxDecisionContexts: Sendable {
                 var answer: Answer?
                 if let error = object["error"] as? [String: Any] {
                     let data = error["data"] as? [String: Any]
-                    // Only a signed allow's refusal says the peer has not enrolled this Mac; an
-                    // unsigned one's (no key, a prompt that changed) says nothing of the kind.
-                    if proved, data?["reason"] as? String == "permission.person_required",
+                    // Only a signed allow's refusal says the peer has not enrolled this Mac. An
+                    // unsigned one went only because this Mac had no record of the prompt to sign
+                    // (every other unsigned allow for a peer's prompt never goes, `signPeerAllow`).
+                    if data?["reason"] as? String == "permission.person_required",
                        let peer = data?["peer"] as? String, !peer.isEmpty {
-                        answer = .refused(peer: peer)
+                        answer = proved ? .refused(peer: peer) : .unproved(peer: peer)
                     }
                 } else if object["result"] != nil {
                     answer = .counted

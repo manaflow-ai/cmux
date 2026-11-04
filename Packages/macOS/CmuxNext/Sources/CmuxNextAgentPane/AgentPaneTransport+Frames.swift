@@ -451,8 +451,14 @@ extension AgentPaneTransport {
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
             // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
-            await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            let unsigned = await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A peer's prompt this Mac could not sign: the peer would refuse it, so it never goes;
+            // the card stays answerable and the pane says why.
+            if let unsigned {
+                onPeerApprovalsOff?(unsigned)
+                return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+            }
         }
         // Peer-route approvals: a group's Allow once the person's click granted, for a peer's prompts.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
