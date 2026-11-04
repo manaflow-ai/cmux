@@ -5411,6 +5411,20 @@ export function VirtualTranscript({
       return;
     }
     const programmatic = !userScrollIntent(node).isHeld();
+    // A scroll made from code (scrollIntoView, Find, a link to a row) away from the end ends a fold
+    // at the very bottom, as the reader's own input does (`cancelProgrammatic`): the stack's own pins
+    // and a closing body's clamp land at the end, so only another scroll lands above it. Held, the
+    // stack's next layout pass pinned the view back to the end within the fold's hold (#34780).
+    const held = bottomStackFold.current;
+    if (
+      held &&
+      programmatic &&
+      !atFoldBottom(next, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
+    ) {
+      stopBottomStackFold();
+      foldAnchor.current = undefined;
+      landForReader(held.row);
+    }
     // The right-hand card holds what it shows until the reader's scroll settles
     // (summary/heldWhileScrolling.ts): older history paged in under the scroll lands there once.
     if (!programmatic) noteReaderScroll();
