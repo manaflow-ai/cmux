@@ -9,12 +9,8 @@ import Testing
 @Suite(.closesItsWindows)
 struct ToolbarFocusFillTests {
     @Test func aFocusedToolbarButtonIsFilledNotRinged() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 40), styleMask: [.titled],
-                              backing: .buffered, defer: true)
-        defer { window.closeAfterTest() }
         let button = TitlebarBandButton(symbol: "terminal")
-        button.frame = NSRect(x: 8, y: 8, width: TitlebarBandButton.side, height: TitlebarBandButton.side)
-        window.contentView?.addSubview(button)
+        button.frame = NSRect(x: 0, y: 0, width: TitlebarBandButton.side, height: TitlebarBandButton.side)
         #expect(button.focusRingType == .none)
         #expect((button.layer?.backgroundColor?.alpha ?? 0) == 0)
 
@@ -27,9 +23,23 @@ struct ToolbarFocusFillTests {
         #expect((button.layer?.borderWidth ?? 0) == 0)
 
         #expect(button.resignFirstResponder())
+        #expect(!button.hover.state.focused)
         button.hover.refresh(animated: false)
         #expect((button.layer?.backgroundColor?.alpha ?? 0) == 0)
         #expect((button.layer?.borderWidth ?? 0) == 0)
+    }
+
+    /// As AppKit's ring did, the fill shows only in the key window: a background window keeps its first
+    /// responder, and its toolbar must not look hovered.
+    @Test func focusHidesWhenTheWindowIsNotKey() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 40), styleMask: [.titled],
+                              backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let button = TitlebarBandButton(symbol: "globe")
+        window.contentView?.addSubview(button)
+        #expect(!window.isKeyWindow)
+        #expect(button.becomeFirstResponder())
+        #expect(!button.hover.state.focused)
     }
 
     /// Focus fills like hover, also in calm mode (it is not the pointer's hover); pressed still wins.

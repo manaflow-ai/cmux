@@ -100,7 +100,8 @@ test("the header tools' focus rule is the hover pill, never a ring", () => {
   expect(focus?.body.get("background-color")).toBe(
     "var(--acpmux-header-tool-hover,color-mix(in srgb,var(--agent-text) 8%,transparent))",
   );
-  expect(focus?.body.get("outline")).toMatch(/^none/);
+  // No ring of its own; outside Increase Contrast the shared rule's ring is turned off too (below).
+  expect(focus?.body.get("outline") ?? "none").toBe("none");
 });
 
 test("an open panel's toggle reads as on by the filled rounded square and its lit ink, and focus draws no ring", () => {
