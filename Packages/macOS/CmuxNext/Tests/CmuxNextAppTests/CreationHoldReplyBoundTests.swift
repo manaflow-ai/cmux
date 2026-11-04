@@ -20,9 +20,12 @@ struct CreationHoldReplyBoundTests {
     /// shows it: the new workspace never came). Base: they waited for the pin to give up (30 s), then were dropped.
     @Test func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachTheFocusedTerminalAtTheBound() async throws {
         var replayed: [(text: String, at: ContinuousClock.Instant, terminalHadKeyboard: Bool)] = []
+        var terminalView: NSView?
         try await PasswordManagerRouteTests.withApp(heldKeyReplay: { event, window, router in
-            let shown = (window.firstResponder as? TerminalSurfaceView) != nil
-            replayed.append((event.characters ?? "", ContinuousClock.now, shown))
+            // A terminal has the keyboard: its view or a view inside it is the first responder (TerminalSession.hasKeyboard).
+            let responder = window.firstResponder as? NSView
+            let onTerminal = responder is TerminalSurfaceView || terminalView.map { responder?.isDescendant(of: $0) == true } == true
+            replayed.append((event.characters ?? "", ContinuousClock.now, onTerminal))
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }) { services, connection in
             let router = services.keyRouter
@@ -30,13 +33,28 @@ struct CreationHoldReplyBoundTests {
             coordinator.replyWaitLimit = .seconds(1)
             let content = try #require(services.windows.active?.workspaceContent)
             let window = try #require(content.layoutView.window)
-            let tab = try #require(content.focusedPane?.selectedTab, "the window shows no tab")
-            let terminal = try #require(tab.kind == .pty ? tab.surface : nil, "the window does not show a terminal")
-            // The terminal has the keyboard, as for the person typing into it.
-            if !(window.firstResponder is TerminalSurfaceView), let view = services.cache.existingTerminal(tab.id)?.session.surfaceView {
-                window.makeFirstResponder(view)
+            // The window's first pane may show an agent chat: the person types into a terminal pane (Cmd-D), focused.
+            var opensTerminal = ActionInvocation(origin: .user)
+            opensTerminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: opensTerminal))
+            @MainActor func shownTerminal() -> (pane: PaneController, tab: String, surface: SurfaceID)? {
+                content.panes.values.lazy.compactMap { pane -> (PaneController, String, SurfaceID)? in
+                    guard pane.pane.handle.rawValue < ProvisionalPane.firstHandle, let tab = pane.currentTabKey, case .terminal? = pane.currentContent,
+                          let model = pane.pane.tabs.first(where: { $0.id == tab && $0.kind == .pty && !ProvisionalTab.isProvisional(surface: $0.surface) })
+                    else { return nil }
+                    return (pane, tab, model.surface)
+                }.first
             }
-            try #require(window.firstResponder is TerminalSurfaceView, "no terminal has the keyboard")
+            try await PasswordManagerRouteTests.until({ shownTerminal() != nil }, report: { "no terminal pane after Cmd-D" })
+            let shown = try #require(shownTerminal())
+            let terminal = shown.surface
+            terminalView = shown.pane.view
+            PaneHandlers.focus(shown.pane.layoutPaneID, in: content)
+            try await PasswordManagerRouteTests.until({
+                content.focus.state.resolved == .terminal(pane: shown.pane.paneKey, tab: shown.tab)
+                    && (window.firstResponder as? NSView)?.isDescendant(of: shown.pane.view) == true
+            }, report: { "the terminal pane does not have the keyboard: \(content.focus.state.resolved)" })
+            try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, report: { "the split's creation hold did not end" })
             let pid = try #require(services.daemon.identity?.pid)
             #expect(kill(pid, SIGSTOP) == 0)
             var resumed = false
