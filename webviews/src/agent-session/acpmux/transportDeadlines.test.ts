@@ -38,7 +38,11 @@ test("a slow but open daemon answers after the request progress threshold", asyn
         request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
       }
     )
-      .request("_acpmux/process/kill", { sessionId: mockHost.sessionId, processId: `${mockHost.sessionId}/process` }, 20)
+      .request(
+        "_acpmux/process/kill",
+        { sessionId: mockHost.sessionId, processId: `${mockHost.sessionId}/process` },
+        20,
+      )
       .finally(() => (settled = true));
     // The 20 ms threshold passes with the reply still held: the pane is told the daemon is slow,
     // and the request stays pending instead of failing as timed out.
