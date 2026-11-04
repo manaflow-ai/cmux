@@ -26,6 +26,10 @@ struct ViewerOpenBesideChatTests {
         let note = root.appending(path: "NOTES.md"), text = root.appending(path: "notes.txt")
         try "# Notes\n".write(to: note, atomically: true, encoding: .utf8)
         try "notes\n".write(to: text, atomically: true, encoding: .utf8)
+        // A repository with a commit and an unstaged change: the diff has a HEAD to compare with.
+        try Self.git(root.path, "add", ".")
+        try Self.git(root.path, "-c", "user.name=cmux", "-c", "user.email=cmux@example.com", "commit", "-q", "-m", "notes")
+        try "notes, edited\n".write(to: text, atomically: true, encoding: .utf8)
         try await PasswordManagerRouteTests.withApp { services, connection in
             let store = services.daemon.store
             let source = try #require(services.windows.active?.focusedPane)
