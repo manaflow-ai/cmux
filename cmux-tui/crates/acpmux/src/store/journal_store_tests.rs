@@ -10,7 +10,7 @@
 use super::journal_store::{
     FencedStorage, HOLD_BEFORE_FREEZE, HOLD_IN_SYNC, JournalStore, STOP_AFTER_CUT,
 };
-use super::log_sync::FAIL_NEXT_LOG_SYNC;
+use super::log_sync::{FAIL_NEXT_LOG_SYNC, NOTE_BEFORE_SYNCS_WAIT};
 use super::sync_model;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
@@ -1025,7 +1025,8 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
 
 /// A checkpoint while a sync of the store's files that succeeds is under way on another thread:
 /// the checkpoint waits for it and goes on. It never fails for it: a failed checkpoint also
-/// refuses a compaction's commit and leaves the shutdown's checkpoint undone.
+/// refuses a compaction's commit and leaves the shutdown's checkpoint undone. The test knows that
+/// the checkpoint waits from its note (test seam `NOTE_BEFORE_SYNCS_WAIT`): no timer.
 #[test]
 fn a_checkpoint_waits_for_a_sync_under_way_on_another_thread() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -1044,11 +1045,28 @@ fn a_checkpoint_waits_for_a_sync_under_way_on_another_thread() {
         })
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the sync never began: {e}"));
+    let (events_tx, events) = std::sync::mpsc::channel();
     let flusher = {
         let store = Arc::clone(&store);
-        std::thread::spawn(move || store.flush())
+        std::thread::spawn(move || {
+            NOTE_BEFORE_SYNCS_WAIT.with(|note| *note.borrow_mut() = Some(events_tx.clone()));
+            let result = store.flush();
+            let _ = events_tx.send("returned");
+            result
+        })
     };
-    std::thread::sleep(Duration::from_millis(300));
+    let first =
+        events.recv_timeout(WAIT).unwrap_or_else(|e| panic!("no word from the checkpoint: {e}"));
+    if first == "returned" {
+        let _ = release.send(());
+        let result = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
+        panic!(
+            "a checkpoint did not wait for a sync under way on another thread: it returned {}",
+            result.map_or_else(|e| format!("{e:#}"), |()| "ok".to_owned())
+        );
+    }
+    // Blocked on the held sync's ticket: it cannot return before the release.
+    assert!(!flusher.is_finished(), "the checkpoint returned while it waited for a sync");
     let _ = release.send(());
     syncing
         .join()
