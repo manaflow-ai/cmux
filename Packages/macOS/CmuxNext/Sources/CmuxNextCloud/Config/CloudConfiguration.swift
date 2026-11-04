@@ -231,6 +231,17 @@ public struct CloudConfiguration: Sendable, Equatable {
         return URL(string: "https://cloud-api.cmux.dev") ?? Self.inertURL
     }
 
+    /// The platform Worker that serves a machine's relay-first chat (``CloudRelayChat``, cmux-platform
+    /// `MachineRelay`), the environment ``ownerAPIBaseURL(environment:)`` signs in to: production's for a
+    /// production sign-in, else development's. `CMUX_NEXT_RELAY_API_URL` is honored in debug builds only.
+    public func relayAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if isDebugBuild, let raw = environment["CMUX_NEXT_RELAY_API_URL"], let url = URL(string: raw) { return url }
+        guard isProductionAuth else {
+            return URL(string: "https://cmux-platform-development.debussy.workers.dev") ?? Self.inertURL
+        }
+        return URL(string: "https://cmux-platform-production.debussy.workers.dev") ?? Self.inertURL
+    }
+
     /// The API a guest link's owner token comes from when the daemon does not name its room's
     /// (`agent-session-share-room`, an older daemon). The daemon makes each build's links in its
     /// room (cmux-tui share_room.rs: DEV the development room), and a room takes only its own

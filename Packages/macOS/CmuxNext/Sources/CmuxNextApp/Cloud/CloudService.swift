@@ -31,6 +31,9 @@ final class CloudService {
     var previewAPI: CloudAPIClient? {
         configuration.platformPreviewAPIBaseURL().map { machineAPI.previewClient(baseURL: $0) }
     }
+    /// The relay-first chat path (cmuxterm-hq#7086): a prompt over HTTPS to the platform, down the socket the
+    /// machine holds; nil on the legacy link.
+    var relayChat: CloudRelayChat? { machineAPI.relayChat(baseURL: configuration.relayAPIBaseURL()) }
     /// The machines a `cloud deliver-secrets` runs for now: one delivery per machine at a time.
     @ObservationIgnored var deliveringSecrets: Set<String> = []
     @ObservationIgnored let networkAccess = CloudNetworkAccessQueue() // one network policy read-then-write per machine
