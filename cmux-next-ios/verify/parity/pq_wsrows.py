@@ -125,8 +125,12 @@ def place(j, label):
         key = new_key(before, "the new workspace at the top")
         made.append(key)
         mine = lambda: [k for k in order_keys() if k in {w["key"] for w in r.workspaces().values()}]
-        o, took = r.wait_mac(lambda: (lambda o: o if o and o.index(key) < min(o.index(w["key"]) for w in r.mine().values()) else None)(mine()),
-                             "the new workspace above every seeded one")
+        # Above every loose row. A group shows before the row its `top_index` names, and a phone may
+        # not change a group's place, so a group at the very top stays above it (as it does above a
+        # row moved to the top).
+        loose = lambda: [ws[a]["key"], ws[b]["key"]]
+        o, took = r.wait_mac(lambda: (lambda o: o if key in o and o.index(key) < min(o.index(k) for k in loose()) else None)(order_keys()),
+                             "the new workspace above every loose seeded row")
         out["top"] = {"key": key, "s": round(took, 1)}
         back(j)
         pq.shot("place-after-top")
@@ -214,9 +218,11 @@ def groups(j, label):
             r.dismiss(j)
             return out
         r.tap(j, "New Workspace Group…")
-        field = j.sim.wait(ident="workspaces.newGroup.name", timeout=6)
-        check(field, "no group name field")
-        j.sim.tap_el(field)
+        # The alert's field has the focus (an alert's field shows no identifier to the tree).
+        check(j.sim.wait(label="New Workspace Group", timeout=6) or j.sim.wait(contains="empty group", timeout=3), "no New Workspace Group alert")
+        field = j.sim.wait(ident="workspaces.newGroup.name", timeout=2) or j.sim.wait(kind="TextField", timeout=2)
+        if field:
+            j.sim.tap_el(field)
         pq.type_text(f"{PREFIX}Empty")
         pq.shot("groups-after-name")
         r.tap(j, "Create")
@@ -263,9 +269,14 @@ def icon(j, label):
         r.dismiss(j)
         return out
     check(j.sim.wait(ident="iconPicker", timeout=8) or j.sim.wait(label="Set Icon", timeout=4), "no icon picker")
-    search = j.sim.wait(label="Search symbols", timeout=6) or j.sim.wait(kind="SearchField", timeout=3)
-    check(search, "no search field")
-    j.sim.tap_el(search)
+    search = j.sim.wait(contains="Search symbols", timeout=4) or j.sim.wait(kind="SearchField", timeout=2) \
+        or j.sim.wait(kind="TextField", contains="Search", timeout=2)
+    if search:
+        j.sim.tap_el(search)
+    else:
+        # The sheet's search bar under its title (the tree does not always list it).
+        j.sim.tap(200, 155)
+    time.sleep(0.8)
     pq.type_text("tortoise")
     time.sleep(1.5)
     pq.shot("icon-after-search")
@@ -345,7 +356,7 @@ def panes(j, label):
         return out
     stepper = [e for e in j.sim.find() if (e.ident or "").startswith("panes.resize.")]
     check(stepper, "no Resize Pane stepper")
-    inc = j.sim.wait(label="Increment", timeout=4)
+    inc = j.sim.wait(label="Increment", timeout=2) or j.sim.wait(contains=", Increment", timeout=4)
     check(inc, f"no Increment button: {r.labels(j)[:20]}")
     j.sim.tap_el(inc)
     out["resized"], took = p.wait_layout(key, lambda lay: "(0.55)" in lay["layout"], "the divider at 55% on the Mac")
