@@ -205,6 +205,8 @@ impl Inner {
         sync: impl FnOnce() -> Result<T>,
     ) -> Result<T> {
         self.syncs_in_flight.fetch_add(1, AtomicOrdering::SeqCst);
+        #[cfg(test)]
+        super::hold_in_sync();
         let result = sync();
         if let Err(error) = &result
             && error.chain().any(|cause| cause.is::<SyncFailed>())

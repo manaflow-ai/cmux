@@ -92,19 +92,36 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
+/// Tests: a stop on one thread: it says so on the first channel and waits for the second.
+#[cfg(test)]
+type Hold =
+    std::cell::RefCell<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
+
 #[cfg(test)]
 thread_local! {
-    /// Tests: a failed sync on this thread stops right before it freezes the store, says so on
-    /// the first channel and waits for the second.
-    pub(crate) static HOLD_BEFORE_FREEZE: std::cell::RefCell<
-        Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
-    > = const { std::cell::RefCell::new(None) };
+    /// Tests: a failed sync on this thread stops right before it freezes the store.
+    pub(crate) static HOLD_BEFORE_FREEZE: Hold = const { std::cell::RefCell::new(None) };
+    /// Tests: the next sync of the store's files on this thread (`Inner::counted_sync`) stops
+    /// once it is under way, before it syncs.
+    pub(crate) static HOLD_IN_SYNC: Hold = const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
 #[cfg(test)]
 fn hold_before_freeze() {
-    if let Some((arrived, release)) = HOLD_BEFORE_FREEZE.with(|hold| hold.borrow_mut().take()) {
+    hold(&HOLD_BEFORE_FREEZE);
+}
+
+/// Tests: the stop of [`HOLD_IN_SYNC`].
+#[cfg(test)]
+fn hold_in_sync() {
+    hold(&HOLD_IN_SYNC);
+}
+
+/// Tests: the stop in `slot`, if this thread has one.
+#[cfg(test)]
+fn hold(slot: &'static std::thread::LocalKey<Hold>) {
+    if let Some((arrived, release)) = slot.with(|hold| hold.borrow_mut().take()) {
         let _ = arrived.send(());
         let _ = release.recv();
     }

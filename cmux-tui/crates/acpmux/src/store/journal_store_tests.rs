@@ -7,7 +7,9 @@
 //! in a temporary folder; an OS crash of them is modelled as the worst case: every log file goes
 //! back to its length at the last `flush` (the kernel lost every write since).
 
-use super::journal_store::{FencedStorage, HOLD_BEFORE_FREEZE, JournalStore, STOP_AFTER_CUT};
+use super::journal_store::{
+    FencedStorage, HOLD_BEFORE_FREEZE, HOLD_IN_SYNC, JournalStore, STOP_AFTER_CUT,
+};
 use super::log_sync::FAIL_NEXT_LOG_SYNC;
 use super::sync_model;
 use super::*;
@@ -969,7 +971,8 @@ fn a_checkpoint_in_flight_does_not_go_past_a_freeze() {
 }
 
 /// The same race at its narrowest: another thread's log sync has failed and has not frozen the
-/// store yet when a checkpoint runs. The checkpoint must not retire the line's record either.
+/// store yet when a checkpoint runs. The checkpoint must not retire the line's record either: it
+/// waits for that sync, which freezes the store 300 ms later.
 #[test]
 fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -996,10 +999,15 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
     };
     arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the failing sync never arrived: {e}"));
     // A checkpoint now, while that failure is not recorded yet.
-    let checkpointed = store.flush();
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.flush())
+    };
+    std::thread::sleep(Duration::from_millis(300));
     let _ = release.send(());
     let failed = failing.join().unwrap_or_else(|_| panic!("the failing thread panicked"));
     assert!(failed.is_err(), "flush_session's sync did not fail as the test asked");
+    let checkpointed = flusher.join().unwrap_or_else(|_| panic!("the flush panicked"));
     drop(store);
     let store = open(home.path(), &journal);
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
@@ -1013,4 +1021,40 @@ fn a_checkpoint_never_goes_past_a_sync_that_is_failing_on_another_thread() {
         "a checkpoint went past a sync that was failing on another thread (it returned {})",
         if checkpointed.is_ok() { "ok" } else { "an error" }
     );
+}
+
+/// A checkpoint while a sync of the store's files that succeeds is under way on another thread:
+/// the checkpoint waits for it and goes on. It never fails for it: a failed checkpoint also
+/// refuses a compaction's commit and leaves the shutdown's checkpoint undone.
+#[test]
+fn a_checkpoint_waits_for_a_sync_under_way_on_another_thread() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(97);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    // Another thread's flush_session: its sync is under way and stops before it syncs.
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    let syncing = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            HOLD_IN_SYNC.with(|hold| *hold.borrow_mut() = Some((arrived_tx, release_rx)));
+            store.flush_session(CHAT)
+        })
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the sync never began: {e}"));
+    let flusher = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.flush())
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    let _ = release.send(());
+    syncing
+        .join()
+        .unwrap_or_else(|_| panic!("the sync panicked"))
+        .unwrap_or_else(|e| panic!("the sync failed: {e:#}"));
+    flusher.join().unwrap_or_else(|_| panic!("the flush panicked")).unwrap_or_else(|e| {
+        panic!("a checkpoint failed for a sync under way on another thread: {e:#}")
+    });
 }
