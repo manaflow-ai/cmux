@@ -70,18 +70,18 @@ import Testing
         cell.frame = CGRect(x: 0, y: 0, width: 220, height: 32)
         cell.layoutLayers()
         let frame = cell.iconLayer.frame
-        let first = try #require(cell.iconLayer.contents as? CGImage)
+        let first = try #require(cell.iconLayer.contents as! CGImage)
         item.agentTone = 1
         cell.update(item: item)
-        let second = try #require(cell.iconLayer.contents as? CGImage)
+        let second = try #require(cell.iconLayer.contents as! CGImage)
         #expect(NSBitmapImageRep(cgImage: first).tiffRepresentation != NSBitmapImageRep(cgImage: second).tiffRepresentation)
         #expect(cell.iconLayer.frame == frame)
         item.tint = .red
         cell.update(item: item)
-        let custom = try #require(cell.iconLayer.contents as? CGImage)
+        let custom = try #require(cell.iconLayer.contents as! CGImage)
         item.agentTone = 2
         cell.update(item: item)
-        #expect(cell.iconLayer.contents as? CGImage === custom, "the person's tab colour must win")
+        #expect((cell.iconLayer.contents as! CGImage) === custom, "the person's tab colour must win")
         #expect(cell.iconLayer.frame == frame)
     }
 
