@@ -65,7 +65,7 @@ function GalleryChat({ target, look, live, Header, Tip, Live }: Props & Loaded) 
           summary={createElement(PanelToggle, {
             label: "Session Info",
             shown: false,
-            icon: "view.list.short",
+            icon: "view.list",
             onToggle: noop,
           })}
           menu={() => []}

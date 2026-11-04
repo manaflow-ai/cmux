@@ -329,7 +329,6 @@ extension IconName {
     nonisolated public static let unreadDot = IconName("unread.dot")
     nonisolated public static let viewGrid = IconName("view.grid")
     nonisolated public static let viewList = IconName("view.list")
-    nonisolated public static let viewListShort = IconName("view.list.short")
     nonisolated public static let windowNew = IconName("window.new")
     nonisolated public static let workspace = IconName("workspace")
     nonisolated public static let workspaceNew = IconName("workspace.new")

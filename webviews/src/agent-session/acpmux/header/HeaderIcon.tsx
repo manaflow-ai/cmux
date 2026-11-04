@@ -28,6 +28,7 @@ export function HeaderIcon({ name, size = 16, selected = false }: { name: string
         color,
         mask,
         WebkitMask: mask,
+        rotate: name === "action.more.vertical" ? "90deg" : undefined,
       }}
     />
   );

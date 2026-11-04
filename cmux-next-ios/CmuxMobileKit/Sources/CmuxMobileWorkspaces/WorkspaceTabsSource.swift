@@ -321,8 +321,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
             option.id = Self.unavailablePrefix + option.id
             options.append(option)
         }
+        if offersScreenSharing { options.append(Self.screenSharingOption) }
         return options
     }
+
+    /// Signed in with Screen Sharing set up: + offers the Mac's screen.
+    public var offersScreenSharing = false
+    /// Screen Sharing is up (+ › Screen Sharing): the screen shows the account's Macs as a
+    /// sheet and connects to this workspace's Mac. It is phone-side; the Mac opens no tab.
+    public var showingScreenSharing = false
+    static let screenSharingOption = TabsKitNewTabOption(id: "screen-sharing", title: "Screen Sharing",
+                                                         systemImage: "rectangle.on.rectangle", kind: .web)
 
     static let unavailablePrefix = "unavailable:"
     /// The Mac's wording for an agent chat (`palette.newAgentChat`).
@@ -697,6 +706,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private func beginTab(_ option: TabsKitNewTabOption) -> TabsKitTab.ID? {
         if option.id == Self.chooseAgentOption.id {
             choosingAgent = true
+            return nil
+        }
+        if option.id == Self.screenSharingOption.id {
+            showingScreenSharing = true
             return nil
         }
         if option.id.hasPrefix(Self.unavailablePrefix) {

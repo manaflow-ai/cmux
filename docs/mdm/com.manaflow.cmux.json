@@ -5198,7 +5198,7 @@
       "type" : "string"
     },
     "window.titlebar" : {
-      "default" : "standard",
+      "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
       "enum" : [
         "minimal",
