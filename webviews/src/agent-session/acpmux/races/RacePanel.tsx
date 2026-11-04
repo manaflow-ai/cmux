@@ -28,7 +28,7 @@ export function RacePanel({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string>();
   const [races, setRaces] = useState<RaceRecord[]>([]);
-  const [opened, setOpened] = useState<RaceRecord>(initialRace);
+  const [opened, setOpened] = useState<RaceRecord | undefined>(initialRace);
   useEffect(() => {
     if (initialRace) setOpened(initialRace);
   }, [initialRace]);

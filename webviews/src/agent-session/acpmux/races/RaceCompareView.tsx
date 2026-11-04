@@ -71,11 +71,19 @@ export function RaceCompareView({
           {current.reason && <p className="race-decision">{current.reason}</p>}
           <div className="race-comparison">
             {current.candidates.map((candidate) => (
-              <section key={candidate.id} className="race-candidate" data-winner={candidate.id === current.winnerId}>
+              <section
+                key={candidate.id}
+                className="race-candidate"
+                data-winner={current.state === "completed" && candidate.id === current.winnerId}
+              >
                 <h3>
                   {candidate.target.harness} · {candidate.target.model}
                 </h3>
-                <p>{candidate.id === current.winnerId ? t("race.winner") : t(`race.${candidate.state}`)}</p>
+                <p>
+                  {current.state === "completed" && candidate.id === current.winnerId
+                    ? t("race.winner")
+                    : t(`race.${candidate.state}`)}
+                </p>
                 {current.state === "completed" &&
                   candidate.id === current.winnerId &&
                   candidate.sessionId &&

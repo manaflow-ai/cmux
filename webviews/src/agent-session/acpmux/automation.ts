@@ -343,12 +343,18 @@ function raceTarget(value: unknown): { target?: RaceTarget; error?: string } {
   };
 }
 
-function validateRaceTarget(target: RaceTarget, choices: ReturnType<typeof raceChoices>): { target?: RaceTarget; error?: string } {
+function validateRaceTarget(
+  target: RaceTarget,
+  choices: ReturnType<typeof raceChoices>,
+): { target?: RaceTarget; error?: string } {
   const matches = choices.filter(
-    (choice) => choice.target.harness === target.harness && (target.model === undefined || choice.target.model === target.model),
+    (choice) =>
+      choice.target.harness === target.harness && (target.model === undefined || choice.target.model === target.model),
   );
   if (matches.length === 0)
-    return { error: `race target ${JSON.stringify({ harness: target.harness, model: target.model ?? null })} is not offered` };
+    return {
+      error: `race target ${JSON.stringify({ harness: target.harness, model: target.model ?? null })} is not offered`,
+    };
   if (matches.length > 1 && target.model === undefined)
     return { error: `race target ${JSON.stringify(target.harness)} is ambiguous; include model` };
   const offered = matches[0].target;
@@ -384,7 +390,8 @@ export async function startRace(host: AutomationHost, input: RaceStartInput) {
     candidates,
     reviewer: checkedReviewer.target!,
   });
-  if (host.snapshot().sessionId !== parent) return { race, error: "the current session changed while starting the race" };
+  if (host.snapshot().sessionId !== parent)
+    return { race, error: "the current session changed while starting the race" };
   host.openRace?.(race);
   return { race };
 }
@@ -400,15 +407,16 @@ export async function raceState(host: AutomationHost, requestedRaceId?: string, 
   let raceId = requestedRaceId?.trim() ?? "";
   if (!raceId) {
     const races = await client.listRaces(parent);
-    raceId = races.reduce<RaceRecord | undefined>(
-      (latest, candidate) => (!latest || candidate.createdAt > latest.createdAt ? candidate : latest),
-      undefined,
-    )?.id ?? "";
+    raceId =
+      races.reduce<RaceRecord | undefined>(
+        (latest, candidate) => (!latest || candidate.createdAt > latest.createdAt ? candidate : latest),
+        undefined,
+      )?.id ?? "";
   }
   if (!raceId) return { error: "the page has no current race" };
   const boundedWait = Math.min(Math.floor(waitMs), MAX_RACE_WAIT_MS);
   let timedOut = false;
-  let unsubscribe = () => undefined;
+  let unsubscribe: () => void = () => {};
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let completion: Promise<"event"> | undefined;
   if (boundedWait > 0) {
