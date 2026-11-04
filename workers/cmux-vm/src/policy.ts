@@ -116,6 +116,19 @@ export const parseTenantList = (value: string | undefined): ReadonlyArray<string
  * (for example a team that needs more than the default). Bad entries are
  * ignored, never widened.
  */
+/**
+ * The live-VM quota of each CI trust row's team is at most the row's maxVms. The tenant ledger enforces it atomically
+ * with every create, so concurrent jobs cannot pass the row's own (read-then-create) budget check together.
+ */
+export const withCiTeamQuotas = (
+  quotas: Readonly<Record<string, number>>,
+  rows: ReadonlyArray<{ readonly team: string; readonly maxVms: number }>,
+): Readonly<Record<string, number>> => {
+  const merged: Record<string, number> = { ...quotas };
+  for (const row of rows) merged[row.team] = Math.min(merged[row.team] ?? row.maxVms, row.maxVms);
+  return merged;
+};
+
 export const parseVmQuotas = (value: string | undefined): Readonly<Record<string, number>> => {
   if (value === undefined || value.trim() === "") return {};
   let parsed: unknown;

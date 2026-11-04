@@ -1050,27 +1050,30 @@ describe("the tray tells the truth", () => {
       expect(head.querySelector(".acpmux-running-tray__failed")?.textContent).toBe("· 2 failed");
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
+      // The chat waiting on the person leads (trayAttention.ts), so the list's height cap never
+      // clips it; the rest keep the tray's order.
       expect(names(lines)).toEqual([
+        "Draft the notes",
         "Tester",
         "Reviewer",
         "Start the dev server",
         "Port the history page",
-        "Draft the notes",
       ]);
       // A chat says what it does now in its tooltip, never as a subtitle; one waiting on the person says so.
-      expect(lines[3]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
-      expect(lines[3]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
-      expect(lines[4]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
+      expect(lines[4]!.querySelector(".acpmux-summary-agent__kind")).toBeNull();
+      expect(lines[4]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title).toBe("Run the tests");
+      expect(lines[0]!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
       // Finished work is visible as lines without changing the running count, every one of them in the
       // list that scrolls: no View all (Leo, 2026-11-01: "why is there even a view all 5 button it's
       // useless just let it be scroll-downable").
       expect(root.querySelector(".acpmux-running-tray__finished")).toBeNull();
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
-      expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
+      // What failed leads with what waits; the rest of what ended keeps its order.
+      expect(names(ended)).toEqual(["Fuzzer", "Retry the upload", "Linter", "Fix the dock"]);
       // Ended rows keep their status words in the same track.
       expect(
         ended.map((line) => line.querySelector(".acpmux-summary-agent__state, .acpmux-agent-line__sr")?.textContent),
-      ).toEqual(["Failed", "Done", "Done", "Failed"]);
+      ).toEqual(["Failed", "Failed", "Done", "Done"]);
       expect(liveLines(root).length).toBe(5);
     } finally {
       await done();
