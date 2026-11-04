@@ -142,14 +142,16 @@ test("the compact chat tools use host SF Symbols, with overflow last and no dupl
   const pack = toggle!.querySelector<SVGElement>("svg[data-icon]")!;
   expect(pack.getAttribute("data-icon")).toBe("view.list.short");
   expect(pack.getAttribute("width")).toBe("16");
+  expect(pack.classList.contains("acpmux-header-glyph")).toBe(true);
   expect(pack.style.color).toBe(lit);
   expect(toggle!.querySelector("[data-symbol]")).toBeNull();
   for (const button of symbolTools) {
     const glyph = button.querySelector<HTMLElement>("[data-symbol]")!;
     expect(glyph).not.toBeNull();
     expect(glyph.getAttribute("aria-hidden")).toBe("true");
-    expect(glyph.style.width).toBe("16px");
-    expect(glyph.style.height).toBe("16px");
+    // header.css sizes the glyph from the icon box token, so nothing pins it inline.
+    expect(glyph.classList.contains("acpmux-header-glyph")).toBe(true);
+    expect(glyph.style.width).toBe("");
     expect(glyph.style.mask).toContain(template);
     expect(glyph.style.color).toBe(button.getAttribute("aria-pressed") === "true" ? lit : "");
   }
