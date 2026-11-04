@@ -37,7 +37,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
-import { QUEUED_MESSAGE } from "./model";
+import { QUEUED_MESSAGE, TURN_RETRY, type AcpmuxTurnRetry } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -100,6 +100,7 @@ import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
+import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage, startCancelled } from "./transportErrors";
@@ -225,6 +226,22 @@ export function newSessionParams(
 }
 
 /** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+/// What a `turn_retrying` record says the live line shows (acpmux hub/turn_retry.rs).
+export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
+  const count = (value: unknown) =>
+    typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  const attempt = count(msg.attempt);
+  const maxRetries = count(msg.maxRetries);
+  const errorStatus = count(msg.errorStatus);
+  const error = typeof msg.error === "string" && msg.error.trim() ? msg.error.trim() : undefined;
+  return {
+    ...(attempt !== undefined && { attempt }),
+    ...(maxRetries !== undefined && (attempt === undefined || attempt <= maxRetries) && { maxRetries }),
+    ...(errorStatus !== undefined && { errorStatus }),
+    ...(error !== undefined && { error }),
+  };
+}
+
 function liveDetails(details: unknown): { canFork: boolean; command?: string } {
   const d = details && typeof details === "object" ? (details as Record<string, unknown>) : {};
   return {
@@ -5940,6 +5957,22 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "recap") {
+        // The person came back after 5+ minutes away (`hub/away_recap.rs`): Claude Code's recap
+        // of where the chat stands. A record without text, or one the person dismissed on this
+        // device, is skipped; never a turn of its own. Its key names the chat too: seqs repeat
+        // across chats.
+        const key = `${this.selectedSessionId ?? ""}:${event.seq}`;
+        if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
+          const id = `recap-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "recap",
+            recap: { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+          });
+        }
       } else if (event.kind === BACKGROUND_TURN_KIND) {
         this.reduceBackgroundTurn(event, msg);
       } else if (event.kind === "host_notice") {
@@ -6196,8 +6229,16 @@ export class AcpmuxDirectClient {
       } else if (event.kind === "stopping") {
         // acpmux took the person's Stop for the running turn (hub/cancel.rs `mark_stopping`).
         if (this.turnOpen) this.stoppingTurn = { turnId: typeof msg.turnId === "string" ? msg.turnId : undefined };
-      } else if (event.kind === "turn_silent" || event.kind === "turn_heard") {
-        // acpmux's diagnostics of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
+      } else if (event.kind === "turn_retrying") {
+        // The harness retries the turn's failed model request (acpmux hub/turn_retry.rs): the live
+        // line says the model cannot be reached, never "Thinking" (Leo, 2026-11-03).
+        if (this.turnOpen) this.noteRetry(event.at, readTurnRetry(msg));
+      } else if (event.kind === "turn_heard") {
+        // The model answered again: a retry ends (its time leaves the "Thinking" clock); a quiet
+        // model's diagnosis (hub/silent_turn.rs) changed nothing the turn draws.
+        this.retryHeard(event.at);
+      } else if (event.kind === "turn_silent") {
+        // acpmux's diagnostic of a quiet model (hub/silent_turn.rs): the turn still reads Thinking.
       } else if (event.kind === "turn_started") {
         this.suggestionFenced(event.seq ?? 0);
         const startedTurnId = typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
@@ -6222,6 +6263,7 @@ export class AcpmuxDirectClient {
         // A Stop before this turn never judges it.
         this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
+        this.rows.delete(TURN_RETRY);
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
         if (oldMessageId) {
@@ -6273,6 +6315,7 @@ export class AcpmuxDirectClient {
         // transcript's memo compares the drawn row's version with the next one.
         this.endAssistantSegment();
         this.rows.delete("typing");
+        this.rows.delete(TURN_RETRY);
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
         const status = String(msg.status ?? "completed");
         const summaryId = `summary-${resultTurnId ?? event.seq}`;
@@ -6741,6 +6784,33 @@ export class AcpmuxDirectClient {
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
       }
+  }
+
+  /// A retry of the running turn's model request (`turn_retrying`): the `TURN_RETRY` row holds it,
+  /// timed from the first retry since the model was last heard.
+  private noteRetry(at: number, retry: AcpmuxTurnRetry): void {
+    const row = this.rows.get(TURN_RETRY);
+    this.rows.set(TURN_RETRY, {
+      id: TURN_RETRY,
+      version: (row?.version ?? 0) + 1,
+      at: row?.retry ? row.at : at,
+      kind: "typing",
+      retry,
+      ...(row?.retriedMs ? { retriedMs: row.retriedMs } : {}),
+    });
+  }
+
+  /// The model answered again (`turn_heard`): the retries end, and their time adds to `retriedMs`.
+  private retryHeard(at: number): void {
+    const row = this.rows.get(TURN_RETRY);
+    if (!row?.retry) return;
+    this.rows.set(TURN_RETRY, {
+      id: TURN_RETRY,
+      version: row.version + 1,
+      at: row.at,
+      kind: "typing",
+      retriedMs: (row.retriedMs ?? 0) + Math.max(0, at - row.at),
+    });
   }
 
   private endAssistantSegment(): void {
@@ -9208,6 +9278,14 @@ export class AcpmuxDirectClient {
     this.rows.set(id, { id, version: 1, at, kind: "notice", text });
     this.emit();
     return id;
+  }
+  /// The recap's ×: it stays dismissed on this device, and its row goes.
+  dismissRecap(rowId: string): void {
+    const recap = this.rows.get(rowId)?.recap;
+    if (!recap) return;
+    rememberRecapDismissed(recap.key);
+    this.rows.delete(rowId);
+    this.emit();
   }
   /// Takes out a line `notice` put in (a lost prompt's "Not sent" once the host sent it after all).
   dismissNotice(id: string): void {

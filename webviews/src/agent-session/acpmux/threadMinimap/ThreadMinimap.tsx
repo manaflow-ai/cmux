@@ -52,6 +52,7 @@ import {
   minimapTurns,
   railFade,
   railFades,
+  railClearHeight,
   railHeight,
   ROW_WIDTH,
   railScrollTop,
@@ -203,11 +204,13 @@ export function ThreadMinimap({
   /// `viewportHeight`: the rail keeps its rows above the mask's bottom band (model.ts railRoom).
   foot?: number;
   /// The rail's own vertical box, when the transcript gives one: the scroller's height and the foot of
-  /// its resting bottom stack (VirtualTranscript `railBox`). The rail's height and top read only this,
-  /// so a composer that grows, a tray that opens or a followed view's lift never move it (Leo,
-  /// 2026-11-01: "the left side scroll rail needs to not really get affected by most other layout
-  /// things it shouldn't really shift much at all"). Without one, `viewportHeight` and `foot`.
-  railBox?: { height: number; foot: number };
+  /// its resting bottom stack (VirtualTranscript `railBox`). The rail's top reads only this, so a
+  /// composer that grows, a tray that opens or a followed view's lift never move it (Leo, 2026-11-01:
+  /// "the left side scroll rail needs to not really get affected by most other layout things it
+  /// shouldn't really shift much at all"). `live` is the stack's top now: a stack taller than at rest
+  /// shortens the rail from its foot (model.ts railClearHeight), and the card stays above it too.
+  /// Without one, `viewportHeight` and `foot`.
+  railBox?: { height: number; foot: number; live?: number };
   /// Whether the transcript scrolls at all (its layout, dock space included, is taller than it).
   scrolls: boolean;
   width: number;
@@ -408,9 +411,12 @@ export function ThreadMinimap({
     onScreen.last - onScreen.first + 1,
     railHeightConfig(heightArm),
   );
-  /// The list's own height: the whole box.
-  const height = boxRail;
   const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
+  /// The bottom stack's top as it is now (VirtualTranscript `railBox.live`): the rail's foot and the
+  /// card's both stay above it, so the two never disagree on where the view ends.
+  const liveFoot = railBox?.live ?? boxFoot ?? viewportHeight;
+  /// The list's own height: the whole box, less what a stack grown since rest takes (railClearHeight).
+  const height = railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
   /// Where the list's first row draws in the view.
   const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
@@ -1214,7 +1220,7 @@ export function ThreadMinimap({
             ...railEdge(side, placement.reserve),
             top: boxTop,
             width: railVisible ? placement.left : stripWidth,
-            height: boxRail,
+            height,
           }}
           onPointerEnter={() => {
             overStrip.current = true;
@@ -1236,7 +1242,7 @@ export function ThreadMinimap({
               ...railEdge(side, edge),
               top: boxTop,
               width: railWidth,
-              height: boxRail,
+              height,
               "--acpmux-minimap-lit": lit,
               "--acpmux-minimap-mark": mark.bar,
               "--acpmux-minimap-mark-dot": mark.dot,
@@ -1411,7 +1417,12 @@ export function ThreadMinimap({
           x={edge + railWidth}
           railLeft={placement.left}
           center={cardCenter}
-          viewportHeight={viewportHeight}
+          // The view's foot as the rail reads it: the stack's top now, from the rail's origin. It was
+          // `viewportHeight`, the view less the room under the last row (the stack plus the 56 px rest
+          // gap) and counted from the scroller's top, which a one-tab pane's tab row moves above the
+          // rail's origin: the last ticks' card sat far above them (Leo, 2026-11-03: "the hover
+          // previews are offset strangely").
+          viewportHeight={liveFoot}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn.members ? foldedTitle(t, cardTurn.members.length) : cardTurn.prompt}
