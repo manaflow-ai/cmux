@@ -1474,6 +1474,25 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+<!-- notices-section: manual-neko-icon-theme-licence-survey-no-third-party-artwork-shipped -->
+---
+
+## Neko icon theme licence survey (no third-party artwork shipped)
+
+The optional Neko family currently contains only authored cmux SVG geometry and the existing cmux
+Cat accents. The following repositories were checked for a future art round; their artwork is not
+included in this build. Keeping the checked licence references here prevents a candidate from being
+enabled without carrying its notice:
+
+- **Fluent Emoji:** MIT License, [microsoft/fluentui-emoji](https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE).
+- **Fluent System Icons:** MIT License, [microsoft/fluentui-system-icons](https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE).
+- **Lucide:** ISC License, [lucide-icons/lucide](https://github.com/lucide-icons/lucide/blob/main/LICENSE).
+- **oneko.js:** MIT License, [adryd325/oneko.js](https://github.com/adryd325/oneko.js/blob/main/LICENSE).
+- **Noto Emoji:** OFL-1.1 at [googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji/blob/main/LICENSE), excluded from the allowed licence set.
+
+
+---
+
 <!-- notices-section: ghostty-themes -->
 ## Ghostty themes
 

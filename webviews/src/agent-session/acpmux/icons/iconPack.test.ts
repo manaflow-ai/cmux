@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
-import { customIconPack, overlaidIconPack } from "./iconPack";
+import neko from "./cmuxIconsNeko.json";
+import { customIconPack, nekoFillInIconPack, nekoIconPack, overlaidIconPack } from "./iconPack";
 import type { IconPack } from "./types";
 
 const repoRoot = fileURLToPath(new URL("../../../../../", import.meta.url));
@@ -27,5 +28,26 @@ describe("icon pack", () => {
     expect(merged.icons.store).toEqual(overlay.icons.store);
     expect(merged.icons["tab.close"]).toEqual(pack.icons["tab.close"]);
     expect(customIconPack.icons["agent.chat"]).toEqual(overlay.icons["agent.chat"]);
+  });
+
+  test("the Neko family stays a conservative overlay", () => {
+    const pack = bundled as IconPack;
+    const overlay = neko as IconPack;
+    const names = Object.keys(overlay.icons);
+    expect(names.length).toBe(40);
+    expect(names).toContain("action.copy");
+    expect(names).toContain("action.pin");
+    expect(names).toContain("agent.chat");
+    expect(names).not.toContain("status.running");
+    for (const name of names) expect(Object.hasOwn(pack.icons, name)).toBe(true);
+    expect(nekoIconPack.icons["action.copy"]).toEqual(overlay.icons["action.copy"]);
+    expect(nekoIconPack.icons["action.more"]).toEqual(pack.icons["action.more"]);
+  });
+
+  test("the gallery fill-in candidate does not imply a full theme", () => {
+    expect(Object.keys(nekoFillInIconPack.icons)).toEqual(Object.keys(bundledIconPack.icons));
+    expect(nekoFillInIconPack.icons["action.copy"]).toEqual(neko.icons["action.copy"]);
+    expect(nekoFillInIconPack.icons["action.pin"]).toEqual(neko.icons["action.pin"]);
+    expect(nekoFillInIconPack.icons["agent.chat"]).toEqual(bundled.icons["agent.chat"]);
   });
 });

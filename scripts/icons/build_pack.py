@@ -46,6 +46,16 @@ OUTPUTS = {
     "pack_web": WEB / "cmuxIcons.json",
     "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
     "pack_custom_web": WEB / "cmuxIconsCustom.json",
+    "pack_neko_native": NATIVE / "Resources" / "cmux-icons-neko.json",
+    "pack_neko_web": WEB / "cmuxIconsNeko.json",
+}
+# Neko is deliberately conservative. The icon spec allows a cat cue only when it is natural;
+# adding the same ears to every action or status glyph produces the mismatched set Leo rejected.
+# These two action drawings are the only generated fill-ins in this round, both on a frame/top edge
+# where ears remain legible at 1x and 2x. Status, error, destructive and security marks stay unchanged.
+NEKO_FILL_INS = {
+    "action.copy": "M5.5 4.5V2.25L7.5 4M13.5 4.5V2.25L11.5 4",
+    "action.pin": "M9 3.5V1.5L11 3.5M15 3.5V1.5L13 3.5",
 }
 NUM = re.compile(r"-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
@@ -490,11 +500,28 @@ def build():
             custom[icon["name"]] = {"line": layers(icon["line"]), "solid": layers(icon["solid"])}
     custom_text = json.dumps({"id": "cmux-custom", "version": 1, "grid": 24, "icons": dict(sorted(custom.items()))},
                              separators=(",", ":"), ensure_ascii=False) + "\n"
+    neko = {}
+    source_icons = {}
+    for path in sorted(SOURCE.glob("*.json")):
+        for icon in json.loads(path.read_text())["icons"]:
+            source_icons[icon["name"]] = icon
+    for name, icon in source_icons.items():
+        if icon.get("cat"):
+            neko[name] = {"line": layers(icon["cat"]), "solid": layers(icon["solid"])}
+        elif name in NEKO_FILL_INS:
+            ears = NEKO_FILL_INS[name]
+            neko_svg = icon["line"].replace("</svg>", f"<path class='accent' stroke='var(--accent)' d='{ears}'/></svg>")
+            neko_solid_svg = icon["solid"].replace("</svg>", f"<path class='accent' stroke='var(--accent)' d='{ears}'/></svg>")
+            neko[name] = {"line": layers(neko_svg), "solid": layers(neko_solid_svg)}
+    neko_text = json.dumps({"id": "cmux-neko", "version": 1, "grid": 24, "icons": dict(sorted(neko.items()))},
+                           separators=(",", ":"), ensure_ascii=False) + "\n"
     return {
         "pack_native": pack_text,
         "pack_web": pack_text,
         "pack_custom_native": custom_text,
         "pack_custom_web": custom_text,
+        "pack_neko_native": neko_text,
+        "pack_neko_web": neko_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
         "names_swift": swift,
         "catalog_swift": catalog_swift,

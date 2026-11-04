@@ -9,4 +9,9 @@ pack in the text color, Solid when `selected`, with Cat-accent layers in `--agen
 `design/icons/source/`. Do not edit it by hand; rerun the script (`--check` verifies it is current).
 Native draws the same pack through `CmuxNextIcons`.
 
+The optional Neko family (`icons.family = neko`) overlays the 38 authored Cat drawings plus the two
+curated action fill-ins in `cmuxIconsNeko.json`. It is off by default and deliberately falls back to
+the shared pack for tokens whose neko treatment does not clear the 1x/2x light/dark comparison.
+`design/icons/neko-evaluation.md` records the licence survey, coverage and gallery scores.
+
 Nothing imports this module yet. Call sites migrate one surface at a time, each in its own change.

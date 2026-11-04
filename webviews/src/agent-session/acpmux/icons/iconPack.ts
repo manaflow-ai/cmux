@@ -1,5 +1,6 @@
 import bundled from "./cmuxIcons.json";
 import custom from "./cmuxIconsCustom.json";
+import neko from "./cmuxIconsNeko.json";
 import type { IconAccent, IconLayer, IconPack, IconStyle } from "./types";
 
 /// `pack` with `overlay`'s drawings in place of its own (Debug Settings `icons.family`).
@@ -12,6 +13,15 @@ export const bundledIconPack = bundled as IconPack;
 
 /// The bundled pack with the cmux custom family laid over it (Debug Settings `icons.family` = custom).
 export const customIconPack = overlaidIconPack(bundledIconPack, custom as IconPack);
+/// The optional Neko family: existing cat drawings plus conservative fill-ins for the shared action/status tokens.
+export const nekoIconPack = overlaidIconPack(bundledIconPack, neko as IconPack);
+/// Gallery-only candidate: test the two authored action fill-ins without the existing Cat accents.
+/// It is intentionally not exposed as an app setting; the shipped choice remains `nekoIconPack`.
+const NEKO_FILL_IN_NAMES = new Set(["action.copy", "action.pin"]);
+export const nekoFillInIconPack = overlaidIconPack(bundledIconPack, {
+  ...(neko as IconPack),
+  icons: Object.fromEntries(Object.entries((neko as IconPack).icons).filter(([name]) => NEKO_FILL_IN_NAMES.has(name))),
+});
 
 /// The family the host set on the page (`data-icon-family`, AgentPaneTunables.documentAttributes); none is
 /// the pack. A pooled page learns it when it is claimed, after its first render, so readers subscribe.
