@@ -1720,12 +1720,30 @@ fn warm_seeded_deps(folder: &Path) {
         .to_str()
         .and_then(|path| path.strip_suffix(" (deleted)"))
         .map_or(exe.clone(), PathBuf::from);
-    let log = std::env::temp_dir().join("cmux-deps-warm.log");
-    let out = std::fs::OpenOptions::new().create(true).append(true).open(&log).ok();
+    // The installer's stderr can hold private output: an owner-only log in the
+    // user's own ~/.acpmux, never a shared temp folder, never through a link.
+    let out = std::env::var_os("HOME").filter(|h| !h.is_empty()).and_then(|home| {
+        use std::os::unix::fs::OpenOptionsExt;
+        let dir = PathBuf::from(home).join(".acpmux");
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(dir.join("deps-warm.log"))
+            .ok()
+    });
     let err = out.as_ref().and_then(|f| f.try_clone().ok());
-    let mut command = cmux_process::Command::new(exe);
+    // A binary named `acpmux` (a symlink or a copy) runs acpmux directly; the
+    // `cmux` binary takes it under `acp`.
+    let standalone = exe.file_name().is_some_and(|name| name == "acpmux");
+    let mut command = cmux_process::Command::new(&exe);
+    if !standalone {
+        command.arg("acp");
+    }
     command
-        .args(["acp", "machine", "deps", "warm", "--if-joined", "--if-missing", "--json"])
+        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--json"])
         .arg(folder)
         .current_dir(folder)
         .stdin(cmux_process::Stdio::null())
