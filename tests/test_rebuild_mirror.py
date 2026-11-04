@@ -30,6 +30,7 @@ class CandidateInputs(unittest.TestCase):
         self.write(mirror.inputs.WORKFLOW, "name: fixture\njobs: {}\n")
         self.write(mirror.SCRIPT, "# planner fixture\n")
         self.write("scripts/ci/job_input_fingerprint.py", "# fingerprint fixture\n")
+        self.write("scripts/ci/job_reuse.py", "# reuse fixture\n")
         self.write(mirror.inputs.GRAPH, json.dumps({"targets": {
             "FixtureTests": {"reads": ["unrelated/fixture.json"], "targets": [],
                              "packages": [], "kind": "test"}}}))
@@ -193,6 +194,12 @@ class CandidateInputs(unittest.TestCase):
                 evidence.write_text(json.dumps(dict(base, measured_at=timestamp)))
                 eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
                 self.assertFalse(eligible)
+        for malformed in ([], "text"):
+            with self.subTest(malformed=malformed):
+                evidence.write_text(json.dumps(malformed))
+                eligible, reason = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
+                self.assertIn("object", reason)
 
     def test_pr_job_keeps_both_actions_head_and_built_merge_commit(self):
         plan = self.root / "plan.json"

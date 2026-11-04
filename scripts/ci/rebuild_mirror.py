@@ -42,6 +42,8 @@ def policy_identity(root: str, rev: str, job: str) -> str:
     policy = table["jobs"][f"cmux-next.yml:{job}"]["rebuild_mirror"]
     return digest({"policy": policy, "script": inputs.git(root, "rev-parse", f"{rev}:{SCRIPT}"),
                    "fingerprint": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_input_fingerprint.py"),
+                   "job_reuse": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_reuse.py"),
+                   "workflow": inputs.git(root, "rev-parse", f"{rev}:{inputs.WORKFLOW}"),
                    "graph": inputs.git(root, "rev-parse", f"{rev}:{inputs.GRAPH}")})
 
 
@@ -203,6 +205,8 @@ def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
                 return False, "evidence is unavailable"
             raw = evidence.read_text(encoding="utf-8")
         value = json.loads(raw)
+        if not isinstance(value, dict):
+            return False, "evidence is not an object"
         if value.get("schema") != "ci-rebuild-evidence/v1" or value.get("enabled") is not True:
             return False, "evidence is not enabled"
         if value.get("policy") != policy_identity(root, rev, job):
@@ -231,7 +235,7 @@ def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
         if age < -300 or age > 7 * 86400:
             return False, "evidence timestamp is stale"
         return True, "eligible"
-    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+    except (ArithmeticError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
         return False, f"evidence unavailable: {error}"
 
 
