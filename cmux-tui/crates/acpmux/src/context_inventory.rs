@@ -47,11 +47,10 @@ pub struct ContextInventory {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextOverrideView {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     pub project_key: String,
+    pub cwd: String,
 }
 
 /// Approximate tokens for text we own. A harness-reported count is always preferred.
@@ -203,7 +202,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         provider_total_tokens,
         cmux_tokens,
         max_tokens,
-        overrides: ContextOverrideView { user, project, project_key },
+        overrides: ContextOverrideView { user, project, project_key: project_key.clone(), cwd: project_key },
     }
 }
 
