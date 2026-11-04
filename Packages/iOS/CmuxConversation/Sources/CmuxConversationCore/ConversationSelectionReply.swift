@@ -15,6 +15,10 @@ public struct ConversationSelectionReply: Sendable, Hashable {
         self.text = text
     }
 
+    /// A selection longer than this many characters is quoted cut, with an
+    /// ellipsis (the Mac's `ReplyQuote.maxQuoted`).
+    public static let maxQuoted = 1_000
+
     /// The selection `range` (UTF-16, as a text view reports it) of the
     /// bubble's shown `text`; nil when it selects nothing but blank space or
     /// falls outside the text.
@@ -23,7 +27,17 @@ public struct ConversationSelectionReply: Sendable, Hashable {
               let bounds = Range(range, in: text) else { return nil }
         let excerpt = text[bounds].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !excerpt.isEmpty else { return nil }
-        self.init(messageID: messageID, text: excerpt)
+        self.init(messageID: messageID, text: excerpt.count > Self.maxQuoted ? Self.cut(excerpt, limit: Self.maxQuoted) : excerpt)
+    }
+
+    /// The first `limit` characters, back to the last word end when one is
+    /// in the second half, then "…" (the Mac's `ReplyQuote.cut`).
+    static func cut(_ text: String, limit: Int) -> String {
+        let head = text.prefix(max(1, limit - 1))
+        let word = head.lastIndex(where: { $0.isWhitespace })
+            .map { head.distance(from: head.startIndex, to: $0) }
+            .flatMap { length in length > limit / 2 ? head.prefix(length) : nil } ?? head
+        return word.trimmingCharacters(in: .whitespacesAndNewlines) + "…"
     }
 
     /// The excerpt as a Markdown quote ("> " before each line, ">" alone on

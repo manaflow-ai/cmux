@@ -27,6 +27,16 @@ import Testing
         #expect(ConversationSelectionReply(messageID: "m", text: text, selectedRange: NSRange(location: NSNotFound, length: 1)) == nil)
     }
 
+    /// The Mac's limit: a long selection goes out cut at a word end, with an ellipsis.
+    @Test func cutsALongSelectionAtAWordEnd() throws {
+        let text = Array(repeating: "word", count: 400).joined(separator: " ")
+        let reply = try #require(ConversationSelectionReply(messageID: "m", text: text, selectedRange: NSRange(location: 0, length: (text as NSString).length)))
+        #expect(reply.text.count <= ConversationSelectionReply.maxQuoted)
+        #expect(reply.text.hasSuffix("word…"))
+        let short = try #require(ConversationSelectionReply(messageID: "m", text: "short", selectedRange: NSRange(location: 0, length: 5)))
+        #expect(short.text == "short")
+    }
+
     /// The same text as the Mac's `HomeMessageRouting.quoted`.
     @Test func quotesEachLineAsMarkdownThenLeavesALineForTheReply() {
         let reply = ConversationSelectionReply(messageID: "m", text: "first line\n\nthird line")
