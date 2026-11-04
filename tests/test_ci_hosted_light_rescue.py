@@ -172,6 +172,33 @@ class Periodic(unittest.TestCase):
 
 
 class WorkflowToken(unittest.TestCase):
+    def test_independent_recovery_dispatches_the_single_sweeper_instead_of_mutating_runs(self):
+        with mock.patch.object(rescue, "GitHub") as github:
+            client = github.return_value
+            result = rescue.main(["--wake-sweeper"], env={"GH_TOKEN": "workflow-token", "GH_REPO": "o/r"})
+        self.assertEqual(result, 0)
+        github.assert_called_once_with("workflow-token", "o/r", "workflow-token")
+        self.assertEqual(client.method_calls, [mock.call.wake_sweeper()])
+
+    def test_dry_run_recovery_does_not_dispatch_a_sweeper(self):
+        client = mock.Mock()
+        result = rescue.main(["--wake-sweeper", "--dry-run"], env={}, client=client)
+        self.assertEqual(result, 0)
+        self.assertEqual(client.method_calls, [])
+
+    def test_the_sweeper_wake_uses_its_existing_main_concurrency_owner(self):
+        client = rescue.GitHub("workflow-token", "o/r")
+        with mock.patch("urllib.request.urlopen") as send:
+            response = send.return_value.__enter__.return_value
+            response.read.return_value = b""
+            response.headers = {}
+            client.wake_sweeper()
+        request = send.call_args.args[0]
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.full_url,
+                         "https://api.github.com/repos/o/r/actions/workflows/ci-owned-pool-rescue.yml/dispatches")
+        self.assertEqual(json.loads(request.data), {"ref": "main"})
+
     def test_the_minute_pass_uses_only_its_workflow_token(self):
         with tempfile.TemporaryDirectory() as tmp:
             policy = Path(tmp)

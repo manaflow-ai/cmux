@@ -151,14 +151,26 @@ class Declared(unittest.TestCase):
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
 
-    def test_the_independent_rescue_uses_the_bounded_local_helper(self) -> None:
+    def test_the_independent_schedule_only_wakes_the_single_sweeper(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text())
         steps = workflow["jobs"]["rescue"]["steps"]
         [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
         self.assertIn("python3 scripts/ci/hosted_light_rescue.py", step["run"])
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertIn("--runners .rescue-workflows/.github/runners.json", step["run"])
-        self.assertIn("--workflows .rescue-workflows/.github/workflows", step["run"])
+        self.assertIn("--wake-sweeper", step["run"])
+        self.assertNotIn("--runners", step["run"])
+        self.assertNotIn(".rescue-workflows", str(steps))
+
+    def test_a_failed_optional_policy_checkout_does_not_stop_the_primary_sweep(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        steps = doc["jobs"]["rescue"]["steps"]
+        [policy] = [s for s in steps if s.get("with", {}).get("path") == ".rescue-workflows"]
+        # Actions skips subsequent ordinary steps after a fatal action failure. This optional
+        # checkout must clear that failure so the existing owned-pool sweeper can still start.
+        self.assertTrue(policy.get("continue-on-error"))
+        self.assertLessEqual(policy.get("timeout-minutes", 360), 2)
+        [watch] = [s for s in steps if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        self.assertLess(steps.index(policy), steps.index(watch))
 
     def test_the_minute_sweeper_isolates_light_rescue_from_the_routing_app(self) -> None:
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
