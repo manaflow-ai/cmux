@@ -556,7 +556,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     if seen["rendered_at"] is None and status is None:
         failures.append(f"Home did not render within {elapsed:.0f}s (visible windows {visible_windows(seen['snapshot'])}, "
                         f"Home tab {'selected' if report['home_tab'] else 'not selected'}, "
-                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'})")
+                        f"{RENDER_MARK} {'seen' if RENDER_MARK in report['marks'] else 'missing'}, "
+                        f"{FIRST_RUN_MARK} {'seen' if FIRST_RUN_MARK in report['marks'] else 'missing'})")
     if not failures:
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
