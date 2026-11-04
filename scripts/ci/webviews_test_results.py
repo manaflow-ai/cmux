@@ -5,16 +5,15 @@
     webviews_test_results.py --failed-files OUT.json  # print the files with a red, one a line
 
 SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `(fail)` tests as
-`FILE > TEST: false`. A file that timed out, or failed without naming a test (it did not load),
+`FILE > TEST: false`; a complete failed file also lists its explicit `(pass)` tests as true. A file that timed out, or failed without naming a test (it did not load),
 is `FILE: false`; a passing file is `FILE: true`. Results compare by exact name, so a base file
 that crashed or hung says nothing about the tests it never reached: their reds stay the change's.
-A file red again on its retry alone keeps a log of both runs; only the retry's `(fail)` tests count,
+A file red again on its retry alone keeps a log of both runs; only the retry's outcomes count,
 since the base reruns the file once, alone, too.
 
 With CMUX_WEB_TEST_STATES set, it also writes {file: {"result": PASS, FAIL or TIMEOUT, "completed": bool}} there:
 "completed" when the file's (last) run reached bun's closing `Ran N tests across M files.` line, so a FAIL that
-names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py), since the results name
-no passing test.
+names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py) for tests with no explicit result.
 """
 from __future__ import annotations
 
@@ -28,13 +27,15 @@ FAIL_BYTES = re.compile(rb"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
 PASS_BYTES = re.compile(rb"^\(pass\) (.+?)(?: \[[0-9.]+m?s\])?$")
 RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
 RETRY_BYTES = RETRY.encode()
+RETRY_STOPPED = "--- retry stopped at shared budget ---"
+RETRY_STOPPED_BYTES = RETRY_STOPPED.encode()
 LOG_CHUNK_BYTES = 64 * 1024
 TALLY = re.compile(rb"^Ran \d+ tests? across \d+ files?\.", re.M)  # bun's last line once a file ran to its end
 ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 MAX_LINE_BYTES = 1 * 1024 * 1024
 
 
-def _named_outcomes(log: Path) -> tuple[set[str], set[str]]:
+def _named_outcomes(log: Path) -> tuple[set[str], set[str], bool]:
     """Read named pass/fail outcomes in bounded chunks, including huge diagnostic logs.
 
     The runner may retry a file after the first attempt; only the final attempt is evidence,
@@ -42,6 +43,8 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str]]:
     """
     passed: set[str] = set()
     failed: set[str] = set()
+    retry_stopped = False
+    in_stopped_retry = False
     line = bytearray()
     oversized = False
 
@@ -56,13 +59,28 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str]]:
         line.extend(fragment)
 
     def finish() -> None:
-        nonlocal oversized
+        nonlocal oversized, retry_stopped, in_stopped_retry
         if not oversized:
             raw = bytes(line).rstrip(b"\r")
             if raw == RETRY_BYTES:
                 passed.clear()
                 failed.clear()
+                in_stopped_retry = False
+            elif raw == RETRY_STOPPED_BYTES:
+                # The first run is the only complete evidence when the retry budget
+                # is cut short. Ignore any partial retry output and keep its red names.
+                passed.clear()
+                retry_stopped = True
+                in_stopped_retry = True
+            elif raw == b"--- first failure retained ---":
+                passed.clear()
+                failed.clear()
+                in_stopped_retry = False
             else:
+                if in_stopped_retry:
+                    line.clear()
+                    oversized = False
+                    return
                 fail = FAIL_BYTES.fullmatch(raw)
                 if fail:
                     failed.add(fail.group(1).decode("utf-8", errors="replace"))
@@ -81,7 +99,7 @@ def _named_outcomes(log: Path) -> tuple[set[str], set[str]]:
                 finish()
                 append(part)
     finish()
-    return passed, failed
+    return passed, failed, retry_stopped
 
 
 def collect(summary: Path) -> dict[str, bool]:
@@ -96,10 +114,10 @@ def collect(summary: Path) -> dict[str, bool]:
             continue
         log_path = Path(log)
         try:
-            passed, failed = _named_outcomes(log_path)
-            complete = result == "FAIL" and bool(_completed(log_path))
+            passed, failed, retry_stopped = _named_outcomes(log_path)
+            complete = result == "FAIL" and bool(_completed(log_path)) and not retry_stopped
         except OSError:
-            passed, failed = set(), set()
+            passed, failed, retry_stopped = set(), set(), False
             complete = False
         # A named pass is evidence only after the file reached Bun's closing tally.
         # A cut-short or crashed file remains a file-level red and must not hide it.

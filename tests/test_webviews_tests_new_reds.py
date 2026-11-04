@@ -283,6 +283,21 @@ class Wrapper(unittest.TestCase):
 
 
 class Collect(unittest.TestCase):
+    def test_a_budget_stopped_retry_retains_only_first_run_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "stopped"
+            log.write_text("--- retry stopped at shared budget ---\n"
+                           "(pass) transient [1.00ms]\n(fail) partial retry [2.00ms]\n"
+                           "--- first failure retained ---\n"
+                           "(pass) first pass [1.00ms]\n(fail) original [2.00ms]\n"
+                           "Ran 2 tests across 1 files.\n")
+            (tmp / "summary").write_text(f"FAIL f.test.ts {log}\n")
+            subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
+            self.assertEqual(json.loads((tmp / "out.json").read_text()), {
+                "f.test.ts > original": False,
+            })
+
     def test_a_summary_becomes_per_test_results(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)

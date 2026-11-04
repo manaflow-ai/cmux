@@ -25,7 +25,7 @@ that fails now and then there. A missing or unreadable file lists nothing.
 webview test name before " > "), and exits 0. ci-web.yml re-runs those files alone on the head.
 
 --head-rerun names that re-run's results (webviews_test_results.py, {name: passed}). A red the change would be
-charged with whose file passed there, alone, is a warning (kind `flaky`), never the change's: the head shard
+charged with that explicitly passed there (or whose whole file passed), alone, is a warning (kind `flaky`), never the change's: the head shard
 retries a red file alone and counts its pass, but only while its retry budget lasts, so a late red on a long
 shard was never retried. #27710 (run 41525196343) went red on three gallery-frame timeouts its head shards had no
 budget left to retry; the base push after it merged passed all three. A file that fails again, or is missing from
