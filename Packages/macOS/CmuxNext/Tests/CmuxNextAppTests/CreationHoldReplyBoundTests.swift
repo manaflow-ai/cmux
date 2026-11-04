@@ -115,7 +115,7 @@ struct CreationHoldReplyBoundTests {
                 }, report: { "no second terminal tab in the first pane" })
                 try await settled()
                 secondTab = pressed.pane.pane.tabs.first { $0.id != first && $0.kind == .pty }?.id
-                pressed.pane.handle(.select(StripTabID(first)))
+                pressed.pane.handle(.select(CmuxNextTabs.TabID(first)))
                 try await PasswordManagerRouteTests.until({ terminals().contains { $0.pane === pressed.pane && $0.tab == first } },
                                                           report: { "the first tab did not show again" })
                 pressed = try #require(terminals().first { $0.pane === pressed.pane })
@@ -143,7 +143,7 @@ struct CreationHoldReplyBoundTests {
                 controller.focus.responderDidChange(.content(pane: other.pane.paneKey), source: .mouse)
             case .tabClick: // TabStripView's mouse-down select (selectOnPress), with the source its mouse-down dispatch gives
                 let tab = try #require(secondTab)
-                pressed.pane.select(StripTabID(tab), source: .mouse)
+                pressed.pane.select(CmuxNextTabs.TabID(tab), source: .mouse)
             case .workspaceClick: // a click on the sidebar row
                 let workspace = try #require(secondWorkspace)
                 controller.sidebar.handle(.select(WorkspaceID(workspace)))
