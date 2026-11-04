@@ -437,6 +437,18 @@ fn idle_session_resident_memory_benchmark() {
             assert_eq!(detail["modes"], expected["modes"], "modes of {}", id(i));
             assert_eq!(detail["tools"], expected["tools"]["rows"], "tools of {}", id(i));
         }
+        // Health's first check waits on startup's readiness watch. That watch precedes
+        // the end of all startup work, so one final status check refuses an incomplete
+        // sample instead of estimating completion with a sleep or polling for it.
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing RSS sample before startup and log loading finish ({chats} sessions): {loading}"
+        );
+        assert_eq!(loading["sessionsLoaded"], chats, "incomplete session index: {loading}");
+        assert_eq!(loading["sessionsTotal"], chats, "unexpected session count: {loading}");
         let loaded_rss = daemon.rss_bytes();
         assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
         let listed_rss = daemon.rss_bytes();
