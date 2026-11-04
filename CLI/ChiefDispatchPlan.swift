@@ -231,6 +231,12 @@ struct ChiefDispatchOptions: Equatable {
 
 /// Files and command lines `cmux chief dispatch` builds.
 enum ChiefDispatchPlan {
+    /// Whether the app offers Chief: its `system.capabilities` lists a
+    /// `chief.*` method. Chief off strips them, so dispatch refuses then.
+    static func appOffersChief(capabilities: [String: Any]) -> Bool {
+        (capabilities["methods"] as? [String] ?? []).contains { $0.hasPrefix("chief.") }
+    }
+
     /// One POSIX shell word: always single-quoted, each `'` spliced as `'"'"'`.
     static func shellWord(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"

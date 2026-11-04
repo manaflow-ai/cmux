@@ -57,8 +57,11 @@ env:
 jobs:
   request:
     # A workflow_run counts only for this repository's own push runs: feat-cmux-next
-    # landings and nightly-next builds.
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    # landings and nightly-next builds. cmux-next and cmux-tui artifacts runs on nightly-next
+    # (a promotion's push, about 7 an hour on 2026-11-04) make no feat-cmux-next commit
+    # buildable and are not a finished build, so they start no tick; the cron backstop and
+    # the landings still do.
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
     # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -150,8 +153,12 @@ jobs:
 
       # The rolling rule (scripts/ci/nightly_next_rolling.py): promote at once when nothing is
       # building nightly-next, else once the oldest landing the running build does not carry
-      # has waited 10 minutes. A dispatch for one commit skips it. It reads through the API only;
-      # its failure modes are in the script's docstring.
+      # has waited 10 minutes. A dispatch for one commit skips it. It reads nightly-next with
+      # git ls-remote (no API budget; ticks 41791114042 and 41791169626 lost their promotion to
+      # an exhausted budget on the refs API) and the gap to the tip from this checkout (the compare
+      # API only when nightly-next's head is not in it); a tip already on nightly-next reads nothing
+      # more and requests nothing. The running builds come through the API. Its failure modes are
+      # in the script's docstring.
       - name: Apply the rolling rule
         id: rolling
         if: vars.NIGHTLY_NEXT_TRAIN != 'on' && inputs.sha == ''
@@ -264,10 +271,13 @@ jobs:
   # This job reads the reconciled 2 vCPU Linux pool (RUNNER_POOLS.linux_2, Blacksmith 2 vCPU when
   # the variable is unset), not the hosted pool its targets wait on, checks out only its scripts, and has its own fixed group: one runs,
   # the newest waits, and a dispatch for one commit (a sha input) skips it as before. It holds
-  # only the job's GITHUB_TOKEN; it never cancels a started job (nightly_next_stuck_run.py).
+  # the job's GITHUB_TOKEN for its writes and the cmux-bot App token for its reads; it never cancels a
+  # started job (nightly_next_stuck_run.py).
   unstick:
-    if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
+    # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
+    # no variable may put it on a machine this line does not name (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     # Two bounded steps of reads and at most one cancel and one re-run.
     timeout-minutes: 25
     concurrency:
@@ -286,6 +296,7 @@ jobs:
           ref: ${{ github.sha }}
           path: .tick-tooling
           sparse-checkout: |
+            scripts/ci/gh_app_token.sh
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
             scripts/ci/delivery_workflows.py
@@ -298,6 +309,35 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false
+
+      # This job's reads spend the cmux-bot App's budget, not the repository's GITHUB_TOKEN pool
+      # (5,000 an hour for every workflow, which ran dry hourly on 2026-11-04 with this tick its
+      # biggest spender: about 1,100 calls an hour, about 575 of them this job's).
+      # scripts/ci/gh_app_token.sh --reads-only sends a gh call made with github.token that only
+      # reads (a GET, a GraphQL query, a list or view) as the App, and github.token again when the
+      # App is refused; the cancels and re-runs go out once as github.token, unchanged. With no App
+      # token (a failed mint, or no CMUX_BOT_APP_ID) nothing is installed and every call is
+      # github.token's. Only this job holds the App key: the request job runs where
+      # CI_CONTROL_RUNNER puts it, which may be a reused machine, so it keeps only its job-scoped
+      # GITHUB_TOKEN (tests/test_ci_cloud_overflow_switch.py) and spends fewer reads instead.
+      - name: Mint the cmux-bot token for this job's reads
+        id: read-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      # Before the rate-limit wait below, which then wraps it (its waits count once per job).
+      - name: Send this job's gh reads as the cmux-bot App, github.token as the fallback
+        env:
+          GH_APP_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/gh_app_token.sh --install --reads-only
 
       - name: Wait through GitHub API rate limits in this job's gh calls
         run: bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install
@@ -328,6 +368,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_NEXT_TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
+          GH_APP_TOKEN_ATTEMPTS: "1"
         run: python3 -u .tick-tooling/scripts/ci/nightly_next_stuck_run.py "$GITHUB_REPOSITORY"
 
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
@@ -338,5 +379,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_BUDGET_WAIT_ATTEMPTS: "1"
+          GH_APP_TOKEN_ATTEMPTS: "1"
         working-directory: .tick-tooling
         run: bash scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"

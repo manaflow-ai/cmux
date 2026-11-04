@@ -113,6 +113,19 @@ class Declared(unittest.TestCase):
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
 
+    def test_the_reconciler_reads_as_cmux_bot_not_the_shared_workflow_token(self) -> None:
+        # Its GH_TOKEN only reads (queue sample, pool snapshot artifact): cmux-bot's read-only token, minted
+        # earlier in the same job, keeps those reads off the repository GITHUB_TOKEN pool every workflow shares.
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
+        steps = workflow["jobs"]["watch"]["steps"]
+        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["permission-actions"], "read")
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        names = [s.get("name") for s in steps]
+        self.assertLess(names.index(mint["name"]), names.index(step["name"]))
+
     def test_the_watch_runs_the_pinned_linux_pool_spill_with_main_as_fallback(self) -> None:
         # cmux#31884: the queue-aware spill runs from a reviewed feat-cmux-next commit beside main's policy.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
@@ -177,7 +190,10 @@ class Declared(unittest.TestCase):
     def test_the_minute_sweeper_isolates_light_rescue_from_the_routing_app(self) -> None:
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
         [step] = [s for s in doc["jobs"]["rescue"]["steps"] if "owned_pool_rescue.py" in str(s.get("run", ""))]
-        self.assertEqual(step["env"]["HOSTED_LIGHT_TOKEN"], "${{ github.token }}")
+        # cmux-bot first (its own installation pool), the workflow token as fallback; never the routing App.
+        self.assertEqual(step["env"]["HOSTED_LIGHT_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", str(step["env"]["HOSTED_LIGHT_TOKEN"]))
         self.assertEqual(step["env"]["HOSTED_LIGHT_DISABLED"], "${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}")
         self.assertEqual(step["env"]["HOSTED_LIGHT_POLICY"], ".rescue-workflows/.github")
 
