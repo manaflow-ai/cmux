@@ -2,6 +2,7 @@
 // A browser preview proof returns a screenshot attachment beside the console-error report.
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
+import { LOGIN_SCREENSHOT_PNG } from "../../../gallery/fixtures/toolImages";
 import { mergeToolItem } from "../direct";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { ToolRow as ToolRowComponent } from "./ToolRow";
@@ -9,25 +10,7 @@ import type { ToolRow as ToolRowComponent } from "./ToolRow";
 type Props = { clean: boolean };
 
 const path = "/tmp/cmux-preview-proof.png";
-
-function paint(): string {
-  const [width, height] = [900, 520];
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ink = canvas.getContext("2d")!;
-  ink.fillStyle = "hsl(220 18% 96%)";
-  ink.fillRect(0, 0, width, height);
-  ink.fillStyle = "hsl(220 14% 88%)";
-  ink.fillRect(0, 0, width, 42);
-  ink.fillStyle = "hsl(220 60% 56%)";
-  ink.fillRect(56, 108, width - 112, 52);
-  ink.fillStyle = "hsl(220 14% 70%)";
-  for (let line = 0; line < 5; line += 1) ink.fillRect(56, 210 + line * 42, 420 + line * 48, 14);
-  ink.fillStyle = "hsl(150 45% 48%)";
-  ink.fillRect(56, height - 72, 180, 26);
-  return canvas.toDataURL("image/png");
-}
+const chipHost = { images: { [path]: `data:image/png;base64,${LOGIN_SCREENSHOT_PNG}` } };
 
 function proofItem(clean: boolean) {
   const id = "gallery-browser-proof";
@@ -47,22 +30,17 @@ function proofItem(clean: boolean) {
   const report = JSON.stringify(
     {
       url: "http://127.0.0.1:5173/",
-      screenshot: `[Image 900x520 png: ${path}]`,
+      screenshot: `[Image 640x400 png: ${path}]`,
       consoleErrors: clean ? [] : [{ type: "error", text: "Preview reported a hydration error" }],
       pageErrors: [],
     },
     null,
     2,
   );
-  const data = paint();
-  const image = {
-    type: "content",
-    content: { type: "image", mimeType: "image/png", data: data.slice(data.indexOf(",") + 1) },
-  };
   const text = { type: "content", content: { type: "text", text: report } };
   return mergeToolItem(
     call,
-    { sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", content: [text, image] },
+    { sessionUpdate: "tool_call_update", toolCallId: id, status: "completed", content: [text] },
     id,
     report,
   );
@@ -99,10 +77,12 @@ export default componentEntry<Props>({
     "with-console-error": {
       note: "The preview screenshot is attached to the same result as a captured console.error, so the user can inspect the rendered UI and its browser evidence together.",
       props: { clean: false },
+      chipHost,
     },
     clean: {
       note: "A preview with no console or page errors still returns the screenshot attachment and empty evidence lists.",
       props: { clean: true },
+      chipHost,
     },
   },
 });

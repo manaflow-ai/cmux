@@ -580,9 +580,18 @@ fn preview_proof_returns_screenshot_and_console_errors() {
         .stdin
         .take()
         .unwrap()
-        .write_all(format!("await previewProof({port}, {{ path: '/preview-proof' }});").as_bytes())
+        .write_all(
+            format!(
+            "const proof = await previewProof({port}, {{ path: '/preview-proof' }}); \
+             const imagePath = proof.screenshot.match(/png: (.+)\\]/)[1]; \
+             console.log('PNG_SIGNATURE:' + Array.from(fs.readFileSync(imagePath).slice(0, 8)).join(',')); \
+             proof"
+            )
+            .as_bytes(),
+        )
         .unwrap();
     let output = child.wait_with_output().unwrap();
+    let success = output.status.success();
     let output = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
@@ -594,9 +603,14 @@ fn preview_proof_returns_screenshot_and_console_errors() {
         .output();
     let _ = std::fs::remove_dir_all(&dir);
 
+    assert!(success, "preview proof command failed: {output}");
+    assert!(output.contains("PNG_SIGNATURE:137,80,78,71,13,10,26,10"), "valid PNG missing: {output}");
     assert!(output.contains("fixture console error"), "console error missing: {output}");
     assert!(output.contains("fixture page error"), "page error missing: {output}");
-    assert!(output.contains(&format!("http://127.0.0.1:{port}/preview-proof")), "preview URL missing: {output}");
+    assert!(
+        output.contains(&format!("http://127.0.0.1:{port}/preview-proof")),
+        "preview URL missing: {output}"
+    );
     assert!(
         output.lines().any(|line| line.contains("/image-") && line.contains(".png")),
         "screenshot attachment path missing: {output}"
