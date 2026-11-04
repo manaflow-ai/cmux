@@ -258,6 +258,8 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     // The direct port: the release lock is a session advisory lock, which a transaction pooler (6432) would not keep.
     sql = await connectUrl(directUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV)))
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
+    // skip_rehearsal (workflow input): apply without the point-in-time rehearsal copy, so the PITR waits go too.
+    const skipRehearsal = command === "migrate" && process.env.CMUX_VM_SKIP_REHEARSAL === "true"
 
     if (command !== "migrate") {
       const seen = await inspect(sql, log)
@@ -296,7 +298,7 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     })
     await sql.end()
     sql = undefined
-    if (owned.changed) {
+    if (owned.changed && !skipRehearsal) {
       log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the owner change (release-rails.md, "PITR lag")`)
       await sleep(PITR_WAIT_MS)
     }
@@ -304,10 +306,12 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     if (owned.through) {
       await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", owned.through, "--confirm-production"], log, owned.login.url)
       // The apply's rehearsal copies main 6 minutes back: it must see the adopted tracking rows.
-      log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the adopted rows`)
-      await sleep(PITR_WAIT_MS)
+      if (!skipRehearsal) {
+        log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the adopted rows`)
+        await sleep(PITR_WAIT_MS)
+      }
     }
-    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow], log, owned.login.url)
+    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow, ...(skipRehearsal ? ["--skip-rehearsal"] : [])], log, owned.login.url)
     // 4. The Worker's privileges on what the apply added (the deploy gate refuses without them).
     await grantWorker(owned.login.url, log)
     return 0

@@ -25,6 +25,9 @@ public struct MacScreenTabEvents {
     /// Titles that come from routes changed (device names were read or
     /// renamed): strips draw their unopened Mac Screen tabs again.
     public var routeTitlesChanged: () -> Void = {}
+    /// A person pressed Sign In where a tab or the home page says to sign in to cmux: the host
+    /// starts the cmux sign-in (the app's `palette.auth.signIn`).
+    public var signIn: () -> Void = {}
 
     public init() {}
 }
@@ -356,6 +359,7 @@ public final class MacScreenPages {
         var actions = MacScreenHomeActions()
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
+        actions.signIn = { [weak self] in self?.events.signIn() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }
@@ -371,6 +375,7 @@ public final class MacScreenPages {
         #endif
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
+        pane.handlers.signIn = { [weak self] in self?.events.signIn() }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
