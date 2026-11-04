@@ -47,10 +47,10 @@
 # CMUX_VM_SMOKE_SERVICE_TEAM. first_production_deploy=true only for the first.
 # Action smoke-production runs only the production route and service smoke
 # against the live version (no deploy, no rollback). Its product leg
-# (scripts/smoke-product.ts) creates the way cmux-platform does: secret
-# CMUX_VM_SMOKE_PLATFORM_KEY (the cloud-platform-production service key), variable
-# CMUX_VM_SMOKE_PRODUCT_TEAM (a product team, not in DEV_TEST_TENANT_IDS, so the
-# never-pause -1 idle default), the approved boot image and no idle timeout.
+# (scripts/smoke-product.ts) creates the way cmux-platform does, with no key: the
+# job's GitHub OIDC token maps to the Worker's CMUX_VM_CI_TRUST row ci-product-smoke
+# (a product team, not in DEV_TEST_TENANT_IDS, so the never-pause -1 idle default),
+# the approved boot image and no idle timeout.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
@@ -677,6 +677,10 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-production
+    # id-token: the product smoke authenticates with this job's GitHub OIDC token (workers/cmux-vm/src/auth/ci-trust.ts).
+    permissions:
+      contents: read
+      id-token: write
     concurrency:
       group: cmux-vm-smoke-production
       cancel-in-progress: false
@@ -739,24 +743,18 @@ jobs:
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
-      # The product create path (scripts/smoke-product.ts): the cloud-platform-production key, a product team
-      # (never-pause -1 idle default) and the approved boot image, as cmux-platform creates. The dev/test leg
+      # The product create path (scripts/smoke-product.ts): a product team (never-pause -1 idle default) and the approved boot image, as cmux-platform creates. The dev/test leg
       # above passed while every product create answered 503 (cmux#35012). No step-level continue-on-error, so
       # a red shows on the job; the job itself stays non-blocking.
-      - name: Smoke the product create path (platform key, product team, approved boot image)
+      # No key: the job's GitHub OIDC token (audience: the Worker's origin) maps to the Worker's CMUX_VM_CI_TRUST row
+      # ci-product-smoke, its own team and VMs only, at most 2, each paused after 15 minutes and deleted once stopped.
+      - name: Smoke the product create path (CI OIDC principal, product team, approved boot image)
         if: steps.gate.outputs.enabled == 'true'
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
-          CMUX_VM_SMOKE_PLATFORM_KEY: ${{ secrets.CMUX_VM_SMOKE_PLATFORM_KEY }}
-          CMUX_VM_SMOKE_PRODUCT_TEAM: ${{ vars.CMUX_VM_SMOKE_PRODUCT_TEAM }}
           CMUX_VM_SMOKE_IMAGE: ${{ vars.CMUX_VM_SMOKE_IMAGE }}
           CMUX_VM_SMOKE_IMAGE_REVISION: ${{ vars.CMUX_VM_SMOKE_IMAGE_REVISION }}
-        run: |
-          if [ -z "$CMUX_VM_SMOKE_PLATFORM_KEY" ] || [ -z "$CMUX_VM_SMOKE_PRODUCT_TEAM" ]; then
-            echo "::error::The product smoke needs secret CMUX_VM_SMOKE_PLATFORM_KEY (the cloud-platform-production service key) and variable CMUX_VM_SMOKE_PRODUCT_TEAM in cmux-vm-production."
-            exit 1
-          fi
-          bun scripts/smoke-product.ts
+        run: bun scripts/smoke-product.ts
 
   tail-production:
     # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,

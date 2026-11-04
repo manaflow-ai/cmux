@@ -1,25 +1,32 @@
 /**
  * Production smoke of the product create path, the one cmux-platform's Cloud driver takes for every NEXT Cloud
- * machine (cmux-platform src/server/cloud/vmapi/CloudProvider.ts): the cloud-platform-production service key,
- * a product team (no DEV_TEST_TENANT_IDS entry, so the never-pause -1 idle default), the approved boot image and
- * no idleTimeoutSeconds. The service-key leg of smoke.ts runs on a dev/test team with idleTimeoutSeconds 60, so it
- * passed while every product create answered 503 (cmux#35012, 2026-11-04).
+ * machine (cmux-platform src/server/cloud/vmapi/CloudProvider.ts): a product team (no DEV_TEST_TENANT_IDS entry,
+ * so the never-pause -1 idle default), the approved boot image and no idleTimeoutSeconds. The service-key leg of
+ * smoke.ts runs on a dev/test team with idleTimeoutSeconds 60, so it passed while every product create answered
+ * 503 (cmux#35012, 2026-11-04).
  *
- *   CMUX_VM_SMOKE_URL=https://vm.cmux.dev \
- *   CMUX_VM_SMOKE_PLATFORM_KEY=cmuxvm_sk_... CMUX_VM_SMOKE_PRODUCT_TEAM=<stack team id> \
- *   [CMUX_VM_SMOKE_IMAGE=<id> CMUX_VM_SMOKE_IMAGE_REVISION=<rev>] bun scripts/smoke-product.ts
+ * It holds no key. In GitHub Actions (id-token: write) it asks GitHub for the job's OIDC token with the Worker's
+ * origin as audience, and the Worker maps it to its CMUX_VM_CI_TRUST row (src/auth/ci-trust.ts): ci-product-smoke,
+ * which acts only for its own team, on its own labelled VMs, at most 2 of them, each paused after 15 minutes and
+ * deleted once stopped. GitHub's tokens live minutes, so a fresh one is fetched whenever the last is a minute old.
  *
- * Without CMUX_VM_SMOKE_IMAGE it boots the first image GET /v1/vm-images lists for the key (production approves
- * exactly one image, for cloud-platform-production). The VM is deleted by its exact id, also when a step fails.
- * The key is read from the environment and never printed.
+ *   CMUX_VM_SMOKE_URL=https://vm.cmux.dev [CMUX_VM_SMOKE_IMAGE=<id> CMUX_VM_SMOKE_IMAGE_REVISION=<rev>] \
+ *     bun scripts/smoke-product.ts
+ *
+ * Without CMUX_VM_SMOKE_IMAGE it boots the first image GET /v1/vm-images lists for the caller. The VM is deleted
+ * by its exact id, also when a step fails. No token is ever printed.
  */
 const base = process.env["CMUX_VM_SMOKE_URL"] ?? "";
-const key = process.env["CMUX_VM_SMOKE_PLATFORM_KEY"] ?? "";
-const team = process.env["CMUX_VM_SMOKE_PRODUCT_TEAM"] ?? "";
+const tokenUrl = process.env["ACTIONS_ID_TOKEN_REQUEST_URL"] ?? "";
+const tokenRequestToken = process.env["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] ?? "";
 const imageId = process.env["CMUX_VM_SMOKE_IMAGE"] ?? "";
 const imageRevision = process.env["CMUX_VM_SMOKE_IMAGE_REVISION"] ?? "";
-if (base === "" || key === "" || team === "") {
-  console.error("CMUX_VM_SMOKE_URL, CMUX_VM_SMOKE_PLATFORM_KEY and CMUX_VM_SMOKE_PRODUCT_TEAM are required");
+if (base === "") {
+  console.error("CMUX_VM_SMOKE_URL is required");
+  process.exit(2);
+}
+if (tokenUrl === "" || tokenRequestToken === "") {
+  console.error("No GitHub OIDC token: run this in a GitHub Actions job with permissions id-token: write");
   process.exit(2);
 }
 const origin = new URL(base);
@@ -27,6 +34,20 @@ if (origin.protocol !== "https:" || origin.pathname !== "/") {
   console.error("CMUX_VM_SMOKE_URL must be an https origin");
   process.exit(2);
 }
+const audience = origin.origin;
+
+let cachedToken: { readonly value: string; readonly at: number } | undefined;
+const oidcToken = async (): Promise<string> => {
+  if (cachedToken !== undefined && Date.now() - cachedToken.at < 60_000) return cachedToken.value;
+  const url = new URL(tokenUrl);
+  url.searchParams.set("audience", audience);
+  const response = await fetch(url, { headers: { authorization: `Bearer ${tokenRequestToken}` }, signal: AbortSignal.timeout(30_000) });
+  const body: unknown = await response.json().catch(() => null);
+  const value = typeof body === "object" && body !== null ? Reflect.get(body, "value") : undefined;
+  if (!response.ok || typeof value !== "string") throw new Error(`GitHub OIDC token request answered ${response.status}`);
+  cachedToken = { value, at: Date.now() };
+  return value;
+};
 
 // The attempt too: a re-run of the job must not replay the first attempt's create (deleted by then) under its key.
 const runId = process.env["GITHUB_RUN_ID"] === undefined ? `local-${Date.now()}` : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`;
@@ -37,8 +58,7 @@ const call = async (method: string, path: string, body?: unknown, headers: Recor
   const response = await fetch(new URL(path, origin), {
     method,
     headers: {
-      authorization: `Bearer ${key}`,
-      "x-cmux-team-id": team,
+      authorization: `Bearer ${await oidcToken()}`,
       ...(body === undefined ? {} : { "content-type": "application/json" }),
       ...headers,
     },
@@ -78,7 +98,7 @@ try {
     const first: unknown = Array.isArray(items) ? items[0] : undefined;
     const id = field(first, "id");
     const revision = field(first, "revision");
-    if (typeof id !== "string" || typeof revision !== "string") throw new Error(`no approved boot image for this key: ${JSON.stringify(catalog.body)}`);
+    if (typeof id !== "string" || typeof revision !== "string") throw new Error(`no approved boot image for this caller: ${JSON.stringify(catalog.body)}`);
     image = { id, revision };
   }
   console.log(`    boot image ${image.id}@${image.revision}`);
@@ -88,7 +108,7 @@ try {
   const created = await call(
     "POST",
     "/v1/vms",
-    { displayName: name, labels: { role: "cloud", cmux_next_team: team, purpose: "smoke" }, image },
+    { displayName: name, labels: { role: "cloud", cmux_next_team: "cmux-vm-product-smoke", purpose: "smoke" }, image },
     { "idempotency-key": `smoke-product-${runId}` },
   );
   expectStatus("product create (never-pause, approved image)", created.status, 201, created.body);
@@ -104,6 +124,12 @@ try {
     throw new Error(`create receipt names boot image ${JSON.stringify(bootImage)}, not ${image.id}@${image.revision}`);
   }
   console.log("ok  boot image receipt");
+  // The CI trust row's backstop: if this job dies before its cleanup, the VM pauses within the cap and is deleted.
+  const maxRun = field(created.body, "maxRunSeconds");
+  if (typeof maxRun !== "number" || maxRun <= 0 || field(created.body, "autoDeleteSeconds") !== 0) {
+    throw new Error(`the smoke VM has no cleanup backstop: maxRunSeconds ${String(maxRun)}, autoDeleteSeconds ${String(field(created.body, "autoDeleteSeconds"))}`);
+  }
+  console.log(`ok  cleanup backstop (pauses after ${maxRun} s, deleted once stopped)`);
 
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   for (;;) {
