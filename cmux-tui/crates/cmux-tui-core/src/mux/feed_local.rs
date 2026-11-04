@@ -98,9 +98,15 @@ impl Mux {
         // into); the folded set records it so the ledger pass never posts
         // the notice again.
         let mut folded_into = None;
+        // Whether this notice's text is what the item now shows (an echo folded into an agent's
+        // item leaves the agent's, `cmux_feed_core` `is_terminal_echo`).
+        let mut shows_notice = false;
+        let (notice_source, notice_title) = (notice.source.clone(), notice.title.clone());
         let changes = match next.post(notice) {
             Ok((outcome, changes)) => {
-                folded_into = Some(outcome.item().id.clone());
+                let item = outcome.item();
+                shows_notice = item.source == notice_source && item.title == notice_title;
+                folded_into = Some(item.id.clone());
                 changes
             }
             Err(error) => {
@@ -117,6 +123,8 @@ impl Mux {
         // The feed rows ride the receipt's transaction (a journal writer
         // SAVEPOINT, or one request-side transaction when the writer is not
         // running), so they commit together or not at all.
+        // The item that took it, for the Feed texts kept below (the write takes `folded_into`).
+        let took = folded_into.clone();
         let notification_id = notification.id.as_str().to_string();
         let created_at_ms = notification.created_at_ms;
         let write: crate::workspace_registry::OwnedTransactionWrite =
@@ -188,6 +196,28 @@ impl Mux {
         // agent waits (`list-notifications`).
         let question = agent_terminal
             .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
+        // What the agent said stays for a Feed that reads later (memory only, `FeedTexts`):
+        // the ledger row and the feed item that took it show it.
+        let detail = question
+            .as_deref()
+            .and_then(crate::agent_hook_question::question_text)
+            .or_else(|| message.clone());
+        if let Some(detail) = detail {
+            let mut keys = vec![notification.id.as_str()];
+            keys.extend(took.as_deref().filter(|_| shows_notice));
+            self.keep_agent_feed_texts(
+                &keys,
+                super::agent_prompts::FeedTexts {
+                    message: message.as_deref().map(Arc::from),
+                    prompt: prompt.as_deref().map(Arc::from),
+                    detail: Arc::from(detail),
+                },
+            );
+        } else if shows_notice && let Some(item) = took.as_deref() {
+            // The item now shows this notice, which said nothing more: an earlier notice's
+            // texts no longer belong to it.
+            self.forget_agent_feed_texts(item);
+        }
         self.emit(MuxEvent::Notification(NotificationEvent {
             id: Some(notification.id.as_str().to_owned()),
             message,

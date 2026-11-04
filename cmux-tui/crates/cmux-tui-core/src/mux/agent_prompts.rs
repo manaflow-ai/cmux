@@ -22,7 +22,31 @@
 //! `list-notifications` and the notification event can show the question and its options
 //! (cmux-next-ios answers it from the phone). It never reaches the durable ledger.
 
+//!
+//! Each agent notification's texts (`FeedTexts`: its reply, error, approval, plan or question
+//! text, and the prompt of its turn) are also kept, memory only and bounded, by its ledger id
+//! and by the local feed item that took it: `list-notifications` and the `feed-local-*` answers
+//! show them, so a Feed that reads after the event (the phone connecting later, the app's
+//! handoff to the Feed) shows what the agent said, as a GUI chat's card does. A daemon restart
+//! forgets them; the durable ledger and feed rows never hold them.
+
+use std::collections::VecDeque;
+
 use super::*;
+
+/// What an agent notification said, for the Feed (memory only, `Mux::agent_feed_texts`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FeedTexts {
+    /// The reply of a finished turn, a failure's error text, an approval's command or a plan.
+    pub(crate) message: Option<Arc<str>>,
+    /// The prompt of the turn it ends.
+    pub(crate) prompt: Option<Arc<str>>,
+    /// The Feed body: `message`, or the question with its options.
+    pub(crate) detail: Arc<str>,
+}
+
+/// Keys of kept `FeedTexts` at most (ledger ids and feed item ids; the ledger holds 256).
+const FEED_TEXT_KEYS: usize = 1024;
 
 /// The agent texts a terminal keeps in memory only.
 #[derive(Default)]
@@ -35,6 +59,9 @@ pub(crate) struct AgentTexts {
     /// The question each terminal's agent waits on, with the ledger id of the notification
     /// that asked it: `list-notifications` shows it on that row until the agent moves on.
     questions: HashMap<TerminalPublicId, (String, Arc<Value>)>,
+    /// Each agent notification's Feed texts, by ledger id and feed item id, oldest key first.
+    feed: HashMap<String, Arc<FeedTexts>>,
+    feed_order: VecDeque<String>,
 }
 
 impl AgentTexts {
@@ -47,6 +74,33 @@ impl AgentTexts {
 }
 
 impl Mux {
+    /// Keeps `texts` for the Feed under each of `keys` (a notification's ledger id, and the
+    /// local feed item that took it). The oldest keys go first past `FEED_TEXT_KEYS`.
+    pub(super) fn keep_agent_feed_texts(&self, keys: &[&str], texts: FeedTexts) {
+        let texts = Arc::new(texts);
+        let mut kept = self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner);
+        for key in keys {
+            if kept.feed.insert((*key).to_owned(), Arc::clone(&texts)).is_none() {
+                kept.feed_order.push_back((*key).to_owned());
+            }
+        }
+        while kept.feed_order.len() > FEED_TEXT_KEYS {
+            if let Some(oldest) = kept.feed_order.pop_front() {
+                kept.feed.remove(&oldest);
+            }
+        }
+    }
+
+    /// Drops the Feed texts kept under `key` (its order slot goes when it ages out).
+    pub(super) fn forget_agent_feed_texts(&self, key: &str) {
+        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).feed.remove(key);
+    }
+
+    /// The Feed texts of the notification or local feed item `key`, while this daemon keeps them.
+    pub(crate) fn agent_feed_texts(&self, key: &str) -> Option<Arc<FeedTexts>> {
+        self.agent_prompts.lock().unwrap_or_else(PoisonError::into_inner).feed.get(key).cloned()
+    }
+
     /// Keeps `prompt` (cut to `LIVE_MESSAGE_CHARS`) as `terminal`'s last prompt when the
     /// terminal is live. Returns the prompt it replaced (`Some(None)` for none), so a failed or
     /// replayed append can put it back (`restore_agent_prompt`); `None` when nothing was kept.

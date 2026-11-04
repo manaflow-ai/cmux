@@ -86,8 +86,70 @@ pub fn agent_hook_live_reply(source: &str, native_event: &str, native: &Value) -
                 ],
             )
         })?),
+        // What the approval waits on (the tool, then the command or the file it touches), as a
+        // GUI chat's permission card shows it.
+        "agent.approval.requested" => live_message_text(&approval_text(native)?),
+        // The plan it asks the person to review (Claude's ExitPlanMode `plan`), in full.
+        "agent.plan_review.requested" => live_message_text(first_string_at(
+            native,
+            &[&["tool_input", "plan"][..], &["toolInput", "plan"][..], &["input", "plan"][..]],
+        )?),
         _ => None,
     }
+}
+
+/// What an approval hook waits on, as Feed text: the tool's name, then the command it would run
+/// (in a code block) or the file, path or URL it would touch, then the agent's own description.
+/// Read before redaction (`tool_input` is redacted whole).
+pub(crate) fn approval_text(native: &Value) -> Option<String> {
+    let tool = first_string_at(native, &[&["tool_name"][..], &["toolName"][..]])?.trim();
+    if tool.is_empty() {
+        return None;
+    }
+    let input = first_value_at(native, &[&["tool_input"][..], &["toolInput"][..], &["input"][..]]);
+    let field = |key: &str| {
+        input
+            .and_then(|input| input.get(key))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+    };
+    let command = input
+        .and_then(|input| input.get("command").or_else(|| input.get("cmd")))
+        .and_then(|command| match command {
+            Value::String(command) => Some(command.trim().to_owned()),
+            // Codex names a command as its argv.
+            Value::Array(parts) => {
+                Some(parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+            }
+            _ => None,
+        })
+        .filter(|command| !command.is_empty());
+    let mut text = tool.to_owned();
+    if let Some(command) = command {
+        text.push_str("\n\n");
+        text.push_str(&fenced(&command));
+    } else if let Some(target) = ["file_path", "path", "url", "pattern"].into_iter().find_map(field) {
+        text.push_str(": `");
+        text.push_str(&target.replace('`', "'"));
+        text.push('`');
+    }
+    if let Some(description) = field("description") {
+        text.push_str("\n\n");
+        text.push_str(description);
+    }
+    Some(text)
+}
+
+/// `text` in a code block whose fence is longer than any run of backticks inside it.
+fn fenced(text: &str) -> String {
+    let (mut longest, mut run) = (0, 0);
+    for character in text.chars() {
+        run = if character == '`' { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    let fence = "`".repeat((longest + 1).max(3));
+    format!("{fence}\n{text}\n{fence}")
 }
 
 /// The texts a hook sends beside its journal event, memory only (`session.journal.append`

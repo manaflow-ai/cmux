@@ -10,8 +10,8 @@ public import Foundation
 /// source (agents on; terminal off, title or full) and the alert policy would
 /// have alerted for it: its workspace is not muted, its newest text did not
 /// arrive in quiet hours, and banners are on for its source. The text is the item's
-/// own title and body, scrubbed of known secret shapes; title mode drops the
-/// body. An incognito window's item never leaves (leo-workspace
+/// own title and body (its agent's `detail` when the daemon still keeps it), scrubbed of
+/// known secret shapes; title mode drops the body. An incognito window's item never leaves (leo-workspace
 /// design/spaces.md "Incognito"; #31210): handing it off is what puts it in
 /// the Feed and pushes it to the iPhone. So an item leaves only once the
 /// workspace or terminal it names is known to be a normal window's
@@ -68,16 +68,19 @@ public nonisolated struct FeedHandoffPolicy: Sendable {
 
     private func mirrored(_ item: FeedLocalItem) -> (title: String, body: String)? {
         let mirror = preferences.feedMirror
+        // What the agent said, while the daemon keeps it (a terminal agent's answer, question or
+        // approval command); else the durable row's body.
+        let body = item.detail ?? item.body
         let text: (String, String)?
         switch NotificationSource(wire: item.source) {
         case .terminal:
             switch mirror.terminal {
             case .off: text = nil
             case .title: text = (item.title, "")
-            case .full: text = (item.title, item.body)
+            case .full: text = (item.title, body)
             }
         default:
-            text = mirror.agents ? (item.title, item.body) : nil
+            text = mirror.agents ? (item.title, body) : nil
         }
         return text.map { ($0.0.secretsScrubbedPrefix, $0.1.secretsScrubbedPrefix) }
     }
