@@ -194,7 +194,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
     public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
-    /// `window.titlebar`; "standard" when unset or invalid.
+    /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.titlebarButtons`; "hover" when unset or invalid.
     public var titlebarButtons: TitlebarButtonsMode = TitlebarButtonsSetting.fallback

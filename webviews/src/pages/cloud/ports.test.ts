@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { pageError, type PageClient } from "../shared/pageClient";
 import { DetailReader, type MachineDetail, type PortAction } from "./detail";
-import { ACTION_RUN, CloudOps, HostActions, type BrowserRoute, type PortForward } from "./ops";
+import { ACTION_RUN, CloudActions, CloudOps, HostActions, type BrowserRoute, type PortForward } from "./ops";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -63,6 +63,20 @@ async function fixture() {
       if (op === CloudOps.portList) return { forwards: [forward(String(params.machine))] } as R;
       if (op === CloudOps.portForward) return forward(String(params.machine), Number(params.port)) as R;
       if (op === CloudOps.browserOpen) return route(String(params.machine), Number(params.port)) as R;
+      if (op === ACTION_RUN && params.action === CloudActions.previewShare) {
+        const args = params.args as Record<string, unknown>;
+        const machine = String(params.target).slice("machine:".length);
+        return {
+          confirmed: true,
+          machine_id: machine,
+          port: Number(args.port),
+          linkId: "link-3000",
+          url: "https://preview.example/link-3000",
+          expiresAt: 1_999_999_999_999,
+        } as R;
+      }
+      if (op === ACTION_RUN && params.action === CloudActions.previewRevoke)
+        return { confirmed: true, revoked: true } as R;
       return null as R;
     },
     async subscribe() {
@@ -178,6 +192,80 @@ describe("Cloud port action boundaries", () => {
     tab.resolve({ confirmed: true });
     expect(await running).toBe(true);
     expect(f.pending()).toEqual([]);
+  });
+
+  test("share creates and copies the link, then revoke removes it from the port", async () => {
+    const f = await fixture();
+    expect(await f.reader.sharePreview("a", 3000)).toBe(true);
+    expect(f.get().sharedPreviews?.[3000]).toEqual({
+      linkId: "link-3000",
+      url: "https://preview.example/link-3000",
+      expiresAt: 1_999_999_999_999,
+    });
+    const share = f.calls.find((call) => call.op === ACTION_RUN && call.params.action === CloudActions.previewShare);
+    expect(share?.params.args).toEqual({ port: 3000 });
+    expect(share?.params.target).toBe("machine:a");
+    expect(await f.reader.revokePreview("a", 3000, "link-3000")).toBe(true);
+    expect(f.get().sharedPreviews?.[3000]).toBeUndefined();
+    const revoke = f.calls.find((call) => call.op === ACTION_RUN && call.params.action === CloudActions.previewRevoke);
+    expect(revoke?.params.args).toEqual({ port: 3000, linkId: "link-3000" });
+    expect(revoke?.params.target).toBe("machine:a");
+  });
+
+  test("share failure releases the guard and reports the native error", async () => {
+    const f = await fixture();
+    const request = f.hold(ACTION_RUN);
+    const running = f.reader.sharePreview("a", 3000);
+    const error = pageError("cmux.cloud.upstream_error", "Request refused");
+    request.reject(error);
+    expect(await running).toBe(false);
+    expect(f.pending()).toEqual([]);
+    expect(f.failures).toEqual([error]);
+    expect(await f.reader.sharePreview("a", 3000)).toBe(true);
+  });
+
+  test("revoke failure keeps Revoke available for retry", async () => {
+    const f = await fixture();
+    expect(await f.reader.sharePreview("a", 3000)).toBe(true);
+    const request = f.hold(ACTION_RUN);
+    const running = f.reader.revokePreview("a", 3000, "link-3000");
+    const error = pageError("cmux.cloud.upstream_error", "Request refused");
+    request.reject(error);
+    expect(await running).toBe(false);
+    expect(f.get().sharedPreviews?.[3000]?.linkId).toBe("link-3000");
+    expect(f.pending()).toEqual([]);
+    expect(f.failures).toEqual([error]);
+    expect(await f.reader.revokePreview("a", 3000, "link-3000")).toBe(true);
+    expect(f.get().sharedPreviews?.[3000]).toBeUndefined();
+  });
+
+  test("a late A share after A → B → A remains available for revoke", async () => {
+    const f = await fixture();
+    const request = f.hold(ACTION_RUN);
+    const running = f.reader.sharePreview("a", 3000);
+    await f.reader.load("b");
+    await f.reader.load("a");
+    expect(f.pending()).toEqual([{ port: 3000, action: "share" }]);
+    request.resolve({
+      confirmed: true,
+      machine_id: "a",
+      port: 3000,
+      linkId: "late-link",
+      url: "https://preview.example/late",
+      expiresAt: 1_999_999_999_999,
+    });
+    expect(await running).toBe(false);
+    expect(f.get().sharedPreviews?.[3000]?.linkId).toBe("late-link");
+    expect(f.pending()).toEqual([]);
+  });
+
+  test("share metadata survives switching machines and reloading the selection", async () => {
+    const f = await fixture();
+    expect(await f.reader.sharePreview("a", 3000)).toBe(true);
+    await f.reader.load("b");
+    expect(f.get().sharedPreviews).toBeUndefined();
+    await f.reader.load("a");
+    expect(f.get().sharedPreviews?.[3000]?.linkId).toBe("link-3000");
   });
 
   for (const { action, op, run } of actions) {
