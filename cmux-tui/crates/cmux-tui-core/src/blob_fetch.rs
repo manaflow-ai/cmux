@@ -422,12 +422,14 @@ impl BlobFetchService {
             }),
         });
         jobs.by_id.insert(id, job.clone());
+        // Counted under the jobs lock, as the cap was checked: two starts
+        // at once cannot both take the last place.
+        let alive = Alive::enter(&self.alive);
         drop(jobs);
         let roots = self.roots.clone();
         let commits = self.commits.clone();
         let (plan, plan_size) = (params.plan, params.plan_size);
         let running = job.clone();
-        let alive = Alive::enter(&self.alive);
         let spawned = std::thread::Builder::new().name("blob-fetch".into()).spawn(move || {
             let _alive = alive;
             let result = run(&roots, &store, &plan, plan_size, &running, &commits);

@@ -145,6 +145,20 @@ impl std::fmt::Display for Unsettled {
 
 impl std::error::Error for Unsettled {}
 
+/// A newer push to the same folder cancelled this push's fetch: copying the
+/// files over the link now would overwrite what that push writes, so this
+/// push fails instead.
+#[derive(Debug)]
+pub(super) struct Superseded;
+
+impl std::fmt::Display for Superseded {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a newer push to this folder took over; this push stopped")
+    }
+}
+
+impl std::error::Error for Superseded {}
+
 /// The gear table of the rolling hash: fixed, so the same bytes always cut
 /// at the same places on every Mac.
 fn gear() -> &'static [u64; 256] {
@@ -373,6 +387,11 @@ pub(super) fn send(
     if status.get("state").and_then(Value::as_str) != Some("done") {
         let code = status.get("error_code").and_then(Value::as_str).unwrap_or("blob.failure");
         let error = status.get("error").and_then(Value::as_str).unwrap_or("the fetch failed");
+        // A newer push to this folder took over: this one writes nothing
+        // more, over the link or otherwise.
+        if code == "blob.superseded" {
+            return Err(Superseded.into());
+        }
         bail!("the machine's fetch failed ({code}): {error}");
     }
     // What the job wrote, a page at a time.

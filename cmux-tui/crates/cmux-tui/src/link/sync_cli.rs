@@ -850,7 +850,9 @@ fn push_through_store(
     };
     // The machine may still be writing: nothing goes over the link now.
     let sent = match sent {
-        Err(error) if error.is::<store::Unsettled>() => return Err(error),
+        Err(error) if error.is::<store::Unsettled>() || error.is::<store::Superseded>() => {
+            return Err(error);
+        }
         other => other,
     };
     let (part, written) = match &sent {
