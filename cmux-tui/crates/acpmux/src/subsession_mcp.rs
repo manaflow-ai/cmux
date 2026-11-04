@@ -467,7 +467,10 @@ mod tests {
             .expect("start_session host")
             .to_owned();
         assert!(host.contains("\"auto\"") && host.contains("\"auto-build\""), "{host}");
-        assert!(host.contains("acpmux new --machine auto") && host.contains("placed on "), "{host}");
+        assert!(
+            host.contains("acpmux new --machine auto") && host.contains("placed on "),
+            "{host}"
+        );
         let placed = "placed on box: 40 GB RAM free, room for 4";
         let r = json!({"shortName": "t", "sessionId": "s", "depth": 1, "placed": placed});
         let text = started_text(&r);
