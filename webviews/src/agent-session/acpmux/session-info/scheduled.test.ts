@@ -5,6 +5,7 @@ import {
   nextScheduledChange,
   RECURRING_CRON_LIFETIME_MS,
   scheduledStatus,
+  scheduledTimerDelay,
   scheduledTrailing,
   splitScheduled,
 } from "./scheduled";
@@ -78,6 +79,15 @@ describe("nextScheduledChange", () => {
     expect(nextScheduledChange(items, start + 3 * MIN)).toBe(start + 5 * MIN);
     expect(nextScheduledChange(items, start + 11 * MIN)).toBeUndefined();
     expect(nextScheduledChange([], start)).toBeUndefined();
+  });
+});
+
+describe("scheduledTimerDelay", () => {
+  test("a millisecond past the end, and never past setTimeout's longest wait", () => {
+    expect(scheduledTimerDelay(start + 2 * MIN, start)).toBe(2 * MIN + 1);
+    expect(scheduledTimerDelay(start, start + MIN)).toBe(1);
+    // A one-shot cron job a month ahead: the timer fires at the cap and re-arms, never at once.
+    expect(scheduledTimerDelay(start + 31 * 86_400_000, start)).toBe(2 ** 31 - 1);
   });
 });
 

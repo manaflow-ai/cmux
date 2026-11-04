@@ -80,6 +80,13 @@ export function nextScheduledChange(items: readonly SummaryWakeup[], now: number
 /// The longest wait setTimeout takes (about 24.8 days); a later end sets a new timer when it fires.
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
+/// How long the clock's timer waits for `next` at `now`: a millisecond past it, so the item has
+/// ended when it fires, and never past the longest wait setTimeout takes (a longer one fires at
+/// once, which would re-arm in a loop; review of #33314).
+export function scheduledTimerDelay(next: number, now: number): number {
+  return Math.min(MAX_TIMEOUT_MS, Math.max(0, next - now) + 1);
+}
+
 /// The session's clock (SubagentClockContext) as of the latest moment one of `items` ended: it moves
 /// once, when the earliest item still ahead reaches its end, by one timer that is cleared on unmount
 /// and replaced when the items change. No timer while nothing is ahead.
@@ -89,8 +96,7 @@ export function useScheduledClock(items: readonly SummaryWakeup[], clock: () => 
   const next = nextScheduledChange(items, now);
   useEffect(() => {
     if (next === undefined) return;
-    const wait = Math.min(MAX_TIMEOUT_MS, Math.max(0, next - (clock() - offset)));
-    const timer = setTimeout(() => setNow(clock() - offset), wait + 1);
+    const timer = setTimeout(() => setNow(clock() - offset), scheduledTimerDelay(next, clock() - offset));
     return () => clearTimeout(timer);
     // `now` too: a wait capped at the longest timeout fires before `next`, and re-arms from there.
   }, [next, now, offset, clock]);
