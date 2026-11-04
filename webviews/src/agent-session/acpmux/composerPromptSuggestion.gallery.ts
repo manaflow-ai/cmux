@@ -3,8 +3,8 @@
 // prompts that you can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too";
 // "we ought to make these all accessibly toggle-able ofc"). After a turn acpmux sends the agent's
 // guess (`prompt_suggestion`); the empty prompt shows it as ghost text, Tab or Right-arrow writes it
-// without sending, and typing spends it. The chat's switch is the Options chip's "Prompt
-// suggestions", whose On row names its cost. Compare arms (`prompt-suggestion-look`) for the look.
+// without sending, and typing spends it. acpmux's per-chat switch stays out of the composer; the
+// global one is cmux.json `agents.promptSuggestions`. Compare arms (`prompt-suggestion-look`) for the look.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
@@ -75,14 +75,6 @@ export default agentPaneEntry({
     "no-suggestion": variant(
       "No suggestion (an older acpmux, suggestions off, or the first turn): the usual placeholder.",
       withSuggestion(undefined),
-    ),
-    "options-switch": variant(
-      "Play: the Options chip lists Prompt suggestions; its On row names the cost (one extra model call per turn).",
-      withSuggestion(SUGGESTION),
-      async (ctx) => {
-        await ctx.click({ selector: ".acpmux-options-trigger" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-options-menu"));
-      },
     ),
   },
   experiment: {

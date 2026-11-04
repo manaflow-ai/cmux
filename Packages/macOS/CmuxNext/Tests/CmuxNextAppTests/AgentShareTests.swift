@@ -6,12 +6,13 @@ import CmuxNextWakeups
 import CmuxNextDaemon
 @testable import CmuxNextDaemonService
 @testable import CmuxNextNotifications
+import CmuxNextTestSupport
 import Testing
 
 /// Share Chat with Guest (design chat-multiplayer.md 6): one `agent.share` op behind the palette,
 /// the chat tab's menu, `cmux share chat` and its MCP tool, which names a started agent chat and
 /// answers the link; list, revoke and kick are its CLI and MCP family.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .closesItsWindows)
 struct AgentShareTests {
     static let session = "0199e2c4-7f3a-7b21-9d4e-5a1b2c3d4e5f"
 
@@ -255,15 +256,16 @@ struct AgentShareTests {
         #expect(AgentShareInvites.role("admin") == nil)
     }
 
-    /// `share list` shows each share's invitees (account, role, state) and the account a guest joined as.
+    /// `share list` shows each share's invitees (account, role, state), its invite link and the account a guest joined as.
     @Test func theListShowsInvitees() {
-        let share = AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1,
+        let share = AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1, inviteUrl: "https://room.example/i/s1",
                                       guests: [AgentSessionShareGuest(guestId: "g1", name: "Theo", joinedAt: 3, state: "active", account: "@theo", role: "view")],
                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 2, state: "invited")])
         let listed = AgentShareResults.list(AgentSessionShareList(shares: [share]))
         guard case .array(let shares)? = listed["shares"], case .object(let fields)? = shares.first else {
             Issue.record("list answers its shares"); return
         }
+        #expect(fields["invite_url"] == .string("https://room.example/i/s1"))
         #expect(fields["invitees"] == .array([.object(["account": .string("@theo"), "role": .string("view"), "invited_at": .int(2), "state": .string("invited")])]))
         guard case .array(let guests)? = fields["guests"], case .object(let guest)? = guests.first else {
             Issue.record("list answers its guests"); return
@@ -325,6 +327,7 @@ struct AgentShareTests {
             }))
         let card = AgentShareInviteCard(model: model, closeImage: NSImage())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         card.removeFromSuperview()
         window.contentView?.addSubview(card)
         defer { card.removeFromSuperview() }
@@ -397,6 +400,91 @@ struct AgentShareTests {
         await model.remove("@theo")
         #expect(daemon.calls.last == "remove @theo")
         #expect(model.rows.isEmpty && model.status == nil)
+    }
+
+    /// The sheet offers the chat's invite link (its invite share's, from the daemon) and Copy Invite
+    /// Link puts it on the pasteboard, then reads Copied for a moment in place.
+    @Test func theSheetCopiesTheInviteLinkAndSaysCopiedInPlace() async {
+        @MainActor final class Pasteboard { var copied: [String] = [] }
+        let pasteboard = Pasteboard()
+        let link = "https://room.example/i/s"
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1, inviteUrl: link,
+                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])] },
+            invite: { _, _ in },
+            remove: { _ in },
+            copy: { pasteboard.copied.append($0) }))
+        #expect(model.inviteLink == nil, "no link before the shares are read")
+        await model.load()
+        #expect(model.inviteLink == link)
+        model.copiedFor = .milliseconds(20)
+        model.copyLink()
+        #expect(pasteboard.copied == [link])
+        #expect(model.copied)
+        for _ in 0..<200 where model.copied { try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(!model.copied, "Copied goes back to Copy Invite Link")
+        // A chat with only a guest link (no invitees) has no invite link to copy.
+        let none = AgentShareInvites.inviteLink(of: Self.session, in: [
+            AgentSessionShare(shareId: "g", state: "active", session: Self.session, surface: 1, inviteUrl: "https://room.example/i/g"),
+        ])
+        #expect(none == nil)
+    }
+
+    /// The card's Copy Invite Link is off until the chat has a link, then copies it and reads Copied
+    /// in place (no toast).
+    @Test func theCardsCopyInviteLinkConfirmsInPlace() async {
+        @MainActor final class Pasteboard { var copied: [String] = [] }
+        let pasteboard = Pasteboard()
+        let link = "https://room.example/i/s"
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1, inviteUrl: link,
+                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])] },
+            invite: { _, _ in },
+            remove: { _ in },
+            copy: { pasteboard.copied.append($0) }))
+        let card = AgentShareInviteCard(model: model, closeImage: NSImage())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        card.removeFromSuperview()
+        window.contentView?.addSubview(card)
+        defer { card.removeFromSuperview() }
+        #expect(!card.copyButton.isEnabled, "no link before anyone is invited")
+        await model.load()
+        for _ in 0..<200 where !card.copyButton.isEnabled { await Task.yield() }
+        #expect(card.copyButton.isEnabled)
+        #expect(card.linkLabel.stringValue == link)
+        #expect(card.copyButton.button.title == model.copyLinkTitle)
+        card.copyPressed()
+        for _ in 0..<200 where card.copyButton.button.title != model.copiedTitle { await Task.yield() }
+        #expect(card.copyButton.button.title == model.copiedTitle)
+        #expect(pasteboard.copied == [link])
+    }
+
+    /// Invite and Remove run one after the other, in the order pressed: a Remove pressed while an
+    /// Invite of the same account runs waits for it, so the account ends removed.
+    @Test func anInviteAndARemoveOfOneAccountRunInTheOrderPressed() async {
+        @MainActor final class Daemon {
+            var calls: [String] = []
+            var release: CheckedContinuation<Void, Never>?
+        }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: { [] },
+            invite: { account, _ in
+                daemon.calls.append("invite \(account) starts")
+                await withCheckedContinuation { daemon.release = $0 }
+                daemon.calls.append("invite \(account) ends")
+            },
+            remove: { account in daemon.calls.append("remove \(account)") }))
+        model.account = "@theo"
+        let invite = Task { await model.invite() }
+        for _ in 0..<200 where daemon.release == nil { await Task.yield() }
+        let remove = Task { await model.remove("@theo") }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(daemon.calls == ["invite @theo starts"], "the Remove waits for the Invite")
+        daemon.release?.resume()
+        await invite.value
+        await remove.value
+        #expect(daemon.calls == ["invite @theo starts", "invite @theo ends", "remove @theo"])
     }
 
     /// Invite People… with no account: the owner's own run opens the sheet and makes nothing; an
