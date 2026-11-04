@@ -523,6 +523,31 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head {
   flex: none;
 }
+/* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
+   the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
+   own inside the tray's glass. Past five steps it scrolls in place, as the lines do. */
+.acpmux-running-tray__plan {
+  flex: none;
+  max-height: calc(5 * var(--ui-row-height, 28px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-running-tray__plan .cv-plan {
+  margin: 0;
+  padding: 0 var(--acpmux-tray-inset);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.acpmux-running-tray__plan .cv-plan__item {
+  align-items: center;
+  min-height: var(--ui-row-height, 28px);
+  padding-block: 0;
+}
+.acpmux-running-tray__plan .cv-plan__mark {
+  margin-top: 0;
+}
+
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
    the stack never scrolls the transcript. Every line is in it, what ended too: no View all under it
    (Leo, 2026-11-01: "why is there even a view all 5 button it's useless just let it be
