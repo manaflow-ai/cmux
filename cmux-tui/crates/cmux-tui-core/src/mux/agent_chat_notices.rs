@@ -1297,6 +1297,20 @@ mod tests {
         assert!(followed.is_err());
     }
 
+    /// R-LIFECYCLE ORPHANS: the notices connection only watches, so it says so in its
+    /// `initialize`: once the app that started acpmux has quit, it keeps no acpmux daemon (this
+    /// daemon stays after a Keep Sessions quit with live shells, and so did acpmux and its router).
+    #[test]
+    fn the_notices_connection_says_it_only_observes() {
+        let mux = test_mux("notices-observer");
+        let mut chats = HashMap::new();
+        let (client, serve) = fake_acpmux(vec![list_reply(2, &[local("chat-1")], None)]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let requests = serve.join().expect("the fake acpmux");
+        assert_eq!(requests[0]["method"], "initialize");
+        assert_eq!(requests[0]["params"]["_meta"]["acpmux"]["observer"], true, "{}", requests[0]);
+    }
+
     #[test]
     fn the_list_comes_a_page_at_a_time() {
         let mux = test_mux("notices-pages");
