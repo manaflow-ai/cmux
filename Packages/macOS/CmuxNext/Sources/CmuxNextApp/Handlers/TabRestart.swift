@@ -45,8 +45,11 @@ enum TabRestart {
 /// over the pane's daemon), its theme, and the dead-tab overlay's Restart.
 @MainActor
 enum TerminalTabContent {
-    static func make(_ tab: TabModel, in pane: PaneController) -> TabContent {
+    static func make(_ tab: TabModel, in pane: PaneController) -> TabContent? { // nil: a stand-in's surface waits for its key's frame
         let services = pane.services, daemon = pane.daemon
+        let key = tab.id, standIn = ProvisionalTab.isProvisional(surface: tab.surface) // its key's frame first, then this pane shows it again (one surface per frame)
+        guard !services.cache.standInTerminals.waits(key, standIn: standIn, exists: services.cache.existingTerminal(key) != nil, showAgain: { [weak pane] in
+            guard let pane, pane.currentTabKey == key else { return false }; pane.services.presentation.showNow(pane); return true }) else { return nil }
         let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
         services.themes.catchUp(entry, fresh: true)
         TabRestart.offer(on: entry, tab: tab, daemon: daemon, registry: services.registry)
