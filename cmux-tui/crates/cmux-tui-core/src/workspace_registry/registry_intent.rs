@@ -319,6 +319,23 @@ impl WorkspaceRegistry {
         intent: RegistryIntent,
         settle: Option<SettleState>,
     ) -> anyhow::Result<RegistryReceipt> {
+        let receipt = self.commit_registry_intent_unrecorded(intent, settle)?;
+        // A workspace commit's journaled changes go into the public fold, so the next one prunes against it
+        // without reading the journal back (#32408).
+        if let RegistryReceipt::Workspace(workspace) = &receipt
+            && let (Some(revision), Some(journaled)) =
+                (workspace.resource_revision, workspace.journaled.as_ref())
+        {
+            self.record_workspace_commit_fold(revision.saturating_sub(1), revision, journaled);
+        }
+        Ok(receipt)
+    }
+
+    fn commit_registry_intent_unrecorded(
+        &mut self,
+        intent: RegistryIntent,
+        settle: Option<SettleState>,
+    ) -> anyhow::Result<RegistryReceipt> {
         // Every prepare drains earlier indeterminate commits first (bounded),
         // so `intent` is not built on a base a late commit changes; this
         // second drain covers one that went indeterminate meanwhile.

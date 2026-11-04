@@ -30,6 +30,10 @@ pub(crate) struct WorkspaceCommitIntent {
     project_resource: bool,
     /// The resource topology before this commit (with `project_resource`).
     previous_topology: Option<ResourceTopologySnapshot>,
+    /// What the journal states for each workspace before this commit (the public fold at its head, read at
+    /// prepare on the registry's thread), or `None` while the fold is unseeded. The commit journals only the
+    /// workspace upserts the fold does not state already (#32408).
+    stated_workspaces: Option<(u64, HashMap<String, Value>)>,
     session_id: SessionPublicId,
     /// Rows written after the ledger, before the resource batch.
     extra: Option<ExtraRows>,
@@ -51,6 +55,8 @@ pub(crate) struct WorkspaceCommitReceipt {
     /// The resource revision the commit installed (`project_resource`, not
     /// replayed).
     pub(crate) resource_revision: Option<u64>,
+    /// The changes the commit journaled at `resource_revision`, for the public fold (`None`: none journaled).
+    pub(crate) journaled: Option<Value>,
 }
 
 impl WorkspaceRegistry {
@@ -73,6 +79,7 @@ impl WorkspaceRegistry {
         self.connection.drain_unsettled()?;
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
+        let stated_workspaces = if project_resource { self.stated_workspaces() } else { None };
         Ok(WorkspaceCommitIntent {
             mutation: mutation.clone(),
             fingerprint: canonical_json(fingerprint)?,
@@ -89,6 +96,7 @@ impl WorkspaceRegistry {
             previous_topology: project_resource
                 .then(|| self.resource_topology_snapshot())
                 .transpose()?,
+            stated_workspaces,
             session_id: self.session_id.clone(),
             extra: None,
         })
@@ -136,6 +144,11 @@ impl WorkspaceRegistry {
         tx.commit()?;
         drop(db);
         self.connection.write_path_stats().request_effect_committed();
+        if let (Some(revision), Some(journaled)) =
+            (receipt.resource_revision, receipt.journaled.as_ref())
+        {
+            self.record_workspace_commit_fold(revision.saturating_sub(1), revision, journaled);
+        }
         Ok(receipt.commit)
     }
 }
@@ -209,6 +222,7 @@ impl WorkspaceCommitIntent {
                     replayed: true,
                 },
                 resource_revision: None,
+                journaled: None,
             });
         }
 
@@ -240,10 +254,13 @@ impl WorkspaceCommitIntent {
         )?;
         // Presentation rows land before the resource batch, so its restated
         // workspaces carry the new identity fields.
+        let mut extra_ran = false;
         if let Some(extra) = extra {
             extra(tx)?;
+            extra_ran = true;
         } else if let Some(ExtraRows(extra)) = &self.extra {
             extra(tx)?;
+            extra_ran = true;
         }
         let previous_resource_revision =
             project_resource.then(|| transaction_resource_revision(tx)).transpose()?;
@@ -318,6 +335,7 @@ impl WorkspaceCommitIntent {
                 [resource_revision.to_string()],
             )?;
         }
+        let mut journaled_changes = None;
         if let (
             Some(previous_topology),
             Some(previous_resource_revision),
@@ -343,6 +361,20 @@ impl WorkspaceCommitIntent {
                 active_workspace.map(WorkspacePublicId::as_str),
                 previous_topology,
             )?;
+            // Only what the journal does not state already (#32408): each upsert is compared, decorated as the
+            // journal writes it, with the public fold read at prepare. The commit's own workspace always goes
+            // when extra rows ran (a metadata commit changes only its decorations). With the fold unseeded,
+            // or behind this commit's base revision, every workspace is stated, as before.
+            let stated = self
+                .stated_workspaces
+                .as_ref()
+                .filter(|(fold_revision, _)| Some(*fold_revision) == previous_resource_revision)
+                .map(|(_, workspaces)| workspaces);
+            let keep = extra_ran.then_some(workspace_key);
+            let resource_deltas = match stated {
+                Some(stated) => prune_stated_workspace_upserts(tx, &resource_deltas, stated, keep)?,
+                None => resource_deltas,
+            };
             append_resource_journal_record(
                 tx,
                 resource_revision,
@@ -355,10 +387,50 @@ impl WorkspaceCommitIntent {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(tx)?;
+            journaled_changes = Some(resource_deltas);
         }
         Ok(WorkspaceCommitReceipt {
             commit: RegistryCommit { revision, result: result.clone(), replayed: false },
             resource_revision,
+            journaled: journaled_changes,
         })
     }
+}
+
+/// `deltas` without the workspace upserts whose decorated value `stated` holds already (the public fold:
+/// what the journal states). Every other change stays, renumbered. `keep` (a workspace key) is never dropped.
+fn prune_stated_workspace_upserts(
+    tx: &Transaction<'_>,
+    deltas: &Value,
+    stated: &HashMap<String, Value>,
+    keep: Option<&str>,
+) -> anyhow::Result<Value> {
+    let mut decorated = deltas.clone();
+    crate::state::values::decorate_changes(tx, &mut decorated)?;
+    let changes = decorated.as_array().context("resource deltas are not an array")?;
+    let raw = deltas.as_array().context("resource deltas are not an array")?;
+    let mut kept = Vec::with_capacity(raw.len());
+    for (change, decorated_change) in raw.iter().zip(changes) {
+        let workspace_upsert = change["kind"] == "upsert" && change["resource"] == "workspace";
+        if workspace_upsert {
+            let id = change["id"].as_str().unwrap_or_default();
+            let own = keep
+                .is_some_and(|key| decorated_change["value"]["extra"]["key"].as_str() == Some(key));
+            if !own
+                && stated.get(id).is_some_and(|value| {
+                    super::public_fold::workspace_value_stated(value, &decorated_change["value"])
+                })
+            {
+                continue;
+            }
+        }
+        let mut change = change.clone();
+        if let Some(object) = change.as_object_mut()
+            && object.contains_key("sequence")
+        {
+            object.insert("sequence".into(), Value::from(kept.len()));
+        }
+        kept.push(change);
+    }
+    Ok(Value::Array(kept))
 }

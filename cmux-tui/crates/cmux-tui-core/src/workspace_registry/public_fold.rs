@@ -69,6 +69,12 @@ impl PublicTopologyFold {
     }
 }
 
+/// Whether `stated` (a folded value) already says what the decorated upsert `value` says: equal, or equal
+/// without `extra.key` (a raw projection value never carries it).
+pub(crate) fn workspace_value_stated(stated: &Value, value: &Value) -> bool {
+    stated == value || without_workspace_key(stated) == without_workspace_key(value)
+}
+
 /// A folded workspace value without `extra.key` (and without `extra` when
 /// that was its only field). Every journaled workspace upsert carries its key
 /// (state/values.rs), a projection's raw upsert never does, and a
@@ -107,6 +113,33 @@ impl WorkspaceRegistry {
             kept.push(change);
         }
         Ok(Value::Array(kept))
+    }
+
+    /// The workspace values the journal states now (after catching up), keyed by public id, or `None` while the
+    /// fold is unseeded or cannot catch up. A copy for a commit that prunes its workspace upserts against it
+    /// inside its transaction (`WorkspaceCommitIntent`, which may run on the journal writer, away from the
+    /// registry); the commit's revision then records into the fold (`record_workspace_commit_fold`).
+    pub(crate) fn stated_workspaces(&mut self) -> Option<(u64, HashMap<String, Value>)> {
+        self.catch_up_public_fold();
+        let fold = self.public_fold.as_ref()?;
+        let workspaces = fold
+            .values
+            .iter()
+            .filter(|((resource, _), _)| resource == "workspace")
+            .map(|((_, id), value)| (id.clone(), value.clone()))
+            .collect();
+        Some((fold.revision, workspaces))
+    }
+
+    /// Records a workspace commit's journaled changes into the fold when the fold is at the revision before it
+    /// (else it catches up from the journal at its next use).
+    pub(crate) fn record_workspace_commit_fold(
+        &mut self,
+        previous_revision: u64,
+        revision: u64,
+        journaled: &Value,
+    ) {
+        self.record_public_fold(previous_revision, revision, journaled, false);
     }
 
     /// Whether the fold holds a complete topology to prune against.
