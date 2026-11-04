@@ -1122,3 +1122,26 @@ fn a_journal_in_a_symlinked_folder_opens_and_round_trips() {
         assert_eq!(seen, vec![1], "{}", dir.display());
     }
 }
+
+/// The journal's id is the same after a reopen (and after its segments are retired, one is always
+/// kept), and another journal has another one: a caller that keeps LSNs outside the journal tells
+/// them apart by it.
+#[test]
+fn the_journal_id_survives_a_reopen_and_differs_between_journals() {
+    let storage = SimStorage::new(90);
+    let (journal, _, _) = open(&storage);
+    let id = journal.journal_id();
+    assert_ne!(id, 0, "a journal id of 0");
+    for lsn in 1..=20u64 {
+        assert_eq!(journal.append(7, Class::Ack, &payload(lsn)), Ok(lsn));
+    }
+    journal.wait_durable(20, WAIT).unwrap_or_else(|error| panic!("wait: {error}"));
+    journal.retire_through(20).unwrap_or_else(|error| panic!("retire: {error}"));
+    assert_eq!(journal.seal(WAIT), Ok(20));
+    drop(journal);
+    let (journal, _, _) = open_at(&storage.restart(Crash::Process), quick(), 20)
+        .unwrap_or_else(|error| panic!("open: {error}"));
+    assert_eq!(journal.journal_id(), id, "a reopen changed the journal's id");
+    let (other, _, _) = open(&SimStorage::new(91));
+    assert_ne!(other.journal_id(), id, "two journals with one id");
+}

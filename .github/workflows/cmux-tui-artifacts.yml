@@ -3282,7 +3282,10 @@ jobs:
               echo "::warning title=tree without $asset::the manifest of $source_commit attests no $asset; tree $KEY is published without it"
             fi
           done
-          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" "${acpmux[@]}"
+          # Bash 3.2 (the macOS system shell) treats an empty array expansion
+          # under set -u as an unset variable. Keep the call argument-free when
+          # this commit's manifest attests no acpmux companions.
+          fetch_each "https://files.cmux.com/cmux-tui/$source_commit" ${acpmux[@]+"${acpmux[@]}"}
           completion_args=()
           if fetch_optional "$base/completion.json" tree/existing-completion.json; then
             completion_args=(--existing-completion-file tree/existing-completion.json)
