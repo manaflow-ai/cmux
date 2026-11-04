@@ -227,7 +227,10 @@ const BG_START: &str = "acpmux_bg_start";
 const BG_STEER: &str = " Long-running commands (a dev server, a watcher, a long build or \
     test run) go to `cmux.acpmux_bg_start({command, cwd})`, not a background shell or terminal \
     of your own: this chat's agent hibernates after 2 idle minutes and its own background shells \
-    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it.";
+    end with it, while that task keeps running; `cmux.acpmux_bg_output({id, fromByte})` reads it. \
+    Work in parallel: at the start of a task, read the files and run the searches you already \
+    know you need as one batch of independent tool calls, not one after another, and while that \
+    task runs, go on with the parts that do not need its result.";
 
 /// acpmux's `github_status` behind this server (acpmux `github_status.rs`).
 const GITHUB_STATUS: &str = "acpmux_github_status";
@@ -1217,6 +1220,7 @@ mod bg_steer_tests {
         let text = with[0]["description"].as_str().unwrap();
         assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
         assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
+        assert!(text.contains("as one batch of independent tool calls"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
     }
