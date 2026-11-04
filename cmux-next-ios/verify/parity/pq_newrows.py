@@ -77,6 +77,31 @@ def fresh(j):
     raise Fail("could not get to the Workspaces list after a relaunch")
 
 
+def find_row(j, name, tries=12):
+    """A Workspaces row, scrolled to: from the top of the list down (rows are newest first and
+    load as they scroll in)."""
+    j.back_to_list()
+    for _ in range(3):
+        j.sim.swipe(200, 300, 200, 700, 0.3)
+        time.sleep(0.3)
+    for _ in range(tries):
+        found = [e for e in j.sim.find(prefix=name, kind="Button") if 90 < e.frame[1] < 740]
+        if found:
+            return found[0]
+        j.sim.swipe(200, 640, 200, 300, 0.4)
+        time.sleep(0.8)
+    raise Fail(f"{name} not on the phone")
+
+
+def open_ws(j, name):
+    j.sim.tap_el(find_row(j, name))
+    time.sleep(2.5)
+
+
+# The shared flows (pq_crows' chat seed, pq_panes) open workspaces through pq_tabs: scroll there too.
+t.open_ws = open_ws
+
+
 def tab(j, name):
     e = j.sim.wait(label=name, kind="RadioButton", timeout=10)
     check(e, f"no {name} tab")
@@ -411,15 +436,7 @@ def reveal(j, label):
     w.make_workspaces(names)
     # The oldest of them, far down the list (newest first): opened after a scroll to it.
     target = names[0]
-    j.back_to_list()
-    row = None
-    for _ in range(10):
-        found = [e for e in j.sim.find(prefix=target, kind="Button") if 90 < e.frame[1] < 740]
-        if found:
-            row = found[0]
-            break
-        j.sim.swipe(200, 640, 200, 300, 0.4)
-        time.sleep(0.8)
+    row = find_row(j, target)
     check(row, f"{target} not on the phone")
     j.sim.tap_el(row)
     time.sleep(2.5)
@@ -561,7 +578,7 @@ def forkcolumn(j, label):
     t.open_ws(j, name)
     p.open_panes(j)
     pq.shot(f"forkcolumn-{label}-panes")
-    chat = [e for e in j.sim.find(kind="Button") if "chat" in (e.label or "").lower() or "PONG" in (e.label or "")]
+    chat = [e for e in j.sim.find() if (e.label or "").startswith(("Claude", "PONG")) and e.kind in ("Button", "Cell", "StaticText")]
     out["panes_rows"] = [e.label for e in j.sim.find(kind="Button") if e.label][:30]
     if not chat:
         return out
