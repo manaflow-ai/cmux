@@ -84,8 +84,11 @@ struct ViewerOpenBesideChatTests {
             let source = try #require(services.windows.active?.focusedPane)
             let content = try #require(source.workspace)
             let terminals = source.pane.tabs.map(\.surface)
+            // This Mac's own chat, so its diff reads this Mac's git (a chat of an unknown host reads nowhere).
+            let localHost = AgentSessionRef.host(installID: "cn-viewer-beside")
+            services.agentTabs.localHost = localHost
             let chatReply = try await connection.request(NewConversationTabRequest(
-                agentSession: AgentSessionRef(host: "install:test", session: "chat", harness: "codex"), pane: source.pane.handle))
+                agentSession: AgentSessionRef(host: localHost, session: "chat", harness: "codex"), pane: source.pane.handle))
             try await PasswordManagerRouteTests.until({ store.tab(surface: chatReply.surface) != nil })
             for terminal in terminals { try await connection.closeTab(terminal) }
             try await PasswordManagerRouteTests.until({ source.pane.tabs.count == 1 })
