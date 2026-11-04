@@ -297,7 +297,7 @@ public final class LayoutRootView: NSView {
     /// its panes and tab strips; the observation then finds nothing new.
     public func syncWithModel() {
         let current = snapshot()
-        if current != lastSnapshot { sync(current) }
+        if current != lastSnapshot { Self.bench("layout.sync") { sync(current) } }
     }
 
     /// Mirrors the model now for the window's next frame tick (a keyboard resize press, FRAME OWNER S1B): the springs
@@ -588,10 +588,18 @@ public final class LayoutRootView: NSView {
     /// Layout passes of every root (`debug.layout_counters`): a window resize lays out the shown
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
+    /// CMD-N LATENCY instrument (never merged): the App's BenchSpans.measure, left in the main thread's dictionary.
+    static func bench(_ name: String, _ body: () -> Void) {
+        if let measure = Thread.main.threadDictionary["cmux.benchMeasure"] as? (String, () -> Void) -> Void { measure(name, body) } else { body() }
+    }
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
+        Self.bench(bounds.width == 0 ? "layout.rootLayout.zero" : "layout.rootLayout") { layoutBody() }
+    }
+
+    private func layoutBody() {
         super.layout()
         Self.layoutPasses &+= 1
         for (id, view) in screenViews {

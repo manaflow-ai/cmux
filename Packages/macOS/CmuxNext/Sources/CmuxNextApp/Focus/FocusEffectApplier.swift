@@ -19,7 +19,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
     private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows(), canTakeKeys: { ($0 as? CEFTab)?.canTakeKeys ?? true },
                                                 keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }, dropAsk: { ($0 as? CEFTab)?.dropFocusAsk() }) { [weak self] page, focused in
-        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
+        if let page = page as? any BrowserTab { BenchSpans.measure(focused ? "focus.page.on" : "focus.page.off") { self?.setPageFocus(page, focused) } }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?

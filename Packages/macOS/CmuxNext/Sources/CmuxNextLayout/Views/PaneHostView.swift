@@ -291,7 +291,7 @@ final class PaneHostView: NSView, RestingPlacement {
         super.setFrameSize(newSize)
         // `frame =` with only a new origin calls this too: the clip and content keep their size
         // (held content is pinned by the rest offset, which a move changes: it lays out).
-        if changed || heldContentSize != nil { layoutClip() }
+        if changed || heldContentSize != nil { LayoutRootView.bench(newSize.width == 0 ? "layout.paneHost.zero" : "layout.paneHost") { layoutClip() } }
     }
 
     /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
