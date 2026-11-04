@@ -185,7 +185,12 @@ impl HostInputRoute {
         if payload.len() > INLINE_FRAME_MAX {
             return false;
         }
-        let Ok(writer) = self.writer.try_lock() else { return false };
+        // A writer poisoned by a panic is recovered, as `send_host_frame` recovers it.
+        let writer = match self.writer.try_lock() {
+            Ok(writer) => writer,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
         let mut frame = Frame::new(kind, payload.to_vec());
         frame.version = self.protocol_version;
         let Ok(bytes) = crate::terminal_host_protocol::encode_frame(&frame) else { return false };
@@ -217,12 +222,12 @@ impl HostInputRoute {
 #[cfg(unix)]
 pub(crate) const INLINE_FRAME_MAX: usize = 1024;
 
-/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. macOS has no such flag; there,
-/// as for every other write on this socket (`write_frame` through std), the Rust runtime ignores SIGPIPE, so the send
-/// fails with EPIPE.
-#[cfg(all(unix, not(target_os = "macos")))]
+/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std
+/// sets SO_NOSIGPIPE on the sockets it creates and the Rust runtime ignores SIGPIPE, as for every other write on this
+/// socket; the send fails with EPIPE. The same gate as `pty_custody`'s sends.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const SEND_NO_SIGNAL: libc::c_int = libc::MSG_NOSIGNAL;
-#[cfg(target_os = "macos")]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 const SEND_NO_SIGNAL: libc::c_int = 0;
 
 /// One frame on a daemon-to-host connection's writer.
