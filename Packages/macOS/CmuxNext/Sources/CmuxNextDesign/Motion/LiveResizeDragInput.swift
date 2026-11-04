@@ -39,6 +39,10 @@ public final class LiveResizeDragInput {
     private var latched: Bool?
     /// The S7 diagnostics read with the switch (`motion.frameOwner.liveResize.pageHold` and `.trackerHold`).
     private var latchedHolds = (page: true, tracker: true)
+    /// `motion.frameOwner.liveResize.atEvent`, read with the switch: coalesce at input instead of on the frame tick.
+    private var latchedAtEvent = false
+    /// Whether a newer drag waits in the application's event queue (a peek, no dequeue; tests replace it).
+    var newerDragQueued: @MainActor () -> Bool = { LiveResizeDragInput.applicationHasQueuedDrag() }
     /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
     /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any. It is the frame's, not the
     /// resize's: a press and release do not clear it, so a new resize in the same display frame as the last applied drag
@@ -90,6 +94,7 @@ public final class LiveResizeDragInput {
         }
         if latched == nil {
             latchedHolds = (MotionTunables.frameOwnerLiveResizePageHold.value, MotionTunables.frameOwnerLiveResizeTrackerHold.value)
+            latchedAtEvent = MotionTunables.frameOwnerLiveResizeAtEvent.value
         }
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
@@ -97,6 +102,7 @@ public final class LiveResizeDragInput {
             noteApplying(event, atTick: false)
             return false
         }
+        if latchedAtEvent { return takeAtEvent(event) }
         ticksLeft = Self.tickTail
         client.activate()
         // The display frame's first drag: AppKit applies it in this turn.
@@ -113,6 +119,28 @@ public final class LiveResizeDragInput {
         }
         return true
     }
+
+    /// Coalescing at input (`motion.frameOwner.liveResize.atEvent`): the drag goes to AppKit in this event turn with the
+    /// travel of the drags it replaced, unless a newer drag already waits in the event queue; then it waits for it.
+    private func takeAtEvent(_ event: NSEvent) -> Bool {
+        if let waiting {
+            replaced += 1
+            self.waiting = (event, waiting.dx + waiting.event.deltaX, waiting.dy + waiting.event.deltaY)
+        } else {
+            waiting = (event, 0, 0)
+        }
+        guard !newerDragQueued() else { return true }
+        flush()
+        return true
+    }
+
+    /// A drag in the application's queue, read without running the run loop's sources: a mode with no sources only
+    /// looks at the events AppKit already took from the window server.
+    static func applicationHasQueuedDrag() -> Bool {
+        NSApp?.nextEvent(matching: .leftMouseDragged, until: .distantPast, inMode: Self.peekMode, dequeue: false) != nil
+    }
+
+    private static let peekMode = RunLoop.Mode("com.cmux.liveResize.peek")
 
     /// A `setFrame` of the window in its live resize (`apply`): when this resize's drags wait for the frame tick, the
     /// views another window follows post their frame notices once, after it, with the final geometry (``FollowedViews``);

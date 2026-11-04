@@ -87,6 +87,14 @@ public nonisolated enum MotionTunables {
     /// DIAGNOSTIC for S7's films (goes with `frameOwnerLiveResize`): on (the default), a live resize on the frame tick
     /// holds the frame notices of the views Chromium's page tracker follows until its `setFrame` returns
     /// (`FollowedViews`). Off: the tracker hears them during the layout, as with the switch off. Latched with the switch.
+    /// DIAGNOSTIC for S7's films (goes with `frameOwnerLiveResize`): on, a live resize coalesces its drags at input
+    /// instead of on the frame tick: each drag goes to AppKit in its own event turn unless a newer drag is already in the
+    /// application's event queue, which then carries its travel. Off (the default): the frame tick. Latched with the switch.
+    public static let frameOwnerLiveResizeAtEvent = Tunable<Bool>.toggle(
+        "motion.frameOwner.liveResize.atEvent", .springs, "Live resize: coalesce drags at input (S7 diagnostic)",
+        help: "Diagnostic for the frame-owner S7 films. On: in a live resize with the switch on, each drag goes to AppKit in its own event turn unless a newer drag is already queued. Off: the newest drag of a display frame waits for the frame tick.",
+        default: false, code: "MotionTunables.frameOwnerLiveResizeAtEvent")
+
     public static let frameOwnerLiveResizeTrackerHold = Tunable<Bool>.toggle(
         "motion.frameOwner.liveResize.trackerHold", .springs, "Live resize: page tracker hears the final geometry (S7 diagnostic)",
         help: "Diagnostic for the frame-owner S7 films. On: in a live resize on the frame tick, Chromium's page tracker hears each followed view once, after the drag's setFrame. Off: it hears them during the layout.",
@@ -224,7 +232,8 @@ public nonisolated enum MotionTunables {
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
         MotionSpring.allCases.compactMap { springs[$0]?.descriptor } + [subtleBounce.descriptor, frameOwnerLiveResize.descriptor,
-                                                                           frameOwnerLiveResizePageHold.descriptor, frameOwnerLiveResizeTrackerHold.descriptor]
+                                                                           frameOwnerLiveResizePageHold.descriptor, frameOwnerLiveResizeTrackerHold.descriptor,
+                                                                           frameOwnerLiveResizeAtEvent.descriptor]
             + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
             + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
             + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
