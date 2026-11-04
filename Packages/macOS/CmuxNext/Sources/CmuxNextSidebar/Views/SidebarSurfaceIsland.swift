@@ -14,6 +14,9 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var view: NSView { get }
     /// The content's height in points; 0 until the page has drawn.
     var contentHeight: CGFloat { get }
+    /// The content's own width in points (the popover is as wide as its lines); 0 when the page
+    /// fills the width it is given.
+    var contentWidth: CGFloat { get }
     /// The content height changed.
     var onHeightChange: (() -> Void)? { get set }
     /// The page ran one of its actions (the popover then closes).
@@ -22,6 +25,10 @@ public protocol SidebarSurfaceIsland: AnyObject {
     var onDismiss: (() -> Void)? { get set }
     /// The sidebar went away: the page cancels its subscriptions.
     func close()
+}
+
+extension SidebarSurfaceIsland {
+    public var contentWidth: CGFloat { 0 }
 }
 
 /// Makes the update surfaces (set by the App on each sidebar).
@@ -38,19 +45,27 @@ final class SidebarPopoverIslandHost: NSView {
     var onPointerExit: (() -> Void)?
     private var tracking: NSTrackingArea?
 
-    /// The host's height in a hover card (the card fits its body); its width is fixed.
+    /// The host's size in a hover card (the card fits its body).
     private var heightConstraint: NSLayoutConstraint?
+    private var widthConstraint: NSLayoutConstraint?
+    /// The widest the host gets (the menu width); a page that reports its own width is narrower.
+    let maxWidth: CGFloat
 
     init(width: CGFloat) {
+        maxWidth = width
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 1))
         let height = heightAnchor.constraint(equalToConstant: 1)
-        NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: width), height])
+        let widthConstraint = widthAnchor.constraint(equalToConstant: width)
+        NSLayoutConstraint.activate([widthConstraint, height])
         heightConstraint = height
+        self.widthConstraint = widthConstraint
     }
 
-    /// Sizes the host `height` tall (the page's height, capped to its window).
-    func fit(height: CGFloat) {
+    /// Sizes the host `height` tall (the page's height, capped to its window) and `width` wide
+    /// (the page's own width, at most ``maxWidth``; 0 is the full width).
+    func fit(height: CGFloat, width: CGFloat = 0) {
         heightConstraint?.constant = max(1, height)
+        widthConstraint?.constant = width > 0 ? min(maxWidth, ceil(width)) : maxWidth
     }
 
     /// Moves the surface's page view in (it waits parked in the card while

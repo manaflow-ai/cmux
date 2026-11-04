@@ -11,12 +11,26 @@ type Props = {
   edge?: boolean;
   /** A link-length first row, as the agent pane's Open Link item has. */
   longLabel?: boolean;
+  /** A toggle row checked, one unchecked and plain rows in one menu: every label on one line. */
+  mixed?: boolean;
 };
 
-function ContextMenuGallery({ selection = "native", disabled = false, edge = false, longLabel = false }: Props) {
+function ContextMenuGallery({
+  selection = "native",
+  disabled = false,
+  edge = false,
+  longLabel = false,
+  mixed = false,
+}: Props) {
   const [receipt, setReceipt] = useState("Ready");
   const items = useMemo<ContextMenuItem[]>(
     () => [
+      ...(mixed
+        ? [
+            { id: "pin", label: "Pin Tab", checked: true, onSelect: () => setReceipt("Unpinned") },
+            { id: "mute", label: "Mute Tab", checked: false, onSelect: () => setReceipt("Muted") },
+          ]
+        : []),
       {
         id: "open",
         label: longLabel ? "Open https://example.com/docs/guides/a-very-long-path/that-would-widen-the-menu" : "Open",
@@ -36,7 +50,7 @@ function ContextMenuGallery({ selection = "native", disabled = false, edge = fal
         onSelect: () => setReceipt("Deleted"),
       },
     ],
-    [disabled, longLabel],
+    [disabled, longLabel, mixed],
   );
   return (
     <div className={`context-menu-gallery-stage${edge ? " context-menu-gallery-stage--edge" : ""}`}>
@@ -191,5 +205,10 @@ export default componentEntry<Props>({
     disabled: { props: { disabled: true }, play: disabledItem },
     edge: { props: { edge: true }, play: edgeOpen },
     "long-label": { props: { longLabel: true }, play: longLabelOpen },
+    mixed: {
+      note: "A checked toggle, an unchecked toggle and plain rows in one menu: every label starts on one line.",
+      props: { mixed: true },
+      play: open,
+    },
   },
 });

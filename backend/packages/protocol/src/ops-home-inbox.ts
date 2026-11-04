@@ -2,13 +2,14 @@ import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConversationId, ConversationKind, InboxEntry, ParticipantId, Seq, Timestamp } from "./ops-home-schemas.ts"
 import { HostId, InstallId } from "./schemas.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Inbox (UserDO stream `inbox:<user>`), chiefs (UserDO), the chief wake queue (MuxDO) and Home
  * search (PlanetScale projection), home-messaging.md sections 4.2, 4.3 and 8.
  */
 const inboxErrors = [...mutationErrors, "unknown_conversation", "invalid_params", "forbidden"]
-const AgentId = Schema.String.check(Schema.isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)).annotate({ identifier: "AgentId" })
+const AgentId = Schema.String.check(isPattern(/^agent_[A-Za-z0-9_.-]{1,64}$/)).annotate({ identifier: "AgentId" })
 
 const inboxOp = (name: string, params: Schema.Top, docs: string) =>
   def({
@@ -83,7 +84,7 @@ export const InboxDmPeer = def({
 })
 
 const ChiefName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))
-const ChiefId = Schema.String.check(Schema.isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
+const ChiefId = Schema.String.check(isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
 /**
  * Where a chief's brain runs (brains/DESIGN-cmux-lawrence.md G8): a paired server's host and its
  * daemon install. Set by the user's session only; the placed install's chief token gets the chief's

@@ -1,15 +1,16 @@
-// An agent a shell call started (`codex exec …`, `acpmux run …`; subagentFold.ts `reduceRun`) where
-// it started in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
+// An explicit acpmux child session (subagentFold.ts `reduceChild`) where its parent call started
+// in the transcript, as a sub-session's card (AgentCard.tsx): its harness's mark, the
 // first line of what it was asked, its state (the working spinner while it
 // runs, never a dot) and time, under them its harness, model and effort and the machine it
 // runs on, and once it ended, what it finally
 // said, cut to three lines. Raw opens the command as the call ran it; Show output opens the run's
-// own view (the command and all it printed). An acpmux session the session list has opens as its
-// chat instead (Open chat).
+// own view (the command and all it printed). When the run has an acpmux session in the session list,
+// its card row opens that chat instead.
 // Its state, time and reply also show in the tray above the composer and the summary card's
 // Subagents list, as every subagent's do.
 import { useContext, useId, useState } from "react";
 import { Cut } from "../conversation/SubsessionCallCard";
+import { TranscriptDisclosureProvider } from "../conversation/transcriptDisclosure";
 import { ChevronRight } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -24,6 +25,15 @@ const cardState = (agent: Subagent): SubsessionState =>
   running(agent) ? "working" : agent.state === "failed" ? "failed" : "done";
 const stopped = (state: string): state is "cancelled" | "disconnected" =>
   state === "cancelled" || state === "disconnected";
+
+/** Keep agent-run result disclosures in the transcript's parent chat across virtualization. */
+export function AgentRunTranscriptCard({ agent, sessionId }: { agent: Subagent; sessionId?: string }) {
+  return (
+    <TranscriptDisclosureProvider sessionId={sessionId}>
+      <AgentRunCard agent={agent} />
+    </TranscriptDisclosureProvider>
+  );
+}
 
 export function AgentRunCard({ agent }: { agent: Subagent }) {
   const t = useT();
@@ -40,6 +50,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
     <AgentCard
       name={agent.name}
       harness={agent.harness}
+      identity={agent.id}
       sessionId={chat}
       // The model and the machine on the line under the name, which keeps the head's room for the
       // name at a narrow width.
@@ -50,7 +61,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       onOpen={openChat ?? (openRun ? () => openRun(agent.id) : undefined)}
       openLabel={openChat ? undefined : t("bgTask.showOutput")}
     >
-      {agent.result && !running(agent) && <Cut text={agent.result} />}
+      {agent.result && !running(agent) && <Cut text={agent.result} disclosureKey={`agent-result:${agent.id}`} />}
       {agent.command && <RunCommand command={agent.command} />}
     </AgentCard>
   );

@@ -207,6 +207,11 @@ export const describeRequest = (op: string, p: Record<string, unknown>): { targe
     case "cloud.snapshot.delete":
     case "cloud.snapshot.restore":
       return { target: text(p.snapshot, 100), summary: text(p.name, 100) }
+    case "cloud.environment.build":
+    case "cloud.environment.delete":
+      return { target: text(p.environment, 100), summary: "" }
+    case "cloud.environment.boot":
+      return { target: text(p.name, 100) || "new machine", summary: text(`${sizeText(p.size)} from environment ${text(p.environment, 40)}`, 200) }
     default:
       return { target: text(p.connection, 100), summary: "" }
   }

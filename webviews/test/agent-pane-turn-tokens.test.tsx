@@ -41,6 +41,28 @@ const call = (used: number, size = 200_000, output = used): Step => [
     _meta: { acpmux: { call: true } },
   }),
 ];
+/// One model call's usage with all four counts acpmux sends (claude_stdio/inbound.rs): `used` is
+/// what it read, and the counts split that from what it wrote.
+const splitCall = (split: { input: number; cacheRead: number; cacheWrite: number; output: number }): Step => [
+  "in",
+  "usage_update",
+  update({
+    sessionUpdate: "usage_update",
+    used: split.input + split.cacheRead + split.cacheWrite,
+    size: 200_000,
+    inputTokens: split.input,
+    cachedReadTokens: split.cacheRead,
+    cachedWriteTokens: split.cacheWrite,
+    outputTokens: split.output,
+    _meta: { acpmux: { call: true } },
+  }),
+];
+/// A marked call from an older acpmux: `used` alone, which is context, not output.
+const legacyCall = (used: number): Step => [
+  "in",
+  "usage_update",
+  update({ sessionUpdate: "usage_update", used, size: 200_000, _meta: { acpmux: { call: true } } }),
+];
 /// The context a harness holds: Claude Code's result repeating its last call, or another harness.
 const held = (used: number, size = 200_000): Step => [
   "in",
@@ -171,6 +193,10 @@ function fakeDaemon(
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
   let snapshot: any;
   let snapshots = 0;
+  // `connection` names why the client emitted, not the link: a local open drawn from its attach
+  // emits "connected", then "session changed" as soon as the list behind it settles
+  // (`listAfterOpen`). The open is done once a "connected" snapshot came; a lost link undoes it.
+  let attached = false;
   const client = await AcpmuxDirectClient.connect(
     {
       protocolVersion: 1,
@@ -182,12 +208,14 @@ async function connect(daemon: ReturnType<typeof fakeDaemon>) {
     (next: any) => {
       snapshot = next;
       snapshots += 1;
+      if (next.connection === "connected") attached = true;
+      else if (next.connection === "disconnected" || next.connection === "failed") attached = false;
     },
     undefined,
     daemon.open,
   );
-  await until(() => snapshot?.connection === "connected", "the attach");
-  return { client, snapshot: () => snapshot, snapshots: () => snapshots };
+  await until(() => attached, "the attach");
+  return { client, snapshot: () => snapshot, snapshots: () => snapshots, attached: () => attached };
 }
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
@@ -254,6 +282,55 @@ test("a five-step turn counts generated output, not repeated context", async () 
   }
 });
 
+test("a turn's output stays its count, and what its calls read is split apart, while every call carries the split", async () => {
+  const daemon = fakeDaemon(
+    record([
+      prompt("fix the build"),
+      started,
+      splitCall({ input: 1_200, cacheRead: 30_000, cacheWrite: 4_000, output: 300 }),
+      splitCall({ input: 800, cacheRead: 35_000, cacheWrite: 0, output: 9_100 }),
+    ]),
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    // The count is output alone; what the calls read never folds into it.
+    expect(snapshot().turnTokens).toBe(9_400);
+    expect(snapshot().turnTokenSplit).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    // A marked call from an older acpmux (`used` alone): it adds no output, and the split goes
+    // away rather than leave the call's reads out.
+    daemon.push(record([legacyCall(5_000)], 5));
+    await until(() => snapshot().turnTokenSplit === undefined, "the unsplit call");
+    expect(snapshot().turnTokens).toBe(9_400);
+    // The turn's result names its tokens; its summary row carries them for Worked for.
+    daemon.push(
+      record(
+        [
+          [
+            "mux",
+            "turn_result",
+            {
+              status: "completed",
+              outputTokens: 9_400,
+              inputTokens: 2_000,
+              cacheReadTokens: 65_000,
+              cacheWriteTokens: 4_000,
+            },
+          ],
+        ],
+        6,
+      ),
+    );
+    // The fake daemon never reports the session idle, so the turn's end is its summary row.
+    const summary = () => snapshot().rows.find((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summary() !== undefined, "the turn's end");
+    const row = summary();
+    expect(row?.tokens).toEqual({ output: 9_400, input: 2_000, cacheRead: 65_000, cacheWrite: 4_000 });
+    expect(snapshot().turnTokenSplit).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
 test("a result that repeats the last call while a steer waits adds nothing", async () => {
   // Claude Code ends the steered line's first part with a result (it resends the last call's usage
   // for the context ring) and runs the steer as more of the same turn.
@@ -314,7 +391,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
   const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, attached } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -338,7 +415,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
 
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBeUndefined();
 
@@ -356,7 +433,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
   // The chat was read whole; then the turn outgrows the attach page and the socket drops. The new
   // page starts mid-turn, but the client still holds every call before it.
   const daemon = fakeDaemon(record([prompt("fix the build"), started, call(41_200), call(43_800)]));
-  const { client, snapshot } = await connect(daemon);
+  const { client, snapshot, attached } = await connect(daemon);
   const scope = globalThis as { window?: unknown };
   const hadWindow = "window" in scope;
   // The client schedules its reconnect on `window`; this test has no DOM.
@@ -369,7 +446,7 @@ test("a reconnect whose page starts after the turn began keeps the count it held
     daemon.pageFrom(4);
     daemon.drop();
     expect(snapshot().connection).toBe("disconnected");
-    await until(() => snapshot().connection === "connected", "the reconnect");
+    await until(attached, "the reconnect");
     expect(snapshot().isWorking).toBe(true);
     expect(snapshot().turnTokens).toBe(131_000);
   } finally {
@@ -448,7 +525,7 @@ for (const [harness, family] of [
 // still carries the setup value for the context summary, but it is intentionally not guessed into
 // the small Codex-style hover surface.
 const compactCard = (usage: { used: number; size: number; setup?: number }) =>
-  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-line");
+  renderToStaticMarkup(<ContextCardBody {...usage} />).includes("acpmux-context-card-line");
 
 test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
   const withSetup: Step = [
@@ -534,4 +611,25 @@ test("tokens are compact in the pane's language", () => {
     maximumFractionDigits: 1,
   }).format(2_140_000);
   expect(workingTokens(translatorFor("de"), "de", 2_140_000)).toContain(german);
+});
+
+test("usage carries acpmux's cache expiry to the card, and a finished compaction drops it", async () => {
+  const expiresAt = START + 300_000;
+  const cached = (used: number): Step => [
+    "in",
+    "usage_update",
+    update({ sessionUpdate: "usage_update", used, size: 400_000, _meta: { acpmux: { cacheExpiresAt: expiresAt } } }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, cached(300_000)]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000, cacheExpiresAt: expiresAt });
+    // A compaction whose boundary named no size sends no usage: the expiry still goes.
+    daemon.push(record([["in", "compaction", update({ sessionUpdate: "compaction", state: "completed" })]], 4));
+    await until(() => snapshot().summary.usage.cacheExpiresAt === undefined, "the compaction");
+    expect(snapshot().summary.usage).toEqual({ used: 300_000, size: 400_000 });
+  } finally {
+    client.close();
+  }
 });

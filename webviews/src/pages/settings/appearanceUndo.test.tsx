@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { AppearanceHistory, diff, HISTORY_LIMIT, type KeyState } from "./appearanceHistory";
+import { activePreset, APPEARANCE_PRESETS } from "./appearancePresets";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
 
@@ -154,5 +155,60 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     );
     // The inner write records too; the outer step names the whole change.
     expect(page.store.appearance.nextUndo?.label).toBe("Rotation");
+  });
+});
+
+describe("Appearance's presets", () => {
+  const frosted = APPEARANCE_PRESETS.find((preset) => preset.id === "frosted")!;
+
+  test("a preset sets Opacity and Material and puts every surface back on the window, as one step", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: {
+          "appearance.background": "friedrich-forest-moonlight",
+          "appearance.surfaces.sidebar.opacity": 0.2,
+          "appearance.surfaces.diff.opacity": 0.9,
+        },
+      },
+    });
+    await run(() => page!.store.applyAppearancePreset(frosted));
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.8);
+    expect(rows.get("appearance.backgroundBlur")?.value).toBe("frosted");
+    expect(rows.get("appearance.surfaces.sidebar.opacity")?.customized).toBe(false);
+    expect(rows.get("appearance.surfaces.diff.opacity")?.customized).toBe(false);
+    // A preset never touches the picture.
+    expect(rows.get("appearance.background")?.value).toBe("friedrich-forest-moonlight");
+    expect(activePreset(page.store.getSnapshot())).toBe("frosted");
+    expect(page.store.appearance.nextUndo?.label).toBe("Presets → Frosted");
+
+    await run(() => page!.store.undoAppearance());
+    const back = page.store.getSnapshot().rows;
+    expect(back.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(back.get("appearance.surfaces.sidebar.opacity")?.value).toBe(0.2);
+    expect(back.get("appearance.surfaces.diff.opacity")?.value).toBe(0.9);
+    expect(page.store.appearance.canUndo).toBe(false);
+  });
+
+  test("a slider moved after a preset leaves it", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    await run(() => page!.store.applyAppearancePreset(frosted));
+    await run(() => page!.store.set("appearance.surfaces.sidebar.opacity", 0.5));
+    expect(activePreset(page.store.getSnapshot())).toBeNull();
+  });
+
+  test("the floating bar's Presets menu applies the picked preset", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const button = page.container.querySelector<HTMLButtonElement>('[data-menu="appearance-presets"]')!;
+    expect(button.disabled).toBe(false);
+    await click(button);
+    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+      (row) => row.textContent?.includes("Glass") && !row.textContent.includes("Frosted"),
+    )!;
+    await click(item);
+    const rows = page.store.getSnapshot().rows;
+    expect(rows.get("appearance.backgroundOpacity")?.value).toBe(0.6);
+    expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
 });

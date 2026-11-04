@@ -8,9 +8,10 @@ import Observation
 /// Writes a browser page's back/forward entries and scroll positions to
 /// its daemon tab (`frontend-browser-history-v1`), so a relaunch restores
 /// them (plans/cmux-next/browser.md, "Session history across relaunch").
-/// Navigations are debounced like the record write-back; scroll changes
-/// fire no page event, so the shown page's position is measured when the
-/// user leaves the app (a crash afterwards keeps it) and at quit.
+/// Navigations are debounced like the record write-back, and so is the
+/// page's own report of where its scrolling settled (`BrowserScrollReport`),
+/// so a crash keeps it; the shown page's position is also measured when the
+/// user leaves the app and at quit.
 public final class BrowserHistoryWriter {
     /// Stores a history with the tab's daemon; true when it was stored.
     public typealias Send = @MainActor (FrontendBrowserHistory) async -> Bool
@@ -254,13 +255,14 @@ public final class BrowserHistoryWriter {
     }
 
     /// The page changes that can change its history: a new URL or title,
-    /// each load's start and end, and Back/Forward availability.
+    /// each load's start and end, Back/Forward availability, and a settled scroll.
     private struct HistoryKey: Equatable, Sendable {
         var url: URL?
         var title: String?
         var isLoading: Bool
         var canGoBack: Bool
         var canGoForward: Bool
+        var scrollReport: BrowserScrollReport?
 
         init(_ state: BrowserTabState) {
             url = state.url
@@ -268,6 +270,7 @@ public final class BrowserHistoryWriter {
             isLoading = state.isLoading
             canGoBack = state.canGoBack
             canGoForward = state.canGoForward
+            scrollReport = state.scrollReport
         }
     }
 }

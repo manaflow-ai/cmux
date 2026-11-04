@@ -11,6 +11,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -21,6 +23,8 @@ const keys = [
   "IS_REACT_ACT_ENVIRONMENT",
   "Node",
   "Element",
+  "MutationObserver",
+  "getSelection",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -31,7 +35,7 @@ let host: HTMLElement;
 let window: JSDOM["window"];
 
 beforeAll(() => {
-  window = new JSDOM("<!doctype html><div id=root></div>").window;
+  window = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true }).window;
   Object.assign(window, {
     ResizeObserver: class {
       observe() {}
@@ -46,11 +50,11 @@ beforeAll(() => {
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
     // The suggestions' Popover (Base UI and Floating UI) reads these.
-    Node: window.Node,
     Element: window.Element,
     getComputedStyle: window.getComputedStyle.bind(window),
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
+    ...proseMirrorGlobals(window as unknown as Window & typeof globalThis),
   });
   host = window.document.getElementById("root")!;
 });
@@ -98,14 +102,29 @@ async function render(calls: unknown[][], history: { url: string }[] = []) {
   );
 }
 
+// The field is the composer's Markdown field (#26567): it is driven through its handle, and keys
+// go to its editable element, cancelable as a person's are (the field's own Return sends whatever
+// the page's handler did not take with preventDefault).
+const handle = () => host.querySelector<MarkdownFieldElement>(".nt-field")!.acpmuxMarkdownField!;
+
+/// Types `text` as the whole prompt, caret at its end; the editable element takes the keys.
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle().focus();
+    handle().type(text);
   });
-  return field;
+  return host.querySelector<HTMLElement>(".nt-field [contenteditable]")!;
+}
+
+/// The prompt's text as typed (no Markdown escaping).
+const typed = () => handle().agentText(handle().value());
+
+/// Focuses the field and puts the caret `offset` characters in (the end by default).
+async function caretAt(offset?: number) {
+  await act(async () => {
+    handle().focus();
+    handle().setCaret(offset ?? handle().plainText().length);
+  });
 }
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
@@ -127,7 +146,9 @@ test('typing "reddit" offers reddit.com first, highlighted, and Return opens it 
   expect(titles).toContain("Reddit docs");
   expect(titles.some((title) => title.includes("about:blank"))).toBe(false);
 
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
   expect(calls).toEqual([["open", "https://reddit.com"]]);
 });
 
@@ -135,10 +156,11 @@ test("Right accepts the inline URL completion without opening it", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("reddit.c");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  expect(field.value).toBe("reddit.com");
+  await caretAt();
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })),
+  );
+  expect(typed()).toBe("reddit.com");
   expect(calls).toEqual([]);
 });
 
@@ -148,10 +170,11 @@ test("a partial word asks first: the completion is one row down and Right leaves
   const field = await type("reddi");
   expect(label(rows()[0]!)).toBe("Ask Claude Code");
   expect(rows().map(label)).toContain("reddit.com");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  expect(field.value).toBe("reddi");
+  await caretAt();
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })),
+  );
+  expect(typed()).toBe("reddi");
   expect(calls).toEqual([]);
 });
 
@@ -159,16 +182,18 @@ test("End accepts the inline URL completion and Tab only advances a keyboard-hig
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("reddit");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
-  expect(field.value).toBe("reddit.com");
+  await caretAt();
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true })),
+  );
+  expect(typed()).toBe("reddit.com");
 
   // A fresh query has multiple rows; once Down highlights one, Tab moves the highlight and never submits.
   await type("reddi");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+  await caretAt();
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })),
+  );
   const before = rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(tab));
@@ -184,8 +209,7 @@ test("Tab with suggestions showing steps from Return's row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
+  await caretAt();
   expect(rows().length).toBeGreaterThan(0);
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => field.dispatchEvent(tab));
@@ -204,10 +228,11 @@ test("Right inline-accepts a visited-page (history) row without opening it", asy
   await render(calls, [{ url: "https://zulip.example.com/" }]);
   const field = await type("zulip");
   expect(rows()[0]?.getAttribute("data-type")).toBe("history");
-  field.focus();
-  field.setSelectionRange(field.value.length, field.value.length);
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
-  expect(field.value).toBe("zulip.example.com");
+  await caretAt();
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })),
+  );
+  expect(typed()).toBe("zulip.example.com");
   expect(calls).toEqual([]);
 });
 
@@ -230,7 +255,9 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   expect(label(shown[0]!)).toBe("Ask Claude Code");
   expect(shown[0]!.getAttribute("aria-selected")).toBe("true");
   expect(shown.map(label)).toContain("Search the web for why is the reddit scraper slow");
-  await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  await act(async () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+  );
   // On the model the chip names (cx-sljrg).
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
@@ -284,7 +311,7 @@ test("in the text Up and Down move the caret between lines; in the list they ste
   expect(count).toBeGreaterThan(1);
   expect(highlighted()).toBe(0);
 
-  field.setSelectionRange(field.value.length, field.value.length); // the second line
+  await caretAt(); // the second line
   expect(await press("ArrowDown")).toBe(true); // the list: the next row
   expect(highlighted()).toBe(1);
   expect(await press("ArrowUp")).toBe(true);
@@ -293,7 +320,7 @@ test("in the text Up and Down move the caret between lines; in the list they ste
 
   expect(await press("ArrowUp")).toBe(false); // the text: the caret goes up a line
   expect(highlighted()).toBe(-1);
-  field.setSelectionRange(3, 3); // the first line
+  await caretAt(3); // the first line
   expect(await press("ArrowDown")).toBe(false); // the caret goes down a line
   expect(await press("ArrowUp")).toBe(true); // the first line: into the rows, at the last
   expect(highlighted()).toBe(count - 1);
@@ -317,7 +344,9 @@ test("an address keeps Return opening it after Left, and after Up from the top r
       field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })),
     );
     expect(highlighted()).toBe(key === "ArrowLeft" ? 0 : -1);
-    await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    await act(async () =>
+      field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+    );
     expect(calls).toEqual([["open", "https://reddit.com"]]);
   }
 });
@@ -338,11 +367,11 @@ function pressOutside() {
 test("a press outside closes the suggestions and keeps the text; pressing the field opens them again", async () => {
   await render([]);
   const field = await type("reddit");
-  field.focus();
+  await act(async () => handle().focus());
   expect(rows().length).toBeGreaterThan(0);
   await act(async () => pressOutside());
   expect(rows()).toHaveLength(0);
-  expect(field.value).toBe("reddit");
+  expect(typed()).toBe("reddit");
   await act(async () => field.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   expect(rows().length).toBeGreaterThan(0);
 });
@@ -350,14 +379,15 @@ test("a press outside closes the suggestions and keeps the text; pressing the fi
 test("Escape closes the suggestions and keeps the text; a second Escape leaves the field", async () => {
   await render([]);
   const field = await type("reddit");
-  field.focus();
-  const escape = () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await act(async () => handle().focus());
+  const escape = () =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   await act(async () => escape());
   expect(rows()).toHaveLength(0);
-  expect(field.value).toBe("reddit");
+  expect(typed()).toBe("reddit");
   expect(window.document.activeElement).toBe(field);
   await act(async () => escape());
-  expect(field.value).toBe("reddit");
+  expect(typed()).toBe("reddit");
   expect(window.document.activeElement).not.toBe(field);
 });
 
@@ -365,8 +395,9 @@ test("Return after Escape still takes the top row: reddit opens reddit.com", asy
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("reddit");
-  field.focus();
-  const key = (name: string) => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+  await act(async () => handle().focus());
+  const key = (name: string) =>
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
   await act(async () => key("Escape"));
   expect(rows()).toHaveLength(0);
   await act(async () => key("Enter"));

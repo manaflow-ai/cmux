@@ -3,8 +3,8 @@
    hairlines, the accent for the current dot and the switch, and the app's danger and warning roles
    for failed and waiting (the same tints as StatusGlyph). No blue of its own. */
 .cv-page {
-  --cv-gap: 12px;
-  --cv-radius: 8px;
+  --cv-gap: var(--ds-space-3);
+  --cv-radius: var(--ds-radius-lg);
   --cv-card: color-mix(in srgb, var(--page-text) 4%, transparent);
   --cv-card-strong: color-mix(in srgb, var(--page-text) 7%, transparent);
   --cv-accent: var(--cmux-accent, var(--page-text));
@@ -14,25 +14,26 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  padding: 14px 16px 24px;
+  padding: var(--ds-space-4) var(--ds-space-4) var(--ds-space-5);
   gap: var(--cv-gap);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
-/* Header: dots, the view's title and description, actions. */
+/* Header: dots, the view's title and description, actions. Spacing, radii and weights come from
+   the design tokens (design/system.md); the switch, buttons and fields are ui/ components. */
 .cv-header {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 
 .cv-dots {
   display: flex;
-  gap: 2px;
-  padding: 2px;
+  gap: 0;
+  padding: var(--grid-half-step);
   border-radius: 999px;
   background: var(--page-hover);
 }
@@ -40,8 +41,8 @@
 .cv-dot {
   display: grid;
   place-items: center;
-  inline-size: 26px;
-  block-size: 22px;
+  inline-size: var(--ds-control-row);
+  block-size: var(--ds-control-compact);
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -56,7 +57,7 @@
   background: var(--page-elevated);
   color: var(--page-text);
   box-shadow:
-    0 0 0 0.5px var(--page-separator),
+    0 0 0 var(--cmux-hairline) var(--page-separator),
     var(--elevation-1);
 }
 
@@ -68,7 +69,7 @@
   margin: 0;
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -88,37 +89,19 @@
 
 .cv-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
-.cv-button {
-  border: 0;
-  border-radius: 6px;
-  padding: 3px 10px;
-  background: var(--page-hover);
-  color: var(--page-text);
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  letter-spacing: var(--text-control--letter-spacing);
-}
-
-.cv-button:hover:not(:disabled) {
-  background: var(--page-selection);
-}
-
+/* Refresh, Views and Save are ui/Button (sm, subtle); Views keeps the selection fill while the gallery is open. */
 .cv-button[aria-expanded="true"] {
   background: var(--page-selection);
-}
-
-.cv-button:disabled {
-  color: var(--page-text-disabled);
 }
 
 .cv-link {
   border: 0;
   background: transparent;
-  padding: 1px 4px;
-  border-radius: 4px;
+  padding: 0 var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -131,12 +114,12 @@
 }
 
 .cv-note {
-  margin: 8px 0;
+  margin: var(--ds-space-2) 0;
   color: var(--page-text-3);
 }
 
 .cv-caption {
-  margin: 0 0 8px;
+  margin: 0 0 var(--ds-space-2);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
@@ -145,27 +128,27 @@
 
 /* The gallery: one card per view, like an app store shelf. */
 .cv-gallery {
-  padding: 12px;
-  border-radius: 10px;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-xl);
   background: var(--cv-card);
-  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+  box-shadow: inset 0 0 0 var(--cmux-hairline) var(--page-separator);
 }
 
 .cv-gallery-head {
-  margin-bottom: 10px;
+  margin-bottom: var(--ds-space-3);
 }
 
 .cv-gallery-title {
   margin: 0;
   font-size: var(--text-body);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
 .cv-cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  gap: var(--ds-space-2);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -174,11 +157,11 @@
 .cv-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
   border-radius: var(--cv-radius);
   background: var(--page-elevated);
-  box-shadow: 0 0 0 0.5px var(--page-separator);
+  box-shadow: 0 0 0 var(--cmux-hairline) var(--page-separator);
 }
 
 .cv-card:not([data-on]) .cv-card-glyph,
@@ -189,15 +172,15 @@
 .cv-card-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .cv-card-glyph {
   display: grid;
   place-items: center;
-  inline-size: 28px;
-  block-size: 28px;
-  border-radius: 7px;
+  inline-size: var(--ds-control-row);
+  block-size: var(--ds-control-row);
+  border-radius: var(--ds-radius-md);
   background: var(--cv-card-strong);
   color: var(--page-text);
   flex-shrink: 0;
@@ -208,7 +191,7 @@
   flex: 1;
   min-width: 0;
   font-size: var(--text-body);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-body--letter-spacing);
 }
 
@@ -224,12 +207,12 @@
 .cv-card-place {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
   flex-wrap: wrap;
 }
 
 .cv-card-place-label {
-  margin-inline-end: 4px;
+  margin-inline-end: var(--ds-space-1);
   color: var(--page-text-3);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
@@ -237,8 +220,11 @@
 
 .cv-segment {
   border: 0;
-  border-radius: 5px;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  height: var(--ds-control-icon);
+  border-radius: var(--ds-radius-md);
+  padding: 0 var(--ds-space-2);
   background: var(--page-hover);
   color: var(--page-text-2);
   font-size: var(--text-caption);
@@ -248,7 +234,7 @@
 
 .cv-segment[data-default] {
   color: var(--page-text);
-  box-shadow: inset 0 0 0 0.5px var(--page-separator);
+  box-shadow: inset 0 0 0 var(--cmux-hairline) var(--page-separator);
 }
 
 .cv-segment:hover:not(:disabled) {
@@ -261,45 +247,11 @@
   background: transparent;
 }
 
-.cv-switch {
-  position: relative;
-  inline-size: 28px;
-  block-size: 16px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0;
-  background: var(--page-selection);
-  flex-shrink: 0;
-}
-
-.cv-switch[aria-checked="true"] {
-  background: var(--cv-accent);
-}
-
-.cv-switch-knob {
-  position: absolute;
-  inset-block-start: 2px;
-  inset-inline-start: 2px;
-  inline-size: 12px;
-  block-size: 12px;
-  border-radius: 50%;
-  background: var(--cmux-on-accent, Canvas);
-  box-shadow: var(--elevation-1);
-}
-
-.cv-switch:not([aria-checked="true"]) .cv-switch-knob {
-  background: var(--page-elevated);
-}
-
-.cv-switch[aria-checked="true"] .cv-switch-knob {
-  inset-inline-start: 14px;
-}
-
 /* Layout: the pane, and a split (half) or a sidebar (a narrow column) beside it. */
 .cv-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: var(--ds-space-4);
   flex: 1;
   min-height: 0;
 }
@@ -330,14 +282,14 @@
 }
 
 .cv-side {
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-4);
   border-inline-start: 0.5px solid var(--page-separator);
 }
 
 @media (max-width: 720px) {
   .cv-side {
     padding-inline-start: 0;
-    padding-block-start: 12px;
+    padding-block-start: var(--ds-space-3);
     border-inline-start: 0;
     border-block-start: 0.5px solid var(--page-separator);
   }
@@ -346,8 +298,8 @@
 .cv-side-head {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
   color: var(--page-text-2);
 }
 
@@ -355,7 +307,7 @@
   margin: 0;
   flex: 1;
   font-size: var(--text-detail);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   color: var(--page-text);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -366,8 +318,8 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
 }
 
 .cv-counts,
@@ -380,14 +332,15 @@
 .cv-counts {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .cv-count {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  gap: var(--ds-space-1);
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
   border-radius: 999px;
   background: var(--cv-card);
   font-size: var(--text-caption);
@@ -401,48 +354,30 @@
 }
 
 .cv-count-value {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
   color: var(--page-text);
 }
 
+/* The filter and the dashboard field are ui/Input (sm, filled); only their width is the page's. */
 .cv-filter {
   min-width: 0;
   inline-size: 180px;
-  padding: 3px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--page-hover);
-  color: var(--page-text);
-  font-size: var(--text-control);
-  line-height: var(--text-control--line-height);
-  outline: none;
-  user-select: text;
-  letter-spacing: var(--text-control--letter-spacing);
-}
-
-.cv-filter::placeholder {
-  color: var(--page-text-3);
-}
-
-.cv-filter:focus-visible {
-  box-shadow: inset 0 0 0 1px var(--page-separator);
-  background: var(--page-selection);
 }
 
 .cv-machine {
-  margin-bottom: 14px;
+  margin-bottom: var(--ds-space-4);
 }
 
 .cv-machine-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin: 0 0 4px;
-  padding: 0 6px;
+  gap: var(--ds-space-2);
+  margin: 0 0 var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--page-text-3);
@@ -453,7 +388,7 @@
 }
 
 .cv-machine-attention {
-  padding: 0 6px;
+  padding: 0 var(--ds-space-1);
   border-radius: 999px;
   background: color-mix(in srgb, var(--cv-warning) 18%, transparent);
   color: var(--cv-warning);
@@ -468,13 +403,13 @@
 
 .cv-row-button {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr) auto;
+  grid-template-columns: var(--ds-icon-12) minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
+  gap: var(--ds-space-2);
   inline-size: 100%;
-  padding: 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   text-align: start;
@@ -486,7 +421,7 @@
 
 .cv-row-button > .cv-state,
 .cv-row-button > .cv-pr {
-  margin-block-start: 4px;
+  margin-block-start: var(--ds-space-1);
 }
 
 .cv-pr-row .cv-row-button {
@@ -494,20 +429,20 @@
 }
 
 .cv-pr-row .cv-row-button > .cv-pr {
-  margin-block-start: 1px;
+  margin-block-start: 0;
 }
 
 .cv-row-main {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   min-width: 0;
 }
 
 .cv-row-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
 }
 
@@ -516,7 +451,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 
 .cv-row-machine,
@@ -544,7 +479,7 @@
 }
 
 .cv-row[data-compact] .cv-row-button {
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: var(--ds-icon-12) minmax(0, 1fr);
 }
 
 .cv-pr-row[data-compact] .cv-row-button {
@@ -559,7 +494,7 @@
 }
 
 .cv-row[data-compact] .cv-row-meta {
-  margin-block-start: 2px;
+  margin-block-start: var(--ds-space-1);
 }
 
 .cv-row[data-compact] .cv-row-task {
@@ -576,7 +511,7 @@
 .cv-row-sub {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
   flex-wrap: wrap;
 }
@@ -584,8 +519,8 @@
 .cv-row-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-block-start: 1px;
+  gap: var(--ds-space-2);
+  margin-block-start: 0;
 }
 
 .cv-ago {
@@ -600,10 +535,10 @@
 .cv-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 6px;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--cv-card-strong);
   color: var(--page-text-2);
   font-size: var(--text-caption);
@@ -614,7 +549,7 @@
 
 .cv-pr {
   font-variant-numeric: tabular-nums;
-  font-weight: 500;
+  font-weight: var(--weight-regular);
   color: var(--page-text);
 }
 
@@ -631,7 +566,7 @@
 .cv-owners {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 3px;
+  gap: var(--ds-space-1);
 }
 
 .cv-owner-name {
@@ -646,7 +581,7 @@
   /* Four columns side by side when they fit, two rows of two (or one column) when not. */
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   align-items: start;
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 
 .cv-board[data-placement="sidebar"],
@@ -658,7 +593,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 8px 6px;
+  padding: var(--ds-space-2) var(--ds-space-1);
   border-radius: var(--cv-radius);
   background: var(--cv-card);
 }
@@ -666,10 +601,10 @@
 .cv-column-head {
   display: flex;
   justify-content: space-between;
-  margin: 0 4px 6px;
+  margin: 0 var(--ds-space-2) var(--ds-space-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   letter-spacing: var(--text-detail--letter-spacing);
 }
 
@@ -683,7 +618,7 @@
 }
 
 .cv-column-empty {
-  margin: 4px;
+  margin: var(--ds-space-1) var(--ds-space-2);
   color: var(--page-text-3);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
@@ -692,12 +627,12 @@
 .cv-cards {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 
 .cv-cards .cv-row-button {
   background: var(--page-elevated);
-  box-shadow: 0 0 0 0.5px var(--page-separator);
+  box-shadow: 0 0 0 var(--cmux-hairline) var(--page-separator);
 }
 
 .cv-cards .cv-row-button:hover {
@@ -708,15 +643,15 @@
 .cv-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-2);
 }
 
 .cv-tile {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px;
+  gap: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--cv-radius);
   background: var(--cv-card);
 }
@@ -724,7 +659,7 @@
 .cv-tile-value {
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-title--letter-spacing);
 }
@@ -750,7 +685,7 @@
 
 .cv-table th,
 .cv-table td {
-  padding: 5px 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   text-align: start;
   border-block-end: 0.5px solid var(--page-separator);
   white-space: nowrap;
@@ -758,13 +693,13 @@
 
 .cv-table thead th {
   color: var(--page-text-3);
-  font-weight: 500;
+  font-weight: var(--weight-regular);
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .cv-host {
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 
 .cv-table tr[data-error] .cv-host {
@@ -784,7 +719,7 @@
   vertical-align: middle;
   inline-size: 48px;
   block-size: 4px;
-  margin-inline-end: 6px;
+  margin-inline-end: var(--ds-space-2);
   border-radius: 2px;
   background: var(--page-hover);
   overflow: hidden;
@@ -803,25 +738,25 @@
 .cv-setup {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-1);
   max-inline-size: 460px;
-  padding: 12px;
+  padding: var(--ds-space-3);
   border-radius: var(--cv-radius);
   background: var(--cv-card);
 }
 
 .cv-setup-title {
   margin: 0;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 
 .cv-setup .cv-note {
-  margin: 0 0 6px;
+  margin: 0 0 var(--ds-space-1);
 }
 
 .cv-setup-row {
   display: flex;
-  gap: 6px;
+  gap: var(--ds-space-2);
 }
 
 .cv-setup-row .cv-filter {
@@ -838,13 +773,13 @@
 
 .cv-event-button {
   display: grid;
-  grid-template-columns: 4.5em 14px minmax(0, 1fr);
+  grid-template-columns: 4.5em var(--ds-icon-14) minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: var(--ds-space-2);
   inline-size: 100%;
-  padding: 6px;
+  padding: var(--ds-space-1) var(--ds-space-2);
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   background: transparent;
   color: inherit;
   text-align: start;
@@ -867,14 +802,14 @@
   position: relative;
   display: flex;
   justify-content: center;
-  padding-block-start: 3px;
+  padding-block-start: var(--ds-space-1);
   align-self: stretch;
 }
 
 .cv-event-rail::after {
   content: "";
   position: absolute;
-  inset-block: 16px -6px;
+  inset-block: var(--ds-space-4) calc(-1 * var(--ds-space-1));
   inset-inline-start: 50%;
   inline-size: 0.5px;
   background: var(--page-separator);
@@ -887,7 +822,7 @@
 .cv-event-body {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   min-width: 0;
 }
 
@@ -910,13 +845,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
+  font-weight: var(--weight-regular);
 }
 
 .cv-event-detail {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
 }
 

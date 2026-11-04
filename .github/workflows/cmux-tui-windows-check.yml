@@ -4,12 +4,14 @@ name: cmux-tui Windows check
 # x86_64-pc-windows-gnu, cross-compiled on Linux. Two feat-cmux-next landings
 # broke the Windows build on 2026-10-08 and only the dispatch-only full-mode
 # cmux-tui.yml run (test (windows)) caught them hours later. This runs on every
-# push to feat-cmux-next and to its side branches (feat-cmux-next-*), so a
-# unix-only item is caught within minutes, before or right after it lands.
+# same-repository pull request into feat-cmux-next that touches cmux-tui, so a
+# unix-only item is caught within minutes, before it lands; the base push's
+# cmux-tui artifacts run builds the Windows daemon after it lands. It used to
+# run on pushes to feat-cmux-next-* side branches, which also started it for
+# side branches with no pull request (the 2026-10-27 push flood).
 on:
-  push:
-    branches:
-      - "feat-cmux-next-*"
+  pull_request:
+    branches: [feat-cmux-next]
     paths:
       - "cmux-tui/**"
       - "ghostty-next"
@@ -34,7 +36,10 @@ env:
 jobs:
   windows-gnu-check:
     name: cargo check (x86_64-pc-windows-gnu)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+    # Forks never ran this (it was push-only), so its runner pool stays
+    # for this repository's own branches.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -60,8 +65,8 @@ jobs:
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
 
-      - name: Fetch Ghostty Zig packages
-        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+      - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
+        uses: ./.github/actions/ghostty-zig-packages
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -69,8 +74,8 @@ jobs:
       - name: Install the Windows GNU Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      # One key per branch scope; feat-cmux-next side branches restore the
-      # trunk's cache and build incrementally.
+      # One key for every pull request; each restores the newest cache its
+      # scope can read and builds incrementally.
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:

@@ -6,13 +6,14 @@ public import Observation
 /// request for a Cloud machine), instead of a sheet over their work. `ask`
 /// shows its card in every window's sidebar, oldest first and one at a time,
 /// and returns true only for the card's prominent button; another button, the
-/// x, a cancelled caller or an asker that went away answer false. Only the card's own views send the
+/// x, a cancelled caller or an asker that went away answer false. `choose`
+/// returns which button it was (nil for the x and the rest). Only the card's own views send the
 /// answers (`SidebarIntent.noticeAction` / `dismissNotice`); no socket does.
 @MainActor @Observable
 public final class SidebarAsks {
     private struct Ask {
         var card: SidebarNoticeCard
-        var answer: CheckedContinuation<Bool, Never>
+        var answer: CheckedContinuation<String?, Never>
     }
 
     private var asks: [Ask] = []
@@ -26,6 +27,13 @@ public final class SidebarAsks {
     /// `asker` (an agent chat) is watched with `present` (observed): once the asker is gone, the
     /// card goes and the answer is false. An asker not present when asked (shown nowhere here) never expires it.
     public func ask(_ card: SidebarNoticeCard, asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
+        let chosen = await choose(card, asker: asker, present: present)
+        return card.actions.contains { $0.id == chosen && $0.prominent }
+    }
+
+    /// Shows `card` like ``ask(_:asker:present:)`` and returns the id of the button the person
+    /// clicked; nil for the x, a cancelled caller or an asker that went away.
+    public func choose(_ card: SidebarNoticeCard, asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> String? {
         var card = card
         card.awaitsAnswer = true
         let id = card.id
@@ -39,7 +47,7 @@ public final class SidebarAsks {
         defer { watch?.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { answer in
-                if Task.isCancelled { answer.resume(returning: false) } else { asks.append(Ask(card: card, answer: answer)) }
+                if Task.isCancelled { answer.resume(returning: nil) } else { asks.append(Ask(card: card, answer: answer)) }
             }
         } onCancel: {
             Task { @MainActor in self.answer(id, action: nil) }
@@ -60,7 +68,7 @@ public final class SidebarAsks {
     public func answer(_ id: String, action: String?) -> Bool {
         guard let index = asks.firstIndex(where: { $0.card.id == id }) else { return false }
         let ask = asks.remove(at: index)
-        ask.answer.resume(returning: ask.card.actions.contains { $0.id == action && $0.prominent })
+        ask.answer.resume(returning: action.flatMap { id in ask.card.actions.contains { $0.id == id } ? id : nil })
         return true
     }
 }

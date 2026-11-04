@@ -2,7 +2,8 @@
 // Titles live in HibernationActions.xcstrings.
 
 /// The words the App's workspace hibernation handlers show.
-public nonisolated enum WorkspaceHibernationActionStrings {
+public nonisolated struct WorkspaceHibernationActionStrings {
+    public nonisolated init() {}
     /// Keep Workspace Awake's title while the workspace may hibernate.
     public static var keepAwake: String {
         String(localized: "action.workspace.keepAwake", defaultValue: "Keep Workspace Awake", table: "HibernationActions", bundle: .module)

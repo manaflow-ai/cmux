@@ -200,5 +200,192 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(status, 2)
 
 
+class PaginationTests(unittest.TestCase):
+    """The gh quota shim refuses `gh api --paginate` (it can't be charged), so lists are read one
+    page per call, with an explicit per_page and a page cap that fails closed."""
+
+    def fake_gh(self, total):
+        calls = []
+
+        def gh(*args):
+            calls.append(args)
+            self.assertNotIn("--paginate", args)
+            query = dict(part.split("=", 1) for part in args[-1].split("?", 1)[1].split("&"))
+            self.assertEqual(query["per_page"], str(freeze.PER_PAGE))
+            start = (int(query["page"]) - 1) * freeze.PER_PAGE
+            return json.dumps([{"filename": f"f{i}"} for i in range(start, min(total, start + freeze.PER_PAGE))])
+        return gh, calls
+
+    def with_gh(self, gh):
+        original = freeze.gh
+        freeze.gh = gh
+        self.addCleanup(setattr, freeze, "gh", original)
+
+    def test_each_page_is_one_bounded_call_and_a_short_page_ends_the_list(self):
+        gh, calls = self.fake_gh(250)
+        self.with_gh(gh)
+        items = freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(items), 250)
+        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2, 3)])
+        gh, calls = self.fake_gh(3)
+        self.with_gh(gh)
+        freeze.gh_items("repos/x/y/issues?state=open&labels=merge-freeze")
+        self.assertEqual(calls[0][1], "repos/x/y/issues?state=open&labels=merge-freeze&per_page=100&page=1")
+
+    def test_a_list_past_the_page_cap_fails_closed(self):
+        gh, calls = self.fake_gh(freeze.PER_PAGE * freeze.MAX_PAGES)
+        self.with_gh(gh)
+        with self.assertRaisesRegex(ValueError, "more than 30 pages"):
+            freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
+
+    def test_a_changed_files_list_past_the_cap_is_status_2_not_clear(self):
+        endless, calls = self.fake_gh(10**6)
+
+        def gh(*args):  # one open (inactive) freeze, so the files are read; the PR's files never end
+            if "/issues?" in args[-1]:
+                return json.dumps([{**issue(body=body()), "user": {"login": "lawrence"}}])
+            if args[1] == "graphql":
+                return json.dumps({"data": {"repository": {"issue": {"lastEditedAt": None}}}})
+            if "/events?" in args[-1]:
+                return "[]"
+            return endless(*args)
+        self.with_gh(gh)
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            status = freeze.main(["check", "--repo", "x/y", "--pr", "1"])
+        self.assertEqual(status, 2)
+        self.assertIn("pulls/1/files has more than 30 pages", stderr.getvalue())
+        self.assertEqual(len(calls), freeze.MAX_PAGES)
+
+    def test_a_full_last_page_reads_one_empty_page_after_it(self):
+        gh, calls = self.fake_gh(freeze.PER_PAGE)
+        self.with_gh(gh)
+        items = freeze.gh_items("repos/x/y/pulls/1/files")
+        self.assertEqual(len(items), freeze.PER_PAGE)
+        self.assertEqual([c[1] for c in calls], [f"repos/x/y/pulls/1/files?per_page=100&page={n}" for n in (1, 2)])
+
+    def test_a_page_that_is_not_a_list_is_unreadable(self):
+        self.with_gh(lambda *args: json.dumps({"message": "refused"}))
+        with self.assertRaisesRegex(TypeError, "page 1 is not a list"):
+            freeze.gh_items("repos/x/y/pulls/1/files")
+
+    def test_the_script_never_asks_gh_to_paginate(self):
+        source = (ROOT / "scripts/ci/merge_freeze.py").read_text()
+        self.assertNotIn('"--paginate"', source)
+
+
+def rate_limited(*args):
+    import subprocess
+    raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: API rate limit exceeded for installation. (HTTP 403)")
+
+
+def node(raw):
+    """An issue as the GraphQL fallback returns it."""
+    return {"number": raw["number"], "title": raw["title"], "body": raw["body"], "state": "OPEN",
+            "createdAt": raw["created_at"], "author": {"login": raw["user"]["login"]},
+            "labels": {"nodes": raw["labels"]}}
+
+
+class SpentRestQuotaTests(unittest.TestCase):
+    """A spent REST quota never refuses a green PR's merge: the freeze list falls back to GraphQL,
+    and with no freeze open the check reads nothing else."""
+
+    def run_check(self, gh):
+        calls = []
+
+        def recording(*args):
+            calls.append(args)
+            return gh(*args)
+        original = freeze.gh
+        freeze.gh = recording
+        self.addCleanup(setattr, freeze, "gh", original)
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--base", "feat-cmux-next"])
+        return status, out.getvalue(), err.getvalue(), calls
+
+    @staticmethod
+    def issues_query(args):
+        return args[1] == "graphql" and any("issues(" in a for a in args)
+
+    @staticmethod
+    def graphql_answer(nodes, has_next=False):
+        return json.dumps({"data": {"repository": {"issues": {
+            "pageInfo": {"hasNextPage": has_next}, "nodes": nodes}}}})
+
+    def test_a_rate_limited_issue_list_falls_back_to_graphql_and_clears(self):
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                return rate_limited(*args)
+            if self.issues_query(args):
+                return self.graphql_answer([])
+            self.fail(f"unexpected read: {args}")
+        status, _, err, calls = self.run_check(gh)
+        self.assertEqual(status, 0, err)
+        query = next(c for c in calls if self.issues_query(c))
+        self.assertIn("owner=x", query)
+        self.assertIn("name=y", query)
+
+    def test_a_graphql_fallback_freeze_still_blocks(self):
+        frozen = issue(body=body())
+
+        def gh(*args):
+            target = args[1]
+            if target.startswith("repos/x/y/issues?"):
+                return rate_limited(*args)
+            if self.issues_query(args):
+                return self.graphql_answer([node(frozen)])
+            if target == "graphql":
+                return json.dumps({"data": {"repository": {"issue": {"lastEditedAt": None}}}})
+            if target.startswith("repos/x/y/issues/7/events?"):
+                return json.dumps([labeled("lawrence", name="merge-freeze")])
+            if target == "repos/x/y/collaborators/lawrence/permission":
+                return json.dumps({"role_name": "admin"})
+            if target.startswith("repos/x/y/pulls/1/files?"):
+                return json.dumps([{"filename": "cmux-tui/spec/x.json"}])
+            if target == "repos/x/y/pulls/1":
+                return json.dumps({"changed_files": 1})
+            if target.startswith("repos/x/y/issues/1/events?"):
+                return "[]"
+            self.fail(f"unexpected read: {args}")
+        status, out, err, _ = self.run_check(gh)
+        self.assertEqual(status, 1, err)
+        self.assertIn("#7", out)
+        self.assertIn("cmux-tui/spec/x.json", out)
+
+    def test_no_open_freeze_reads_no_files_or_events(self):
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                return "[]"
+            self.fail(f"unexpected read: {args}")
+        status, _, err, calls = self.run_check(gh)
+        self.assertEqual(status, 0, err)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_graphql_next_page_is_unreadable_not_clear(self):
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                return rate_limited(*args)
+            if self.issues_query(args):
+                return self.graphql_answer([], has_next=True)
+            self.fail(f"unexpected read: {args}")
+        status, _, err, calls = self.run_check(gh)
+        self.assertEqual(status, 2)
+        self.assertTrue(any(self.issues_query(c) for c in calls), "GraphQL fallback never ran")
+        self.assertIn("next page", err)
+
+    def test_a_failure_that_is_not_a_rate_limit_stays_status_2_without_graphql(self):
+        import subprocess
+
+        def gh(*args):
+            if args[1].startswith("repos/x/y/issues?"):
+                raise subprocess.CalledProcessError(1, ["gh", *args], stderr="gh: Not Found (HTTP 404)")
+            self.fail(f"unexpected read: {args}")
+        status, _, _, calls = self.run_check(gh)
+        self.assertEqual(status, 2)
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

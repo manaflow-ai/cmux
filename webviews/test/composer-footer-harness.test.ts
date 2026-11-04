@@ -79,6 +79,19 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   }
 
   for (const variant of ["footer-harness", "footer-harness-codex"] as const) {
+    test(`${variant}: the composer box keeps each look's grid contract`, async () => {
+      const page = await open(variant, 760);
+      const structure = await page.$eval(".acpmux-composer", (composer) => ({
+        look: composer.getAttribute("data-composer-look") ?? "claude",
+        inner: !!composer.querySelector(".acpmux-composer-box .acpmux-composer-inner"),
+        footer: !!composer.querySelector(".acpmux-composer-foot .acpmux-model"),
+      }));
+      await page.close();
+      expect(structure.footer).toBe(true);
+      // Both looks draw Claude's grid (composerLook.ts).
+      expect(structure.inner).toBe(true);
+    });
+
     test(`${variant}: the quiet row has no harness label`, async () => {
       const page = await open(variant, 760);
       const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
@@ -94,11 +107,12 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   test("a new chat opens the harness-only rail from the model picker", async () => {
     const page = await open("footer-harness-new-chat", 760);
     await page.keyboard.press("Escape");
-    await page.waitForSelector(".acpmux-quick-menu", { state: "detached", timeout: 5_000 });
+    await page.waitForSelector(".acpmux-cols", { state: "detached", timeout: 5_000 });
     expect(await page.locator(".acpmux-composer-foot .acpmux-foot-harness").count()).toBe(0);
     await page.click(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
-    await page.waitForSelector(".acpmux-quick-menu", { timeout: 5_000 });
-    const rail = await page.$$eval(".acpmux-quick-menu .acpmux-quick-rail-tab[aria-label]", (tabs) =>
+    // A new chat's menu has a rail, so the button opens the columns.
+    await page.waitForSelector(".acpmux-cols", { timeout: 5_000 });
+    const rail = await page.$$eval(".acpmux-cols .acpmux-cols-tab[aria-label]", (tabs) =>
       tabs.map((tab) => tab.getAttribute("aria-label")),
     );
     expect(rail).toContain("Claude Code");
@@ -114,7 +128,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
     const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
       harness: element.querySelectorAll(".acpmux-foot-harness").length,
       modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
-      text: element.textContent?.trim(),
+      text: element.querySelector(".acpmux-add-harness")?.textContent?.trim(),
     }));
     expect(foot).toEqual({ harness: 0, modes: 0, text: "Add harness" });
     await page.close();

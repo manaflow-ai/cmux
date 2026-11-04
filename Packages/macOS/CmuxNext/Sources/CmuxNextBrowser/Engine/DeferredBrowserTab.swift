@@ -4,9 +4,10 @@ public import Observation
 
 /// A browser tab whose page is not started yet: the address bar shows the
 /// recorded URL and nothing loads until the user reloads (or navigates),
-/// which asks the host (`onStart`) to replace it with a real page. Used
-/// when cmux restarts after quitting unexpectedly twice in a row, so a page
-/// that takes the app down cannot do it again on every launch.
+/// which asks the host (`onStart`) to replace it with a real page. Used for
+/// a page that was loading when cmux quit unexpectedly twice in a row (so it
+/// cannot take the app down on every launch) and for a Chromium tab while
+/// Chromium cannot start.
 @Observable
 public final class DeferredBrowserTab: BrowserTab {
     public let id: BrowserTabID

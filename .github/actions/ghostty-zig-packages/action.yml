@@ -1,0 +1,62 @@
+name: Ghostty Zig packages
+description: >-
+  Hydrate Zig's packages for a Ghostty source with as little network as possible: none when
+  every package is already on the machine (a mini's persistent cache), else the cache store
+  (keyed by every build.zig.zon of the source), else the deadlined, retried download in
+  scripts/ci/fetch-ghostty-zig-packages.sh. Only a push saves what it fetched (never a pull request or pull_request_target run).
+
+inputs:
+  source:
+    description: The Ghostty source directory.
+    required: false
+    default: ghostty-next
+
+runs:
+  using: composite
+  steps:
+    # Zig's own default (ZIG_GLOBAL_CACHE_DIR, else %LOCALAPPDATA%\zig on Windows, else
+    # $XDG_CACHE_HOME/zig or ~/.cache/zig), so the build after this reads the same place.
+    # `present` is true when every hashed package of the source's build.zig.zon files is
+    # already unpacked (zig-pkg/<hash>, Zig 0.16) or archived (<cache>/p/<hash>[.tar.gz]).
+    - name: Find the Zig package cache
+      id: probe
+      shell: bash
+      env:
+        SOURCE: ${{ inputs.source }}
+      run: |
+        set -euo pipefail
+        dir="${ZIG_GLOBAL_CACHE_DIR:-}"
+        if [[ -z "$dir" ]]; then
+          if [[ "$RUNNER_OS" == Windows ]]; then dir="$LOCALAPPDATA\\zig"; else dir="${XDG_CACHE_HOME:-$HOME/.cache}/zig"; fi
+        fi
+        hashes="$(find "$SOURCE" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print0 \
+          | xargs -0 grep -ho '\.hash *= *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u)"
+        present=true missing=0
+        for hash in $hashes; do
+          if [[ ! -e "$SOURCE/zig-pkg/$hash" && ! -e "$dir/p/$hash" && ! -e "$dir/p/$hash.tar.gz" ]]; then
+            present=false; missing=$((missing + 1))
+          fi
+        done
+        echo "Zig packages: $(wc -w <<<"$hashes" | tr -d ' ') hashed, $missing not on this machine (cache $dir)"
+        { echo "dir=$dir"; echo "present=$present"; echo "zig=$("${CMUX_ZIG:-zig}" version)"; } >> "$GITHUB_OUTPUT"
+
+    - name: Restore the Zig packages
+      id: restore
+      if: ${{ steps.probe.outputs.present != 'true' }}
+      uses: ./.github/actions/cache-restore
+      with:
+        path: ${{ steps.probe.outputs.dir }}/p
+        key: ghostty-zig-packages-v1-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}
+
+    # On a restore or a machine that has them, Zig unpacks from <cache>/p with no download.
+    - name: Fetch the Zig packages (deadlined, retried)
+      shell: bash
+      run: ./scripts/ci/fetch-ghostty-zig-packages.sh "${{ inputs.source }}"
+
+    - name: Save the Zig packages
+      if: ${{ steps.probe.outputs.present != 'true' && steps.restore.outputs.cache-hit != 'true' && github.event_name == 'push' }}
+      continue-on-error: true
+      uses: ./.github/actions/cache-save
+      with:
+        path: ${{ steps.probe.outputs.dir }}/p
+        key: ghostty-zig-packages-v1-${{ runner.os }}-zig${{ steps.probe.outputs.zig }}-${{ hashFiles(format('{0}/**/build.zig.zon', inputs.source), format('!{0}/zig-pkg/**', inputs.source)) }}

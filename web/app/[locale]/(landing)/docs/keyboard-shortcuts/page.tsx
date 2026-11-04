@@ -52,6 +52,7 @@ export default function KeyboardShortcutsPage() {
       <ul>
         <li>{t("chordsRuleSingle")}</li>
         <li>{t("chordsRuleArray")}</li>
+        <li>{t("chordsRuleAny")}</li>
         <li>{t("chordsRuleSyntax")}</li>
       </ul>
 
@@ -65,6 +66,7 @@ export default function KeyboardShortcutsPage() {
       </ul>
       <p>{t("presetsApply")}</p>
       <Callout type="info">{t("presetsPreserve")}</Callout>
+      <p>{t("presetsDetection")}</p>
 
       <KeyboardShortcuts />
     </>

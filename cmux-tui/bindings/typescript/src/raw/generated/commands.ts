@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e6661334b6d20f300c49059740a6892b48e7c6c773fef091543291b5b518022. */
+/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
 
 
 import type * as T from "./types.js";
@@ -231,6 +231,18 @@ export type ChiefInspectResult = {
   "body"?: (T.JsonValue) | null;
   "error"?: (string) | null;
   "status": bigint;
+};
+
+/** Protocol v12; authority: frontend. */
+export interface ChiefWorkRequest extends CmuxRequestBase {
+  cmd: "chief-work";
+  "chief": string;
+}
+export type ChiefWorkResult = {
+  "agents": Array<T.ChiefWorkAgent>;
+  "taskSources": Array<string>;
+  "tasks": Array<T.ChiefWorkTask>;
+  "truncated": boolean;
 };
 
 /** Protocol v9; authority: control. */
@@ -522,6 +534,16 @@ export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
 export type CloudConversationUnsubscribeResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface CloudEnvironmentRequest extends CmuxRequestBase {
+  cmd: "cloud-environment";
+  "access_token": string;
+  "action": string;
+  "params": (T.JsonValue) | null;
+  "platform_origin": string;
+}
+export type CloudEnvironmentResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface CloudHostReplicaClearRequest extends CmuxRequestBase {
   cmd: "cloud-host-replica-clear";
   "purge"?: boolean;
@@ -548,6 +570,7 @@ export type CloudHostReplicaStatusResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface CloudInboxListRequest extends CmuxRequestBase {
   cmd: "cloud-inbox-list";
+  "cursor"?: (string) | null;
   "include_archived"?: boolean;
   "limit"?: (number) | null;
 }
@@ -884,6 +907,7 @@ export type ConversationRunAppendResult = {
 /** Protocol v12; authority: local-admin. */
 export interface ConversationRunsRequest extends CmuxRequestBase {
   cmd: "conversation-runs";
+  "answers"?: (Array<string>) | null;
   "before_started_at"?: (bigint) | null;
   "conversation": string;
   "limit"?: (number) | null;
@@ -1608,6 +1632,7 @@ export interface MoveTabToColumnRequest extends CmuxRequestBase {
   "dock"?: (T.ColumnPin) | null;
   "keep_focus"?: boolean;
   "pane"?: (T.Id) | null;
+  "pane_id"?: (string) | null;
   "respawn"?: (T.SplitRespawn) | null;
   "screen"?: (T.Id) | null;
   "surface": T.Id;
@@ -1748,6 +1773,8 @@ export interface NewFrontendBrowserTabRequest extends CmuxRequestBase {
   "pane"?: (T.Id) | null;
   "profile_id"?: (string) | null;
   "rows"?: (number) | null;
+  /** With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after. */
+  "split"?: (T.ConversationTabSplit) | null;
   "title"?: (string) | null;
   "url": string;
 }
@@ -1781,6 +1808,7 @@ export interface NewPaneRightRequest extends CmuxRequestBase {
   "pane_id"?: (string) | null;
   "rows"?: (number) | null;
   "shell_args"?: (Array<string>) | null;
+  "side"?: (T.ColumnSide) | null;
   "tab_id"?: (string) | null;
   "terminal_id"?: (string) | null;
   "url"?: (string) | null;
@@ -2282,6 +2310,16 @@ export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
 }
+
+/** Protocol v12; authority: frontend. */
+export interface SetAttachVisibilityRequest extends CmuxRequestBase {
+  cmd: "set-attach-visibility";
+  "surface": T.Id;
+  "visible": boolean;
+}
+export type SetAttachVisibilityResult = {
+  "viewers": number;
+};
 
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
@@ -2907,6 +2945,7 @@ export type CmuxRequest =
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | ChiefInspectRequest
+  | ChiefWorkRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
@@ -2933,6 +2972,7 @@ export type CmuxRequest =
   | CloudConversationThreadRequest
   | CloudConversationTypingRequest
   | CloudConversationUnsubscribeRequest
+  | CloudEnvironmentRequest
   | CloudHostReplicaClearRequest
   | CloudHostReplicaSetRequest
   | CloudHostReplicaStatusRequest
@@ -3108,6 +3148,7 @@ export type CmuxRequest =
   | SendRequest
   | SendKeyRequest
   | ServerStatsRequest
+  | SetAttachVisibilityRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -3343,6 +3384,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "chief-inspect-v1";
     stream: null;
   };
+  "chief-work": {
+    request: ChiefWorkRequest;
+    result: ChiefWorkResult;
+    authority: "frontend";
+    since: 12;
+    capability: "chief-work-v1";
+    stream: null;
+  };
   "clear-history": {
     request: ClearHistoryRequest;
     result: ClearHistoryResult;
@@ -3549,6 +3598,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "cloud-conversations-v1";
+    stream: null;
+  };
+  "cloud-environment": {
+    request: CloudEnvironmentRequest;
+    result: CloudEnvironmentResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "cloud-environments-v1";
     stream: null;
   };
   "cloud-host-replica-clear": {
@@ -4949,6 +5006,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "set-attach-visibility": {
+    request: SetAttachVisibilityRequest;
+    result: SetAttachVisibilityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-visibility-v1";
     stream: null;
   };
   "set-cell-pixels": {

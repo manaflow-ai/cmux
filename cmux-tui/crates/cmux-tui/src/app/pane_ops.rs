@@ -131,7 +131,7 @@ impl App {
         let Some(hint) = self.tree.active_screen().and_then(|screen| {
             let mut panes = Vec::new();
             screen.layout.pane_ids(&mut panes);
-            let mut local_area = self.content_area;
+            let mut local_area = self.active_frame_area();
             if !screen.viewport_splits.is_empty() {
                 let owner = screen.layout.viewport_column_owner(pane, &screen.viewport_splits)?;
                 panes.retain(|candidate| {
@@ -145,7 +145,7 @@ impl App {
                     }
                 };
                 local_area.width =
-                    ((f32::from(self.content_area.width) * width).round() as u16).max(1);
+                    ((f32::from(self.active_frame_area().width) * width).round() as u16).max(1);
             }
             panes.push(PaneId::MAX);
             let layout = zellij_default_pane_layout(&panes)?;
@@ -176,10 +176,10 @@ impl App {
         let Some(pane) = pane.or_else(|| self.active_pane()) else {
             return Ok(());
         };
-        let width = ((f32::from(self.content_area.width) * DEFAULT_VIEWPORT_PANE_WIDTH).round()
-            as u16)
-            .clamp(1, self.content_area.width.max(1));
-        let rect = Rect { width, ..self.content_area };
+        let width = ((f32::from(self.active_frame_area().width) * DEFAULT_VIEWPORT_PANE_WIDTH)
+            .round() as u16)
+            .clamp(1, self.active_frame_area().width.max(1));
+        let rect = Rect { width, ..self.active_frame_area() };
         let hint = self.size_of_rect(rect);
         if self.prepare_pty_input_before_mutation() {
             let selector_candidates =

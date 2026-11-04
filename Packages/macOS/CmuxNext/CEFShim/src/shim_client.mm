@@ -8,7 +8,8 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_resource_request_handler.h"
-#include "command_line_switches.h"
+#include "command_line_apply.h"
+#include "artifact_page.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
@@ -71,6 +72,7 @@
     case CMUX_SHIM_PAGE_RESOURCE:
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
+    case CMUX_SHIM_STATUS_MESSAGE:
       return true;
   }
   return false;
@@ -97,18 +99,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     if (!process_type.empty()) {
       return;
     }
-    for (const std::string& entry : switches_) {
-      size_t eq = entry.find('=');
-      if (eq == std::string::npos) {
-        command_line->AppendSwitch(entry);
-      } else {
-        const std::string name = entry.substr(0, eq);
-        std::string value = entry.substr(eq + 1);
-        if (IsFeatureListSwitch(name) && command_line->HasSwitch(name)) {
-          value = MergeFeatureList(command_line->GetSwitchValue(name).ToString(), value);
-        }
-        command_line->AppendSwitchWithValue(name, value);
-      }
+    for (const std::string& name : ApplySwitches(command_line, switches_)) {
+      NSLog(@"cmux: Chromium switch refused (weakens the sandbox): %s", name.c_str());
     }
   }
 
@@ -163,6 +155,17 @@ std::string RequestDocumentURL(CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> 
     frame = frame->GetParent();
   }
   return std::string();
+}
+
+// Inspect the whole ancestry: blank/srcdoc children cannot shed the offline
+// document's restrictions by inheriting an ancestor's ordinary page URL.
+bool RestrictedArtifactFrame(CefRefPtr<CefFrame> frame) {
+  while (frame) {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (ArtifactContextRestricted(frame->GetURL().ToString(), parent ? parent->GetURL().ToString() : "")) return true;
+    frame = parent;
+  }
+  return false;
 }
 
 class Client : public CefClient,
@@ -282,6 +285,10 @@ class Client : public CefClient,
   // tab in the other store with the same URL.
   bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
                       bool user_gesture, bool is_redirect) override {
+    CefRefPtr<CefFrame> parent = frame->GetParent();
+    if (RestrictedArtifactFrame(frame) ||
+        ArtifactNavigationRefused(frame->IsMain(), frame->GetURL().ToString(),
+                                  parent ? parent->GetURL().ToString() : "", request->GetURL().ToString())) return true;
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
     std::string url = request->GetURL().ToString();
@@ -311,6 +318,12 @@ class Client : public CefClient,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     const std::string url = request->GetURL().ToString();
+    const auto type = request->GetResourceType();
+    if (RestrictedArtifactFrame(frame) &&
+        !ArtifactResourceAllowed(url, type == RT_IMAGE || type == RT_MEDIA || type == RT_FONT_RESOURCE)) {
+      static CefRefPtr<CefResourceRequestHandler> refusal = new LocalFileRefusal();
+      return refusal;
+    }
     // A request with no frame (a worker, a CefURLRequest) has no folder to
     // judge it by: its file: loads are refused.
     if (LocalFileSchemeURL(url) && request->GetResourceType() != RT_MAIN_FRAME &&
@@ -503,6 +516,8 @@ class Client : public CefClient,
     // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
+    // A popup's tab draws its hovered link in cmux too (cmux_shim_create_window).
+    settings.chrome_status_bubble = STATE_DISABLED;
     RememberPopup(browser->GetIdentifier(), popup_id, target_url.ToString(), disposition, user_gesture, features);
     Emit(CMUX_SHIM_POPUP, browser->GetIdentifier(), 0, disposition, user_gesture ? 1 : 0, target_url.ToString());
     return false;
@@ -515,11 +530,11 @@ class Client : public CefClient,
   }
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
-                             CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
+                             CefBrowserSettings& settings, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
     // Every DevTools of this page (ShowDevTools, Chromium's DevTools
     // commands, the context menu's Inspect) gets its own client, so it is
     // never adopted as a tab and never reports this page's URL or title.
-    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);
+    PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, settings, use_default_window);
   }
 
   bool DoClose(CefRefPtr<CefBrowser> browser) override {
@@ -536,6 +551,7 @@ class Client : public CefClient,
     TakeUnresponsiveCallback(id);
     DropBeforeUnload(id);
     CancelFileDialogs(id);
+    ForgetFileDialogRoute(id);
     TakeHostClose(id);
     ForgetNavigationGuard(id);
     ForgetCertificateState(id);
@@ -562,6 +578,13 @@ class Client : public CefClient,
 
   void OnFaviconURLChange(CefRefPtr<CefBrowser> browser, const std::vector<CefString>& urls) override {
     Emit(CMUX_SHIM_FAVICON, browser->GetIdentifier(), 0, 0, 0, urls.empty() ? "" : urls.front().ToString());
+  }
+
+  // The hovered link (or a page's status text); "" when the pointer left it.
+  // Chrome's own bubble is off (chrome_status_bubble), so cmux draws this in
+  // the page area of the tab's pane.
+  void OnStatusMessage(CefRefPtr<CefBrowser> browser, const CefString& value) override {
+    Emit(CMUX_SHIM_STATUS_MESSAGE, browser->GetIdentifier(), 0, 0, 0, value.ToString());
   }
 
   void OnFullscreenModeChange(CefRefPtr<CefBrowser> browser, bool fullscreen) override {

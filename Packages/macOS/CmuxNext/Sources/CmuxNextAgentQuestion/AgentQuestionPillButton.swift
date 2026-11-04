@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// A capsule button in theme grays: the primary one fills with the text
 /// color and inverts its label (no accent color), the secondary one is a
 /// quiet hover fill.
-final class AgentQuestionPillButton: NSButton {
+final class AgentQuestionPillButton: ClickableButton {
     var isPrimary = false { didSet { applyColors() } }
 
     override init(frame: NSRect) {

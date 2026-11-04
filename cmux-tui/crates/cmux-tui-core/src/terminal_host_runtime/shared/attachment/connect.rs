@@ -246,7 +246,15 @@ pub(crate) fn connect_record_at_version(
         }
     }
     let snapshot_size = (snapshot.cols, snapshot.rows);
-    stream.set_read_timeout(None)?;
+    match stream.set_read_timeout(None) {
+        Ok(()) => {}
+        // macOS fails setsockopt with EINVAL once the host closed the link
+        // (a host that ended right after its Ready). The link is dead either
+        // way: the viewer release below or the reader then reads its end, as
+        // on Linux, instead of an "Invalid argument" from the timeout.
+        Err(error) if error.raw_os_error() == Some(libc::EINVAL) => {}
+        Err(error) => return Err(error.into()),
+    }
     // Keep bounded writes for the lifetime of the disposable admin
     // mirror. A stopped or wedged host must not block a mux/control thread
     // forever while it sends input, mouse, resize, or Terminate. Reads are

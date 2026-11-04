@@ -49,13 +49,15 @@ if path.endswith("/logs"):
 if "/jobs?" in path:
     if state.get("jobs_error"):
         print("HTTP 403", file=sys.stderr); sys.exit(1)
-    for page in state["jobs_pages"]:
-        for job in page:
-            print(json.dumps(job))
+    assert "--paginate" not in args and "per_page=100" in path, args
+    # Every job fits on the first page of 100; a later page is empty.
+    jobs = [job for page in state["jobs_pages"] for job in page]
+    print(json.dumps({"total_count": len(jobs), "jobs": jobs if path.endswith("page=1") else []}))
     sys.exit(0)
 if "/artifacts?" in path:
-    for artifact in state.get("artifacts", []):
-        print(json.dumps(artifact))
+    assert "--paginate" not in args and "per_page=100" in path, args
+    artifacts = state.get("artifacts", [])
+    print(json.dumps({"total_count": len(artifacts), "artifacts": artifacts if path.endswith("page=1") else []}))
     sys.exit(0)
 run = path.rsplit("/", 1)[1]
 if run not in state["runs"]:
@@ -162,8 +164,9 @@ class CommandTests(unittest.TestCase):
         self.assertIn(["run", "rerun", "12", "--repo", "o/r"], calls)
         self.assertIn(["api", "-X", "DELETE", "repos/o/r/actions/artifacts/31"], calls)
         self.assertFalse(any(c[:3] == ["run", "rerun", "13"] for c in calls))
-        lists = [c for c in calls if c[:2] == ["api", "--paginate"]]
-        self.assertEqual(len(lists), 2, "jobs and artifacts are read with --paginate")
+        lists = [c for c in calls if c[0] == "api" and c[-1].endswith("per_page=100&page=1")]
+        self.assertEqual(len(lists), 2, "jobs and artifacts are read one bounded page per call")
+        self.assertFalse(any("--paginate" in c for c in calls))
 
     def test_quota_only_owner_hands_nothing_off(self):
         state = {"jobs_pages": [[job(2, "publish to R2", "failure", "Upload to R2")]],

@@ -621,6 +621,9 @@ mod unix {
                 command.env(key, value);
             }
         }
+        for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
+            command.env_remove(key);
+        }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }

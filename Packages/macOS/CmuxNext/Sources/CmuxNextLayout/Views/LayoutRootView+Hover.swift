@@ -15,8 +15,9 @@ extension LayoutRootView {
 
     /// Recomputes divider hover now, after something outside the layout
     /// moved what lies under the pointer (the catcher panels moved, a panel
-    /// above closed).
+    /// above closed): the window server is asked again what is on top there.
     public func refreshDividerHover() {
+        context.invalidateHoverTopmost()
         for view in screenViews.values where !view.isHidden { view.refreshDividerHover() }
     }
 

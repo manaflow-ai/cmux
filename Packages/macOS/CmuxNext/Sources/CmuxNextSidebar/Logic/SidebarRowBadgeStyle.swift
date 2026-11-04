@@ -38,7 +38,8 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 /// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): an error
 /// (red), else needs you (orange), else Ready, the blue done dot (unread, done), else Working, the
 /// one spinner (Lawrence msg 11983). `items` then holds at most one state; `unreadCount` and
-/// `pending` keep what the tooltip lists.
+/// `pending` keep what the tooltip lists. A program opts its row in to the finer icons with an
+/// OSC 7501 report (`SidebarWorkspace.activityFromProgram`, Lawrence msg 1351).
 nonisolated struct WorkspaceRowBadges: Equatable {
     var items: [StatusIndicatorState]
     /// Every pending item, detailed, for the tooltip.

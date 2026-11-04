@@ -43,6 +43,11 @@ nonisolated enum AgentChatMenuActionCatalog: ActionCatalogGroup {
             chat("agentPane.moveToFloatingChat", "action.agentPane.moveToFloatingChat", "Move Chat to Floating Chat",
                  ["agent", "chat", "floating", "float", "detach", "panel", "window"],
                  "rectangle.inset.filled.and.person.filled" , cli: "agent move-to-floating-chat"),
+            // The failed last turn's way on, as its error card's lead button (Continue when the
+            // turn did work, Retry when nothing ran; Lawrence 2026-10-29).
+            chat("agentPane.continueAfterError", "action.agentPane.continueAfterError", "Continue After Error",
+                 ["agent", "chat", "continue", "retry", "try again", "resume", "error", "failed", "rate limit", "capacity"],
+                 "arrow.clockwise", cli: "agent continue-after-error"),
             chat("agentPane.toggleMinimap", "action.agentPane.toggleMinimap", "Toggle Thread Minimap",
                  ["agent", "chat", "thread", "minimap", "rail", "prompts", "navigation", "map"],
                  "sidebar.left", cli: "agent toggle-minimap"),

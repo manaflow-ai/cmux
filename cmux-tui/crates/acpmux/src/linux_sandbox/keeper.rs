@@ -134,6 +134,10 @@ struct Options {
     paths: Paths,
     proxy_port: u16,
     api: Option<SocketAddr>,
+    /// Claude's API port on another host (`--api-remote-port`): the proxy
+    /// lets that port through to non-loopback addresses, as Seatbelt does on
+    /// macOS. No listener is made for it.
+    api_remote: Option<u16>,
     program: String,
     args: Vec<String>,
 }
@@ -155,7 +159,7 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     }
     let end = args.iter().position(|s| s == "--").ok_or("missing --")?;
     let mut values = BTreeMap::new();
-    let mut input = args[..end].iter();
+    let mut input = args.get(..end).unwrap_or_default().iter();
     while let Some(flag) = input.next() {
         let value = match flag.as_str() {
             "--api-loopback-v4" | "--api-loopback-v6" => "",
@@ -165,7 +169,10 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
             | "--claude-tmp-project"
             | "--claude-project"
             | "--proxy-port"
-            | "--api-port" => input.next().ok_or_else(|| format!("missing value for {flag}"))?,
+            | "--api-port"
+            | "--api-remote-port" => {
+                input.next().ok_or_else(|| format!("missing value for {flag}"))?
+            }
             _ => return Err(format!("unknown option: {flag}")),
         };
         if values.insert(flag.as_str(), value).is_some() {
@@ -191,6 +198,12 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
     if (v4 && v6) || api_port.is_some() != (v4 || v6) || api_port == Some(proxy_port) {
         return Err("API needs one loopback family and a port distinct from the proxy".into());
     }
+    let api_remote = values.get("--api-remote-port").map(|v| port(v)).transpose()?;
+    if api_remote.is_some() && (api_port.is_some() || api_remote == Some(proxy_port)) {
+        return Err(
+            "a remote API port excludes a loopback one and must differ from the proxy".into()
+        );
+    }
     let program = args.get(end + 1).ok_or("missing program after --")?;
     absolute(program)?;
     Ok(Options {
@@ -203,8 +216,9 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         },
         proxy_port,
         api: api_port.map(|p| SocketAddr::new(Ipv4Addr::LOCALHOST.into(), p)),
+        api_remote,
         program: program.clone(),
-        args: args[end + 2..].to_vec(),
+        args: args.get(end + 2..).unwrap_or_default().to_vec(),
     })
 }
 fn validate_handoff_with_notify(
@@ -385,7 +399,9 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
     while bytes.len() < 1024 {
         let mut chunk = [0u8; 1024];
         let mut ready = socket.readable().await.map_err(|e| e.to_string())?;
-        let result = ready.try_io(|s| recv_chunk(s.as_raw_fd(), &mut chunk[..1024 - bytes.len()]));
+        let result = ready.try_io(|s| {
+            recv_chunk(s.as_raw_fd(), chunk.get_mut(..1024 - bytes.len()).unwrap_or_default())
+        });
         let (n, received) = match result {
             Err(_) => continue,
             Ok(result) => result.map_err(|e| e.to_string())?,
@@ -394,7 +410,7 @@ async fn handoff(socket: &AsyncFd<UnixStream>) -> Result<(Vec<u8>, Vec<OwnedFd>)
         if n == 0 || fds.len() > 3 {
             return Err("handoff EOF or excess descriptors".into());
         }
-        bytes.extend_from_slice(&chunk[..n]);
+        bytes.extend_from_slice(chunk.get(..n).unwrap_or_default());
         if bytes.contains(&b'\n') {
             return Ok((bytes, fds));
         }
@@ -556,7 +572,7 @@ async fn session(
     let supervisor = SupervisorHandle::start(notify, policy)?;
     let stop = CancellationToken::new();
     let mut services = JoinSet::new();
-    let policy = proxy::NetPolicy { api: options.api.map(|a| (a.port(), true)) };
+    let policy = net_policy(options);
     start_service(
         &mut services,
         proxy::serve_proxy(listeners.next().ok_or("missing proxy listener")?, policy, stop.clone()),
@@ -596,6 +612,14 @@ async fn session(
         (Err(error), _) => Err(error),
         (Ok(code), Ok(_)) => Ok(code),
         (Ok(_), Err(error)) => Err(error),
+    }
+}
+
+/// The proxy's port policy: the loopback API port (served by the forwarder),
+/// else a remote API port, else 80/443 only.
+fn net_policy(options: &Options) -> proxy::NetPolicy {
+    proxy::NetPolicy {
+        api: options.api.map(|a| (a.port(), true)).or(options.api_remote.map(|p| (p, false))),
     }
 }
 
@@ -854,6 +878,27 @@ mod tests {
         assert_eq!(options.api, Some("127.0.0.1:31415".parse().unwrap()));
         assert!(parse(argv(&["--api-port", "31415", "--api-loopback-v6"])).is_err());
         assert!(parse(argv(&["--bwrap", "/opt/bwrap"])).is_err());
+    }
+    /// A non-loopback API port (a tailnet router such as sr2 :4016) is
+    /// reachable through the proxy; loopback on that port stays shut.
+    #[test]
+    fn remote_api_port_opens_only_that_port_off_loopback() {
+        let options = parse(argv(&["--api-remote-port", "4016"])).unwrap();
+        assert_eq!(options.api, None);
+        let policy = net_policy(&options);
+        assert!(proxy::allowed(&policy, "100.120.48.119:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "127.0.0.1:4016".parse().unwrap()));
+        assert!(!proxy::allowed(&policy, "100.120.48.119:4017".parse().unwrap()));
+        let closed = net_policy(&parse(argv(&[])).unwrap());
+        assert!(!proxy::allowed(&closed, "100.120.48.119:4016".parse().unwrap()));
+        for bad in [
+            vec!["--api-remote-port", "0"],
+            vec!["--api-remote-port", "3128"],
+            vec!["--api-remote-port", "4016", "--api-remote-port", "4016"],
+            vec!["--api-remote-port", "4016", "--api-port", "31415", "--api-loopback-v4"],
+        ] {
+            assert!(parse(argv(&bad)).is_err(), "{bad:?}");
+        }
     }
     #[test]
     fn options_refuse_missing_duplicate_and_unknown_flags() {

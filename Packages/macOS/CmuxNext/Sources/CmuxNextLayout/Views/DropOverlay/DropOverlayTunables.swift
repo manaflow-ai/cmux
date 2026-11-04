@@ -132,16 +132,18 @@ public nonisolated enum LayoutTunables {
     /// Opt-in motion prototypes; this changes presentation only and requires pane animations to be enabled.
     public static let paneMotionVariant = Tunable<PaneMotionVariant>.choice(
         "motion.pane.variant", .springs, "Pane close and expand",
-        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Content resizes live on every frame (Hold content size in pane motion keeps it at the larger size instead); Reduce Motion still snaps.",
+        help: "Compare current pane close/expand movement with a faster crisp preset or a small soft landing bump. Enable Pane Animations first. Pane chrome resizes live on every frame; Reduce Motion still snaps.",
         default: .standard, code: "LayoutTunables.paneMotionVariant")
-    // @intent live resize (Lawrence 2026-10-23): on every frame of a split, close, column or zoom each
-    // terminal and page shows its content at exactly that frame's size, no frozen content, no
-    // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
-    // (content keeps the larger of its starting and final size until the spring lands) to compare.
-    public static let holdsContentInMotion = Tunable<Bool>.toggle(
-        "motion.pane.holdContent", .springs, "Hold content size in pane motion",
-        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (default): content resizes live on every frame.",
-        default: false, code: "LayoutTunables.holdsContentInMotion")
+    // @intent FRAME OWNER REFACTOR S3 (the rule: the shell color never shows inside a pane rect, in any frame): on, a key
+    // resize's containers (each terminal's host, a browser's chrome) follow their pane in every frame and only the
+    // producer (the terminal surface, the page) keeps its size, fixed at the pane edge that does not move; a closing pane
+    // keeps its own ground, read once at the close, and shrinks on its neighbours' spring. Read when each hold or close
+    // begins (a flip applies from the next motion). A kill switch only: it goes, with the off path, after the first
+    // FEAT DOGFOOD BUILD gate passes with it on. Read in PaneHostView (each key hold) and LayoutViewContext.retire.
+    public static let frameOwnerContentPolicy = Tunable<Bool>.toggle(
+        "motion.frameOwner.contentPolicy", .springs, "One content policy (frame owner S3)",
+        help: "On: in a keyboard resize each terminal host and browser chrome follows its pane in every frame and only the terminal surface or page keeps its size; a closing pane shows its own ground and shrinks with its neighbours. Off: the content area holds its terminal or page whole, and a closing pane goes at once.",
+        default: true, code: "LayoutTunables.frameOwnerContentPolicy")
     public static let prototypeDockEdge = Tunable<LayoutPrototypeDockEdge>.choice(
         "layout.prototype.dockEdge", .panes, "Prototype dock edge", help: "Frame prototype: the edge the right docked column sits on.",
         default: .bottom, code: "LayoutTunables.prototypeDockEdge")
@@ -156,9 +158,17 @@ public nonisolated enum LayoutTunables {
         help: "Frame prototype: pinned or overlay for docks drawn from plain columns (real docked columns keep their own mode).",
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
+    /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): a window frames whole workspaces at its edges
+    /// around the stage the sidebar switches. Off (the default): the actions refuse with this reason and no window
+    /// record gets docks.
+    public static let dockedWorkspaces = Tunable<Bool>.toggle(
+        "window.dockedWorkspaces", .sidebar, "Docked workspaces (window frame prototype)",
+        help: "Dock a whole workspace to a window edge: it stays while the sidebar switches the workspace in the middle. Palette: Dock Workspace Left, Toggle Bottom Dock, Float Docked Workspace.",
+        default: false, code: "LayoutTunables.dockedWorkspaces")
+
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
-         paneMotionVariant.descriptor, holdsContentInMotion.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
+        [dockedWorkspaces.descriptor, prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor,
+         paneMotionVariant.descriptor, frameOwnerContentPolicy.descriptor] + MainPaneLayout.all + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

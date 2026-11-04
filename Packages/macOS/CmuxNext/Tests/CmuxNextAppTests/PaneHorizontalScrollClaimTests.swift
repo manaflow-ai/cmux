@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextLayout
+@testable import CmuxNextLayout
+import CmuxNextTestSupport
 import CoreGraphics
 import Testing
 
@@ -12,6 +13,7 @@ import Testing
 /// strip still scrolls. This is the `layout.scrollModifier` `none` rule; with `command` (the
 /// default) every plain scroll over a pane is the pane's (LayoutScrollModifierTests).
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneHorizontalScrollClaimTests {
     /// Claims horizontal scroll over its left half only (a table there, plain text to the right).
     final class TableView: NSView, HorizontalScrollClaiming {
@@ -52,6 +54,9 @@ struct PaneHorizontalScrollClaimTests {
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
             root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            // The strip's swipe ends on its spring, not a snap: under Reduce Motion (process-wide, set
+            // by suites that run alongside) it lands at once and moves p1 out from under the pointer.
+            root.context.reduceMotionOverride = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             for view in provider.views.values { for inner in view.subviews { inner.frame = view.bounds } }
@@ -85,6 +90,7 @@ struct PaneHorizontalScrollClaimTests {
 
     @Test func aSidewaysSwipeOverATableStaysWithThePane() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let before = try #require(w.root.frame(of: "p1"))
         #expect(w.swipe(at: try w.point(inP1: 0.25)) == 0, "the page under the pointer gets every event of the swipe")
         #expect(w.root.frame(of: "p1") == before, "the strip did not move")
@@ -92,17 +98,20 @@ struct PaneHorizontalScrollClaimTests {
 
     @Test func aShiftWheelOverATableStaysWithThePane() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         // A mouse's Shift+wheel arrives as a discrete horizontal notch.
         #expect(w.scroll(at: try w.point(inP1: 0.25), dx: -1, units: .line) == false)
     }
 
     @Test func aSidewaysSwipeOutsideTheTableStillScrollsTheStrip() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         #expect(w.swipe(at: try w.point(inP1: 0.75)) > 0, "over plain text the strip takes the swipe")
     }
 
     @Test func aPaneThatClaimsNothingLeavesTheStripItsSwipe() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         try #require(w.table).claims = false
         #expect(w.swipe(at: try w.point(inP1: 0.25)) > 0)
         #expect(w.scroll(at: try w.point(inP1: 0.25), dx: -1, units: .line) == true)
@@ -110,6 +119,7 @@ struct PaneHorizontalScrollClaimTests {
 
     @Test func aVerticalSwipeOverATablePassesThroughAsBefore() throws {
         let w = Window()
+        defer { w.window.closeAfterTest() }
         let point = try w.point(inP1: 0.25)
         #expect(w.scroll(at: point, dx: 0, dy: -20, phase: .began) == false)
         #expect(w.scroll(at: point, dx: 0, dy: -20, phase: .changed) == false)

@@ -11,11 +11,18 @@ struct ChiefWire {
 
     func date(_ value: Any?) -> Date? {
         guard let text = value as? String else { return nil }
-        let precise = ISO8601DateFormatter()
-        precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = precise.date(from: text) { return date }
-        return ISO8601DateFormatter().date(from: text)
+        if let date = try? Date(text, strategy: Self.precise) { return date }
+        if let date = try? Date(text, strategy: Self.plain) { return date }
+        // Micro- or nanoseconds: keep milliseconds and read it again.
+        guard let dot = text.firstIndex(of: "."), let end = text[dot...].dropFirst().firstIndex(where: { !$0.isNumber }) else { return nil }
+        let digits = text[text.index(after: dot)..<end]
+        guard digits.count > 3 else { return nil }
+        return try? Date(String(text[...dot]) + digits.prefix(3) + text[end...], strategy: Self.precise)
     }
+
+    // Made once: two formatters per message cost about 1,500 for a 500-message page.
+    private static let precise = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let plain = Date.ISO8601FormatStyle()
 
     // MARK: Tapbacks
 

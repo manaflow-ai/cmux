@@ -92,6 +92,12 @@ extension UpdateIndicatorPhase {
         }
     }
 
+    /// A downloaded update waits for Restart to Update (the menu bar menu offers it).
+    public var isReady: Bool {
+        if case .ready = self { return true }
+        return false
+    }
+
     /// Whether the ring spins: work with no measured progress.
     public var spins: Bool {
         switch self {

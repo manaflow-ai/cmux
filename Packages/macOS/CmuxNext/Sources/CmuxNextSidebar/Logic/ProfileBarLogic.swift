@@ -3,8 +3,9 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// The bar shows only while there is more than one profile.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
+    /// A profile mark remains useful with one profile: it identifies the
+    /// current space and is the hover target for the new-space affordance.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
     /// clamped at the ends (no wrap). Nil when nothing changes.
@@ -27,9 +28,17 @@ public nonisolated enum ProfileBarLogic {
     /// spaces do not fit at `slot` each, every slot narrows to fit down to
     /// `fullMinimum`; below that the strip turns compact: the active space
     /// keeps a full slot and the others share the rest as small dots, at least
-    /// `compactMinimum` each (a strip that still does not fit is clipped).
+    /// `compactMinimum` each. A strip that still does not fit scrolls: it
+    /// starts at `minLeading` and shifts left just enough to keep the active
+    /// space in view, so stepping through the spaces scrolls the row. The "+"
+    /// is always there (Leo 2026-11-03: "why do we not just have the plus to
+    /// the right of the center circle? always to the rightmost of the circles,
+    /// maybe with the horizontal scrollbar?"): right after the last dot, and on
+    /// a scrolled strip pinned to the bar's trailing edge, or with
+    /// `plusRidesContent` at the end of the scrolled dots (a gallery choice).
     public static func strip(count: Int, active: Int?, width: Double, center: Double, minLeading: Double = 0,
-                             slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double) -> SpaceStrip {
+                             slot: Double, plus: Double, fullMinimum: Double, compactMinimum: Double,
+                             plusRidesContent: Bool = false) -> SpaceStrip {
         // The furthest the "+" may start: the dots always end on or before it.
         let plusX = max(minLeading, width - plus)
         guard count > 0 else { return SpaceStrip(slots: [], plus: (plusX, plus), compact: false) }
@@ -50,14 +59,20 @@ public nonisolated enum ProfileBarLogic {
             }
         }
         let total = widths.reduce(0, +)
-        let start = max(minLeading, min(center - total / 2, plusX - total))
+        let scrolled = total > room + 0.5
+        var start = max(minLeading, min(center - total / 2, plusX - total))
+        if scrolled, let active, widths.indices.contains(active) {
+            // The active dot's trailing edge sits on or before the "+".
+            let activeEnd = minLeading + widths[...active].reduce(0, +)
+            start = minLeading - max(0, activeEnd - plusX)
+        }
         var x = start
         let slots = widths.map { width -> (x: Double, width: Double) in
             defer { x += width }
             return (x, width)
         }
-        // Right after the last dot; a strip clipped past the bar keeps the "+" on the bar's edge.
-        return SpaceStrip(slots: slots, plus: (min(x, plusX), plus), compact: compact)
+        // Right after the last dot; a scrolled strip keeps the "+" on the bar's edge unless it rides the dots.
+        return SpaceStrip(slots: slots, plus: (plusRidesContent ? x : min(x, plusX), plus), compact: compact, scrolled: scrolled)
     }
 
     /// The hover background of a space (F2): its slot inset by `inset` on
@@ -68,11 +83,34 @@ public nonisolated enum ProfileBarLogic {
         return CGRect(x: slot.midX - width / 2, y: slot.midY - height / 2, width: width, height: height)
     }
 
-    /// Insertion index (the `move-workspace` rule: an index into the list
-    /// before removal) for a dot dragged to horizontal offset `x`, given the
-    /// dots' center x positions in order.
-    public static func insertionIndex(forX x: Double, centers: [Double]) -> Int {
-        centers.firstIndex { x < $0 } ?? centers.count
+    /// The position a dot dragged from slot `from` takes when its center is at `x`, given the
+    /// dots' center x positions in order (the dragged dot's own included).
+    ///
+    /// The dragged dot passes a dot on reaching its center, from either side. The strip clamps
+    /// the dragged dot between the first and last centers, so a rule that needed it strictly
+    /// beyond a center (the old `firstIndex { x < center }`) never passed the first dot, and no
+    /// drag put a space first.
+    public static func dropPosition(from: Int, x: Double, centers: [Double]) -> Int {
+        guard centers.indices.contains(from) else { return from }
+        let passedLeft = centers[..<from].filter { x <= $0 }.count
+        let passedRight = centers[(from + 1)...].filter { x >= $0 }.count
+        return from - passedLeft + passedRight
+    }
+
+    /// The `move-profile` index (an index into the order before removal) that puts the space at
+    /// `from`, of `count` spaces, into position `to`: one past the target when it moves right.
+    ///
+    /// The drag, Move Left/Right, Move to Start/End and Move to Position all send this index.
+    /// - Parameters:
+    ///   - from: The space's current position.
+    ///   - to: The position it should take.
+    ///   - count: How many spaces the strip shows.
+    ///   - allowsStay: Whether `to == from` is a (no-op) move rather than a refusal; Move to
+    ///     Position allows it, the edge moves refuse it ("already at the edge").
+    /// - Returns: The insertion index, or nil when `to` is off the strip or a refused stay.
+    public static func moveInsertion(from: Int, to: Int, count: Int, allowsStay: Bool = false) -> Int? {
+        guard (0..<count).contains(from), (0..<count).contains(to), allowsStay || to != from else { return nil }
+        return to > from ? to + 1 : to
     }
 
     /// The final position a dragged dot at `from` lands in after insertion
@@ -88,11 +126,13 @@ public nonisolated enum ProfileBarLogic {
 public nonisolated struct SpaceStrip: Sendable {
     /// One slot per space, in order: its leading x and width.
     public var slots: [(x: Double, width: Double)]
-    /// The "+" slot, right after the last space's (on the bar's trailing edge only for a clipped strip).
+    /// The "+" slot, right after the last space's (on the bar's trailing edge for a scrolled strip).
     public var plus: (x: Double, width: Double)
     /// The spaces are too many for full slots: the inactive ones draw as
     /// small dots and the active one keeps its full mark.
     public var compact: Bool
+    /// The dots do not fit even compact: the row scrolls to keep the active one in view.
+    public var scrolled = false
 
     /// The strip's horizontal middle (the dots only, not the "+").
     public var midX: Double? {

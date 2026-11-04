@@ -57,6 +57,15 @@ public final class LayoutModel {
     public var scrollModifier: LayoutScrollModifier {
         scrollModifierOverride ?? (followsDesignMetrics ? DesignSettings.shared.layoutScrollModifier : .command)
     }
+    /// Pins `layout.pagesHandleCommandScroll` (tests, the demo); nil follows cmux.json.
+    public var pagesHandleCommandScrollOverride: Bool?
+    /// A web page that cancels Command + wheel keeps a Command scroll that starts over it (Figma and
+    /// Excalidraw zoom with it); the layout moves the columns otherwise (cmux.json
+    /// `layout.pagesHandleCommandScroll`, `LayoutRootView+PageScroll`): the override, else the live
+    /// setting while `followsDesignMetrics` is on, else on.
+    public var pagesHandleCommandScroll: Bool {
+        pagesHandleCommandScrollOverride ?? (followsDesignMetrics ? DesignSettings.shared.pagesHandleCommandScroll : true)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -170,7 +179,7 @@ public final class LayoutModel {
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
-    @ObservationIgnored var splitOverrides: [SplitID: Override] = [:]
+    @ObservationIgnored var splitOverrides: [SplitID: GestureOverride] = [:]
     /// Panes a pending close hides from the shown screens (`showPaneClose`).
     @ObservationIgnored var paneCloses: [PaneID: PaneCloseHold] = [:]
     /// The last pending close's order (`PaneCloseHold.sequence`).
@@ -186,22 +195,15 @@ public final class LayoutModel {
     static let explicitReflowWindow: TimeInterval = 0.6
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
-    @ObservationIgnored var widthOverrides: [ColumnID: Override] = [:]
+    @ObservationIgnored var widthOverrides: [ColumnID: GestureOverride] = [:]
+    @ObservationIgnored var replies = TransactionReplies()
+    /// Whether the app can send an ended value's command now (`EndedValues`); nil sends every one.
+    @ObservationIgnored public var sendsNow: (@MainActor (LayoutIntent) -> Bool)?
     /// A pane whose shown content the next structural change moves into the pane it adds, until an
     /// uptime (`handOffContent(of:)`).
     @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?
     static let contentHandoffWindow: TimeInterval = 3
 
-
-    struct Override {
-        var value: Double
-        var transaction: LayoutTransactionID
-        var ended = false
-        /// The daemon accepted the gesture's final command: the next snapshot
-        /// is authoritative (it was requested after the command committed on
-        /// the same serial connection), so the override yields to it.
-        var settled = false
-    }
 
     /// The last daemon snapshot, without local overrides. Restored when a
     /// transaction is rejected.
@@ -265,6 +267,7 @@ public final class LayoutModel {
     /// gesture's override is dropped at the next snapshot; a live gesture
     /// keeps tracking the pointer.
     public func settleTransaction(_ transaction: LayoutTransactionID) {
+        guard replies.answered(transaction) else { return } // a value of it is still on its way
         for (key, value) in splitOverrides where value.transaction == transaction && value.ended {
             splitOverrides[key]?.settled = true
         }
@@ -276,6 +279,7 @@ public final class LayoutModel {
     /// The daemon rejected the command carrying `transaction`: drop its
     /// overrides and show the last daemon value at once.
     public func rejectTransaction(_ transaction: LayoutTransactionID) {
+        replies.forget(transaction)
         let splits = splitOverrides.count, widths = widthOverrides.count
         splitOverrides = splitOverrides.filter { $0.value.transaction != transaction }
         widthOverrides = widthOverrides.filter { $0.value.transaction != transaction }
@@ -405,8 +409,8 @@ public final class LayoutModel {
     public func setSplitRatio(_ split: SplitID, ratio: Double, transaction: LayoutTransactionID, phase: LayoutGesturePhase) {
         let ratio = min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
         updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
-        splitOverrides[split] = Override(value: ratio, transaction: transaction, ended: phase == .ended)
-        if phase == .ended { emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
+        splitOverrides[split] = GestureOverride(value: ratio, transaction: transaction, ended: phase == .ended)
+        if phase == .ended { expectReply(transaction); emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
     }
 
     /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
@@ -438,8 +442,8 @@ public final class LayoutModel {
         let width = min(max(width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else { return }
         updateScreen(where: { layout in layout.columns.contains { $0.id == column } }) { $0.settingWidth(width, for: column) }
-        widthOverrides[column] = Override(value: width, transaction: transaction, ended: phase == .ended)
-        if phase == .ended { emit(.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)) }
+        widthOverrides[column] = GestureOverride(value: width, transaction: transaction, ended: phase == .ended)
+        if phase == .ended { expectReply(transaction); emit(.setColumnWidth(column, anyPane: anyPane, width: width, transaction: transaction, phase: phase)) }
     }
 
     /// Marks the start and end of a pointer gesture so views skip animation
@@ -489,4 +493,7 @@ public final class LayoutModel {
     func emit(_ intent: LayoutIntent) {
         intentHandler?(intent)
     }
+
+    /// An ended value of `transaction` goes out: a command the app settles at its reply (``settleTransaction(_:)``).
+    func expectReply(_ transaction: LayoutTransactionID) { if intentHandler != nil { replies.expect(transaction) } }
 }

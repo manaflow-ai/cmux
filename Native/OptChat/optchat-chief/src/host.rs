@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use optchat_host::{AnthropicModel, CompactModel, Config, OptChat, Report, SystemClock};
+use serde_json::json;
 
 use crate::acpmux::{Acpmux, AgentEvent, AgentPort, Family, Preset};
 use crate::brain::{Brain, Engine, Input, Settings, parent_tag};
@@ -293,6 +294,12 @@ pub fn turn_preset(
         // The preset's system prompt carries the instructions: no CLAUDE.md
         // file reaches a turn (the user's own ~/.claude/CLAUDE.md included).
         env.insert("CLAUDE_CODE_DISABLE_CLAUDE_MDS".to_owned(), "1".to_owned());
+        // The turn lists only the skills the user names (`chief.turnSkills`,
+        // turn_user_extras.rs), never Claude Code's bundled ones.
+        env.insert(
+            "CLAUDE_CODE_DISABLE_BUNDLED_SKILLS".to_owned(),
+            "1".to_owned(),
+        );
     }
     if family == Family::Claude {
         // claude-sr (when chosen): every turn of this Chief on one sticky
@@ -309,9 +316,9 @@ pub fn turn_preset(
         );
     }
     // The reference's Claude Code path: no user settings (user MCP servers,
-    // hooks, plugins), no skills or slash commands, only TURN_TOOLS of the
-    // built-ins; the session directory's own settings and .mcp.json stay,
-    // and the user's login still signs in.
+    // hooks, plugins), only TURN_TOOLS of the built-ins; the session
+    // directory's own settings, .mcp.json and skills (the user's named hooks
+    // and skills, turn_user_extras.rs) stay, and the user's login still signs in.
     let args = if family == Family::Claude && isolate {
         turn_isolation_args()
     } else {
@@ -329,8 +336,10 @@ pub fn turn_preset(
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
 /// Claude Code adds is not offered). On top, the Chief's own MCP tools load
 /// with the turn and the cmux MCP tools wait behind ToolSearch
-/// (`session_dir::TURN_SETTINGS_ENV`).
-pub const TURN_TOOLS: [&str; 7] = [
+/// (`session_dir::TURN_SETTINGS_ENV`). `Skill` loads a skill the user named
+/// (`chief.turnSkills`) on demand; only their names and descriptions sit in
+/// the prompt.
+pub const TURN_TOOLS: [&str; 8] = [
     "Bash",
     "Read",
     "Edit",
@@ -338,6 +347,7 @@ pub const TURN_TOOLS: [&str; 7] = [
     "WebFetch",
     "WebSearch",
     "ToolSearch",
+    "Skill",
 ];
 
 /// The settings a turn reads: the session folder's project and local
@@ -347,13 +357,15 @@ pub const TURN_TOOLS: [&str; 7] = [
 pub const TURN_SETTING_SOURCES: &str = "project,local";
 
 /// The Claude Code args of an isolated turn: no user setting source (the
-/// session folder's project and local files only), no skills or slash commands, only `TURN_TOOLS` of the built-ins
-/// (acpmux's preset allowlist).
+/// session folder's project and local files only), only `TURN_TOOLS` of the
+/// built-ins (acpmux's preset allowlist). No `--disable-slash-commands`: it
+/// also turns skills off, and a turn keeps the skills linked into its
+/// folder; with no user setting source and bundled skills off, those are
+/// the only ones listed.
 pub fn turn_isolation_args() -> Vec<String> {
     vec![
         "--setting-sources".to_owned(),
         TURN_SETTING_SOURCES.to_owned(),
-        "--disable-slash-commands".to_owned(),
         "--tools".to_owned(),
         TURN_TOOLS.join(","),
     ]
@@ -775,6 +787,28 @@ fn start(
     let chief_tools = Arc::new(load_chief_tools(&source, daemon_socket, &membership)?);
     let sub_instructions = instructions.clone();
     let instructions = chief_tools.instructions(instructions);
+    // The optional coordinator contact belongs only to this Chief's turns;
+    // subagents keep their original instructions. The host reads it once at
+    // startup, so setting changes apply after restart.
+    let contact =
+        crate::chief_settings::ChiefSettings::load(&paths.root.join("settings.json")).contact;
+    let instructions = crate::prompt::with_coordinator_contact(instructions, contact.as_deref());
+    // A Chief of this Mac's session daemon keeps its stable acpmux session
+    // (brain/chief_inbox.rs); `CHIEF_INBOX_SESSION=0` turns it off.
+    let chief_inbox = (matches!(source, Source::Local { .. })
+        && env("CHIEF_INBOX_SESSION").as_deref() != Some("0"))
+    .then(|| {
+        env("MUX_CHIEF_TITLE")
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| cmux_chief::rules::CHIEF_DISPLAY_NAME.to_owned())
+    });
+    let instructions = crate::prompt::with_local_chiefs(
+        instructions,
+        chief_inbox
+            .as_deref()
+            .map(|title| crate::brain::chief_inbox_name(&membership.participant, title))
+            .as_deref(),
+    );
     let (mut harness, mut compactor_harness) =
         harness_choice(chief_set.as_deref(), None, compactor_set.as_deref());
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
@@ -794,6 +828,21 @@ fn start(
             crate::trace::Trace::off()
         }
     };
+    let (person, team, chief) = match &source {
+        Source::Cloud { install } => (
+            install.user.clone(),
+            install.team.clone(),
+            install.chief.clone(),
+        ),
+        Source::Local { .. } => (Some("unknown".to_owned()), None, None),
+    };
+    trace.emit(
+        "usage.identity",
+        json!({
+            "person": person, "team": team,
+            "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
+        }),
+    );
     // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
     // prompt, so it reads it from the turns' cache entry.
     let claude_text =
@@ -956,6 +1005,11 @@ fn start(
         .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
+    let (payer, provider) = crate::usage::payer_provider("native", Some(&base_url));
+    trace.emit(
+        "usage.native_route",
+        json!({"payer": payer, "provider": provider}),
+    );
 
     // acpmux first: the compactor's acpmux route needs the connection before
     // the memory opens and starts building nodes. Its events wait in the
@@ -1221,7 +1275,8 @@ fn start(
         env!("CARGO_PKG_VERSION"),
     ));
     if route == CompactRoute::Acpmux {
-        // Bounded: acpmux_daemon::ensure gives a starting daemon 30 s.
+        // Bounded: acpmux_daemon::ensure gives a starting daemon up to 60 s
+        // (SPAWN_LIMIT), and query_harnesses ran it before this wait.
         let (lock, cv) = &*first_link;
         let linked = lock
             .lock()
@@ -1264,6 +1319,19 @@ fn start(
                     .map(|v| format!("{v:#}"))
                     .map_err(late)
             }
+            ControlRequest::RightsHook { phase, payload } => {
+                let (reply, answer) = channel();
+                tx.send(Input::RightsHook {
+                    phase,
+                    payload,
+                    reply,
+                })
+                .map_err(stopping)?;
+                answer
+                    .recv_timeout(Duration::from_secs(10))
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
             ControlRequest::SpawnPolicy => {
                 let (reply, answer) = channel();
                 tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
@@ -1293,6 +1361,22 @@ fn start(
             ControlRequest::Stop => {
                 let (reply, answer) = channel();
                 tx.send(Input::Stop { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Continue => {
+                let (reply, answer) = channel();
+                tx.send(Input::Continue { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Retry(message) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Retry { message, reply }).map_err(stopping)?;
                 answer
                     .recv_timeout(wait)
                     .map(|v| v.to_string())
@@ -1433,6 +1517,8 @@ fn start(
         .with_trace(trace.clone())
         .with_person(paths.person.clone())
         .with_pinned_harness(sub_set.is_some())
+        .with_engine_file(Some(crate::engine::path(home)))
+        .with_families(families.clone())
         .with_harness_grant(chief_tools.clone())
         .with_workspaces(workspaces.clone())
         .with_no_workspace_reason(no_workspace_reason.clone())
@@ -1623,6 +1709,8 @@ fn start(
         home_view: Some(home_view),
         membership: membership.clone(),
         keep_turn_session: env("CHIEF_KEEP_TURN_SESSION").as_deref() != Some("0"),
+        chief_inbox,
+        screen_share: Some(paths.screen.clone()),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
@@ -1631,8 +1719,11 @@ fn start(
         paths,
         &crate::migrate::backup_id(home),
     ));
-    let retention =
-        crate::turn_retention::TurnRetention::new(paths, &crate::compactor::user_claude_home());
+    let retention = crate::turn_retention::TurnRetention::new(
+        paths,
+        &crate::compactor::user_claude_home(),
+        &crate::compactor::compactor_work(home),
+    );
     if let Err(e) = retention.cleanup() {
         log(format!(
             "cleaning expired turn transcripts at start failed: {e}"
@@ -1662,7 +1753,26 @@ fn start(
     // The app watches only the default Chief's state/ (cx-oqnw3 review): another
     // Chief still hears a compactor fault as its message until the app watches its home.
     .with_compactor_messages(membership.participant != crate::chief_profile::DEFAULT_CHIEF)
-    .with_workspaces(workspaces);
+    .with_workspaces(workspaces)
+    // Sign-ins that wait on the person go to the app's Feed (Needs you).
+    .with_feed(
+        crate::needs_you_feed::ControlSocketFeed::from_env(&|k: &str| env(k))
+            .map(|f| Arc::new(f) as Arc<dyn crate::needs_you_feed::FeedPort>),
+    );
+    // The rights table and the audit log (rights.rs, audit.rs);
+    // OPTCHAT_RIGHTS=0 turns both off.
+    let brain = if env("OPTCHAT_RIGHTS").as_deref() == Some("0") {
+        brain
+    } else {
+        brain.with_rights(crate::brain::RightsCtx::new(
+            paths.root.clone(),
+            // The turns' login is the harness's, not this process's: only
+            // the owner's declaration (`/auth`) counts, else personal.
+            None,
+            host_name(),
+            Some(paths.session.display().to_string()),
+        ))
+    };
     let mut brain = brain;
     brain.set_sub_starter(sub_starter);
     let idle = brain.cloud_auto_pause_idle();
@@ -2212,4 +2322,17 @@ fn native_env(setup: &SessionSetup, paths: &Paths) -> BTreeMap<String, String> {
 /// socket's turn binding, turn_caller.rs): `optchat-<home id>`.
 fn turn_prefix(home: &std::path::Path) -> String {
     format!("optchat-{}", crate::paths::home_id(home))
+}
+
+/// This machine's name, for the audit log.
+fn host_name() -> String {
+    let mut buf = [0u8; 256];
+    // SAFETY: gethostname writes at most buf.len() bytes into our buffer.
+    let ok = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
+    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+    if ok && end > 0 {
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    } else {
+        "unknown-host".to_owned()
+    }
 }

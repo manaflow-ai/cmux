@@ -19,7 +19,8 @@ public nonisolated enum SpacesPosition: String, Sendable, CaseIterable, Codable 
 public nonisolated enum TabBarPosition: String, Sendable, CaseIterable, Codable {
     /// Above the pane's content (the default).
     case top
-    /// Below the pane's content; the window then uses the standard title
-    /// bar, so the traffic lights never sit over content.
+    /// Below the pane's content. The panes reach the window's top edge; the
+    /// traffic lights sit on the sidebar's header, or the main pane starts
+    /// below their row.
     case bottom
 }
