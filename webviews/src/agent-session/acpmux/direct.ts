@@ -139,6 +139,7 @@ import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
 import { STALL_CHECK_MS, stallLine } from "./stallLog";
+import { hostTurn, hostTurnState } from "./hostTurnState";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -354,6 +355,24 @@ const SUGGESTION_KIND = "prompt_suggestion";
 const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
+/// A read of the chat's prompt index (`DirectAcpmuxClient.readPromptIndex`): its rows once it
+/// answered; `read` while it is out; `tries` reads so far, and when a failed one may be read again.
+type PromptIndexRead = {
+  sessionId: string;
+  generation: number;
+  rows?: AcpmuxRow[];
+  failed?: boolean;
+  read?: Promise<boolean>;
+  tries: number;
+  retryAt: number;
+};
+/// How long a prompt index read may take before it counts as failed and may be read again: a peer's
+/// own read deadline is 30 s (acpmux `server/peer_forward.rs`).
+const PROMPT_INDEX_DEADLINE_MS = 35_000;
+/// The back-off after a failed prompt index read, times the reads so far.
+const PROMPT_INDEX_RETRY_MS = 2_000;
+/// Reads of the prompt index a chat's snapshots start by themselves; a hover asks past them.
+const PROMPT_INDEX_TRIES = 3;
 /// The snapshot's `earlierPrompts` when there are none: one list, so the rail's memo holds.
 const NO_EARLIER_PROMPTS: readonly AcpmuxRow[] = [];
 
@@ -4642,6 +4661,9 @@ export class AcpmuxDirectClient {
       latest !== undefined &&
       (latest.seq === undefined || typeof detail.lastSeq !== "number" || latest.seq >= detail.lastSeq);
     if (latestIsNew) this.summary = { ...this.summary, ...latest.session };
+    // The page's records may open a turn whose end never reached them, or miss the start of one
+    // acpmux runs on: the summary read with them says (hostTurnState.ts).
+    this.settleTurnWithHost();
     this.queue = mergeQueue(
       this.queue,
       (latestIsNew ? latest?.session.queue : detail.queue) ?? [],
@@ -4790,6 +4812,8 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
+      // Built when sent, after the record it follows: it settles the turn the records folded.
+      this.settleTurnWithHost();
       // A harness restart or a new conversation names a new native root without a rebuild: the
       // fold learns it now, or a record naming it as a parent would not repair its child. One
       // that records already folded named (a retired root, too) drew rows that are now wrong:
@@ -6766,6 +6790,38 @@ export class AcpmuxDirectClient {
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
       }
+  }
+
+  /// The pane's open turn follows the one acpmux holds (hostTurnState.ts). One acpmux no longer
+  /// runs closes; one it runs that the pane holds closed, and never saw end, opens again: a
+  /// restart that adopted the running host goes on with the same turn and logs no new start.
+  private settleTurnWithHost(): void {
+    if (this.replayThrough !== undefined) return;
+    const state = hostTurnState(this.summary);
+    if (state === "ended" && this.turnOpen) {
+      this.hostEndedTurn();
+      return;
+    }
+    const turn = hostTurn(this.summary);
+    if (state !== "runs" || this.turnOpen || !turn) return;
+    if (turn.turnId !== undefined && this.endedTurns.has(turn.turnId)) return;
+    this.turnOpen = true;
+    if (turn.turnId !== undefined) this.runningTurnId = turn.turnId;
+    if (!this.rows.has("typing")) this.rows.set("typing", { id: "typing", version: 1, at: Date.now(), kind: "typing" });
+  }
+
+  /// acpmux holds no turn while the pane still holds one open: its end never reached the pane.
+  /// The turn closes as its end would, with no summary row: no Stop, no typing dots. A late end
+  /// record still settles it (`turn_end`, `turn_result`).
+  private hostEndedTurn(): void {
+    this.turnOpen = false;
+    this.turnPrompt = undefined;
+    this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+    this.rows.delete("typing");
+    this.rows.delete(TURN_RETRY);
   }
 
   /// A retry of the running turn's model request (`turn_retrying`): the `TURN_RETRY` row holds it,
@@ -9511,7 +9567,7 @@ export class AcpmuxDirectClient {
   /// index (`_acpmux/events` `promptIndex`, `hub/paging.rs` `prompt_index`): seq, promptId and the
   /// start of the text, in one reply however long the chat. A daemon without the index reads the
   /// bounded `user_message` page the request also names, which covers what it holds.
-  private promptIndex?: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean };
+  private promptIndex?: PromptIndexRead;
   /// `shownEarlierPrompts`' last answer, by what it was read from.
   private earlierShown?: { rows: AcpmuxRow[]; before: number; list: readonly AcpmuxRow[] };
 
@@ -9522,7 +9578,13 @@ export class AcpmuxDirectClient {
     if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return NO_EARLIER_PROMPTS;
     const index = this.promptIndex;
     if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration) {
-      this.readPromptIndex(sessionId, this.firstSeq);
+      void this.readPromptIndex(sessionId, this.firstSeq);
+      return NO_EARLIER_PROMPTS;
+    }
+    // A read that failed (a reconnect cut it, a peer's read deadline) is asked again by the next
+    // snapshot past its back-off, PROMPT_INDEX_TRIES reads in all; the rail's hover asks past that.
+    if (index.failed && index.tries < PROMPT_INDEX_TRIES && Date.now() >= index.retryAt) {
+      void this.readPromptIndex(sessionId, this.firstSeq, index.tries);
       return NO_EARLIER_PROMPTS;
     }
     if (!index.rows) return NO_EARLIER_PROMPTS;
@@ -9553,23 +9615,41 @@ export class AcpmuxDirectClient {
     return count > 0 ? count : undefined;
   }
 
-  private readPromptIndex(sessionId: string, before: number): void {
+  /// The rail's ask for the prompt index, from a hover or a click on a pending tick (ThreadMinimap
+  /// `loadPromptIndex`): resolves true once the index has named the chat's earlier prompts, false
+  /// when it cannot. One read at a time per chat, its answer kept for the chat; a failed read is
+  /// read again past its back-off, so a sweep across a hundred ticks asks at most once.
+  loadPromptIndex(): Promise<boolean> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || !this.seqHistoryLeft() || !this.firstSeq) return Promise.resolve(false);
+    const index = this.promptIndex;
+    if (!index || index.sessionId !== sessionId || index.generation !== this.selectionGeneration)
+      return this.readPromptIndex(sessionId, this.firstSeq);
+    if (index.read) return index.read;
+    if (!index.failed) return Promise.resolve(index.rows !== undefined);
+    if (Date.now() < index.retryAt) return Promise.resolve(false);
+    return this.readPromptIndex(sessionId, this.firstSeq, index.tries);
+  }
+
+  private readPromptIndex(sessionId: string, before: number, tries = 0): Promise<boolean> {
     const generation = this.selectionGeneration;
-    const entry: { sessionId: string; generation: number; rows?: AcpmuxRow[]; failed?: boolean } = {
-      sessionId,
-      generation,
-    };
+    const entry: PromptIndexRead = { sessionId, generation, tries: tries + 1, retryAt: 0 };
     this.promptIndex = entry;
-    void this.typed("_acpmux/events", {
-      sessionId,
-      beforeSeq: before,
-      promptIndex: true,
-      kinds: ["user_message"],
-      limit: 5000,
-      maxBytes: OLDER_PAGE_BYTES,
-    })
+    entry.read = this.typed(
+      "_acpmux/events",
+      {
+        sessionId,
+        beforeSeq: before,
+        promptIndex: true,
+        kinds: ["user_message"],
+        limit: 5000,
+        maxBytes: OLDER_PAGE_BYTES,
+      },
+      PROMPT_INDEX_DEADLINE_MS,
+    )
       .then((result: any) => {
-        if (this.closed || this.promptIndex !== entry) return;
+        if (this.closed || this.promptIndex !== entry) return false;
+        entry.read = undefined;
         entry.rows = records(result?.events)
           .filter(startsTurn)
           .map((event): AcpmuxRow => {
@@ -9584,18 +9664,25 @@ export class AcpmuxDirectClient {
             };
           });
         this.emit();
+        return true;
       })
       .catch(() => {
-        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load.
-        if (this.promptIndex !== entry) return;
+        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
+        // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
+        if (this.promptIndex !== entry) return false;
+        entry.read = undefined;
         entry.rows = [];
         entry.failed = true;
+        entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
+        return false;
       });
+    return entry.read;
   }
 
   /// Pages history in until the record at `seq` is held: a click on the rail's tick of a prompt
-  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder`, with its guards; a step
-  /// that moves nothing, or another chat, ends it.
+  /// older than the held rows (`earlierPrompts`). Each step is `loadOlder` reading on through `seq`
+  /// (up to OLDER_PAGES_PER_ASK pages in one commit), with its guards; a step that moves nothing, or
+  /// another chat, ends it.
   /// Resolves true once the prompt is held, false when the read stopped short of it.
   async loadThrough(seq: number): Promise<boolean> {
     const generation = this.selectionGeneration;
@@ -9604,7 +9691,7 @@ export class AcpmuxDirectClient {
       const from = this.firstSeq;
       if (held()) return true;
       if (generation !== this.selectionGeneration || from === undefined || !this.seqHistoryLeft()) return false;
-      await this.loadOlder();
+      await this.loadOlder(seq);
       if (this.firstSeq === from) return held();
     }
     return held();
@@ -9613,7 +9700,9 @@ export class AcpmuxDirectClient {
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the
   /// selection changed belongs to another session and is dropped.
-  loadOlder(): Promise<void> {
+  /// `through`: read on until the record at that seq is held (a rail jump, `loadThrough`), not only
+  /// until an older turn starts.
+  loadOlder(through?: number): Promise<void> {
     if (!this.canPageOlder()) return Promise.resolve();
     if (this.loadingOlder) return this.loadingOlder;
     // An ask inside the back-off after a failed page waits it out, then reads. One that returned
@@ -9628,10 +9717,10 @@ export class AcpmuxDirectClient {
             .wait(wait)
             .then((ready) =>
               ready && this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration
-                ? this.fetchOlder(pagingEpoch)
+                ? this.fetchOlder(pagingEpoch, through)
                 : undefined,
             )
-        : this.fetchOlder(pagingEpoch);
+        : this.fetchOlder(pagingEpoch, through);
     const loading = read
       .catch((error: unknown) => {
         if (this.canPageOlder(pagingEpoch) && generation === this.selectionGeneration)
@@ -9665,7 +9754,7 @@ export class AcpmuxDirectClient {
     return next !== undefined && next > 0 ? next : undefined;
   }
 
-  private async fetchOlder(pagingEpoch = this.olderPagingEpoch): Promise<void> {
+  private async fetchOlder(pagingEpoch = this.olderPagingEpoch, through?: number): Promise<void> {
     if (!this.canPageOlder(pagingEpoch)) return;
     if (this.selectedSessionId && !this.seqHistoryLeft() && this.nativeBefore() !== undefined)
       return this.fetchNativeOlder();
@@ -9687,7 +9776,9 @@ export class AcpmuxDirectClient {
     // makes the transcript ask again.
     for (
       let before = this.firstSeq, pages = 0;
-      more && pages < OLDER_PAGES_PER_ASK && (pages < OLDER_MIN_PAGES_PER_ASK || !found);
+      more &&
+      pages < OLDER_PAGES_PER_ASK &&
+      (pages < OLDER_MIN_PAGES_PER_ASK || !found || (through !== undefined && before > through));
       pages++
     ) {
       if (!this.canPageOlder(pagingEpoch)) return;
