@@ -25,7 +25,7 @@ struct PointerMenuTrimTests {
         // Includes every More/Copy row and every target-dependent action.
         let retained: Set<ActionID> = [
             // agent.share: Share Chat with Guest, a tab-menu row #27959 added after this list was written.
-            "agent.share", "agentChat.copyIdentifier", "agentChat.subagentLimit", "agentPane.togglePointerInspector",
+            "agent.share", "agentChat.copyIdentifier", "agentChat.subagentLimit",
             "browser.editSource", "browser.openInChromium", "browserProfile.duplicateTab", "browserProfile.moveTab",
             "closeOtherTabsInPane", "closeTab", "closeTabsToLeft",
             "closeTabsToRight", "disconnectRemoteTab", "duplicateTab", "file.openAsPage",
@@ -69,7 +69,7 @@ struct PointerMenuTrimTests {
             "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown", "pane.closeOthers", "pane.setBackground",
             "pane.setTint", "pane.clearBackground", "reconnectPane", "palette.copyPaneID", "palette.copyPaneLink",
             "pane.screenshot", "equalizeSplits", "pane.toggleTabBar", "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
-            "remote.openRemote", "agentPane.togglePointerInspector",
+            "remote.openRemote",
         ]
         #expect(shown == retained)
         for id in Self.paneTrimmed {

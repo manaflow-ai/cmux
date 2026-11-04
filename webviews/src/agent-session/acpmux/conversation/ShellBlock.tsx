@@ -1,7 +1,7 @@
 // An opened shell call: a "Shell" card with the folder it ran in (a leading `cd ~/wt/lanes/x &&`
 // reads as "x" beside the label), Wrap lines and Copy, the command in a block of its own with its
 // words in their code colors ("$ grep -nE …", shellHighlight.ts), its output (the end of a long one)
-// under it and, when the command failed, its exit code; a caller's `footer` closes the card. Past
+// under it and, when the command failed, its exit code between the two; a caller's `footer` closes the card. Past
 // eight lines the output scrolls inside an eight-line box, its bottom edge fading while more lies
 // under it, with Show all N lines to drop the cap (BlockParts.tsx), so a long or streaming output
 // never pushes the transcript down; while the command runs the box follows its newest line unless
@@ -89,6 +89,14 @@ export function ShellBlock({
         </span>
       </div>
       {rest && <ShellCommand command={rest} />}
+      {exitCode !== undefined && exitCode !== 0 && (
+        // Between the command and its output, in the error tone, as Claude Code desktop opens a
+        // failed call ("$ ls fixtures", "Exit code 1", then what it printed). The block's own words,
+        // not the output: Find in Chat does not count them (chatFind.ts).
+        <div className="cv-shell__exit" data-find-skip>
+          {t("shell.exit", { code: exitCode })}
+        </div>
+      )}
       {/* Empty (a command with no output yet), it draws nothing (conversation.css). */}
       <pre
         ref={body}
@@ -111,12 +119,6 @@ export function ShellBlock({
       </pre>
       <PreviewMore preview={preview} />
       {!preview.long && <OutputMore output={shown} />}
-      {exitCode !== undefined && exitCode !== 0 && (
-        // The block's own words, not the output: Find in Chat does not count them (chatFind.ts).
-        <div className="cv-shell__exit" data-find-skip>
-          {t("shell.exit", { code: exitCode })}
-        </div>
-      )}
       {footer}
     </div>
   );

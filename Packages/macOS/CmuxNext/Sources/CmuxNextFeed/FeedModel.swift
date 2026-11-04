@@ -30,6 +30,8 @@ public final class FeedModel {
     /// The last refusal, for the panel's notice; cleared on the next send.
     public private(set) var lastReject: FeedReject?
     public private(set) var revision: UInt64 = 0
+    /// True once the owner sent its first snapshot: before that the lists are not yet known.
+    public private(set) var loaded = false
     public private(set) var user = ""
     public private(set) var device = ""
     /// What the panel chrome shows (the badge, whether the list is empty), stored and set only when
@@ -287,6 +289,7 @@ public final class FeedModel {
             confirmed = Dictionary(snapshot.items.map { ($0.id, $0) }) { _, last in last }
             touched.formUnion(confirmed.keys)
             connection = .connected
+            loaded = true
         case let .event(event):
             revision = max(revision, event.revision)
             switch event.change {

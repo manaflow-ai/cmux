@@ -51,7 +51,7 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # takes the same route: a network-bound Sentry upload that holds the Sentry token, not CPU-bound.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "attest-nightly-remote-daemon", "signer-app",
+    "signer-app",
     "signer-dmg", "legacy-identity-target", "sentry-dsyms-nightly", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",

@@ -151,14 +151,22 @@ public final class RegistryPaletteProvider: PaletteProvider {
         // A row a person can run past its reason (Sign In, then the action: ``ActionRecovery``) stays enabled.
         let recovery = runs || paletteReason != nil ? nil : registry.personRecovery(for: descriptor.id)
         let isEnabled = runs || recovery != nil
+        // An on/off command's state, read now, every open (Lawrence 2026-11-03: "we don't know the current state").
+        let isOn = action?.paletteState?()
+        let toggleStyle = PaletteTunables.toggleStyle.value
+        // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
+        var title = action?.paletteTitle?() ?? descriptor.title
+        if toggleStyle.suffixesTitle, let isOn {
+            title = PaletteStrings.titleWithState(title, isOn ? PaletteStrings.on : PaletteStrings.off)
+        }
         return RegistryPaletteRows.Face(
-            // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-            title: action?.paletteTitle?() ?? descriptor.title,
+            title: title,
             // A disabled row says why (Chromium without a CEF runtime).
             subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
             accessory: entry.isBound || overridden ? nil : unbound,
-            // A toggle that opts in (`ActionTargetTitles.setPaletteState`) shows a check while it is on.
-            symbol: action?.paletteState?() == true ? "checkmark.circle.fill" : descriptor.symbol,
+            // The icon becomes a check while on only in that style; the others draw a trailing badge.
+            symbol: toggleStyle.replacesIcon && isOn == true ? "checkmark.circle.fill" : descriptor.symbol,
+            isOn: isOn,
             keycaps: registry.shortcutKeycaps(for: descriptor.id),
             keywords: descriptor.keywords,
             isEnabled: isEnabled,
@@ -213,6 +221,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             frecencyKey: "action:\(actionID.rawValue)",
             actionID: actionID
         )
+        item.toggleState = face.isOn
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
