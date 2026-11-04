@@ -57,6 +57,7 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
   px-keys-held-2-tabclose  the same, with p0 in 3 terminal tabs, every tab outlined (motion.frameOwner.tabOutline,
                      required), and p0's middle tab closed by a script 50 ms after the hold's first key-down (one tab
                      back after each film); p0's fill is blue (the outline is yellow)                   T(3 tabs)|P
+  px-keys-held-2-tabclose-narrow  the same with p0 at its minimum width, its strip scrolled (30 x Ctrl-Shift-H first)
   px-new-column-*    New Column (action newColumn), then Cmd-W on the new column                   columns T|P
   px-new-row-*       New Row (action newRow) under p0, then Cmd-W on the new row                   columns T|P
   px-close-pane-3   Cmd-W on the middle split pane p1, nested with p2 (p0 | (p1 | p2)): the p0|p1 divider stays;
@@ -477,6 +478,17 @@ def cases():
                     f"Ctrl-Shift-L held with p0's middle tab closed 50 ms after its first key-down, then Ctrl-Shift-H x30 every "
                     f"33 ms, on p0 ({T2T.text})", T2T, held_close_play, None, "held keys (a tab closes during the hold)",
                     before=held_start(), rebuild=[focus("p0")] + new_tab("p0") + start_tui("p0", BLUE) + [G.settle(1.0)],
+                    play_seconds=lambda s: 2.6 + 2 * land(s), fixture_tunables=[(TAB_OUTLINE, True)]))
+    # The same close in a narrow p0 whose strip overflows (p0 at its minimum width, three tabs wider than the strip, the
+    # strip scrolled): the first S1B 1b round filmed it by accident (ab-s1bt-sw-523c9f6 on-s1, a start line that stayed and
+    # faded, a left edge 1-2 samples early). Before each film: p0 back to half, then 30 x Ctrl-Shift-H to its minimum.
+    out.append(Case(f"px-keys-held-{T2T.key}-tabclose-narrow",
+                    f"the tab-close held keys with p0 at its minimum width and its strip scrolled ({T2T.text})", T2T, held_close_play,
+                    None, "held keys (a tab closes during the hold, scrolled strip)",
+                    before=held_start() + [{"do": "rk_press", "key": "h", "modifiers": ["control", "shift"], "count": 30, "gap_ms": 33,
+                                            "title": "set-up: p0 to its minimum width (30 x Ctrl-Shift-H, real HID)"},
+                                           G.settle(2.0)],
+                    rebuild=[focus("p0")] + new_tab("p0") + start_tui("p0", BLUE) + [G.settle(1.0)],
                     play_seconds=lambda s: 2.6 + 2 * land(s), fixture_tunables=[(TAB_OUTLINE, True)]))
     play, secs = new_and_close_play("newColumn", "New Column")
     out.append(Case(f"px-new-column-{C2.key}", f"New Column on p1, then Cmd-W on it ({C2.text})", C2, play, "split", "new column",

@@ -1211,7 +1211,11 @@ class PixelCasesTests(unittest.TestCase):
             self.assertEqual(next(st for st in film_steps if st["do"] == "px_record_start")["input"], "window resize (window_drag)")
             self.assertFalse([s["id"] for s in specs if "-sw-" in s["id"]], "switch variants only with --switch")
             s1r = {s["id"]: s for s in specs if s["id"].endswith("-s1r")}
-            self.assertEqual(len(s1r), 13)  # one per case (px-keys-held-2-tabclose the 12th, px-close-pane-3t the 13th)
+            # one per case (px-keys-held-2-tabclose the 12th, px-close-pane-3t the 13th, px-keys-held-2-tabclose-narrow the 14th)
+            self.assertEqual(len(s1r), 14)
+            narrow = [st for f in s1r["px-keys-held-2-tabclose-narrow-s1r"]["steps"] if f["do"] == "px_film" for st in f["steps"]]
+            shrink = [st for st in narrow if st["do"] == "rk_press" and st["key"] == "h" and st.get("count") == 30]
+            self.assertEqual(len(shrink), 4)  # per film: the 30 x Ctrl-Shift-H set-up and the play's own burst, 2 films
             # The split tree is binary: every film of a close case closes the same split, so the pane comes back the way the
             # layout made it. px-close-pane-3: p1 nested with p2 (splitLeft on p2); px-close-pane-3t (S3d case (a)): p1
             # nested with p0 (p2 made first, then splitRight on p0), and back by splitRight on p0.
