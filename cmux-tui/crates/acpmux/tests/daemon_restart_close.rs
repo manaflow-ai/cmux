@@ -125,44 +125,11 @@ async fn daemon_update_and_sigterm_send_1012_but_explicit_stop_is_normal() {
 /// the only status the units prevent).
 const EXIT_REPAIR: i32 = 74;
 
-/// One JSON-RPC request on a socket connection.
-async fn send(wr: &mut tokio::net::unix::OwnedWriteHalf, id: u64, method: &str, params: Value) {
-    use tokio::io::AsyncWriteExt;
-    let line = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-    wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
-}
-
-/// The next line `lines` gives that `stop` takes, or what ended the wait (EOF or a read error)
-/// as Err; panics after `budget`.
-async fn line_until(
-    lines: &mut tokio::io::Lines<BufReader<tokio::net::unix::OwnedReadHalf>>,
-    budget: Duration,
-    stop: impl Fn(&Value) -> bool,
-) -> Result<Value, String> {
-    tokio::time::timeout(budget, async {
-        loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
-                    let value: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
-                    if stop(&value) {
-                        return Ok(value);
-                    }
-                }
-                Ok(None) => return Err("end of stream".to_owned()),
-                Err(error) => return Err(error.to_string()),
-            }
-        }
-    })
-    .await
-    .unwrap_or_else(|_| panic!("no line within {budget:?}: the client hangs"))
-}
-
 /// R-DURABILITY S2c, lead rule 2026-11-04 (3). With `store.journal` on, a log sync that fails (a
 /// debug build's `ACPMUX_TEST_FAIL_LOG_SYNC`) freezes the event journal's checkpoint, and the store
 /// asks the daemon to stop for a restart, whose replay writes the logs again. The daemon exits with
-/// [`EXIT_REPAIR`] within its exit budget; a WebSocket client gets the restart close (1012), and a
-/// socket client waiting for a reply sees its connection end, typed for the CLI as
-/// `daemon_closed` (retryable), never a hang.
+/// [`EXIT_REPAIR`]; a WebSocket client gets the restart close (1012), and the acpmux client's
+/// request in flight ends with the CLI's typed, retryable `daemon_closed`, never a hang.
 #[tokio::test]
 async fn a_failed_log_sync_stops_the_daemon_for_a_restart() {
     use std::os::unix::fs::PermissionsExt;
@@ -234,40 +201,32 @@ async fn a_failed_log_sync_stops_the_daemon_for_a_restart() {
     .await
     .unwrap();
 
-    let stream = tokio::net::UnixStream::connect(&socket).await.unwrap();
-    let (rd, mut wr) = stream.into_split();
-    let mut lines = BufReader::new(rd).lines();
-    // Requests run concurrently on one connection: each waits for the one before. Anything that
-    // writes the chat's log may stop the daemon first, so a reply may also be the end of the stream.
-    let steps = [
-        ("initialize", json!({"protocolVersion": 1})),
-        // The session index loads after the ready line: `_acpmux/info` waits for it.
-        ("_acpmux/info", json!({"sessionId": id})),
-        // The rename's `renamed` line makes the chat's log dirty; the next checkpoint (200 ms)
-        // syncs it, the sync fails, the checkpoint freezes, and the store asks for a restart.
-        ("_acpmux/rename", json!({"sessionId": id, "newName": "renamed"})),
-        // Waits until the chat closes: no result comes from a daemon that stops.
-        ("_acpmux/wait", json!({"sessions": [id], "until": ["closed"]})),
-    ];
-    let mut ended = None;
-    for (n, (method, params)) in steps.into_iter().enumerate() {
-        let n = u64::try_from(n).unwrap() + 1;
-        send(&mut wr, n, method, params).await;
-        match line_until(&mut lines, Duration::from_secs(60), |v| v["id"] == n).await {
-            Ok(reply) if method == "_acpmux/wait" => {
-                assert!(reply.get("error").is_some(), "the wait got a result: {reply}");
-            }
-            Ok(reply) => assert!(reply.get("error").is_none(), "{method}: {reply}"),
-            Err(why) => {
-                ended = Some(why);
-                break;
-            }
+    // The acpmux client library, as the CLI and the app's helpers use it.
+    let client = acpmux::client::Client::connect(&socket).await.unwrap();
+    // The session index loads after the ready line: `_acpmux/info` waits for it.
+    let info = client.request("_acpmux/info", json!({"sessionId": id})).await;
+    assert!(info.is_ok(), "info: {info:?}");
+    // The rename's `renamed` line makes the chat's log dirty; the next checkpoint (200 ms) syncs
+    // it, the sync fails, the checkpoint freezes, and the store asks for a restart. A rename that
+    // loses the race to the stop ends like the wait below.
+    let renamed =
+        client.request("_acpmux/rename", json!({"sessionId": id, "newName": "renamed"})).await;
+    // Waits until the chat closes: no result comes from a daemon that stops.
+    let waited = match renamed {
+        Ok(_) => {
+            let wait =
+                client.request("_acpmux/wait", json!({"sessions": [id], "until": ["closed"]}));
+            tokio::time::timeout(Duration::from_secs(60), wait)
+                .await
+                .unwrap_or_else(|_| panic!("the wait got no answer within 60 s: the client hangs"))
         }
-    }
-    if ended.is_none() {
-        ended = line_until(&mut lines, Duration::from_secs(60), |_| false).await.err();
-    }
-    assert!(ended.is_some(), "the socket connection did not end");
+        Err(error) => Err(error),
+    };
+    let error = waited.expect_err("a result from a daemon that must stop");
+    // What the CLI makes of it: a typed, retryable error, never a hang.
+    let typed = acpmux::cli::errors::classify(&error);
+    assert_eq!(typed.detail, "daemon_closed", "{error:#}");
+    assert!(typed.retryable, "{error:#}");
 
     let frame = tokio::time::timeout(Duration::from_secs(30), async {
         loop {
