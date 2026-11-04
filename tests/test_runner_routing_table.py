@@ -80,6 +80,30 @@ class RoutingTableTests(unittest.TestCase):
             with self.subTest(old=old, new=new):
                 self.assertFalse(table.nightly_reservation(term.replace(old, new)))
 
+    def test_portable_bootstrap_exception_requires_read_only_secretless_route(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workflows = root / "workflows"
+            workflows.mkdir()
+            policy = root / "runners.json"
+            key = "controls.yml#portable-placement"
+            policy.write_text(json.dumps({
+                "job_classes": {"portable-checks": {"needs": "any"}},
+                "portable_light_jobs": {key: {"class": "portable-checks", "reason": "placement"}}}))
+            route = ("${{ vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || "
+                     "github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+            job = {"runs-on": route, "permissions": {"contents": "read"},
+                   "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
+            for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
+                                      ({"environment": "release"}, False),
+                                      ({"runs-on": route.replace("vars.CI_LIGHT_LANE_RUNNER", "vars.ARBITRARY")}, False)):
+                with self.subTest(changed=changed):
+                    (workflows / "controls.yml").write_text(table.yaml.safe_dump({
+                        "jobs": {"portable-placement": {**job, **changed}}}, width=10000))
+                    problems, allowed = table.hosted_light_policy(policy, workflows)
+                    self.assertEqual(not problems, accepted, problems)
+                    self.assertEqual(bool(allowed), accepted)
+
     def test_reserved_bootstrap_keeps_declared_hosted_overflow_and_retries(self):
         term = ("github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && "
                 "github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && "

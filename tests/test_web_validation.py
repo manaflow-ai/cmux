@@ -283,6 +283,12 @@ class WebValidationTests(unittest.TestCase):
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
                  "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
 
+    def test_failed_optional_placement_does_not_fail_selected_web_results(self):
+        needs = {"changes": {"result": "success", "outputs": {"required": "true"}},
+                 "build": {"result": "success"}, "tests": {"result": "success"},
+                 "database": {"result": "success"}, "portable-placement": {"result": "failure"}}
+        self.assertEqual(gate.failures(needs), {})
+
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},
                 **{job: {"result": "success"} for job in ("build", "tests", "database")}}

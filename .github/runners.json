@@ -242,6 +242,15 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
+    "pr-checks.yml#portable-placement": "portable-checks",
+    "pr-checks.yml#size": "portable-checks",
+    "pr-checks.yml#ui-review": "portable-checks",
+    "pr-checks.yml#split": "portable-checks",
+    "cmux-next-fast-gates.yml#portable-placement": "portable-checks",
+    "cmux-next-fast-gates.yml#resolve": "portable-checks",
+    "cmux-next-fast-gates.yml#post": "portable-checks",
+    "web-validation.yml#portable-placement": "portable-checks",
+    "web-validation.yml#web-validation": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
