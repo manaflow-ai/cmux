@@ -23,7 +23,9 @@
 //! before the current one and the one the pane hints at
 //! (`_acpmux/prewarm`, debounced: a harness pick, or typing in a new chat);
 //! one hinted entry per harness across folders (`pool.hintedPerHarness`), and
-//! a hint the pane takes back (`release`) ends its entry; a 1 GB RSS cap for the whole pool, oldest
+//! a hint the pane takes back (`release`) ends its entry; one spare per harness the machine used
+//! (`spare.rs`: the shape of its newest session, kept `pool.spareIdleMinutes`, remembered across
+//! daemon starts, replaced when it dies); a 1 GB RSS cap for the whole pool, oldest
 //! first; idle exit on the injected clock (`pool.idleMinutes`, default 10).
 //! The default for idle CPU is that exit; `pool.park` (off) SIGSTOPs a ready
 //! harness instead. Never for a remote-origin chain (REMOTE-FLOOR v3).
@@ -48,6 +50,7 @@ mod auth;
 mod held;
 pub(crate) mod policy;
 mod reaper;
+mod spare;
 mod start;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
@@ -108,6 +111,13 @@ pub(crate) struct PoolState {
     starting: StdMutex<HashMap<String, HostRecord>>,
     /// Keys whose session alone is over the RSS cap: never started again.
     oversize: StdMutex<std::collections::HashSet<PoolKey>>,
+    /// The harness shapes `pool-spares.json` holds, read once on first use (`spare.rs`).
+    spares: StdMutex<Option<Vec<spare::Remembered>>>,
+    /// Held across a write of `pool-spares.json`, so the newest list is the one written.
+    spare_file: StdMutex<()>,
+    /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
+    spare_restart: StdMutex<Vec<String>>,
+    spare_wake: Notify,
 }
 
 type Spec = (String, Option<String>);
@@ -127,6 +137,10 @@ impl PoolState {
             rss: StdMutex::new(Arc::new(tree_rss_bytes)),
             starting: StdMutex::new(HashMap::new()),
             oversize: StdMutex::new(Default::default()),
+            spares: StdMutex::new(None),
+            spare_file: StdMutex::new(()),
+            spare_restart: StdMutex::new(Vec::new()),
+            spare_wake: Notify::new(),
         }
     }
 }
@@ -289,6 +303,9 @@ impl Hub {
                 if v.hinted {
                     roles.push("hinted");
                 }
+                if v.spare {
+                    roles.push("spare");
+                }
                 json!({"harness": v.key.harness, "preset": v.key.preset, "cwd": v.key.cwd,
                     "roles": roles, "state": v.state})
             })
@@ -342,6 +359,19 @@ impl Hub {
         preset: Option<String>,
         cwd: PathBuf,
     ) -> Result<PoolSpec, RpcError> {
+        self.pool_spec_in(harness, preset, cwd, None).await
+    }
+
+    /// `pool_spec`; a `spare` (the shape of a session the person started in `cwd`, `Some` with
+    /// that session's model request) asks for that model and may also start in the home folder
+    /// off macOS (`protected_folders::spare_refusal`).
+    async fn pool_spec_in(
+        &self,
+        harness: Option<String>,
+        preset: Option<String>,
+        cwd: PathBuf,
+        spare: Option<Option<String>>,
+    ) -> Result<PoolSpec, RpcError> {
         let r = {
             let cfg = self.config.read().await;
             self.resolve_new(&cfg, harness, &preset, None, false, None)?
@@ -349,7 +379,12 @@ impl Hub {
         let family = crate::config::derive_family(&r.agent, &r.profile);
         // A pooled agent starts before anyone asks for it: never in the home
         // folder, `/` or a privacy-protected folder.
-        if let Some(reason) = crate::protected_folders::unasked_refusal(&cwd) {
+        let refusal = if spare.is_some() {
+            crate::protected_folders::spare_refusal(&cwd)
+        } else {
+            crate::protected_folders::unasked_refusal(&cwd)
+        };
+        if let Some(reason) = refusal {
             return Err(RpcError::invalid_params(reason));
         }
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
@@ -361,7 +396,11 @@ impl Hub {
             profile: &r.profile,
             family: &family,
             preset: r.preset_name.clone(),
-            model_request: if spawn_model { r.defaults.model.clone() } else { None },
+            model_request: if spawn_model {
+                spare.flatten().or_else(|| r.defaults.model.clone())
+            } else {
+                None
+            },
             cwd,
             agent_session_id: None,
             policy: r.defaults.policy,
@@ -481,14 +520,19 @@ impl Hub {
         if lock(&self.pool.oversize).contains(&spec.key) {
             return;
         }
-        let (idle, per_harness) = {
+        let (idle, spare_idle, per_harness) = {
             let cfg = self.config.read().await;
-            (cfg.pool.idle(), usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX))
+            (
+                cfg.pool.idle(),
+                cfg.pool.spare_idle(),
+                usize::try_from(cfg.pool.hinted_per_harness).unwrap_or(usize::MAX),
+            )
         };
         let now = lock(&self.clock).now();
         let wanted = {
             let mut pool = lock(&self.pool.pool);
             pool.set_idle(idle);
+            pool.set_spare_idle(spare_idle);
             pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
@@ -537,11 +581,14 @@ impl Hub {
 
     /// An entry became ready: measure the pool, keep it under the RSS cap
     /// (oldest first), and park ready harnesses when `pool.park` is on.
-    async fn pool_after_ready(&self) {
+    async fn pool_after_ready(self: &Arc<Self>) {
         let (cap, park) = {
             let cfg = self.config.read().await;
             (cfg.pool.max_rss_mb.saturating_mul(1024 * 1024), cfg.pool.park)
         };
+        // A ready entry whose host died (killed, OOM) is removed now rather than found dead at a
+        // claim; a spare among them starts again (`spare.rs`).
+        self.spare_replace_dead().await;
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
         let measured: HashMap<u32, u64> =
@@ -902,10 +949,20 @@ impl Hub {
 
     /// A local session was created: the harness used before it in that cwd
     /// takes the last-used role (the common back-and-forth is a hit).
-    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session) {
+    /// `claimable`: the session's own creation could have taken a pooled agent (no env, route,
+    /// disallowed tools or extra folders of its own); only such a session's shape gets a spare.
+    pub(super) fn pool_note_used(self: &Arc<Self>, session: &Session, claimable: bool) {
         let m = session.meta();
         if m.remote_origin {
             return;
+        }
+        if claimable {
+            self.spare_note_used(
+                &m.harness,
+                m.preset.clone(),
+                m.cwd.clone(),
+                m.model_request.clone(),
+            );
         }
         let spec: Spec = (m.harness.clone(), m.preset.clone());
         let previous = {
