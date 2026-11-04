@@ -76,6 +76,18 @@ impl Surface {
         match pty.input_route.load().as_deref() {
             None => None,
             Some(input_port::InputRoute::Exited) => Some(Ok(())),
+            // A connection the reader gave up on takes no input: refused now, as the old path's failed write was,
+            // so the sender learns it (`cmux send` exits non-zero) instead of an accepted write the port only logs.
+            Some(input_port::InputRoute::Hosted(_))
+                if TerminalHostConnectionState::from_u8(
+                    pty.host_connection_state.load(Ordering::Acquire),
+                ) == TerminalHostConnectionState::Failed =>
+            {
+                Some(Err(std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "the terminal's host connection failed; input not written",
+                )))
+            }
             Some(input_port::InputRoute::Hosted(_)) => {
                 Some(pty.input_port.enqueue(&pty.terminal, kind, bytes).map_err(Into::into))
             }

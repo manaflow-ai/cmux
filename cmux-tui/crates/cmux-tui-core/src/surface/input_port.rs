@@ -15,7 +15,10 @@
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
 //! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits for the reader's next
 //!   stream change and writes to the new host, until `HOST_INPUT_RECONNECT_WAIT`.
-//! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits.
+//! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
+//!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
+//! - A host connection the reader gave up on (`Failed`) takes no input: the write is refused at once, as the old
+//!   path's failed write was (`Surface::enqueue_on_input_port`).
 //! - Input the port took and then could not write (the host is gone and no new one came) is lost, as a failed write
 //!   was before; the request had already been answered, so the port logs it.
 //! - Stage S1 step 6b, before the default flip: every other frame of the connection (viewer size, cell pixels,
@@ -34,6 +37,8 @@ use crate::terminal_host_runtime::HostInputRoute;
 
 /// The most bytes one terminal's port holds; more is refused (`terminal.input_busy`). Two of the largest frames.
 const INPUT_PORT_BYTE_CAPACITY: usize = 2 * MAX_FRAME_PAYLOAD;
+/// What one queued frame costs beyond its bytes (its header and allocation), counted against the capacity.
+const PORT_FRAME_COST: usize = 64;
 /// A port writer with nothing to write for this long ends; the next input starts a new one.
 const INPUT_PORT_IDLE_EXIT: Duration = Duration::from_secs(30);
 /// The writer's stack: it formats and writes one frame at a time.
@@ -79,6 +84,13 @@ struct PortFrame {
     bytes: Vec<u8>,
 }
 
+impl PortFrame {
+    /// What the frame counts against [`INPUT_PORT_BYTE_CAPACITY`]: its bytes and [`PORT_FRAME_COST`].
+    fn cost(&self) -> usize {
+        self.bytes.len().saturating_add(PORT_FRAME_COST)
+    }
+}
+
 #[derive(Default)]
 struct PortState {
     frames: VecDeque<PortFrame>,
@@ -118,23 +130,29 @@ impl InputPort {
         if bytes.len() > MAX_FRAME_PAYLOAD {
             return Err(InputRefused::TooLarge);
         }
+        // Copied before the lock, so another write to this terminal never waits for this one's copy.
+        let frame = PortFrame { kind, bytes: bytes.to_vec() };
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let total = state.queued_bytes.checked_add(bytes.len());
-        if total.is_none_or(|total| total > INPUT_PORT_BYTE_CAPACITY) {
+        let Some(total) = state
+            .queued_bytes
+            .checked_add(frame.cost())
+            .filter(|total| *total <= INPUT_PORT_BYTE_CAPACITY)
+        else {
             return Err(InputRefused::Busy);
-        }
+        };
         if !state.writer_running {
             let shared = Arc::clone(&self.shared);
             let terminal = Arc::downgrade(terminal);
             std::thread::Builder::new()
-                .name("terminal-input-port".into())
+                // At most 15 bytes: the length Linux keeps.
+                .name("term-input-port".into())
                 .stack_size(INPUT_PORT_STACK_BYTES)
                 .spawn(move || run_writer(&shared, &terminal))
                 .map_err(InputRefused::NoWriter)?;
             state.writer_running = true;
         }
-        state.queued_bytes = total.unwrap_or(state.queued_bytes);
-        state.frames.push_back(PortFrame { kind, bytes: bytes.to_vec() });
+        state.queued_bytes = total;
+        state.frames.push_back(frame);
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
@@ -145,10 +163,10 @@ impl InputPort {
 /// [`INPUT_PORT_IDLE_EXIT`] (it then marks itself stopped, under the lock, so the next input starts a new one).
 fn next_frame(shared: &PortShared) -> Option<PortFrame> {
     let mut state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-    let idle_until = Instant::now() + INPUT_PORT_IDLE_EXIT;
+    let idle_until = Instant::now().checked_add(INPUT_PORT_IDLE_EXIT).unwrap_or_else(Instant::now);
     loop {
         if let Some(frame) = state.frames.pop_front() {
-            state.queued_bytes = state.queued_bytes.saturating_sub(frame.bytes.len());
+            state.queued_bytes = state.queued_bytes.saturating_sub(frame.cost());
             return Some(frame);
         }
         let now = Instant::now();
@@ -164,7 +182,31 @@ fn next_frame(shared: &PortShared) -> Option<PortFrame> {
     }
 }
 
+/// Stops the port cleanly when its writer unwinds: the frame it was writing is lost, so the frames after it are
+/// dropped too (a paste without its start, keys without the ones before them) and logged, and the writer is marked
+/// stopped, so the next input starts a new one instead of queueing behind a writer that is gone. Only on unwind: a
+/// normal exit marks the writer stopped under the lock in [`next_frame`], and a newer writer may run by then.
+struct WriterUnwind<'a>(&'a PortShared);
+
+impl Drop for WriterUnwind<'_> {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            return;
+        }
+        let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let dropped = state.frames.len();
+        state.frames.clear();
+        state.queued_bytes = 0;
+        state.writer_running = false;
+        drop(state);
+        eprintln!(
+            "cmux-tui: terminal input port writer stopped by a panic; {dropped} queued writes dropped"
+        );
+    }
+}
+
 fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
+    let _unwind = WriterUnwind(shared);
     while let Some(frame) = next_frame(shared) {
         // The terminal is gone: its port closed, and nothing is left to write to.
         let Some(runtime) = terminal.upgrade() else { return };
@@ -184,7 +226,8 @@ fn write_with_reconnect(
     kind: MessageKind,
     bytes: &[u8],
 ) -> std::io::Result<()> {
-    let deadline = Instant::now() + HOST_INPUT_RECONNECT_WAIT;
+    let deadline =
+        Instant::now().checked_add(HOST_INPUT_RECONNECT_WAIT).unwrap_or_else(Instant::now);
     let mut first_error = None;
     loop {
         // Read the revision before the send: an install after it wakes the wait below, so no reconnect is missed.

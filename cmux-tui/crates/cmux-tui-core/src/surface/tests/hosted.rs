@@ -186,11 +186,38 @@ fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
         1,
         "the key reached the host once: {kinds:?}"
     );
+    // Both must be there: the host stops reading at the first key, so a key that passed the paste leaves no paste.
+    let paste_at = kinds.iter().position(|kind| *kind == MessageKind::Paste);
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
     assert!(
-        kinds.iter().position(|kind| *kind == MessageKind::Paste)
-            < kinds.iter().position(|kind| *kind == MessageKind::Input),
+        matches!((paste_at, key_at), (Some(paste), Some(key)) if paste < key),
         "the paste, written first, reached the host before the key: {kinds:?}"
     );
+}
+
+/// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
+/// one writer thread), and a key the port took returns before the host read anything (#34544 review).
+#[cfg(unix)]
+#[test]
+fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-order", true);
+    let keys: Vec<u8> = (b'a'..=b'z').collect();
+    for key in &keys {
+        surface.write_bytes(&[*key]).expect("the port took the key");
+    }
+    let mut written = Vec::new();
+    while written.len() < keys.len() {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads the keys")
+        .expect("the host connection stays open");
+        if frame.kind == MessageKind::Input {
+            written.extend_from_slice(&frame.payload);
+        }
+    }
+    assert_eq!(written, keys, "the keys reached the host in another order or more than once");
 }
 
 #[cfg(unix)]
