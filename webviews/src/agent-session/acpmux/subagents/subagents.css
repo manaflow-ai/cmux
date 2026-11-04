@@ -1595,3 +1595,96 @@ button.cv-subagent > :last-child {
     top: var(--ds-space-1);
   }
 }
+
+/* ---------- Tucking the hat away (SubagentTray.tsx `onTuck`, TrayPullTab.tsx) ----------
+   Leo, 2026-11-04: "what if you wanted to collapse that one line? ... at the top of the hat, there's
+   some sort of little thing ... a special kind of chevron". The hat's chevron sits at its top middle
+   and shows while the pointer is over the hat (or it has keyboard focus); tucked, the hat leaves only
+   a faint grabber at the composer's top middle, in the accent while something runs, which turns into
+   an up chevron on hover. */
+.acpmux-running-tray[data-tucks] {
+  position: relative;
+}
+.acpmux-running-tray__tuck,
+.acpmux-tray-pull__tab {
+  position: absolute;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-control, 6px);
+  background: transparent;
+  color: var(--agent-muted);
+  cursor: default;
+  transform: translateX(-50%);
+}
+.acpmux-running-tray__tuck {
+  top: 0;
+  width: 40px;
+  height: 20px;
+  opacity: 0;
+  transition: opacity var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out);
+}
+.acpmux-running-tray:hover > .acpmux-running-tray__tuck,
+.acpmux-running-tray:has([data-popup-open]) > .acpmux-running-tray__tuck,
+.acpmux-running-tray__tuck:focus-visible {
+  opacity: 1;
+}
+.acpmux-running-tray__tuck:hover,
+.acpmux-tray-pull__tab:hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  color: var(--agent-text);
+}
+.acpmux-running-tray__tuck:focus-visible,
+.acpmux-tray-pull__tab:focus-visible {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* Tucked: no height in the bottom stack, so the composer keeps its place; the tab's hover strip
+   straddles the composer's top edge, centred on the composer card's column. */
+.acpmux-tray-pull {
+  position: relative;
+  z-index: 2;
+  height: 0;
+  margin: 0 var(--cv-inset-end, var(--cv-inset, 0px)) 0 var(--cv-inset, 0px);
+}
+.acpmux-tray-pull__tab {
+  top: -8px;
+  width: 96px;
+  height: 20px;
+}
+/* The grabber at rest. */
+.acpmux-tray-pull__tab::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 0;
+  border-top: 3px solid currentColor;
+  border-radius: 999px;
+  opacity: 0.35;
+  transform: translate(-50%, -50%);
+}
+.acpmux-tray-pull[data-running] .acpmux-tray-pull__tab::before {
+  border-top-color: var(--agent-accent);
+  opacity: 0.6;
+}
+/* The up chevron, on hover or keyboard focus, in the grabber's place. */
+.acpmux-tray-pull__tab > svg {
+  opacity: 0;
+  transform: rotate(180deg);
+}
+.acpmux-tray-pull__tab:hover::before,
+.acpmux-tray-pull__tab:has([data-popup-open])::before,
+.acpmux-tray-pull__tab:focus-visible::before {
+  opacity: 0;
+}
+.acpmux-tray-pull__tab:hover > svg,
+.acpmux-tray-pull__tab:has([data-popup-open]) > svg,
+.acpmux-tray-pull__tab:focus-visible > svg {
+  opacity: 1;
+}
