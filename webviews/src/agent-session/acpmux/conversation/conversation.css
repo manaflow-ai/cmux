@@ -1072,6 +1072,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--grid-gap-inner);
+  /* Paragraph spacing is owned by the shared transcript grid. Keeping the fallback on the token
+     avoids a second, unscaled spacing source in math and nested markdown blocks. */
+  --cv-para-after: var(--grid-gap-inner);
   font-family: var(--cv-font);
   font-size: var(--cv-font-size);
   line-height: var(--cv-line-height);
@@ -1083,7 +1086,7 @@
   margin-top: 0;
 }
 .cv-p {
-  margin: 0 0 var(--cv-para-after, 14px);
+  margin: 0 0 var(--cv-para-after);
 }
 .cv-p:has(+ .cv-list) {
   margin-bottom: 0;
@@ -1677,7 +1680,7 @@
   margin: 0;
 }
 .cv-p + .cv-math-display {
-  margin-top: calc(12px - var(--cv-para-after, 14px));
+  margin-top: calc(var(--grid-gap-inner) - var(--cv-para-after));
 }
 .cv-math-display + .cv-math-display {
   margin-top: -1px;
