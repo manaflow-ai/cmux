@@ -15,13 +15,20 @@ extension PageWebView {
         guard let model = WebPopupHost.Model(params) else { return .object(["shown": .bool(false)]) }
         let host = popupHost ?? WebPopupHost(
             webView: focusView, zoom: { [weak self] in CGFloat(self?.pageZoom ?? 1) },
-            send: { [weak self] event in self?.router.publishPopup(JSONValue(foundation: event) ?? .null) })
+            send: { [weak self] event in self?.publishPopupEvent(event) })
         popupHost = host
         if op == PageNativeOp.popupUpdate {
             host.update(model)
             return .object([:])
         }
         return JSONValue(foundation: host.show(model)) ?? .object(["shown": .bool(false)])
+    }
+
+    /// A host popup's `pick` comes only from a real AppKit row choice (``WebPopupHost``), so it backs
+    /// the page call that follows like a native context-menu choice; other events grant nothing.
+    func publishPopupEvent(_ event: [String: Any], at uptime: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        if event["type"] as? String == "pick" { noteNativeChoice(at: uptime) }
+        router.publishPopup(JSONValue(foundation: event) ?? .null)
     }
 
     /// A right-click menu of the page (`cmux.app.contextMenu.show`) as a standard macOS menu at the
@@ -41,9 +48,13 @@ extension PageWebView {
         if picked != nil {
             // The menu can stay open longer than the opener's gesture lifetime. Its real choice
             // backs the page call that follows; dismissal and script parameters grant nothing.
-            if chromiumSession != nil { chromiumUserInput(at: uptime) }
-            else { webView.noteNativeMenuSelection(at: uptime) }
+            noteNativeChoice(at: uptime)
         }
         return .object(["picked": picked.map(JSONValue.string) ?? .null])
+    }
+
+    private func noteNativeChoice(at uptime: TimeInterval) {
+        if chromiumSession != nil { chromiumUserInput(at: uptime) }
+        else { webView.noteNativeMenuSelection(at: uptime) }
     }
 }
