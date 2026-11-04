@@ -19,7 +19,7 @@ STAGING_API = "https://cloud-api-staging.cmux.dev"
 
 class CloudChatProofTests(unittest.TestCase):
     def run_proof(self, *, backend_name="staging", backend=None, environment=None, wrong_bundle=False,
-                  signed_in=True, reply="STAGING-CLOUD-OK.", cleanup_exit=0, app_exits=True):
+                  signed_in=True, reply="CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain", cleanup_exit=0, app_exits=True):
         calls = []
         clock = 0.0
         auth_reads = 0
@@ -61,11 +61,22 @@ class CloudChatProofTests(unittest.TestCase):
                 elif words == ["vm", "token", "create", "--ttl", "30m", "--json"]:
                     value = {"stored": True}
                 elif words[:2] == ["cloud", "start-chat"]:
-                    self.assertEqual(words, ["cloud", "start-chat", "--prompt", "Return the marker.",
-                                            "--agent", "claude", "--name", "proof-test", "--wait",
-                                            "--timeout", "600", "--json"])
+                    self.assertEqual(words[0:3], ["cloud", "start-chat", "--prompt"])
+                    self.assertIn("https://example.com/?cmux_browser_proof=", words[3])
+                    self.assertEqual(words[4:], ["--agent", "claude", "--name", "proof-test", "--wait",
+                                                 "--timeout", "600", "--json"])
                     value = {"machine_id": "machine-proof", "session_id": "session-proof",
-                             "host": "guest.example.test", "reply": reply}
+                             "host": "guest.example.test", "reply": reply,
+                             "turn": {"toolCalls": 1}}
+                elif words[:2] == ["cloud", "exec"]:
+                    start_words = next(words for words in reversed(calls[:-1]) if words[:2] == ["cloud", "start-chat"])
+                    prompt = start_words[start_words.index("--prompt") + 1]
+                    browser_url = prompt.split("Navigate to ", 1)[1].split(" with", 1)[0]
+                    event = {"sessionUpdate": "tool_call", "toolCallId": "browser-1",
+                             "rawInput": {"command": f"agent-browser open {browser_url}"}}
+                    update = {"sessionUpdate": "tool_call_update", "toolCallId": "browser-1",
+                              "status": "completed", "content": [{"text": "Example Domain"}]}
+                    value = {"exit_code": 0, "stdout": json.dumps(event) + "\n" + json.dumps(update) + "\n"}
                 elif words == ["cloud", "kill-machine", "--target", "machine:machine-proof",
                                "--confirm", "--json"]:
                     code = cleanup_exit
@@ -113,7 +124,7 @@ class CloudChatProofTests(unittest.TestCase):
                 self.assertEqual(steps["selected backend active and signed in"]["backend"], origin)
                 self.assertTrue(steps["selected backend active and signed in"]["signed_in"])
                 self.assertGreater(steps["selected backend active and signed in"]["elapsed_ms"], 0)
-                self.assertEqual(steps["cloud start-chat"]["reply"], "STAGING-CLOUD-OK.")
+                self.assertEqual(steps["cloud start-chat"]["reply"], "CLOUD_BROWSER_PROOF_OK title=Example Domain h1=Example Domain")
                 self.assertEqual(steps["cloud start-chat"]["guest_host"], "guest.example.test")
                 self.assertEqual(steps["cloud start-chat"]["machine_id"], "machine-proof")
                 self.assertEqual(steps["cloud kill-machine"]["exit"], 0)
