@@ -61,9 +61,10 @@ export function useCloudChatRecovery({ cloud, session, active, recheck }: Props)
     };
     // A live native bridge owns the request's lifetime. Cleanup only settles a request when this
     // effect is disposed; a busy machine never turns a slow list into a terminal resume failure.
-    const beforeDeadline = async <T>(
-      work: Promise<T>,
-    ): Promise<{ kind: "done"; value: T }> => ({ kind: "done", value: await work });
+    const beforeDeadline = async <T>(work: Promise<T>): Promise<{ kind: "done"; value: T }> => ({
+      kind: "done",
+      value: await work,
+    });
     const read = async () => {
       if (disposed || !identity || !active) return;
       try {

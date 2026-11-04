@@ -26,9 +26,15 @@ test("a slow but open daemon answers after the request progress threshold", asyn
   );
   try {
     const started = performance.now();
-    const request = (client as unknown as {
-      request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
-    }).request("_acpmux/process/kill", { sessionId: mockHost.sessionId, processId: `${mockHost.sessionId}/process` }, 20);
+    const request = (
+      client as unknown as {
+        request(method: string, params: Record<string, unknown>, deadline: number): Promise<unknown>;
+      }
+    ).request(
+      "_acpmux/process/kill",
+      { sessionId: mockHost.sessionId, processId: `${mockHost.sessionId}/process` },
+      20,
+    );
     // The client holds the first attach snapshot briefly; observe after that hold while the
     // deliberately slow reply is still outstanding.
     await wait(350);

@@ -14658,9 +14658,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <HostWaitingLine
         since={hostWaitingSince}
         restarting={restartingAcpmux}
-        onRestart={
-          waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined
-        }
+        onRestart={waitingSince !== undefined && !restartUnavailable ? restartStuck : undefined}
         otherwise={hostErrorCard}
       />
     ) : (
