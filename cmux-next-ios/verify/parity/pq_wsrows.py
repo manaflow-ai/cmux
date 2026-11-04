@@ -130,6 +130,17 @@ def place(j, label):
         out["top"] = {"key": key, "s": round(took, 1)}
         back(j)
         pq.shot("place-after-top")
+        r.row_menu(j, a)
+        r.tap(j, "New")
+        before = keys()
+        r.tap(j, "New Workspace at Bottom")
+        key = new_key(before, "the new workspace at the bottom")
+        made.append(key)
+        o, took = r.wait_mac(lambda: (lambda o: o if o and o.index(key) > max(o.index(w["key"]) for w in r.mine().values()) else None)(mine()),
+                             "the new workspace below every seeded one")
+        out["bottom"] = {"key": key, "s": round(took, 1)}
+        back(j)
+        pq.shot("place-after-bottom")
         for _ in range(4):
             r.hold(j, r.group_header(j, gid))
             if j.sim.find(label="New Workspace in Group", kind="Button"):

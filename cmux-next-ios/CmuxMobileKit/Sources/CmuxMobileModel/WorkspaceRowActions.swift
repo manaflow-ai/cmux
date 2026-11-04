@@ -51,9 +51,12 @@ extension WorkspaceCreator {
             .filter { $0.element.macID == workspace.macID && $0.element.id != workspace.id && !$0.element.isPinned && !$0.element.isHome }
             .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
             .map(\.element)
-        // A loose row, so the new (loose) row lands outside any group's run; else any row.
-        let loose = rows.filter { $0.group == nil }
-        return top ? (loose.first ?? rows.first) : (loose.last ?? rows.last)
+        // Top: before the first loose row. A group shows before the row its `top_index` names, so a
+        // new row put at a grouped first row's index would show after that group. Bottom: after the
+        // last row, grouped or not (a group's run starts at its first member, so a row after its
+        // last member shows after it).
+        guard top else { return rows.last }
+        return rows.first { $0.group == nil } ?? rows.first
     }
 
     // MARK: Merge Workspace Into…

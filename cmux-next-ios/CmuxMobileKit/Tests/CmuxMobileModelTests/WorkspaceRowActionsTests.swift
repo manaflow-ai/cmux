@@ -108,10 +108,13 @@ import Testing
             ws.isPinned = pinned
             return ws
         }
-        let rows = [row("p", 0, pinned: true), row("x", 1), row("y", 2), row("new", 3)]
-        #expect(WorkspaceCreator.edgeAnchor(true, of: rows[3], in: rows)?.id == "x")
-        #expect(WorkspaceCreator.edgeAnchor(false, of: rows[3], in: rows)?.id == "y")
-        #expect(WorkspaceCreator.edgeAnchor(true, of: rows[3], in: [rows[3]]) == nil)
+        var grouped = row("g", 1)
+        grouped.group = MacWorkspaceGroup(id: "grp", name: "G")
+        let rows = [row("p", 0, pinned: true), grouped, row("x", 2), row("y", 3), row("new", 4)]
+        // Top skips the grouped first row; bottom is the last row.
+        #expect(WorkspaceCreator.edgeAnchor(true, of: rows[4], in: rows)?.id == "x")
+        #expect(WorkspaceCreator.edgeAnchor(false, of: rows[4], in: rows)?.id == "y")
+        #expect(WorkspaceCreator.edgeAnchor(true, of: rows[4], in: [rows[4]]) == nil)
     }
 
     // MARK: The icon picker's catalog
