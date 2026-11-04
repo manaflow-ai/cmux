@@ -33,7 +33,9 @@ extension AgentTabStore {
     /// confirms it; with `chat` (a seed) or `session` (`linked`: ``linkedSessions``), that chat (P4); `firstTabKeyed`: its tab is keyed by the workspace (`firstChatTabMutationID`).
     /// Nil when it cannot (``showsWorkspaceAtOnce(on:)``).
     func showWorkspace(_ key: WorkspaceKey, name: String, index: Int?, cwd: String?, token: String?, chat: AgentPaneSeed? = nil,
-                       session: (id: String, host: String?, linked: Bool)? = nil, firstTabKeyed: Bool = false, on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
+                       session: (id: String, host: String?, linked: Bool)? = nil, firstTabKeyed: Bool = false,
+                       placedBy rule: NewWorkspaceDefaultSlot? = nil, ledger: NewWorkspacePlacements.Ledger? = nil,
+                       on daemon: DaemonService, repair: EmptyWorkspaceRepair) -> OptimisticWorkspace? {
         guard showsWorkspaceAtOnce(on: daemon), let localHost else { return nil }
         let store = daemon.store
         let record = AgentSessionRef(host: session?.host ?? localHost, hostName: localHostName, session: session?.id)
@@ -62,7 +64,7 @@ extension AgentTabStore {
             guard let connection = daemon.connection else { fail(); throw DaemonError.notConnected }
             do {
                 let created: (AgentTabCreated, UInt64?) = try await WorkspaceCreation.createWithFirstTab(
-                    key, name: name, on: connection, repair: repair, giveUp: giveUp
+                    key, name: name, placedBy: rule, ledger: ledger, on: connection, repair: repair, giveUp: giveUp
                 ) { workspace in
                     BenchSpans.mark("cmdN.workspace.created")
                     var request = NewConversationTabRequest(agentSession: record, workspace: workspace.workspace, origin: Self.createOrigin,

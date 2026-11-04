@@ -24,7 +24,7 @@ enum PersonalSidebar {
         let isHome = daemon === machines.local
         if machines.local.store.supportsPersonalMixedOrder {
             return mixedSections(workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: isHome,
-                                 newRowsFirst: newRowsFirst(daemon, machines, doc))
+                                 newRowsFirst: newRowsFirst(daemon, machines, doc), unplacedAnchor: doc.docSections.unplacedAnchor)
         }
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows)
@@ -51,7 +51,7 @@ enum PersonalSidebar {
         if machines.local.store.supportsPersonalMixedOrder {
             let groups = personal.groups.sorted { $0.index < $1.index }
             return mixedSections(daemon.store.workspaces, groups: groups, session: session, personal: personal, keepsEmptyGroups: false,
-                                 newRowsFirst: newRowsFirst(daemon, machines, doc))
+                                 newRowsFirst: newRowsFirst(daemon, machines, doc), unplacedAnchor: doc.docSections.unplacedAnchor)
                 .flatMap(\.workspaces).map(\.id)
         }
         return order(daemon.store.workspaces, rows: rows(of: session, personal)).map(\.id)
@@ -68,7 +68,8 @@ enum PersonalSidebar {
     /// (this Mac's daemon writes one in every create), listed first below
     /// Home, newest first, where the row will put them (sidebar-ordering-DESIGN.md).
     static func mixedSections(_ workspaces: [WorkspaceModel], groups: [WorkspaceGroupModel], session: String,
-                              personal: PersonalStore, keepsEmptyGroups: Bool, newRowsFirst: Bool = false) -> [SidebarSection] {
+                              personal: PersonalStore, keepsEmptyGroups: Bool, newRowsFirst: Bool = false,
+                              unplacedAnchor anchor: (WorkspaceModel) -> SidebarDocSections.UnplacedAnchor? = { _ in nil }) -> [SidebarSection] {
         let all = personal.workspacesInOrder // sorted once per change of the list, not on every pass
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows)
@@ -94,13 +95,28 @@ enum PersonalSidebar {
                 loose.append(workspace)
             }
         }
-        let fresh = ordered.filter { rows[rowKey($0)] == nil }
+        // A create in flight that named a neighbour lists beside it (`SidebarDocSections.unplacedAnchor`), where
+        // the daemon's create puts it; the others first under `top`, else last.
+        let besides = ordered.filter { rows[rowKey($0)] == nil }.map { ($0, anchor($0)) }
+        let fresh = besides.filter { $0.1 == nil }.map(\.0)
         if !newRowsFirst { loose += fresh }
         for group in groups where group.topIndex.map({ $0 >= all.count }) ?? true { emit(group) }
         if !loose.isEmpty || sections.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
         if newRowsFirst, !fresh.isEmpty {
             if sections.count == 1, sections[0].group == nil, sections[0].workspaces.isEmpty { sections = [] }
             SidebarDocSections.insertFirst(Array(fresh.reversed()), into: &sections, machineSections: sections.count)
+        }
+        for case let (workspace, beside?) in besides where !SidebarDocSections.insert(workspace, beside: beside, into: &sections,
+                                                                                         within: sections.count) {
+            // Its neighbour is not listed here: where the others go.
+            if newRowsFirst || beside.fallsBackToFirst { SidebarDocSections.insertFirst([workspace], into: &sections, machineSections: sections.count) } else {
+                // Last of all, below a trailing group too.
+                if let last = sections.indices.last, sections[last].group == nil {
+                    sections[last] = SidebarSection(group: nil, workspaces: sections[last].workspaces + [workspace])
+                } else {
+                    sections.append(SidebarSection(group: nil, workspaces: [workspace]))
+                }
+            }
         }
         return sections
     }

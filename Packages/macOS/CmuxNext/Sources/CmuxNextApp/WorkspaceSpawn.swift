@@ -54,7 +54,7 @@ struct WorkspaceSpawner {
         if let windowID { windows.claimNew(workspaceID: key.rawValue, window: windowID, frame: frame) }
         guard daemon.connection != nil else { return { [windows] in throw windows.createFailed(key.rawValue, DaemonError.notConnected) } }
         var row = spawn.slot == nil ? NewWorkspacePlacements.rule(for: windowID, in: windows) : nil
-        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent { row?.current = nil }
+        if !spawn.placesFromCurrent || !spawn.placesBySetting, row?.placement != .afterCurrent, row?.placement != .beforeCurrent { row?.current = nil }
         let rule = spawn.placesBySetting ? row : nil
         // Only a create with a row names itself here; another keeps the daemon's own numbering.
         let name = spawn.name ?? windowID.map { _ in
@@ -78,7 +78,7 @@ struct WorkspaceSpawner {
                     }
                 }, settle: { await Self.settled(on: daemon) }) { try await named.create(key, rule: rule) }
             } catch {
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
@@ -103,7 +103,8 @@ struct WorkspaceSpawner {
         // this turn; its slot is placed in the turn the daemon's workspace takes the stand-in over.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
         guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
-                                                           session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
+                                                           session: spawn.firstSession.map { ($0, nil, false) }, placedBy: rule,
+                                                           ledger: windows.newPlacements, on: daemon, repair: repair) else { return nil }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
         let windows = windows
@@ -126,7 +127,7 @@ struct WorkspaceSpawner {
                 }
             } catch {
                 shown.abandon()
-                windows.forgetCreate(key.rawValue)
+                windows.forgetCreate(key.rawValue); windows.newPlacements.forget(key.rawValue)
                 throw windows.createFailed(key.rawValue, error)
             }
         }
@@ -187,9 +188,9 @@ struct WorkspaceSpawner {
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath }
             ?? (daemon.isLocal ? spawn.inheritedCwd : nil) ?? daemon.defaultCwd
         BenchSpans.mark("cmdN.create.sending")
-        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
+        if let page = try await FirstTabHold.creating(key.rawValue, windows: windows, { try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, placedBy: rule, ledger: windows.newPlacements, on: daemon, repair: repair, tabs: services.agentTabs) }) { return page }
         let command = spawn.command, onFirstTerminal = spawn.onFirstTerminal
-        return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
+        return try await WorkspaceCreation.create(key, name: spawn.name, placedBy: rule, ledger: windows.newPlacements, on: connection, repair: repair) { created in
             // Keyed (terminal id, mutation): a late start is waited for, never taken back (P0 2026-10-30).
             let started = try await connection.createTerminalWaitingForStart(CreateTerminalRequest(
                 workspace: .key(created), command: command, cwd: cwd,

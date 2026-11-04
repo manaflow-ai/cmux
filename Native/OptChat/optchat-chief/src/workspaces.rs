@@ -746,7 +746,7 @@ fn home_dir() -> PathBuf {
 /// The index a workspace takes in the personal group it joins, from the same
 /// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
 /// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
-/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+/// `afterCurrent`/`beforeCurrent` keep the daemon's place, the end. None keeps the daemon default.
 pub fn new_group_index(home: &Path) -> Option<usize> {
     let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
         doc.pointer("/workspaces/newPlacement")
@@ -754,7 +754,7 @@ pub fn new_group_index(home: &Path) -> Option<usize> {
             .map(str::to_owned)
     });
     match placement.as_deref() {
-        Some("bottom" | "afterCurrent") => None,
+        Some("bottom" | "afterCurrent" | "beforeCurrent") => None,
         // No file, no key, or a value the app does not know: the app's default, `top`.
         _ => Some(0),
     }

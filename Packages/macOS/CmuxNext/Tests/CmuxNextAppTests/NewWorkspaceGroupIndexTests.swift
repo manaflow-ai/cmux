@@ -11,9 +11,10 @@ import Testing
         #expect(NewWorkspacePlacements.newGroupIndex(for: .top) == 0)
     }
 
-    @Test func bottomAndAfterCurrentFormTheGroupLast() {
+    @Test func bottomAfterCurrentAndBeforeCurrentFormTheGroupLast() {
         #expect(NewWorkspacePlacements.newGroupIndex(for: .bottom) == .max)
         #expect(NewWorkspacePlacements.newGroupIndex(for: .afterCurrent) == .max)
+        #expect(NewWorkspacePlacements.newGroupIndex(for: .beforeCurrent) == .max)
     }
 
     @Test func theDefaultPlacementFormsTheGroupFirst() {

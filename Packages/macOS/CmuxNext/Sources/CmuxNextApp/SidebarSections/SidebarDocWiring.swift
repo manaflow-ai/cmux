@@ -31,6 +31,13 @@ extension SidebarDocument {
         docSections.placesNewRowsFirst = { [weak services] in
             (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
         }
+        // `beforeCurrent` / `afterCurrent` and New Workspace Above or Below: beside the workspace the create named.
+        docSections.unplacedAnchor = { [weak services, weak self] workspace in
+            guard let services, let self else { return nil }
+            return services.windows.newPlacements.unplacedAnchor(for: workspace.id,
+                hasDocumentItem: { self.item(workspace: $0) != nil },
+                workspaceExists: { services.machines.workspace(id: $0) != nil })
+        }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.newItemRoom = { [weak services, weak self] in self?.room(services?.windows.active?.state.profileID.rawValue) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }

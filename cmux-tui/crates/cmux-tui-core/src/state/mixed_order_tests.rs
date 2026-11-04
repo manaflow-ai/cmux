@@ -32,6 +32,20 @@ fn group(mux: &Arc<Mux>, name: &str) -> String {
         .to_string()
 }
 
+/// A group made with an explicit index, so it forms after every loose row
+/// (with none it forms below Home under `workspaces.newPlacement` top).
+fn group_after_loose_rows(mux: &Arc<Mux>, name: &str) -> String {
+    mutate(
+        mux,
+        "workspace_group.create",
+        json!({"name": name, "index": 0}),
+        &format!("group-{name}"),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 /// A group moves between loose rows, its members show at its slot in the
 /// personal order, and null puts it back after every loose workspace.
 #[test]
@@ -254,6 +268,288 @@ fn a_new_workspace_follows_the_after_current_and_bottom_settings() {
     assert_eq!(group_of(d), json!(work), "after a grouped workspace: in its group");
     assert!(group_of(c).is_null() && group_of(e).is_null() && group_of(f).is_null());
     mux.shutdown();
+}
+
+/// `beforeCurrent`: right before the session's active workspace, inside its
+/// group; Home (or no current workspace) falls back to top.
+#[test]
+fn a_new_workspace_follows_the_before_current_setting() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-before-current");
+    let mux = session.open();
+    let home = send(&mux, "workspace.ensure_home", json!({}), Some("connect")).unwrap()["value"]
+        ["workspace_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let work = group_after_loose_rows(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    // Personal order now: home, b, then Work [a] after every loose row.
+    let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
+    mutate(&mux, "workspace.focus", json!({"workspace": b}), "focus-b");
+    let c = empty_workspace(&mux, "c");
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
+    let d = empty_workspace(&mux, "d");
+    mutate(&mux, "workspace.focus", json!({"workspace": home}), "focus-home");
+    let e = empty_workspace(&mux, "e");
+    drop(before);
+    let ids = [&home, &a, &b, &c, &d, &e].map(String::as_str);
+    let [home, a, b, c, d, e] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [home, e, c, b, d, a]);
+    let placements = read(&mux, "workspace.placement.list", json!({}));
+    let group_of = |id: &str| {
+        placements
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == id)
+            .map(|row| row["group_id"].clone())
+            .unwrap()
+    };
+    assert_eq!(group_of(d), json!(work), "before a grouped workspace: in its group");
+    assert!(group_of(c).is_null() && group_of(e).is_null());
+    mux.shutdown();
+}
+
+/// `beforeCurrent` with a group slotted right above the loose current row:
+/// the new row goes between that group and the current row, where the app
+/// draws it on its first frame, not above the group.
+#[test]
+fn before_current_goes_below_a_group_right_above_the_current_row() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-before-current-group");
+    let mux = session.open();
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let w = empty_workspace(&mux, "w");
+    let work = group(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": w, "group": work}), "w-in-work");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-before-b",
+    );
+    drop(bottom);
+    let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
+    mutate(&mux, "workspace.focus", json!({"workspace": b}), "focus-b");
+    let n = empty_workspace(&mux, "n");
+    drop(before);
+    let ids = [&a, &b, &w, &n].map(String::as_str);
+    let [a, b, w, n] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [a, w, n, b]);
+    assert_eq!(listed(&mux, None, &ids), [a, w, n, b], "the sidebar document agrees");
+    let groups = read(&mux, "workspace_group.list", json!({}));
+    assert_eq!(groups[0]["top_index"], 1, "Work still shows right after a");
+    mux.shutdown();
+}
+
+/// Dense positions (written before rows were spaced out) leave no room
+/// before the current row, so the create respaces every row: the groups
+/// right above the current row still stay above the new rows, and a group
+/// below it stays below.
+#[test]
+fn before_current_keeps_group_slots_when_the_create_respaces_rows() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-before-current-respace");
+    let mux = session.open();
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let a = empty_workspace(&mux, "a");
+    let b = empty_workspace(&mux, "b");
+    let c = empty_workspace(&mux, "c");
+    let w = empty_workspace(&mux, "w");
+    let x = empty_workspace(&mux, "x");
+    let work = group(&mux, "Work");
+    let later = group(&mux, "Later");
+    mutate(&mux, "workspace.place", json!({"workspace": w, "group": work}), "w-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": x, "group": later}), "x-in-later");
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": work, "top_index": 1}),
+        "work-before-b",
+    );
+    mutate(
+        &mux,
+        "workspace_group.update",
+        json!({"workspace_group": later, "top_index": 2}),
+        "later-before-c",
+    );
+    drop(bottom);
+    {
+        // Every row and slot one apart, far above where a respace puts rows.
+        let registry = mux.workspace_registry.lock().unwrap();
+        let db = registry.connection.get();
+        db.execute_batch(
+            "CREATE TEMP TABLE dense AS
+               SELECT p, (1 << 50) + ROW_NUMBER() OVER (ORDER BY p) AS d FROM (
+                 SELECT position AS p FROM personal_workspaces
+                 UNION SELECT top_position FROM personal_groups WHERE top_position IS NOT NULL);
+             UPDATE personal_workspaces
+               SET position = (SELECT d FROM dense WHERE p = personal_workspaces.position);
+             UPDATE personal_groups
+               SET top_position = (SELECT d FROM dense WHERE p = personal_groups.top_position)
+               WHERE top_position IS NOT NULL;
+             DROP TABLE dense;",
+        )
+        .unwrap();
+    }
+    let ids = [&a, &b, &c, &w, &x].map(String::as_str);
+    let [a_id, b_id, c_id, w_id, x_id] = ids;
+    assert_eq!(listed(&mux, Some("personal"), &ids), [a_id, w_id, b_id, x_id, c_id]);
+    let before = NewWorkspacePlacement::BeforeCurrent.set_for_test();
+    let mut created = Vec::new();
+    for name in ["n1", "n2", "n3"] {
+        mutate(&mux, "workspace.focus", json!({"workspace": b}), &format!("focus-b-{name}"));
+        created.push(empty_workspace(&mux, name));
+    }
+    drop(before);
+    let all: Vec<&str> = ids.iter().copied().chain(created.iter().map(String::as_str)).collect();
+    let [n1, n2, n3] = [&created[0], &created[1], &created[2]].map(String::as_str);
+    let expected = [a_id, w_id, n1, n2, n3, b_id, x_id, c_id];
+    assert_eq!(listed(&mux, Some("personal"), &all), expected);
+    assert_eq!(listed(&mux, None, &all), expected, "the sidebar document agrees");
+    mux.shutdown();
+}
+
+/// `create-workspace {current}`: the workspace the creating client shows
+/// places the new one, not the session's active workspace (a legacy default
+/// the app's windows never move). `afterCurrent` goes right after it; `top`
+/// and `bottom` keep the new row in its group (first, last), as the
+/// app places it, so the app's own placement after the create moves nothing.
+#[test]
+fn a_new_workspace_follows_the_creating_clients_current_workspace() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-client-current");
+    let mux = session.open();
+    // `client`: None, a create that names no current workspace; Some(current), the client's
+    // current workspace (None: the window shows a top page).
+    let create = |name: &str, client: Option<Option<&str>>| {
+        let client = client.map(|current| crate::state::personal_order::ClientCurrent {
+            current: current.map(str::to_string),
+            placement: None,
+        });
+        let key = crate::state::personal_order::with_client_current(client, || {
+            mux.create_empty_workspace(Some(name.to_string()), None, None)
+        })
+        .unwrap()
+        .key;
+        let id = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &key)
+            })
+            .unwrap()
+            .unwrap();
+        (key, id)
+    };
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let (_, a) = create("a", None);
+    let (b_key, b) = create("b", None);
+    let (g_key, g) = create("g", None);
+    let (_, h) = create("h", None);
+    drop(bottom);
+    let work = group_after_loose_rows(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": g, "group": work}), "g-in-work");
+    mutate(&mux, "workspace.place", json!({"workspace": h, "group": work}), "h-in-work");
+    // Personal order now: b, then Work [a, g, h]. The client shows the middle member g.
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
+    let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    let (_, c) = create("c", Some(Some(&b_key)));
+    drop(after);
+    let top = NewWorkspacePlacement::Top.set_for_test();
+    let (_, d) = create("d", Some(Some(&g_key)));
+    drop(top);
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let (_, e) = create("e", Some(Some(&g_key)));
+    drop(bottom);
+    // A window on a top page names no current workspace: the top, not beside the active one.
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a-again");
+    let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    let (_, f) = create("f", Some(None));
+    drop(after);
+    let ids = [&a, &b, &c, &d, &e, &f, &g, &h].map(String::as_str);
+    assert_eq!(
+        listed(&mux, Some("personal"), &ids),
+        [
+            f.as_str(),
+            b.as_str(),
+            c.as_str(),
+            d.as_str(),
+            a.as_str(),
+            g.as_str(),
+            h.as_str(),
+            e.as_str()
+        ]
+    );
+    let placements = read(&mux, "workspace.placement.list", json!({}));
+    let group_of = |id: &str| {
+        placements
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == id)
+            .map(|row| row["group_id"].clone())
+            .unwrap()
+    };
+    assert!(
+        group_of(&c).is_null(),
+        "after the client's loose current workspace, not the active grouped one"
+    );
+    assert!(group_of(&f).is_null(), "no current workspace: the top, not the active one's group");
+    assert_eq!(group_of(&d), json!(work), "top from a grouped workspace: in its group");
+    assert_eq!(group_of(&e), json!(work), "bottom from a grouped workspace: last in its group");
+    mux.shutdown();
+}
+
+/// A pinned current keeps a legacy personal row, but it cannot anchor a new machine row.
+#[test]
+fn a_new_workspace_ignores_a_pinned_current_workspace() {
+    use crate::user_settings::NewWorkspacePlacement;
+    for placement in [NewWorkspacePlacement::BeforeCurrent, NewWorkspacePlacement::AfterCurrent] {
+        let session = Session::new("new-pinned-current");
+        let mux = session.open();
+        let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+        let a = empty_workspace(&mux, "a");
+        let current = mux.create_empty_workspace(Some("b".into()), None, None).unwrap();
+        let b = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &current.key)
+            })
+            .unwrap()
+            .unwrap();
+        let c = empty_workspace(&mux, "c");
+        drop(bottom);
+        let doc = read(&mux, "sidebar.get", json!({}));
+        let item = doc["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["body"]["ref"]["workspace_id"] == b)
+            .unwrap()["id"]
+            .clone();
+        mutate(&mux, "sidebar.pin", json!({"items": [item]}), "pin-current");
+        let placed = crate::state::personal_order::with_client_current(
+            Some(crate::state::personal_order::ClientCurrent {
+                current: Some(current.key),
+                placement: Some(placement),
+            }),
+            || mux.create_empty_workspace(Some("d".into()), None, None),
+        )
+        .unwrap();
+        let d = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &placed.key)
+            })
+            .unwrap()
+            .unwrap();
+        let ids = [&a, &b, &c, &d].map(String::as_str);
+        assert_eq!(listed(&mux, Some("personal"), &ids), [b, d, a, c]);
+        mux.shutdown();
+    }
 }
 
 /// A place across a group changes the group's `top_index` (its place stays

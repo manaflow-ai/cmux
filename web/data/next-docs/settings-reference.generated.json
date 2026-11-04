@@ -1605,6 +1605,7 @@
           "group": "Sidebar",
           "values": [
             "top",
+            "beforeCurrent",
             "afterCurrent",
             "bottom"
           ]
