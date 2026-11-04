@@ -1,4 +1,5 @@
 import { SignInContext, useSignIn } from "../signIn";
+import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
@@ -7,6 +8,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
@@ -274,6 +276,8 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -603,6 +607,11 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
+  // The start the folder chip shows (none, holding its place, or a folder), first frame to final
+  // (perf.ts noteStartState, read by scripts/cmux-next/new-pane-start-state-bench.py).
+  const startShown = none ? "none" : projectPending ? "pending" : (askFolder ?? "");
+  // Every commit, a string compare: an adopt that keeps the screen mounted is measured again too.
+  useEffect(() => acpmuxPerf.noteStartState(`newTab:${startShown}`));
   // Cloud copies a folder on this Mac (cloudRun.ts): picking it drops a saved environment or a
   // machine picked before, so the folder it sends is the one the chip names.
   const runMode = props.runMode && {
@@ -1646,6 +1655,7 @@ export function NewTabScreen(props: Props) {
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && runMode ? { runMode } : {})}
+        {...(props.extraFolders ? { extraFolders: props.extraFolders } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1815,6 +1825,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}

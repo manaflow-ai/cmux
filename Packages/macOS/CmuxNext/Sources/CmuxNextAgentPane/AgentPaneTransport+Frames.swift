@@ -300,6 +300,26 @@ extension AgentPaneTransport {
         entry.reply(entry.firstError)
     }
 
+    /// A path check after a Send's gesture: each folder outside the roots it refuses is granted and
+    /// the frame checked again, each folder once, until it passes or is refused for anything else
+    /// (the home folder or above, a bad path). Bounded by the frame's own paths. Nil when `recheck`
+    /// finds the connection stale.
+    static func grantTypedFolders(
+        _ first: Result<[String], AcpmuxPathPolicy.Refusal>,
+        grant: (String) -> Void,
+        recheck: () async -> Result<[String], AcpmuxPathPolicy.Refusal>?
+    ) async -> Result<[String], AcpmuxPathPolicy.Refusal>? {
+        var result = first
+        var granted: Set<String> = []
+        while case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+              !refusal.outsideIsHomeOrAbove, granted.insert(folder).inserted {
+            grant(folder)
+            guard let next = await recheck() else { return nil }
+            result = next
+        }
+        return result
+    }
+
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
@@ -325,12 +345,16 @@ extension AgentPaneTransport {
             // never: its program comes from that folder, so outside the roots it stays refused. The
             // home folder (or above it) never by a plain click either: the pane asks about it first
             // (`workspace.useFolder`, cx-nn3e), and only that answer makes it a root.
-            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, let folder = refusal.outsidePath,
+            if case .failure(let refusal) = result, refusal.error == .pathOutsideRoots, refusal.outsidePath != nil,
                !facts.harnessEnable, !refusal.outsideIsHomeOrAbove, gestures.consume() {
                 startGesture = true
-                grant(folder)
-                result = await checkPathsInScope(box)
-                guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+                // The one gesture grants every typed folder the frame names, not only the first:
+                // a new chat's Add folder… can name several (cmux#34407).
+                guard let checked = await Self.grantTypedFolders(result, grant: { self.grant($0) }, recheck: {
+                    let next = await self.checkPathsInScope(box)
+                    return id == self.current && self.socket === socket ? next : nil
+                }) else { return .stop(.staleConnection) }
+                result = checked
             }
             switch result {
             case .success(let gestureRootsUsed):
@@ -451,8 +475,14 @@ extension AgentPaneTransport {
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
             // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
-            await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            let unsigned = await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+            // A peer's prompt this Mac could not sign: the peer would refuse it, so it never goes;
+            // the card stays answerable and the pane says why.
+            if let unsigned {
+                onPeerApprovalsOff?(unsigned)
+                return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+            }
         }
         // Peer-route approvals: a group's Allow once the person's click granted, for a peer's prompts.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
@@ -515,7 +545,12 @@ extension AgentPaneTransport {
         let answer = !facts.isFirst
             && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
         if answer, let pageID = facts.pageID {
-            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+            let proved = box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions")
+            let single = facts.method == "_acpmux/permission_respond"
+            // One click, one answer (Leo, 2026-11-04): a peer that has not enrolled this Mac yet
+            // gets the same signed answer again after this Mac enrolls there (``enrollThenRetry``).
+            let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
+            decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             socket.pageFrameNotSent(method: facts.method)

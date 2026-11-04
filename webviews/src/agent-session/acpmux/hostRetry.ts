@@ -51,18 +51,24 @@ export const HOST_ERROR_DEADLINE_MS = 25_000;
 /// another build's daemon, a refused chat) is said at once; a recovery only after the deadline.
 /// A chat whose machine is unreachable is said only once the person can act (hostLine.ts
 /// `peerLinkFailureShows`): never while the machine is slow or restarting, else after two minutes.
-export function hostErrorShows(error: unknown, failingForMs: number): boolean {
+///
+/// `asleep` says whether the named machine is a Cloud machine the account says is paused or
+/// resuming; such a machine is never said to be unreachable.
+export function hostErrorShows(
+  error: unknown,
+  failingForMs: number,
+  asleep: (peer: string | undefined) => boolean = () => false,
+): boolean {
   const peer = peerLinkFailure(error);
-  if (peer) return peerLinkFailureShows(peer, failingForMs);
+  if (peer) return peerLinkFailureShows(peer, failingForMs, asleep(peer.peer));
   return !hostIsReconnecting(error) || failingForMs >= HOST_ERROR_DEADLINE_MS;
 }
 
 /// The wait before the next handshake. Looking for a daemon is cheap, so while the host is
-/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers (a
-/// 30 s cap saw a ready daemon up to 32 s late, #27283's replay); a refusal that waits on the
-/// person backs off to 30 s, so a host without a daemon is not asked four times a second.
+/// recovering it is asked again within 2 s and the chat appears soon after the daemon answers; a
+/// refusal that waits on the person backs off without a terminal retry cap.
 export function nextRetryDelay(delay: number, recovering: boolean): number {
-  return Math.min(delay * 2, recovering ? 2_000 : 30_000);
+  return Math.min(delay * 2, recovering ? 2_000 : 2_147_483_647);
 }
 
 /// What the pane's handshake loop does around a Restart acpmux.

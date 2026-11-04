@@ -171,29 +171,31 @@ impl Daemon {
     /// `wide` also offers `full-access`, the start mode of a new chat
     /// (`hub/start_mode.rs`, `defaultPermissionMode` set for a hermetic run).
     fn start(tag: &str) -> Self {
+        Self::start_with(tag, json!({}))
+    }
+
+    /// [`Self::start`] with `extra` config keys over the shared ones.
+    fn start_with(tag: &str, extra: Value) -> Self {
         let dir = std::env::temp_dir().join(format!("aas-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("work")).unwrap();
         let dir = std::fs::canonicalize(&dir).unwrap();
-        std::fs::write(
-            dir.join("config.json"),
-            json!({
-                "harnesses": {
-                    "fake": {"argv": ["python3", FAKE]},
-                    "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
-                    "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
-                    "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
-                    "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
-                    "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
-                },
-                "defaultHarness": "fake",
-                "permissionPolicy": "ask",
-                "defaultPermissionMode": "fullAccess",
-                "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"], "wide": ["normal", "strict"]},
-            })
-            .to_string(),
-        )
-        .unwrap();
+        let mut config = json!({
+            "harnesses": {
+                "fake": {"argv": ["python3", FAKE]},
+                "mirror": {"argv": ["python3", FAKE], "family": "mirror"},
+                "other": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_SESSION_PREFIX": "other-"}},
+                "gated": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_START_GATE": dir.join("gate")}},
+                "wide": {"argv": ["python3", FAKE], "family": "wide", "env": {"FAKE_FULL_ACCESS": "1"}},
+                "forger": {"argv": ["python3", FAKE], "family": "fake", "env": {"ACPMUX_SESSION_TOKEN": FORGED_TOKEN, "ACPMUX_SESSION_TOKEN_SOCKET": "/tmp/acpmux-forged.sock"}},
+            },
+            "defaultHarness": "fake",
+            "permissionPolicy": "ask",
+            "defaultPermissionMode": "fullAccess",
+            "webAskingModes": {"fake": ["normal", "strict"], "mirror": ["normal", "strict"], "wide": ["normal", "strict"]},
+        });
+        config.as_object_mut().unwrap().extend(extra.as_object().cloned().unwrap_or_default());
+        std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
         let socket = dir.join("s.sock");
         let mut cmd = daemon_env::command(&dir, daemon_env::Agents::StandIn, &[]);
         cmd.args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "warn"])
@@ -543,12 +545,15 @@ async fn mode(c: &mut Rpc, id: Value) -> String {
 }
 
 /// The start mode of a new chat (`hub/start_mode.rs`: full access by
-/// default) never widens a caller session: a session in a mode that asks
-/// starts its chats in that mode (`start_mode.rs`, "Inherit"); one in full
-/// access starts them in full access, as the person's chats start.
+/// default) never widens a caller session held to its starter
+/// (`holdAgentStartsToStarter`): a session in a mode that asks starts its
+/// chats in that mode (`start_mode.rs`, "Inherit"); one in full access starts
+/// them in full access, as the person's chats start. Without the key a
+/// flagless agent start takes the configured default instead
+/// (`tests/inherit_start.rs`, user 2026-11-03).
 #[tokio::test]
 async fn auto_start_the_default_full_access_never_widens_a_caller_session_that_asks() {
-    let d = Daemon::start("default");
+    let d = Daemon::start_with("default", json!({"holdAgentStartsToStarter": true}));
     let mut app = Rpc::person(&d.socket, KEY).await;
     let own = app.ok("session/new", new_params(&d, json!({"harness": "wide"}))).await;
     assert_eq!(mode(&mut app, own["sessionId"].clone()).await, "full-access", "{own}");
