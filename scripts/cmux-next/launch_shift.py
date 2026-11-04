@@ -21,6 +21,7 @@ into numbers per window and for the whole launch:
   blank_frames        frames after the first that are flat (a flash to one color)
   layout_passes       window layout passes after the first frame, the process's (every window's) while this one
                       records; the launch total is the largest of them, not their sum
+                      (a lower bound: the passes before a window's first frame, and after its recording ends, are not counted)
   last_change_ms      when the last geometry or pixel change came, ms after the window's first frame (0: none)
   first_vs_final      the share of cells that differ between the first and the last frame (0: the first frame was final)
   views               the views that moved most often (name -> frames), from `movedViews`

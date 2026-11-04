@@ -1968,7 +1968,8 @@ def seeded(before):
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int)),
                  ("top drawing", before.get("top.running") is True and before.get("top.in_view") is True),
-                 ("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1"),
+                 # --record-launch shows the long chat at the quit instead (show_long_chat), so focus is elsewhere.
+                 *([] if opts.record_launch else [("the counter's pane focused", before.get("focus.pane") == "ws[rj-term].s0.pane1")]),
                  (f"the counter's terminal zoomed in by {FONT_STEPS} Cmd-+ steps",
                   (before.get("ws[rj-term].s0.pane1.tab0.view.font_scale") or 0) > 1.05),
                  (f"the first window's sidebar at {SIDEBAR_WIDTH} points",
@@ -2470,6 +2471,8 @@ def journey(base):
     back_walk("seed")  # before any reopen: tells the live Back bug apart from a restore loss
     for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
         before = snapshot(f"{variant}-before")
+        if opts.record_launch and CHATS:
+            focus_long_chat()  # the snapshot's chat rows left the last chat's tab selected
         if n == 0:
             seeded(before)
             SEEDED.update({k: v for k, v in before.items() if k in ("page[hist].history_length", "page[w2page].zoom")
@@ -2565,23 +2568,41 @@ def journey(base):
 def show_long_chat(turns=24):
     """--record-launch: the first seeded chat gets a long transcript (`turns` more turns, each a multi-line prompt the
     fake agent echoes) and is the shown tab of the front window at the quit, so each relaunch restores a chat with
-    more rows than fit (Leo, 2026-11-04: the chats restoring are what shift). False when there is no chat."""
+    more rows than fit (Leo, 2026-11-04: the chats restoring are what shift). Stops at the first prompt that fails.
+    False when there is no chat or it is not shown."""
     chat = CHATS[0] if CHATS else None
     client = acpmux_client()
     if not chat or not client:
         say("  long chat: no seeded chat (the agents part skipped or failed); the relaunch shows none")
         return False
     body = "\n".join(f"rj long line {k}: the quick brown fox jumps over the lazy dog, again and again" for k in range(10))
-    for turn in range(turns):
-        client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"rj long turn {turn} {RUN}\n{body}"}],
-                                          "_meta": {"acpmux": {"promptId": f"rj-{RUN}-long-{turn}"}}}, timeout=60)
+    sent = 0
+    try:
+        for turn in range(turns):
+            reply = client.request("session/prompt", {"sessionId": chat["session"], "prompt": [{"type": "text", "text": f"rj long turn {turn} {RUN}\n{body}"}],
+                                                      "_meta": {"acpmux": {"promptId": f"rj-{RUN}-long-{turn}"}}}, timeout=60)
+            if not isinstance(reply, dict) or reply.get("error"):
+                say(f"  long chat: turn {turn} failed: {json.dumps(reply)[:160]}")
+                break
+            sent += 1
+    except Exception as error:  # like seed()'s parts: the journey goes on, the chat rows say what is missing
+        say(f"  long chat: prompts failed after {sent}: {error!r}")
+    shown = focus_long_chat()
+    say(f"  long chat: {sent} of {turns} turns in {chat['label']}, shown {shown}")
+    return shown
+
+
+def focus_long_chat():
+    """The long chat's tab selected in the front window again: each round's before-snapshot (chat_items) focuses every
+    chat tab in turn and restores only the workspace, so without this the quit would show the last, short chat."""
+    chat = CHATS[0] if CHATS else None
+    if not chat:
+        return False
     ws = workspace_named("rj-chats")
     if ws:
         cli("workspace", ws["id"], "focus")
     cli("tab", chat["tab"], "focus")
-    shown = wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5)
-    say(f"  long chat: {turns} turns in {chat['label']}, shown {bool(shown)}")
-    return bool(shown)
+    return bool(wait(lambda: "first_content_ms" in (page(None, "layout_watch", ms=300) or {}), 20, 0.5))
 
 
 def start_chat_watch():
