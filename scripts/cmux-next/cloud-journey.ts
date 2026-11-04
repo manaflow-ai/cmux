@@ -441,6 +441,20 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
+/** The link_token refusals that mean "this install has no Native device enrollment" (cloud-native-dial.ts details.reason). */
+const NATIVE_ENROLLMENT_REASONS = new Set(["host_missing", "host_unconfirmed", "proof_missing"]);
+
+/**
+ * The skip reason when a link_token answer refused only for want of a Native device proof (an app-only
+ * enrollment), else null: every other answer, an older backend's refusal with no reason included, is the step's own.
+ */
+export function nativeProofSkip(body: any): string | null {
+  const error = body?.ok === false ? body.error : null;
+  const reason = error?.details?.reason;
+  if (error?.code !== "auth.forbidden" || typeof reason !== "string" || !NATIVE_ENROLLMENT_REASONS.has(reason)) return null;
+  return `needs a Native device proof (app-only): link_token refused ${reason}; this journey's cli install has no Native device enrollment`;
+}
+
 /**
  * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
  * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
@@ -733,13 +747,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
 
-    await J.step("connect (connect_info + link_token)", async () => {
+    // A Native (vm-api) machine's link_token needs a Native device proof, which only an enrolled app install
+    // makes (NativeDeviceEnrollment.swift). This install never enrolled, so that refusal is a SKIP with the
+    // backend's own reason; any other refusal (a receiver that is not ready, a policy) stays red.
+    await J.step("connect (connect_info)", async () => {
       const info = await installApi.read("cloud.machine.connect_info", { machine: created.id });
-      const tok = await installApi.op("cloud.machine.link_token", { host: bound.host, services: ["daemon"] });
-      if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
-      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}; link token until ${tok.expires_at}` };
+      return { value: null, detail: `host ${info.host} state ${info.state} epoch ${info.epoch}` };
     });
-    if (headlessLink) {
+    const linkToken = await installApi.raw("POST", "/v1/ops", { op: "cloud.machine.link_token", params: { host: bound.host, services: ["daemon"] } })
+      .catch((error: Error) => error);
+    const nativeOnly = linkToken instanceof Error ? null : nativeProofSkip(linkToken.body);
+    if (nativeOnly) {
+      J.skip("connect (link_token)", nativeOnly);
+      J.skip("connect (link dial)", nativeOnly);
+    } else {
+      await J.step("connect (link_token)", async () => {
+        if (linkToken instanceof Error) throw new Error(`cloud.machine.link_token: ${linkToken.message}`);
+        if (linkToken.status !== 200 || linkToken.body?.ok !== true) throw new Error(`cloud.machine.link_token: HTTP ${linkToken.status} ${short(linkToken.body?.error ?? linkToken.body)}`);
+        const tok = linkToken.body.value;
+        if (!tok?.expires_at) throw new Error(`link_token answered ${short(Object.keys(tok ?? {}))}`);
+        return { value: null, detail: `link token until ${tok.expires_at}` };
+      });
+    }
+    if (nativeOnly) {
+      // link_token and link dial are recorded as skips above.
+    } else if (headlessLink) {
       await J.step("connect (link dial)", async () => {
         const dial = spawnSync(cmux!, ["link", "dial", "--host", bound.host, "--service", "daemon", "--socket", headlessLink!.linkSocket], {
           input: '{"id":1,"cmd":"identify"}\n', encoding: "utf8", timeout: 45_000,
@@ -765,6 +797,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
     if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
+    else if (nativeOnly) J.skip("sync push/pull (folder round trip)", nativeOnly);
     else await J.step("sync push/pull (folder round trip)", async () => {
       if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");

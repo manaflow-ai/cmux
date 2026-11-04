@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { nativeProofSkip } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -71,5 +72,21 @@ describe("cloud journey", () => {
     expect(team.preflight).toContain("owner|team");
     expect(team.install("/p.json")).toContain("'/p.json' owner,team <<");
     expect(claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8")).install("/p.json")).toContain("'/p.json' owner <<");
+  });
+});
+
+describe("cloud journey: link_token on a Native machine", () => {
+  const refusal = (code: string, reason?: string) => ({ ok: false, error: { code, message: "m", ...(reason ? { details: { reason } } : {}) } });
+  test("skips only a refusal for want of a Native device enrollment", () => {
+    for (const reason of ["host_missing", "host_unconfirmed", "proof_missing"])
+      expect(nativeProofSkip(refusal("auth.forbidden", reason))).toContain(`needs a Native device proof (app-only): link_token refused ${reason}`);
+  });
+  test("keeps every other answer red", () => {
+    expect(nativeProofSkip(refusal("auth.forbidden"))).toBeNull(); // an older backend names no check
+    expect(nativeProofSkip(refusal("auth.forbidden", "vm_services"))).toBeNull();
+    expect(nativeProofSkip(refusal("auth.forbidden", "host_grant"))).toBeNull();
+    expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
+    expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
+    expect(nativeProofSkip(undefined)).toBeNull();
   });
 });

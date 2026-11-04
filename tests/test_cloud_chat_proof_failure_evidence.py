@@ -45,6 +45,12 @@ elif verb == "cloud start-chat":
         "x didn't connect (machine m-1); try again: " + again,
         "details": {"machine_id": "m-1", "app": {"message": again}}}) + "\n")
     sys.exit(1)
+elif verb == "app call":
+    assert words[2] == "cloud.machines", words
+    print(json.dumps({"link_route": "native", "last_error": None, "machines": [
+        {"id": "m-1", "title": "ccp-test", "status": "running", "stage": "failed",
+         "stage_detail": "link_token refused: auth.forbidden", "link_ended_detail": "Bearer abcdef123456", "secret_field": "x"},
+        {"id": "m-2", "title": "someone else", "stage_detail": "not ours"}]}))
 elif verb == "cloud kill-machine":
     sys.stderr.write(json.dumps({"code": "cloud.machine.not_found", "message": "no machine m-1"}) + "\n")
     sys.exit(1)
@@ -56,6 +62,8 @@ FAKE_LOG = r'''#!/usr/bin/env python3
 import sys
 assert sys.argv[1] == "show", sys.argv
 assert "cloud.link" in sys.argv[sys.argv.index("--predicate") + 1]
+assert '"cloud.native"' in sys.argv[sys.argv.index("--predicate") + 1], sys.argv
+assert "--info" in sys.argv, sys.argv
 import re
 assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", sys.argv[sys.argv.index("--start") + 1]), sys.argv
 assert "--last" not in sys.argv, sys.argv
@@ -106,6 +114,12 @@ class CloudChatProofFailureEvidenceTests(unittest.TestCase):
             self.assertIn("legacy connect m-1: daemon start", log["lines"][0])
             self.assertIn("sent [prompt]", log["lines"][1])
             self.assertNotIn("app_link_log", done.stdout)
+            state = failed["app_link_state"]
+            self.assertEqual(state["link_route"], "native")
+            self.assertEqual([row["id"] for row in state["machines"]], ["m-1"])
+            self.assertEqual(state["machines"][0]["stage_detail"], "link_token refused: auth.forbidden")
+            self.assertNotIn("secret_field", state["machines"][0])
+            self.assertNotIn("abcdef123456", json.dumps(state))
             self.assertEqual(steps["cloud kill-machine"]["stderr"], "cloud.machine.not_found: no machine m-1")
 
 

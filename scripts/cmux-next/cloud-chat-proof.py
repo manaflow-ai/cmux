@@ -167,8 +167,10 @@ def failure_text(err: str, out: str = "") -> str:
 # job log. A line the workflow's evidence scan would refuse is left out, not redacted: one such line
 # would keep the whole evidence from being uploaded.
 LOG_TOOL = os.environ.get("CMUX_PROOF_LOG_TOOL", "/usr/bin/log")
+# "cloud" (the app server link's apps-run and ended reasons) and "cloud.native" (the Native device
+# route's refusals) are the app server link's own: without them a Native link that never came up logged nothing here.
 LINK_LOG_PREDICATE = ('subsystem == "com.cmuxterm.app.next" AND category IN '
-                      '{"cloud.link", "cloud.hub", "app.cloud"}')
+                      '{"cloud.link", "cloud.hub", "app.cloud", "cloud", "cloud.native"}')
 EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-chat-proof.yml
     r"(?i)(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}"
     r"|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer\s+[A-Za-z0-9._~+/=-]+"
@@ -180,7 +182,7 @@ def app_link_log(since: str, keep: int = 300) -> dict:
     """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", the chat's start) on, read
     as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
-        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--start", since,
+        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--info", "--start", since,
                                  "--predicate", LINK_LOG_PREDICATE],
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
     except OSError as error:
@@ -207,6 +209,25 @@ def app_link_log(since: str, keep: int = 300) -> dict:
 def listed() -> tuple[int, str, str, dict]:
     code, out, err = cmux("cloud", "list-machines", "--json", timeout=60)
     return code, out, err, parsed(out) if code == 0 else {}
+
+
+def app_link_state(title: str) -> dict:
+    """The app's own account of the machine's link (`cloud.machines`, a debug build's `app call`): the
+    route the app server link took (Native, or `cmux link` with the Native failure) and this machine's
+    stage and link-ended reason. Each value goes through the evidence scan, as the log lines do."""
+    code, out, err = cmux("app", "call", "cloud.machines", "--json", timeout=60)
+    if code != 0:
+        return {"unavailable": failure_text(err, out) or f"exit {code}"}
+    answer = parsed(out)
+    answer = answer.get("result", answer) if isinstance(answer, dict) else {}
+    def scanned(value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        return "[left out: it looks like it holds a secret]" if EVIDENCE_SCAN.search(value) else clean(value, 600)
+    rows = [row for row in answer.get("machines") or [] if isinstance(row, dict) and row.get("title") == title]
+    keep = ("id", "status", "api_status", "stage", "stage_detail", "link_ended_detail", "daemon")
+    return {"link_route": scanned(answer.get("link_route")), "last_error": scanned(answer.get("last_error")),
+            "machines": [{key: scanned(row.get(key)) for key in keep if key in row} for row in rows]}
 
 
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
@@ -341,7 +362,7 @@ record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else ""
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
-       **({"app_link_log": app_link_log(chat_started_at)} if code != 0 else {}))
+       **({"app_link_log": app_link_log(chat_started_at), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = error_object(err, out).get("details") or {}
