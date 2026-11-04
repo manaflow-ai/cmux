@@ -204,8 +204,9 @@
   {
    "do": "bg_sample_start",
    "name": "winresize",
-   "seconds": 6.0,
-   "title": "background sample of every thread for 6 s across two window corner drags"
+   "seconds": 12.0,
+   "title": "background sample of every thread for 12 s across three pairs of window corner drags (returns when the sampler samples)",
+   "attach_wait": 20
   },
   {
    "do": "px_window_frame",
@@ -214,8 +215,8 @@
     -150
    ],
    "ms": 600,
-   "mark": "in",
-   "title": "the window corner 300 x 150 pt in, 0.6 s"
+   "mark": "in1",
+   "title": "drag pair 1: the window corner 300 x 150 pt in, 0.6 s"
   },
   {
    "do": "wait",
@@ -229,8 +230,68 @@
     150
    ],
    "ms": 600,
-   "mark": "out",
-   "title": "the window corner back out, 0.6 s"
+   "mark": "out1",
+   "title": "drag pair 1: the window corner back out, 0.6 s"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "rest"
+  },
+  {
+   "do": "px_window_frame",
+   "by": [
+    -300,
+    -150
+   ],
+   "ms": 600,
+   "mark": "in2",
+   "title": "drag pair 2: the window corner 300 x 150 pt in, 0.6 s"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "rest"
+  },
+  {
+   "do": "px_window_frame",
+   "by": [
+    300,
+    150
+   ],
+   "ms": 600,
+   "mark": "out2",
+   "title": "drag pair 2: the window corner back out, 0.6 s"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8,
+   "title": "rest"
+  },
+  {
+   "do": "px_window_frame",
+   "by": [
+    -300,
+    -150
+   ],
+   "ms": 600,
+   "mark": "in3",
+   "title": "drag pair 3: the window corner 300 x 150 pt in, 0.6 s"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "rest"
+  },
+  {
+   "do": "px_window_frame",
+   "by": [
+    300,
+    150
+   ],
+   "ms": 600,
+   "mark": "out3",
+   "title": "drag pair 3: the window corner back out, 0.6 s"
   },
   {
    "do": "wait",
@@ -253,14 +314,14 @@
   },
   {
    "do": "expect",
-   "title": "the app answers",
+   "title": "the app answers (any resolved focus: the page in p1 may hold it)",
    "timeout": 5,
    "all": [
     {
      "app_rpc": {
       "method": "debug.focus",
       "path": "windows.0.model.resolved",
-      "equals": "terminal"
+      "not_equals": ""
      }
     }
    ]
