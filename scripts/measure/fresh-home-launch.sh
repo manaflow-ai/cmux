@@ -9,7 +9,7 @@
 #                   built in its own worktree, so a PR head that predates this script can be launched.
 #   --arg=seconds=S how long the app must stay up (default 30)
 #   --arg=load=1    launch and hold the app under qos-load-bench.sh's agent-like load (CPU spinners
-#                   past every core, dd writers, find storms), started once the build is done and
+#                   past every core, dd writers, find storms, readers), started once the build is done and
 #                   stopped when the smoke ends: "a busy machine makes things slower, never makes them
 #                   fail" (cmuxterm-hq#7063).
 #   --arg=startup=S how long Home may take to render (default 90; the smoke's --startup-timeout)
@@ -135,11 +135,15 @@ if [ "$load" = 1 ]; then
   # script's checkout. Started after the build so the build's own time is not what it measures.
   load_dir="$(mktemp -d)"
   cc -O2 -o "$load_dir/spin" "$here/scripts/measure/qos-load-bench/spin.c" || exit 3
+  # The readers' tree (2000 files of 64 KiB, as qos-load-bench.sh's loadtree), in the load's own folder.
+  mkdir -p "$load_dir/loadtree"
+  for i in $(seq 1 2000); do head -c 65536 /dev/urandom > "$load_dir/loadtree/f$i"; done
   set -m
   start_load() { "$@" & load_pgids+=("$!"); }
   for _ in $(seq 1 $(( $(sysctl -n hw.ncpu) / 4 + 1 ))); do start_load "$load_dir/spin"; done
   for _ in 1 2; do start_load /bin/sh -c 'while :; do dd if=/dev/zero of="$1/w$$" bs=1m count=256 2>/dev/null; rm -f "$1/w$$"; done' sh "$load_dir"; done
   for _ in 1 2; do start_load /bin/sh -c 'while :; do find /System/Library /usr -type f -size +1k >/dev/null 2>&1; done'; done
+  for _ in 1 2; do start_load /bin/sh -c 'while :; do cat "$1"/loadtree/f* | shasum >/dev/null; done' sh "$load_dir"; done
   set +m
   sleep 5
   echo "FRESH-HOME load on: $(sysctl -n hw.ncpu) cores, load averages $(uptime | sed 's/.*averages: //')"
