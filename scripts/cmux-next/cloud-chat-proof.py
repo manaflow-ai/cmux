@@ -52,7 +52,7 @@ SECRET_PATTERNS = (
     re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+"),
     re.compile(
-        r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential)\b\s*[:=]\s*[\"']?)(?P<value>[^\s,\"']+)"
+        r"(?i)(?P<prefix>\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)\b\s*[:=]\s*[\"']?)(?P<value>[^\s,\"']+)"
     ),
 )
 evidence = {
@@ -229,9 +229,10 @@ tool_calls = turn.get("toolCalls")
 reply_text = reply if isinstance(reply, str) else ""
 browser_marker = reply_text.strip() == BROWSER_PROOF_REPLY
 browser_tools = isinstance(tool_calls, int) and tool_calls > 0
-record("cloud start-chat", code, "", err, reply=clean(reply_text, 8000) or None,
+reply_for_evidence = BROWSER_PROOF_REPLY if browser_marker else ("[withheld: unexpected reply]" if reply_text else None)
+record("cloud start-chat", code, "", err, reply=reply_for_evidence,
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
-                      "reply_matches": browser_marker, "tool_calls": tool_calls,
+                      "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools})
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
