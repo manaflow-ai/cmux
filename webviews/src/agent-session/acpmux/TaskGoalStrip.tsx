@@ -33,7 +33,11 @@ export function TaskGoalStrip({
   /** The clock a loop's countdown reads (tests pass a fixed one). */
   now?: () => number;
 }) {
-  return goal.kind === "loop" ? <LoopStrip goal={goal} now={now} /> : <GoalStrip goal={goal} harness={harness} command={command} />;
+  return goal.kind === "loop" ? (
+    <LoopStrip goal={goal} now={now} />
+  ) : (
+    <GoalStrip goal={goal} harness={harness} command={command} />
+  );
 }
 
 /** A Claude Code /loop: its prompt, that it loops, and its schedule or when it next runs. It has no
@@ -94,7 +98,7 @@ function GoalStrip({
   const elapsed =
     goal.elapsedMs ??
     (start !== undefined
-      ? Math.max(0, (goal.endedAt ?? (live ? current : goal.updatedAt ?? current)) - start)
+      ? Math.max(0, (goal.endedAt ?? (live ? current : (goal.updatedAt ?? current))) - start)
       : undefined);
   const status =
     goal.status === "running" || goal.status === "active"
@@ -144,7 +148,9 @@ function GoalStrip({
           type="button"
           className="acpmux-goal-action"
           disabled={pending}
-          aria-label={goal.status === "running" || goal.status === "active" ? t("replay.pause") : t("composer.queueResume")}
+          aria-label={
+            goal.status === "running" || goal.status === "active" ? t("replay.pause") : t("composer.queueResume")
+          }
           title={goal.status === "running" || goal.status === "active" ? t("replay.pause") : t("composer.queueResume")}
           onClick={() => void run(goal.status === "running" || goal.status === "active" ? "pause" : "resume")}
         >

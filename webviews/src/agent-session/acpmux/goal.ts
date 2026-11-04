@@ -5,7 +5,16 @@ export type TaskGoal = {
   /** A Claude Code /loop; absent for a Codex goal. */
   kind?: "loop";
   objective: string;
-  status: "running" | "stalled" | "paused" | "done" | "active" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
+  status:
+    | "running"
+    | "stalled"
+    | "paused"
+    | "done"
+    | "active"
+    | "blocked"
+    | "usageLimited"
+    | "budgetLimited"
+    | "complete";
   provider?: "codex" | "claude" | "generic";
   startedAt?: number;
   updatedAt?: number;
@@ -67,16 +76,16 @@ export function taskGoal(value: unknown): TaskGoal | undefined {
   const startedAt = timestamp("startedAt", "createdAt");
   const updatedAt = timestamp("updatedAt");
   const endedAt = timestamp("endedAt");
-  const elapsedMs = number("elapsedMs") ?? (number("timeUsedSeconds") !== undefined ? number("timeUsedSeconds")! * 1000 : undefined);
+  const elapsedMs =
+    number("elapsedMs") ?? (number("timeUsedSeconds") !== undefined ? number("timeUsedSeconds")! * 1000 : undefined);
   const steps = Array.isArray(goal.steps)
     ? goal.steps.flatMap((step) => {
         if (typeof step === "string" && step.trim()) return [{ label: step }];
         if (!step || typeof step !== "object") return [];
         const value = step as Record<string, unknown>;
-        const label = typeof value.label === "string" ? value.label : typeof value.content === "string" ? value.content : undefined;
-        return label?.trim()
-          ? [{ label, ...(typeof value.status === "string" ? { status: value.status } : {}) }]
-          : [];
+        const label =
+          typeof value.label === "string" ? value.label : typeof value.content === "string" ? value.content : undefined;
+        return label?.trim() ? [{ label, ...(typeof value.status === "string" ? { status: value.status } : {}) }] : [];
       })
     : undefined;
   const text = (value: unknown) => typeof value === "string" && value.trim() !== "";
@@ -85,7 +94,9 @@ export function taskGoal(value: unknown): TaskGoal | undefined {
     objective: goal.objective,
     // Claude loops retain their scheduling status (`active`) for the loop strip;
     // provider-owned goals use the shared running/stalled/done vocabulary.
-    status: loop ? (goal.status as TaskGoal["status"]) : STATUS[String(goal.status)] ?? (goal.status as TaskGoal["status"]),
+    status: loop
+      ? (goal.status as TaskGoal["status"])
+      : (STATUS[String(goal.status)] ?? (goal.status as TaskGoal["status"])),
     ...(typeof goal.provider === "string" && ["codex", "claude", "generic"].includes(goal.provider)
       ? { provider: goal.provider as TaskGoal["provider"] }
       : {}),
