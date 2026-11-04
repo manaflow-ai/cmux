@@ -197,8 +197,8 @@ class DarwinBinaryTest(unittest.TestCase):
     def test_the_review_records_the_real_package_evidence(self) -> None:
         darwin = self.inputs.data["darwin"]
         self.assertEqual(darwin["zig"], self.inputs.toolchains.zig_for("ghostty-next").version)
-        self.assertIn("37295065948", darwin["review"]["artifact"])
-        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["floattidf", "floatuntidf", "powiXf2", "ssp", "udivmod"])
+        self.assertIn("41861545663", darwin["review"]["artifact"])
+        self.assertEqual(sorted(darwin["compiler_rt_modules"]), ["float_from_int", "powiXf2", "ssp", "udivmod"])
 
     def test_a_binary_without_zig_code_passes(self) -> None:
         self.assertEqual(self.problems([("_main", True), ("_pow", False)]), [])
