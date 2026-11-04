@@ -21,10 +21,12 @@ struct SidebarStatesPlaygroundMark: Equatable, Sendable {
 
     /// A size in points: one number for a square, else width × height; at most one decimal.
     static func text(_ size: CGSize) -> String {
-        func number(_ value: CGFloat) -> String {
-            let rounded = (value * 10).rounded() / 10
-            return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", Double(rounded))
-        }
-        return abs(size.width - size.height) < 0.05 ? number(size.width) : "\(number(size.width))×\(number(size.height))"
+        abs(size.width - size.height) < 0.05 ? number(size.width) : "\(number(size.width))×\(number(size.height))"
+    }
+
+    /// A length in points, at most one decimal.
+    static func number(_ value: CGFloat) -> String {
+        let rounded = (value * 10).rounded() / 10
+        return rounded == rounded.rounded() ? String(Int(rounded)) : String(format: "%.1f", Double(rounded))
     }
 }

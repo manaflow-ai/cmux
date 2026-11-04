@@ -815,6 +815,8 @@ unsafe fn decode_topology(topology: &CmuxFocusTopology, strings: &[u8]) -> Resul
                 id: s.required(tab.id)?,
                 surface: s.get(tab.surface)?,
                 kind: kind_of(tab.kind).ok_or(())?,
+                // The C topology carries no terminal id yet (R-INPUT stage S3 adds it).
+                terminal: None,
             });
         }
         out_panes.push(Pane {
