@@ -27,6 +27,7 @@ import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
+import { GITHUB_TASK_RESULT_PATH, handleGithubTaskResult } from "./integrations/github-task-result-route.ts"
 import { platformForward } from "./platform-forward.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
@@ -328,6 +329,7 @@ export default {
     // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
     const ghToken = url.pathname.match(GITHUB_TOKEN_PATH)
     if (ghToken) return handleGithubToken(request, env, ghToken[1]!)
+    if (url.pathname === GITHUB_TASK_RESULT_PATH) return handleGithubTaskResult(request, env)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)

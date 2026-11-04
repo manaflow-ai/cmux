@@ -35,7 +35,9 @@ interface ConnectionStub {
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)) as unknown as ConnectionStub
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
-const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
+export type GithubCaller = { p: Principal; team: string; machine?: string }
+
+export const githubCaller = async (request: Request, env: Env, team: string | undefined): Promise<GithubCaller | Fail> => {
   const token = await authenticate(env, /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
   if (token.agent !== undefined) return no(403, "auth.forbidden", "a chief token cannot get GitHub tokens")
@@ -86,7 +88,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     const raw = url.searchParams.get("team") ?? undefined
     const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
     if (isFail(team)) return failed(team)
-    const who = await caller(request, env, team)
+    const who = await githubCaller(request, env, team)
     if (isFail(who)) return failed(who)
     const query = { ...(url.searchParams.get("query") === null ? {} : { query: url.searchParams.get("query")! }), ...(url.searchParams.get("cursor") === null ? {} : { cursor: url.searchParams.get("cursor")! }) }
     const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
@@ -97,7 +99,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     const raw = new URL(request.url).searchParams.get("team") ?? undefined
     const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
     if (isFail(team)) return failed(team)
-    const who = await caller(request, env, team)
+    const who = await githubCaller(request, env, team)
     return isFail(who) ? failed(who) : Response.json(await connections(env, who.team).githubStatus(who.team, who.p), { headers: NO_STORE })
   }
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
@@ -108,7 +110,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
       : decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
     if (isFail(body)) return failed(body)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
-    const who = await caller(request, env, body.team)
+    const who = await githubCaller(request, env, body.team)
     if (isFail(who)) return failed(who)
     if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
@@ -128,7 +130,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   }
   const body = decode(GitHubTokenRevokeRequest as unknown as Schema.Codec<typeof GitHubTokenRevokeRequest.Type, unknown>, json)
   if (isFail(body)) return failed(body)
-  const who = await caller(request, env, body.team)
+  const who = await githubCaller(request, env, body.team)
   if (isFail(who)) return failed(who)
   const own = who.p.kind === "install" ? who.p.install : undefined
   if (body.install !== undefined && body.install !== own) {
