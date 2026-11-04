@@ -436,7 +436,8 @@ extension SettingsSchema {
         "mobile.terminalSizing": .userOnly,
         "mobile.terminalSizingOrder": .userOnly,
         // On, a session event tap takes system chords from macOS for the other Mac; only the person turns it on.
-        "macScreen.systemShortcuts": .userOnly,
+        // remote.headless: off, a session ends when cmux quits; only the person keeps this Mac shared.
+        "macScreen.systemShortcuts": .userOnly, "remote.headless": .userOnly,
         // Changes how this Mac's Mac Screen streams leave the network; only the person sets it.
         "macScreen.debug.relayOnly": .userOnly,
         // Chooses the server this Mac registers its device keys with; only the person sets it.

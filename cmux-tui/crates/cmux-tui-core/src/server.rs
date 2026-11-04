@@ -178,6 +178,7 @@ use line_connection::{handle_connection_with_permit, serve_line_connection};
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
+mod remote_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
@@ -788,6 +789,22 @@ enum Command {
         revisions: bool,
     },
     BrowserHostProvider,
+    /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
+    RemoteHostStatus,
+    RemoteHostCall {
+        method: String,
+        #[serde(default)]
+        params: Value,
+    },
+    RemoteHostConfig {
+        #[serde(default)]
+        computer_use: Option<bool>,
+        #[serde(default)]
+        screen_sharing: Option<bool>,
+        #[serde(default)]
+        headless: Option<bool>,
+    },
+    RemoteHostApp,
     SubscribeActivity,
     /// Private, connection-scoped guest-to-frontend OS browser opening.
     UrlOpenSubscribe {
