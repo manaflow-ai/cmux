@@ -49,8 +49,9 @@ pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 pub(crate) struct Events {
     tx: broadcast::Sender<HubEvent>,
     changes: AtomicU64,
-    /// Any event may change a field in a closed row (for example attached/shown or usage).
-    /// Closed summary bytes carry this generation so they are rebuilt only after a change.
+    /// Any event may change a field in a closed row (for example attached/shown or usage), save
+    /// a live chat's streamed chunk ([`Events::send_live_stream`]). Closed summary bytes carry
+    /// this generation so they are rebuilt only after a change.
     pub(super) summary_generation: Arc<AtomicU64>,
 }
 
@@ -76,11 +77,30 @@ impl Events {
         self.tx.subscribe()
     }
 
+    /// Sends a live chat's streamed chunk ([`streamed_chunk`]): the next list is built anew, but
+    /// the closed rows' cached bytes stay fresh. A chunk changes only its own chat's row (its
+    /// preview, `updatedAt`, sequence numbers and subagent previews), and no row of another chat
+    /// reads those; a live chat's row is never cached (`Hub::cached_closed_summary`). Hundreds
+    /// of chunks a second while agents stream otherwise rebuilt every closed row on every list.
+    pub(super) fn send_live_stream(
+        &self,
+        event: HubEvent,
+    ) -> Result<usize, broadcast::error::SendError<HubEvent>> {
+        self.changes.fetch_add(1, Ordering::SeqCst);
+        self.tx.send(event)
+    }
+
     /// A change no event carries (an attach): the next list is built anew.
     pub(super) fn changed(&self) {
         self.changes.fetch_add(1, Ordering::SeqCst);
         self.summary_generation.fetch_add(1, Ordering::SeqCst);
     }
+}
+
+/// A streamed text chunk from the agent: what [`Events::send_live_stream`] sends for a live chat.
+pub(super) fn streamed_chunk(dir: &str, kind: &str) -> bool {
+    dir == "in"
+        && matches!(kind, "agent_message_chunk" | "agent_thought_chunk" | "user_message_chunk")
 }
 
 /// One build of the list, kept serialized: a JSON tree of every summary is several

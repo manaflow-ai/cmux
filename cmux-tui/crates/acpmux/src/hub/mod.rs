@@ -2012,12 +2012,22 @@ impl Hub {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
         if notify {
-            let _ = self.events.send(HubEvent {
+            let event = HubEvent {
                 session_id: session.id.clone(),
                 record: Arc::new(record.clone()),
                 remote: None,
                 update_line: Default::default(),
-            });
+            };
+            // A live chat's streamed text changes only its own row, which is never cached, so the
+            // closed rows keep their bytes while agents stream. Read after the metadata update
+            // above: a close that follows appends its own `status` record, which marks them stale.
+            let _ = if list_guard::streamed_chunk(&record.dir, &record.kind)
+                && session.status() != SessionStatus::Closed
+            {
+                self.events.send_live_stream(event)
+            } else {
+                self.events.send(event)
+            };
         }
         (record, stored)
     }
