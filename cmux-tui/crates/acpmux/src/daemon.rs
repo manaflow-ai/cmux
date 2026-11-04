@@ -50,6 +50,10 @@ pub(crate) mod owner_exit;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
+mod stop_causes;
+#[cfg(unix)]
+use stop_causes::next_signal;
+use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -918,38 +922,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
-    }
-}
-
-/// Aborts a task when dropped.
-struct AbortOnDrop(tokio::task::AbortHandle);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// Resolves, with the reason logged, once the store asks the daemon to stop
-/// (`Store::stop_reason`); never for a store that does not ask, or once the store is gone.
-async fn store_asks_to_stop(reason: Option<tokio::sync::watch::Receiver<Option<String>>>) {
-    let Some(mut reason) = reason else { return std::future::pending().await };
-    match reason.wait_for(Option::is_some).await {
-        Ok(why) => {
-            tracing::error!("stopping for a restart: {}", why.as_deref().unwrap_or_default());
-        }
-        Err(_) => std::future::pending().await,
-    }
-}
-
-/// The next delivery of a registered signal; never, if registration failed.
-#[cfg(unix)]
-async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
-    match stream {
-        Some(stream) => {
-            stream.recv().await;
-        }
-        None => std::future::pending::<()>().await,
     }
 }
 

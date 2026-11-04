@@ -8,6 +8,7 @@
 //! back to its length at the last `flush` (the kernel lost every write since).
 
 use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT};
+use super::log_sync::FAIL_NEXT_LOG_SYNC;
 use super::*;
 use cmux_journal::{Crash, SimStorage};
 use serde_json::json;
