@@ -693,11 +693,13 @@ export const SubagentTray = memo(function SubagentTray({
         COMMAND_KIND_ICON[commandKind(item.command.command)],
         currentCommandRules(),
       );
+      // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
+      const named = sendLabel(t, item.command) ?? read.label;
       return (
         <>
           {menu(
             <AgentLine
-              name={sendLabel(t, item.command) ?? read.label}
+              name={item.owner ? `${subagentDisplayName(t, item.owner)} · ${named}` : named}
               title={item.command.command}
               chevron
               icon={read.icon}
