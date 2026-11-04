@@ -500,7 +500,7 @@ class SharedWait(unittest.TestCase):
         idle_row = dict(runner("synthetic-glaeda"), id=1, os="macOS")
         doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
                    generated_at=dt.datetime.now(dt.timezone.utc).isoformat(), repository_runners=[],
-                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)]}, scale_sets={})
+                   runner_groups={"glaeda-minis": [dict(idle_row, busy=True)], "cmux-fleet-linux": []}, scale_sets={})
         raw = base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
         config = env(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
                      SNAPSHOT_TOKEN="synthetic-snapshot", JOBS="control", NIGHTLY="1",
@@ -520,9 +520,12 @@ class SharedWait(unittest.TestCase):
              mock.patch.object(placement.signal, "setitimer"), \
              mock.patch.object(placement, "write") as write, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(placement.main(config), 0)
-        self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
-        self.assertEqual(clock[0], 30)
-        self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+        # A complete runner-state publication is the quota-safe bootstrap. Without
+        # its optional queue snapshot, capacity is unknown and placement fails open
+        # to the workflow's overflow; it does not spend a routing API read.
+        self.assertEqual(write.call_args.args[0].mini_jobs, ())
+        self.assertEqual(clock[0], 0)
+        self.assertEqual(paths, [])
 
 
 class Wiring(unittest.TestCase):
@@ -666,6 +669,44 @@ class Wiring(unittest.TestCase):
         self.assertEqual(placement.decide(config, [fleet_runner()], queued, NOW).linux_runner, "")
         readers = [name for name, job in nightly.items() if "light_linux_runner" in str(job.get("runs-on", ""))]
         self.assertEqual(readers, ["prepare-nightly-variant-primary"])
+
+    def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
+        expected = {
+            "pr-checks.yml": {"jobs": ("size", "ui-review", "split"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "web-validation.yml": {"jobs": ("web-validation",), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+        }
+        for workflow, spec in expected.items():
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                place = workflow_jobs["portable-placement"]
+                self.assertEqual(place["steps"][-1]["env"]["JOBS"].split(), list(spec["jobs"]))
+                for name in spec["jobs"]:
+                    job = workflow_jobs[name]
+                    needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+                    self.assertIn("portable-placement", needs)
+                    route = job["runs-on"]
+                    self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
+                    self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
+                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
+                    self.assertIn(spec["fallback"], route)
+
+    def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
+        state = {
+            "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+            "generated_at": NOW.isoformat(), "repository_runners": [],
+            "runner_groups": {"glaeda-minis": [{"id": 1, "name": "cmux1-glaeda", "status": "online", "busy": False, "os": "macOS", "labels": [{"name": "self-hosted"}, {"name": "glaeda-side-light-xcode-26.6"}]}], "cmux-fleet-linux": []},
+            "scale_sets": {},
+        }
+        raw = base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
+        config = {**env(JOBS="control"), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                  "CI_RUNNER_STATE": raw, "SNAPSHOT_TOKEN": "github-token"}
+        with mock.patch.dict(os.environ, config, clear=True), \
+             mock.patch.object(placement.pool.GitHub, "get_api", side_effect=AssertionError("API read")), \
+             mock.patch.object(placement.pool.GitHub, "download", side_effect=AssertionError("artifact read")):
+            runners, queue = placement.read(config, NOW)
+        self.assertEqual(len(runners), 1)
+        self.assertIsNone(queue)
 
     def test_placement_runs_the_trusted_base_copy(self):
         for workflow in self.PLACED:

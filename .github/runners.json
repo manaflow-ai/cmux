@@ -582,7 +582,17 @@
     "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
     "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
     "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
+    "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"}
+  },
+  "portable_light_jobs": {
+    "$comment": [
+      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
+      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
+    ],
+    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
   },
   "linux_sizes": {
     "$comment": [
