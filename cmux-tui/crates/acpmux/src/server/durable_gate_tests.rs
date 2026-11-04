@@ -152,13 +152,17 @@ async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
     let journal = SimStorage::new(62);
     let hub = hub(home.path(), &journal);
-    let (input, _outgoing) = connect(&hub).await;
+    let (input, mut outgoing) = connect(&hub).await;
     let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
-    journal.set_sync_delay(Duration::from_secs(3600));
+    // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
+    // (a sync under way keeps its delay, and the store's drop waits for it).
+    journal.set_sync_delay(Duration::from_secs(3));
     let rename = json!({"sessionId": CHAT, "newName": "renamed"});
     send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
-    let asked =
-        tokio::time::timeout(Duration::from_secs(5), stop.wait_for(Option::is_some)).await.is_ok();
+    let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
+        .await
+        .is_ok();
     journal.set_sync_delay(Duration::ZERO);
+    let _ = until(&mut outgoing, |line| line["id"] == 2).await;
     assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
 }
