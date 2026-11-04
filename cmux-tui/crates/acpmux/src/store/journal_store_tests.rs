@@ -1013,3 +1013,17 @@ fn an_idle_store_does_not_wake_its_checkpointer() {
         "no checkpoint after a change ({checkpointed:?})"
     );
 }
+
+/// Scratch, never merged (lead 2026-11-04): `a_failed_log_sync_freezes_the_checkpoint` 50 times in
+/// a row in one process, alone; counts the runs that fail instead of stopping at the first.
+#[test]
+fn a_failed_log_sync_freezes_the_checkpoint_x50() {
+    let mut failed = Vec::new();
+    for run in 0..50 {
+        if std::panic::catch_unwind(a_failed_log_sync_freezes_the_checkpoint).is_err() {
+            failed.push(run);
+        }
+    }
+    eprintln!("ACPMUX-X50 failed {} of 50 runs: {failed:?}", failed.len());
+    assert!(failed.is_empty(), "failed {} of 50 runs: {failed:?}", failed.len());
+}
