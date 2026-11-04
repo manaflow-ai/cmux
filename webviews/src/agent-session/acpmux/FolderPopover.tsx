@@ -171,6 +171,17 @@ export function FolderPopover({
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
+  useEffect(() => {
+    if (!open) return;
+    const switchPopover = (event: Event) => {
+      const target = (event as CustomEvent<unknown>).detail;
+      if (!(target instanceof Element)) return;
+      if (target.closest(".acpmux-composer, .nt-composer") === trigger.current?.closest(".acpmux-composer, .nt-composer"))
+        close();
+    };
+    document.addEventListener("cmux-composer-popover-switch", switchPopover);
+    return () => document.removeEventListener("cmux-composer-popover-switch", switchPopover);
+  }, [open, close]);
   const submit = (value: string) => {
     // Add folder… keeps the menu open: its list now adds a folder.
     if (value === ACTION_EXTRA) {
