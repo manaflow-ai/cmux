@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxConversationCore
 import CmuxConversationGeometry
+import os
 import UIKit
 
 /// Metrics and colors matched to iOS 26 Messages.
@@ -15,7 +17,37 @@ enum ConversationTheme {
 
     /// `value` (a Large-size metric) at the current content size category.
     static func scaled(_ value: CGFloat, _ style: UIFont.TextStyle = .body) -> CGFloat {
-        UIFontMetrics(forTextStyle: style).scaledValue(for: value)
+        guard let traits = textSizeTraits else { return UIFontMetrics(forTextStyle: style).scaledValue(for: value) }
+        return UIFontMetrics(forTextStyle: style).scaledValue(for: value, compatibleWith: traits)
+    }
+
+    /// The traits text styles resolve with while the conversation in front
+    /// has a text size from its host (`ConversationViewController.textSize`):
+    /// that size and the controller's legibility weight (Bold Text). nil,
+    /// the default, leaves every font exactly as the system sizes it. Only
+    /// `ConversationThemeOwners` sets it (main thread); rows measured
+    /// ahead read it off the main thread, so the slot is behind a lock.
+    static var textSizeTraits: UITraitCollection? {
+        get { textSizeSlot.withLockUnchecked { $0 } }
+        set { textSizeSlot.withLockUnchecked { $0 = newValue } }
+    }
+    private static let textSizeSlot = OSAllocatedUnfairLock<UITraitCollection?>(uncheckedState: nil)
+    /// The bubble colours of the conversation in front, from its host
+    /// (`ConversationViewController.bubbleColors`, Chat Colors). nil, the
+    /// default, keeps Messages' colours. Set like `textSizeTraits`.
+    static var bubbleColors: ConversationBubbleColors? {
+        get { bubbleColorsSlot.withLock { $0 } }
+        set { bubbleColorsSlot.withLock { $0 = newValue } }
+    }
+    private static let bubbleColorsSlot = OSAllocatedUnfairLock<ConversationBubbleColors?>(initialState: nil)
+    /// Counts `textSizeTraits` and `bubbleColors` changes (main thread), so
+    /// work measured under older ones is not kept.
+    nonisolated(unsafe) static var themeEpoch = 0
+
+    /// `style`'s font at the host's size, or the system's when none is set.
+    private static func preferredFont(_ style: UIFont.TextStyle) -> UIFont {
+        guard let traits = textSizeTraits else { return .preferredFont(forTextStyle: style) }
+        return .preferredFont(forTextStyle: style, compatibleWith: traits)
     }
 
     /// A system font scaled like `style`. Bold Text needs nothing here: UIKit
@@ -52,6 +84,7 @@ enum ConversationTheme {
         var currentCategory: UIContentSizeCategory
         var legibility: UILegibilityWeight
         var boldText: Bool
+        var textSize: UIContentSizeCategory?
     }
 
     nonisolated(unsafe) private static var fontCache: [FontRequest: UIFont] = [:]
@@ -61,11 +94,16 @@ enum ConversationTheme {
         guard Thread.isMainThread else { return make() }
         let environment = MainActor.assumeIsolated {
             let current = UITraitCollection.current
+            let hostSize = textSizeTraits?.preferredContentSizeCategory
+            // A host size decides every text style: the system's own sizes
+            // (which differ inside and outside the controller's traits) do
+            // not, so they do not empty the cache.
             return FontEnvironment(
-                appCategory: UIApplication.shared.preferredContentSizeCategory,
-                currentCategory: current.preferredContentSizeCategory,
+                appCategory: hostSize == nil ? UIApplication.shared.preferredContentSizeCategory : .unspecified,
+                currentCategory: hostSize == nil ? current.preferredContentSizeCategory : .unspecified,
                 legibility: current.legibilityWeight,
-                boldText: UIAccessibility.isBoldTextEnabled
+                boldText: UIAccessibility.isBoldTextEnabled,
+                textSize: hostSize
             )
         }
         if environment != fontCacheEnvironment {
@@ -102,7 +140,8 @@ enum ConversationTheme {
     /// the default size.
     static var bubbleFont: UIFont {
         cachedFont(FontRequest(name: "bubble")) {
-            let descriptor = UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
+            let descriptor = textSizeTraits.map { UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body, compatibleWith: $0) }
+                ?? UIFontDescriptor.preferredFontDescriptor(withTextStyle: .body)
             return UIFont(descriptor: descriptor.withSymbolicTraits(.traitTightLeading) ?? descriptor, size: 0)
         }
     }
@@ -145,7 +184,7 @@ enum ConversationTheme {
     }
 
     /// The caption 2 font (11 pt at Large), ChatKit's `transcriptTextFont`.
-    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { .preferredFont(forTextStyle: .caption2) } }
+    static var captionFont: UIFont { cachedFont(FontRequest(name: "caption")) { preferredFont(.caption2) } }
 
     /// A transcript space given at Large, at the current text size
     /// (`ConversationTranscriptMetrics.space`): Messages grows every gap with
@@ -190,7 +229,7 @@ enum ConversationTheme {
 
     /// Group sender names: caption 2 (11 pt at the default size), 14 pt in
     /// from the bubble's leading edge.
-    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
+    static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { preferredFont(.caption2) } }
     static let senderNameInset: CGFloat = 14
     /// The name's line box and the bubble's offset under the name's top
     /// (`ConversationTranscriptMetrics.senderNameLine`).
@@ -209,7 +248,7 @@ enum ConversationTheme {
     static var editedFont: UIFont { font(11, style: .caption2) }
     /// Reply quote text: subheadline, 15 pt at the default size.
     /// `replyBalloonTextFont`: caption2 (11 pt at Large).
-    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { .preferredFont(forTextStyle: .caption2) } }
+    static var quoteFont: UIFont { cachedFont(FontRequest(name: "quote")) { preferredFont(.caption2) } }
     /// Status, separators and swipe times are 11 pt caption 2 in Messages (iOS 26).
     static var timestampFont: UIFont { font(11, style: .caption2) }
     /// ChatKit's `transcriptBoldFont`: "Today" in separators, names in
@@ -395,6 +434,21 @@ enum ConversationTheme {
 
     static let failedBubble = outgoingBubble
 
+    // MARK: Chat Colors (the host's `bubbleColors`; each unset role keeps the colour above)
+
+    /// My bubbles' fill.
+    static var sentFill: UIColor { bubbleColors?.sent.map(UIColor.init(conversation:)) ?? outgoingBubble }
+    /// The other side's bubbles' fill.
+    static var receivedFill: UIColor { bubbleColors?.received.map(UIColor.init(conversation:)) ?? incomingBubble }
+    /// My bubbles take Messages' screen-fixed gradient only in its own blue.
+    static var sentFillGradient: ScreenGradient? { bubbleColors?.sent == nil ? iMessageGradient : nil }
+    /// Their bubbles follow a conversation background only in their own grey.
+    static var receivedFillAdaptsToBackdrop: Bool { bubbleColors?.received == nil }
+    /// My bubbles' text.
+    static var sentTextColor: UIColor { bubbleColors?.resolvedSentText.map(UIColor.init(conversation:)) ?? outgoingText }
+    /// The other side's text.
+    static var receivedTextColor: UIColor { bubbleColors?.resolvedReceivedText.map(UIColor.init(conversation:)) ?? incomingText }
+
     static let outgoingText = UIColor.white
     static let incomingText = UIColor.label
     static let background = UIColor.systemBackground
@@ -500,6 +554,12 @@ extension UIColor {
     /// entry point instead of the bare trailing-closure initializer.
     nonisolated static func resolving(_ provider: @escaping @Sendable (UITraitCollection) -> UIColor) -> UIColor {
         UIColor(dynamicProvider: provider)
+    }
+}
+extension UIColor {
+    /// A Chat Colors colour (sRGB).
+    convenience init(conversation color: ConversationColor) {
+        self.init(red: color.red, green: color.green, blue: color.blue, alpha: 1)
     }
 }
 #endif

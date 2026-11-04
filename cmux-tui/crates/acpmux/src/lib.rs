@@ -65,6 +65,7 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 pub mod github_status;
+pub mod goal;
 pub mod hand;
 pub mod harness_admin;
 pub mod harness_config;
@@ -175,5 +176,6 @@ pub mod workflow_reply;
 pub mod workflow_runs;
 pub mod worktree_sessions;
 pub mod wrap_up_suggestion;
+pub mod write_journal;
 
 pub mod model_catalog;

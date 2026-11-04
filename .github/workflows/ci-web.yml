@@ -540,7 +540,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
           # The comparison and the flake history are the head's too: the base's copies may predate --flaky.
           cp ../scripts/ci/run-webviews-tests.sh ../scripts/ci/webviews_test_results.py ../scripts/ci/webviews_test_shards.py \
-            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py \
+            ../scripts/ci/guards_new_reds.py ../scripts/ci/webviews_test_history.py ../scripts/ci/test_reds.py \
             "$RUNNER_TEMP/webviews-head-results/runner/"
           ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"
 
@@ -770,6 +770,11 @@ jobs:
           flaky="$RUNNER_TEMP/flaky-on-base"
           python3 "$runner/webviews_test_history.py" flaky "$RUNNER_TEMP/webviews-test-history/history.json" \
             --names "$HEAD_RESULTS" > "$flaky" || : > "$flaky"
+          # TAP adds only active quarantines whose exact diagnostic matches a whole final head attempt.
+          # Raw artifacts retain green and red output; unavailable history contributes no waiver.
+          python3 "$runner/test_reds.py" tap-flaky --workflow 'cmux-next web' --job react-apps-check \
+            --log-dir "$RUNNER_TEMP/head-results/raw-logs" >> "$flaky"
+          sort -u "$flaky" -o "$flaky"
           if [ -s "$flaky" ]; then echo "flipped by themselves on recent base pushes:"; sed 's/^/  /' "$flaky"; fi
           status=0
           python3 "$runner/guards_new_reds.py" --label "Webview test" --flaky "$flaky" "$HEAD_RESULTS" "$BASE_RESULTS" || status=$?
