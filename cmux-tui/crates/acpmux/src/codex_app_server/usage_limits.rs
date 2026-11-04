@@ -51,12 +51,18 @@ fn credits(c: &Value) -> Option<Value> {
     Some(json!({"balance": balance}))
 }
 
+/// Whether a Codex rate-limit snapshot is the plan's own (no `limitId`, or `codex`): another
+/// limit's (a model's) windows are not the plan's, and leave the saved limits as they are.
+pub fn is_plan_snapshot(snapshot: &Value) -> bool {
+    snapshot.is_object()
+        && snapshot.get("limitId").and_then(Value::as_str).is_none_or(|id| id == "codex")
+}
+
 /// A Codex rate-limit snapshot as `usageLimits`. None when it reports neither a window nor
-/// credits (a plan name alone is no limit), and for another limit than Codex's own (a
-/// `limitId` other than `codex`), whose windows are not the plan's.
+/// credits (a plan name alone is no limit), and for another limit than Codex's own
+/// ([`is_plan_snapshot`]).
 pub fn usage_limits(snapshot: &Value) -> Option<Value> {
-    snapshot.as_object()?;
-    if snapshot.get("limitId").and_then(Value::as_str).is_some_and(|id| id != "codex") {
+    if !is_plan_snapshot(snapshot) {
         return None;
     }
     let windows: Vec<Value> = ["primary", "secondary"]

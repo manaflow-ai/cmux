@@ -88,3 +88,13 @@ fn credits_alone_are_reported() {
         Some(json!({"windows": [], "credits": {"balance": "12.5"}}))
     );
 }
+
+#[test]
+fn only_the_plans_own_snapshot_replaces_the_saved_limits() {
+    use super::usage_limits::is_plan_snapshot;
+    // An empty plan snapshot is the plan's: it clears what was saved (`hub/permissions.rs`).
+    assert!(is_plan_snapshot(&json!({})));
+    assert!(is_plan_snapshot(&json!({"limitId": "codex", "primary": null})));
+    assert!(!is_plan_snapshot(&json!({"limitId": "codex_other"})));
+    assert!(!is_plan_snapshot(&json!(null)));
+}
