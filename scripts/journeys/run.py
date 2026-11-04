@@ -75,11 +75,15 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
                          # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
-                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
+                         r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|daemon-arm-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
                          r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
                          r"|host\.json|summary\.json)")
 RESULT_MAX_BYTES = 64 << 20
 RESULT_TAR_MAX_BYTES = 768 << 20
+# The flow traces (out/<journey>/flows/): with a new daemon per run (typing-load-l6-rds-*) the daemon and its terminal
+# hosts write them too, and in the result tar they made the fetch miss its 150 s (round s1ab-v3a-1-off-21, 2026-11-04:
+# the journey passed and every result was lost). They come last, compressed, best effort: never at the results' cost.
+FLOWS_TAR_MAX_BYTES = 512 << 20
 STEP_NAMES = {name[len("step_"):] for name in dir(driver.Journey) if name.startswith("step_")}
 # The files of a run in its OUT folder: a folder that holds one of them was used by an earlier run.
 EARLIER_RUN_FILES = ("run.json", "results.jsonl", "host.json", "summary.json", "acquire.log")
@@ -579,7 +583,7 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
             log(f"[{host}] {line}")
         if drove.returncode not in (0, 1):
             log(f"driver exited {drove.returncode}: {drove.stderr.decode(errors='replace').strip()[-600:]}")
-        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' --exclude 'video' . | head -c {RESULT_TAR_MAX_BYTES}",
+        files = remote(host, f"cd {q(work + '/out')} && tar c --exclude 'frames' --exclude 'video' --exclude 'flows' . | head -c {RESULT_TAR_MAX_BYTES}",
                        timeout=left(150), check=False).stdout
         take_results(files, out, set(ids))
         # ext_video's recordings (handoff resize-videos/KIT.md): movies are hundreds of MB, fetched on their own.
@@ -589,6 +593,14 @@ def run_lease(specs, build, out, frame_interval, exclusive=False, hog_swap_gb=0.
         if hog_started:
             hog_log = remote(host, f"tail -c 2000000 {q(work + '/hog.jsonl')}", timeout=left(60), check=False).stdout
             (out / f"hog-{lease}.jsonl").write_bytes(hog_log or b"")
+        try:
+            flows = remote(host, f"cd {q(work + '/out')} && ls -d */flows >/dev/null 2>&1 && tar cz */flows | "
+                                 f"head -c {FLOWS_TAR_MAX_BYTES} || true", timeout=left(120), check=False).stdout
+            if flows:
+                take_results(flows, out, set(ids))
+            log(f"flow traces: {len(flows or b'')} bytes (gzip) fetched")
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, EOFError, tarfile.TarError) as error:
+            log(f"flow traces not fetched (best effort; the results are kept): {str(error)[-200:]}")
     except (RuntimeError, subprocess.TimeoutExpired, KeyError, ValueError, OSError, tarfile.TarError) as error:
         log(f"lease {lease}: {error}")
         reason = f"{host or lease}: {str(error)[-400:]}"
