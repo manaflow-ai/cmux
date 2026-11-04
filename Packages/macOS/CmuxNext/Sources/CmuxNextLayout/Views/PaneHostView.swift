@@ -323,6 +323,9 @@ final class PaneHostView: NSView, RestingPlacement {
         guard let heldArea else { return }
         guard holdsUntilAfterLanding else {
             (self.heldArea, heldAreaFollows) = (nil, false)
+            // The area takes the frame it lets go at first (the content lays out at the frame `layoutClip` just gave it, a
+            // takeover's held one too), so held content changes size once, never first to the area's last spring frame (S1B).
+            if window != nil, bounds.width >= 1, bounds.height >= 1 { content.layoutSubtreeIfNeeded() }
             heldArea.hold = nil
             return
         }
