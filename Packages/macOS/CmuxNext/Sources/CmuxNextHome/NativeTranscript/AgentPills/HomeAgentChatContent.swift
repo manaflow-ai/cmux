@@ -53,8 +53,11 @@ struct HomeAgentChatContent: Equatable, Sendable {
     var details: [String]
     /// Every message after the task, oldest first.
     var messages: [Message]
-    /// Where Go to workspace goes: the Chief's link to the agent's session; nil hides the button.
+    /// Where Go to workspace goes: the Chief's link to the agent's session, or the session's own link once
+    /// it moved; nil hides the button.
     var workspaceLink: URL?
+    /// The machine it moved to (a Chief move or `acpmux session move`); nil while it runs where it started.
+    var place: String?
 }
 
 extension HomeAgentChatContent {
@@ -63,7 +66,8 @@ extension HomeAgentChatContent {
     /// - Parameters:
     ///   - thread: The agent's chat with the Chief (``HomeStore/agentThread(_:in:)``).
     ///   - now: The current time, for a working agent's "Working for".
-    init(_ thread: HomeAgentThread, now: Date) {
+    ///   - session: Where its session runs, as followed (``HomeAgentSessionRef``); nil: not placed yet.
+    init(_ thread: HomeAgentThread, now: Date, session: HomeAgentSessionRef? = nil) {
         let duration = Self.duration(thread.workedFor(now: now))
         let started = thread.startedAt.formatted(date: .omitted, time: .shortened)
         var details = [String(format: String(localized: "home.agentPane.started", defaultValue: "Started %@", bundle: .module), started)]

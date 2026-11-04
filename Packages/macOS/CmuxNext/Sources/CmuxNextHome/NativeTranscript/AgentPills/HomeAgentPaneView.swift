@@ -12,6 +12,8 @@ final class HomeAgentPaneView: NSView {
     /// Go to workspace: the host opens the Chief's link to the agent's session (its workspace tab).
     var onGoToWorkspace: ((URL) -> Void)?
     let side = HomeAgentSidePane()
+    /// The last Go to workspace click's place read and open (tests await it).
+    private(set) var pendingGo: Task<Void, Never>?
     /// What each open tab draws now.
     private var drawn: [String: HomeAgentChatContent?] = [:]
     // task-owner: this view; event-driven (Observation), cancelled by stop()
