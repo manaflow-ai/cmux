@@ -95,9 +95,11 @@ import Testing
         let spare = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
         let parked = try #require(root.context.spareHost, "no pane host was parked with the views made ahead")
         try #require(parked.window === window, "the parked pane host is not in the window")
-        let probe = WindowMoveProbe(frame: .zero)
+        // Probes in the parked host and in the pane views: a subtree that changes window calls viewWillMove(toWindow:) on all.
+        let probe = WindowMoveProbe(frame: .zero), hostProbe = WindowMoveProbe(frame: .zero)
         spare.view.addSubview(probe)
-        probe.moves = 0
+        parked.addSubview(hostProbe)
+        (probe.events, hostProbe.events) = ([], [])
 
         // The key's turn of New Column (`WorkspaceContentController.newColumn` -> `createInKeysTurn`).
         let provisional = ProvisionalPane(columnWidth: 0.5, left: false)
@@ -112,19 +114,35 @@ import Testing
         #expect(before.contains(ObjectIdentifier(made.view)), "the key's turn put a new pane view in the window")
         #expect(!host.isHidden && !made.view.isHiddenOrHasHiddenAncestor, "the new column's pane does not show")
         #expect(host === parked, "the new column's pane is not in the host made ahead")
-        #expect(probe.windowChanges == 0, "the key's turn moved the new pane's views out of or into the window \(probe.windowChanges) times (calls: \(probe.moves))")
+        // A probe its superview dropped (a view that owns its subviews removes strangers) left on its own: not the pane's walk.
+        #expect(probe.subtreeWindowChanges == 0, "the pane views changed window in the key's turn: \(probe.events)")
+        #expect(hostProbe.subtreeWindowChanges == 0, "the pane host changed window in the key's turn: \(hostProbe.events)")
         #expect(made.view.stripView.isShownInWindow, "the new column's tab strip does not count as shown")
     }
 }
 
-/// Counts window moves (AppKit's `_setWindow` walk reaches every view of a subtree that changes window).
+/// Records every window move and superview move it gets. AppKit calls `viewWillMove(toWindow:)` on every view of a subtree
+/// that changes window (its `_setWindow` walk); a probe that is itself removed from its superview gets one too, which is
+/// not a move of the subtree it was put in.
 private final class WindowMoveProbe: NSView {
-    var moves = 0
-    /// Calls whose window differs from the one the view is in: a real window change (a same-window move is free).
-    var windowChanges = 0
+    var events: [String] = []
+    private var leavingSuperview = false
+    private(set) var subtreeWindowChanges = 0
+
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        leavingSuperview = newSuperview !== superview
+        events.append("superview \(superview.map { String(describing: type(of: $0)) } ?? "nil") -> \(newSuperview.map { String(describing: type(of: $0)) } ?? "nil")")
+        super.viewWillMove(toSuperview: newSuperview)
+    }
+
     override func viewWillMove(toWindow newWindow: NSWindow?) {
-        moves += 1
-        if newWindow !== window { windowChanges += 1 }
+        events.append("window \(window == nil ? "nil" : "w") -> \(newWindow == nil ? "nil" : newWindow === window ? "same" : "other")")
+        if newWindow !== window, !leavingSuperview { subtreeWindowChanges += 1 }
         super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToSuperview() {
+        leavingSuperview = false
+        super.viewDidMoveToSuperview()
     }
 }
