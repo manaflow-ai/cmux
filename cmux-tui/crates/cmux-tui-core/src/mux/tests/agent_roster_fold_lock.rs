@@ -152,3 +152,76 @@ fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Review repro (PR 35334, not for landing): a fold request recorded while another thread holds
+/// the fold in a run that makes no progress (here a retirement of a terminal with no roster entry,
+/// with the roster at the head) is left behind. That run returns without reading the requests
+/// again (`drain_roster_requests`: `if !progressed || ...`), and the request's own `try_lock`
+/// already failed, so no thread folds it until another roster request or a maintenance tick.
+#[test]
+fn review_repro_a_hook_recorded_during_a_fold_that_makes_no_progress_is_folded() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-fold-lost-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("roster-fold-lost", &root);
+    mux.stop_journal_maintenance();
+    let agent = mux.new_workspace(None, None).unwrap();
+    let agent_terminal = agent.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &agent_terminal, "SessionStart", Some("agent-fold-lost"));
+    // The roster at the journal head, so the retirement below folds nothing and retires nothing.
+    mux.catch_up_agent_roster();
+    let head_before = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
+    assert_eq!(
+        mux.agent_roster.lock().unwrap().cursor,
+        head_before,
+        "the roster starts at the head"
+    );
+    let state_before = roster_agent_state(&mux, &agent_terminal);
+    let no_agent = TerminalPublicId::parse(format!("term_{:032x}", 7)).unwrap();
+
+    let hooked = std::thread::scope(|scope| {
+        let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
+        mux.pause_agent_roster_fold_after_head_for_test(entered_sender, release_receiver);
+        // A terminal close with no agent: it takes the fold and the requests, reads the head, pauses.
+        let close = scope.spawn(|| mux.retire_roster_terminal(&no_agent));
+        entered.recv_timeout(Duration::from_secs(30)).expect("the close's fold reads the head");
+        // An agent hook while the close holds the fold: it commits, records its fold, its try_lock
+        // fails, and it returns.
+        let (done_sender, done) = std::sync::mpsc::channel();
+        let (mux_ref, agent_ref) = (&mux, &agent_terminal);
+        scope.spawn(move || {
+            append_journal_hook(mux_ref, agent_ref, "UserPromptSubmit", Some("agent-fold-lost"));
+            let _ = done_sender.send(());
+        });
+        let hooked = done.recv_timeout(Duration::from_secs(5)).is_ok();
+        release.send(()).unwrap();
+        close.join().unwrap();
+        hooked
+    });
+    assert!(hooked, "the hook returned while the close held the fold");
+    // Maintenance is stopped and no other request comes: nothing else would fold it.
+    std::thread::sleep(Duration::from_millis(200));
+    let head = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
+    let (cursor, wanted, retire_pending) = {
+        let host = mux.agent_roster.lock().unwrap();
+        (host.cursor, host.requests.wanted, host.requests.retire.len())
+    };
+    let state_after = roster_agent_state(&mux, &agent_terminal);
+    eprintln!(
+        "review repro: head_before={head_before} head={head} cursor={cursor} wanted={wanted} \
+         retire_pending={retire_pending} state_before={state_before:?} state_after={state_after:?}"
+    );
+    assert!(
+        cursor >= wanted,
+        "a hook recorded while a no-progress fold held the lock was left behind: \
+         wanted {wanted}, roster cursor {cursor}, state {state_after:?}"
+    );
+    assert_eq!(
+        state_after.as_deref(),
+        Some("working"),
+        "the hook's prompt makes the agent working"
+    );
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -27,6 +27,10 @@ pub(super) struct AgentRosterFold {
     /// Pauses the next fold after it reads one journal page (test seam).
     #[cfg(test)]
     page_hook: Option<(SyncSender<()>, Receiver<()>)>,
+    /// Review repro seam (PR 35334): pauses the next fold after it took the
+    /// requests and read the head, before it reads the roster cursor.
+    #[cfg(test)]
+    head_hook: Option<(SyncSender<()>, Receiver<()>)>,
 }
 
 impl AgentRosterFold {
@@ -56,6 +60,14 @@ impl AgentRosterFold {
             let _ = release.recv();
         }
     }
+
+    #[cfg(test)]
+    fn pause_after_head_for_test(&mut self) {
+        if let Some((entered, release)) = self.head_hook.take() {
+            let _ = entered.send(());
+            let _ = release.recv();
+        }
+    }
 }
 
 impl Mux {
@@ -68,6 +80,18 @@ impl Mux {
         release: Receiver<()>,
     ) {
         self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).page_hook =
+            Some((entered, release));
+    }
+
+    /// Review repro seam (PR 35334): the next roster fold signals `entered`
+    /// after it took the requests and read the head, then waits for `release`.
+    #[cfg(test)]
+    pub(crate) fn pause_agent_roster_fold_after_head_for_test(
+        &self,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) {
+        self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner).head_hook =
             Some((entered, release));
     }
 
@@ -402,6 +426,8 @@ impl Mux {
                 Err(error) => eprintln!("cmux-tui: reading the journal head failed: {error}"),
             }
         }
+        #[cfg(test)]
+        fold.pause_after_head_for_test();
         let start = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
         let mut cursor = start;
         let mut deltas = Vec::new();
