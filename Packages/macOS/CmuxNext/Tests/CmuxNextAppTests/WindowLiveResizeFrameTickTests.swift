@@ -12,9 +12,10 @@ import Testing
 /// whole view tree out in that event's turn (`_layoutViewTree`; profile winresize-profile-b08cc6f, cmux22: 169 samples
 /// under `ShellWindow.setFrame`). In the x1 film of px-window-resize-4 (FEAT DOGFOOD BUILD 8e149f2e) every queued drag
 /// got its own window frame and layout pass, about 6 ms apart and back to back, so the window's frame ticks came
-/// 44-62 ms apart and 52-67 refreshes dropped per film. A live-resize drag is input, as a divider drag is (S2), and
-/// Chrome aligns input to the begin-frame: the window keeps only its newest drag, and its frame tick gives that one to
-/// AppKit, so N drags in one display frame cost one window frame, one layout and one commit, in the frame's own turn.
+/// 44-62 ms apart and 52-67 refreshes dropped per film. A live-resize drag is input, as a divider drag is (S2): the
+/// window applies at most one drag per display frame. The frame's first drag goes to AppKit in its own turn (no wait,
+/// `WindowLiveResizeLeadingDragTests`); the window keeps only the newest of the drags after it, and its frame tick gives
+/// that one to AppKit, so N drags in one display frame cost one window frame, one layout and one commit per frame.
 ///
 /// The test is the clock (`FrameScheduler.frameDidFire` is one display frame) and stands in for AppKit's resize: the
 /// right pane's content resizes the window from each drag it gets, as AppKit's gesture does, and
@@ -143,33 +144,36 @@ struct WindowLiveResizeFrameTickTests {
         // AppKit's live resize of the window runs from its first drag to the release.
         Motion.liveResizeOverride = true
         defer { Motion.liveResizeOverride = nil }
-        let reconciles = screen.reconcilePasses, presentations = screen.presentationPasses
+        let reconciles = screen.reconcilePasses
 
-        // Five drags in one display frame, back to back, as AppKit delivers the drags that queued during a long turn.
+        // Five drags in one display frame, back to back, as AppKit delivers the drags that queued during a long turn: the
+        // frame's first reaches the resize in its own turn, the four after it wait for the frame tick.
         for step in 1...5 {
             window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12 * CGFloat(step), y: press.y)))
         }
         rig.root.layoutSubtreeIfNeeded()
-        #expect(rig.edge.events.isEmpty, "each drag reached the window's resize in its own turn: \(rig.edge.events)")
-        #expect(window.frame.width == startWidth, "the window took \(window.frame.width - startWidth) pt before its frame tick")
-        #expect(screen.reconcilePasses == reconciles, "\(screen.reconcilePasses - reconciles) screen reconciles before the frame tick")
+        #expect(rig.edge.events == [.drag(press.x + 12)], "each drag reached the window's resize in its own turn: \(rig.edge.events)")
+        #expect(window.frame.width == startWidth + 12, "the window took \(window.frame.width - startWidth) pt before its frame tick")
+        #expect(screen.reconcilePasses - reconciles == 1, "\(screen.reconcilePasses - reconciles) screen reconciles in one display frame")
 
         // The window's frame tick: the newest drag resizes the window, and the layout follows it in the same turn.
+        let ticked = screen.reconcilePasses, presentations = screen.presentationPasses
         rig.frameTick()
         rig.root.layoutSubtreeIfNeeded()
-        #expect(rig.edge.events == [.drag(press.x + 60)], "the frame tick gave the resize \(rig.edge.events)")
+        #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 60)], "the frame tick gave the resize \(rig.edge.events)")
         #expect(window.frame.width == startWidth + 60, "the window is \(window.frame.width - startWidth) pt wider after its frame tick")
-        #expect(screen.reconcilePasses - reconciles == 1, "\(screen.reconcilePasses - reconciles) screen reconciles for one display frame")
+        #expect(screen.reconcilePasses - ticked == 1, "\(screen.reconcilePasses - ticked) screen reconciles for one display frame")
         #expect(screen.presentationPasses - presentations == 1,
                 "\(screen.presentationPasses - presentations) presentation passes for one display frame")
         // That frame's pane rects are at the window's new size.
         #expect(screen.frame.size == rig.root.bounds.size, "screen \(screen.frame.size), root \(rig.root.bounds.size)")
         #expect(rig.settled("p1") && rig.settled("p2"), "a pane is not where the frame's layout puts it")
 
-        // A release while a drag waits: that drag reaches the resize first, then the release, in the release's turn.
+        // A release while a drag waits (the tick applied this display frame's drag): that drag reaches the resize first,
+        // then the release, in the release's turn.
         window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 72, y: press.y)))
         window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 72, y: press.y)))
-        #expect(rig.edge.events == [.drag(press.x + 60), .drag(press.x + 72), .up], "the resize got \(rig.edge.events)")
+        #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 60), .drag(press.x + 72), .up], "the resize got \(rig.edge.events)")
         #expect(window.frame.width == startWidth + 72, "the window ended \(window.frame.width - startWidth) pt wider")
     }
 
@@ -204,8 +208,9 @@ struct WindowLiveResizeFrameTickTests {
         }
     }
 
-    /// The switch is read once per resize, at its first held drag: a flip mid-resize applies from the next resize,
-    /// so one resize never mixes the two paths.
+    /// The switch is read once per resize, at its first drag: a flip mid-resize applies from the next resize, so one
+    /// resize never mixes the two paths. On, a second drag in one display frame waits for the frame tick; off, it goes
+    /// in its own turn.
     @Test func theSwitchIsLatchedForTheWholeResize() throws {
         try Self.withSwitch(true) {
             let rig = Rig()
@@ -216,19 +221,21 @@ struct WindowLiveResizeFrameTickTests {
             Motion.liveResizeOverride = true
             defer { Motion.liveResizeOverride = nil }
             window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 12, y: press.y)))
-            #expect(rig.edge.events.isEmpty, "the first drag of a resize with the switch on waits for the frame tick: \(rig.edge.events)")
-            // Off mid-resize: this resize keeps waiting for the frame tick.
+            #expect(rig.edge.events == [.drag(press.x + 12)], "the display frame's first drag waited: \(rig.edge.events)")
+            // Off mid-resize: this resize keeps the frame tick, so the frame's second drag waits for it.
             TunableStore.shared.set("motion.frameOwner.liveResize", .bool(false))
             window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 24, y: press.y)))
-            #expect(rig.edge.events.isEmpty, "a flip mid-resize changed the path: \(rig.edge.events)")
+            #expect(rig.edge.events == [.drag(press.x + 12)], "a flip mid-resize changed the path: \(rig.edge.events)")
             rig.frameTick()
-            #expect(rig.edge.events == [.drag(press.x + 24)], "\(rig.edge.events)")
+            #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 24)], "\(rig.edge.events)")
             window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 24, y: press.y)))
-            // The next resize reads the switch again: off, each drag in its own turn.
+            // The next resize reads the switch again: off, each drag in its own turn, also two in one display frame.
             window.sendEvent(rig.event(.leftMouseDown, CGPoint(x: press.x + 24, y: press.y)))
             window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 36, y: press.y)))
-            #expect(rig.edge.events == [.drag(press.x + 24), .up, .drag(press.x + 36)], "\(rig.edge.events)")
-            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 36, y: press.y)))
+            window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + 48, y: press.y)))
+            #expect(rig.edge.events == [.drag(press.x + 12), .drag(press.x + 24), .up, .drag(press.x + 36), .drag(press.x + 48)],
+                    "\(rig.edge.events)")
+            window.sendEvent(rig.event(.leftMouseUp, CGPoint(x: press.x + 48, y: press.y)))
         }
     }
 

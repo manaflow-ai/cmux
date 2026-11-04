@@ -67,13 +67,13 @@ public nonisolated enum MotionTunables {
         default: 0.15, range: 0...0.5, step: 0.01, unit: .multiplier, code: "MotionTunables.subtleBounce")
 
     /// FRAME OWNER REFACTOR stage S7 (window live resize), a switch so one build films the old and the new path; it goes
-    /// with the old path once S7's films pass. On (the default): in a window's live resize the window keeps only its
-    /// newest drag and its frame tick gives that one to AppKit, so the window resizes and lays out once per display
-    /// frame. Off: every drag resizes and lays the window out in its own turn. Read at a resize's first held drag and
-    /// kept until the release (`LiveResizeDragInput`).
+    /// with the old path once S7's films pass. On (the default): in a window's live resize the window applies at most one
+    /// drag per display frame: the frame's first drag in its own turn, a later one (the newest) at the next frame tick, so
+    /// the window resizes and lays out once per display frame. Off: every drag resizes and lays the window out in its own
+    /// turn. Read at a resize's first drag and kept until the release (`LiveResizeDragInput`).
     public static let frameOwnerLiveResize = Tunable<Bool>.toggle(
         "motion.frameOwner.liveResize", .springs, "Live resize on the frame tick (frame owner S7)",
-        help: "On: a window's live resize applies the newest drag once per display frame, in the frame tick. Off: every drag event resizes and lays out the window in its own turn. A change applies from the next resize.",
+        help: "On: a window's live resize applies at most one drag per display frame: the frame's first drag at once, the newest later one at the next frame tick. Off: every drag event resizes and lays out the window in its own turn. A change applies from the next resize.",
         default: true, code: "MotionTunables.frameOwnerLiveResize")
 
     // MARK: Fades and loops

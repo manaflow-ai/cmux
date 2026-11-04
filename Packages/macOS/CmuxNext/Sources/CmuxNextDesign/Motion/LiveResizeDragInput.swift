@@ -8,14 +8,18 @@ import CmuxNextWakeups
 /// tree out in that event's turn: with drags queued behind a long turn, the window resized and laid out once per event,
 /// back to back, and its frame ticks came 44-62 ms apart (px-window-resize-4, 52-67 dropped refreshes per film).
 ///
-/// Now a drag that comes while the window resizes live is kept, the newest replacing the one before, and the window's
-/// frame tick gives it to AppKit as an input client (it ticks before the springs and probes): one window frame, one
-/// layout pass and one commit per display frame, in the tick's own transaction. Chrome aligns input to the begin-frame
-/// the same way. Any other event of the window (the release, a key, a modifier change) gives the waiting drag to
-/// AppKit first, in its own turn, so the release lands where the pointer let go and nothing reorders.
+/// Now a window applies at most one drag per display frame. The first drag of a display frame goes to AppKit in its own
+/// turn, as with the switch off, so it costs no latency. A drag that comes after one was applied in the same display
+/// frame is kept, the newest replacing the one before, and the window's next frame tick gives it to AppKit as an input
+/// client (it ticks before the springs and probes): one window frame, one layout pass and one commit per display frame.
+/// Chrome aligns continuous input to the begin-frame and pays up to a refresh of latency for it; here the drags of a
+/// frame that has room do not wait (R-HARNESS 3d, films ab-s7-sw-63b290e: when every drag waited for the tick, 64 and
+/// 71 frames showed the whole window one refresh late, against 12 and 14 with the switch off). Any other event of the
+/// window (the release, a key, a modifier change) gives the waiting drag to AppKit first, in its own turn, so the release
+/// lands where the pointer let go and nothing reorders.
 ///
-/// The switch is read at a resize's first held drag and kept until the next press or release, so one resize never
-/// mixes the two paths. A drag outside a live resize (a text selection, a tab drag) goes on in its own turn.
+/// The switch is read at a resize's first drag and kept until the next press or release, so one resize never mixes the
+/// two paths. A drag outside a live resize (a text selection, a tab drag) goes on in its own turn.
 @MainActor
 public final class LiveResizeDragInput {
     /// Frame ticks the client keeps after the last drag, so a slow drag does not make the display link again for each
@@ -29,8 +33,11 @@ public final class LiveResizeDragInput {
     private let frameApplied: @MainActor () -> Void
     /// The newest drag that waits for the frame tick, and the pointer travel of the drags it replaced.
     private var waiting: (event: NSEvent, dx: CGFloat, dy: CGFloat)?
-    /// The switch for the resize in progress, read at its first held drag; nil between resizes.
+    /// The switch for the resize in progress, read at its first drag; nil between resizes.
     private var latched: Bool?
+    /// A drag was applied in the display frame that runs now (since the last frame tick): a drag that comes now waits
+    /// for the next tick. A tick starts a display frame; it applies the waiting drag, if any.
+    private var appliedThisFrame = false
     private var ticksLeft = 0
     private lazy var client = FrameClient(owner: "LiveResize.drag", isAnimation: false, input: true, scheduler: { [weak self] in
         self?.window.map(FrameScheduler.forWindow) ?? .app
@@ -38,8 +45,8 @@ public final class LiveResizeDragInput {
         self?.tick() ?? false
     }
 
-    /// This live resize's drags wait for the frame tick: `motion.frameOwner.liveResize` read at its first held drag and
-    /// kept until the release. What else S7 changes in a live resize (``LiveResizePageUpdates``, ``FollowedViews``) follows it.
+    /// This live resize applies at most one drag per display frame: `motion.frameOwner.liveResize` read at its first
+    /// drag and kept until the release. What else S7 changes in a live resize (``LiveResizePageUpdates``, ``FollowedViews``) follows it.
     public var isFramed: Bool { latched == true }
 
     /// Drags given to AppKit from a frame tick and drags a newer one replaced, cumulative (diagnostics and tests).
@@ -53,8 +60,8 @@ public final class LiveResizeDragInput {
         self.deliver = deliver
     }
 
-    /// Whether `event` (sent to this input's window) waits for the frame tick. False: the caller sends it now; a
-    /// waiting drag has gone to AppKit first.
+    /// Whether `event` (sent to this input's window) waits for the frame tick. False: the caller sends it now (the first
+    /// drag of a display frame, or not a live-resize drag); a waiting drag has gone to AppKit first.
     public func takes(_ event: NSEvent) -> Bool { // perf-hot: 0.5ms drag-frame
         guard event.type == .leftMouseDragged, let window, Motion.isInLiveResize(window) else {
             flush()
@@ -67,14 +74,19 @@ public final class LiveResizeDragInput {
         let on = latched ?? MotionTunables.frameOwnerLiveResize.value
         latched = on
         guard on else { return false }
+        ticksLeft = Self.tickTail
+        client.activate()
+        // The display frame's first drag: AppKit applies it in this turn.
+        guard appliedThisFrame else {
+            appliedThisFrame = true
+            return false
+        }
         if let waiting {
             replaced += 1
             self.waiting = (event, waiting.dx + waiting.event.deltaX, waiting.dy + waiting.event.deltaY)
         } else {
             waiting = (event, 0, 0)
         }
-        ticksLeft = Self.tickTail
-        client.activate()
         return true
     }
 
@@ -91,11 +103,14 @@ public final class LiveResizeDragInput {
     public func windowWillClose() {
         waiting = nil
         latched = nil
+        appliedThisFrame = false
         client.deactivate()
     }
 
-    /// The window's frame tick: the waiting drag goes to AppKit, which resizes the window and lays it out in this tick.
+    /// The window's frame tick starts a display frame: the waiting drag goes to AppKit, which resizes the window and lays
+    /// it out in this tick, and that is the frame's drag. With none waiting, the frame's first drag goes in its own turn.
     private func tick() -> Bool { // perf-hot: 4ms motion-frame
+        appliedThisFrame = waiting != nil
         if waiting != nil {
             tickDeliveries += 1
             flush()

@@ -13,7 +13,7 @@ extension ShellWindow {
         if FirstClickPolicy().takesFirstClick(event, in: self, keyWindow: NSApp.keyWindow, mainWindow: NSApp.mainWindow,
                                               appIsActive: NSApp.isActive, appIsModal: NSApp.modalWindow != nil) { makeKey() }
         cursorRectHold?.windowWillSend(event, in: self)
-        // A live-resize drag waits for the window's frame tick (`LiveResizeDragInput`, FRAME OWNER S7).
+        // A live-resize drag after the display frame's first waits for the frame tick (`LiveResizeDragInput`, FRAME OWNER S7).
         if liveResizeInput.takes(event) { return }
         // A press in a workspace shown beside the focused one (`sidebar.multiView`) focuses it before it lands there.
         switch event.type {
