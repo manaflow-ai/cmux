@@ -17,10 +17,12 @@ public struct CloudEnvironmentBootstrap {
         // A source CLI override still resolves the actual app's namespace.
         if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }
         let launchArguments = try JSONSerialization.data(withJSONObject: ProcessInfo.processInfo.arguments)
+        // timeout: a wedged bundled CLI must not prevent the app from finishing
+        // launch; ProcessRunner kills and reaps it so the unavailable fallback runs.
         let result = try await ProcessRunner.run(executable: cli,
             arguments: ["--json", "cloud", "env", "get"] + (persisted ? ["--persisted"]
                 : ["--launch-args", String(decoding: launchArguments, as: UTF8.self)]),
-            environment: environment, timeout: nil, clock: ContinuousClock())
+            environment: environment, timeout: .seconds(30), clock: ContinuousClock())
         guard result.status == 0 else {
             throw DaemonError.launchFailed("Could not resolve this app's Cloud environment: " + String(decoding: result.stderr, as: UTF8.self))
         }
@@ -37,10 +39,12 @@ public struct CloudEnvironmentBootstrap {
         }
         var environment = ProcessInfo.processInfo.environment
         if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }
+        // timeout: capability validation is a preflight for a user action; a
+        // wedged CLI must be killed and reaped so the caller can show failure.
         let result = try await ProcessRunner.run(executable: cli,
             arguments: ["--json", "cloud", "env", "check-create", "--backend", backend.absoluteString,
                         "--params", String(decoding: params, as: UTF8.self)],
-            environment: environment, timeout: nil, clock: ContinuousClock())
+            environment: environment, timeout: .seconds(30), clock: ContinuousClock())
         guard result.status == 0 else {
             throw DaemonError.launchFailed(String(decoding: result.stderr, as: UTF8.self))
         }
