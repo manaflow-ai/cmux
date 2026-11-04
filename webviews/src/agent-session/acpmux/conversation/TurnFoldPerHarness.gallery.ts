@@ -70,10 +70,10 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 520, normal: 760, wide: 900 },
+  // The fold each family's row of turnFoldStyle.ts picks (turns.ts) draws as these rows.
   covers: [
-    "agent-session/acpmux/conversation/turnFoldStyle.ts",
-    "agent-session/acpmux/conversation/claudeTurnFold.experiment.ts",
-    "agent-session/acpmux/conversation/turns.ts",
+    "agent-session/acpmux/conversation/TurnRows.tsx#WorkedFor",
+    "agent-session/acpmux/conversation/TurnRows.tsx#ToolRows",
   ],
   // Claude's finished turn, runs in place (shipped) or under one Worked for (the opt-in), opened.
   experiment: {
