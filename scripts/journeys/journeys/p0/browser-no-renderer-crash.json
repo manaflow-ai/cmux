@@ -1,0 +1,373 @@
+{
+ "id": "browser-no-renderer-crash",
+ "priority": "P0",
+ "title": "Browser pages and an extension load with no renderer crash: 3 local pages (JIT-heavy JS, a big DOM, a cross-site frame) draw in Chromium tabs and the built-in uBlock Origin runs, with no Chromium helper crash and no crash notice",
+ "why": "cmux-ad m7 2 (CHROME LATEST). The CEF 156 pin 953dc952763 (cef-156.0.15-cmux.43) started renderer and extension processes from the plain Helper.app, signed without allow-jit: under the hardened runtime V8 could not reserve its code range and every page and extension process died about 0.6 s after start (SIGTRAP; uBlock Origin has crashed). #34904 (e1869abf57c) fixed it. Dogfood build 363e39f2 (bd14c57f74f7) has the pin and not the fix; it passed every P0 journey, because none loaded a page. This journey makes a CEF bump that crashes pages red before it reaches Lawrence. The pages come from a local server in a cmux terminal (127.0.0.1 and localhost, no outside network). The crash state is the app's own: debug.crashes (CEFRuntime+Crashes: the CEF renderer callback and the kqueue child-exit monitor) and the tab's crash notice (debug.browser.page_status gone).",
+ "source": "cmux-ad m7 2, STATUS 11229; #34904",
+ "budget_seconds": 200,
+ "steps": [
+  {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-serve-${nonce}.py",
+   "lines": [
+    "import http.server, re, sys, threading",
+    "# jr-cefjit page server: serves only /jr-cefjit-<kind>-<digits>.html from ROOT on 127.0.0.1:PORT, ends after LIFE s.",
+    "port, root, life = int(sys.argv[1]), sys.argv[2], float(sys.argv[3])",
+    "ok = re.compile(r\"^/jr-cefjit-[a-z]+-[0-9]+\\.html$\")",
+    "class Pages(http.server.SimpleHTTPRequestHandler):",
+    "    def __init__(self, *a, **k):",
+    "        super().__init__(*a, directory=root, **k)",
+    "    def do_GET(self):",
+    "        path = self.path.split(\"?\")[0]",
+    "        if not ok.match(path):",
+    "            self.send_error(404)",
+    "            return",
+    "        print(\"jr-cefjit-get \" + path, flush=True)",
+    "        super().do_GET()",
+    "    def end_headers(self):",
+    "        self.send_header(\"Cache-Control\", \"no-store\")",
+    "        super().end_headers()",
+    "    def log_message(self, *args):",
+    "        pass",
+    "http.server.ThreadingHTTPServer.allow_reuse_address = True",
+    "server = http.server.ThreadingHTTPServer((\"127.0.0.1\", port), Pages)",
+    "threading.Timer(life, server.shutdown).start()",
+    "print(\"jr-cefjit-serving \" + str(port), flush=True)",
+    "server.serve_forever()",
+    "print(\"jr-cefjit-stopped\", flush=True)"
+   ]
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-heavy-${nonce}.html",
+   "lines": [
+    "<!doctype html><meta charset=\"utf-8\"><title>jr-cefjit heavy loading</title><style>body{font:44px -apple-system,Helvetica,sans-serif;margin:32px;background:#fff;color:#000}h1{font-size:52px;margin:0 0 16px}</style>",
+    "<style>#spin{width:60px;height:60px;background:#36c;animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}</style>",
+    "<body><h1 id=\"s\">HEAVY PAGE WORKING</h1><div id=\"spin\"></div><canvas id=\"c\" width=\"400\" height=\"160\"></canvas>",
+    "<script>",
+    "\"use strict\";",
+    "// JIT work in every tier V8 has (the CEF 156 crash: V8 could not reserve its code range, #34904):",
+    "// hot loops, typed arrays, JSON, regular expressions, WebAssembly, a worker, then two frames drawn.",
+    "function primes(n){const s=new Uint8Array(n+1);let c=0;for(let i=2;i<=n;i++){if(!s[i]){c++;for(let j=i*i;j<=n;j+=i)s[j]=1;}}return c;}",
+    "function mix(n){let h=0;for(let i=0;i<n;i++){h=(h*31+(i^(h>>>7)))|0;}return h;}",
+    "function objs(n){const a=[];for(let i=0;i<n;i++)a.push({i:i,s:\"v\"+i,f:i*0.5});return JSON.parse(JSON.stringify(a)).reduce((t,o)=>t+o.i,0);}",
+    "function words(n){let t=\"\";for(let i=0;i<n;i++)t+=\"id-\"+i+\" \";return (t.match(/id-[0-9]+7 /g)||[]).length;}",
+    "const wasm=new Uint8Array([0,97,115,109,1,0,0,0,1,7,1,96,2,127,127,1,127,3,2,1,0,7,7,1,3,97,100,100,0,0,10,9,1,7,0,32,0,32,1,106,11]);",
+    "const workerSource=\"onmessage=e=>{let s=0;for(let i=0;i<e.data;i++)s=(s+i*i)%1000003;postMessage(s)}\";",
+    "async function run(){",
+    "  const t0=performance.now();",
+    "  const r=[primes(2000000),mix(5000000),objs(200000),words(50000)];",
+    "  for(let k=0;k<5;k++)r[1]^=mix(1000000);",
+    "  const m=await WebAssembly.instantiate(wasm);r.push(m.instance.exports.add(40,2));",
+    "  const w=new Worker(URL.createObjectURL(new Blob([workerSource],{type:\"text/javascript\"})));",
+    "  r.push(await new Promise((ok,no)=>{w.onmessage=e=>ok(e.data);w.onerror=no;w.postMessage(3000000);}));",
+    "  const g=document.getElementById(\"c\").getContext(\"2d\");",
+    "  for(let i=0;i<2000;i++){g.fillStyle=\"hsl(\"+(i%360)+\",70%,50%)\";g.fillRect((i*7)%400,(i*3)%160,6,6);}",
+    "  await new Promise(f=>requestAnimationFrame(()=>requestAnimationFrame(f)));",
+    "  document.getElementById(\"s\").textContent=\"HEAVY PAGE READY\";",
+    "  document.title=\"jr-cefjit heavy ok \"+r.join(\" \")+\" ms \"+Math.round(performance.now()-t0);",
+    "}",
+    "run().catch(e=>{document.getElementById(\"s\").textContent=\"HEAVY PAGE ERROR\";document.title=\"jr-cefjit heavy error \"+e;});",
+    "</script></body>"
+   ]
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-dom-${nonce}.html",
+   "lines": [
+    "<!doctype html><meta charset=\"utf-8\"><title>jr-cefjit dom loading</title><style>body{font:44px -apple-system,Helvetica,sans-serif;margin:32px;background:#fff;color:#000}h1{font-size:52px;margin:0 0 16px}</style>",
+    "<style>#list{height:200px;overflow:hidden;columns:6;font:10px monospace}</style>",
+    "<body><h1 id=\"s\">DOM PAGE WORKING</h1><div id=\"list\"></div>",
+    "<script>",
+    "\"use strict\";",
+    "const list=document.getElementById(\"list\");const f=document.createDocumentFragment();",
+    "for(let i=0;i<5000;i++){const d=document.createElement(\"div\");d.textContent=\"row \"+i;f.appendChild(d);}",
+    "list.appendChild(f);",
+    "const h=Math.round(list.scrollHeight);",
+    "localStorage.setItem(\"jr-cefjit\",\"1\");",
+    "fetch(location.href,{cache:\"no-store\"}).then(r=>r.text()).then(t=>{",
+    "  requestAnimationFrame(()=>requestAnimationFrame(()=>{",
+    "    document.getElementById(\"s\").textContent=\"DOM PAGE READY\";",
+    "    document.title=\"jr-cefjit dom ok \"+h+\" \"+t.length;",
+    "  }));",
+    "}).catch(e=>{document.getElementById(\"s\").textContent=\"DOM PAGE ERROR\";document.title=\"jr-cefjit dom error \"+e;});",
+    "</script></body>"
+   ]
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-frame-${nonce}.html",
+   "lines": [
+    "<!doctype html><meta charset=\"utf-8\"><title>jr-cefjit frame loading</title><style>body{font:44px -apple-system,Helvetica,sans-serif;margin:32px;background:#fff;color:#000}h1{font-size:52px;margin:0 0 16px}</style>",
+    "<body><h1 id=\"s\">FRAME PAGE WORKING</h1><iframe id=\"f\" width=\"640\" height=\"160\"></iframe>",
+    "<script>",
+    "\"use strict\";",
+    "addEventListener(\"message\",e=>{",
+    "  if(!e.data||e.data.jr!==\"child-ok\")return;",
+    "  requestAnimationFrame(()=>requestAnimationFrame(()=>{",
+    "    document.getElementById(\"s\").textContent=\"FRAME PAGE READY\";",
+    "    document.title=\"jr-cefjit frame ok \"+e.origin+\" \"+e.data.s;",
+    "  }));",
+    "});",
+    "document.getElementById(\"f\").src=\"http://localhost:\"+location.port+location.pathname.replace(\"-frame-\",\"-child-\");",
+    "</script></body>"
+   ]
+  },
+  {
+   "do": "file",
+   "path": "/tmp/jr-cefjit-child-${nonce}.html",
+   "lines": [
+    "<!doctype html><meta charset=\"utf-8\"><title>jr-cefjit child</title>",
+    "<body style=\"font:28px -apple-system,sans-serif\"><b>CHILD FRAME</b>",
+    "<script>\"use strict\";let s=0;for(let i=0;i<3000000;i++)s=(s+i*7)%9973;parent.postMessage({jr:\"child-ok\",s:s},\"*\");</script></body>"
+   ]
+  },
+  {
+   "do": "new_terminal",
+   "name": "jr-cefjit-${nonce}",
+   "as": "server"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "/usr/bin/python3 -I /tmp/jr-cefjit-serve-${nonce}.py 47923 /tmp 240",
+   "enter": true,
+   "mark": "serving"
+  },
+  {
+   "do": "expect",
+   "title": "the local page server answers (no outside network in this journey)",
+   "since": "serving",
+   "timeout": 15,
+   "all": [
+    {
+     "daemon_line": "jr-cefjit-serving 47923"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser.chromium",
+    "args": {
+     "url": "http://127.0.0.1:47923/jr-cefjit-heavy-${nonce}.html"
+    },
+    "focus": true,
+    "origin": "remote"
+   }
+  },
+  {
+   "do": "expect",
+   "timeout": 40,
+   "title": "the heavy page loads in a Chromium tab, its script finishes and it draws (renderer alive)",
+   "all": [
+    {
+     "daemon_line": "jr-cefjit-get /jr-cefjit-heavy-${nonce}.html"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "title",
+      "contains": "jr-cefjit heavy ok"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "gone",
+      "equals": "0"
+     }
+    },
+    {
+     "frame_text": "HEAVY PAGE READY"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser.chromium",
+    "args": {
+     "url": "http://127.0.0.1:47923/jr-cefjit-dom-${nonce}.html"
+    },
+    "focus": true,
+    "origin": "remote"
+   }
+  },
+  {
+   "do": "expect",
+   "timeout": 40,
+   "title": "the dom page loads in a Chromium tab, its script finishes and it draws (renderer alive)",
+   "all": [
+    {
+     "daemon_line": "jr-cefjit-get /jr-cefjit-dom-${nonce}.html"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "title",
+      "contains": "jr-cefjit dom ok"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "gone",
+      "equals": "0"
+     }
+    },
+    {
+     "frame_text": "DOM PAGE READY"
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "action.run",
+   "params": {
+    "action": "openBrowser.chromium",
+    "args": {
+     "url": "http://127.0.0.1:47923/jr-cefjit-frame-${nonce}.html"
+    },
+    "focus": true,
+    "origin": "remote"
+   }
+  },
+  {
+   "do": "expect",
+   "timeout": 40,
+   "title": "the frame page loads in a Chromium tab, its script finishes and it draws (renderer alive)",
+   "all": [
+    {
+     "daemon_line": "jr-cefjit-get /jr-cefjit-frame-${nonce}.html"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "title",
+      "contains": "jr-cefjit frame ok"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "gone",
+      "equals": "0"
+     }
+    },
+    {
+     "frame_text": "FRAME PAGE READY"
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the frame page's cross-site frame came from its own site (localhost)",
+   "timeout": 5,
+   "all": [
+    {
+     "daemon_line": "jr-cefjit-get /jr-cefjit-child-${nonce}.html"
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "title",
+      "contains": "http://localhost:47923"
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the built-in extension (uBlock Origin) is loaded in this Chromium profile",
+   "timeout": 20,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "browser.extensions",
+      "path": "extensions",
+      "contains": "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+     }
+    }
+   ]
+  },
+  {
+   "do": "rpc",
+   "method": "debug.extensions.click",
+   "params": {
+    "extension": "cjpalhdlnbpafiamejdnhcphjbkeiagm"
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 4
+  },
+  {
+   "do": "rpc",
+   "method": "debug.extensions.popup",
+   "params": {
+    "hide": true
+   }
+  },
+  {
+   "do": "wait",
+   "seconds": 4
+  },
+  {
+   "do": "rpc",
+   "method": "debug.cef_pages"
+  },
+  {
+   "do": "rpc",
+   "method": "debug.crashes"
+  },
+  {
+   "do": "expect",
+   "title": "no renderer, extension, GPU or other Chromium helper process ended abnormally, and the tab shows its page, not a crash notice",
+   "timeout": 10,
+   "all": [
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "chromium_total",
+      "equals": 0
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.crashes",
+      "path": "chromium",
+      "len": 0
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "gone",
+      "equals": "0"
+     }
+    },
+    {
+     "app_rpc": {
+      "method": "debug.browser.page_status",
+      "path": "title",
+      "contains": "jr-cefjit frame ok"
+     }
+    },
+    {
+     "frame_text": "FRAME PAGE READY"
+    }
+   ]
+  }
+ ],
+ "finally": [
+  {
+   "do": "rpc",
+   "method": "debug.crashes"
+  }
+ ]
+}
