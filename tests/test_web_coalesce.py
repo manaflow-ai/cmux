@@ -446,10 +446,29 @@ class BisectTests(unittest.TestCase):
 
     def test_last_known_green_extends_the_lower_bound_when_it_is_on_head_history(self):
         base, head = "b" * 40, "a" * 40
-        with unittest.mock.patch.object(coalesce, "git", return_value="") as git:
+        def git(*args):
+            return "" if args[:2] == ("merge-base", "--is-ancestor") else "12"
+        with unittest.mock.patch.object(coalesce, "git", side_effect=git) as mocked_git:
             chosen = coalesce.choose_bisect_base(base, "c" * 40, head)
         self.assertEqual(chosen, ("c" * 40, "last-known-green"))
-        git.assert_called_once_with("merge-base", "--is-ancestor", "c" * 40, head)
+        self.assertEqual(mocked_git.call_args_list, [
+            unittest.mock.call("merge-base", "--is-ancestor", "c" * 40, head),
+            unittest.mock.call("rev-list", "--first-parent", "--count", "c" * 40 + ".." + head),
+        ])
+
+    def test_stale_last_known_green_keeps_the_coalesced_lower_bound(self):
+        """An old published ref must not discard a short range the coalescer can bisect."""
+        base, head, stale = "b" * 40, "a" * 40, "c" * 40
+
+        def git(*args):
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                return ""
+            if args[:4] == ("rev-list", "--first-parent", "--count", stale + ".." + head):
+                return str(coalesce.MAX_COMMITS + 1)
+            raise AssertionError(args)
+
+        with unittest.mock.patch.object(coalesce, "git", side_effect=git):
+            self.assertEqual(coalesce.choose_bisect_base(base, stale, head), (base, "coalesced"))
 
     def test_last_known_green_is_ignored_when_unrelated_or_missing(self):
         base, head = "b" * 40, "a" * 40

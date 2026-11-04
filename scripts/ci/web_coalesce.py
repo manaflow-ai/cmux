@@ -423,13 +423,19 @@ def choose_bisect_base(base: str, last_known_green: str, head: str) -> tuple[str
 
     The coalesce marker normally gives a short range, but a red may have
     appeared in an earlier run.  A reconciler-published green ref lets this
-    job identify the merged PR that introduced the red.  Invalid or unrelated
-    refs are ignored and the marker's range remains the safe fallback.
+    job identify the merged PR that introduced the red.  Invalid, unrelated,
+    or stale refs are ignored and the marker's range remains the safe fallback.
+    The bounded check belongs here, before the history is loaded: otherwise a
+    stale ref can replace a usable coalesced range and make the bisector return
+    no result merely because the old range exceeds ``MAX_COMMITS``.
     """
     if not SHA.fullmatch(last_known_green or "") or not SHA.fullmatch(head or ""):
         return base, "coalesced"
     try:
         git("merge-base", "--is-ancestor", last_known_green, head)
+        distance = git("rev-list", "--first-parent", "--count", f"{last_known_green}..{head}")
+        if not distance.isdigit() or int(distance) > MAX_COMMITS:
+            return base, "coalesced"
     except (subprocess.CalledProcessError, OSError, subprocess.SubprocessError):
         return base, "coalesced"
     return last_known_green, "last-known-green"
