@@ -111,7 +111,7 @@ describe("the folded running bar names what runs", () => {
       expect(bar.more()).toBe("+1 more");
       // Open, the lines name them and the header goes back to its counts.
       await act(async () => bar.button.click());
-      expect(bar.title()).toBe("1 subagent running · 1 command");
+      expect(bar.title()).toBe("1 subagent running · 1 test run");
     } finally {
       await bar.done();
     }
@@ -124,6 +124,18 @@ describe("the folded running bar names what runs", () => {
     );
     try {
       expect(bar.title()).toBe("bun run dev");
+    } finally {
+      await bar.done();
+    }
+  });
+
+  test("a substitution-based check has the same readable title in the folded header", async () => {
+    const raw = "SHA=$(git rev-parse HEAD); cmux-ci run --class light --ref $SHA --script scripts/check-glyphs.sh";
+    const bar = await head([agent("a1", "Review the tray", 9_000)], [command("c1", raw, 1_000)]);
+    try {
+      expect(bar.title()).toBe("git rev-parse HEAD · cmux-ci run");
+      expect(bar.title()).not.toContain("HEAD);");
+      expect(bar.more()).toBe("+1 more");
     } finally {
       await bar.done();
     }

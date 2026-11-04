@@ -154,7 +154,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
     /// Answers the page's requests for its dynamic paths (a cmux page whose scheme entry has
     /// ``CEFPageSchemes/Entry/dynamicPrefixes``); nil answers every one with a 404.
-    @ObservationIgnored public var pageResources: (@MainActor (URL) async -> CEFPageResponse)?
+    @ObservationIgnored public var pageResources: (@MainActor (URL, String?) async -> CEFPageResponse)?
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?

@@ -214,6 +214,7 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
             TabSettingsSchema.cmdWClosesPinnedTabs(group: tabs),
         ] + TabSettingsSchema.verticalTabs(group: tabs) + [
+            TabSettingsSchema.hideLoneChatTab(group: tabs),
             TabSettingsSchema.swapCmdTAndCmdN(group: tabs),
         ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(

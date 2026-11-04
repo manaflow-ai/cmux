@@ -21,7 +21,7 @@ const ROW_ICON = rowIconSize(12);
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import { isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { nestAgents } from "../subagents/AgentsPill";
 import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
@@ -222,7 +222,8 @@ export function SubagentsSection({
       time: formatDuration(elapsed(agent, now)),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
-      mark: agent.harness ?? harness,
+      // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
+      mark: foreignHarness(agent.harness, harness),
       depth,
       at: agent.endedAt ?? agent.startedAt,
       open: onOpen && (() => onOpen(agent.id)),

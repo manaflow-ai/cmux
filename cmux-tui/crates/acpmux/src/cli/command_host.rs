@@ -108,6 +108,13 @@ pub enum PeerCmd {
         #[command(subcommand)]
         cmd: VaultCmd,
     },
+    /// Installed dependencies from the cache, keyed by lockfile: a new Cloud
+    /// machine restores node_modules, Cargo's registry and the npm, pnpm and
+    /// uv caches instead of installing cold. Never caches credentials files.
+    Deps {
+        #[command(subcommand)]
+        cmd: DepsCmd,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a machine here.
     /// A Linux machine also gets acpmux-update.timer, which keeps its daemon on
     /// the newest feat-cmux-next build (`machine self-update`).
@@ -252,6 +259,58 @@ pub enum VaultCmd {
     /// Remove this machine's vault env values and its vault state. The daemon
     /// pulls again while the vault is shared with this machine.
     Forget,
+}
+
+#[derive(Subcommand)]
+pub enum DepsCmd {
+    /// Restore each project's dependencies in DIR (bun, npm, pnpm, yarn, Cargo,
+    /// uv) from this machine's cache, run its normal install, and after a cold
+    /// install upload an archive for the next machine.
+    Warm {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+        /// Do not upload an archive after a cold install.
+        #[arg(long)]
+        no_upload: bool,
+        /// Only restore; do not run the install.
+        #[arg(long)]
+        no_install: bool,
+        /// Do nothing unless this machine is joined (what runs after a seed).
+        #[arg(long)]
+        if_joined: bool,
+        /// Skip a project whose dependencies are already installed (its
+        /// `node_modules` or `.venv`), so an install never replaces a tree in use.
+        #[arg(long)]
+        if_missing: bool,
+        /// Pack and upload after a cold install before returning, instead of
+        /// in a detached `machine deps upload`.
+        #[arg(long)]
+        upload_now: bool,
+    },
+    /// Pack a cache folder and upload it under KEY (what `warm` starts
+    /// detached after a cold install).
+    #[command(hide = true)]
+    Upload {
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        root: std::path::PathBuf,
+        #[arg(long = "include", required = true)]
+        include: Vec<std::path::PathBuf>,
+        /// zstd or gzip.
+        #[arg(long)]
+        codec: String,
+        /// The cold install the archive saves, stored beside it.
+        #[arg(long, default_value_t = 0)]
+        cold_ms: u64,
+    },
+    /// Wait until no background upload (`warm` after a cold install) is running.
+    Wait,
+    /// Print each project's cache key and what its archive holds, without asking the hub.
+    Key {
+        /// The project folder (default: the current folder).
+        dir: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]

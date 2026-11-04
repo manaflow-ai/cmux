@@ -100,6 +100,8 @@ async function mount(
         machine={machine.state}
         onResume={machine.resume}
         onReconnect={onReconnect}
+        // Shown at once: this reads the settled banner, not the RESUME_NOTE_DELAY_MS wait (afterDelay.ts).
+        noteDelayMs={0}
       />
     ) : null;
   }
