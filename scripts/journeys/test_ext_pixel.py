@@ -1222,6 +1222,11 @@ class PixelCasesTests(unittest.TestCase):
                         if st["do"] in ("rk_focus", "action", "adopt_pane")]
             self.assertEqual(rebuild(s1r["px-close-pane-3-s1r"]), [("rk_focus", "p2"), ("action", "splitLeft"), ("adopt_pane", "p1")])
             self.assertEqual(rebuild(s1r["px-close-pane-3t-s1r"]), [("rk_focus", "p0"), ("action", "splitRight"), ("adopt_pane", "p1")])
+            # Every held-keys film starts with p0 at half the pane area (a held film ends with p0 at its minimum width).
+            for jid in ("px-keys-held-2-s1r", "px-keys-held-2-tabclose-s1r"):
+                for film in (f for f in s1r[jid]["steps"] if f["do"] == "px_film"):
+                    dos = [(st["do"], st.get("action")) for st in film["steps"]]
+                    self.assertLess(dos.index(("action", "equalizeSplits")), [d for d, _ in dos].index("px_record_start"), (jid, film["name"]))
             made = [x for x in set_up(s1r["px-close-pane-3t-s1r"]) if x[0] != "rk_focus" or x[1] == "p0"]
             self.assertLess(made.index(("adopt_pane", "p2")), made.index(("adopt_pane", "p1")))
             self.assertEqual(made[made.index(("adopt_pane", "p1")) - 2:made.index(("adopt_pane", "p1")) + 1],

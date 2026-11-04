@@ -379,6 +379,15 @@ def held_play(speed):
              "title": "Ctrl-Shift-H x30, 33 ms apart (real HID)"}, rest(land(speed))]
 
 
+def held_start():
+    """Before each held-keys film: p0 back to half the pane area (equalizeSplits, as the layout made it), so every film
+    starts from the same widths. A held film ends with p0 at its minimum width; until 2026-11-04 the next film started
+    there (ab-s1bt-sw-523c9f6: off-s1 began with p0 576 pt and 168 pt tabs, on-s1 with p0 200 pt and a scrolled strip of
+    72 pt tabs), so a switch's OFF and ON films at x1 did not start alike."""
+    return [focus("p0"), {"do": "action", "action": "equalizeSplits", "title": "set-up: equalize p0 | p1 (every film starts alike)"},
+            G.settle(1.0)]
+
+
 def held_close_play(speed):
     """held_play with p0's middle tab closed by a script 50 ms after the hold's first key-down (ext_pixel px_hold_tab_close)."""
     steps = held_play(speed)
@@ -445,13 +454,13 @@ def cases():
         out.append(Case(f"px-keys-single-{layout.key}", f"Ctrl-Shift-L, H, J, K on {under} ({layout.text})", layout, keys_play, "move",
                         "keys", before=[focus(under)], play_seconds=lambda s: 4 * (0.1 + land(s))))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
-                    held_play, None, "held keys", before=[focus("p0")], play_seconds=lambda s: 2.6 + 2 * land(s)))
+                    held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s)))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
     # read each tab cell against its strip. One tab back in p0 after each film, so the next starts with 3 tabs again.
     out.append(Case(f"px-keys-held-{T2T.key}-tabclose",
                     f"Ctrl-Shift-L held with p0's middle tab closed 50 ms after its first key-down, then Ctrl-Shift-H x30 every "
                     f"33 ms, on p0 ({T2T.text})", T2T, held_close_play, None, "held keys (a tab closes during the hold)",
-                    before=[focus("p0")], rebuild=[focus("p0")] + new_tab("p0") + start_tui("p0", BLUE) + [G.settle(1.0)],
+                    before=held_start(), rebuild=[focus("p0")] + new_tab("p0") + start_tui("p0", BLUE) + [G.settle(1.0)],
                     play_seconds=lambda s: 2.6 + 2 * land(s), fixture_tunables=[(TAB_OUTLINE, True)]))
     play, secs = new_and_close_play("newColumn", "New Column")
     out.append(Case(f"px-new-column-{C2.key}", f"New Column on p1, then Cmd-W on it ({C2.text})", C2, play, "split", "new column",

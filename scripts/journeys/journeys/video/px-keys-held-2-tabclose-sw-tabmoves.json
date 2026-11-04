@@ -232,6 +232,16 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
+     "do": "action",
+     "action": "equalizeSplits",
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
      "do": "px_tunable",
      "key": "motion.frameOwner.tabOutline",
      "value": true,
@@ -361,6 +371,16 @@
      "do": "rk_focus",
      "pane": "p0",
      "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "action",
+     "action": "equalizeSplits",
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
      "do": "px_tunable",
@@ -494,6 +514,16 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
+     "do": "action",
+     "action": "equalizeSplits",
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
+    },
+    {
      "do": "px_tunable",
      "key": "motion.frameOwner.tabOutline",
      "value": true,
@@ -623,6 +653,16 @@
      "do": "rk_focus",
      "pane": "p0",
      "title": "set-up: focus p0 (cmux pane focus)"
+    },
+    {
+     "do": "action",
+     "action": "equalizeSplits",
+     "title": "set-up: equalize p0 | p1 (every film starts alike)"
+    },
+    {
+     "do": "wait",
+     "seconds": 1.0,
+     "title": "the layout and the load settle (nothing observable to wait on)"
     },
     {
      "do": "px_tunable",
