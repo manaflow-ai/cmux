@@ -537,10 +537,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: target };
     }).catch(() => undefined);
   };
+  // The cmuxterm-hq probes.py row: ok with send-to-reply ms, or fail naming the first failed step (or none reached).
+  const writeProbe = () => {
+    if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+  };
   // A job cancel or timeout sends SIGTERM, which skips `finally`: clean up, write results, exit.
   const onSignal = (signal: string) => {
     void cleanup().finally(() => {
       J.flush();
+      writeProbe();
       process.exit(signal === "SIGINT" ? 130 : 143);
     });
   };
@@ -812,7 +817,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await cleanup();
   }
   const failed = J.steps.filter((s) => s.status === "fail");
-  if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
+  writeProbe();
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }

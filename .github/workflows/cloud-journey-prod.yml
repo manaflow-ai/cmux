@@ -43,7 +43,9 @@ concurrency:
 
 jobs:
   journey:
-    if: github.repository_owner == 'manaflow-ai'
+    # Only main's own definition gets the production account: the schedule, or a dispatch of main. A dispatch of
+    # another branch would run that branch's copy of this file with the environment's secrets.
+    if: github.repository_owner == 'manaflow-ai' && (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
     strategy:
       fail-fast: false
       matrix:
@@ -102,7 +104,7 @@ jobs:
       # One issue per model: opened on the first red, its body rewritten on later reds (no comment per hour), closed
       # by the next green. A timed-out or cancelled journey counts as red. Only main's own runs touch it.
       - name: Open, update or close the red-journey issue
-        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+        if: always() && env.SELECTED == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
