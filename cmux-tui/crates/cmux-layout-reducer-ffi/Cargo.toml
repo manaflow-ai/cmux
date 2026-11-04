@@ -7,7 +7,6 @@ license = "GPL-3.0-or-later"
 publish = false
 description = "C ABI for the pure cmux sidebar drop resolver, section layout reducer, Tasks preview, bookmark preview, window focus rules, the Cloud start's decisions and NEXT Cloud's configuration rules"
 
-[workspace]
 
 [lib]
 crate-type = ["staticlib", "rlib"]
