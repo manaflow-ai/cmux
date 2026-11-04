@@ -9,7 +9,9 @@
 //! - this Mac's still as pushed: the machine's comes back (written, or
 //!   deleted when the machine deleted it);
 //! - both changed the same way: nothing to do;
-//! - both changed differently: a conflict.
+//! - both changed differently: a text file is merged by line against the
+//!   last sync's version ([`merge`]); edits on the same lines, and any
+//!   other file, are a conflict.
 //!
 //! The machine's `.git` never comes back as files: its branch and staged
 //! changes take the git leg ([`super::git_back`]). New files of the machine
@@ -27,8 +29,10 @@
 //! repository) either. Files are read with their revision checked before
 //! and after, streamed to disk.
 //!
-//! On any conflict nothing here changes: the answer is `{"ok":false,
-//! "error_code":"sync_conflict","conflicts":[paths]}`. Otherwise every
+//! On any conflict none of this Mac's files change: the answer is
+//! `{"ok":false,"error_code":"sync_conflict","conflicts":[paths],
+//! "merge_files":[paths]}`, the second list naming the merges with conflict
+//! markers written beside the files whose edits overlapped. Otherwise every
 //! file the machine changed is first copied into a staging folder of this
 //! command (in the repository's git folder, else a hidden folder at the top
 //! of the folder) and the machine's commits are fetched; this Mac's files
@@ -52,6 +56,7 @@ use sha2::{Digest as _, Sha256};
 use super::git_back::{self, GitPlan};
 use super::history::{self, Held};
 use super::local::{self, GitDirs};
+use super::merge;
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
 use super::skips::Skips;
@@ -60,8 +65,10 @@ use super::{Linked, Manifest, Pushed, base, links, names};
 /// What a pull did, or the paths that stopped it.
 pub(super) enum Pulled {
     Done(Value),
-    /// The conflicting paths, and why for the git leg's.
-    Conflict(Vec<String>, Vec<String>),
+    /// The conflicting paths, why (the git leg's and overlapping edits),
+    /// and the merge files with conflict markers written beside this Mac's
+    /// files ([`merge`]).
+    Conflict(Vec<String>, Vec<String>, Vec<String>),
 }
 
 /// One side's file at a path.
@@ -94,6 +101,15 @@ enum Step {
     Settle(Option<Pushed>),
     /// Both sides have this symlink.
     SettleLink(String),
+    /// Both changed a text file on different lines: the merge (staged, its
+    /// SHA-256 and permissions in `machine`'s) goes here; the record keeps
+    /// the machine's file, so the next push sends the merge.
+    Merged {
+        staged: String,
+        sha256: String,
+        permissions: u32,
+        machine: Pushed,
+    },
 }
 
 struct Planned {
@@ -148,6 +164,8 @@ pub(super) fn pull_kept(
         }
     }
     let mut conflicts = Vec::new();
+    // Text files both sides changed on the same lines: their merge.
+    let mut overlaps: Vec<(String, Vec<u8>)> = Vec::new();
     let mut planned = Vec::new();
     let mut unchanged = 0u64;
     let mut paths: BTreeSet<&String> = manifest
@@ -269,8 +287,39 @@ pub(super) fn pull_kept(
                 _ => Step::Settle(staged.map(|staged| staged.pushed())),
             }
         } else if here != pushed_here {
-            conflicts.push(relative.clone());
-            continue;
+            // Both changed a text file: merged by line when the edits do
+            // not overlap.
+            let merged = match (&pushed_side, &here, &machine, &staged) {
+                (
+                    Side::File { sha256: base_sha, permissions: base_mode },
+                    Side::File { sha256: here_sha, permissions: here_mode },
+                    Side::File { sha256: machine_sha, permissions: machine_mode },
+                    Some(staged),
+                ) => merge::merge(
+                    &root,
+                    relative,
+                    &merge::Version { sha256: base_sha, permissions: *base_mode },
+                    &merge::Version { sha256: here_sha, permissions: *here_mode },
+                    &merge::Version { sha256: machine_sha, permissions: *machine_mode },
+                    &staging.0.join(&staged.name),
+                )?,
+                _ => merge::Merged::Whole,
+            };
+            match (merged, staged) {
+                (merge::Merged::Clean { bytes, permissions }, Some(staged)) => {
+                    let (name, sha256) = staging.stage_bytes(&bytes, permissions)?;
+                    Step::Merged { staged: name, sha256, permissions, machine: staged.pushed() }
+                }
+                (merge::Merged::Overlap(bytes), _) => {
+                    overlaps.push((relative.clone(), bytes));
+                    conflicts.push(relative.clone());
+                    continue;
+                }
+                _ => {
+                    conflicts.push(relative.clone());
+                    continue;
+                }
+            }
         } else {
             match (machine, staged) {
                 (Side::File { .. }, Some(staged)) => Step::Write {
@@ -307,12 +356,26 @@ pub(super) fn pull_kept(
     if !conflicts.is_empty() {
         conflicts.sort();
         conflicts.dedup();
-        return Ok(Pulled::Conflict(conflicts, reasons));
+        // Only now, with nothing of this Mac's changed: each overlapping
+        // merge goes beside its file.
+        let mut merge_files = Vec::new();
+        for (relative, bytes) in overlaps {
+            match merge::write_conflict(&root, &relative, &bytes) {
+                Ok(side) => {
+                    reasons.push(format!(
+                        "{relative}: both changed the same lines; the merge is in {side}"
+                    ));
+                    merge_files.push(side);
+                }
+                Err(error) => reasons.push(format!("{relative}: {error:#}")),
+            }
+        }
+        return Ok(Pulled::Conflict(conflicts, reasons, merge_files));
     }
     // This Mac's files are as planned, or nothing moves.
     for step in &planned {
         if local_side(&root, &step.relative)? != step.local {
-            return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new()));
+            return Ok(Pulled::Conflict(vec![step.relative.clone()], Vec::new(), Vec::new()));
         }
     }
     // Only objects so far: the branch and index move last.
@@ -444,7 +507,7 @@ fn undone(
         )));
     }
     if let Some(changed) = error.downcast_ref::<place::Changed>() {
-        return Ok(Pulled::Conflict(vec![changed.0.clone()], Vec::new()));
+        return Ok(Pulled::Conflict(vec![changed.0.clone()], Vec::new(), Vec::new()));
     }
     Err(error)
 }
@@ -491,6 +554,13 @@ fn apply(
                 next.files.remove(&step.relative);
                 next.links.insert(step.relative, Linked { target: text, here: None });
             }
+            Step::Merged { staged, machine, .. } => {
+                bytes += std::fs::metadata(staging.0.join(&staged))?.len();
+                transaction.write(&step.relative, &staged, expected(&step.local).as_ref())?;
+                written += 1;
+                next.links.remove(&step.relative);
+                next.files.insert(step.relative, machine);
+            }
             Step::Settle(Some(pushed)) => {
                 next.links.remove(&step.relative);
                 next.files.insert(step.relative, pushed);
@@ -529,6 +599,9 @@ fn held_after(step: &Step) -> Option<Held> {
         Step::Settle(Some(pushed)) => {
             Some(Held::File { sha256: pushed.sha256.clone(), permissions: pushed.permissions })
         }
+        Step::Merged { sha256, permissions, .. } => {
+            Some(Held::File { sha256: sha256.clone(), permissions: *permissions })
+        }
         Step::Delete | Step::Settle(None) => None,
     }
 }
@@ -549,6 +622,7 @@ fn is_tree_path(relative: &str) -> bool {
     names::safe_relative(relative)
         && relative != ".cmux-sync.json"
         && !relative.ends_with(".cmux-sync-part")
+        && !merge::is_conflict_file(relative)
 }
 
 /// A new file of the machine that does not come back: an `.env*` file
@@ -648,7 +722,10 @@ fn machine_files(
                     continue;
                 }
                 let lower = name.to_ascii_lowercase();
-                if lower.starts_with(".cmux-sync") || lower.ends_with(".cmux-sync-part") {
+                if lower.starts_with(".cmux-sync")
+                    || lower.ends_with(".cmux-sync-part")
+                    || (merge::is_conflict_file(&lower) && entry.kind != "dir")
+                {
                     continue;
                 }
                 let relative = if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") };
@@ -857,6 +934,27 @@ impl Staging {
     /// Keeps the folder when the pull ends.
     pub(super) fn keep(&self) {
         self.2.set(true);
+    }
+
+    /// Writes `bytes` here with `permissions`; its name and SHA-256.
+    pub(super) fn stage_bytes(
+        &self,
+        bytes: &[u8],
+        permissions: u32,
+    ) -> anyhow::Result<(String, String)> {
+        let number = self.1.get() + 1;
+        self.1.set(number);
+        let name = format!("file-{number}");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(self.0.join(&name))?;
+        file.write_all(bytes)?;
+        file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
+        file.sync_all()?;
+        Ok((name, hex(&Sha256::digest(bytes))))
     }
 
     /// Copies this Mac's blob at `blob` here with `permissions`, checked

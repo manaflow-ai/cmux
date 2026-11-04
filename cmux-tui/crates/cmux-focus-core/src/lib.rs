@@ -39,4 +39,5 @@ pub mod reducer;
 pub mod state;
 pub mod topology;
 pub mod type_ahead;
+pub mod window;
 pub mod wire;
