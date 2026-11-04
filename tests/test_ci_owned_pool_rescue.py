@@ -7497,7 +7497,8 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         linux["started_at"] = stamp(-5)
         snapshot = janitor.pool_load_snapshot([run], {9: [old, newer, queued, skipped, linux]}, now=START)
         self.assertEqual(snapshot[rescue.LABEL_STARTED_KEY],
-                         {SIDE_STD: stamp(-7000), "glaeda-gui-std-xcode-26.6": stamp(-100)})
+                         {SIDE_STD: stamp(-7000), "glaeda-gui-std-xcode-26.6": stamp(-100),
+                          "blacksmith-16vcpu-ubuntu-2404": stamp(-5)})
 
     def test_a_job_the_rerun_would_repeat_or_kill_keeps_the_open_head_rule(self):
         def mac_done():
