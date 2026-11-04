@@ -166,8 +166,9 @@ public final class CloudAuth {
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
                                       includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession,
                                       // A capture build (CloudConfiguration.isCaptureBuild) signs in from the launch's
-                                      // credentials though it is not compiled DEBUG (``launchSignIn``).
-                                      allowsEnvironmentAutoLogin: signIn.autoLogin),
+                                      // credentials though it is not compiled DEBUG (``launchSignIn``); the signed NEXT DEV
+                                      // build only from the file's resolved credentials, never raw launch keys.
+                                      allowsEnvironmentAutoLogin: signIn.devAuth || (signIn.autoLogin && decision.credentials != nil)),
             isOnline: { !useCaptureFixture }
         )
         activeTeam = ActiveTeam(source: coordinator)
