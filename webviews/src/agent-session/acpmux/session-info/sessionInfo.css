@@ -1530,8 +1530,9 @@ button.acpmux-session-info-scope__parent:focus-visible {
 .acpmux-session-info-progress__step[data-status="completed"] .acpmux-session-info-progress__ring {
   border-color: transparent;
   background: var(--agent-muted);
-  /* The page colour, so the check reads on the muted disc in light and dark alike. */
-  color: var(--agent-page-bg, #fff);
+  /* The opaque base colour (never --agent-page-bg, which is transparent in the pane), so the check
+     reads on the muted disc in light and dark alike. */
+  color: var(--acpmux-base, Canvas);
 }
 /* A step's change fades in place: only colours move, never a size, so nothing below it shifts. */
 @media (prefers-reduced-motion: no-preference) {
