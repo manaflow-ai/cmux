@@ -585,3 +585,26 @@ async fn write_line<W: AsyncWrite + Unpin>(output: &mut W, value: &Value) -> Res
     output.flush().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::external_access_error;
+
+    #[test]
+    fn only_typed_macos_reads_become_external_access() {
+        let access = external_access_error(
+            r#"{"code":"external_access","externalAccess":{"kind":"files_and_folders","target":"/Users/me/Documents/a.txt","operation":"read_text_file","platform":"macos"}}"#,
+        )
+        .expect("typed access marker");
+        assert_eq!(access.target, "/Users/me/Documents/a.txt");
+        assert!(external_access_error("permission denied").is_none());
+        assert!(external_access_error(
+            r#"{"code":"target_not_allowed","externalAccess":{"kind":"files_and_folders","target":"/Users/me/Documents/a.txt","operation":"read_text_file","platform":"macos"}}"#,
+        )
+        .is_none());
+        assert!(external_access_error(
+            r#"{"code":"external_access","externalAccess":{"kind":"files_and_folders","target":"relative.txt","operation":"read_text_file","platform":"macos"}}"#,
+        )
+        .is_none());
+    }
+}
