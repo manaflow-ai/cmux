@@ -700,9 +700,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         await J.step("stub: forwarded login and a tool round trip", async () => {
           const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
           const rows = r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
-          const turns = rows.filter((x: any) => x.m === "POST" && String(x.p).startsWith("/v1/messages") && x.stream);
+          // Every model request Claude Code made (streamed or not, count_tokens too); the journey's own readiness
+          // pings send an empty body, so they name no model.
+          const turns = rows.filter((x: any) => x.m === "POST" && String(x.p).startsWith("/v1/messages") && x.model);
           const want = createHash("sha256").update(claudeLogin).digest("hex");
-          if (!turns.length) throw new Error("Claude Code sent the stub no streamed /v1/messages request");
+          if (!turns.some((x: any) => x.stream)) throw new Error("Claude Code sent the stub no streamed /v1/messages request");
           if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error("a model request did not carry the login the journey passed (the forwarded credential did not reach Claude Code)");
           if (!turns.some((x: any) => x.tool_ok)) throw new Error("no tool round trip: the Bash call's output never came back to the model");
           return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); Bash ran and its output came back` };

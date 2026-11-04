@@ -19,8 +19,9 @@ name: Cloud journey (production, hourly)
 # model the repository's CLAUDE_CODE_OAUTH_TOKEN. They reach the one run step through env; the journey sends them only
 # in headers and request bodies and scrubs them from its output.
 #
-# The schedule registers from main; the scripts it runs come from feat-cmux-next. A pull request that changes the
-# journey runs both models at its own head.
+# The schedule registers from main; the scripts it runs always come from feat-cmux-next, never a pull request's head:
+# the job holds the production account and a Claude login, so no unreviewed code runs with them. Try a change with
+# `bun scripts/cmux-next/cloud-journey.ts --backend prod --model stub --credentials FILE` before it lands.
 on:
   schedule:
     - cron: "17 * * * *"
@@ -32,24 +33,17 @@ on:
         type: choice
         options: [stub, real]
         default: stub
-  pull_request:
-    paths:
-      - .github/workflows/cloud-journey-prod.yml
-      - scripts/cmux-next/cloud-journey.ts
-      - scripts/cmux-next/cloud-journey-model-stub.py
-      - Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloud-journey-prod-${{ github.event.pull_request.number || github.event.schedule || 'dispatch' }}
+  group: cloud-journey-prod-${{ github.event.schedule || 'dispatch' }}
   cancel-in-progress: false
 
 jobs:
   journey:
-    # Never on a fork's pull request: it gets no secrets, and the job would only note a skip.
-    if: github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.repository_owner == 'manaflow-ai'
     strategy:
       fail-fast: false
       matrix:
@@ -61,14 +55,14 @@ jobs:
       contents: read
       issues: write
     env:
-      # This leg runs on a pull request (both), the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
-      SELECTED: ${{ github.event_name == 'pull_request' || (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
+      # This leg runs on the hourly tick (stub), the six-hourly tick (real), a dispatch (its input).
+      SELECTED: ${{ (github.event_name == 'schedule' && (github.event.schedule == '17 * * * *') == (matrix.model == 'stub')) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model) }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: env.SELECTED == 'true'
         with:
           persist-credentials: false
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'feat-cmux-next' }}
+          ref: feat-cmux-next
           sparse-checkout: |
             scripts/cmux-next
             Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
