@@ -44,8 +44,9 @@ struct ClosingPanes {
         let rank: Int
         /// Where its fixed x sides showed (view x) before the change's camera moved (`settleCarried`); nil once placed.
         var carriedShown: (minX: CGFloat, maxX: CGFloat)?
-        /// The travel of its row column's scroll from where it was when its close began (``settle(frames:row:)``); nil
-        /// when that scroll does not move or no y side collapses on it (one side with neighbours, the other with none).
+        /// The travel of its row column's scroll from where it was when its close began (``settle(frames:row:)``), or when
+        /// that scroll last took another target (``rects(frames:row:)``); nil when it does not move or no y side collapses on
+        /// it (one side with neighbours, the other with none).
         var rowTravel: (start: CGFloat, target: CGFloat)?
     }
 
@@ -53,9 +54,9 @@ struct ClosingPanes {
     typealias Travel = (now: CGFloat, target: CGFloat)
 
     private(set) var entries: [PaneID: Entry] = [:]
-    /// The order the panes closed in, the order they are placed in each frame: a side on a pane that closed earlier reads
-    /// where it shows in this frame; one on a pane that closed later keeps where it last was (that pane's side there stays
-    /// put, since the earlier one is not live for it).
+    /// The order the panes closed in. Each frame places them from the last to close back to the first: a pane borders only
+    /// panes that were live at its close, so no closing pane rides one that closed before it, and a side on one that closed
+    /// after it reads where that pane shows in this frame (two closes in a row leave no shell between them).
     private var order: [PaneID] = []
     /// The panes this change began closing: they wait for the cameras the change sets (``settle(frames:row:)``).
     private var awaiting: Set<PaneID> = []
@@ -157,13 +158,14 @@ struct ClosingPanes {
     }
 
     /// Where every closing pane shows this frame, from the live panes' presented frames (`frames`, the screen's springs)
-    /// and where the row columns' scrolls are (`row`). A side whose neighbours are all gone (closed and landed, or taken
-    /// out) keeps where they last were.
-    mutating func rects(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> CGFloat?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
+    /// and where the row columns' scrolls are and rest (`row`). A side whose neighbours are all gone (closed and landed, or
+    /// taken out) keeps where they last were.
+    mutating func rects(frames: [PaneID: AnimatedFrame], row: (ColumnID) -> Travel?) -> [PaneID: CGRect] { // perf-hot: 4ms motion-frame
         var shown: [PaneID: CGRect] = [:]
-        for pane in order {
+        for pane in order.reversed() {
             guard var entry = entries[pane] else { continue }
-            /// The facing edge of `neighbour`: a live pane's frame, else a closing pane placed earlier in this pass.
+            /// The facing edge of `neighbour`: a live pane's frame, else a closing pane placed earlier in this pass (one that
+            /// closed later).
             func facing(_ neighbour: PaneID, _ edge: (CGRect) -> CGFloat) -> CGFloat? {
                 frames[neighbour].map { edge($0.rect) } ?? shown[neighbour].map(edge)
             }
@@ -190,10 +192,17 @@ struct ClosingPanes {
             let restMaxX = place(&entry.maxX, slowest: { $0.max() }, edge: \.minX, sign: -1)
             let restMinY = place(&entry.minY, slowest: { $0.min() }, edge: \.maxY, sign: 1)
             let restMaxY = place(&entry.maxY, slowest: { $0.max() }, edge: \.minY, sign: -1)
-            // The share of its row column's scroll travel done now, in 0...1.
+            // The share of its row column's scroll travel done now, in 0...1. A scroll that took another target since (a later
+            // change) starts the travel again from where it and the pane's y sides are now, so the pane still rests at zero
+            // size when that scroll does; with no travel left, it rests now.
             var scrolled: CGFloat?
-            if let travel = entry.rowTravel, let now = entry.rowColumn.flatMap(row) {
-                scrolled = min(1, max(0, (now - travel.start) / (travel.target - travel.start)))
+            if var travel = entry.rowTravel, let scroll = entry.rowColumn.flatMap(row) {
+                if abs(scroll.target - travel.target) >= 0.5 {
+                    travel = (start: scroll.now, target: scroll.target)
+                    entry.rowTravel = travel
+                    (entry.minY.start, entry.maxY.start) = (entry.minY.fixed, entry.maxY.fixed)
+                }
+                scrolled = abs(travel.target - travel.start) < 0.5 ? 1 : min(1, max(0, (scroll.now - travel.start) / (travel.target - travel.start)))
             }
             collapse(&entry.maxX, toward: entry.minX, rest: restMinX, space: nil)
             collapse(&entry.minX, toward: entry.maxX, rest: restMaxX, space: nil)

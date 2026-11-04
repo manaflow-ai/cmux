@@ -35,14 +35,17 @@ extension ScreenContentView {
     /// wait for the cameras).
     func settleClosing() {
         guard closingPanes.hasAwaiting else { return }
-        let still = closingPanes.settle(frames: paneFrames) { column in
-            rowScrolls[column].map { (now: $0.state.spring.value, target: $0.state.spring.target) }
-        }
+        let still = closingPanes.settle(frames: paneFrames, row: rowScrollTravel)
         for pane in still {
             closingPanes.drop(pane)
             context.closingHost(pane, of: screenID)?.isHidden = true
         }
         if !hasMotion { releaseClosing() }
+    }
+
+    /// Where `column`'s row scroll is and where it rests (nil: its rows do not scroll).
+    func rowScrollTravel(_ column: ColumnID) -> ClosingPanes.Travel? {
+        rowScrolls[column].map { (now: $0.state.spring.value, target: $0.state.spring.target) }
     }
 
     /// A close taken back before it landed: the pane's live frame starts where its closing frame shows, with its sides'
@@ -62,7 +65,7 @@ extension ScreenContentView {
     func presentClosingPanes(strip: CGFloat, scale: CGFloat) -> (hosts: [(host: PaneHostView, scrolls: Bool)], changed: Bool) { // perf-hot: 4ms motion-frame
         guard !closingPanes.isEmpty else { return ([], false) }
         var hosts: [(host: PaneHostView, scrolls: Bool)] = [], changed = false
-        let rects = closingPanes.rects(frames: paneFrames) { rowScrolls[$0]?.state.spring.value }
+        let rects = closingPanes.rects(frames: paneFrames, row: rowScrollTravel)
         for (pane, entry) in closingPanes.entries {
             guard let host = context.closingHost(pane, of: screenID), host.superview === self, let rect = rects[pane] else {
                 closingPanes.drop(pane)
