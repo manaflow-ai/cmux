@@ -236,12 +236,11 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
       const row = page.locator(".cv-received");
       await row.waitFor({ timeout: 10_000 });
       expect(await row.count()).toBe(1);
-      // Closed: the sender on the tool rows' 22px line, the first line on its own 18px line under it
-      // (messageLineLook.ts `stacked`), nothing else.
-      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(40);
+      // Closed: one line on the tool rows' 22px line, the sender and the first line, nothing under it.
+      expect(await row.evaluate((el) => Math.round(el.getBoundingClientRect().height))).toBe(22);
       expect(await row.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await row.locator(".cv-received__from").innerText()).toBe("Grid fix");
-      expect(await row.locator(".cv-disclosure__below").innerText()).toBe(
+      expect(await row.locator(".cv-received__preview").innerText()).toBe(
         "Paragraph 1 of the landing report: every check on the grid lane passed on this run.",
       );
       expect(await row.locator(".cv-disclosure__panel").count()).toBe(0);
@@ -457,8 +456,8 @@ await requireBrowserLane("incoming-message-disclosure-browser.test.ts", async ()
         all.map((row) => {
           const line = row.querySelector<HTMLElement>(":scope > .cv-disclosure__line")!;
           const chevron = line.querySelector<HTMLElement>(".cv-rotor")!.getBoundingClientRect();
-          // Stacked, the line's last words are the sender's (its text, not its padded box); its first
-          // line is under it.
+          // The line's last words: its first line's, or the sender's (its text, not its padded box) in
+          // the stacked gallery look.
           const range = document.createRange();
           range.selectNodeContents(line.querySelector(".cv-received__preview, .cv-received__from")!);
           const words = range.getBoundingClientRect();
