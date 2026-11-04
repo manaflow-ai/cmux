@@ -1437,7 +1437,7 @@ impl Hub {
         }
         let opts: Vec<(String, Value)> = saved
             .config_options
-            .as_ref()
+            .as_deref()
             .and_then(Value::as_array)
             .map(|a| {
                 a.iter()
@@ -1501,7 +1501,7 @@ impl Hub {
     /// Remember the models an agent lists so the picker can show them for
     /// harnesses without a live session.
     pub(super) fn remember_models(&self, agent: &str, meta: &SessionMeta) {
-        self.remember_models_from(agent, meta.config_options.as_ref(), meta.models.as_ref());
+        self.remember_models_from(agent, meta.config_options.as_deref(), meta.models.as_ref());
     }
 
     fn remember_models_from(
