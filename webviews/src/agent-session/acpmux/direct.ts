@@ -9758,43 +9758,43 @@ export class AcpmuxDirectClient {
         },
         PROMPT_INDEX_DEADLINE_MS,
       )
-      .then((result: any) => {
-        if (this.closed || this.promptIndex !== entry) {
+        .then((result: any) => {
+          if (this.closed || this.promptIndex !== entry) {
+            settle(false);
+            return false;
+          }
+          entry.read = undefined;
+          entry.rows = records(result?.events)
+            .filter(startsTurn)
+            .map((event): AcpmuxRow => {
+              const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
+              return {
+                id: `user-${event.seq}`,
+                version: 1,
+                at: event.at,
+                kind: "user",
+                text: String(event.msg?.text ?? "").slice(0, 240),
+                ...(promptId ? { promptId } : {}),
+              };
+            });
+          this.emit();
+          settle(true);
+          return true;
+        })
+        .catch(() => {
+          // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
+          // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
+          if (this.promptIndex !== entry) {
+            settle(false);
+            return false;
+          }
+          entry.read = undefined;
+          entry.rows = [];
+          entry.failed = true;
+          entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
           settle(false);
           return false;
-        }
-        entry.read = undefined;
-        entry.rows = records(result?.events)
-          .filter(startsTurn)
-          .map((event): AcpmuxRow => {
-            const promptId = typeof event.msg?.promptId === "string" ? event.msg.promptId : undefined;
-            return {
-              id: `user-${event.seq}`,
-              version: 1,
-              at: event.at,
-              kind: "user",
-              text: String(event.msg?.text ?? "").slice(0, 240),
-              ...(promptId ? { promptId } : {}),
-            };
-          });
-        this.emit();
-        settle(true);
-        return true;
-      })
-      .catch(() => {
-        // Without the index the rail keeps the summary's count (promptCountAwaited) while pages load,
-        // and reads the index again past the back-off (shownEarlierPrompts, loadPromptIndex).
-        if (this.promptIndex !== entry) {
-          settle(false);
-          return false;
-        }
-        entry.read = undefined;
-        entry.rows = [];
-        entry.failed = true;
-        entry.retryAt = Date.now() + PROMPT_INDEX_RETRY_MS * entry.tries;
-        settle(false);
-        return false;
-      });
+        });
     });
     entry.cancel = () => {
       cancelPaint();
