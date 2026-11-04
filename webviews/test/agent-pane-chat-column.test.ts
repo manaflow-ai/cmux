@@ -28,9 +28,6 @@ import { warmViteServer } from "./support/warmDevServer";
 import { BUBBLE } from "../src/agent-session/acpmux/transcriptSpacing";
 import { THINKING_VERBS } from "../src/agent-session/acpmux/conversation/thinkingVerbs";
 
-/// The live line's word before a step: "Thinking", or the turn's verb in English (thinkingVerbs.ts).
-const THINKING_WORD = new RegExp(`^(?:Thinking|${THINKING_VERBS.join("|")})`);
-
 await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   setDefaultTimeout(120_000);
   try {
@@ -622,7 +619,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
     // draws no row for the thought yet; the turn's live line at its foot says the turn's verb
     // ("Pondering", conversation/thinkingVerbs.ts), with nothing to open.
-    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: THINKING_WORD }).waitFor();
+    await page.locator(".cv-worked.is-below .cv-thinking", {
+      hasText: new RegExp(`^(?:Thinking|${THINKING_VERBS.join("|")})`),
+    }).waitFor();
     expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
