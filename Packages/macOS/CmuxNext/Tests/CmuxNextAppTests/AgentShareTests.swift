@@ -255,15 +255,16 @@ struct AgentShareTests {
         #expect(AgentShareInvites.role("admin") == nil)
     }
 
-    /// `share list` shows each share's invitees (account, role, state) and the account a guest joined as.
+    /// `share list` shows each share's invitees (account, role, state), its invite link and the account a guest joined as.
     @Test func theListShowsInvitees() {
-        let share = AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1,
+        let share = AgentSessionShare(shareId: "s1", state: "active", session: Self.session, surface: 1, inviteUrl: "https://room.example/i/s1",
                                       guests: [AgentSessionShareGuest(guestId: "g1", name: "Theo", joinedAt: 3, state: "active", account: "@theo", role: "view")],
                                       invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 2, state: "invited")])
         let listed = AgentShareResults.list(AgentSessionShareList(shares: [share]))
         guard case .array(let shares)? = listed["shares"], case .object(let fields)? = shares.first else {
             Issue.record("list answers its shares"); return
         }
+        #expect(fields["invite_url"] == .string("https://room.example/i/s1"))
         #expect(fields["invitees"] == .array([.object(["account": .string("@theo"), "role": .string("view"), "invited_at": .int(2), "state": .string("invited")])]))
         guard case .array(let guests)? = fields["guests"], case .object(let guest)? = guests.first else {
             Issue.record("list answers its guests"); return
