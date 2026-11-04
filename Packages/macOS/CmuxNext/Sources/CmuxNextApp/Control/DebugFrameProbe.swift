@@ -63,6 +63,7 @@ final class DebugFrameProbe {
 
     private func stop() {
         client.deactivate()
+        layouts.stop()
         expiry.cancel()
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
         observers.removeAll()

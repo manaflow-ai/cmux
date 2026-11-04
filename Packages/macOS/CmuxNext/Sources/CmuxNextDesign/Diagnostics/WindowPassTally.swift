@@ -16,7 +16,8 @@ public struct WindowPassTally {
         public var max = 0
     }
 
-    private var marks: [ObjectIdentifier: Int] = [:]
+    /// Each window's count at the last frame; a window at a reused address (another instance) starts from 0.
+    private var marks: [ObjectIdentifier: (window: LayoutPassGuard.WeakWindow, passes: Int)] = [:]
     /// Totals since the last ``reset()``, by role.
     public private(set) var roles: [String: Role] = [:]
     /// Per frame (parallel to the probe's frames): the passes of each window that had one.
@@ -24,9 +25,17 @@ public struct WindowPassTally {
 
     public init() {}
 
+    /// Stops counting per window (`debug.frames` stop).
+    public mutating func stop() {
+        LayoutPassGuard.shared.countsPassesByWindow = false
+        marks.removeAll()
+    }
+
     /// Starts counting from now.
     public mutating func reset() {
-        marks = Dictionary(LayoutPassGuard.shared.windowPassCounts.map { (ObjectIdentifier($0.window), $0.passes) }, uniquingKeysWith: max)
+        LayoutPassGuard.shared.countsPassesByWindow = true
+        marks.removeAll()
+        for (window, passes) in LayoutPassGuard.shared.windowPassCounts { marks[ObjectIdentifier(window)] = (.init(object: window), passes) }
         roles.removeAll()
         perFrame.removeAll(keepingCapacity: true)
     }
@@ -37,8 +46,9 @@ public struct WindowPassTally {
         var frame: [String: Int] = [:]
         for (window, passes) in LayoutPassGuard.shared.windowPassCounts {
             let id = ObjectIdentifier(window)
-            let delta = passes - (marks[id] ?? 0)
-            marks[id] = passes
+            let mark = marks[id].flatMap { $0.window.object === window ? $0.passes : nil } ?? 0
+            marks[id] = (.init(object: window), passes)
+            let delta = passes - mark
             guard delta > 0 else { continue }
             let role = Self.role(of: window)
             frame[role, default: 0] += delta
