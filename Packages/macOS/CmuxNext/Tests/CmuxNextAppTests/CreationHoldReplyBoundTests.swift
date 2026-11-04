@@ -17,35 +17,36 @@ import Testing
 /// at the bound the held keys go on, in typing order, to what has the keyboard; none is lost.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CreationHoldReplyBoundTests {
-    /// Cmd-N for a terminal workspace whose daemon never answers (its room pin, then the create, never reply), with nothing
-    /// moving the focus: at the hold's bound the keys typed after it go on in order to the terminal the person typed into
-    /// at the press, the focus core's typing target still (lead order on #35275: one fact, no flag per input path). Base:
-    /// they waited for the reply that never comes.
-    @Test func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachThePressTimeTerminalAtTheBound() async throws {
-        try await Self.cmdNNeverAnswered(then: .noMove) { end, read in
-            #expect(end == "replyBoundReached", "the hold ended \(end), not at its reply bound")
+    /// Cmd-N for a terminal workspace whose daemon never answers (its room pin, then the create, never reply), with no move
+    /// of the person's: at the hold's bound the keys typed after it go on in order to the terminal the person typed into at
+    /// the press, also after a script moved the focus (input from the person goes before automation; lead on #35275: one
+    /// fact, the person-intent target, no flag per input path). Base: they waited for the reply that never comes.
+    @Test(arguments: [Move.noMove, .script])
+    func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachThePressTimeTerminalAtTheBound(_ move: Move) async throws {
+        try await Self.cmdNNeverAnswered(then: move) { end, read in
+            #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
             let pressed = try await read(.pressed, true)
-            #expect(pressed.ran, "the press-time terminal did not get the typed line in order; its screen: \(pressed.screen.debugDescription)")
+            #expect(pressed.ran, "\(move): the press-time terminal did not get the typed line in order; its screen: \(pressed.screen.debugDescription)")
             let other = try await read(.other, false)
-            #expect(!other.ran, "the line ran in the other terminal: \(other.screen.debugDescription)")
+            #expect(!other.ran, "\(move): the line ran in the other terminal: \(other.screen.debugDescription)")
         }
     }
 
     /// What moves the focus after the typed line and before the reply bound. The person's own moves are the ones that run
     /// while the hold keeps every key but Cmd-W (a Cmd-digit or a palette key typed then waits in the hold, in typing
     /// order): a click on another pane's view, a tab of the strip or a sidebar row; the Window menu's numbered workspace
-    /// item; a palette pick (Switch to Tab). And a script's focus move.
+    /// item; a palette pick. And a script's focus move.
     enum Move: String, CaseIterable, Sendable, CustomTestStringConvertible {
-        case noMove, paneClick, tabClick, workspaceClick, numberedWorkspaceItem, paletteTabPick, script
+        case noMove, paneClick, tabClick, workspaceClick, numberedWorkspaceItem, paletteWorkspacePick, script
         var testDescription: String { rawValue }
     }
 
-    /// Each move before the bound leaves the focus core's typing target on another tab than the press-time terminal: at the
-    /// bound the line typed for the new workspace runs in no terminal (dropped and logged), never in the press-time one the
-    /// person or a script moved away from (review of #35275: a tab or pane click left the moved-on flag unset, and the held
-    /// `rm -rf build` ran in a hidden shell). Red on cdf5891a5a00 for the moves that do not end the keyboard claim.
-    @Test(arguments: Move.allCases.filter { $0 != .noMove })
-    func aMoveBeforeTheBoundMeansTheLineRunsNowhere(_ move: Move) async throws {
+    /// Each move of the person's before the bound changes their intent target, or hides the press-time terminal's workspace:
+    /// at the bound the line typed for the new workspace runs in no terminal (dropped and logged), never in the press-time
+    /// one the person left (review of #35275: a tab or pane click left the moved-on flag unset, and the held `rm -rf build`
+    /// ran in a hidden shell).
+    @Test(arguments: [Move.paneClick, .tabClick, .workspaceClick, .numberedWorkspaceItem, .paletteWorkspacePick])
+    func aMoveOfThePersonsBeforeTheBoundMeansTheLineRunsNowhere(_ move: Move) async throws {
         try await Self.cmdNNeverAnswered(then: move) { end, read in
             #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
             for terminal in [Which.pressed, .other] {
@@ -120,7 +121,7 @@ struct CreationHoldReplyBoundTests {
                 pressed = try #require(terminals().first { $0.pane === pressed.pane })
             }
             var secondWorkspace: String?
-            if move == .workspaceClick || move == .numberedWorkspaceItem { // a second workspace the window lists
+            if [.workspaceClick, .numberedWorkspaceItem, .paletteWorkspacePick].contains(move) { // a second workspace the window lists
                 let created = try await connection.createWorkspace(name: "moved-to")
                 let daemon = try #require(controller.content?.daemon)
                 try await PasswordManagerRouteTests.until({ daemon.store.workspace(key: created.key) != nil }, report: { "the second workspace never listed" })
@@ -140,9 +141,9 @@ struct CreationHoldReplyBoundTests {
             case .noMove: break
             case .paneClick: // a click in the other pane's view: the window's report of its new first responder, from a mouse-down
                 controller.focus.responderDidChange(.content(pane: other.pane.paneKey), source: .mouse)
-            case .tabClick: // TabStripView's mouse-down select (selectOnPress), the strip model's intent
+            case .tabClick: // TabStripView's mouse-down select (selectOnPress), with the source its mouse-down dispatch gives
                 let tab = try #require(secondTab)
-                pressed.pane.handle(.select(StripTabID(tab)))
+                pressed.pane.select(StripTabID(tab), source: .mouse)
             case .workspaceClick: // a click on the sidebar row
                 let workspace = try #require(secondWorkspace)
                 controller.sidebar.handle(.select(WorkspaceID(workspace)))
@@ -152,12 +153,14 @@ struct CreationHoldReplyBoundTests {
                 let number = try #require((1...9).first { controller.sidebar.model.itemOrder.pick($0, SidebarNavigation.settings(services)) == target },
                                           "no numbered item names the second workspace: \(controller.sidebar.model.itemOrder.items)")
                 #expect(services.registry.perform("selectWorkspaceByNumber", argument: "\(number)"))
-            case .paletteTabPick: // the palette's Switch to Tab on the other terminal
-                PaletteSourcesBridge.TabSource(services: services).selectTab(id: other.tab)
+            case .paletteWorkspacePick: // the palette's Go to Workspace (its Switch to Tab takes its person source from the key
+                // or click that picked it inside the app's dispatch, which package tests do not run: the tab click covers it)
+                let workspace = try #require(secondWorkspace)
+                PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: workspace)
             case .script: // a script's focus move (the CLI): not the person's, still not the press-time target
                 controller.focus.send(.focusPane(other.pane.paneKey, source: .cli))
             }
-            if move != .noMove {
+            if move != .noMove { // the move ran: the keys' target, as a key typed now sees it, is not the press-time terminal
                 try await PasswordManagerRouteTests.until({ controller.focus.currentState().typingTab != pressed.tab }, within: .seconds(4),
                                                           report: { "\(move) left the typing target on the press-time terminal" })
             }
