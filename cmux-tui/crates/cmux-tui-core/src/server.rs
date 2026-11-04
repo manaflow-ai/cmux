@@ -155,6 +155,9 @@ mod command_args;
 #[cfg(unix)]
 mod fs_wire;
 mod input_qos;
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
+pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
