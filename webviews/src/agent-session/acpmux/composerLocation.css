@@ -1551,6 +1551,15 @@
 }
 .acpmux-location-button .acpmux-env-live[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-location-button .acpmux-env-live[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* A Cloud machine that is resuming (withCloudSleep): the spinner turns where the dot was, centred on
+   the dot's own 6px box, so the strip never moves as paused turns to resuming and back to live. */
+.acpmux-location-button .acpmux-env-live-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  color: var(--agent-muted);
+}
 /* The cloud toggle (stripLayout cloud-toggle) stands at the strip's end, before the branch. */
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] { flex: none; margin-left: auto; }
 .acpmux-composer-context > .acpmux-location-picker[data-rows="run"] + .acpmux-location-picker:last-child { margin-left: var(--acpmux-location-gap, 4px); }
@@ -1651,3 +1660,18 @@
 .acpmux-env-row:not([data-ready]) .acpmux-env-state { color: var(--agent-muted); }
 /* A ready machine at its CPU or memory budget says so in the warning colour, as the plain menu does. */
 .acpmux-env-row .acpmux-env-state[data-warning="true"] { color: var(--acpmux-warning); }
+/* A new chat's extra folders (ExtraFolderList.tsx), under the folder menu's list: a quiet heading,
+   then one row per folder in the same name column as the folders above, × at the end. */
+.acpmux-extra-folders {
+  margin: var(--ds-space-1) 0 0;
+  padding: 4px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.acpmux-extra-folders-heading { padding: 4px 8px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
+.acpmux-extra-folders-list { margin: 0; padding: 0; list-style: none; }
+.acpmux-extra-folder { display: flex; align-items: center; gap: var(--cmux-menu-icon-gap); min-width: 0; min-height: var(--ui-row-height); padding: 0 4px 0 8px; }
+.acpmux-extra-folder-icon { flex: none; width: 20px; color: var(--agent-muted); }
+.acpmux-extra-folder-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-extra-folder-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; color: var(--agent-muted); }
+.acpmux-extra-folder-remove:hover,
+.acpmux-extra-folder-remove:focus-visible { color: var(--agent-text); }

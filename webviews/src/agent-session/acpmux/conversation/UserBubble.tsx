@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
-// is gone; its menu remains on right-click. No Pin here: an
-// answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
+// hover), then Copy, Edit, Retry, Fork from here and Bookmark, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. Bookmark toggles the same saved mark as the rail.
+// Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
 // turn before it and sends the edited text there (the App's `edit.send`), Escape or Cancel puts the
@@ -46,10 +46,11 @@ import {
   MessageCopy,
   MessageFooterRow,
   MessageTime,
+  PinButton,
   PromptRetry,
   ROW_ICON,
 } from "./MessageActions";
-import { TurnActionsContext } from "./turnActions";
+import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { SentVideoTile } from "./SentVideoTile";
@@ -77,7 +78,7 @@ export function UserBubble({
 }: {
   row: AcpmuxRow;
   text: string;
-  pending?: (actions: ReactNode) => ReactNode;
+  pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   // A video's frames and their note went to the agent only; the bubble draws the video's tile. A
   // Codex skill reads `/name` as typed, not `/$name` as sent (slashCommands.ts withoutSkillDollars):
@@ -177,6 +178,14 @@ export function UserBubble({
       />
     );
   }
+  // The sent row's Retry and Fork; a waiting steer's queue row shows the same two (PendingSteer.tsx).
+  // Retry not while it is still on its way: a second send would duplicate it.
+  const retry =
+    !row.pending && row.delivery?.state !== "sending" ? <PromptRetry rowId={row.id} prompt={resend} /> : null;
+  const forkButton =
+    forkThrough !== undefined ? (
+      <ForkButton throughSeq={forkThrough} onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+    ) : null;
   return (
     <>
       {!hasInterleaved && (Boolean(row.images?.length) || videos.length > 0) && (
@@ -229,7 +238,7 @@ export function UserBubble({
         {!row.failed && (text || pending) && (
           <UserFooter
             className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
-            pending={pending}
+            pending={pending && ((actions) => pending(actions, { retry, fork: forkButton }))}
           >
             <MessageFooterRow>
               {branch && branches && (
@@ -279,14 +288,9 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
-              {/* Not while it is still on its way: a second send would duplicate it. */}
-              {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-              {forkThrough !== undefined && (
-                <ForkButton
-                  throughSeq={forkThrough}
-                  onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))}
-                />
-              )}
+              {retry}
+              {forkButton}
+              <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>
           </UserFooter>
         )}

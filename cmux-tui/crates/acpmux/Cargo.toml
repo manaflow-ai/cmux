@@ -23,6 +23,9 @@ default = ["build-id"]
 # a new stamp does not recompile this crate (acpmux-build-id docs).
 build-id = ["dep:acpmux-build-id"]
 tailnet = ["dep:cmux-tailnet", "dep:tokio-rustls"]
+# The deterministic simulation's in-process agent seam (src/sim_agent.rs, tests/sim.rs). Never in
+# a shipped build: only `cargo test --features sim --test sim` turns it on.
+sim = []
 
 [target.'cfg(unix)'.dependencies]
 cmux-tailnet = { workspace = true, optional = true }
@@ -135,3 +138,12 @@ rcgen = "0.14"
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
+# The deterministic simulation's runtime (tests/sim.rs): hosts on one thread with simulated
+# time, a simulated network, crash and restart.
+turmoil = "0.7.2"
+
+# The deterministic simulation of the daemon (HQ#6740): `cargo test --features sim --test sim`.
+[[test]]
+name = "sim"
+path = "tests/sim.rs"
+required-features = ["sim"]
