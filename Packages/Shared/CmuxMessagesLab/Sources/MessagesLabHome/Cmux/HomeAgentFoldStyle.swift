@@ -12,7 +12,12 @@ import CoreText
 /// Titles and captions are DEV-only English.
 public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
     case current, avatarStack, centeredCaption, statusDots, latestPreview, tapbackBadge, leftRail, textOnly,
-         hookUnder, capsuleButton, countBadge, senderLabel, divider, twoLine, progressBar, monoLog
+         hookUnder, capsuleButton, countBadge, senderLabel, divider, twoLine, progressBar, monoLog,
+         // Spacing variants of the shipped line (user 2026-11-02, msg 19733): HomeAgentFoldSpacing.
+         tight, airy, hugAbove, textAligned, deepIndent, wideChevronGap, snugChevron, roomyChips, compactChips,
+         namesNoChips, smallCaption, minimal, airyAligned, balanced,
+         // ChatGPT-style agent pills (user 2026-11-03, msg 19960): HomeAgentPills.
+         pills, pillsTwoLine, pillChips
 
     /// A short name for the playground's picker.
     public var title: String {
@@ -33,6 +38,23 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         case .twoLine: "Two lines with preview"
         case .progressBar: "Progress bar"
         case .monoLog: "Monospaced log"
+        case .tight: "Spacing: tight (16 pt row)"
+        case .airy: "Spacing: airy (10 pt above and below)"
+        case .hugAbove: "Spacing: hugs the bubble above"
+        case .textAligned: "Spacing: aligned with the bubble text"
+        case .deepIndent: "Spacing: deep indent (28 pt)"
+        case .wideChevronGap: "Spacing: wide chevron gap"
+        case .snugChevron: "Spacing: snug chevron"
+        case .roomyChips: "Spacing: roomy chips"
+        case .compactChips: "Spacing: compact chips"
+        case .namesNoChips: "Spacing: names, no chips"
+        case .smallCaption: "Spacing: smaller caption type"
+        case .minimal: "Spacing: minimal (tight, aligned, no chips)"
+        case .airyAligned: "Spacing: airy and aligned"
+        case .balanced: "Spacing: balanced (6 above, 4 below, aligned)"
+        case .pills: "Pills: one per agent (ChatGPT)"
+        case .pillsTwoLine: "Pills: two lines with status"
+        case .pillChips: "Pills: compact chips in a row"
         }
     }
 
@@ -55,6 +77,23 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         case .twoLine: "The shipped line, then the newest message's words on a second line."
         case .progressBar: "The label over a bar with a segment per agent, colored by its state."
         case .monoLog: "A monospaced log line: \"› 3 msgs  a959 a931\"."
+        case .tight: "The shipped line in a 16 pt row: less gap to the bubbles above and below."
+        case .airy: "The shipped line with 10 pt more room above and below it."
+        case .hugAbove: "Close under the bubble it belongs to (16 pt line), 8 pt more room below."
+        case .textAligned: "The chevron lines up with the bubble's text (12 pt in), not the bubble's edge."
+        case .deepIndent: "The whole line 28 pt in from the bubbles' edge, like a reply."
+        case .wideChevronGap: "12 pt between the chevron and the label, and between the label and the chips."
+        case .snugChevron: "3 pt after the chevron, 4 pt before the chips: one tight group."
+        case .roomyChips: "Taller chips (18 pt) with 9 pt padding and 8 pt between them."
+        case .compactChips: "Small chips (14 pt) with 4 pt padding and 3 pt between them."
+        case .namesNoChips: "The agents as plain text after a dot (\"· a915, a939\"): no chips."
+        case .smallCaption: "An 11 pt label and 10 pt chips in an 18 pt row."
+        case .minimal: "16 pt row, aligned with the bubble text, 11 pt type, the agents as text."
+        case .airyAligned: "8 pt above and below, aligned with the bubble text, roomy chips."
+        case .balanced: "6 pt above, 4 pt below, aligned with the bubble text, 11 pt label, compact chips."
+        case .pills: "A pill per agent: status icon, task title, a blue dot for an unread report, ›. Click one to open its chat."
+        case .pillsTwoLine: "Taller pills with a second line: Working, Reported or Stopped, and the agent's id."
+        case .pillChips: "Small pills side by side in one row (the ones that do not fit are left out)."
         }
     }
 
@@ -64,8 +103,47 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
         return HomeAgentFoldStyle(rawValue: payload.style)
     }
 
+    /// The spacing of a spacing variant of the shipped line; nil for the other styles.
+    var spacing: HomeAgentFoldSpacing? {
+        var s = HomeAgentFoldSpacing.shipped
+        let text = Fixture.bubblePadX
+        switch self {
+        case .tight: s.line = 16
+        case .airy: (s.above, s.below) = (10, 10)
+        case .hugAbove: (s.line, s.below) = (16, 8)
+        case .textAligned: s.indent = text
+        case .deepIndent: s.indent = 28
+        case .wideChevronGap: (s.chevronGap, s.labelGap) = (12, 12)
+        case .snugChevron: (s.chevronGap, s.labelGap) = (3, 4)
+        case .roomyChips: (s.chipHeight, s.chipPad, s.chipGap) = (18, 9, 8)
+        case .compactChips: (s.chipHeight, s.chipPad, s.chipGap) = (14, 4, 3)
+        case .namesNoChips: s.chips = false
+        case .smallCaption: (s.line, s.labelSize, s.chipSize, s.chipHeight, s.chipPad) = (18, 11, 10, 14, 5)
+        case .minimal: (s.line, s.indent, s.labelSize, s.chipSize, s.chips) = (16, text, 11, 11, false)
+        case .airyAligned: (s.above, s.below, s.indent, s.chipHeight, s.chipPad, s.chipGap) = (8, 8, text, 18, 9, 8)
+        case .balanced: (s.above, s.below, s.indent, s.labelSize, s.chipHeight, s.chipPad, s.chipGap) = (6, 4, text, 11, 14, 4, 3)
+        default: return nil
+        }
+        return s
+    }
+
+    /// True for the pill styles (one pill per agent; a click on a pill opens that agent).
+    public var isPill: Bool { pillShape != nil }
+
+    /// The pill shape of a pill style; nil for the other styles.
+    var pillShape: HomeAgentPills.Shape? {
+        switch self {
+        case .pills: .pill
+        case .pillsTwoLine: .twoLine
+        case .pillChips: .chip
+        default: nil
+        }
+    }
+
     /// The row's height in this style.
     func height(_ p: HomeAgentFoldRowProvider.Payload) -> CGFloat {
+        if let spacing { return spacing.height }
+        if let pillShape, p.role != "note" { return HomeAgentPills(p, shape: pillShape, width: .greatestFiniteMagnitude).height }
         guard p.role != "note" else { return HomeAgentFoldRowProvider.height }
         switch self {
         case .twoLine: return p.open || p.latest == nil ? HomeAgentFoldRowProvider.height : 38
@@ -77,6 +155,8 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
 
     /// Draws `p` in `rect` (the row; top-left origin, y down).
     func draw(_ p: HomeAgentFoldRowProvider.Payload, in ctx: CGContext, rect: CGRect) {
+        if let spacing { spacing.draw(p, in: ctx, rect: rect); return }
+        if let pillShape, p.role != "note" { HomeAgentPills(p, shape: pillShape, width: rect.width).draw(ctx, origin: rect.origin); return }
         let mid = rect.minY + height(p) / 2
         let x0 = rect.minX
         if p.role == "note" { drawNote(p, ctx, x0: x0, mid: mid, width: rect.width); return }
@@ -182,6 +262,9 @@ public enum HomeAgentFoldStyle: Int, CaseIterable, Sendable {
             let text = p.open ? "⌄ hide \(p.count)" : "› \(p.count) msgs  " + p.peers.prefix(4).joined(separator: " ")
             _ = line(ctx, NSAttributedString(string: text, attributes: [.font: HomeFonts.monospaced(ofSize: 11), .foregroundColor: muted]),
                      x: x0, mid: mid)
+        default:
+            // The spacing variants drew above (``spacing``).
+            break
         }
     }
 

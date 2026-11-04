@@ -71,6 +71,9 @@ struct Entry {
     place: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     copied_chat: Option<String>,
+    /// The exact remote root the finished copy pushed, before the chat's subpath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    copied_folder: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     target_pane: Option<String>,
 }
@@ -305,15 +308,22 @@ impl Ledger {
     pub(crate) fn record(&mut self, machine: &str, send: &Send) {
         self.pending_creates.retain(|pending| !pending.is(send));
         let same = self.entry(send).filter(|entry| entry.machine_id == machine);
-        let (place, copied_chat, target_pane) = same.map_or((None, None, None), |entry| {
-            (entry.place.clone(), entry.copied_chat.clone(), entry.target_pane.clone())
-        });
+        let (place, copied_chat, copied_folder, target_pane) =
+            same.map_or((None, None, None, None), |entry| {
+                (
+                    entry.place.clone(),
+                    entry.copied_chat.clone(),
+                    entry.copied_folder.clone(),
+                    entry.target_pane.clone(),
+                )
+            });
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place,
             copied_chat,
+            copied_folder,
             target_pane,
         });
     }
@@ -323,6 +333,28 @@ impl Ledger {
         self.entry(send)
             .filter(|entry| entry.machine_id == machine)
             .and_then(|entry| entry.copied_chat.clone())
+    }
+
+    /// The finished copy's root, independent of the retry's current arguments.
+    /// Older ledgers kept only `place` and `copied_chat`: the root is the one
+    /// ancestor immediately below that place, when it identifies exactly one.
+    pub(crate) fn copied_folder(&self, send: &Send, machine: &str) -> Option<String> {
+        let entry = self.entry(send).filter(|entry| entry.machine_id == machine)?;
+        if let Some(folder) = &entry.copied_folder {
+            return Some(folder.clone());
+        }
+        let place = Path::new(entry.place.as_deref()?);
+        if place.as_os_str().is_empty()
+            || !place.components().all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return None;
+        }
+        let chat = Path::new(entry.copied_chat.as_deref()?);
+        let mut roots = chat
+            .ancestors()
+            .filter(|folder| folder.parent().is_some_and(|parent| parent.ends_with(place)));
+        let root = roots.next()?;
+        roots.next().is_none().then(|| root.to_string_lossy().into_owned())
     }
 
     /// The folder of `send`'s copy to `machine` that started and did not
@@ -344,18 +376,27 @@ impl Ledger {
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: None,
+            copied_folder: None,
             target_pane: self.target_pane(send, machine),
         });
     }
 
     /// `send`'s copy into `place` finished on `machine`, its chat's folder there `chat`.
-    pub(crate) fn record_copy(&mut self, chat: &str, send: &Send, machine: &str, place: &str) {
+    pub(crate) fn record_copy(
+        &mut self,
+        chat: &str,
+        folder: &str,
+        send: &Send,
+        machine: &str,
+        place: &str,
+    ) {
         self.put(Entry {
             key: send.key.clone(),
             account: send.account.clone(),
             machine_id: machine.to_string(),
             place: Some(place.to_string()),
             copied_chat: Some(chat.to_string()),
+            copied_folder: Some(folder.to_string()),
             target_pane: self.target_pane(send, machine),
         });
     }
@@ -381,6 +422,7 @@ impl Ledger {
                 machine_id: old.machine_id.clone(),
                 place: old.place.clone(),
                 copied_chat: old.copied_chat.clone(),
+                copied_folder: None,
                 target_pane: None,
             });
         }

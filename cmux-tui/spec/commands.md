@@ -624,7 +624,8 @@ object{
   write_path?:object{
     effect_intents:uint64, effect_intent_failures:uint64,
     effect_intent_batches:uint64, request_effect_commits:uint64,
-    writer_registry_locks:uint64
+    writer_registry_locks:uint64, wal_commits?:uint64,
+    wal_synced_commits?:uint64, registry_wal_frame_bytes?:uint64
   },
   locks?:object{registry:lock_detail, state:lock_detail},
   hook_queue?:object{queued_events:uint64,reset_dropped_events:uint64,undeliverable_events:uint64}
@@ -680,7 +681,14 @@ stopped, or not yet running. `writer_registry_locks` counts, process-wide,
 registry lock, registry connection or mux state lock acquisitions on a
 journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
-writer never takes either.
+writer never takes either. `wal_commits` counts the registry commits written
+to the WAL (`synchronous=NORMAL`) and `wal_synced_commits` those the WAL syncer
+has flushed to disk. `registry_wal_frame_bytes` counts the bytes of the WAL
+frames those commits appended (each frame is a 24-byte header and one page):
+what the registry's writes put on the disk, before the checkpoint copies each
+page into the database once more. Its first count after a start also holds the
+frames a previous run left in the WAL, so a reader compares two reads (the
+bytes one change writes). Daemons older than each field omit it.
 
 `locks` reports the workspace registry lock (`registry`) and the mux state
 lock (`state`) by acquiring site, so a convoy names the code that holds it.
@@ -5899,9 +5907,12 @@ Params:
 | `dock` | `ColumnPin` | optional; `edge-docks-v1` | `{edge:"left"\|"right"\|"top"\|"bottom", mode:"docked"\|"overlay", role?:"agent_chat"}`: pins the new column to that edge in the same commit, with the rules of `set-column-dock` (the column that held the edge scrolls again); `role` needs `dock-column-role-v1`, and an unknown role is dropped |
 | `respawn` | `SplitRespawn` | optional; `tab-column-respawn-v1` | As in `move-tab-to-split`; only for the pane's only tab: the pane keeps a fresh tab of that kind, created before the move, so the column the tab leaves stays |
 | `keep_focus` | bool | default false; `tab-split-keep-focus-v1` | As in `move-tab-to-split`: the new column's pane does not take focus |
+| `pane_id` | `string` | default null; `tab-column-client-pane-v1` | Caller-minted id of the new column's pane, `pane_` and 32 lowercase hex digits, refused with `pane_id_exists` when a live or deleted resource has it; see "Client-minted pane ids" |
 | `transaction` | string | optional | As in `move-tab-to-split` |
 
 Result: as `move-tab-to-split`.
+
+With `tab-column-client-pane-v1`, a client that shows the new column before the reply (a lone agent chat docking left, its pane keeping a `respawn` tab) mints the column's pane id, so the daemon's `pane-added` replaces its provisional pane by id.
 
 ### move-tab-to-new-workspace
 
@@ -7081,6 +7092,56 @@ Params: `path` (required), `query` (optional map of strings).
 
 Result: `object{status:uint64, body?:JsonValue, error?:string}` (the brain's
 HTTP-like status, its JSON answer, or its reason).
+
+### chief-work
+
+| Field | Value |
+| --- | --- |
+| name | `chief-work` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `chief-work-v1` |
+
+Reads a bounded snapshot of the named Chief's subagents and harness background
+commands on its configured machine. The capability is advertised when the daemon
+has a configured Chief home or tools socket. `chief` is an existing Chief
+participant id, never a client-supplied home path or acpmux session id. The daemon
+resolves that Chief's home, verifies its ownership identity, and includes its
+tagged sessions and descendants at any depth. Another Chief's explicitly tagged
+sessions and sessions on peer daemons are excluded. Chief turn and compactor
+roots supply command scope but do not appear as subagent rows.
+
+Only the owner's registered Unix connection or authenticated owner WebSocket may
+read it: the principal is `user_local`, no remote or bound agent, and a WebSocket
+has either no page and the daemon credential, or the scoped `home-channels` page
+credential. Other pages, paired devices and unregistered connections are refused
+with `origin.forbidden` before any work is read. This is the same owner-page
+admission as the Chief registry; it is a raw command, not a catalog operation.
+
+Params: `chief` (required string).
+
+Result: `object{agents:array<ChiefWorkAgent>, tasks:array<ChiefWorkTask>,
+truncated:boolean, taskSources:array<string>}`.
+
+- `ChiefWorkAgent = {id:string, name:string,
+  state:"working"|"waiting"|"idle"|"failed", task:string|null,
+  startedAt:uint64|null, updatedAt:uint64|null}`. Working and waiting take
+  precedence over a previous failed turn; failed or lost agents never look idle.
+- `ChiefWorkTask = {id:string, sessionId:string, title:string, command:string,
+  status:"running"|"done"|"failed"|"cancelled"|"unknown",
+  startedAt:uint64|null, endedAt:uint64|null, detail:string|null}`. Timestamps are
+  epoch milliseconds when supplied by acpmux. A lost process has `unknown`
+  status; a successful exit is `done`, a nonzero exit or start failure is
+  `failed`, and a killed process is `cancelled`.
+
+`taskSources` is currently `["harness"]`: only the harness process registry is
+read. Daemon-owned `bg` tasks keep their separate person-proof gate and are not
+included. No task mutation, subscription, or background polling is started.
+All paginated reads share a 15-second deadline; at most 200 owned sessions
+(active first) and 500 commands are returned. `truncated` reports those bounds,
+never a failed read. A failed or malformed source page returns
+`chief.work_unavailable` without a partial or empty success. An unknown Chief
+returns `chief.work_not_found`; an unconfigured machine returns
+`chief.work_not_configured`.
 
 ### conversation-attachment-upload
 

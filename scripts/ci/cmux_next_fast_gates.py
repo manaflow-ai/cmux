@@ -19,7 +19,7 @@ result is fresh for the tip they merge into.
                                                   when any gate fails, after running all of them
 
 The gates, each the same invocation as its push-time job:
-  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web.yml's
+  web lint        scripts/web_lint_prepush.py --base BASE --head MERGE --new-only (cmux-next-web-lint.yml's
                   web lint (fast); only findings the PR adds, per error)
   crash ratchet   scripts/ci/crash_ratchet_compare.py on the merge and BASE's exported tree (cmux-next-guards.yml)
   prepush gate    scripts/cmux-next/prepush-gate.py --base BASE --head MERGE (only violations the PR adds)

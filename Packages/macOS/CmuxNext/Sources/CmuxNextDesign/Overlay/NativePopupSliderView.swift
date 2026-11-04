@@ -122,18 +122,26 @@ final class NativePopupSliderView: NSView {
 
 @MainActor
 class NativePopupTrackingSlider: NSSlider {
-    var isInteracting = false
+    private var interactionDepth = 0
+    /// AppKit is tracking this slider (a drag or a key): the popup must not replace it.
+    var isInteracting: Bool { interactionDepth > 0 }
+    /// The outermost interaction ended: a popup update deferred during the drag applies now.
+    var interactionEnded: (() -> Void)?
+
+    /// Runs `body` as one interaction; nested calls (a subclass around `super`) end once.
+    func interact(_ body: () -> Void) {
+        interactionDepth += 1
+        body()
+        interactionDepth -= 1
+        if interactionDepth == 0 { interactionEnded?() }
+    }
 
     override func mouseDown(with event: NSEvent) {
-        isInteracting = true
-        defer { isInteracting = false }
-        super.mouseDown(with: event)
+        interact { super.mouseDown(with: event) }
     }
 
     override func keyDown(with event: NSEvent) {
-        isInteracting = true
-        defer { isInteracting = false }
-        super.keyDown(with: event)
+        interact { super.keyDown(with: event) }
     }
 }
 
@@ -145,24 +153,27 @@ final class NativePopupDiscreteSlider: NativePopupTrackingSlider {
 
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        super.mouseDown(with: event)
-        commitValue(false)
+        // The release's commit is part of the drag: a deferred popup update waits for it.
+        interact {
+            super.mouseDown(with: event)
+            commitValue(false)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
         guard isEnabled else { return }
-        isInteracting = true
-        defer { isInteracting = false }
-        if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
-        switch event.keyCode {
-        case 36, 76: commitValue(true)
-        case 53: escape()
-        case 123, 125, 124, 126, 115, 119:
-            if event.keyCode == 115 { doubleValue = minValue }
-            else if event.keyCode == 119 { doubleValue = maxValue }
-            else { doubleValue = min(maxValue, max(minValue, doubleValue + ([124, 126].contains(event.keyCode) ? 1 : -1))) }
-            _ = sendAction(action, to: target)
-        default: super.keyDown(with: event)
+        interact {
+            if [125, 126].contains(event.keyCode), navigate(event.keyCode) { return }
+            switch event.keyCode {
+            case 36, 76: commitValue(true)
+            case 53: escape()
+            case 123, 125, 124, 126, 115, 119:
+                if event.keyCode == 115 { doubleValue = minValue }
+                else if event.keyCode == 119 { doubleValue = maxValue }
+                else { doubleValue = min(maxValue, max(minValue, doubleValue + ([124, 126].contains(event.keyCode) ? 1 : -1))) }
+                _ = sendAction(action, to: target)
+            default: super.keyDown(with: event)
+            }
         }
     }
 }

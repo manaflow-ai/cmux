@@ -75,6 +75,7 @@ fn text(args: &[String]) -> Option<String> {
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
         }
+        ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -84,7 +85,6 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,
@@ -116,6 +116,7 @@ action with that CLI name: `cmux action list --noun {scope}` lists them.
 const APP_HELP: &str = "\
 usage: cmux app ping | identify | capabilities
        cmux identify | ping | capabilities      (the classic spelling, same answer)
+       cmux app renderers [--interval-ms <n>]   (Chromium renderer pids, their pages and tabs)
        cmux app call <method> [<json-object>]   (debug builds only)
        cmux app <verb...> [--<argument> <value>]...";
 
