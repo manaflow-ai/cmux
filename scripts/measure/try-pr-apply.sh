@@ -130,7 +130,7 @@ app="$(find "$work/unzipped" -maxdepth 2 -name '*.app' -type d | head -1)"
 [[ -n "$app" ]] || { result fail not_run "no .app in the zip"; exit 1; }
 mark fetched
 
-plist="$app/Contents/Info.plist"; buddy=/usr/libexec/PlistBuddy
+plist="$app/Contents/Info.plist"; buddy="${TRY_PR_APPLY_PLISTBUDDY:-/usr/libexec/PlistBuddy}"  # the override is for its tests
 zip_sha="$(shasum -a 256 "$work/app.zip" | cut -d' ' -f1)"; note zip_sha256 "$zip_sha"
 note artifact_ref "${artifact_ref:-none}"; note artifact_sha256 "${artifact_sha:-none}"
 embedded="$($buddy -c 'Print :CMUXCommit' "$plist" 2>/dev/null || true)"; note embedded_commit "${embedded:-none}"
