@@ -292,7 +292,7 @@ final class CEFPaneHost {
         }
         tab.isCreationPending = true
         let activates = visibleTab === tab
-        let spare = takesSparePage ? joinSparePage(tab, anchor: anchor, activates: activates) : nil
+        let spare = takesSparePage && CEFSpareWindow.makesPages ? joinSparePage(tab, anchor: anchor, activates: activates) : nil
         let browser = spare ?? tabAdd(tab, anchor: anchor, activates: activates)
         if browser == 0 {
             tab.creationFailed()

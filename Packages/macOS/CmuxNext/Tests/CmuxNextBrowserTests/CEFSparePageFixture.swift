@@ -41,9 +41,9 @@ extension CEFSparePageTests {
     /// Debug Settings `browserPage.sparePage` (nil: the default, off).
     static func setSparePage(_ on: Bool?) {
         TunableStore.shared.activate(file: nil)
-        TunableStore.shared.register([BrowserPageTunables.sparePage.descriptor])
-        TunableStore.shared.set(BrowserPageTunables.sparePage.key, on.map { .bool($0) })
-        #expect(BrowserPageTunables.sparePage.value == on ?? false)
+        TunableStore.shared.register([CEFSpareWindow.pageSetting.descriptor])
+        TunableStore.shared.set(CEFSpareWindow.pageSetting.key, on.map { .bool($0) })
+        #expect(CEFSpareWindow.pageSetting.value == on ?? false)
     }
 
     /// A pane showing a Chromium page in its live window (browser 10, window 1).
