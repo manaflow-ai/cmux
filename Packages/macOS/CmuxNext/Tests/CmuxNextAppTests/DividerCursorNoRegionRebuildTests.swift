@@ -73,6 +73,17 @@ struct DividerCursorNoRegionRebuildTests {
         #expect(handle.isHovered && screen.dividerPointer.shownCursor === handle.resizeCursor, "the pointer at the divider's new place")
     }
 
+    /// The screen's divider tracking area is installed once the screen is in a window (no geometry change needed): with
+    /// none, no pointer event reaches the divider hover and the resize cursor never shows.
+    @Test func theScreenHasItsDividerTrackingAreaInAWindow() throws {
+        let probe = LayoutWorkProbe(.columns((0..<2).map { PaneMotionBench.column($0, rows: 1, width: 0.5) }), focused: PaneID("p0-0"))
+        defer { probe.close() }
+        let screen = probe.screen
+        let areas = screen.trackingAreas.filter { $0.owner === screen.dividerPointer }
+        #expect(areas.count == 1, "divider tracking areas on the screen: \(areas.count)")
+        #expect(areas.first?.options.contains(.mouseMoved) == true && areas.first?.options.contains(.inVisibleRect) == true)
+    }
+
     /// A screen that hides under a still pointer on its divider (a workspace switch) gives the resize cursor back: a
     /// hidden view gets no pointer events, and its handles did not move.
     @Test func aScreenThatHidesUnderThePointerGivesTheResizeCursorBack() throws {
