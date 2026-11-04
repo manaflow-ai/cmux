@@ -1,7 +1,5 @@
 public import Foundation
-#if canImport(CoreGraphics)
 public import CoreGraphics
-#endif
 
 /// A path as plain geometry, built with the `CGMutablePath` calls it mirrors. Design tokens (the
 /// launch mark, the status glyphs) describe their shapes with it in Foundation geometry alone, so
@@ -87,12 +85,11 @@ public nonisolated struct ListedWindow: Sendable, Equatable {
     }
 }
 
-/// The window server's list of on-screen windows. Linux has no window server: it lists none.
+/// The window server's list of on-screen windows.
 public nonisolated struct WindowServerList: Sendable {
     public init() {}
 }
 
-#if canImport(CoreGraphics)
 extension OutlinePath {
     /// The path as CoreGraphics draws it: each element replayed into a `CGMutablePath`.
     public var cgPath: CGPath {
@@ -129,9 +126,3 @@ extension WindowServerList {
         }
     }
 }
-#else
-extension WindowServerList {
-    /// No window server, so no window is ever above another.
-    public nonisolated func windows(above number: Int) -> [ListedWindow] { [] }
-}
-#endif
