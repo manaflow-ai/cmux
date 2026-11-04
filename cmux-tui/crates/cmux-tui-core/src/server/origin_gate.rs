@@ -495,26 +495,6 @@ pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: &Accepte
     mux.control_clients.notify_client_presence();
 }
 
-/// Records a `bridge-hello` with `bridge-frames-v1` (server/client_hello.rs)
-/// on `client`: the connection then counts as a framed bridge for the framed
-/// IPC grant rule (capabilities.rs `IpcPeer::FramedBridge`). Only a peer the
-/// kernel showed to be of the daemon's user may say so, and never the phone
-/// host's lane, which has its own rule, or a connection that already has a
-/// role. False when nothing changed.
-pub(super) fn declare_frame_bridge(mux: &Mux, client: u64) -> bool {
-    let mut state = mux.control_clients.state.lock().recover_poison();
-    let Some(record) = state.clients.get_mut(&client) else { return false };
-    let origin = &mut record.origin;
-    let eligible = matches!(origin.peer_process, PeerProcess::SameUser | PeerProcess::ByteBridge)
-        && !origin.mobile_host
-        && origin.role == HelloRole::Legacy
-        && origin.page.is_none();
-    if eligible {
-        origin.frame_bridge = true;
-    }
-    eligible
-}
-
 /// cmux's own executables beside the daemon's that splice a far client's
 /// bytes onto this socket: the `cmux` CLI (`cmux relay`, `cmux link dial`),
 /// the SSH helper and the remote daemon. A peer that runs one of them, or

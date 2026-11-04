@@ -315,10 +315,6 @@
         "id": 1802,
         "priority": "control"
       },
-      "bridge-hello": {
-        "id": 518,
-        "priority": "control"
-      },
       "browser-activate": {
         "id": 2828,
         "priority": "control"
