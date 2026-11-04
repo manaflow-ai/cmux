@@ -55,7 +55,7 @@ mod stop_causes;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 #[cfg(unix)]
-mod term_sender;
+pub(crate) mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -730,7 +730,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    match term_sender::last() {
+                    match term_sender::settled().await {
                         Some(pid) => tracing::warn!(
                             "stopping: SIGTERM from {} (a restart handoff)",
                             term_sender::describe(pid)
