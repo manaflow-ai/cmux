@@ -337,10 +337,9 @@ pub fn load(sources: &Sources) -> Catalog {
             match package(&dir, kind) {
                 // The customize app may run the person's own actions, so only
                 // their customize folder (below) provides it.
-                Ok(package) if package.id == CUSTOMIZE_APP => catalog.rejected.push((
-                    dir,
-                    format!("{CUSTOMIZE_APP} loads only from the customize folder"),
-                )),
+                Ok(package) if package.id == CUSTOMIZE_APP => catalog
+                    .rejected
+                    .push((dir, format!("{CUSTOMIZE_APP} loads only from the customize folder"))),
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
@@ -497,7 +496,8 @@ mod tests {
     /// rejected rather than shadowing the real one.
     #[test]
     fn only_the_customize_folder_provides_the_customize_app() {
-        let root = std::env::temp_dir().join(format!("cmux-apps-customize-id-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("cmux-apps-customize-id-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let write = |dir: &Path, name: &str| {
             std::fs::create_dir_all(dir).unwrap();

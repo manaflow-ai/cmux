@@ -152,7 +152,10 @@ mod apps {
             let named: Vec<&str> =
                 implements.values().filter_map(|entry| entry["export"].as_str()).collect();
             for export in &exported {
-                assert!(named.contains(export), "{name}: {export} is exported but implements nothing");
+                assert!(
+                    named.contains(export),
+                    "{name}: {export} is exported but implements nothing"
+                );
             }
             assert!(
                 !script.contains("\nexport ") && !script.contains("\nimport "),

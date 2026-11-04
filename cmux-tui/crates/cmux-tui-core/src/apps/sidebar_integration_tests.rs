@@ -647,7 +647,10 @@ fn a_customize_save_that_declares_a_new_read_scope_gets_it() {
     manifest["scopes"] = json!({"workspace:read": "r", "workspace:write": "w"});
     std::fs::write(&path, manifest.to_string()).unwrap();
     supervisor.reload_local_apps(&prints);
-    assert_eq!(grants(&supervisor).into_iter().collect::<Vec<_>>(), vec!["workspace:read".to_string()]);
+    assert_eq!(
+        grants(&supervisor).into_iter().collect::<Vec<_>>(),
+        vec!["workspace:read".to_string()]
+    );
     drop(supervisor);
     mux.shutdown();
 }

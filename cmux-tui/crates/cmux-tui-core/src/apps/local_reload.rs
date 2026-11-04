@@ -96,11 +96,8 @@ impl Supervisor {
                     outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "warn", message));
                 }
             }
-            let declared_before = inner
-                .catalog
-                .packages
-                .get(CUSTOMIZE_APP)
-                .map(|package| package.facts().requested);
+            let declared_before =
+                inner.catalog.packages.get(CUSTOMIZE_APP).map(|package| package.facts().requested);
             inner.catalog = catalog;
             if changed.iter().any(|id| id == CUSTOMIZE_APP) {
                 self.seed_customize_locked(&mut inner);
