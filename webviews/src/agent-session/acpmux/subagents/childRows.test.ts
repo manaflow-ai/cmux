@@ -1,16 +1,19 @@
 // l10n-allow-file: public-safe child transcript fixtures, not shipped copy.
 import { expect, test } from "bun:test";
 import { SubagentFold } from "./subagentFold";
-import { visibleToolItems } from "../conversation/mcpPresentation";
 import { isCompletedPlumbingTool } from "../hiddenTools";
 
 type Step = { update: Record<string, unknown>; acpmux: Record<string, unknown> };
-const own = (update: Record<string, unknown>, id = "parent"): Step => ({ update, acpmux: { subagent: id } });
+const own = (update: Record<string, unknown>, id = "parent"): Step => ({
+  update,
+  acpmux: { subagent: id },
+});
 const spawn = (id: string, parent: string | null): Step => ({
   update: { sessionUpdate: "subagent_spawned" },
   acpmux: { subagents: [{ id, parent, name: `Sample ${id}` }] },
 });
-const text = (kind: string, value: string) => own({ sessionUpdate: kind, content: { type: "text", text: value } });
+const text = (kind: string, value: string) =>
+  own({ sessionUpdate: kind, content: { type: "text", text: value } });
 const tool = (id: string, extra: Record<string, unknown> = {}) =>
   own({
     sessionUpdate: "tool_call",
@@ -22,7 +25,11 @@ const tool = (id: string, extra: Record<string, unknown> = {}) =>
   });
 const feed = (fold: SubagentFold, step: Step, at: number) =>
   fold.reduce(
-    { seq: at, at: at * 1_000, msg: { params: { update: step.update, _meta: { acpmux: step.acpmux } } } },
+    {
+      seq: at,
+      at: at * 1_000,
+      msg: { params: { update: step.update, _meta: { acpmux: step.acpmux } } },
+    },
     step.update,
   );
 
@@ -38,7 +45,10 @@ test("child views preserve call generations, match cold replay and keep old snap
     tool("second", { status: "in_progress" }),
     text("agent_message_chunk", "First pass finished."),
     spawn("nested", "parent"),
-    own({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Nested sample." } }, "nested"),
+    own(
+      { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Nested sample." } },
+      "nested",
+    ),
     own({
       sessionUpdate: "tool_call_update",
       toolCallId: "second",
@@ -54,7 +64,11 @@ test("child views preserve call generations, match cold replay and keep old snap
     text("agent_thought_chunk", "Read another file."),
     tool("read", { kind: "read", locations: [{ path: "sample.ts" }], status: "completed" }),
     text("agent_message_chunk", "Begin another check."),
-    own({ sessionUpdate: "tool_call_update", toolCallId: "first", content: { type: "text", text: "late first" } }),
+    own({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "first",
+      content: { type: "text", text: "late first" },
+    }),
     tool("first", { rawInput: { command: "echo reused" }, status: "in_progress" }),
   ];
   const fold = new SubagentFold();
@@ -82,23 +96,27 @@ test("child views preserve call generations, match cold replay and keep old snap
     ["echo first", "late first"],
     ["echo reused", undefined],
   ]);
-  expect(activity.items?.filter((item) => item.tool?.id === "hidden").every((item) => isCompletedPlumbingTool(item.tool))).toBe(
-    true,
-  );
+  expect(
+    activity.items
+      ?.filter((item) => item.tool?.id === "hidden")
+      .every((item) => isCompletedPlumbingTool(item.tool)),
+  ).toBe(true);
   expect(activity.items?.find((item) => item.tool?.id === "second")?.tool?.output).toBe("done");
   feed(
     fold,
-    { update: { sessionUpdate: "subagent_state_update" }, acpmux: { subagents: [{ id: "another", state: "failed" }] } },
+    {
+      update: { sessionUpdate: "subagent_state_update" },
+      acpmux: { subagents: [{ id: "another", state: "failed" }] },
+    },
     steps.length + 1,
   );
   const after = fold.views().parent!;
   expect(after).not.toBe(before);
   expect(after.find((row) => row.id === activity.id)).toBe(activity);
   expect(JSON.stringify(published)).toBe(frozen);
-  expect(after.find((row) => row.kind === "subagents")?.subagents?.map((agent) => agent.state)).toEqual([
-    "completed",
-    "failed",
-  ]);
+  expect(
+    after.find((row) => row.kind === "subagents")?.subagents?.map((agent) => agent.state),
+  ).toEqual(["completed", "failed"]);
   expect(fold.views().parent).toBe(after);
 });
 
@@ -107,8 +125,16 @@ test("a subagent's background shell that ended reads ended in its view, never ru
   const fold = new SubagentFold();
   const steps: Step[] = [
     spawn("parent", null),
-    tool("watch", { status: "in_progress", rawInput: { command: "bun run dev", run_in_background: true } }),
-    own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running", taskId: "b1" }),
+    tool("watch", {
+      status: "in_progress",
+      rawInput: { command: "bun run dev", run_in_background: true },
+    }),
+    own({
+      sessionUpdate: "background_task_update",
+      toolCallId: "watch",
+      state: "running",
+      taskId: "b1",
+    }),
     own({
       sessionUpdate: "tool_call_update",
       toolCallId: "watch",
@@ -136,9 +162,15 @@ test("a subagent's background shell that ended reads ended in its view, never ru
   );
   const view = fold.views().parent!;
   expect(running(view)).toEqual([]);
-  const call = view.flatMap((row) => row.items ?? []).find((item) => item.tool?.id === "watch")?.tool;
+  const call = view
+    .flatMap((row) => row.items ?? [])
+    .find((item) => item.tool?.id === "watch")?.tool;
   expect(call?.background?.state).toBe("stopped");
   // A late running update leaves it ended.
-  feed(fold, own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }), steps.length + 2);
+  feed(
+    fold,
+    own({ sessionUpdate: "background_task_update", toolCallId: "watch", state: "running" }),
+    steps.length + 2,
+  );
   expect(running(fold.views().parent!)).toEqual([]);
 });

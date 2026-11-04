@@ -3143,7 +3143,7 @@ button.cv-video-frames__frame:focus-visible {
   border-top: 0;
 }
 .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
-  visibility: visible;
+  visibility: hidden;
   color: var(--cv-text-muted);
 }
 .cv-steps > .cv-step > .cv-tool {
@@ -3194,11 +3194,6 @@ button.cv-video-frames__frame:focus-visible {
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
-}
-/* The shipped iOS-style sheet keeps the drill-in affordance visible so every step reads as
-   actionable at a glance. The comparison arms retain their hover-only chevrons below. */
-:root:not([data-tool-steps-look]) .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
-  opacity: 1;
 }
 .cv-steps > .cv-step > .cv-tool:is(
   :focus-within,

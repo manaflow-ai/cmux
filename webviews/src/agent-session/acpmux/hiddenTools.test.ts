@@ -39,7 +39,14 @@ type Row = {
 
 /// A Claude Code call as acpmux sends it (claude_stdio `tool_call_fields`), then its result, which
 /// names no tool (inbound.rs): ToolSearch's schemas are `tool_reference` blocks, so its text is empty.
-const call = (id: string, tool: string, title: string, kind: string, status = "completed", output = "done") => [
+const call = (
+  id: string,
+  tool: string,
+  title: string,
+  kind: string,
+  status = "completed",
+  output = "done",
+) => [
   {
     update: {
       sessionUpdate: "tool_call",
@@ -60,8 +67,11 @@ const call = (id: string, tool: string, title: string, kind: string, status = "c
     },
   },
 ];
-const toolSearch = (id: string, status = "completed") => call(id, "ToolSearch", "ToolSearch", "other", status, "");
-const say = (text: string) => ({ update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
+const toolSearch = (id: string, status = "completed") =>
+  call(id, "ToolSearch", "ToolSearch", "other", status, "");
+const say = (text: string) => ({
+  update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+});
 const turn = (prompt: string, ...steps: unknown[]) => [
   { mux: "user_message", msg: { text: prompt } },
   { mux: "turn_started", msg: {} },
@@ -106,7 +116,12 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
           sessionUpdate: "tool_call_update",
           toolCallId: "search-6",
           status: "failed",
-          content: [{ type: "content", content: { type: "text", text: "No matching deferred tools found" } }],
+          content: [
+            {
+              type: "content",
+              content: { type: "text", text: "No matching deferred tools found" },
+            },
+          ],
         },
       },
       // A real edit whose start is on the older page still shows the file it changed.
@@ -169,7 +184,12 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
       return rows.slice(start + 1, end < 0 ? undefined : end);
     };
     await until(() => Boolean(turnOf(OTHER)?.some((row) => row.kind === "turnSummary")));
-    return { mixed: turnOf(MIXED)!, only: turnOf(ONLY)!, split: turnOf(SPLIT)!, other: turnOf(OTHER)! };
+    return {
+      mixed: turnOf(MIXED)!,
+      only: turnOf(ONLY)!,
+      split: turnOf(SPLIT)!,
+      other: turnOf(OTHER)!,
+    };
   } finally {
     client.close?.();
   }
@@ -177,7 +197,9 @@ async function turnRows(): Promise<{ mixed: Row[]; only: Row[]; split: Row[]; ot
 
 const titles = (rows: Row[]) =>
   rows.flatMap((row) =>
-    row.kind === "activity" ? (visibleToolItems(row.items as never) ?? []).flatMap((item) => item.tool?.title ?? []) : [],
+    row.kind === "activity"
+      ? (visibleToolItems(row.items as never) ?? []).flatMap((item) => item.tool?.title ?? [])
+      : [],
   );
 
 test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two calls", async () => {
@@ -190,7 +212,9 @@ test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two ca
   expect(only.filter((row) => row.kind === "activity")).toHaveLength(1);
   expect(only.find((row) => row.kind === "turnSummary")?.toolCount).toBe(1);
   // Discovery plumbing does not split the surrounding assistant message.
-  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Loading the tools. Loaded."]);
+  expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual([
+    "Loading the tools. Loaded.",
+  ]);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {
@@ -208,10 +232,12 @@ test("the ACP adapter's ToolSearch is hidden too; another tool titled ToolSearch
 });
 
 test("a subagent's own view draws no ToolSearch row either", () => {
-  const entries = [...toolSearch("s-1"), ...call("r-1", "Read", "Read retry.ts", "read")].map((step, index) => ({
-    event: { seq: index + 1, at: 1_000 + index },
-    update: step.update,
-  }));
+  const entries = [...toolSearch("s-1"), ...call("r-1", "Read", "Read retry.ts", "read")].map(
+    (step, index) => ({
+      event: { seq: index + 1, at: 1_000 + index },
+      update: step.update,
+    }),
+  );
   const rows = childRows("child", entries, new Map(), 1) as Row[];
   expect(titles(rows)).toEqual(["Read retry.ts"]);
   expect(rows.find((row) => row.kind === "activity")?.toolCount).toBe(1);
@@ -231,12 +257,20 @@ test("a subagent calling ToolSearch never shows it as what the subagent is doing
   const feed = (update: any, acpmux: Record<string, unknown>) => {
     seq += 1;
     fold.reduce(
-      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      {
+        seq,
+        at: seq * 1000,
+        msg: { method: "session/update", params: { update, _meta: { acpmux } } },
+      },
       update,
     );
   };
-  feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
-  for (const step of call("r-2", "Read", "Read retry.ts", "read")) feed(step.update, { subagent: "a" });
+  feed(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "a", parent: null, name: "Audit" }] },
+  );
+  for (const step of call("r-2", "Read", "Read retry.ts", "read"))
+    feed(step.update, { subagent: "a" });
   for (const step of toolSearch("s-3")) feed(step.update, { subagent: "a" });
   // Claude's progress with no summary names its last tool.
   feed({ sessionUpdate: "subagent_progress" }, { subagents: [{ id: "a", action: "ToolSearch" }] });
@@ -246,10 +280,12 @@ test("a subagent calling ToolSearch never shows it as what the subagent is doing
 
 test("a later call reusing a ToolSearch call's id draws and becomes the action (ids repeat per prompt)", () => {
   // An adapter that numbers calls per process reuses an id in a later prompt (cx-jzhka).
-  const entries = [...toolSearch("same"), ...call("same", "Read", "Read retry.ts", "read")].map((step, index) => ({
-    event: { seq: index + 1, at: 1_000 + index },
-    update: step.update,
-  }));
+  const entries = [...toolSearch("same"), ...call("same", "Read", "Read retry.ts", "read")].map(
+    (step, index) => ({
+      event: { seq: index + 1, at: 1_000 + index },
+      update: step.update,
+    }),
+  );
   expect(titles(childRows("child", entries, new Map(), 1) as Row[])).toEqual(["Read retry.ts"]);
 
   const fold = new SubagentFold();
@@ -257,11 +293,18 @@ test("a later call reusing a ToolSearch call's id draws and becomes the action (
   const feed = (update: any, acpmux: Record<string, unknown>) => {
     seq += 1;
     fold.reduce(
-      { seq, at: seq * 1000, msg: { method: "session/update", params: { update, _meta: { acpmux } } } },
+      {
+        seq,
+        at: seq * 1000,
+        msg: { method: "session/update", params: { update, _meta: { acpmux } } },
+      },
       update,
     );
   };
-  feed({ sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Audit" }] });
+  feed(
+    { sessionUpdate: "subagent_spawned" },
+    { subagents: [{ id: "a", parent: null, name: "Audit" }] },
+  );
   for (const step of toolSearch("same")) feed(step.update, { subagent: "a" });
   for (const step of call("same", "ToolSearch", "ToolSearch", "other")) {
     // An MCP tool titled ToolSearch, no Claude meta: a real call.
