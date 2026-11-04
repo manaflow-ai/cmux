@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_prepush_fast_tier.py"
+lane = "manual"
+reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
+
+[[test]]
 path = "tests/test_ci_fleet_compilation_cache.py"
 lane = "linux-guard"
 

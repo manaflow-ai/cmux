@@ -276,6 +276,17 @@ def main(argv=None) -> int:
             paths, cwd = set(args.paths), None
         else:
             paths, cwd = payload_paths(sys.stdin.read())
+        if any(relative(root, path, cwd) is not None for path in paths):
+            # This timestamp is an observed edit event, not a commit date or worktree mtime.
+            # Keep it local to this worktree so a CI client can measure edit-to-first-signal.
+            import importlib.util
+
+            timing_path = root / "scripts/cmux-next/inner_loop_timing.py"
+            if timing_path.is_file():
+                spec = importlib.util.spec_from_file_location("inner_loop_timing", timing_path)
+                timing = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(timing)
+                timing.record(root, edit=True)
         found = run(root.resolve(), paths, cwd, budget)
     except Exception as error:  # noqa: BLE001 - a post-edit hook is advisory and never fails the edit
         found = [f"post-edit checks could not run ({error})"]
