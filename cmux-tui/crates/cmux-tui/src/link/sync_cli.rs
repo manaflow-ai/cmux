@@ -1215,9 +1215,12 @@ impl Listings {
             Some(Listed::Entries(entries)) => {
                 Ok(entries.as_ref().and_then(|entries| entries.get(name)).cloned())
             }
-            Some(Listed::TooLarge) => Ok(remote.stat(target)?.map(|stat| RemoteEntry {
-                kind: stat["kind"].as_str().unwrap_or_default().to_string(),
-                revision: stat["revision"].as_str().map(str::to_string),
+            Some(Listed::TooLarge) => Ok(remote.stat(target)?.map(|stat| {
+                let text = |key: &str| stat.get(key).and_then(serde_json::Value::as_str);
+                RemoteEntry {
+                    kind: text("kind").unwrap_or_default().to_string(),
+                    revision: text("revision").map(str::to_string),
+                }
             })),
             None => Ok(None),
         }

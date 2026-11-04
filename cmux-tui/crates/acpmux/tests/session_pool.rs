@@ -28,6 +28,8 @@ struct Daemon {
     home: PathBuf,
     socket: PathBuf,
     debounce_ms: u64,
+    /// Spares on (`hub/pool/spare.rs`); the hermetic env turns them off otherwise.
+    spare: bool,
     /// The readiness line of the current run (it has the `webUrl`).
     ready: String,
 }
@@ -52,6 +54,21 @@ impl Daemon {
 
     /// `with_fakeb` with the cmux settings file `settings`, written before the first start.
     fn with_settings(tag: &str, debounce_ms: u64, fakeb: &Value, settings: Option<Value>) -> Self {
+        Self::with_all(tag, debounce_ms, fakeb, settings, false)
+    }
+
+    /// `new` with spares on.
+    fn with_spare(tag: &str) -> Self {
+        Self::with_all(tag, 0, &profile("b"), None, true)
+    }
+
+    fn with_all(
+        tag: &str,
+        debounce_ms: u64,
+        fakeb: &Value,
+        settings: Option<Value>,
+        spare: bool,
+    ) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -61,6 +78,7 @@ impl Daemon {
             socket: home.join("s.sock"),
             home,
             debounce_ms,
+            spare,
             ready: String::new(),
         };
         daemon.write_config(fakeb);
@@ -97,6 +115,7 @@ impl Daemon {
             // warning (a catalog server 404) came on stdout before the ready line.
             .env("ACPMUX_CATALOG_FETCH", "0")
             .env("ACPMUX_LOGIN_ENV", "0")
+            .env("ACPMUX_SPARE_HARNESS", if self.spare { "1" } else { "0" })
             // Each marker file here stalls one agent host's hello (debug
             // builds' seam): `stall_hellos`.
             .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
@@ -1502,4 +1521,103 @@ fn web_request(ready: &Value) -> tokio_tungstenite::tungstenite::handshake::clie
     let mut req = base.replace("http://", "ws://").into_client_request().unwrap();
     req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     req
+}
+
+/// Test polling: wait until the pool's `harness` entry has the spare role and is ready.
+async fn wait_spare_ready(rpc: &mut Rpc, harness: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let status = rpc.call("_acpmux/status", json!({})).await;
+        let ready = status["pool"]["entries"].as_array().unwrap().iter().any(|e| {
+            e["harness"] == harness
+                && e["state"] == "ready"
+                && e["roles"].as_array().is_some_and(|r| r.iter().any(|r| r == "spare"))
+        });
+        if ready {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "no ready {harness} spare: {status}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_new_session_takes_the_spare_of_its_harness_and_the_spare_refills() {
+    let daemon = Daemon::with_spare("spr");
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let (first, cold) = new_session(&mut rpc, &home, "fake").await;
+    assert!(!taken(&daemon, &first), "nothing was pooled yet");
+    wait_spare_ready(&mut rpc, "fake").await;
+    // Hidden like any pooled session: one listed session.
+    let listed = rpc.call("_acpmux/sessions", json!({})).await;
+    assert_eq!(listed["sessions"].as_array().unwrap().len(), 1, "{listed}");
+    let pooled = daemon.pool_records()[0].clone();
+
+    let (second, warm) = new_session(&mut rpc, &home, "fake").await;
+    eprintln!("session/new: cold {cold:?}, spare {warm:?}");
+    assert!(taken(&daemon, &second), "the second session took the spare");
+    assert_runs_on_pooled_host(&daemon, &second, &pooled);
+    // The spare refills in the background, on a new agent.
+    wait_spare_ready(&mut rpc, "fake").await;
+    let refill = daemon.pool_records()[0].clone();
+    assert_ne!(refill["harness_pid"], pooled["harness_pid"], "a fresh spare");
+    let (third, _) = new_session(&mut rpc, &home, "fake").await;
+    assert!(taken(&daemon, &third), "the third session took the refill");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_restarted_daemon_starts_a_spare_for_a_harness_it_used() {
+    let mut daemon = Daemon::with_spare("sprr");
+    let home = daemon.home.clone();
+    {
+        let mut rpc = daemon.rpc().await;
+        new_session(&mut rpc, &home, "fakeb").await;
+        wait_spare_ready(&mut rpc, "fakeb").await;
+        rpc.call("_acpmux/shutdown", json!({})).await;
+    }
+    daemon.wait_exit();
+    assert!(daemon.pool_records().is_empty(), "a spare never outlives its daemon");
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    wait_spare_ready(&mut rpc, "fakeb").await;
+    let (next, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(taken(&daemon, &next), "the first session after the restart took the spare");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spare_whose_agent_died_is_replaced() {
+    let daemon = Daemon::with_spare("sprd");
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    new_session(&mut rpc, &home, "fake").await;
+    wait_spare_ready(&mut rpc, "fake").await;
+    let dead = daemon.pool_records()[0]["harness_pid"].as_i64().unwrap();
+    // SAFETY: the pooled fake agent this test's daemon started.
+    unsafe { libc::kill(dead as i32, libc::SIGKILL) };
+    assert!(gone_within(dead, Duration::from_secs(10)));
+    // The pool's next look (an entry becoming ready or its RSS tick) replaces it; a hint for
+    // another harness makes one now.
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        wait_spare_ready(&mut rpc, "fake").await;
+        let pids: Vec<i64> =
+            daemon.pool_records().iter().filter_map(|r| r["harness_pid"].as_i64()).collect();
+        if !pids.contains(&dead) && pids.len() == 2 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the dead spare was not replaced: {pids:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn with_spares_off_a_session_leaves_no_spare() {
+    let daemon = Daemon::new("spro", 0);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    new_session(&mut rpc, &home, "fake").await;
+    tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS + 500)).await;
+    assert!(daemon.pool_records().is_empty(), "ACPMUX_SPARE_HARNESS=0 starts no spare");
 }
