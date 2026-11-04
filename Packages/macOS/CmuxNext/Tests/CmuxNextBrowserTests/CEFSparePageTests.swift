@@ -214,6 +214,65 @@ import Testing
         #expect(host.lastActivated == link.browserID)
     }
 
+    /// Quit closes every browser (`closeAll`), the waiting spare page among them: its close must not
+    /// ask for a new page, which would arm the warmup's idle wait and timers in a quitting app
+    /// (review of #34252, finding 1). The same close before quit does ask.
+    @Test func theSparePageClosingAtQuitAsksForNoNewPage() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { Self.tearDown(runtime, root) }
+        _ = try Self.liveHost(runtime)
+        let page = try Self.spareWithPage(runtime)
+        let needed = Count()
+        CEFSpareWindow.shared.onNeeded = { needed.value += 1 }
+
+        runtime.state = .shutDown
+        runtime.handle(.beforeClose(browser: page))
+        #expect(CEFSpareWindow.shared.page == nil, "the slot clears")
+        #expect(needed.value == 0, "a quitting app asks for no new spare page")
+    }
+
+    /// Only the spare page's own OnAfterCreated is kept from adoption: a tab Chromium makes itself in
+    /// the spare window inside that `tab_add` (an extension's) still waits there for the first tab that
+    /// takes the window (`CEFSpareWindow.park`), as before (review of #34252, finding 3).
+    @Test func aChromiumTabMadeInsideTheSparePagesTabAddIsStillParked() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { Self.tearDown(runtime, root) }
+        #expect(CEFSpareWindow.shared.prepare(runtime: runtime))
+        let spare = try #require(CEFSpareWindow.shared.host)
+        let request = try #require(runtime.pendingWindows.first { $0.value === spare }?.key)
+        SpareSpy.windows[20] = 2
+        runtime.handle(.afterCreated(browser: 20, request: request, window: 2))
+        SpareSpy.clearRecords()
+
+        SpareSpy.chromiumTabInNextAdd = 77
+        CEFSpareWindow.shared.prepare(runtime: runtime)
+        let page = try #require(SpareSpy.added.first?.browser)
+        #expect(CEFSpareWindow.shared.page?.browser == page)
+        #expect(CEFSpareWindow.shared.takeParked().map(\.browser) == [77], "Chromium's own tab is parked for the take")
+    }
+
+    /// The fork could not move the spare page into the pane's window: the page closes (no page
+    /// lingers in the spare window as a tab nobody owns), and the tab joins with `tab_add`.
+    @Test func aSparePageThatCannotMoveClosesAndTheTabFallsBackToTabAdd() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { Self.tearDown(runtime, root) }
+        let (host, _, container) = try Self.liveHost(runtime)
+        let page = try Self.spareWithPage(runtime)
+        SpareSpy.moveAnswer = 0
+
+        let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+        host.add(link)
+        host.present(link, in: container)
+        host.createDeferred()
+
+        #expect(SpareSpy.moved.map(\.browser) == [page], "it tried to move the page")
+        #expect(SpareSpy.closed == [page], "the page that could not move closes")
+        #expect(SpareSpy.added.map(\.anchor) == [10] && SpareSpy.added.map(\.activate) == [1], "the tab joins with tab_add")
+        #expect(link.browserID == SpareSpy.added.first?.browser && link.browserID != page)
+        #expect(host.lastActivated == link.browserID)
+        #expect(CEFSpareWindow.shared.page == nil)
+    }
+
     // MARK: Fixture
 
     static let address = URL(string: "https://example.com/")!
@@ -307,6 +366,11 @@ private nonisolated enum SpareSpy {
     /// What `cmux_shim_tab_set_frozen` answers (1: the renderer-path freeze took the page).
     nonisolated(unsafe) static var setFrozenAnswer: Int32 = 1
     nonisolated(unsafe) static var forkAPI: Int32 = 27
+    /// What `cmux_shim_tab_move_to_window` answers (0: the fork could not move the tab).
+    nonisolated(unsafe) static var moveAnswer: Int32 = 1
+    /// The next `cmux_shim_tab_add` also gets OnAfterCreated for one browser Chromium makes itself
+    /// in the same window (an extension's tab) before the added tab's: that browser's id.
+    nonisolated(unsafe) static var chromiumTabInNextAdd: Int32?
     nonisolated(unsafe) static weak var runtime: CEFRuntime?
 
     static func reset(forkAPI: Int32 = 27) {
@@ -314,6 +378,8 @@ private nonisolated enum SpareSpy {
         windows = [:]
         nextBrowser = 30
         setFrozenAnswer = 1
+        moveAnswer = 1
+        chromiumTabInNextAdd = nil
         self.forkAPI = forkAPI
         runtime = nil
     }
@@ -339,7 +405,11 @@ private nonisolated enum SpareSpy {
             let window = SpareSpy.windows[anchor] ?? 0
             SpareSpy.windows[browser] = window
             SpareSpy.added.append((anchor, url.map { String(cString: $0) } ?? "", activate, browser))
+            let other = SpareSpy.chromiumTabInNextAdd
+            SpareSpy.chromiumTabInNextAdd = nil
+            if let other { SpareSpy.windows[other] = window }
             MainActor.assumeIsolated {
+                if let other { SpareSpy.runtime?.handle(.afterCreated(browser: other, request: 0, window: window)) }
                 SpareSpy.runtime?.handle(.afterCreated(browser: browser, request: 0, window: window))
             }
             return browser
@@ -347,6 +417,7 @@ private nonisolated enum SpareSpy {
         let tabMove: @convention(c) (Int32, Int32, Int32) -> Int32 = { browser, anchor, _ in
             SpareSpy.moved.append((browser, anchor))
             SpareSpy.log.append("move \(browser)")
+            guard SpareSpy.moveAnswer == 1 else { return 0 }
             SpareSpy.windows[browser] = SpareSpy.windows[anchor] ?? 0
             return 1
         }
