@@ -2228,6 +2228,8 @@ pre.cv-math-source {
   flex: 0 1000 auto;
   min-width: 0;
   max-width: 100%;
+  /* Squeezed past its words, it clips its own clock too, never drawing it over the counts. */
+  overflow: hidden;
 }
 .cv-shimmer__base {
   display: block;

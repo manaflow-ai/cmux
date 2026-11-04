@@ -52,6 +52,11 @@ const lineFitsNarrow = async (ctx: PlayContext) => {
         `${parts[i - 1]!.className} ends at ${before.right}, over ${parts[i]!.className} at ${after.left}`,
       );
   }
+  const words = line.querySelector<HTMLElement>(".cv-shimmer__row");
+  const time = line.querySelector<HTMLElement>(".cv-worked__time");
+  const next = time && words?.nextElementSibling;
+  if (time && next && time.getBoundingClientRect().right > next.getBoundingClientRect().left + 0.5)
+    throw new Error(`the turn's time "${time.textContent}" runs over ${next.className}`);
   for (const count of line.querySelectorAll<HTMLElement>(".cv-worked__count"))
     if (count.scrollWidth > count.clientWidth + 0.5)
       throw new Error(`"${count.textContent}" is cut while the line's words still have room`);
@@ -85,6 +90,12 @@ export default agentPaneEntry({
     narrow: {
       note: "#35021: a described Bash running for minutes, with the turn's tokens, hovered on a narrow pane. The words end in an ellipsis; the time, the tokens and the hint each keep their room, never drawn over each other.",
       snapshot: running("claude", true, described, 3_900),
+      checks: {
+        layoutShiftMax: {
+          value: 0.02,
+          reason: "On hover the hint takes its room at the line's end (Leo, 2026-10-24) and the words give way to it.",
+        },
+      },
       play: lineFitsNarrow,
     },
     backgrounded: {
