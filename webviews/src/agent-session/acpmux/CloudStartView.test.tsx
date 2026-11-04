@@ -225,7 +225,7 @@ test("row state words are screen-reader only, hidden by the card's own sheet", a
   const css = await Bun.file(new URL("./cloudStart.css", import.meta.url)).text();
   expect(css).toMatch(/\.acpmux-cloud-start \.visually-hidden\s*\{[^}]*clip: rect\(0 0 0 0\)/);
   const html = renderToStaticMarkup(
-    <CloudStartView start={{ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }} />,
+    <CloudStartView start={{ key: "k", task: "hi", state: "failed", step: "opening", machineStartedAt: 1_000 }} />,
   );
   expect(html).toContain('<span class="visually-hidden">');
 });
