@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { AgentMark, MonogramMark } from "../../agent-session/shared/AgentMark";
+import { AgentMark } from "../../agent-session/shared/AgentMark";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
 import { canImport, type HistoryRow, type ImportHistoryStore, type Origin } from "./model";
@@ -140,7 +140,11 @@ function SourceRow({
               agent={markFor(row.id, row.title)}
               size={24}
               label={title}
-              fallback={<MonogramMark name={title} size={24} label={title} />}
+              fallback={
+                <span role="img" aria-label={title}>
+                  {title.charAt(0)}
+                </span>
+              }
             />
           </span>
           {row.kind === "zip" && !row.detected ? (
