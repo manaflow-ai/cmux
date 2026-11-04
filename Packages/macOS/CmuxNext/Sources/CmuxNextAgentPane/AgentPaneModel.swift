@@ -100,6 +100,12 @@ public final class AgentPaneModel {
     @ObservationIgnored private var handoffSession: String?
     /// Shared web owns each compose's warm request; native only forwards it to Rust.
     @ObservationIgnored public var onCloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
+    /// The one speculative Cloud lease this pane may own before its first chat. The page may
+    /// retry the same compose key, but a second key must release the first one first.
+    @ObservationIgnored private var cloudReservationComposeKey: String?
+
+    /// Whether a Cloud start may bind the pane's currently live reservation.
+    func ownsCloudReservation(_ key: String) -> Bool { cloudReservationComposeKey == key }
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
@@ -587,10 +593,31 @@ public final class AgentPaneModel {
                                        },
                                        localRequest: onCloudRepositoryLocal)
         case .cloudReservation(let request):
-            guard !remoteChat, request.release || sessionId == nil, let onCloudReservation else {
+            guard !remoteChat, request.release || sessionId == nil else {
                 return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
             }
-            return await onCloudReservation(request)
+            guard let composeKey = request.composeKey, !composeKey.isEmpty,
+                  let onCloudReservation else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            if request.release {
+                // Release is idempotent: a late page cleanup for an already-cleared key is harmless.
+                guard cloudReservationComposeKey == composeKey else { return AgentPaneReply.success() }
+                let reply = await onCloudReservation(request)
+                if reply["ok"] as? Bool == true { cloudReservationComposeKey = nil }
+                return reply
+            }
+            if let current = cloudReservationComposeKey, current != composeKey {
+                return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+            }
+            // Picking Cloud is a page gesture recorded by the native pane. A retry of the same
+            // live key is already native-owned and need not spend another gesture credit.
+            guard cloudReservationComposeKey == composeKey || transport.gestures.isAvailable else {
+                return Self.transportFailure(.gestureRequired)
+            }
+            let reply = await onCloudReservation(request)
+            if reply["ok"] as? Bool == true { cloudReservationComposeKey = composeKey }
+            return reply
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
             if request.action == "update", !transport.gestures.consume() {
@@ -698,6 +725,7 @@ public final class AgentPaneModel {
         guard id != sessionId else { return }
         if sessionId != nil { droppedPaths.clearForSessionChange() }
         sessionId = id
+        cloudReservationComposeKey = nil
         newTab = nil
         onQuestionKeySessionChange?()
         onSessionChange?(id)

@@ -7,6 +7,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     public static let methods: Set<String> = ["cloud.reserve", "cloud.releaseReservation"]
     public let release: Bool
     public let params: JSONValue
+    public let composeKey: String?
 
     init?(method: String, params: [String: Any]?) {
         guard Self.methods.contains(method),
@@ -14,6 +15,7 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
               let params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
         release = method == "cloud.releaseReservation"
         self.params = params
+        composeKey = params["composeKey"]?.stringValue
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust.

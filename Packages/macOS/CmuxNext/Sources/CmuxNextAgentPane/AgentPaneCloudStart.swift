@@ -214,6 +214,12 @@ struct AgentPaneHandOff {
     private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        if let reservationKey = start.reservationKey,
+           !model.ownsCloudReservation(reservationKey) {
+            // A page cannot attach a lease owned by another compose or pane. The native model is
+            // the source of truth for the one live reservation; page state is only a hand-off hint.
+            return AgentPaneReply.failure(code: "unavailable_now", message: "unavailable_now")
+        }
         guard AgentPaneCloudAttachments(start.attachments) != nil else {
             return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
         }

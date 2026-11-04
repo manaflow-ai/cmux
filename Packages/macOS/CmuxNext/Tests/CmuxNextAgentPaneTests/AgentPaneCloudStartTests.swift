@@ -398,6 +398,37 @@ struct AgentPaneCloudReservationTests {
         #expect(requests.count == 2)
     }
 
+    @Test func reservationNeedsACloudPickGestureAndStaysSinglePerPane() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        var requests: [AgentPaneCloudReservationRequest] = []
+        model.onCloudReservation = { request in
+            requests.append(request)
+            return ["ok": true]
+        }
+        let first = UUID().uuidString
+        let second = UUID().uuidString
+        let noGesture = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": first],
+        ]))
+        #expect((noGesture["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
+
+        model.transport.gestures.record()
+        let reserved = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": first],
+        ]))
+        #expect(reserved["ok"] as? Bool == true)
+        let duplicate = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": second],
+        ]))
+        #expect((duplicate["error"] as? [String: Any])?["code"] as? String == "unavailable_now")
+        #expect(requests.map(\.composeKey) == [first])
+
+        let released = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.releaseReservation", "params": ["composeKey": first],
+        ]))
+        #expect(released["ok"] as? Bool == true)
+    }
+
     @Test func sendForwardsOnlyAValidReservationKey() throws {
         let reservation = UUID().uuidString
         let ticket = UUID().uuidString
