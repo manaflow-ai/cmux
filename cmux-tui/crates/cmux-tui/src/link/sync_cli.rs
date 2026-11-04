@@ -86,10 +86,14 @@ struct Manifest {
     links: BTreeMap<String, Linked>,
 }
 
-/// A symlink the sync keeps: its text, relative and inside the folder.
+/// A symlink the sync keeps: its text on the machine, relative and inside
+/// the folder, and this Mac's own text when that differs (an absolute one
+/// the push wrote relative), which is what a pull compares this Mac's with.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Linked {
     target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    here: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,7 +249,7 @@ pub(super) fn pull_back(
             error: format!("{} is in a git working copy now", local.display()),
         };
     }
-    match pull::pull_kept(socket, local, remote_root, keep_new) {
+    match pull::pull_kept(socket, local, remote_root, keep_new, false) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
         Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
@@ -495,8 +499,8 @@ fn push_inner(
     }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
-    // The manifest's own name is never pushed over it.
-    if set.files.remove(manifest_name).is_some() {
+    // The manifest's own name is never pushed over it, as a file or a symlink.
+    if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);
     }
     set.skips.unnamed(set.skipped);
@@ -545,7 +549,7 @@ fn push_inner(
     // A symlink this push made that is gone here (or points elsewhere now)
     // goes, while the machine still has it as this push left it.
     for (relative, linked) in &previous.links {
-        if set.links.get(relative) == Some(&linked.target) {
+        if set.links.get(relative).map(|kept| &kept.target) == Some(&linked.target) {
             continue;
         }
         let target = format!("{remote_root}/{relative}");
@@ -599,16 +603,16 @@ fn push_inner(
         }
     }
 
-    for (relative, text) in &set.links {
+    for (relative, kept) in &set.links {
         let target = format!("{remote_root}/{relative}");
-        match links.place(&mut remote, &target, text)? {
+        match links.place(&mut remote, &target, &kept.target)? {
             Placed::Made => {
                 summary.written += 1;
-                next.links.insert(relative.clone(), Linked { target: text.clone() });
+                next.links.insert(relative.clone(), kept.clone());
             }
             Placed::Already => {
                 summary.unchanged += 1;
-                next.links.insert(relative.clone(), Linked { target: text.clone() });
+                next.links.insert(relative.clone(), kept.clone());
             }
             Placed::Skipped(why) => set.skips.note(relative, why),
         }

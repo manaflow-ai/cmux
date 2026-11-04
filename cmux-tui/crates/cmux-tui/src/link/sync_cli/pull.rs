@@ -102,17 +102,19 @@ struct Planned {
 }
 
 pub(super) fn pull(socket: &Path, local: &Path, remote_root: &str) -> anyhow::Result<Pulled> {
-    pull_kept(socket, local, remote_root, &|_| true)
+    pull_kept(socket, local, remote_root, &|_| true, true)
 }
 
 /// A pull that also leaves on the machine (and counts as skipped) every new
 /// file of the machine `keep_new` refuses, by its path relative to the
-/// folder: `cmux link access` never takes secret files back.
+/// folder: `cmux link access` never takes secret files back. Without
+/// `links_ok` a symlink is never made here (that copy pushed files only).
 pub(super) fn pull_kept(
     socket: &Path,
     local: &Path,
     remote_root: &str,
     keep_new: &dyn Fn(&str) -> bool,
+    links_ok: bool,
 ) -> anyhow::Result<Pulled> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
@@ -161,6 +163,30 @@ pub(super) fn pull_kept(
             .filter(|path| !fenced.iter().any(|folder| names::folded_within(path, folder))),
     );
     paths.extend(found.keys());
+    // Every symlink of the machine's, read once: a text is checked through
+    // these and this Mac's own, so a chain of links never climbs out.
+    let mut machine_links: BTreeMap<String, Option<String>> = BTreeMap::new();
+    if links_ok {
+        for (relative, kind) in &found {
+            if matches!(kind, Found::Link) {
+                let target = format!("{remote_root}/{relative}");
+                let text = machine_link(&mut remote, &target, &mut symlinks_served)?;
+                machine_links.insert(relative.clone(), text);
+            }
+        }
+    }
+    let links_at = |path: &str| -> Vec<String> {
+        let mut texts: Vec<String> =
+            machine_links.get(path).cloned().flatten().into_iter().collect();
+        let here = local.join(path);
+        if std::fs::symlink_metadata(&here).is_ok_and(|meta| meta.file_type().is_symlink())
+            && let Some(text) =
+                std::fs::read_link(&here).ok().and_then(|text| text.to_str().map(str::to_string))
+        {
+            texts.push(text);
+        }
+        texts
+    };
     for relative in paths {
         let base = manifest.files.get(relative);
         let pushed_link = manifest.links.get(relative);
@@ -171,13 +197,23 @@ pub(super) fn pull_kept(
             (None, Some(linked)) => Side::Link(linked.target.clone()),
             (None, None) => Side::Missing,
         };
+        // This Mac's own text of a link the push wrote relative.
+        let pushed_here = match pushed_link.and_then(|linked| linked.here.clone()) {
+            Some(text) if base.is_none() => Side::Link(text),
+            _ => pushed_side.clone(),
+        };
         let target = format!("{remote_root}/{relative}");
         let (machine, staged) = match found.get(relative) {
             None => (Side::Missing, None),
             Some(Found::Other) => (Side::Other, None),
-            Some(Found::Link) => match machine_link(&mut remote, &target, &mut symlinks_served)? {
-                // Only a text that stays inside by its own words comes back.
-                Some(text) if links::resolve(links::parent_of(relative), &text).is_some() => {
+            Some(Found::Link) if !links_ok => (Side::Other, None),
+            Some(Found::Link) => match machine_links.get(relative).cloned().flatten() {
+                // Only a text that stays inside, through every link on its
+                // way on either side, comes back.
+                Some(text)
+                    if links::resolve(links::parent_of(relative), &text).is_some()
+                        && links::reaches_inside(links::parent_of(relative), &text, &links_at) =>
+                {
                     (Side::Link(text), None)
                 }
                 Some(text) => {
@@ -212,7 +248,7 @@ pub(super) fn pull_kept(
                 Side::Link(text) => Step::SettleLink(text.clone()),
                 _ => Step::Settle(staged.map(|staged| staged.pushed())),
             }
-        } else if here != pushed_side {
+        } else if here != pushed_here {
             conflicts.push(relative.clone());
             continue;
         } else {
@@ -366,7 +402,7 @@ fn apply(
                 transaction.link(&step.relative, &text)?;
                 written += 1;
                 next.files.remove(&step.relative);
-                next.links.insert(step.relative, Linked { target: text });
+                next.links.insert(step.relative, Linked { target: text, here: None });
             }
             Step::Settle(Some(pushed)) => {
                 next.links.remove(&step.relative);
@@ -378,7 +414,7 @@ fn apply(
             }
             Step::SettleLink(text) => {
                 next.files.remove(&step.relative);
-                next.links.insert(step.relative, Linked { target: text });
+                next.links.insert(step.relative, Linked { target: text, here: None });
             }
         }
     }

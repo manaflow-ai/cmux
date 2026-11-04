@@ -60,8 +60,8 @@ pub(super) struct LocalFile {
 /// The files to push and what was skipped.
 pub(super) struct LocalSet {
     pub files: BTreeMap<String, LocalFile>,
-    /// Symlinks kept as symlinks ([`super::links`]): their text by path.
-    pub links: BTreeMap<String, String>,
+    /// Symlinks kept as symlinks ([`super::links`]), by path.
+    pub links: BTreeMap<String, super::Linked>,
     /// Skips counted without a name.
     pub skipped: u64,
     /// Skips named with why.
@@ -459,8 +459,8 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
             match super::links::local(set.skips.top(), &relative, path)
                 .with_context(|| format!("cannot read {}", path.display()))?
             {
-                super::links::Local::Keep(target) => {
-                    set.links.insert(relative, target);
+                super::links::Local::Keep(kept) => {
+                    set.links.insert(relative, kept);
                 }
                 super::links::Local::Skip(why) => set.skips.note(&relative, why),
             }

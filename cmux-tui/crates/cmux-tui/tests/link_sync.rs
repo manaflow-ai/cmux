@@ -1200,3 +1200,35 @@ fn a_symlink_changed_on_both_sides_is_a_conflict_that_changes_nothing() {
     assert_eq!(pulled["conflicts"], json!(["lib"]), "{pulled}");
     assert_eq!(std::fs::read_link(folder.join("lib")).unwrap(), Path::new("src/b.txt"));
 }
+
+/// A link named like the sync record never goes (the record would be
+/// written through it), and a machine link that climbs out through another
+/// link stays there, though its own words stay inside.
+#[test]
+fn a_link_over_the_record_or_out_through_another_link_stays() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let folder = root.join("site");
+    std::fs::create_dir_all(folder.join("src")).unwrap();
+    std::fs::write(folder.join("src/a.txt"), "a\n").unwrap();
+    std::os::unix::fs::symlink("src/a.txt", folder.join(".cmux-sync.json")).unwrap();
+    let (_sockets, socket, home) = machine_home(&root);
+    serve_fs(&socket, &home);
+    let remote = home.join("work/site");
+
+    let (ok, summary, _) = push_output(&socket, &folder, &remote);
+    assert!(ok, "{summary}");
+    assert_eq!(skipped_by_path(&summary)[".cmux-sync.json"], "the name of the sync record");
+    assert_eq!(std::fs::read_to_string(folder.join("src/a.txt")).unwrap(), "a\n");
+    assert!(!std::fs::symlink_metadata(remote.join(".cmux-sync.json")).unwrap().is_symlink());
+    std::fs::remove_file(folder.join(".cmux-sync.json")).unwrap();
+
+    // `src/up -> ..` is inside; `leak` climbs out through it.
+    std::os::unix::fs::symlink("..", remote.join("src/up")).unwrap();
+    std::os::unix::fs::symlink("src/up/../../outside", remote.join("leak")).unwrap();
+    let (ok, pulled) = pull(&socket, &folder, &remote);
+    assert!(ok, "{pulled}");
+    assert_eq!(std::fs::read_link(folder.join("src/up")).unwrap(), Path::new(".."));
+    assert!(std::fs::symlink_metadata(folder.join("leak")).is_err(), "{pulled}");
+    assert_eq!(skipped_by_path(&pulled)["leak"], "a symlink (to a place outside the folder)");
+}

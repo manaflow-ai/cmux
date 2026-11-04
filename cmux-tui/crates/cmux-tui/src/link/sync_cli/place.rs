@@ -378,8 +378,18 @@ impl Transaction {
         let aside =
             self.move_aside(&dir, &name).with_context(|| format!("cannot move {relative}"))?;
         let from = if aside.in_staging { &self.staging } else { &dir };
-        let found = from.read_link(&aside.name);
-        if found.as_deref().ok() == Some(text) {
+        let found = match from.read_link(&aside.name) {
+            Ok(found) => found,
+            // Not a symlink any more (saved over since the look): back it goes
+            // as it is, or it stays aside for roll back.
+            Err(error) => {
+                if self.put_back(&dir, &name, &aside).is_err() {
+                    self.undo.push(Undo::Removed { relative: relative.into(), aside });
+                }
+                return Err(anyhow::Error::from(error).context(Changed(relative.into())));
+            }
+        };
+        if found == text {
             self.undo.push(Undo::RemovedLink {
                 relative: relative.into(),
                 aside,
@@ -389,12 +399,8 @@ impl Transaction {
             return Ok(());
         }
         // Not the one planned: back it goes, or it stays aside for roll back.
-        match found {
-            Ok(found) if self.put_back_link(&dir, &name, &aside, &found).is_ok() => {}
-            Ok(found) => {
-                self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found })
-            }
-            Err(error) => return Err(error.into()),
+        if self.put_back_link(&dir, &name, &aside, &found).is_err() {
+            self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
         }
         Err(Changed(relative.into()).into())
     }

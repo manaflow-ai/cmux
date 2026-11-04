@@ -13,16 +13,23 @@
 //! by its own words comes back, and nothing here ever writes through a
 //! symlink ([`super::place`]).
 
+use std::collections::VecDeque;
 use std::path::Path;
 
+use super::Linked;
 use super::names;
 use super::skips::Why;
+
+/// Most symlinks one check follows (Linux's `MAXSYMLINKS`).
+const MAX_HOPS: usize = 40;
+/// Most steps one check takes over every branch it follows.
+const MAX_STEPS: usize = 4096;
 
 /// What a push does with the symlink at a path of this Mac's folder.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Local {
-    /// Kept, with this text.
-    Keep(String),
+    /// Kept: the text the machine gets, and this Mac's own when it differs.
+    Keep(Linked),
     Skip(Why),
 }
 
@@ -41,9 +48,78 @@ pub(super) fn local(top: &Path, relative: &str, path: &Path) -> std::io::Result<
     }
     let parent = parent_of(relative);
     if !text.starts_with('/') && resolve(parent, text).is_some() {
-        return Ok(Local::Keep(text.to_string()));
+        return Ok(Local::Keep(Linked { target: text.to_string(), here: None }));
     }
-    Ok(Local::Keep(relative_from(parent, below)))
+    Ok(Local::Keep(Linked { target: relative_from(parent, below), here: Some(text.to_string()) }))
+}
+
+/// Whether the link text `text` in the folder `parent` stays inside the top
+/// when every symlink on its way is followed: `links_at(path)` names the
+/// texts of the symlinks at `path` (relative to the top) on either side,
+/// and each one met is followed (all of them, when the sides differ). An
+/// absolute text, a climb above the top, a repository folder, too many hops
+/// or too many steps is outside. A path with no symlink counts as a folder.
+pub(super) fn reaches_inside(
+    parent: &str,
+    text: &str,
+    links_at: &dyn Fn(&str) -> Vec<String>,
+) -> bool {
+    let stack: Vec<String> =
+        parent.split('/').filter(|part| !part.is_empty()).map(str::to_string).collect();
+    let mut steps = 0;
+    walk(stack, parts_of(text), 0, links_at, &mut steps)
+}
+
+fn parts_of(text: &str) -> Option<VecDeque<String>> {
+    if text.is_empty() || text.starts_with('/') || text.chars().any(char::is_control) {
+        return None;
+    }
+    Some(text.split('/').map(str::to_string).collect())
+}
+
+fn walk(
+    mut stack: Vec<String>,
+    pending: Option<VecDeque<String>>,
+    hops: usize,
+    links_at: &dyn Fn(&str) -> Vec<String>,
+    steps: &mut usize,
+) -> bool {
+    let Some(mut pending) = pending else { return false };
+    while let Some(part) = pending.pop_front() {
+        *steps += 1;
+        if *steps > MAX_STEPS {
+            return false;
+        }
+        match part.as_str() {
+            "" | "." => continue,
+            ".." => {
+                if stack.pop().is_none() {
+                    return false;
+                }
+                continue;
+            }
+            name if names::is_dotgit(name) => return false,
+            _ => {}
+        }
+        let mut here = stack.clone();
+        here.push(part);
+        let texts = links_at(&here.join("/"));
+        if texts.is_empty() {
+            stack = here;
+            continue;
+        }
+        if hops >= MAX_HOPS {
+            return false;
+        }
+        return texts.iter().all(|text| {
+            let spliced = parts_of(text).map(|mut parts| {
+                parts.extend(pending.iter().cloned());
+                parts
+            });
+            walk(stack.clone(), spliced, hops + 1, links_at, steps)
+        });
+    }
+    true
 }
 
 /// The folder part of `relative` (empty at the top).
@@ -114,6 +190,29 @@ mod tests {
         assert_eq!(resolve("", "a\nb"), None);
     }
 
+    /// Chained links are followed: `src/up -> ..` makes
+    /// `src/up/../../x` climb out, though its words alone stay inside.
+    #[test]
+    fn a_text_through_other_links_is_followed() {
+        let links = |path: &str| -> Vec<String> {
+            match path {
+                "src/up" => vec!["..".into()],
+                "lib" => vec!["src".into()],
+                "two" => vec!["src".into(), "/etc".into()],
+                "loop" => vec!["loop".into()],
+                _ => Vec::new(),
+            }
+        };
+        assert_eq!(resolve("", "src/up/../../x").as_deref(), Some("x"));
+        assert!(!reaches_inside("", "src/up/../../x", &links));
+        assert!(reaches_inside("", "src/up/x", &links));
+        assert!(reaches_inside("a", "../lib/a.txt", &links));
+        assert!(!reaches_inside("", "two/a", &links));
+        assert!(!reaches_inside("", "loop", &links));
+        assert!(!reaches_inside("", "/etc", &links));
+        assert!(!reaches_inside("", "lib/../.git", &links));
+    }
+
     #[test]
     fn a_target_is_named_relative_from_the_links_folder() {
         assert_eq!(relative_from("", "src/a"), "src/a");
@@ -133,9 +232,13 @@ mod tests {
             std::os::unix::fs::symlink(target, top.join(name)).unwrap();
             local(&top, name, &top.join(name)).unwrap()
         };
-        assert_eq!(link("rel", Path::new("src/a.txt")), Local::Keep("src/a.txt".into()));
-        assert_eq!(link("abs", &top.join("src/deep")), Local::Keep("src/deep".into()));
-        assert_eq!(link("src/up", Path::new("../src/a.txt")), Local::Keep("../src/a.txt".into()));
+        let kept = |target: &str, here: Option<&str>| {
+            Local::Keep(Linked { target: target.into(), here: here.map(str::to_string) })
+        };
+        assert_eq!(link("rel", Path::new("src/a.txt")), kept("src/a.txt", None));
+        let abs = top.join("src/deep");
+        assert_eq!(link("abs", &abs), kept("src/deep", abs.to_str()));
+        assert_eq!(link("src/up", Path::new("../src/a.txt")), kept("../src/a.txt", None));
         assert_eq!(link("out", Path::new("/etc")), Local::Skip(Why::SymlinkOutside));
         assert_eq!(link("climb", Path::new("../..")), Local::Skip(Why::SymlinkOutside));
         assert_eq!(link("gone", Path::new("nothing")), Local::Skip(Why::SymlinkBroken));
