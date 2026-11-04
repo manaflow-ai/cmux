@@ -30,6 +30,7 @@ struct HostBrowserSignInFlowHarness {
 
     init(
         user: CMUXAuthUser? = nil,
+        hasCachedTokens: Bool = false,
         browserAttemptTimeout: TimeInterval = 5 * 60,
         slowSignInThreshold: TimeInterval = 30,
         clock: (any Clock<Duration>)? = nil,
@@ -49,9 +50,11 @@ struct HostBrowserSignInFlowHarness {
         let client = FlowFakeAuthClient(user: user, store: tokenStore)
         let openedURLRecorder = OpenedURLRecorder()
         openedURLRecorder.openSucceeds = openSucceeds
+        let sessionCache = CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens")
+        sessionCache.setHasTokens(hasCachedTokens)
         let coordinator = AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            sessionCache: sessionCache,
             userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
             teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
             anchor: FakeAnchor(),

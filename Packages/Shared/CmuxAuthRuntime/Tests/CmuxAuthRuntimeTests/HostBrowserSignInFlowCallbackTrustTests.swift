@@ -93,6 +93,40 @@ import Testing
         #expect(harness.flow.lastFailure == nil)
     }
 
+    @Test func duplicateOfAKeptStateCallbackStaysSilentWhileTheFirstCompletes() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        let attempt = Task { await harness.flow.signIn(timeout: 60) }
+        await harness.waitForSession()
+        let session = harness.factory.sessions[0]
+        let callback = harness.callbackURL(state: harness.callbackState(session))
+        // The popup ended, so no attempt is open and the state is only kept.
+        session.deliver(.cancelled(reason: "canceled_login"))
+        #expect(await attempt.value == false)
+        await harness.client.closeUserGate()
+        let first = Task { await harness.flow.handleCallbackURL(callback) }
+        await harness.waitForPendingUserRequest()
+
+        #expect(await harness.flow.handleCallbackURL(callback) == false)
+        #expect(harness.flow.lastFailure == nil)
+
+        await harness.client.openUserGate()
+        #expect(await first.value)
+        #expect(harness.flow.lastFailure == nil)
+    }
+
+    @Test func staleCallbackDuringSessionRestoreStaysSilent() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user, hasCachedTokens: true)
+        #expect(harness.coordinator.isRestoringSession)
+        #expect(harness.coordinator.isAuthenticated == false)
+
+        // The restore may still sign in; a failure set now would outlive it.
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: "older-tab")) == false)
+
+        #expect(harness.flow.lastFailure == nil)
+    }
+
     @Test func staleCallbackKeepsAFailureAlreadyRecorded() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)

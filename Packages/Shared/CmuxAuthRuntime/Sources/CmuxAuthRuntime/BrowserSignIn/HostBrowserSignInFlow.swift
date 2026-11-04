@@ -64,6 +64,8 @@ public final class HostBrowserSignInFlow {
     /// Reports when the quiet period after a sign-out has ended; nil before
     /// any sign-out. See ``recordStaleCallbackFailure()``.
     @ObservationIgnored private var signOutQuietPeriodEnded: (@Sendable () -> Bool)?
+    /// Callbacks being validated now; a browser can deliver the same one twice.
+    @ObservationIgnored private var callbackCompletionsInFlight = 0
     /// Pending waits before rate-limited completions retry, keyed by epoch.
     /// Sign-out and a replacing attempt cancel every one, so no stale wait
     /// lingers or retries beside the new attempt.
@@ -565,6 +567,8 @@ public final class HostBrowserSignInFlow {
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
     private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
+        callbackCompletionsInFlight += 1
+        defer { callbackCompletionsInFlight -= 1 }
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
@@ -702,11 +706,16 @@ public final class HostBrowserSignInFlow {
     /// signed-out user who just finished in the browser must be told, or the
     /// app looks like it ignored them.
     ///
-    /// Stays silent while signed in (an older tab), during an attempt or an
-    /// earlier failure (those decide what the user sees), and for as long as
-    /// a pre-sign-out state could live: that tab is the user backing out.
+    /// Stays silent while signed in or restoring a session (an older tab),
+    /// during an attempt, another callback's completion or an earlier failure
+    /// (those decide what the user sees), and for as long as a pre-sign-out
+    /// state could live: that tab is the user backing out.
     private func recordStaleCallbackFailure() {
-        guard !coordinator.isAuthenticated, activeAttemptID == nil, lastFailure == nil else { return }
+        guard !coordinator.isAuthenticated,
+              !coordinator.isRestoringSession,
+              activeAttemptID == nil,
+              callbackCompletionsInFlight == 0,
+              lastFailure == nil else { return }
         if let quietPeriodEnded = signOutQuietPeriodEnded {
             guard quietPeriodEnded() else { return }
             signOutQuietPeriodEnded = nil
