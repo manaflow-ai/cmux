@@ -8,7 +8,7 @@ import UIKit
 /// short title never draws as a circle (a 44 pt label height inside a glass
 /// button made "Retry" about 60 x 58 pt, a circle in loading pages).
 @MainActor @Suite struct RetryButtonShapeTests {
-    nonisolated static let sizes: [DynamicTypeSize] = [.small, .large, .xxxLarge]
+    nonisolated static let sizes: [DynamicTypeSize] = [.small, .large, .xxxLarge, .accessibility3]
 
     private func size(_ view: some View, _ type: DynamicTypeSize) -> CGSize {
         let host = UIHostingController(rootView: view.dynamicTypeSize(type))
@@ -26,6 +26,13 @@ import UIKit
         // SPEC 4.1 inline capsule: 40 pt drawn in a 44 pt target, never taller.
         let fitted = size(RetryButton {}, .large)
         #expect(fitted.height <= 44, "Retry is \(fitted.height) pt tall")
+    }
+
+    @Test func retryGrowsWithAccessibilityTextInsteadOfClipping() {
+        // Its title at AX3 is taller than 40 pt; the capsule holds it.
+        let large = size(RetryButton {}, .large)
+        let ax = size(RetryButton {}, .accessibility3)
+        #expect(ax.height > large.height, "Retry is \(ax.height) pt tall at AX3")
     }
 }
 #endif
