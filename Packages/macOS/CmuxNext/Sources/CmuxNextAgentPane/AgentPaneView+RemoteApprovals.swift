@@ -22,8 +22,9 @@ extension AgentPaneView {
 
     /// Peer-route approvals: a peer of this Mac's agent daemon did not count this Mac's allow.
     /// Not enrolled there: the notice names the peer and offers to enroll this Mac (`acpmux host
-    /// approvals enroll`); the person then chooses Allow once again. Not a one-time allow: the
-    /// notice says only those work. A new reason replaces the notice; the same one keeps it (an
+    /// approvals enroll`); the person then chooses Allow once again. An Always allow: the notice
+    /// says only Allow once and Deny work. An allow this Mac could not sign (``AgentPanePeerApprovals``)
+    /// says why, plainly, and what to do. A new reason replaces the notice; the same one keeps it (an
     /// enroll may be running); nil (a later answer counted) removes a peer notice.
     func showPeerApprovalsOff(_ reason: AgentPanePeerApprovals?) {
         guard let reason else {
@@ -41,6 +42,14 @@ extension AgentPaneView {
                                 button: enroll == nil ? nil : Self.peerApprovalsEnroll, action: enroll)
         case .onceOnly:
             showApprovalsNotice(title: Self.peerApprovalsOnceOnly, detail: nil, button: nil, action: nil)
+        case .notes:
+            showApprovalsNotice(title: Self.peerApprovalsNotes, detail: nil, button: nil, action: nil)
+        case .notClicked:
+            showApprovalsNotice(title: Self.peerApprovalsNotClicked, detail: nil, button: nil, action: nil)
+        case .noApproverKey:
+            showApprovalsNotice(title: Self.peerApprovalsNoKeyTitle, detail: Self.peerApprovalsNoKeyDetail, button: nil, action: nil)
+        case .notRecorded:
+            showApprovalsNotice(title: Self.peerApprovalsNotRecorded, detail: nil, button: nil, action: nil)
         }
     }
 

@@ -641,8 +641,9 @@ pub struct State {
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
     pub(crate) terminal_catalog_by_runtime:
         crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
-    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
-    pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
+    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs). Copy-on-write and published with the
+    /// routes, so the live-terminal lookup reads it with no lock (R-DAEMON-STATE stage S1).
+    pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
