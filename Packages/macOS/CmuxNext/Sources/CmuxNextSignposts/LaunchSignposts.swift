@@ -106,9 +106,6 @@ public nonisolated struct LaunchSignposts: Sendable {
         /// The first `ghostty_surface_new` (`TerminalFirstSurfaceSplit`): the font grid, the
         /// renderer and its thread of the first terminal, on main.
         case firstSurfaceNew = 34
-        /// The terminal's launch prefetch (`TerminalLaunchPrefetch`): the Metal device and the
-        /// terminal's fonts, on their own launch thread.
-        case terminalPrefetch = 35
 
         /// The step's signpost name.
         public var name: StaticString {
@@ -116,7 +113,6 @@ public nonisolated struct LaunchSignposts: Sendable {
             case .ghosttyInit: "launch.ghostty_init"
             case .ghosttyAppNew: "launch.ghostty_app_new"
             case .firstSurfaceNew: "launch.first_surface_new"
-            case .terminalPrefetch: "launch.terminal_prefetch"
             }
         }
 

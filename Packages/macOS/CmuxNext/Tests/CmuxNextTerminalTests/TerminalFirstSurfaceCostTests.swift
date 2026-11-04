@@ -50,35 +50,4 @@ struct TerminalFirstSurfaceCostTests {
         #expect(codes == [1, 2, 3, 4, 5, 6, 7])
         #expect(TerminalTimings.RuntimePhase.traceCode(of: "unknown") == 0)
     }
-
-    @Test("The prefetch opens the device Ghostty renders on (Device.zig chooseDevice)")
-    func preferredDeviceMatchesGhostty() {
-        typealias Traits = TerminalLaunchPrefetch.DeviceTraits
-        let discrete = Traits(isHeadless: false, isRemovable: false, isLowPower: false)
-        let integrated = Traits(isHeadless: false, isRemovable: false, isLowPower: true)
-        let egpu = Traits(isHeadless: false, isRemovable: true, isLowPower: false)
-        let headless = Traits(isHeadless: true, isRemovable: false, isLowPower: true)
-        #expect(TerminalLaunchPrefetch.preferredDevice([]) == nil)
-        #expect(TerminalLaunchPrefetch.preferredDevice([headless]) == nil)
-        #expect(TerminalLaunchPrefetch.preferredDevice([discrete]) == 0)
-        #expect(TerminalLaunchPrefetch.preferredDevice([discrete, integrated]) == 1, "low power wins over discrete")
-        #expect(TerminalLaunchPrefetch.preferredDevice([integrated, discrete]) == 0, "the first low-power device is taken")
-        #expect(TerminalLaunchPrefetch.preferredDevice([egpu, integrated]) == 0, "an eGPU is taken at once")
-        #expect(TerminalLaunchPrefetch.preferredDevice([discrete, headless]) == 0, "a headless device never")
-        #expect(TerminalLaunchPrefetch.preferredDevice([headless, discrete]) == 1)
-    }
-
-    @Test("The prefetch runs with a config's family, an uninstalled one and no config at all")
-    func prefetchRunsWithAnyConfig() throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "p08-startup-091-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let installed = directory.appending(path: "installed").path
-        let missing = directory.appending(path: "missing").path
-        try "font-family = Menlo\n".write(toFile: installed, atomically: true, encoding: .utf8)
-        try "font-family = \"No Such Face 091\"\n".write(toFile: missing, atomically: true, encoding: .utf8)
-        for files in [[installed], [missing], [directory.appending(path: "absent").path], []] {
-            TerminalLaunchPrefetch(configFiles: { files }).run()
-        }
-    }
 }

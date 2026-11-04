@@ -10,9 +10,7 @@ import Foundation
 /// the main thread). Work no first frame reads waits for the launch order
 /// instead: the login shell's environment
 /// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
-/// string tables (`LaunchFirstOpenWarmups`). The terminal's Metal device and fonts warm on their own thread once
-/// the launch's features resolve (`TerminalLaunchPrefetch`), not behind this one: the catalog
-/// would hold them back 50-70 ms.
+/// string tables (`LaunchFirstOpenWarmups`).
 ///
 /// The App passes its own pure warm-ups as `work`: the action catalog's
 /// launch build (`ActionCatalogLaunch.build`), so the registry's read on the
