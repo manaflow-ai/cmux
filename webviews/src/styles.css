@@ -1531,6 +1531,16 @@ body[data-loading="true"] #status::before {
   pointer-events: none;
   opacity: 0;
 }
+.file-tree-context-anchor > .ui-button {
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  line-height: 0;
+  font-size: 0;
+}
 .file-review-controls {
   display: inline-flex;
   align-items: center;

@@ -78,8 +78,7 @@ input {
   opacity: 0;
 }
 
-.page-menu-native-anchor > .ui-button,
-.file-tree-context-anchor > .ui-button {
+.page-menu-native-anchor > .ui-button {
   width: 0;
   min-width: 0;
   height: 0;
