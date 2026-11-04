@@ -155,7 +155,9 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, !machine.shownStatus.isChanging else {
+        // A person pressing Enter is an explicit retry even while a passive typing wake is
+        // reflected as `starting`; never drop that intent behind the hint's provider transition.
+        guard !disconnected, !machine.shownStatus.isChanging || origin == .user else {
             if appLink == nil { Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (\(self.disconnected ? "disconnected" : "changing: \(self.machine.shownStatus.rawValue)", privacy: .public))") }
             return
         }
@@ -175,7 +177,7 @@ final class CloudMachineSession {
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
             await previous?.value
-            guard !disconnected, !machine.shownStatus.isChanging else {
+            guard !disconnected, !machine.shownStatus.isChanging || origin == .user else {
                 noteMutationInterruption()
                 appConnecting = false
                 retryIfHopFails = false
@@ -187,7 +189,7 @@ final class CloudMachineSession {
             }
             guard let link else { return }
             await link.resume()
-            guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else {
+            guard !disconnected, machine.status.isLive || origin == .user, !machine.shownStatus.isChanging || origin == .user else {
                 Self.logger.notice("legacy connect \(self.machineID, privacy: .public): dropped after its hop (status \(self.machine.shownStatus.rawValue, privacy: .public))")
                 noteMutationInterruption()
                 return
