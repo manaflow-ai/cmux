@@ -109,20 +109,15 @@ pub fn run(seed: u64, opts: &Options) -> Run {
     Run { plan, faulty, uninterrupted, trace, simulated }
 }
 
-/// The trace with the lines of one simulated instant in a fixed order. Within one instant the
-/// daemon answers waiters in its maps' iteration order, which std seeds per process
-/// (`RandomState`); what happens is the same, only its order within the instant is not.
+/// The trace in time order, and within one simulated instant in text order. Within an instant
+/// the daemon answers waiters in its maps' iteration order, which std seeds per process
+/// (`RandomState`); what happens, and when, is the same, only its order within the instant is
+/// not. The driver's notes carry the time it last stepped to, so lines are sorted, not merged.
 fn same_instant_sorted(trace: &[String]) -> Vec<String> {
-    let time = |l: &String| l.split_whitespace().next().unwrap_or_default().to_owned();
-    let mut out: Vec<String> = Vec::with_capacity(trace.len());
-    let mut start = 0;
-    for (i, line) in trace.iter().enumerate() {
-        if i > 0 && time(line) != time(&trace[i - 1]) {
-            start = out.len();
-        }
-        out.push(line.clone());
-        out[start..].sort();
-    }
+    let time =
+        |l: &String| l.split_whitespace().next().and_then(|t| t.parse::<u128>().ok()).unwrap_or(0);
+    let mut out = trace.to_vec();
+    out.sort_by(|a, b| time(a).cmp(&time(b)).then_with(|| a.cmp(b)));
     out
 }
 

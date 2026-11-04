@@ -11,8 +11,8 @@
 //!   refused. The simulation already restarts the daemon at any step; the app only has to send
 //!   its last epoch.
 //! - The bare resend (the web pane's: same id, no `_meta.acpmux.resend`): `SIM_RESEND=0` runs it.
-//!   It holds once the daemon reads a logged prompt id as a resend whatever the flag says (the
-//!   idempotent-delivery work); then CI runs both.
+//!   It holds once the daemon reads a logged prompt id as a resend whatever the flag says
+//!   (manaflow-ai/cmux#34548); then CI gates on both.
 //!
 //! Known gaps the simulation shows today (off in the per-PR run, `SIM_FAULTS=power` shows them):
 //! see [`KNOWN_GAPS`].
@@ -29,6 +29,9 @@ pub const KNOWN_GAPS: &[&str] = &[
     // path), so the ack is not durable (HQ#6740: "The daemon acks on durable append"). The fix
     // is the durable journal with ack after durable, manaflow-ai/cmux#33919.
     "power loss after prompt_accepted (SIM_FAULTS=power)",
+    // A retry under a logged prompt id without `_meta.acpmux.resend` runs the prompt again after
+    // a restart: `Hub::knows_prompt` reads the log only for a resend (manaflow-ai/cmux#34548).
+    "a bare resend after a restart is applied twice (SIM_RESEND=0)",
 ];
 
 pub struct Invariant {

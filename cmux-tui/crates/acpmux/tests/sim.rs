@@ -149,20 +149,35 @@ fn seeds_hold_the_delivery_invariants() {
     );
 }
 
-/// The same seed twice gives the same trace: what makes a failing seed a replay.
+/// What a seed decides, which a replay must repeat: the verdict, the faults as they were
+/// applied, and each prompt's outcome and how often it was applied and logged. The order in
+/// which back-to-back requests are admitted is not in it: the daemon admits each on its own
+/// task and part of that path runs on tokio's blocking pool (real threads), so a burst of
+/// resends can queue in a different order from run to run, as it can in production
+/// (manaflow-ai/cmux#34586).
+fn fingerprint(run: &world::Run) -> String {
+    let faults: Vec<&String> = run.trace.iter().filter(|l| l.contains(" sim: ")).collect();
+    let mut prompts: Vec<String> = run
+        .faulty
+        .app
+        .items
+        .iter()
+        .map(|(s, i)| format!("{} {:?} accepted={}", s.prompt_id, i.outcome, i.accepted))
+        .collect();
+    prompts.sort();
+    format!(
+        "{:?}\n{faults:#?}\n{prompts:#?}\nrestarts {}",
+        invariants::check(run),
+        run.faulty.restarts
+    )
+}
+
+/// The same seed twice decides the same: what makes a failing seed a replay.
 #[test]
 fn a_seed_replays_exactly() {
     let opts = options();
     for seed in [1, 7, 23] {
-        let (a, b) = (world::run(seed, &opts), world::run(seed, &opts));
-        if let Some(at) =
-            (0..a.trace.len().max(b.trace.len())).find(|&i| a.trace.get(i) != b.trace.get(i))
-        {
-            panic!(
-                "seed {seed} ran two ways (the simulation lost its determinism), first at line {at}:\n  {:?}\n  {:?}",
-                a.trace.get(at),
-                b.trace.get(at)
-            );
-        }
+        let (a, b) = (fingerprint(&world::run(seed, &opts)), fingerprint(&world::run(seed, &opts)));
+        assert_eq!(a, b, "seed {seed} ran two ways: the simulation lost its determinism");
     }
 }
