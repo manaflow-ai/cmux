@@ -93,7 +93,6 @@ final class DividerHandleView: NSView {
     func setAxis(_ axis: SplitAxis) {
         guard self.axis != axis else { return }
         self.axis = axis
-        window?.invalidateCursorRects(for: self)
         needsLayout = true
     }
 
@@ -135,7 +134,7 @@ final class DividerHandleView: NSView {
     /// divider that runs on under a docked column stops where the dock begins: AppKit cursor rects
     /// ignore the views above, so its whole frame showed a resize cursor over the docked pane.
     var cursorClip: CGRect? {
-        didSet { if cursorClip != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet {}
     }
 
     /// Where the handle shows its resize cursor, in its own coordinates: its bounds within `cursorClip`.
@@ -145,22 +144,11 @@ final class DividerHandleView: NSView {
         return rect.isNull ? .zero : rect
     }
 
-    override func resetCursorRects() {
-        let rect = cursorRectInBounds
-        guard !rect.isEmpty else { return }
-        if #available(macOS 15, *) {
-            addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
-        } else {
-            addCursorRect(rect, cursor: axis == .horizontal ? .resizeLeftRight : .resizeUpDown)
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
+    /// PROBE ONLY (never merge): no cursor rects and no tracking area, to count AppKit's invalidations of a moving
+    /// view that tracks nothing.
+    func cursor(atLocal point: CGPoint) -> NSCursor? {
+        guard cursorRectInBounds.contains(point) else { return nil }
+        return axis == .horizontal ? .resizeLeftRight : .resizeUpDown
     }
 
     /// The drawn line in the superview's coordinates. It is native UI that
