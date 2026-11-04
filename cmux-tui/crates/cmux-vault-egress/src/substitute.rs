@@ -51,10 +51,9 @@ impl HostPattern {
             return false;
         }
         if self.wildcard {
-            // At least one label, then the dot, before the pattern's host.
-            host.strip_suffix(self.host.as_str())
-                .and_then(|label| label.strip_suffix('.'))
-                .is_some_and(|label| !label.is_empty())
+            host.len() > self.host.len() + 1
+                && host.ends_with(self.host.as_str())
+                && host.as_bytes()[host.len() - self.host.len() - 1] == b'.'
         } else {
             host == self.host
         }
@@ -93,7 +92,7 @@ pub(crate) fn dns_name(host: &str) -> bool {
             && !l.ends_with('-')
     };
     labels.iter().all(|l| label_ok(l))
-        && labels.last().is_some_and(|l| l.bytes().next().is_some_and(|b| b.is_ascii_lowercase()))
+        && labels.last().is_some_and(|l| l.as_bytes()[0].is_ascii_lowercase())
 }
 
 /// One vault entry the proxy may put into requests.
@@ -172,16 +171,14 @@ impl Policy {
         let mut out = Zeroizing::new(String::with_capacity(text.len()));
         let mut names: Vec<String> = Vec::new();
         let mut rest = text;
-        while let Some((before, after)) = rest.split_once(PLACEHOLDER_PREFIX) {
-            out.push_str(before);
-            // The name ends at the first byte outside [A-Za-z0-9_], an ASCII
-            // byte, so the split is on a char boundary.
+        while let Some(at) = rest.find(PLACEHOLDER_PREFIX) {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + PLACEHOLDER_PREFIX.len()..];
             let len = after
                 .bytes()
                 .position(|b| !(b.is_ascii_alphanumeric() || b == b'_'))
                 .unwrap_or(after.len());
-            let (name, tail) = after.split_at_checked(len).unwrap_or((after, ""));
-            let len = name.len();
+            let name = &after[..len];
             match (len > 0).then(|| self.allowed(name, host, port)).flatten() {
                 Some(secret) => {
                     out.push_str(&secret.value);
@@ -194,7 +191,7 @@ impl Policy {
                     out.push_str(name);
                 }
             }
-            rest = tail;
+            rest = &after[len..];
         }
         out.push_str(rest);
         (!names.is_empty()).then_some((out, names))
@@ -208,13 +205,13 @@ impl Policy {
         host: &str,
         port: u16,
     ) -> Option<(Zeroizing<String>, Vec<String>)> {
-        if let Some((scheme, encoded)) = basic_credentials(value) {
+        if let Some(encoded) = basic_credentials(value) {
             let engine = base64::engine::general_purpose::STANDARD;
             let decoded = Zeroizing::new(engine.decode(encoded.trim()).ok()?);
             let text = std::str::from_utf8(&decoded).ok()?;
             let (plain, names) = self.substitute_text(text, host, port)?;
+            let scheme = &value[..value.len() - encoded.len()];
             let mut out = Zeroizing::new(String::from(scheme));
-            out.push(' ');
             out.push_str(&engine.encode(plain.as_bytes()));
             return Some((out, names));
         }
@@ -223,9 +220,9 @@ impl Policy {
 }
 
 /// The base64 part of `Basic <credentials>` (scheme case-insensitive).
-fn basic_credentials(value: &str) -> Option<(&str, &str)> {
+fn basic_credentials(value: &str) -> Option<&str> {
     let (scheme, rest) = value.split_once(' ')?;
-    scheme.eq_ignore_ascii_case("basic").then_some((scheme, rest))
+    scheme.eq_ignore_ascii_case("basic").then_some(rest)
 }
 
 #[cfg(test)]
