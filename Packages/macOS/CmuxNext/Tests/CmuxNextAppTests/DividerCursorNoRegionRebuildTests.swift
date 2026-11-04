@@ -47,8 +47,10 @@ struct DividerCursorNoRegionRebuildTests {
         let parent = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
         parent.addSubview(handle)
         handle.cursorClip = CGRect(x: 0, y: 0, width: 400, height: 300)
-        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 100)) != nil, "inside the clip: the resize cursor")
-        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 350)) == nil, "under the dock: no resize cursor")
+        // The handle is flipped and its parent is not: local y 300 is the parent's y 100 (inside the clip), local y 50
+        // the parent's y 350 (above the clip's top, under the dock).
+        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 300)) != nil, "inside the clip: the resize cursor")
+        #expect(handle.cursor(atLocal: CGPoint(x: 4, y: 50)) == nil, "under the dock: no resize cursor")
     }
 }
 

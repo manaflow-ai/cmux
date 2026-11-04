@@ -5,7 +5,7 @@ import QuartzCore
 /// Draggable handle for a split divider, a column's trailing edge or the gap
 /// between two rows. The frame is the hit area; a thin line is drawn in its
 /// center for splits.
-final class DividerHandleView: NSView {
+final class DividerHandleView: NSView, HitTestCursorView {
     enum Kind: Hashable {
         case split(SplitID)
         case columnEdge(ColumnID)
