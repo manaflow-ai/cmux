@@ -76,7 +76,7 @@ public nonisolated enum MotionTunables {
     public static let frameOwnerSharedEdges = Tunable<Bool>.toggle(
         "motion.frameOwner.sharedEdges", .springs, "Shared edges (frame owner S2B)",
         help: "On: a drag that starts while panes spring takes over where the edge shows and moves only the edges it changes, which keep springing, so two panes that share an edge show it at one place in every frame. Off: a drag snaps every pane it touches to its rest place.",
-        default: true, code: "MotionTunables.frameOwnerSharedEdges")
+        default: false, code: "MotionTunables.frameOwnerSharedEdges")
 
     // MARK: Fades and loops
 
