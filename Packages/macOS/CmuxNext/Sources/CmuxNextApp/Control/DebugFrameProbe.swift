@@ -31,12 +31,10 @@ final class DebugFrameProbe {
     static let capacity = 100_000
     /// Per frame, parallel to `intervals`: main-thread ms, view layouts, window layout passes.
     private var busy: [Double] = []
-    private var viewLayouts: [Int] = []
-    private var windowLayouts: [Int] = []
+    private var layouts = FrameLayoutCounts()
     /// When the main run loop last woke (0 while it waits), and its awake time since the last frame.
     private var awakeSince: CFTimeInterval = 0
     private var awake: CFTimeInterval = 0
-    private var layoutMark = (view: 0, window: 0)
     private var observers: [CFRunLoopObserver] = []
 
     func handle(_ params: [String: JSONValue]) -> JSONValue {
@@ -73,12 +71,10 @@ final class DebugFrameProbe {
     private func clear() {
         intervals.removeAll(keepingCapacity: true)
         busy.removeAll(keepingCapacity: true)
-        viewLayouts.removeAll(keepingCapacity: true)
-        windowLayouts.removeAll(keepingCapacity: true)
+        layouts.reset()
         last = 0
         awake = 0
         awakeSince = CACurrentMediaTime()
-        layoutMark = (LayoutPassGuard.shared.viewLayoutCalls, LayoutPassGuard.shared.windowLayoutPasses)
     }
 
     /// Two observers of the main run loop: one when it wakes (first of the
@@ -117,15 +113,13 @@ final class DebugFrameProbe {
             awake += now - awakeSince
             awakeSince = now
         }
-        let guardian = LayoutPassGuard.shared
-        if last > 0, intervals.count < Self.capacity {
+        let records = last > 0 && intervals.count < Self.capacity
+        if records {
             intervals.append((tick.timestamp - last) * 1_000)
             busy.append(awake * 1_000)
-            viewLayouts.append(guardian.viewLayoutCalls &- layoutMark.view)
-            windowLayouts.append(guardian.windowLayoutPasses &- layoutMark.window)
         }
+        layouts.frame(records: records)
         awake = 0
-        layoutMark = (guardian.viewLayoutCalls, guardian.windowLayoutPasses)
         last = tick.timestamp
     }
 
@@ -166,15 +160,10 @@ final class DebugFrameProbe {
             "main_max_ms": .number(work.last ?? 0),
             "main_total_ms": .number(busy.reduce(0, +)),
             "main_over_8_3_ms": JSONValue(work.filter { $0 > 1_000.0 / 120.0 }.count),
-            "view_layouts": JSONValue(viewLayouts.reduce(0, +)),
-            "view_layouts_max": JSONValue(viewLayouts.max() ?? 0),
-            "window_layouts": JSONValue(windowLayouts.reduce(0, +)),
-        ]
+        ].merging(layouts.report(raw: raw).compactMapValues(JSONValue.init(foundation:))) { $1 }
         if raw {
             stats["intervals_ms"] = .array(intervals.map { .number(($0 * 100).rounded() / 100) })
             stats["main_ms"] = .array(busy.map { .number(($0 * 100).rounded() / 100) })
-            stats["view_layouts_per_frame"] = .array(viewLayouts.map { JSONValue($0) })
-            stats["window_layouts_per_frame"] = .array(windowLayouts.map { JSONValue($0) })
         }
         return .object(stats)
     }

@@ -73,6 +73,21 @@ public final class LayoutPassGuard {
     /// One integer add per layout call, beside the class count every build keeps.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// ``windowLayoutPasses`` per window (DEV and bench builds): `debug.frames` names the window of each pass by its role
+    /// (``LayoutPassRoleNaming``). One counter add in place per pass; an entry is made once per window.
+    private var passesByWindow: [ObjectIdentifier: (window: WeakWindow, passes: Int)] = [:]
+
+    struct WeakWindow {
+        weak var object: NSWindow?
+    }
+
+    /// Every window that had a layout pass, with its passes since launch (its entry goes when it closes).
+    public var windowPassCounts: [(window: NSWindow, passes: Int)] {
+        passesByWindow = passesByWindow.filter { $0.value.window.object != nil }
+        return passesByWindow.values.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
+    }
+    #endif
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
@@ -165,7 +180,16 @@ public final class LayoutPassGuard {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
-        if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart { windowLayoutPasses &+= 1 }
+        if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
+            windowLayoutPasses &+= 1
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if passesByWindow[id]?.window.object === window {
+                passesByWindow[id]?.passes &+= 1
+            } else {
+                passesByWindow[id] = (WeakWindow(object: window), 1)
+            }
+            #endif
+        }
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
 
@@ -259,3 +283,13 @@ public final class LayoutPassGuard {
         }
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// A window's role in `debug.frames`' per-window layout passes (``LayoutPassGuard/windowPassCounts``): a stable name a
+/// film reads (the main window, the overlay panel, divider catcher N), where the window class alone (a borderless
+/// window's `NSNextStepFrame`) names several windows.
+@MainActor
+public protocol LayoutPassRoleNaming: AnyObject {
+    var layoutPassRole: String { get }
+}
+#endif
