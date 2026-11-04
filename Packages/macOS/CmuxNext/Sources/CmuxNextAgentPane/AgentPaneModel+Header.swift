@@ -87,6 +87,10 @@ public struct AgentPaneHeaderHooks {
     /// Shows and focuses a tab that shows acpmux session `id` in any workspace or window, switching
     /// to it (Needs you's Jump to workspace, ``AgentPaneAskOpen``); false when no tab shows it.
     public var jumpToSession: @MainActor (String) -> Bool
+    /// Whether a tab in any workspace or window shows acpmux session `id` already, the one
+    /// ``jumpToSession`` would switch to: the right-click's Go to Chat shows only then
+    /// (``AgentPaneOfferOpen/goTo(_:sender:in:)``). None by default.
+    public var hasTab: @MainActor (String) -> Bool
     /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
     /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
     /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
@@ -124,6 +128,7 @@ public struct AgentPaneHeaderHooks {
                 refreshPullRequest: (@MainActor () -> Void)? = nil,
                 showSession: @escaping @MainActor (String) -> Bool = { _ in false },
                 jumpToSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                hasTab: @escaping @MainActor (String) -> Bool = { _ in false },
                 isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false },
                 moveTargets: @escaping @MainActor () -> [AgentPaneMoveTarget] = { [] },
                 moveToMachine: @escaping @MainActor (_ machine: String, _ session: String) -> Bool = { _, _ in false },
@@ -145,6 +150,7 @@ public struct AgentPaneHeaderHooks {
         self.refreshPullRequest = refreshPullRequest
         self.showSession = showSession
         self.jumpToSession = jumpToSession
+        self.hasTab = hasTab
         self.isFamily = isFamily
         self.moveTargets = moveTargets
         self.moveToMachine = moveToMachine
