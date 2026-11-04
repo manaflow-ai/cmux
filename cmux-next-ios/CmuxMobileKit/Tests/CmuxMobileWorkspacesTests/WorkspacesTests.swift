@@ -648,7 +648,10 @@ import SwiftUI
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
         // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        // The Copy rows (the Mac's Copy Tab Link / IDs) need no edit rights: the mock tab has the Mac's ids.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"],
+                                                    ["Copy Tab Link", "Copy Tab ID", "Copy Pane Link", "Copy Pane ID", "Copy IDs"],
+                                                    ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }
