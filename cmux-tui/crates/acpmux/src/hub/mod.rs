@@ -152,6 +152,7 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+mod loop_goal;
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 mod meta_save;

@@ -14,7 +14,8 @@ import Testing
 /// - The switch is latched when each hold begins: a flip in the middle of a spring leaves that spring on its path.
 /// - In a key resize the terminal surface (the producer) stays fixed at the pane edge that does not move, for each side
 ///   a pane can grow or shrink on, while its host (the container) follows the pane in every frame.
-/// - One grid per press: each terminal asks its PTY for its final grid once, in the key's turn, and its surface takes a
+/// - One grid per press: each terminal asks its PTY for its final grid once, by the press's first frame tick (FRAME
+///   OWNER S1B; it was the key's turn), and its surface takes a
 ///   new size at most once (no surface `setFrameSize` per frame, no reflow per frame).
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
 ///   and nothing of it is left in the view tree after the landing.
@@ -130,7 +131,7 @@ struct PaneContentPolicyTests {
 
     // MARK: Note 3: one grid per press
 
-    /// One press with the switch on: each terminal asks its PTY for one grid, the final one, in the key's turn; its
+    /// One press with the switch on: each terminal asks its PTY for one grid, the final one, by the press's first frame; its
     /// surface takes a new size at most once in the whole press (none per frame), and none at the landing.
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
     func aKeyPressSizesEachSurfaceOnceAndSendsOneGrid(direction: LayoutDirection) async throws {
@@ -168,8 +169,8 @@ struct PaneContentPolicyTests {
     }
 
     /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): each terminal asks its PTY for the
-    /// final grid of each press, once, in that press's turn (at most one grid per press, the last one the final), and its
-    /// surface takes a new size only in a press's turn, never in a frame of the spring or at the landing.
+    /// final grid of each press, once, by that press's first frame (at most one grid per press, the last one the final),
+    /// and its surface takes a new size only in a press's turn or first frame, never in another frame or at the landing.
     @Test func aHeldKeySizesEachSurfaceOnlyInAPressTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
@@ -190,10 +191,11 @@ struct PaneContentPolicyTests {
         for press in 1...3 {
             #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
             rig.root.syncWithModel()
-            rig.root.layoutSubtreeIfNeeded()
+            // The press's first frame is its own (S1B): its rest size and its grid go there.
+            if rig.frame() { frames += 1 }
             try note("press \(press)", frame: false)
             for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
-            for _ in 1...4 where rig.frame() {
+            for _ in 1...3 where rig.frame() {
                 frames += 1
                 try note("frame \(frames)", frame: true)
             }
@@ -204,7 +206,7 @@ struct PaneContentPolicyTests {
         }
         try note("after the landing", frame: true)
         #expect(frames > 12, "the presses did not spring (\(frames) frames)")
-        #expect(inFrames.isEmpty, "a surface took a new size outside a press's turn: \(inFrames.prefix(3))")
+        #expect(inFrames.isEmpty, "a surface took a new size outside a press's turn and first frame: \(inFrames.prefix(3))")
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
@@ -213,7 +215,7 @@ struct PaneContentPolicyTests {
     }
 
     /// A press and its reverse in one key hold (Ctrl-Shift-H, then L 4 frames later, before the first lands): the panes
-    /// rest where they began. Each terminal hears each press's final grid in that press's turn (the reverse one too, though
+    /// rest where they began. Each terminal hears each press's final grid by that press's first frame (the reverse one too, though
     /// it rests at the size the hold began at), and its surface takes no new size at the landing.
     @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
@@ -228,13 +230,13 @@ struct PaneContentPolicyTests {
         }
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
+        #expect(rig.frame(), "the first press did not spring")
         var atPress: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
-        for frame in 1...4 { #expect(rig.frame(), "the first press landed after \(frame) frames") }
+        for frame in 2...4 { #expect(rig.frame(), "the first press landed after \(frame) frames") }
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
+        #expect(rig.frame(), "the reverse press did not spring")
         var atReverse: [PaneID: [TerminalGridSize]] = [:], sizeAtReverse: [PaneID: CGSize] = [:]
         for pane in panes {
             atReverse[pane] = try await Self.grids(pane, rig)
