@@ -366,9 +366,9 @@ impl WorkspaceCommitIntent {
             let stated = self
                 .stated_workspaces
                 .as_ref()
-                .filter(|(fold_revision, _)| *fold_revision == previous_resource_revision)
+                .filter(|_| true) // MUTATION: no base-revision guard
                 .map(|(_, workspaces)| workspaces);
-            let keep = extra_ran.then_some(workspace_key);
+            let keep = extra_ran.then_some(workspace_key).filter(|_| false); // MUTATION: no keep
             let resource_deltas = match stated {
                 Some(stated) => prune_stated_workspace_upserts(tx, &resource_deltas, stated, keep)?,
                 None => resource_deltas,
