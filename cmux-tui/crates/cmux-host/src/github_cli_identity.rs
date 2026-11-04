@@ -65,11 +65,7 @@ fn github_host(host: Option<&String>) -> bool {
 pub fn hosts_has_any_login(hosts_yml: &str) -> bool {
     hosts_yml.lines().any(|line| {
         let t = line.trim();
-        !t.is_empty()
-            && !t.starts_with('#')
-            && t != "---"
-            && t != "..."
-            && t != "{}"
+        !t.is_empty() && !t.starts_with('#') && t != "---" && t != "..." && t != "{}"
     })
 }
 
