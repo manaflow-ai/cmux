@@ -27,7 +27,8 @@ pub trait MachineFs {
     /// Replace the whole file atomically (readers see the old or the new bytes, never a mix),
     /// only while it is still `expected`; [`Mutation::Changed`] (nothing written) otherwise.
     /// `seq` names any staging state, so [`MachineFs::recover`] finds it after a crash.
-    fn write(&self, seq: u64, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation>;
+    fn write(&self, seq: u64, path: &str, bytes: &[u8], expected: &Version)
+    -> io::Result<Mutation>;
     /// Remove the file, only while it is still `expected`; an absent file is not an error.
     fn remove(&self, seq: u64, path: &str, expected: &Version) -> io::Result<Mutation>;
     /// Finish or undo a mutation for `entry` that an earlier flush started and never finished
@@ -133,11 +134,6 @@ mod dir_impl {
         fn folder(&self, path: &str, create: bool) -> io::Result<Option<(Dir, String)>> {
             Ok(self.walk(path, create)?.and_then(|(mut c, n)| c.pop().map(|d| (d, n))))
         }
-    }
-
-    fn is(dir: &Dir, name: &str, expected: &Version) -> bool {
-        // A link, a folder or an unreadable file there is never the expected version.
-        matches!(dir.read(name), Ok(b) if Version::of(b.as_deref()) == *expected)
     }
 
     fn is(dir: &Dir, name: &str, expected: &Version) -> bool {
