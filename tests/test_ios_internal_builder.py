@@ -317,7 +317,12 @@ class BuilderScriptProbeTests(unittest.TestCase):
             self.git("push", "-q", "origin", f"builder:{ib.BUILDER_REF}", cwd=work)
             self.git("checkout", "-q", "feat-cmux-next", cwd=work)
         clone = root / "clone"
-        self.git("clone", "-q", "--depth=1", f"file://{origin}", str(clone), cwd=root)
+        # The decide job's checkout: one branch, depth 1, blobless; the probe's fetch then takes --depth=1 too.
+        self.git("clone", "-q", "--depth=1", "--filter=blob:none", "-b", "feat-cmux-next", f"file://{origin}",
+                 str(clone), cwd=root)
+        shallow = subprocess.run(["git", "-C", str(clone), "rev-parse", "--is-shallow-repository"],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(shallow, "true")
         return clone
 
     def probe(self, clone: Path, gh_answer: subprocess.CompletedProcess | None = None):
