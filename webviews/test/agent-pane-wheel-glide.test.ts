@@ -142,6 +142,8 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           // The send rides the view down to the latest message (Jump to latest's ride): the wheel's
           // unfinished glide never pulls it back up, and it rests at the end.
           for (let i = 4; i < gaps.length; i++) expect(gaps[i]!).toBeLessThanOrEqual(gaps[i - 1]! + 1);
+          // A ride, not a cut: the view is still on its way to the end over several painted frames.
+          expect(gaps.filter((gap) => gap > 1).length).toBeGreaterThanOrEqual(3);
           expect(Math.max(...gaps.slice(-10))).toBeLessThanOrEqual(1);
         } finally {
           await page.close();
