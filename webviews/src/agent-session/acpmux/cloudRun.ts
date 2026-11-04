@@ -21,6 +21,7 @@ export type CloudStart = {
   harness?: string;
   model?: string;
   environment?: string;
+  reservationKey?: string;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -139,6 +140,7 @@ export async function startCloudChat(
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
   try {
     await call("cloud.startChat", params);
     return { ok: true };

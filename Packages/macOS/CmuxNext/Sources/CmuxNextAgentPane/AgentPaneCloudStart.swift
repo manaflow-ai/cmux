@@ -22,6 +22,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var model: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
+    /// The warm machine reserved by this compose; Send binds it using ``key``.
+    public var reservationKey: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
@@ -29,9 +31,10 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// the page named no folder. The App copies only this folder, never one it finds anew.
     public var uploadRoot: String?
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
         self.environment = environment
+        self.reservationKey = reservationKey
     }
 
     /// The page's params, checked; nil for anything else.
@@ -52,11 +55,13 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
+        let reservationKey = params?["reservationKey"]
+        if let reservationKey, (reservationKey as? String).flatMap(UUID.init(uuidString:)) == nil { return nil }
         let cwd = params?["cwd"]
         if let cwd, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
+        self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String)
         self.home = home as? Bool ?? false
         self.attachments = attachments
     }

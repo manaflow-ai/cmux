@@ -50,6 +50,7 @@
 mod ledger;
 mod pick;
 mod project;
+mod reservations;
 #[cfg(test)]
 mod tests;
 mod trust;
@@ -71,6 +72,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
+cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -138,6 +140,12 @@ pub(super) fn run(args: &[String]) -> i32 {
                 }
                 _ => None,
             }
+        }
+        "reserve" => {
+            reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
+        }
+        "release" => {
+            reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
         "copy" => StartCopy::of(&flags).map(|copy| {
             // `--store PLATFORM|default`: through the content-addressed store, the cmux

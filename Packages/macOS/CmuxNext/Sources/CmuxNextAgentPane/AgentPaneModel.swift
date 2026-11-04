@@ -98,6 +98,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
+    /// Shared web owns each compose's warm request; native only forwards it to Rust.
+    @ObservationIgnored public var onCloudReservation: (@MainActor (AgentPaneCloudReservationRequest) async -> [String: Any])?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
@@ -411,6 +413,7 @@ public final class AgentPaneModel {
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         case .reply(let reply) where reply.isPassive: break
+        case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break
         case .imessage(let action) where action.isPassive: break
         default:
@@ -583,6 +586,11 @@ public final class AgentPaneModel {
                                            try await host.cloudRepository(method: method, params: params, timeout: timeout)
                                        },
                                        localRequest: onCloudRepositoryLocal)
+        case .cloudReservation(let request):
+            guard !remoteChat, request.release || sessionId == nil, let onCloudReservation else {
+                return Self.unsupported(request.release ? "cloud.releaseReservation" : "cloud.reserve")
+            }
+            return await onCloudReservation(request)
         case .cloudEnvironment(let request):
             guard let onCloudEnvironment else { return Self.unsupported("cloud.environment.\(request.action)") }
             if request.action == "update", !transport.gestures.consume() {

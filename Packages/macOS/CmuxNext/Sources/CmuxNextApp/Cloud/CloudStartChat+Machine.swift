@@ -71,20 +71,34 @@ extension CloudStartChat {
         if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
-        let listed = cloud.listedMachineIDs, access = await cloud.auth.startChatStoreAccess(account: account)
-        let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
-                                       machines: machines.cloud.filter { listed.contains($0.machineID) }, local: start.home ? nil : start.uploadRoot ?? start.cwd,
-                                       stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil)
+        let listed = cloud.listedMachineIDs
+        let ensureProject = (account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth
+        let team = try (start.reservationKey != nil ? cloud.auth.accessTokenTeam(requested: nil) : nil)
+        let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
+        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
+        let entries = machines.cloud.filter { listed.contains($0.machineID) }.map { session in
+            let connected = session.daemon.connection != nil
+            let chats = connected ? session.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+                .filter { $0.agentSession != nil }.count : nil
+            return session.machine.startChatPlanEntry(connected: connected, chats: chats)
+        }
+        let request = CloudStartCore().planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
+                                       machines: entries, local: start.home ? nil : start.uploadRoot ?? start.cwd,
+                                       stored: machines.cloud.map(\.machine).keptForPin(listed: listed), environment: start.environment, access: access != nil,
+                                       reservationKey: start.reservationKey, platform: cloud.configuration.artifactsAPIBaseURL()?.absoluteString,
+                                       team: team, ensureProject: ensureProject)
         let plan = try Self.checked(await cli.startChatPlan(request: request, access: access))
+        try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         var invocation = invocation
         if let id = plan.machine {
-            if !listed.contains(id) { await cloud.refresh() } // the platform's (personal, non-production sign-ins, where workspace machines are served): list it for the attach
+            if !listed.contains(id) { await cloud.refresh() } // List a platform-reserved or project machine before attaching.
+            try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             invocation.arguments["machine"] = .string(id)
         } else {
             if cloud.configuration.linkSource == .appServer, !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
-            var request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
+            var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
             request.wasSent = plan.createSent
             try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list.
