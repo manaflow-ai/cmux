@@ -193,6 +193,7 @@ private final class UpdatingPaneTransport: AppsTransport {
     init(record: AppRecord) { self.record = record }
     func start() {}
     func list() async throws(AppsTransportError) -> AppsListReply { AppsListReply(revision: nil, apps: includesRecord ? [record] : []) }
+    func sessionInfoPanels() async throws(AppsTransportError) -> [AppSessionInfoPanel] { [] }
     func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord { record }
     func mount(app: String, interface: String, mountID: String, context: AppJSON) async throws(AppsTransportError) {}
     func unmount(mountID: String) async throws(AppsTransportError) {}
