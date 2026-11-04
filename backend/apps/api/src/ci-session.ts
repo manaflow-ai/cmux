@@ -12,11 +12,13 @@ import { stackServer, type StackServer } from "./stack-server.ts"
  *   [{ "id": "ci-cloud-journey-prod", "audience": "https://cloud-api.cmux.dev",
  *      "repository": "manaflow-ai/cmux", "repositoryId": "1144115288", "ref": "refs/heads/main",
  *      "workflowRef": "manaflow-ai/cmux/.github/workflows/cloud-journey-prod.yml@refs/heads/main",
- *      "events": ["schedule", "workflow_dispatch"], "stackUser": "<the test account's Stack user id>", "ttlSeconds": 2400 }]
+ *      "events": ["schedule", "workflow_dispatch"],
+ *      "subject": "repo:manaflow-ai/cmux:ref:refs/heads/main", "stackUser": "<the test account's Stack user id>", "ttlSeconds": 2400 }]
  *
  * A token matches a row only when GitHub signed it (RS256, GitHub's own JWKS), it is unexpired and at
  * most 15 minutes old, its audience (one string), repository, repository_id, ref, workflow_ref and
- * job_workflow_ref all equal the row's, and its event_name is one of the row's `events`. The events
+ * job_workflow_ref all equal the row's, its sub equals the row's `subject` exactly (so a job run under an
+ * environment, `repo:<repo>:environment:<name>`, or with any other subject is refused), and its event_name is one of the row's `events`. The events
  * keep out a pull_request_target (or any other) run of the trusted file at the trusted ref, which
  * could execute a fork's code, even if that trigger is ever added to the file. A token from another repository, ref or
  * workflow (a fork, a branch's copy of the file, a reusable workflow called from elsewhere) matches
@@ -44,6 +46,8 @@ export interface CiSessionRow {
   readonly ref: string
   readonly workflowRef: string
   readonly events: ReadonlyArray<string>
+  /** The token's whole `sub`, e.g. `repo:manaflow-ai/cmux:ref:refs/heads/main` for a job with no environment. */
+  readonly subject: string
   readonly stackUser: string
   readonly ttlSeconds: number
 }
@@ -60,11 +64,13 @@ const TRUSTABLE_EVENTS = new Set(["schedule", "workflow_dispatch", "push"])
 const validRow = (value: unknown): value is CiSessionRow => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false
   const r = value as Record<string, unknown>
-  const known = new Set(["id", "audience", "repository", "repositoryId", "ref", "workflowRef", "events", "stackUser", "ttlSeconds"])
+  const known = new Set(["id", "audience", "repository", "repositoryId", "ref", "workflowRef", "events", "subject", "stackUser", "ttlSeconds"])
   if (Object.keys(r).some((k) => !known.has(k))) return false
   const str = (k: string, re: RegExp) => typeof r[k] === "string" && re.test(r[k] as string)
   if (!str("id", ID) || !str("audience", AUDIENCE) || !str("repository", REPOSITORY) || !str("ref", REF) || !str("stackUser", STACK_USER)) return false
   if (!str("repositoryId", /^[0-9]{1,20}$/)) return false
+  // The subject names the row's own repository; no wildcard is possible since it is compared whole.
+  if (typeof r.subject !== "string" || !r.subject.startsWith(`repo:${String(r.repository)}:`) || !/^[A-Za-z0-9_.:/@-]{1,256}$/.test(r.subject)) return false
   if (!Array.isArray(r.events) || r.events.length === 0 || !r.events.every((e) => typeof e === "string" && TRUSTABLE_EVENTS.has(e))) return false
   // The workflow file must live in the row's repository and run from the row's ref.
   const wf = typeof r.workflowRef === "string" ? WORKFLOW_REF.exec(r.workflowRef) : null
@@ -109,7 +115,7 @@ export const matchCiSessionToken = async (
       clockTolerance: 60,
       maxTokenAge: MAX_TOKEN_AGE,
       currentDate: now,
-      requiredClaims: ["exp", "iat", "jti", "repository", "repository_id", "ref", "workflow_ref", "job_workflow_ref", "event_name"]
+      requiredClaims: ["exp", "iat", "jti", "sub", "repository", "repository_id", "ref", "workflow_ref", "job_workflow_ref", "event_name"]
     }))
   } catch (error) {
     // GitHub's keys could not be read (timeout, bad JWKS answer): says nothing about the caller, so not a refusal.
@@ -121,6 +127,7 @@ export const matchCiSessionToken = async (
     (r) =>
       // GitHub sends one audience, as a string; a list is not what the job asked for.
       payload.aud === r.audience &&
+      payload.sub === r.subject &&
       payload.repository === r.repository &&
       payload.repository_id === r.repositoryId &&
       typeof payload.event_name === "string" &&

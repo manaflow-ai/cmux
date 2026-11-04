@@ -23,6 +23,7 @@ const ROW = {
   ref: "refs/heads/main",
   workflowRef: WORKFLOW,
   events: ["schedule", "workflow_dispatch"],
+  subject: "repo:manaflow-ai/cmux:ref:refs/heads/main",
   stackUser: "stack-user-journey",
   ttlSeconds: 2400
 }
@@ -85,6 +86,8 @@ describe("CI_SESSION_TRUST rows", () => {
       { ...ROW, stackUser: "" },
       { ...ROW, extra: true },
       { ...ROW, repositoryId: undefined },
+      { ...ROW, subject: undefined },
+      { ...ROW, subject: "repo:someone/cmux:ref:refs/heads/main" },
       { ...ROW, events: [] },
       { ...ROW, events: ["pull_request_target"] },
       { ...ROW, events: ["schedule", "pull_request"] }
@@ -123,7 +126,11 @@ describe("matching a GitHub Actions token", () => {
       { event_name: "pull_request" },
       { event_name: "push" },
       { event_name: undefined },
-      { repository_id: undefined }
+      { repository_id: undefined },
+      // Same repository, ref, workflow and event, but a different subject: a job run under an environment, or none.
+      { sub: "repo:manaflow-ai/cmux:environment:cmux-next-cloud-journey" },
+      { sub: "repo:manaflow-ai/cmux:ref:refs/heads/main:extra" },
+      { sub: undefined }
     ]) {
       expect(await matchCiSessionToken(await token(claims), [ROW], getKey), JSON.stringify(claims)).toMatchObject({ ok: false })
     }
