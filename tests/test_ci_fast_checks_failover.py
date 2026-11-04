@@ -22,6 +22,10 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
+from test_ci_fork_runner_routing import evaluate_runs_on, parse_expression, runner_label_errors
+
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "fast-checks.yml"
 POOL = "cmux-fleet-linux-x64"
 
@@ -42,6 +46,41 @@ def checks_runs_on() -> str:
 
 
 class FastChecksFailoverTests(unittest.TestCase):
+    def test_broker_overflow_also_moves_queued_admission(self) -> None:
+        selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
+        for requested in (
+            "blacksmith-8vcpu-ubuntu-2404",
+            "blacksmith-16vcpu-ubuntu-2404",
+            "blacksmith-32vcpu-ubuntu-2404",
+            "", POOL, "self-hosted", "macos-26", "ubuntu-latest",
+            "blacksmith-8vcpu-ubuntu-2404-arm",
+            "blacksmith-8vcpu-ubuntu-2404,self-hosted",
+            '["blacksmith-8vcpu-ubuntu-2404","self-hosted"]',
+        ):
+            with self.subTest(requested=requested):
+                actual = (evaluate_runs_on(parse_expression(selector[3:-2]), {"inputs.runner": requested})
+                          if selector.startswith("${{") else selector)
+                # Only the smallest measured Blacksmith size: a picker's re-run
+                # route is never 16 or 32 vCPU.
+                expected = requested if requested == "blacksmith-8vcpu-ubuntu-2404" else "ubuntu-24.04"
+                self.assertEqual(actual, expected)
+
+    def test_admission_guard_keeps_the_overflow_set_exact(self) -> None:
+        selector = yaml.safe_load(WORKFLOW.read_text())["jobs"]["admit"]["runs-on"]
+        self.assertEqual(runner_label_errors(selector), [])
+        for unsafe in (
+            selector.replace("blacksmith-8vcpu-ubuntu-2404", POOL),
+            selector.replace("'ubuntu-24.04'", "'self-hosted'"),
+            selector.replace("contains(", "startsWith("),
+            selector.replace("&& inputs.runner", "&& inputs.other_runner"),
+            # A picker's re-run route is the smallest measured size only.
+            selector.replace('"blacksmith-8vcpu-ubuntu-2404"',
+                             '"blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"'),
+            selector.replace('"blacksmith-8vcpu-ubuntu-2404"', '"blacksmith-32vcpu-ubuntu-2404"'),
+        ):
+            with self.subTest(selector=unsafe):
+                self.assertNotEqual(runner_label_errors(unsafe), [])
+
     def run_fast_checks_script(self, command: str, source: str | None = None) -> tuple[subprocess.CompletedProcess[str], dict | None]:
         workflow = WORKFLOW.read_text(encoding="utf-8")
         run_step = workflow.split("      - name: Run fast checks\n", 1)[1]
@@ -106,7 +145,7 @@ class FastChecksFailoverTests(unittest.TestCase):
 
     def test_main_hosted_guard_rejects_privileged_or_macos_admission(self) -> None:
         for before, after in (
-            ("    runs-on: ubuntu-24.04 #", "    runs-on: macos-26 #"),
+            (" || 'ubuntu-24.04' }} #", " || 'macos-26' }} #"),
             ("    permissions:\n      contents: read", "    permissions:\n      contents: write"),
         ):
             with self.subTest(change=after):
@@ -163,6 +202,8 @@ class FastChecksFailoverTests(unittest.TestCase):
         self.assertRegex(admission, r"(?m)^          ref: [0-9a-f]{40}$")
         self.assertIn("python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py", text)
         self.assertRegex(text, r"sparse-checkout: \|\n\s+scripts/ci/fast_checks_runner\.py\n\s+scripts/ci/pr_runner_pool\.py")
+        # pr_runner_pool imports github_spend at load (#34270): without it every admit step failed.
+        self.assertRegex(admission, r"\n\s+scripts/ci/github_spend\.py\n")
         self.assertIn("needs: admit", text)
         self.assertIn("if: startsWith(needs.admit.outputs.runner, 'blacksmith-')", text)
 
