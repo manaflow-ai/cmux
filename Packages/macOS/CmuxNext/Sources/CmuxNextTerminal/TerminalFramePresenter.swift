@@ -117,6 +117,16 @@ final class TerminalFramePresenter {
     /// Whether `view` waits for a present here.
     func isWaiting(_ view: TerminalSurfaceView) -> Bool { requests[ObjectIdentifier(view)] != nil }
 
+    /// What this presenter holds for `view` (`debug.motion` trace): "request" (a size waits for its frame), "watch"
+    /// (its shown size changed outside a present), "commit" (its commit is reported at the next refresh), or "-".
+    func debugState(of view: TerminalSurfaceView) -> String {
+        let id = ObjectIdentifier(view)
+        if requests[id] != nil { return "request" }
+        if watched[id] != nil { return "watch" }
+        if commits[id] != nil { return "commit" }
+        return "-"
+    }
+
     // MARK: Frames
 
     /// One refresh: the commits of earlier passes are done (``commits``), and watched terminals are read.

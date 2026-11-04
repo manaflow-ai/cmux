@@ -146,6 +146,9 @@ public final class TerminalSurfaceView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
         createSurface(mode: mode)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        _ = Self.motionSamplerRegistration
+        #endif
     }
 
     @available(*, unavailable)
