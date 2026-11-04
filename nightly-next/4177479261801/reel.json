@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "4177479261801",
+  "notes": "notes/4177479261801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34633,
+      "title": "fix(cloud): route NEXT machine deletion through platform approval",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34713,
+      "title": "composer: keep the prompt suggestions option out of the footer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34455,
+      "title": "Agent pane: the running tray and Session Info never flicker while you scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34630,
+      "title": "cmux NEXT: no daemon intent error reaches a toast; a slow move retries quietly",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34648,
+      "title": "perf(sidebar): the list scrolls with AppKit's responsive scrolling, off the main thread",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34760,
+      "title": "Agent chat: sent videos play in place again on the page host",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
