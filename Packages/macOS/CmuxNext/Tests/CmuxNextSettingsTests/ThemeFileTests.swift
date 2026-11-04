@@ -55,7 +55,7 @@ import Testing
 
     @Test func colorsEditTheTerminalThemeTheFileNamesAndKeepOtherEdits() {
         let base = JSONValue.object(["appearance": .object(["themeEdits": .object(["Nord/background": "#2e3440"])])])
-        let overlay = Self.overlay(#"{ "appearance.theme": "Rose Pine", "colors": { "background": "#191724", "foreground": "#e0def4", "palette": ["#26233a"] } }"#, base: base)
+        let overlay = Self.overlay(##"{ "appearance.theme": "Rose Pine", "colors": { "background": "#191724", "foreground": "#e0def4", "palette": ["#26233a"] } }"##, base: base)
         #expect(overlay.diagnostics.isEmpty)
         let root = overlay.applied(to: base)
         #expect(root.value(at: Self.edits) == .object([
@@ -74,7 +74,7 @@ import Testing
 
     /// The contrast guard: text under 4.5:1 is never painted as written.
     @Test func lowContrastTextIsCorrectedAndSettingsSaysSo() throws {
-        let overlay = Self.overlay(#"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#333333" } }"#)
+        let overlay = Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#333333" } }"##)
         #expect(overlay.corrected == ["foreground"])
         let notice = try #require(overlay.diagnostics.first)
         #expect(notice.kind == .correctedValue)
@@ -83,7 +83,7 @@ import Testing
         let foreground = try #require(overlay.applied(to: .object([:])).value(at: Self.edits)?["Nord/foreground"]?.stringValue)
         let ratio = try #require(ThemeRGB(cssHex: foreground)).contrast(with: try #require(ThemeRGB(cssHex: "#222222")))
         #expect(ratio >= AppTheme.textMinimum)
-        #expect(Self.overlay(#"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#eeeeee" } }"#).corrected.isEmpty)
+        #expect(Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "background": "#222222", "foreground": "#eeeeee" } }"##).corrected.isEmpty)
     }
 
     /// The copy-paste example in skills/cmux-customization/SKILL.md ("Rice cmux") applies whole.
@@ -206,8 +206,8 @@ import Testing
     @Test func aWriteNeverCopiesTheThemeFilesColorsIntoCmuxNextJSON() async throws {
         let home = try Home()
         defer { withExtendedLifetime(home) {} }
-        try home.write(#"{ "appearance.theme": "Nord", "colors": { "background": "#2e3440" } }"#, theme: "nord")
-        let settings = try Self.controller(home, config: #"{ "appearance": { "theme": "Nord", "themeFile": "nord", "themeEdits": { "Nord/1": "#bf616a" } } }"#)
+        try home.write(##"{ "appearance.theme": "Nord", "colors": { "background": "#2e3440" } }"##, theme: "nord")
+        let settings = try Self.controller(home, config: ##"{ "appearance": { "theme": "Nord", "themeFile": "nord", "themeEdits": { "Nord/1": "#bf616a" } } }"##)
         await settings.reload()
         let descriptor = try #require(SettingsSchema.descriptor(for: Self.edits))
         var shown = try #require(settings.snapshot.root.value(at: Self.edits)?.objectValue)
