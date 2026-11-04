@@ -33,6 +33,43 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
   ]) {
     for (const density of ["compact", "comfortable"])
       for (const interfaceScale of [1, 1.25])
+        for (const variant of ["codex-turn-command-under-messages", "codex-turn-raw-commands"]) {
+          test(`${variant} passes live-line gallery play (${label}, ${density}, ${interfaceScale})`, async () => {
+            const context = await browser.newContext({ viewport: { width: 900, height: 650 }, deviceScaleFactor: 2 });
+            const page = await context.newPage();
+            try {
+              const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
+              await page.goto(
+                base +
+                  galleryFrame("agent-pane.transcript", {
+                    variant,
+                    theme,
+                    density,
+                    interfaceScale,
+                    reducedMotion: "true",
+                  }),
+              );
+              await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined);
+              expect(
+                await page.getAttribute("html", "data-gallery-ready"),
+                await page.locator("body").innerText(),
+              ).toBe("1");
+              if (process.env.FAST_CHECKS_OUT) {
+                await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });
+                await page.screenshot({
+                  path: path.join(
+                    process.env.FAST_CHECKS_OUT,
+                    `thinking-gap-existing-${variant}-${label}-${density}-${interfaceScale}.png`,
+                  ),
+                });
+              }
+            } finally {
+              await context.close();
+            }
+          });
+        }
+    for (const density of ["compact", "comfortable"])
+      for (const interfaceScale of [1, 1.25])
         for (const variant of ["live-peers", "live-tools", "live-status"]) {
           test(`${variant} separates live state (${label}, ${density}, ${interfaceScale})`, async () => {
             const context = await browser.newContext({ viewport: { width: 900, height: 650 }, deviceScaleFactor: 2 });
