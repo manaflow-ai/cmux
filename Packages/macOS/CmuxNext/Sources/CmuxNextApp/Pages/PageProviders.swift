@@ -70,7 +70,7 @@ final class AppPageNativeProvider: PageProvider {
                     ran = services.registry.perform(id, invocation: invocation)
                 }
                 guard ran else { return ["ran": .bool(false)] }
-                var fields: [String: JSONValue] = [:]
+                var fields: [String: CmuxNextSettings.JSONValue] = [:]
                 for result in captured.results {
                     switch await result.value {
                     case .success(let value):
@@ -97,10 +97,10 @@ final class AppPageNativeProvider: PageProvider {
         }
     }
 
-    private static func json(_ value: ActionResultValue) -> JSONValue {
+    private static func json(_ value: ActionResultValue) -> CmuxNextSettings.JSONValue {
         switch value {
         case .string(let text): .string(text)
-        case .int(let number): JSONValue(number)
+        case .int(let number): CmuxNextSettings.JSONValue(number)
         case .double(let number): .number(number)
         case .bool(let flag): .bool(flag)
         case .null: .null
