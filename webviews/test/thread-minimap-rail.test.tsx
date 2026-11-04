@@ -628,15 +628,18 @@ test("a press released off the rail ends there: a later hover does not scrub", a
 test("a bookmark shows as the tick's dot; the prompt row, dot and card share its state", async () => {
   const view = await mount(8);
   try {
+    // The first prompt row the transcript mounts: it windows its rows, and which ones it mounts here
+    // follows the row estimates (user-1 is not mounted since #31690). Row `user-<n>` is tick n - 1.
     const promptButton = document.querySelector<HTMLButtonElement>(
-      '.acpmux-row[data-row-id="user-1"] .cv-message-pin',
+      '.acpmux-row[data-row-id^="user-"] .cv-message-pin',
     )!;
     expect(promptButton).not.toBeNull();
+    const promptTick = Number(promptButton.closest("[data-row-id]")!.getAttribute("data-row-id")!.slice(5)) - 1;
     expect(promptButton.getAttribute("aria-pressed")).toBe("false");
     await act(async () => promptButton.click());
-    expect(tick(0).hasAttribute("data-bookmarked")).toBe(true);
-    expect(tick(0).querySelector(".acpmux-minimap__dot")).not.toBeNull();
-    await act(async () => tick(0).focus());
+    expect(tick(promptTick).hasAttribute("data-bookmarked")).toBe(true);
+    expect(tick(promptTick).querySelector(".acpmux-minimap__dot")).not.toBeNull();
+    await act(async () => tick(promptTick).focus());
     const cardButton = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__bookmark")!;
     expect(cardButton().getAttribute("aria-pressed")).toBe("true");
     await act(async () => cardButton().click());

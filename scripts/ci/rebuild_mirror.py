@@ -9,8 +9,10 @@ not proofs: production full runs must validate them before any enforcement.
 from __future__ import annotations
 
 import argparse
+import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -32,6 +34,17 @@ def digest(value: object) -> str:
 
 def under(path: str, prefix: str) -> bool:
     return path == prefix or path.startswith(prefix + "/")
+
+
+def policy_identity(root: str, rev: str, job: str) -> str:
+    """Identity of the declarations and planner code used by mirror evidence."""
+    table = json.loads(inputs.git(root, "show", f"{rev}:{TABLE}"))
+    policy = table["jobs"][f"cmux-next.yml:{job}"]["rebuild_mirror"]
+    return digest({"policy": policy, "script": inputs.git(root, "rev-parse", f"{rev}:{SCRIPT}"),
+                   "fingerprint": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_input_fingerprint.py"),
+                   "job_reuse": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_reuse.py"),
+                   "workflow": inputs.git(root, "rev-parse", f"{rev}:{inputs.WORKFLOW}"),
+                   "graph": inputs.git(root, "rev-parse", f"{rev}:{inputs.GRAPH}")})
 
 
 def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
@@ -71,9 +84,7 @@ def candidate(root: str, rev: str, job: str, full: dict) -> tuple[str, dict]:
     value = {key: val for key, val in full.items() if key != "tree"}
     value.update(schema=SCHEMA, inputs=selected)
     # Bind evidence to the actual planner and declarations, never a mutable version label.
-    policy_key = digest({"policy": policy, "script": inputs.git(root, "rev-parse", f"{rev}:{SCRIPT}"),
-                         "fingerprint": inputs.git(root, "rev-parse", f"{rev}:scripts/ci/job_input_fingerprint.py"),
-                         "graph": inputs.git(root, "rev-parse", f"{rev}:{inputs.GRAPH}")})
+    policy_key = policy_identity(root, rev, job)
     value["policy"] = policy_key
     return digest(value), {"policy": policy_key, "omitted_paths": len(omitted),
                            "input_paths": len(selected)}
@@ -111,6 +122,10 @@ def start(root: str, rev: str, job: str, full: dict, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(record, sort_keys=True) + "\n")
     print("mirror=true")
+    # The workflow's promotion path looks up the narrowed candidate namespace,
+    # while the legacy reuse key remains the full-tree fingerprint.
+    if record.get("candidate_key"):
+        print(f"candidate_key={record['candidate_key']}")
 
 
 def finish(plan: Path, outcome: str, output: Path, execution_receipt: Path | None = None) -> dict:
@@ -181,6 +196,49 @@ def report(records: list[dict]) -> dict:
             "note": "Execution-step estimate only; reconcile runner minutes and merged PRs separately."}
 
 
+def verify_evidence(root: str, rev: str, job: str, evidence: Path | None = None,
+                    raw: str | None = None) -> tuple[bool, str]:
+    """Fail closed unless protected promotion evidence proves a full mirror day."""
+    try:
+        if raw is None:
+            if evidence is None:
+                return False, "evidence is unavailable"
+            raw = evidence.read_text(encoding="utf-8")
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            return False, "evidence is not an object"
+        if value.get("schema") != "ci-rebuild-evidence/v1" or value.get("enabled") is not True:
+            return False, "evidence is not enabled"
+        if value.get("policy") != policy_identity(root, rev, job):
+            return False, "evidence policy does not match this checkout"
+        window = value.get("window_seconds")
+        if (isinstance(window, bool) or not isinstance(window, (int, float))
+                or not math.isfinite(window) or window < 86400):
+            return False, "evidence window is shorter than 24 hours"
+        rate = value.get("false_skip_rate")
+        if (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                or not math.isfinite(rate) or rate != 0):
+            return False, "evidence false-skip rate is not zero"
+        complete = value.get("complete")
+        if isinstance(complete, bool) or not isinstance(complete, int) or complete <= 0:
+            return False, "evidence has no complete observations"
+        measured_at = str(value.get("measured_at") or "")
+        if not measured_at:
+            return False, "evidence has no measurement timestamp"
+        try:
+            stamp = datetime.datetime.fromisoformat(measured_at.replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                return False, "evidence timestamp has no timezone"
+            age = time.time() - stamp.timestamp()
+        except ValueError:
+            return False, "evidence timestamp is not ISO-8601"
+        if age < -300 or age > 7 * 86400:
+            return False, "evidence timestamp is stale"
+        return True, "eligible"
+    except (ArithmeticError, OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as error:
+        return False, f"evidence unavailable: {error}"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -191,11 +249,21 @@ def main() -> int:
     end.add_argument("--execution-receipt", type=Path, required=True)
     summary = commands.add_parser("report")
     summary.add_argument("receipts", type=Path, nargs="+")
+    verify = commands.add_parser("verify-evidence")
+    verify.add_argument("--root", default=".")
+    verify.add_argument("--rev", default="HEAD")
+    verify.add_argument("--job", default="fast-tier-cargo")
+    verify.add_argument("--evidence", type=Path)
+    verify.add_argument("--evidence-json")
     args = parser.parse_args()
     if args.command == "finish":
         finish(args.plan, args.outcome, args.output, args.execution_receipt)
-    else:
+    elif args.command == "report":
         print(json.dumps(report([json.loads(p.read_text()) for p in args.receipts]), indent=2))
+    else:
+        eligible, reason = verify_evidence(args.root, args.rev, args.job, args.evidence, args.evidence_json)
+        print(f"eligible={'true' if eligible else 'false'}")
+        print(f"reason={reason}")
     return 0
 
 

@@ -307,6 +307,9 @@ pub struct PtyTerminalRuntime {
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
     pub(super) frame_requests: frame_producer::FrameRequests,
+    /// The view a key may skip its sizing note for, published by the terminal's sizing entry (R-DAEMON-STATE stage
+    /// S1, `mux::sizing_fast_path`); shared by every view of the terminal.
+    pub(super) sizing_fast_path: crate::mux::sizing_fast_path::SizingFastPathSlot,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
