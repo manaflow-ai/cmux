@@ -191,7 +191,7 @@ fn saved_app(backend: &impl Backend, word: &str) -> Result<Value, CallFailure> {
     });
     match (matches.next(), matches.next()) {
         (Some(app), None) => {
-            let mut entry = serde_json::Map::new();
+            let mut entry = Map::new();
             for key in ["bundle_id", "executable", "name"] {
                 if let Some(value) = app.get(key).filter(|value| value.is_string()) {
                     entry.insert(key.to_owned(), value.clone());
