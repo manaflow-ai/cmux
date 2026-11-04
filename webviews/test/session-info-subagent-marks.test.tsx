@@ -2,8 +2,9 @@
 // literally all the same icon, that's terrible. You can, like surely you can just at least say, you
 // know, one of these is Codex, one of these is Claude, or something ... If you don't have anything
 // else, you can just randomize the colors or something." Each line draws its harness's mark (the
-// picker's own AgentMark): another family's agent its harness, the chat's own subagents the chat's,
-// a started chat its own. A line with no mark keeps the icon in a stable tone of its own id
+// picker's own AgentMark): another family's agent its harness, a started chat its own. The chat's own
+// subagents keep the toned subagent icon, never the chat's mark on every line (Leo, 2026-11-04: "these
+// all being claude"). A line with no mark keeps the icon in a stable tone of its own id
 // (agentTones.ts), so the same agent is the same color on every render. The icon is AgentMark's
 // fallback, so a harness acpmux has no drawable icon for (a glyph) still shows it.
 import { expect, test } from "bun:test";
@@ -38,20 +39,21 @@ const session = (sessionId: string, harness?: string): StartedSession => ({
 /// Each icon span's inner markup, and the tone of the icon it falls back to, in order.
 const icons = (html: string) =>
   [...html.matchAll(/<span class="acpmux-lineage__icon[^"]*"[^>]*>(.*?)<\/span><span class="acpmux-summary-text/g)].map(
-    (match) => ({ inner: match[1]!, tone: /data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
+    (match) => ({ inner: match[1]!, tone: /class="acpmux-toned-icon" data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
   );
 
-const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} tint />);
+const mark = (harness: string, tint = true) =>
+  renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} tint={tint} />);
 
-test("a subagent line draws its harness's mark: another family's its own, the chat's own the chat's", () => {
+test("a subagent line draws another family's mark; the chat's own keeps its toned icon", () => {
   const html = renderToStaticMarkup(
     <SubagentsSection agents={[agent("reviewer", "codex"), agent("explorer")]} waiting={new Set()} harness="claude" />,
   );
   const [codex, claude] = icons(html);
-  expect(codex?.inner).toContain(mark("codex"));
-  expect(claude?.inner).toContain(mark("claude"));
-  expect(codex?.tone).toBe(String(agentTone("reviewer")));
+  expect(codex?.inner).toBe(mark("codex", true));
+  expect(claude?.inner).not.toBe(mark("claude"));
   expect(claude?.tone).toBe(String(agentTone("explorer")));
+  expect(codex?.tone).toBeUndefined();
   expect(mark("codex")).not.toBe(mark("claude"));
 });
 
@@ -76,13 +78,13 @@ test("a chat the agent started draws its own harness's mark, else its icon in it
     />,
   );
   const [codex, plain] = icons(html);
-  expect(codex?.inner).toContain(mark("codex"));
+  expect(codex?.inner).toBe(mark("codex", true));
   expect(plain?.tone).toBe(String(agentTone("plain-child")));
 
   const rows = renderToStaticMarkup(
     <ChildSessionRows sessions={[session("codex-child", "codex"), session("plain-child")]} />,
   );
-  expect(rows).toContain(mark("codex"));
+  expect(rows).toContain(mark("codex", true));
   expect(rows).toContain(`data-agent-tone="${agentTone("plain-child")}"`);
 });
 
@@ -103,7 +105,7 @@ test("a harness with no drawable mark (a glyph icon) keeps the toned icon, and t
   rememberHarnessIcons([{ id: "late-harness", iconSpec: { kind: "emoji", text: "🦊", source: "profile" } }]);
   const [, late] = icons(render());
   expect(late?.inner).toContain("🦊");
-  expect(late?.tone).toBe(String(agentTone("late-child")));
+  expect(late?.tone).toBeUndefined();
 });
 
 test("a subagent row keeps its name and harness mark without a fork icon or usage counts", () => {
@@ -114,7 +116,7 @@ test("a subagent row keeps its name and harness mark without a fork icon or usag
     />,
   );
   expect(html).toContain("reviewer");
-  expect(icons(html)[0]?.inner).toContain(mark("codex"));
+  expect(icons(html)[0]?.inner).toBe(mark("codex", true));
   expect(html).not.toContain("acpmux-agent-line__kind-icon");
   expect(html).not.toContain("acpmux-agent-line__progress");
   expect(html).not.toContain("107.5K");

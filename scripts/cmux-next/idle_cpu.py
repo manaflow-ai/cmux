@@ -5,6 +5,7 @@
                 [--chats 0] [--fake-agent SCRIPT] [--no-sample] [--budget-cpu 1.0] [--budget-wakeups 1.0]
                 [--out DIR]
 
+The app is ready when a window is visible and its first frame is committed (not when Home is selected).
 A dogfood build must rest when nobody uses it: on 2026-11-04 Lawrence's idle Mac had acpmux daemons at
 20-52 % CPU each (cmux-ad m9). This launches the build as a first install would (an empty HOME, no
 defaults: scripts/ci/fresh_home_launch_smoke.py), waits for Home in its first window, optionally makes
@@ -409,6 +410,9 @@ def main(argv: list[str] | None = None) -> int:
         return []
 
     smoke.AFTER_RENDER = after_render
+    # Idle CPU needs a launched app with a visible window and its first frame, not Home selected: a fresh launch of
+    # feat opens a New Tab tab with Home in the sidebar (tip-watcher smoke check-01.png, 2026-11-04 11:35Z).
+    smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     if args.history > 0:
         def prepare(env):
             result["history"] = seed_history(Path(env["HOME"]), args.history)

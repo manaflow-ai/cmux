@@ -742,6 +742,24 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head .acpmux-lineage__icon[data-blank] {
   visibility: hidden;
 }
+/* The `stack` arm's marks (trayHead.experiment.ts): the first lines' own glyphs side by side where
+   the blank slot was, as the sidebar's status row draws its toned sparkles before "8 done" (Leo,
+   2026-11-04: "the top of the bar not having anything is weird"). Its first mark sits in the lines'
+   icon column; the counts follow one gap after the last. */
+.acpmux-running-tray__stack {
+  /* It gives way before the time and the chevron: never pushes them out of the lines' columns. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+}
+.acpmux-running-tray__stack-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--agent-muted);
+}
 /* The header (Leo's collapsed strip, 2026-10-31: the time floated in a column of its own far from
    the words it belongs to): the counts take only their width, the elapsed time follows them as quiet
    meta one gap later, and the chevron ends the row in the trailing column the lines' chevrons
@@ -1416,6 +1434,41 @@ button.cv-subagent > :last-child {
   }
 }
 
+/* What a running agent did last (AgentLine.tsx `latest`, trayLatest.experiment.ts): one quiet
+   line under the title, cut with an ellipsis, so a new step changes its words and never the
+   line's height. The state, time and Stop centre on the two lines (Leo, 2026-11-03: "Tray only,
+   richer"). */
+.acpmux-agent-line__latest {
+  display: block;
+  overflow: hidden;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+  line-height: 16px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A line with its latest line is taller than one row: five such lines still fit before the list
+   scrolls (SubagentTrayKinds.gallery.ts `columns`, "no scrollbar under five lines"). */
+.acpmux-running-tray__list:has(.acpmux-agent-line__latest),
+.acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list:has(.acpmux-agent-line__latest) {
+  max-height: calc(var(--acpmux-tray-lines) * (var(--ui-row-height, 28px) + var(--ds-space-4)) + 2px);
+}
+/* The time, state and Stop stay centred on the line, as on every tray line (subagent-tray-trailing). */
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+  height: auto;
+  padding-block: var(--ds-space-1);
+}
+/* The mark stays on the title's line, centred on its words (glyph-alignment), while the latest line
+   sits under the title. */
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > :is(.acpmux-lineage__icon, .acpmux-summary-text) {
+  align-self: start;
+}
+.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+  height: 1lh;
+  align-items: center;
+}
+
 /* Counts and warnings remain readable even when the name or action needs truncation. */
 .acpmux-agent-line__progress {
   display: block;
@@ -1558,4 +1611,16 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__chevron {
   grid-column: 6;
   grid-row: 1;
+}
+
+/* Narrow, the title and its latest line take the first row, the controls the second. */
+@container running-tray (max-width: 400px) {
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
+    grid-template-rows: auto var(--ui-row-height, 28px);
+    height: auto;
+    padding-block: var(--ds-space-1) 0;
+  }
+  .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button > .acpmux-lineage__icon {
+    top: var(--ds-space-1);
+  }
 }
