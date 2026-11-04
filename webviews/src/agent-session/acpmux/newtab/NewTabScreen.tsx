@@ -529,9 +529,10 @@ export function NewTabScreen(props: Props) {
         ? "newtab.attachments"
         : null,
   );
+  const onDraftChange = props.onDraftChange;
   useEffect(() => {
-    props.onDraftChange?.(text, attachments);
-  }, [attachments, props.onDraftChange, text]);
+    onDraftChange?.(text, attachments);
+  }, [attachments, onDraftChange, text]);
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
   leaving.current = {
