@@ -129,9 +129,9 @@ function TokenRow({
 }) {
   const glyphSize = BASE.glyph * scale;
   return (
-    <IconsProvider pack={experimental ? candidatePack : baselinePack}>
+    <IconsProvider pack={baselinePack}>
       <div
-        style={{ display: "flex", gap: px(BASE.rowGap) }}
+        style={{ display: "flex", flexWrap: "wrap", gap: px(BASE.rowGap), width: "100%" }}
         data-token-row={experimental || drawings ? "candidate" : "default"}
       >
         {samples.map(([name, label]) => (
@@ -153,6 +153,10 @@ function TokenRow({
                   filter: dark ? "invert(1)" : undefined,
                 }}
               />
+            ) : experimental && Object.hasOwn(candidate.icons, name) ? (
+              <IconsProvider pack={candidatePack}>
+                <Icon name={name} size={glyphSize} />
+              </IconsProvider>
             ) : (
               <Icon name={name} size={glyphSize} />
             )}
