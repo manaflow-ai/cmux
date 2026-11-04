@@ -58,6 +58,7 @@ CLIP_WIDTH = 1280
 # Seconds of fresh snapshots a frame check gets once the state it should show holds.
 FRAME_GRACE = 10.0
 # Evidence a passing journey must have: the user-visible result seen three independent ways.
+BUSY_COMMAND = 'while :; do echo "$RANDOM $RANDOM $RANDOM stress output line $(date +%s)"; sleep 0.02; done\r'
 REQUIRED_KINDS = ("app", "daemon", "frame")
 KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "daemon",
         "app_text_line": "app", "app_text_contains": "app", "app_prompt": "app", "app_pane": "app",
@@ -640,6 +641,109 @@ class Journey:
             if not isinstance(got, (int, float)) or got < least:
                 raise StepError(f"{step['method']}: {path} is {got!r}, want at least {least} (reply {str(reply)[:200]})")
         return {"reply": reply}
+
+    # -- CMD-N LATENCY bench (cmux-ad m6 2c): the app's own timing, never a frame read --
+
+    def step_pty_write(self, step):
+        """Set-up: writes `text` into the current terminal's PTY through the daemon (as neutral_prompt does)."""
+        term = self.need_term()
+        self.app.cmux("terminal", term, "write", "--text", step["text"])
+        return {"terminal": term, "bytes": len(step["text"])}
+
+    def step_base_terminal(self, step):
+        """Set-up: a shown, focused terminal to press Cmd-N from. The person's Ctrl-` first; when no focused terminal
+        shows within 8 s (an older build's first-run page), a script's newTab with focus, as
+        instant-new-surfaces-bench.py's ensure_terminal."""
+        tried = []
+        for how in ("key", "script"):
+            if how == "key":
+                self.key("`", ["control"], None)
+            else:
+                self.app.rpc("action.run", {"action": "newTab", "args": {"focus": True, "name": f"cmdn-base-{self.nonce}"}, "wait": True})
+            end = now() + (8 if how == "key" else 20)
+            while now() < end:
+                pane = self.focused_pane()
+                if pane.get("kind") == "terminal":
+                    self.term, self.host_pid = pane.get("terminal_id") or self.term, pane.get("host_pid") or self.host_pid
+                    self.pane = pane.get("pane") or pane.get("id") or self.pane
+                    time.sleep(1.0)
+                    return {"via": how, "tried": tried, "terminal": self.term}
+                time.sleep(0.2)
+            tried.append(how)
+        raise StepError(f"no focused terminal after {tried}")
+
+    def focused_pane(self):
+        report = self.app.rpc("debug.surfaces", {}) or {}
+        return next((p for w in report.get("windows", []) for p in w.get("panes", [])
+                     if isinstance(p, dict) and p.get("focused")), None) or {}
+
+    def step_latency_runs(self, step):
+        """`runs` timed presses measured by the app itself, the warm arm of instant-new-surfaces-bench.py:
+        `bench: create` is `debug.new_tab {action: bench_create, command}` (the key through debug.key; key_ms,
+        visible_ms: the first display frame that shows the result, confirmed_ms: the daemon's object in place),
+        then 0.4 s, `closeWorkspace` (Cmd-N) or the tab's Cmd-W, a wait for a focused terminal, 1 s;
+        `bench: prompt` is `debug.new_terminal_trace {action: run}` (newSurface as the person's, its marks up to
+        prompt_contents, the first visible prompt; the app closes the tab). Each reply is kept whole."""
+        bench, rows = step.get("bench", "create"), []
+        # `runs_option`: a run.py --journey-option (e.g. presses=40) that overrides `runs`.
+        runs = int((self.spec.get("options") or {}).get(step.get("runs_option", ""), step.get("runs", 20)))
+        command = step.get("command", "new_workspace")
+        for index in range(runs):
+            t = now()
+            if bench == "prompt":
+                reply = self.app.rpc("debug.new_terminal_trace", {"action": "run", "timeout_ms": 10000}, timeout=25) or {}
+                rows.append({"run": index, "wall_ms": round((now() - t) * 1000, 1), "reply": reply})
+                time.sleep(float(step.get("gap", 1.0)))
+                continue
+            reply = self.app.rpc("debug.new_tab", {"action": "bench_create", "command": command}, timeout=25) or {}
+            kind = self.focused_pane().get("kind")
+            rows.append({"run": index, "wall_ms": round((now() - t) * 1000, 1), "kind_after": kind, "reply": reply})
+            time.sleep(0.4)
+            if command == "new_workspace":
+                self.app.rpc("action.run", {"action": "closeWorkspace", "args": {"confirm": True}})
+            else:
+                self.app.rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+            end = now() + 10
+            while now() < end and self.focused_pane().get("kind") != "terminal":
+                time.sleep(0.1)
+            time.sleep(float(step.get("gap", 1.0)))
+        return {"bench": bench, "command": command, "label": step.get("label", ""), "rows": rows}
+
+    def step_grow_workspaces(self, step):
+        """STRESS-lite set-up: script workspaces (unfocused, one terminal each) until the app holds `count`;
+        then `busy` of them print a line every 20 ms (perf-stress-session.py's BUSY_COMMAND). The journey's
+        terminal stays the shown one."""
+        count, busy = int(step.get("count", 60)), int(step.get("busy", 10))
+        def have():
+            snap = self.app.rpc("snapshot.get") or {}
+            topo = (snap.get("topology") or snap) if isinstance(snap, dict) else {}
+            return [w.get("name") for w in topo.get("workspaces") or []]
+        start, made = len(have()), []
+        for index in range(start, count):
+            name = f"stress-{self.nonce}-{index}"
+            self.app.rpc("action.run", {"action": "newTab", "args": {"name": name}, "wait": True})
+            made.append(name)
+        keep = (self.term, self.pane, self.host_pid)
+        busy_terms = []
+        for name in made[:busy]:
+            end = now() + 20
+            while now() < end:
+                try:
+                    term = self.daemon_terminal(name, None)
+                    if self.app.screen(term)["text"].strip():
+                        break
+                except StepError:
+                    term = None
+                time.sleep(0.2)
+            if term:
+                self.app.cmux("terminal", term, "write", "--text", BUSY_COMMAND)
+                busy_terms.append(term)
+        self.term, self.pane, self.host_pid = keep
+        names = have()
+        if len(names) < count or len(busy_terms) < busy:
+            raise StepError(f"STRESS-lite: {len(names)} workspaces (want {count}), {len(busy_terms)} busy (want {busy})")
+        time.sleep(float(step.get("settle", 2.0)))
+        return {"workspaces": len(names), "made": len(made), "busy": busy_terms}
 
     # -- scroll, paste, select: the pointer, the clipboard, helper files --
 
