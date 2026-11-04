@@ -350,6 +350,24 @@ mod tests {
         );
     }
 
+    /// With a room, an invite's line is followed by the link the owner sends the invitee.
+    #[test]
+    fn an_invite_prints_the_invite_link() {
+        let params = json!({"action": "share invite"});
+        let result = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com",
+            "role": "talk", "state": "invited", "invite_url": "https://room.example/i/s1"}});
+        assert_eq!(
+            human_line(&params, &result).as_deref(),
+            Some("Invited leo@cmux.com (can talk)\nInvite link: https://room.example/i/s1\n")
+        );
+        let roomless = json!({"ran": true, "result": {"share_id": "s1", "account": "leo@cmux.com",
+            "role": "talk", "state": "invited", "invite_url": null}});
+        assert_eq!(
+            human_line(&params, &roomless).as_deref(),
+            Some("Invited leo@cmux.com (can talk)\n")
+        );
+    }
+
     #[test]
     fn share_chat_prints_only_the_link() {
         let params = json!({"action": "share chat", "cli": true});
