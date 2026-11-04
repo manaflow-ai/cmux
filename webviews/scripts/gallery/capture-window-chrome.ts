@@ -23,14 +23,14 @@ const cases = ["recommendation", "group-line", "aside-labels", "rex-icons"].flat
   ["compact", "comfortable"].flatMap(density => ["light", "dark"].map(scheme => ({ variant: `${shape}-${density}-${scheme}`, density, scheme }))));
 for (const scene of scenes) for (const density of ["compact", "comfortable"]) for (const scheme of ["light", "dark"])
   cases.push({ variant: `recommendation-${density}-${scheme}-${scene}`, density, scheme });
-const results: Array<{ variant: string; engine: string; before: ChromeHeaderGeometry; readback: { rowHeight: number } } & Record<string, unknown>> = [];
+const results: Array<{ variant: string; engine: string; before: ChromeHeaderGeometry; hoverFocusDelta: number; readback: { rowHeight: number } } & Record<string, unknown>> = [];
 try {
   for (const engine of ["chromium", "webkit"] as const) {
     const browser = await (engine === "chromium" ? chromium.launch({ channel: "chrome", headless: true }) : webkit.launch({ headless: true }));
     try {
       const baseline = new Map<string, ChromeHeaderGeometry>();
       for (const item of cases) {
-        const context = await browser.newContext({ viewport: { width: 1360, height: 860 }, deviceScaleFactor: 2, colorScheme: item.scheme as "light" | "dark" });
+        const context = await browser.newContext({ viewport: { width: 1360, height: 860 }, deviceScaleFactor: 2, colorScheme: item.scheme as "light" | "dark", reducedMotion: "reduce" });
         const page = await context.newPage();
         try {
           const params = new URLSearchParams({ entry: "native.window-chrome-shapes", variant: item.variant,
@@ -40,6 +40,8 @@ try {
           await page.goto(`http://127.0.0.1:${server.port}/frame.html?${params}`, { waitUntil: "domcontentloaded" });
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, { timeout: 30_000 });
           await page.evaluate(() => document.fonts.ready);
+          assert.equal(await page.locator(".sidebar-shape__trail .cv-spinner").count(), 1);
+          if (item.variant.startsWith("rex-icons-")) assert.equal(await page.locator(".sidebar-shape__icon svg[data-icon]").count(), 8);
           const agent = page.locator('.chrome-header-menu-fixture[data-pane-kind="agent"]');
           const browserHeader = page.locator('.chrome-header-menu-fixture[data-pane-kind="browser"]');
           const measure = async () => agent.evaluate(measureChromeHeaderGeometry);
@@ -54,6 +56,8 @@ try {
           await agent.locator('[data-chrome-trigger="pane"]').focus();
           const focused = await measure();
           assertChromeHeaderGeometry(before, focused, .5);
+          const dimensions = ["width", "height", "addCenterX", "addCenterY", "addTrailingInset", "addWidth", "actionWidth"] as const;
+          const hoverFocusDelta = Math.max(...[hovered, focused].flatMap(state => dimensions.map(key => Math.abs(before[key] - state[key]))));
           const key = `${item.density}-${item.scheme}`;
           if (baseline.has(key)) assertChromeHeaderGeometry(baseline.get(key)!, before, .5);
           else baseline.set(key, before);
@@ -80,7 +84,7 @@ try {
           if (item.variant.includes("developer-menu")) assert.equal(readback.developerOpen, true);
           await page.locator(".window-chrome-gallery").screenshot({ path: path.join(out, `${item.variant}-${engine}.png`) });
           await page.screenshot({ path: path.join(out, `${item.variant}-${engine}-chrome.png`), clip: { x: 0, y: 0, width: 1360, height: 280 } });
-          results.push({ ...item, engine, before, hovered, focused, readback, params: Object.fromEntries(params) });
+          results.push({ ...item, engine, before, hovered, focused, hoverFocusDelta, readback, params: Object.fromEntries(params) });
           console.log(`${item.variant} ${engine}: center line and reserved slots PASS`);
         } finally { await context.close(); }
       }
@@ -89,7 +93,7 @@ try {
 } finally {
   server.stop();
   await writeFile(path.join(out, "geometry.json"), JSON.stringify(results, null, 2));
-  await writeFile(path.join(out, "geometry.md"), `| State | Engine | Header height | Add center X | Add center Y | Row height | Hover/focus delta |\n|---|---|---:|---:|---:|---:|---:|\n` + results.map(r => `| ${r.variant} | ${r.engine} | ${r.before.height} | ${r.before.addCenterX} | ${r.before.addCenterY} | ${r.readback.rowHeight} | 0 |`).join("\n"));
+  await writeFile(path.join(out, "geometry.md"), `| State | Engine | Header height | Add center X | Add center Y | Row height | Hover/focus delta |\n|---|---|---:|---:|---:|---:|---:|\n` + results.map(r => `| ${r.variant} | ${r.engine} | ${r.before.height} | ${r.before.addCenterX} | ${r.before.addCenterY} | ${r.readback.rowHeight} | ${r.hoverFocusDelta} |`).join("\n"));
 }
 assert.equal(results.length, 96);
 console.log(`96 geometry cases and 192 2x images in ${out}`);

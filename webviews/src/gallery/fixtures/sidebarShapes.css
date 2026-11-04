@@ -35,6 +35,10 @@
 }
 .sidebar-shape__row[aria-selected="true"] { background: var(--agent-accent-soft, var(--cmux-selection, color-mix(in srgb, var(--agent-accent, currentColor) 28%, transparent))); }
 .sidebar-shape__icon { font-size: var(--sidebar-icon-size); opacity: .72; }
+.sidebar-shape__icon,
+.sidebar-shape__trail { display: flex; align-items: center; }
+.sidebar-shape__icon svg,
+.sidebar-shape__trail svg { width: var(--sidebar-icon-size); height: var(--sidebar-icon-size); }
 .sidebar-shape__title { font-size: var(--sidebar-title-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-shape__detail { font-size: var(--sidebar-label-size); opacity: .55; }
 .sidebar-shape__trail { justify-self: end; font-size: var(--sidebar-icon-size); opacity: .62; }

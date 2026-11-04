@@ -1,4 +1,6 @@
 import type { CSSProperties } from "react";
+import { Icon } from "../../agent-session/acpmux/icons/Icon";
+import { Spinner } from "../../agent-session/acpmux/conversation/icons";
 import { sidebarGroups, sidebarTokens, sidebarVariantClass, type SidebarAppearance, type SidebarDensity, type SidebarVariant } from "./sidebarShapes.ts";
 import "./sidebarShapes.css";
 
@@ -10,9 +12,9 @@ export function SidebarShapes({ variant, density, appearance, uiScale = 1 }: { v
       <div className="sidebar-shape__label"><span>{group.title}</span><span className="sidebar-shape__disclosure" aria-hidden>⌄</span></div>
       <div className="sidebar-shape__members">
         {group.rows.map(row => <div className="sidebar-shape__row" key={row.title} aria-selected={row.selected || undefined}>
-          <span className="sidebar-shape__icon" aria-hidden>{variant === "D" ? row.icon : ""}</span>
+          <span className="sidebar-shape__icon" aria-hidden>{variant === "D" && row.icon && <Icon name={row.icon} size={tokens.iconSize} row fit />}</span>
           <span className="sidebar-shape__title">{row.title}</span>
-          <span className="sidebar-shape__trail" aria-hidden>{row.detail === "Working" ? "◌" : ""}</span>
+          <span className="sidebar-shape__trail" aria-hidden>{row.detail === "Working" && <Spinner size={tokens.iconSize} />}</span>
           <button className="sidebar-shape__more" aria-label={`More for ${row.title}`}>···</button>
         </div>)}
       </div>
