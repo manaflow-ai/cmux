@@ -78,27 +78,40 @@ struct FocusInputSharedRouterTests {
     }
 
     /// Every request a machine makes reaches the router through the input handle: the close-focus policy, the Close Tab
-    /// aim (pane moved, frame presented, pane emptied, aimed at), the focus history, the remembered panes and the journal
-    /// checkpoint. A checkpoint that does not decode is refused and leaves the state as it was.
+    /// aim (pane emptied, pane moved, frame presented, aimed at), the focus history, the remembered panes and the journal
+    /// checkpoint, each with the answer a machine alone gives. A checkpoint that does not decode is refused and leaves the
+    /// state as it was.
     @Test func everyRequestGoesThroughTheInputHandle() throws {
-        let machine = FocusMachine(input: FocusInput())
-        var state = FocusState()
-        _ = machine.send(.topology(Self.topology("w")), into: &state)
-        _ = machine.send(.focusPane("b", source: .mouse), into: &state)
-        _ = machine.send(.focusPane("a", source: .mouse), into: &state)
-        machine.setCloseFocus(mostRecent: true)
-        #expect(machine.recentPanes(in: "w").prefix(2) == ["a", "b"], "the focus history is not the router's: \(machine.recentPanes(in: "w"))")
-        #expect(machine.remembered()["w"] == "a")
-        let aim = PaneCloseAim(machine: machine)
-        aim.paneEmptied("a", by: .init(time: 10, isKey: true, isRepeat: false))
-        let move = aim.paneMoved(from: "a")
-        #expect(aim.aimsAtEmptiedPane(.init(time: 10.01, isKey: true, isRepeat: false)), "a press before the new pane showed did not aim at the emptied pane")
-        aim.presented(move, at: 10.02)
-        #expect(!aim.aimsAtEmptiedPane(.init(time: 10.30, isKey: true, isRepeat: false)), "a press after the new pane showed still aimed at the emptied pane")
-        let before = machine.checkpoint()
-        #expect(machine.restore(FocusCheckpoint(json: "{ not json")) == nil, "a checkpoint that does not decode was taken")
-        #expect(machine.checkpoint().matches(before), "a refused checkpoint changed the state")
-        let restored = try #require(machine.restore(before), "the machine's own checkpoint was refused")
-        #expect(restored.typingTab == state.typingTab)
+        let alone = FocusMachine(), inRouter = FocusMachine(input: FocusInput())
+        var answers: [String: [String]] = [:]
+        for (name, machine) in [("alone", alone), ("router", inRouter)] {
+            var state = FocusState(), seen: [String] = []
+            _ = machine.send(.topology(Self.topology("w")), into: &state)
+            _ = machine.send(.focusPane("b", source: .mouse), into: &state)
+            _ = machine.send(.focusPane("a", source: .mouse), into: &state)
+            machine.setCloseFocus(mostRecent: true)
+            seen.append("history \(machine.recentPanes(in: "w"))")
+            seen.append("remembered \(machine.remembered().sorted { $0.key < $1.key })")
+            // The Close Tab aim as `PaneCloseAim` documents it: a close empties "a", the focus moves to "b", its frame shows.
+            let aim = PaneCloseAim(machine: machine)
+            aim.paneEmptied("a", by: .init(time: 10, isKey: true, isRepeat: false))
+            _ = machine.send(.focusPane("b", source: .programmatic), into: &state)
+            let move = aim.paneMoved(from: "a")
+            aim.presented(move, at: 10.02)
+            seen.append("before the frame \(aim.aimsAtEmptiedPane(.init(time: 10.01, isKey: true, isRepeat: false)))")
+            seen.append("after the frame \(aim.aimsAtEmptiedPane(.init(time: 10.30, isKey: true, isRepeat: false)))")
+            let before = machine.checkpoint()
+            seen.append("bad checkpoint refused \(machine.restore(FocusCheckpoint(json: "{ not json")) == nil)")
+            seen.append("state kept \(machine.checkpoint().matches(before))")
+            let restored = try #require(machine.restore(before), "\(name): the machine's own checkpoint was refused")
+            seen.append("restored \(String(describing: restored.typingTab))")
+            answers[name] = seen
+        }
+        #expect(answers["router"] == answers["alone"], "the input handle answered differently from a machine alone: \(answers)")
+        let router = answers["router"] ?? []
+        #expect(router.contains("before the frame true") && router.contains("after the frame false"),
+                "the Close Tab aim did not answer as PaneCloseAim documents: \(router)")
+        #expect(router.contains("bad checkpoint refused true") && router.contains("state kept true"),
+                "a checkpoint that does not decode was taken or changed the state: \(router)")
     }
 }
