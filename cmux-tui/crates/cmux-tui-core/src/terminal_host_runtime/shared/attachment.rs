@@ -185,13 +185,28 @@ impl HostInputRoute {
         if payload.len() > INLINE_FRAME_MAX {
             return false;
         }
-        let Ok(writer) = self.writer.try_lock() else { return false };
+        // A writer poisoned by a panic is recovered, as `send_host_frame` recovers it.
+        let writer = match self.writer.try_lock() {
+            Ok(writer) => writer,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return false,
+        };
+        // Room first. On macOS a send with MSG_DONTWAIT still waits for room on a stream socket (XNU honours only
+        // the socket's own non-blocking mode there, and this socket must block: its reader shares it), so a key to a
+        // host that stopped reading waited here, holding this turn, the writer and the port lock (#35872: the
+        // stalled-host test). POLLOUT means room for at least the send low-water mark (2048 bytes on macOS, more
+        // than any inline frame; Linux reports it while under a quarter of the send buffer is used). The writer held
+        // here is the socket's only writer, so nothing takes that room before the send.
+        if !has_room_now(writer.as_raw_fd()) {
+            return false;
+        }
         let mut frame = Frame::new(kind, payload.to_vec());
         frame.version = self.protocol_version;
         let Ok(bytes) = crate::terminal_host_protocol::encode_frame(&frame) else { return false };
-        // MSG_DONTWAIT: never blocks, whatever the socket's mode. A Unix stream socket takes a write this small whole
-        // or not at all (it needs room for the whole of it): a partial write cannot happen, and if one ever did the
-        // stream would be corrupt, so the connection is shut down as `send_host_frame` does after a failed write.
+        // MSG_DONTWAIT as well, where it is honoured. With room for the whole frame, a Unix stream socket takes it
+        // whole: a partial write cannot happen, and if one ever did the stream would be corrupt, so the connection
+        // is shut down as `send_host_frame` does after a failed write (the port's writer then sends the frame on the
+        // reconnected host).
         // SAFETY: the descriptor is the connection's open socket, kept alive by the writer guard; `bytes` is a live
         // buffer of the given length.
         let sent = unsafe {
@@ -213,16 +228,36 @@ impl HostInputRoute {
 }
 
 /// The largest frame payload [`HostInputRoute::try_send_now`] writes on the caller's turn: a person's key (a few
-/// bytes, a short paste of a word). Larger input goes through the port's writer.
+/// bytes, a short paste of a word). Larger input goes through the port's writer. With its 32-byte header the frame
+/// stays under the 2048-byte send low-water mark that `has_room_now`'s POLLOUT promises on macOS.
 #[cfg(unix)]
 pub(crate) const INLINE_FRAME_MAX: usize = 1024;
 
-/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. macOS has no such flag; there,
-/// as for every other write on this socket (`write_frame` through std), the Rust runtime ignores SIGPIPE, so the send
-/// fails with EPIPE.
-#[cfg(all(unix, not(target_os = "macos")))]
+// The room POLLOUT promises on macOS (the default 2048-byte send low-water mark) must hold a whole inline frame, or
+// a send after it could still wait or write part of the frame.
+#[cfg(unix)]
+const _: () = assert!(
+    INLINE_FRAME_MAX + crate::terminal_host_protocol::HEADER_LEN < 2048,
+    "an inline frame must fit the room POLLOUT promises"
+);
+
+/// Whether the socket `fd` can take a small write now, without waiting (POLLOUT, no error or hang-up).
+#[cfg(unix)]
+fn has_room_now(fd: std::os::fd::RawFd) -> bool {
+    let mut ready = libc::pollfd { fd, events: libc::POLLOUT, revents: 0 };
+    // SAFETY: one valid pollfd, and a zero timeout: poll does not wait.
+    let count = unsafe { libc::poll(&mut ready, 1, 0) };
+    count == 1
+        && ready.revents & libc::POLLOUT != 0
+        && ready.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) == 0
+}
+
+/// No SIGPIPE from a send to a host that closed its end: the error is returned instead. Elsewhere (Apple targets) std
+/// sets SO_NOSIGPIPE on the sockets it creates and the Rust runtime ignores SIGPIPE, as for every other write on this
+/// socket; the send fails with EPIPE. The same gate as `pty_custody`'s sends.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const SEND_NO_SIGNAL: libc::c_int = libc::MSG_NOSIGNAL;
-#[cfg(target_os = "macos")]
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
 const SEND_NO_SIGNAL: libc::c_int = 0;
 
 /// One frame on a daemon-to-host connection's writer.
