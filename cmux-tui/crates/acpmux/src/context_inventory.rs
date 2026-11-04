@@ -239,7 +239,33 @@ pub fn override_block(text: &str, scope: &str) -> Value {
 /// Capture preset bytes as well as the injected addition so later config edits do not
 /// change the effective text reported for an existing chat.
 pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
-    let mut parts = snapshot(cfg, &meta.cwd);
+    let mut parts = Vec::new();
+    let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
+    let selected = meta
+        .preset
+        .as_deref()
+        .and_then(|name| cfg.presets.get(name))
+        .and_then(|preset| {
+            preset
+                .context_project
+                .get(&project_key)
+                .map(|text| ("project", text.as_str()))
+                .or_else(|| preset.context_user.as_deref().map(|text| ("user", text)))
+        })
+        .or_else(|| cfg.context_overrides.for_project(&meta.cwd));
+    if let Some((scope, text)) = selected {
+        parts.push(ContextPart {
+            id: format!("cmux-{scope}-override"),
+            source: format!("cmux-{scope}"),
+            label: format!("{} override", if scope == "project" { "Project" } else { "User" }),
+            tokens: estimated_tokens(text),
+            included: !text.is_empty(),
+            editable: true,
+            measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64),
+            text: Some(text.to_owned()),
+        });
+    }
     if let Some(text) = verified_prompt_text(meta, cfg) {
         parts.push(ContextPart {
             id: "cmux-system-prompt".into(),
