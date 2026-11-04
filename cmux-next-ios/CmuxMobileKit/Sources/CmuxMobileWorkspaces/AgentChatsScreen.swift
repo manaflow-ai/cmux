@@ -214,8 +214,7 @@ struct AgentChatsScreen: View {
             } description: {
                 Text(message)
             } actions: {
-                Button("Try Again") { Task { await model.load() } }
-                    .buttonStyle(.borderedProminent)
+                RetryButton("Try Again") { await model.load() }
             }
             .accessibilityIdentifier("agentChats.failed")
         case .loaded:

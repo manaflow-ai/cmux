@@ -122,7 +122,7 @@ struct SessionStatusSheet: View {
                     } description: {
                         Text(message)
                     } actions: {
-                        Button("Try Again") { Task { await read() } }
+                        RetryButton("Try Again") { await read() }
                     }
                 case .loaded(let status):
                     List {
