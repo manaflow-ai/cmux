@@ -309,9 +309,9 @@ public final class LayoutPassGuard {
     private nonisolated static func override(calling original: Layout, _ selector: Selector) -> @convention(block) (NSView) -> Void {
         { view in
             guard Thread.isMainThread else { return original(view, selector) }
+            LayoutTimingSeam.begin()
+            original(view, selector)
             MainActor.assumeIsolated { // main-proof: checked above
-                LayoutPassGuard.shared.timeBegin()
-                original(view, selector)
                 LayoutPassGuard.shared.timeEnd(view)
                 LayoutPassGuard.shared.record(view)
             }
@@ -328,5 +328,12 @@ public final class LayoutPassGuard {
             original(window, selector)
             MainActor.assumeIsolated { LayoutPassGuard.shared.windowLayoutDidEnd(window) } // main-proof: checked above
         }
+    }
+}
+
+/// Scratch (REOPEN-F7): starts a layout call's timer from the nonisolated layout override.
+enum LayoutTimingSeam {
+    nonisolated static func begin() {
+        MainActor.assumeIsolated { LayoutPassGuard.shared.timeBegin() } // main-proof: called only after Thread.isMainThread
     }
 }
