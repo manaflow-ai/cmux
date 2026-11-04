@@ -1707,6 +1707,10 @@ struct NewWorkspaceButton: View, Equatable {
             } else {
                 Section { starts(options) }
             }
+            // Its own section near the top: it lists every Mac, not only the one named above.
+            if !agentDestinations.isEmpty {
+                Section { newAgentChatOn }
+            }
             if !recents.isEmpty {
                 Section("Recent Directories") {
                     ForEach(recents, id: \.self) { directory in
@@ -1767,7 +1771,6 @@ struct NewWorkspaceButton: View, Equatable {
 
     @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
         Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
-        newAgentChatOn
         ForEach(options.agents.filter { !$0.isEmpty }, id: \.self) { harness in
             Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
         }

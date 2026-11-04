@@ -256,41 +256,12 @@ def automations(j, label):
 
 
 def artifacts(j, label):
-    """Settings → Artifacts. Before: no such row. After: the synced tree, a file's preview, its History."""
+    """Settings has no Artifacts row before or after: the platform's reads take only a Mac install
+    token, so the phone page is blocked (parity-mac.md). The flow checks the row stays absent."""
     row = settings_row(j, "Artifacts", ident="settings.artifacts", tries=4)
     pq.shot(f"artifacts-{label}-settings")
-    out = {"row": bool(row)}
-    if label == "before":
-        return out
-    check(row, "no Artifacts row in Settings")
-    j.sim.tap_el(row)
-    time.sleep(4)
-    pq.shot("artifacts-after-tree")
-    out["tree"] = labels(j)
-    entries = [e for e in j.sim.find() if (e.ident or "").startswith("artifacts.synced.entry.")]
-    out["entries"] = [e.ident for e in entries]
-    failed = j.sim.find(ident="artifacts.synced.failed")
-    out["failed"] = [e.label for e in failed]
-    if not entries:
-        return out
-    # Into folders until a file.
-    for _ in range(4):
-        files = [e for e in entries if "." in (e.ident or "").rsplit(".entry.", 1)[-1]]
-        pick = files[0] if files else entries[0]
-        j.sim.tap_el(pick)
-        time.sleep(3)
-        if j.sim.find(ident="artifacts.synced.file") or files:
-            break
-        entries = [e for e in j.sim.find() if (e.ident or "").startswith("artifacts.synced.entry.")]
-    pq.shot("artifacts-after-file")
-    out["file"] = labels(j)[:30]
-    hist = j.sim.find(ident="artifacts.synced.fileHistory") or j.sim.find(ident="artifacts.synced.history")
-    if hist:
-        j.sim.tap_el(hist[0])
-        time.sleep(3)
-        pq.shot("artifacts-after-history")
-        out["history"] = labels(j)[:30]
-    return out
+    check(not row, "an Artifacts row is in Settings")
+    return {"row": False}
 
 
 def home_hide(j, label):
@@ -625,8 +596,7 @@ def forkcolumn(j, label):
     return out
 
 
-FLOWS = {"automations": automations, "artifacts": artifacts,  # artifacts: the gap only (the row is blocked)
-         "home": home_hide, "nextstep": nextstep,
+FLOWS = {"automations": automations, "artifacts": artifacts, "home": home_hide, "nextstep": nextstep,
          "continue": continue_, "newchaton": newchaton, "moves": moves, "reveal": reveal, "compact": compact,
          "queueing": queueing, "menus": menus, "help": help_logs, "github": github, "forkcolumn": forkcolumn}
 

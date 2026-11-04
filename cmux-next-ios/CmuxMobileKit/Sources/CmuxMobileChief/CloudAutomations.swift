@@ -146,6 +146,7 @@ public final class CloudAutomationsModel {
         // Only a page that has not loaded shows the spinner: a reload after the last automation
         // was deleted keeps the (empty) list, so a reload that is cancelled never strands it on
         // "Loading" (live run of this batch).
+        let before = phase
         if automations.isEmpty, phase != .loaded { phase = .loading }
         do {
             async let listed = account.read("automation.list", params: ["limit": 100])
@@ -157,6 +158,8 @@ public final class CloudAutomationsModel {
             automations = rows
             phase = .loaded
         } catch is CancellationError {
+            // A cancelled reload puts back what the page showed (never a spinner left behind).
+            phase = before
             return
         } catch {
             let message = Self.message(error)

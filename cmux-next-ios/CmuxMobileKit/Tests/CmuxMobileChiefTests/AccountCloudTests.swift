@@ -138,6 +138,11 @@ import Testing
         await model.delete(row)
         #expect(model.phase == .loaded)
         #expect(model.automations.isEmpty)
+        // The reload the page change cancels (the live bug): the page stays loaded, never on Loading.
+        let reload = Task { await model.load() }
+        reload.cancel()
+        await reload.value
+        #expect(model.phase == .loaded)
         #expect(Service.ops.contains("automation.delete"))
     }
 

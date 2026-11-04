@@ -71,11 +71,11 @@ enum PhoneLogs {
             let since = Date().addingTimeInterval(-3600)
             var kept: [String] = []
             let stamp = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-            for case let entry as OSLogEntryLog in try store.getEntries()
+            for case let entry as OSLogEntryLog in try store.getEntries(at: store.position(date: since))
             where entry.subsystem == "dev.cmux.mobile" && entry.date >= since {
                 kept.append("\(entry.date.formatted(stamp)) [\(entry.category)] \(entry.composedMessage)")
-                if kept.count > limit { kept.removeFirst(kept.count - limit) }
             }
+            kept = Array(kept.suffix(limit))
             lines += kept.isEmpty ? [String(localized: "No log entries in the last hour.")] : kept
         } catch {
             lines.append(String(localized: "The log could not be read: \(error.localizedDescription)"))
