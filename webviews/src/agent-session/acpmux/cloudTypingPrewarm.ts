@@ -31,7 +31,8 @@ export class CloudTypingPrewarm {
       this.last &&
       sameTarget(this.last.target, target) &&
       (this.last.pending || at - this.last.at < CLOUD_TYPING_PREWARM_REFRESH_MS)
-    ) return;
+    )
+      return;
     const attempt = { target, at, pending: true };
     this.last = attempt;
     const settle = (accepted: boolean) => {
