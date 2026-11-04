@@ -5,7 +5,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::format::{self, MAX_PAYLOAD_LEN};
-use crate::recovery::{self, OpenReport};
+use crate::recovery::{self, LiveSegment, OpenReport};
 use crate::storage::{Storage, StorageLock};
 use crate::writer::Writer;
 use crate::{Class, Config, Lsn, Record};
@@ -33,6 +33,8 @@ pub struct JournalStats {
     /// Segments the writer made since open (rotation, or after a failed sync); a segment that
     /// recovery made is not counted.
     pub segments_created: u64,
+    /// Segments `Journal::retire_through` deleted since open.
+    pub segments_retired: u64,
     /// Failed writes, syncs and segment creations. After each, the writer tries again after a
     /// backoff: a failed write in the same segment, anything else in a new segment.
     pub failures: u64,
@@ -64,6 +66,8 @@ pub(crate) struct Shared {
     pub(crate) listeners: Mutex<Vec<Listener>>,
     /// Called with the new written LSN after each batch's write, before its sync.
     pub(crate) written_listeners: Mutex<Vec<Listener>>,
+    /// The live segments, oldest first: recovery's, then each one the writer makes.
+    pub(crate) segments: Mutex<Vec<LiveSegment>>,
 }
 
 impl Shared {
@@ -218,6 +222,7 @@ impl Journal {
             durable: Condvar::new(),
             listeners: Mutex::new(Vec::new()),
             written_listeners: Mutex::new(Vec::new()),
+            segments: Mutex::new(recovered.live),
         });
         let report = recovered.report;
         let lock = recovered.lock;
@@ -315,6 +320,61 @@ impl Journal {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(Arc::new(listener));
+    }
+
+    /// Deletes the segments that hold no record after `compacted`, the caller's compaction point:
+    /// every record at or before it is in the caller's own durable output (its projection,
+    /// synced, and the checkpoint that names `compacted`, synced too). A segment is deleted when
+    /// the next segment's "previous last LSN" is at or before `compacted` (recovery reads nothing
+    /// past that from it), so the newest segment is never deleted. `compacted` is capped at the
+    /// durable LSN. Returns how many segments it deleted.
+    ///
+    /// The only delete in this crate. The caller must open the journal later with a compaction
+    /// point at or after `compacted`: recovery skips a segment the point covers, so a crash in
+    /// the middle of a retirement, or a delete that a crash takes back, is harmless; an older
+    /// compaction point is reported as `Damage::Missing`. It deletes and syncs the folder on the
+    /// caller's thread: call it from a background thread, never on a request path. A segment
+    /// whose delete fails stays live, and a later call deletes it.
+    pub fn retire_through(&self, compacted: Lsn) -> std::io::Result<usize> {
+        let compacted = compacted.min(self.durable_lsn());
+        let retiring: Vec<LiveSegment> = {
+            let mut live = self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = live
+                .windows(2)
+                .take_while(|pair| pair.get(1).is_some_and(|next| next.prev_last <= compacted))
+                .count();
+            live.drain(..count).collect()
+        };
+        if retiring.is_empty() {
+            return Ok(0);
+        }
+        for (index, segment) in retiring.iter().enumerate() {
+            let path = self.dir.join(format::segment_name(segment.seq));
+            match self.storage.remove_file(&path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    // This one and the rest stay live, ahead of the segments made since.
+                    let mut live =
+                        self.shared.segments.lock().unwrap_or_else(PoisonError::into_inner);
+                    let mut restored = retiring.get(index..).unwrap_or_default().to_vec();
+                    restored.append(&mut live);
+                    *live = restored;
+                    drop(live);
+                    self.count_retired(index);
+                    return Err(error);
+                }
+            }
+        }
+        self.count_retired(retiring.len());
+        self.storage.sync_dir(&self.dir)?;
+        Ok(retiring.len())
+    }
+
+    fn count_retired(&self, count: usize) {
+        let mut state = self.shared.lock();
+        let retired = u64::try_from(count).unwrap_or(u64::MAX);
+        state.stats.segments_retired = state.stats.segments_retired.saturating_add(retired);
     }
 
     /// Blocks until record `lsn` is durable. For tests and tools: a daemon's request path
