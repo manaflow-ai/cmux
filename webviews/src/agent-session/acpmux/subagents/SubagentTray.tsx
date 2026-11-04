@@ -818,7 +818,7 @@ function waitingCount(items: readonly TrayItem[], waiting: ReadonlySet<string>):
   return items.filter((item) =>
     item.kind === "agent"
       ? subagentStatus(item.agent, waiting) === "waiting"
-      : item.kind === "session" && item.session.state === "waiting" && !item.session.slot,
+      : item.kind === "session" && item.session.state === "waiting" && !item.session.waitsForSlot,
   ).length;
 }
 

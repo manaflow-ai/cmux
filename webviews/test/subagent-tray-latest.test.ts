@@ -125,7 +125,7 @@ test("a chat queued for a slot keeps its place; one waiting on the person leads"
     [agent("a", { background: true, startedAt: 3_000 })],
     [],
     [
-      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", slot: true },
+      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", waitsForSlot: true },
       { subsession: true, sessionId: "w", title: "Asks", state: "waiting" },
     ],
     false,
