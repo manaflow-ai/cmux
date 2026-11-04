@@ -240,7 +240,7 @@ export const sessionInfoStage = (
     if (wide || sessionInfoPopover(pane.height, true) || !sessionInfoFits(pane.width)) return "overlay";
   }
   const room = pushedRoom(pane.width, pushedWidth(pane.width, width), column, overflow, pushes(placement));
-  return pushKeepsColumn(pane.width, room, column) ? "push" : "overlay";
+  return pushKeepsColumn(pane.width, room, column, pushes(placement)) ? "push" : "overlay";
 };
 
 /// The shell's pin on the transcript's column while Session Info pushes (sessionInfo.css).
@@ -271,14 +271,17 @@ export const findBarCramped = (chatWidth: number, clear: number) =>
 /// width it has in the whole pane (model.ts transcriptColumn): only the gutters shrink, so the column
 /// moves left and no line of the chat wraps anew. While it pushes, the page pins the column to that
 /// width (sessionInfo.css --acpmux-session-info-column), so no frame of the slide narrows it either.
-export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn) =>
+export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatColumn, allowGridRounding = false) =>
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    // A fractional room can move the 4px-grid inset by one step in the helpful direction: the
-    // rendered column is a few pixels wider, never narrower. The shell pins its width to the
-    // unpushed reading while the panel settles, so only a narrower reading would wrap text.
-    transcriptColumn(paneWidth - room, column).width >= transcriptColumn(paneWidth, column).width &&
+    // The 4px-grid inset can quantize the measured width by a few pixels even when the configured
+    // column span is unchanged. Push always pins the rendered column to the unpushed width, so it
+    // may tolerate one grid step of rounding; the default placement keeps the exact-width guard.
+    ((allowGridRounding &&
+      transcriptColumn(paneWidth - room, column).width >= transcriptColumn(paneWidth, column).width - 8) ||
+      (!allowGridRounding &&
+        transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width)) &&
     // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
