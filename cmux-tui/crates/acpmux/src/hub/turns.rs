@@ -736,6 +736,15 @@ impl Hub {
         } else {
             None
         };
+        // Admission can wait through queueing and dispatch checks. A cancelled race
+        // must refuse the prompt itself, not merely change its acceptance response.
+        if let Some(race_guard) = race_guard.as_ref()
+            && let Err(e) = race_guard()
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
