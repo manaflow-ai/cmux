@@ -1243,6 +1243,10 @@ path = "tests/test_job_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rebuild_mirror.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_release_product_key.py"
 lane = "linux-guard"
 
