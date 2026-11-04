@@ -512,6 +512,7 @@ import {
   turnViewFrom,
   liveTurnPlan,
   samePlanEntries as sameEntries,
+  offersRetry,
 } from "./conversation/turns";
 import { ArrowDown, ChevronRight } from "./conversation/icons";
 import { CopyButton } from "./conversation/CopyButton";
@@ -2903,6 +2904,17 @@ function streamedOnly(drawn: AcpmuxSnapshot, next: AcpmuxSnapshot): number {
   return at >= 0 && drawsAsIs(drawn.rows[at]!) ? at : -1;
 }
 
+/// A read-only transcript's rows: a finished last turn without the prompt its footer would send again
+/// (VirtualTranscript `readOnly`), so it lays out as the footer it draws.
+const withoutRetryTargets = (rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] =>
+  rows.some((row) => row.kind === "turnSummary" && offersRetry(row))
+    ? rows.map((row) =>
+        row.kind === "turnSummary" && offersRetry(row) && row.status !== "failed" && row.status !== "error"
+          ? { ...row, prompt: undefined, retryRowId: undefined }
+          : row,
+      )
+    : rows;
+
 export function VirtualTranscript({
   rows: paneRows,
   streams = false,
@@ -3046,7 +3058,7 @@ export function VirtualTranscript({
   // The streaming reply's newer text, when the pane has not redrawn for it (streamingRow.ts): that
   // row only, in place, with its version moved on by the chunks it is ahead.
   const live = useStreamingRow(streams);
-  const rows = useMemo(() => {
+  const streamedRows = useMemo(() => {
     if (!streams || !live) return paneRows;
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {
       const row = paneRows[index]!;
@@ -3067,6 +3079,10 @@ export function VirtualTranscript({
     }
     return paneRows;
   }, [paneRows, live, streams]);
+  // A reader who may not act has no Retry, so the last turn keeps no prompt to send again: a turn of
+  // tool calls alone then keeps the empty footer it had, not a row for a Retry it cannot draw
+  // (turns.ts offersRetry, cmux#34779).
+  const rows = useMemo(() => (readOnly ? withoutRetryTargets(streamedRows) : streamedRows), [streamedRows, readOnly]);
   // What this transcript drew of the pane's streaming reply: the pane takes the fast path only
   // while that row is drawn as the client holds it.
   useLayoutEffect(() => {
