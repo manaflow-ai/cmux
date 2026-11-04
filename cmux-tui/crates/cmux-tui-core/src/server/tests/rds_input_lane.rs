@@ -426,6 +426,34 @@ fn a_settled_size_state_read_takes_the_session_lock_once_with_the_switch_off() {
     }
 }
 
+/// R-DAEMON-STATE S1.6b: on the lane the person's key (a connection attached to the terminal it types into) answers
+/// when the input port took it; any other client's write (a script's `cmux send`, MCP) answers when the port wrote it,
+/// with its error, as the old path answered.
+#[test]
+fn the_persons_keys_answer_when_taken_and_other_writes_when_written() {
+    let connection = TypingConnection::open();
+    let (_, reply) = cmd_terminal_io::input_surface(
+        &connection.mux,
+        connection.client,
+        &connection.writer,
+        connection.surface,
+    )
+    .unwrap();
+    assert_eq!(reply, crate::surface::InputReply::Accepted, "the person's key waits for its write");
+    let (script_writer, _script_outbound) = captured_writer();
+    let script =
+        connection.mux.control_clients.register(ClientTransport::Unix, script_writer.clone());
+    let (_, reply) =
+        cmd_terminal_io::input_surface(&connection.mux, script, &script_writer, connection.surface)
+            .unwrap();
+    assert_eq!(
+        reply,
+        crate::surface::InputReply::Written,
+        "a script's write answers before it is written"
+    );
+    connection.close();
+}
+
 /// The skipped note must never keep the grid from a view: under the default policy (the newest view sets the grid),
 /// another view's focus click takes the grid, and the next key from the first view takes it back, on both arms.
 #[test]
