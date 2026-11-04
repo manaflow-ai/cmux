@@ -75,16 +75,20 @@ public final class LayoutPassGuard {
     public private(set) var windowLayoutPasses = 0
     #if DEBUG || CMUX_BENCH_HOOKS
     /// ``windowLayoutPasses`` per window (DEV and bench builds), only while `debug.frames` runs
-    /// (``countsPassesByWindow``): it names the window of each pass by its role (``LayoutPassRoleNaming``). One counter add
-    /// in place per pass; an entry is made once per window, in storage reserved when counting starts.
-    private var passesByWindow: [ObjectIdentifier: (window: WeakWindow, passes: Int)] = [:]
+    /// (``countsPassesByWindow``): it names the window of each pass by its role (``LayoutPassRoleNaming``). Fixed slots
+    /// made when counting starts: a pass finds its window's slot or a free one (at most ``windowSlots`` compares) and adds
+    /// one; it never allocates. A window past the slots counts in ``passesInNoSlot``.
+    private var passesByWindow: [(window: WeakWindow, passes: Int)] = []
+    static let windowSlots = 64
+    /// Passes of windows that found no free slot while counting.
+    public private(set) var passesInNoSlot = 0
 
     /// Whether passes are counted per window (off by default; `debug.frames` turns it on from its start to its stop).
     public var countsPassesByWindow = false {
         didSet {
             guard countsPassesByWindow != oldValue else { return }
-            passesByWindow.removeAll(keepingCapacity: false)
-            if countsPassesByWindow { passesByWindow.reserveCapacity(64) }
+            passesByWindow = countsPassesByWindow ? Array(repeating: (WeakWindow(object: nil), 0), count: Self.windowSlots) : []
+            passesInNoSlot = 0
         }
     }
 
@@ -95,7 +99,7 @@ public final class LayoutPassGuard {
 
     /// Every live window that had a layout pass since counting started, with its passes (read once per frame that had one).
     public var windowPassCounts: [(window: NSWindow, passes: Int)] {
-        passesByWindow.values.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
+        passesByWindow.compactMap { entry in entry.window.object.map { ($0, entry.passes) } }
     }
     #endif
 
@@ -193,15 +197,25 @@ public final class LayoutPassGuard {
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
             windowLayoutPasses &+= 1
             #if DEBUG || CMUX_BENCH_HOOKS
-            if countsPassesByWindow, passesByWindow[id]?.window.object === window {
-                passesByWindow[id]?.passes &+= 1
-            } else if countsPassesByWindow {
-                passesByWindow[id] = (WeakWindow(object: window), 1)
-            }
+            if countsPassesByWindow { countPass(of: window) }
             #endif
         }
         windowLayouts[id] = layout.depth > 0 ? layout : nil
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// One pass of `window` in its slot, or in a free slot (empty, or its window gone), else in ``passesInNoSlot``.
+    private func countPass(of window: NSWindow) {
+        var free: Int?
+        for index in passesByWindow.indices {
+            let slot = passesByWindow[index].window.object
+            if slot === window { return passesByWindow[index].passes &+= 1 }
+            if slot == nil, free == nil { free = index }
+        }
+        guard let free else { return passesInNoSlot &+= 1 }
+        passesByWindow[free] = (WeakWindow(object: window), 1)
+    }
+    #endif
 
     fileprivate func record(_ view: NSView) {
         viewLayoutCalls &+= 1

@@ -52,6 +52,7 @@ public struct FrameLayoutCounts {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Window layout passes by window role: passes, frames with one or more, frames with two or more, the most in a frame.
         report["window_passes"] = windows.roles.mapValues { ["passes": $0.passes, "frames": $0.frames, "frames_2_plus": $0.framesTwoOrMore, "max": $0.max] }
+        report["window_passes_no_slot"] = LayoutPassGuard.shared.passesInNoSlot
         if raw { report["window_passes_per_frame"] = windows.perFrame }
         #endif
         if raw { (report["view_layouts_per_frame"], report["window_layouts_per_frame"]) = (viewLayouts, windowLayouts) }

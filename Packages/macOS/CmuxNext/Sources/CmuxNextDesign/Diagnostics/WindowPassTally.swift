@@ -31,9 +31,8 @@ public struct WindowPassTally {
         marks.removeAll()
     }
 
-    /// Starts counting from now.
+    /// Counts from now (counting per window starts with the first frame: only a running probe ticks).
     public mutating func reset() {
-        LayoutPassGuard.shared.countsPassesByWindow = true
         marks.removeAll()
         for (window, passes) in LayoutPassGuard.shared.windowPassCounts { marks[ObjectIdentifier(window)] = (.init(object: window), passes) }
         roles.removeAll()
@@ -42,6 +41,7 @@ public struct WindowPassTally {
 
     /// One frame: `windowPasses` is the frame's window pass count (`LayoutPassGuard.windowLayoutPasses` delta).
     public mutating func frame(windowPasses: Int, records: Bool = true) {
+        if !LayoutPassGuard.shared.countsPassesByWindow { LayoutPassGuard.shared.countsPassesByWindow = true }
         guard windowPasses > 0 else { return records ? perFrame.append([:]) : () }
         var frame: [String: Int] = [:]
         for (window, passes) in LayoutPassGuard.shared.windowPassCounts {
