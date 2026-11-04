@@ -144,6 +144,9 @@ pub struct Settings {
 pub struct HealthService {
     settings: Mutex<Settings>,
     rows: Mutex<Vec<HarnessHealth>>,
+    /// Successful ACP session handshakes are authentication evidence for
+    /// profiles whose provider has no safe non-interactive check.
+    acp_auth: Mutex<HashMap<String, String>>,
     inventory: inventory_feed::InventoryFeed,
     /// One check at a time.
     checking: tokio::sync::Mutex<()>,
@@ -500,6 +503,30 @@ impl HealthService {
         self.rows.lock().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
+    /// Records the authentication proof returned by an ACP session handshake.
+    /// A successful `session/new` or `session/load` can be stronger evidence
+    /// than an unavailable provider probe (Muse has no verified status command).
+    pub fn record_acp_auth_success(&self, id: &str, detail: impl Into<String>) {
+        if self.fixed() {
+            return;
+        }
+        let detail = detail.into();
+        self.acp_auth
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id.to_owned(), detail.clone());
+        let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(row) = rows.iter_mut().find(|row| row.id == id) {
+            row.auth = Auth::SignedIn;
+            row.auth_detail = Some(detail);
+            row.checked_at = now_ms();
+        }
+        let settings = self.settings.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(path) = settings.cache.as_deref() {
+            save(path, &rows);
+        }
+    }
+
     /// The first check: callers that ask before any check ended share one (the
     /// daemon's own, or the first caller's) instead of each running a full check.
     pub async fn first_check(&self, subjects: Vec<Subject>) -> Vec<HarnessHealth> {
@@ -580,12 +607,24 @@ impl HealthService {
             row.outdated =
                 matches!((&row.latest, &row.version), (Some(l), Some(v)) if probe::is_newer(l, v));
         }
+        self.apply_acp_auth(&mut rows);
         self.mark_auto(&mut rows, &settings);
         if let Some(path) = settings.cache.as_deref() {
             save(path, &rows);
         }
         self.replace_rows(rows.clone());
         rows
+    }
+
+    fn apply_acp_auth(&self, rows: &mut [HarnessHealth]) {
+        let evidence = self.acp_auth.lock().unwrap_or_else(PoisonError::into_inner);
+        for row in rows {
+            if let Some(detail) = evidence.get(&row.id) {
+                row.auth = Auth::SignedIn;
+                row.auth_detail = Some(detail.clone());
+                row.checked_at = now_ms();
+            }
+        }
     }
 }
 
@@ -817,6 +856,34 @@ mod tests {
         };
         let rows = service.first_check(vec![subject]).await;
         assert_eq!(rows[0].login.as_deref(), Some("CODEX_HOME=/tmp/codex-sr codex login"));
+    }
+
+    #[test]
+    fn successful_acp_auth_updates_health_without_a_cli_probe() {
+        let service = HealthService::new();
+        service.replace_rows(vec![HarnessHealth {
+            id: "muse".into(),
+            program: "muse-acp".into(),
+            path: Some("/tmp/muse-acp".into()),
+            channel: Channel::Standalone,
+            package: None,
+            version: None,
+            latest: None,
+            latest_checked_at: None,
+            outdated: false,
+            auth: Auth::Unknown,
+            auth_detail: None,
+            login: Some("muse login".into()),
+            update: None,
+            problem: None,
+            checked_at: 1,
+            auto_update: false,
+            last_auto_update: None,
+        }]);
+        service.record_acp_auth_success("muse", "ACP session/new authenticated the harness");
+        let row = service.rows().pop().expect("muse health row");
+        assert_eq!(row.auth, Auth::SignedIn);
+        assert_eq!(row.auth_detail.as_deref(), Some("ACP session/new authenticated the harness"));
     }
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {

@@ -1325,6 +1325,10 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
+                        self.health.record_acp_auth_success(
+                            &meta.harness,
+                            "ACP session/load authenticated the harness",
+                        );
                         self.append(
                             session,
                             "mux",
@@ -1368,6 +1372,10 @@ impl Hub {
                 m.set_agent_session_id(Some(sid), "non-claude");
             }
             self.absorb_session_response(session, &res);
+            self.health.record_acp_auth_success(
+                &meta.harness,
+                "ACP session/new authenticated the harness",
+            );
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
                 self.append(

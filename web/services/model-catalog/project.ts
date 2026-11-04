@@ -71,7 +71,7 @@ function projectHarness(override: HarnessOverride, providers: Map<string, FeedPr
   // capability-free until the harness reports live ACP options, while
   // retaining the normal feed override behavior for every other row.
   const staticModels = Object.entries(override.models ?? {})
-    .filter(([, value]) => typeof value.name === "string" && typeof value.shortName === "string")
+    .filter(([, value]) => !value.hidden && typeof value.name === "string" && typeof value.shortName === "string")
     .map(([id, value]) => ({
       id,
       name: value.name!,

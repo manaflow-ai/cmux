@@ -101,6 +101,26 @@ describe("projectCatalog", () => {
     expect(muse.models.every((model) => model.efforts === undefined && model.ref === undefined)).toBe(true);
   });
 
+  test("hidden static model overrides stay out of the projected harness", () => {
+    const overrides = HARNESS_OVERRIDES.map((entry) =>
+      entry.id === "muse"
+        ? {
+            ...entry,
+            models: {
+              ...entry.models,
+              "muse-spark-1.3": { ...entry.models?.["muse-spark-1.3"], hidden: true },
+            },
+          }
+        : entry,
+    );
+    const projected = projectCatalog(feed, NOW, overrides);
+    expect(harness(projected, "muse").models.map((model) => model.id)).toEqual([
+      "muse-spark-1.3-contributor",
+      "muse-spark-1.2",
+      "muse-spark-1.1",
+    ]);
+  });
+
   test("probe harnesses carry no list; their models are described by ref", () => {
     expect(harness(catalog, "opencode").models).toEqual([]);
     expect(catalog.models["opencode/big-pickle"]?.name).toBeString();
