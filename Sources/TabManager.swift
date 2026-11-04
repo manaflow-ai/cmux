@@ -5302,6 +5302,8 @@ class TabManager: ObservableObject {
                 || !Self.isCloudVMWorkspaceSnapshotForManagedPolicy(entry.snapshot) else {
             return false
         }
+        // A workspace of only Chief panes has nothing to reopen while Chief is off.
+        guard ChiefSettings.isEnabled || !entry.snapshot.holdsOnlyChiefPanels else { return false }
         let promptBatch = SurfaceResumeRunPromptBatch.shared
         promptBatch.beginRestorePass()
         defer { promptBatch.endRestorePass() }

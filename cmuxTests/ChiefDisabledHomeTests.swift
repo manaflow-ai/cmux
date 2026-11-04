@@ -280,6 +280,76 @@ struct ChiefDisabledHomeTests {
         #expect(workspace.holdsChiefPane)
     }
 
+    @Test func recentlyClosedHidesChiefOnlyRecordsWhileChiefIsOff() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let mixed = try #require(manager.addWorkspaceIfActive(select: false))
+        let pane = try #require(mixed.bonsplitController.allPaneIds.first)
+        _ = try #require(mixed.newChiefSurface(inPane: pane, focus: false))
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let mixedSnapshot = mixed.sessionSnapshot(includeScrollback: false)
+        let homeSnapshot = home.sessionSnapshot(includeScrollback: false)
+        #expect(!mixedSnapshot.holdsOnlyChiefPanels)
+        #expect(homeSnapshot.holdsOnlyChiefPanels)
+        let chiefPanel = try #require(mixedSnapshot.panels.first { $0.type == .chief })
+        let terminalPanel = try #require(mixedSnapshot.panels.first { $0.type != .chief })
+
+        let store = ClosedItemHistoryStore(capacity: 100, loadPersisted: false)
+        let chiefTab = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: mixed.id, paneId: pane.id, tabIndex: 0, snapshot: chiefPanel
+        )))
+        let terminalTab = ClosedItemHistoryRecord(entry: .panel(ClosedPanelHistoryEntry(
+            workspaceId: mixed.id, paneId: pane.id, tabIndex: 0, snapshot: terminalPanel
+        )))
+        let homeWorkspace = ClosedItemHistoryRecord(entry: .workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: home.id, windowId: nil, workspaceIndex: 0, snapshot: homeSnapshot
+        )))
+        let mixedWorkspace = ClosedItemHistoryRecord(entry: .workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: mixed.id, windowId: nil, workspaceIndex: 0, snapshot: mixedSnapshot
+        )))
+        for record in [terminalTab, mixedWorkspace, chiefTab, homeWorkspace] { store.push(record) }
+        #expect(store.menuSnapshot().totalItemCount == 4)
+
+        ChiefSettings.setEnabled(false)
+        let offered = Set(store.menuSnapshot().items.map(\.id))
+        #expect(offered == [terminalTab.id, mixedWorkspace.id])
+        #expect(store.menuSnapshot(maxItemCount: 1).items.map(\.id) == [mixedWorkspace.id])
+        // Reopen skips the hidden Chief records instead of trying them first.
+        var tried: [UUID] = []
+        let reopened = store.restoreFirstRestorable { entry in
+            if case .workspace(let workspace) = entry { tried.append(workspace.workspaceId) }
+            return true
+        }
+        #expect(reopened)
+        #expect(tried == [mixed.id])
+        #expect(store.canReopen)
+
+        ChiefSettings.setEnabled(true)
+        #expect(store.menuSnapshot().totalItemCount == 3)
+    }
+
+    @Test func reopeningAChiefOnlyWorkspaceAddsNothingWhileChiefIsOff() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let source = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: source))
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: home.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: home.sessionSnapshot(includeScrollback: false)
+        )
+
+        ChiefSettings.setEnabled(false)
+        let manager = TabManager()
+        let before = manager.tabs.map(\.id)
+        let selectedBefore = manager.selectedTabId
+        #expect(!manager.restoreClosedWorkspace(entry))
+        #expect(manager.tabs.map(\.id) == before)
+        #expect(manager.selectedTabId == selectedBefore)
+    }
+
     @Test func reopeningAClosedWorkspaceDropsItsChiefPanesWhileChiefIsOff() throws {
         let setting = ChiefEnabledOverride(true)
         defer { setting.restore() }
