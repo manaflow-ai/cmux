@@ -27,8 +27,7 @@ pub trait MachineFs {
     /// Replace the whole file atomically (readers see the old or the new bytes, never a mix),
     /// only while it is still `expected`; [`Mutation::Changed`] (nothing written) otherwise.
     /// `seq` names any staging state, so [`MachineFs::recover`] finds it after a crash.
-    fn write(&self, seq: u64, path: &str, bytes: &[u8], expected: &Version)
-    -> io::Result<Mutation>;
+    fn write(&self, seq: u64, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation>;
     /// Remove the file, only while it is still `expected`; an absent file is not an error.
     fn remove(&self, seq: u64, path: &str, expected: &Version) -> io::Result<Mutation>;
     /// Finish or undo a mutation for `entry` that an earlier flush started and never finished
@@ -164,7 +163,14 @@ mod dir_impl {
 
     /// After a swap back, `tmp` holds what was at the file just before it: our own staged bytes,
     /// or a save made on the machine in that moment, which is kept, never deleted.
-    fn settle(dir: &Dir, tmp: &str, ours: &Version, name: &str, seq: u64, path: &str) -> io::Result<()> {
+    fn settle(
+        dir: &Dir,
+        tmp: &str,
+        ours: &Version,
+        name: &str,
+        seq: u64,
+        path: &str,
+    ) -> io::Result<()> {
         if is(dir, tmp, ours) {
             dir.unlink(tmp)?;
             dir.sync()
