@@ -16,7 +16,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
     return;
   }
   const entry = "agent-pane.subagent-result-header";
-  const variants = ["split-long", "dock-short", "stream-stable"] as const;
+  const variants = ["split-long", "dock-long", "dock-short", "stream-stable"] as const;
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
@@ -25,6 +25,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
+      root: webviews,
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
     });
@@ -40,7 +41,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
   test("long and short result heads keep the transcript reachable across pane sizes", async () => {
     for (const variant of variants) {
       const page = await browser!.newPage({
-        viewport: { width: variant === "dock-short" ? 440 : 780, height: variant === "dock-short" ? 260 : 660 },
+        viewport: { width: variant.startsWith("dock") ? 440 : 780, height: variant.startsWith("dock") ? 260 : 660 },
       });
       await page.goto(`http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`);
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -64,7 +65,7 @@ await requireBrowserLane("subagent-result-header.test.ts", async () => {
       expect(geometry.played).toBe("1");
       expect(geometry.transcriptHeight).toBeGreaterThan(0);
       expect(geometry.transcriptTop).toBeGreaterThanOrEqual(geometry.headBottom - 0.5);
-      if (variant === "dock-short") expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
+      if (variant === "dock-long") expect(geometry.reportScrollHeight).toBeGreaterThan(geometry.reportClientHeight);
       await page.close();
     }
   });
