@@ -49,6 +49,7 @@ jobs:
           BODY: ${{ github.event.pull_request.body }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/classic_api_guard.py ]; then
@@ -70,9 +71,11 @@ jobs:
             export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
             export GIT_CONFIG_VALUE_0
-            # The merge ref can lag a push: use it only when its second parent is this head.
+            # The merge ref can lag a push or a base move: use it only when its parents are this
+            # event's base and head.
             if git fetch --no-tags --filter=blob:none --depth=2 \
                  origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
                && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
                && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.tsv"; then
               :
