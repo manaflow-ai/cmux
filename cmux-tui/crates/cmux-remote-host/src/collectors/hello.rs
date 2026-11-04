@@ -3,10 +3,19 @@
 //! consent dialog belongs to the cmux Remote window and names the agent, the
 //! workspace and the app. Verified confirms the offered decision; cancelled
 //! answers `deny`; no Hello on this machine asks nobody.
+//!
+//! The window and the request live on a thread of their own that pumps its
+//! messages until the operation completes; when another collector answers
+//! first the host drops the asking future, which cancels the operation and
+//! closes the window. Unverified on a real Windows desktop until a run there.
 
 #![allow(unsafe_code)]
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
 use async_trait::async_trait;
+use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_APP};
 
 use crate::approval::{ApprovalRequest, Decision};
 use crate::approver::{ApproverDecision, LocalCollector};
@@ -38,7 +47,22 @@ impl LocalCollector for WindowsHello {
             return None;
         }
         let text = message(request, offered);
-        let decision = match tokio::task::spawn_blocking(move || verify(&text)).await.ok()?? {
+        let cancel = Arc::new(Cancel::default());
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        // The owner window lives on a thread of its own with a message pump:
+        // Hello's dialog is modal to it, and a window needs its thread pumping.
+        let pumping = Arc::clone(&cancel);
+        std::thread::Builder::new()
+            .name("cmux-hello".into())
+            .spawn(move || {
+                let _ = sender.send(verify(&text, &pumping));
+            })
+            .ok()?;
+        // Dropped when another collector answers first (or the question ends): the prompt closes.
+        let guard = CancelOnDrop(Some(cancel));
+        let verdict = receiver.await.ok()??;
+        drop(guard.disarm());
+        let decision = match verdict {
             Verdict::Verified => offered,
             Verdict::Canceled => Decision::Deny,
             // Busy, retries exhausted, not set up: nobody answered here; the phone still can.
@@ -58,14 +82,70 @@ enum Verdict {
     NoAnswer,
 }
 
-/// None when Hello cannot ask at all.
-fn verify(text: &str) -> Option<Verdict> {
+/// A cross-thread stop for one prompt: a flag and the pump thread to wake.
+#[derive(Default)]
+struct Cancel {
+    stop: AtomicBool,
+    thread: AtomicU32,
+}
+
+impl Cancel {
+    fn request(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+        let thread = self.thread.load(Ordering::SeqCst);
+        if thread != 0 {
+            // SAFETY: posting a message to a thread id; a gone thread fails harmlessly.
+            unsafe { PostThreadMessageW(thread, WM_APP_WAKE, 0, 0) };
+        }
+    }
+
+    fn requested(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
+    }
+}
+
+struct CancelOnDrop(Option<Arc<Cancel>>);
+
+impl CancelOnDrop {
+    fn disarm(mut self) -> Self {
+        self.0 = None;
+        self
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        if let Some(cancel) = self.0.take() {
+            cancel.request();
+        }
+    }
+}
+
+const WM_APP_WAKE: u32 = WM_APP + 1;
+
+/// None when Hello cannot ask at all. Runs on its own thread: creates the
+/// owner window, starts the verification and pumps messages until it
+/// completes or `cancel` asks it to stop (the operation is then cancelled).
+fn verify(text: &str, cancel: &Cancel) -> Option<Verdict> {
+    use windows::Foundation::{AsyncOperationCompletedHandler, AsyncStatus};
     use windows::Security::Credentials::UI::{
         UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability,
     };
     use windows::Win32::System::WinRT::IUserConsentVerifierInterop;
     use windows::core::HSTRING;
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, PM_NOREMOVE, PeekMessageW, TranslateMessage};
 
+    // SAFETY: MSG is plain data; all zero is a valid value.
+    let mut message: MSG = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid MSG out pointer; this creates the thread's message queue.
+    unsafe { PeekMessageW(&mut message, std::ptr::null_mut(), 0, 0, PM_NOREMOVE) };
+    // SAFETY: no preconditions.
+    let thread = unsafe { GetCurrentThreadId() };
+    cancel.thread.store(thread, Ordering::SeqCst);
+    if cancel.requested() {
+        return Some(Verdict::NoAnswer);
+    }
     let availability = UserConsentVerifier::CheckAvailabilityAsync().ok()?.get().ok()?;
     if availability != UserConsentVerifierAvailability::Available {
         return None;
@@ -77,9 +157,38 @@ fn verify(text: &str) -> Option<Verdict> {
         interop.RequestVerificationForWindowAsync(windows::Win32::Foundation::HWND(window.0), &HSTRING::from(text))
     }
     .ok()?;
-    let result = operation.get().ok()?;
+    // Completion wakes the pump (the handler runs on any thread).
+    operation
+        .SetCompleted(&AsyncOperationCompletedHandler::new(move |_, _| {
+            // SAFETY: posting to this prompt's thread; a gone thread fails harmlessly.
+            unsafe { PostThreadMessageW(thread, WM_APP_WAKE, 0, 0) };
+            Ok(())
+        }))
+        .ok()?;
+    // wakeup-allow: each pass waits for a window message, the completion or a cancel.
+    loop {
+        if operation.Status().ok()? != AsyncStatus::Started {
+            break;
+        }
+        if cancel.requested() {
+            let _ = operation.Cancel();
+            drop(window);
+            return Some(Verdict::NoAnswer);
+        }
+        // SAFETY: a valid MSG out pointer; null window = every message of this thread.
+        let got = unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) };
+        if got <= 0 {
+            break;
+        }
+        // SAFETY: a message GetMessageW returned.
+        unsafe {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    let result = operation.GetResults().ok();
     drop(window);
-    Some(match result {
+    Some(match result? {
         UserConsentVerificationResult::Verified => Verdict::Verified,
         UserConsentVerificationResult::Canceled => Verdict::Canceled,
         _ => Verdict::NoAnswer,

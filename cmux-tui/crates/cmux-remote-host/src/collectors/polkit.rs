@@ -1,10 +1,17 @@
 //! polkit on a Linux desktop: `CheckAuthorization` for the host process with
 //! `AllowUserInteraction`, so the session's polkit agent shows the system
-//! authentication dialog, with details naming the agent, the workspace and the
-//! app (`dist/com.cmux.computer-use.policy` substitutes them into the message).
-//! Authenticating confirms the offered decision; dismissing it answers `deny`.
-//! The host withdraws the dialog (`CancelCheckAuthorization`) when another
-//! collector answers first.
+//! authentication dialog with the action's fixed message
+//! (`dist/com.cmux.computer-use.policy`). Authenticating confirms the offered
+//! decision; dismissing it answers `deny`. The host withdraws the dialog
+//! (`CancelCheckAuthorization`) when another collector answers first.
+//!
+//! No details: polkit refuses details from a caller that is neither uid 0 nor
+//! the action's owner (`org.freedesktop.policykit.owner`), and the host runs as
+//! the person's user, the same uid as the agents, so an owner annotation for
+//! that uid would also let an agent pass details of its own. The dialog
+//! therefore cannot name the agent or the app; the person reads those in
+//! `cmux computer-use approvals pending` or on the phone. Unverified on a real
+//! desktop session (GNOME and KDE agents) until a run there.
 
 use std::collections::HashMap;
 
@@ -22,23 +29,9 @@ const ALLOW_USER_INTERACTION: u32 = 1;
 
 pub struct Polkit;
 
-/// The details polkit shows (`$(agent)`, `$(app)`, `$(workspace)`, `$(scope)`).
-pub fn details(request: &ApprovalRequest, offered: Decision) -> HashMap<&'static str, String> {
-    let scope = match offered {
-        Decision::Once => "for this action",
-        Decision::Session => "for this agent session",
-        Decision::Always => "always, for this cmux",
-        Decision::Deny => "",
-    };
-    HashMap::from([
-        ("agent", request.agent.clone()),
-        ("workspace", request.workspace.clone()),
-        ("app", request.target.name.clone()),
-        ("executable", request.target.executable.clone().unwrap_or_default()),
-        ("tool", request.tool.clone()),
-        ("scope", scope.to_owned()),
-        ("client", request.client.clone()),
-    ])
+/// The details passed to `CheckAuthorization`: none (see the module docs).
+pub fn details(_request: &ApprovalRequest, _offered: Decision) -> HashMap<&'static str, String> {
+    HashMap::new()
 }
 
 pub fn action_for(offered: Decision) -> &'static str {
@@ -126,26 +119,10 @@ mod tests {
     use crate::approval::{Question, Target};
 
     #[test]
-    fn details_name_the_agent_the_app_and_the_scope() {
-        let request = ApprovalRequest::new(
-            Question {
-                client: "c".into(),
-                machine: "m".into(),
-                session: "s".into(),
-                agent: "Claude".into(),
-                workspace: "api".into(),
-                target: Target { bundle_id: None, executable: Some("/usr/bin/gedit".into()), name: "Text Editor".into() },
-                tool: "click".into(),
-                risk: "R1".into(),
-            },
-            1,
-        )
-        .unwrap();
-        let details = details(&request, Decision::Session);
-        assert_eq!(details["agent"], "Claude");
-        assert_eq!(details["app"], "Text Editor");
-        assert_eq!(details["scope"], "for this agent session");
+    fn always_has_its_own_action() {
         assert_eq!(action_for(Decision::Always), ACTION_APPROVE_ALWAYS);
+        assert_eq!(action_for(Decision::Session), ACTION_APPROVE);
+        assert_eq!(action_for(Decision::Once), ACTION_APPROVE);
     }
 
     /// polkit refuses `CheckAuthorization` details from a caller that is not

@@ -25,6 +25,8 @@ pub use worker_link::WorkerLink;
 pub const ADOPTION_GRACE: Duration = Duration::from_secs(60);
 /// How long a peer has to send its hello.
 const HELLO_TIMEOUT: Duration = Duration::from_secs(5);
+/// How often one question may be shown again through `computer_use.approvals.prompt`.
+pub const PROMPT_COOLDOWN: Duration = Duration::from_secs(10);
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -43,6 +45,10 @@ pub struct Bootstrap {
     pub daemon_socket: Option<PathBuf>,
     /// The daemon's executable: a supervisor must run it (Windows).
     pub daemon_exe: Option<PathBuf>,
+    /// The daemon that started this host, by pid and creation time (Windows: a
+    /// supervisor must be that process, or the one now serving `daemon_socket`).
+    pub daemon_pid: Option<u32>,
+    pub daemon_start: Option<u64>,
     /// This build's acpmux: the worker admits only bridges running this image.
     pub acpmux: Option<PathBuf>,
     /// This machine's acpmux socket: the worker registers the daemon serving it.
@@ -66,6 +72,8 @@ impl Bootstrap {
             headless: line.get("headless").and_then(Value::as_bool).unwrap_or(true),
             daemon_socket: path("daemon_socket"),
             daemon_exe: path("daemon_exe"),
+            daemon_pid: line.get("daemon_pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok()),
+            daemon_start: line.get("daemon_start").and_then(Value::as_u64),
             acpmux: path("acpmux"),
             acpmux_socket: path("acpmux_socket"),
             client: line.get("client").and_then(Value::as_str).map(str::to_owned),
@@ -142,6 +150,13 @@ pub struct HostCore {
     worker: WorkerLink,
     collectors: Mutex<Collectors>,
     questions: Mutex<HashMap<u64, Question>>,
+    /// When each question was last shown through `computer_use.approvals.prompt`.
+    prompted: Mutex<HashMap<u64, tokio::time::Instant>>,
+    /// Held across each read, change and write of the saved list.
+    saved_lock: Mutex<()>,
+    /// The device hub collector's state, for status.
+    hub_state: Mutex<crate::hub::HubState>,
+    hub_socket: Mutex<Option<cmux_device_hub_client::UserSocket>>,
     acpmux_daemons: Mutex<Vec<crate::platform::ProcessStamp>>,
 }
 
@@ -166,6 +181,10 @@ impl HostCore {
             shutdown: Notify::new(),
             collectors: Mutex::new(Collectors::default()),
             questions: Mutex::new(HashMap::new()),
+            prompted: Mutex::new(HashMap::new()),
+            saved_lock: Mutex::new(()),
+            hub_state: Mutex::new(crate::hub::HubState::Off("not started".into())),
+            hub_socket: Mutex::new(None),
             acpmux_daemons: Mutex::new(Vec::new()),
         })
     }
@@ -175,10 +194,41 @@ impl HostCore {
         lock(&self.collectors).local = Collectors::detect().local;
         let wanted = lock(&self.switches).computer_use;
         self.worker.set_wanted(wanted);
+        self.start_device_hub();
         self.arm_orphan_timer();
     }
 
-    /// The device hub client (Lane 5) registers itself here.
+    /// The device hub collector, when the owner's config sets it up with at
+    /// least one pinned approver (fail closed otherwise; status says why).
+    fn start_device_hub(self: &Arc<Self>) {
+        let config = crate::config::load();
+        let state = crate::hub::HubState::of(&config);
+        *lock(&self.hub_state) = state.clone();
+        let (crate::hub::HubState::Ready, Ok(config)) = (state, config) else { return };
+        let Some(hub_config) = config.device_hub.clone() else { return };
+        let core = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let machine = crate::platform::machine_name();
+            match crate::hub::connect(&hub_config, &config.approvers, &machine).await {
+                Ok((remote, socket)) => {
+                    let Some(core) = core.upgrade() else { return };
+                    core.set_remote_approver(Arc::new(remote));
+                    // The socket lives as long as the host (its runtime ends it).
+                    *lock(&core.hub_socket) = Some(socket);
+                    core.status_changed();
+                }
+                Err(error) => {
+                    eprintln!("cmux-remote-host: device hub: {error}");
+                    if let Some(core) = core.upgrade() {
+                        *lock(&core.hub_state) = crate::hub::HubState::Off(error);
+                        core.status_changed();
+                    }
+                }
+            }
+        });
+    }
+
+    /// Sets the device hub collector (tests set their own).
     pub fn set_remote_approver(&self, approver: Arc<dyn RemoteApprover>) {
         lock(&self.collectors).remote = Some(approver);
     }
@@ -238,6 +288,7 @@ impl HostCore {
             "endpoint_dir": self.layout.endpoint_dir().display().to_string(),
             "client": self.client(),
         });
+        computer_use["device_hub"] = lock(&self.hub_state).status(&config);
         match &config {
             Ok(config) => computer_use["config"] = json!(config.source.as_ref().map(|path| path.display().to_string())),
             Err(error) => computer_use["config_error"] = json!(error),
@@ -472,16 +523,20 @@ impl HostCore {
         if !all && app.is_none() {
             return wire::failure(id, "bad_request", "computer_use.approvals.revoke needs app {executable|bundle_id} or all: true");
         }
-        let mut apps = self.saved_apps();
-        let before = apps.len();
-        apps.retain(|saved| !all && app.as_ref().is_none_or(|app| app.key() != saved.key()));
-        self.write_saved(&apps);
+        let (before, after) = {
+            let _saved = lock(&self.saved_lock);
+            let mut apps = self.saved_apps();
+            let before = apps.len();
+            apps.retain(|saved| !all && app.as_ref().is_none_or(|app| app.key() != saved.key()));
+            self.write_saved(&apps);
+            (before, apps.len())
+        };
         let mut message = json!({"type": "revoke", "scope": if all { "all" } else { "app" }});
         if let Some(app) = &app {
             message["app"] = app.app_entry();
         }
         self.worker.send(message);
-        wire::answer(id, json!({"revoked": before - apps.len()}))
+        wire::answer(id, json!({"revoked": before - after}))
     }
 
     /// Opens the local protected collector for a pending question with the
@@ -490,16 +545,39 @@ impl HostCore {
         let Some((question, _)) = self.question_named(params) else {
             return wire::failure(id, "not_found", "no waiting Computer Use question with that id");
         };
-        let offered = params.get("decision").and_then(Value::as_str).and_then(Decision::parse).unwrap_or(Decision::Session);
-        if offered == Decision::Deny {
-            return wire::failure(id, "bad_request", "deny needs no collector: use computer_use.approvals.deny");
-        }
+        // Any local caller reaches this, an agent's shell too: it may choose a
+        // narrower scope, never Always (the phone or Mac offers that).
+        let offered = match params.get("decision").filter(|decision| !decision.is_null()) {
+            None => Decision::Session,
+            Some(decision) => match decision.as_str().and_then(Decision::parse) {
+                Some(offered @ (Decision::Once | Decision::Session)) => offered,
+                Some(Decision::Always) => {
+                    return wire::failure(id, "bad_request", "a prompt offers once or session; Always is chosen on the phone or Mac");
+                }
+                Some(Decision::Deny) => {
+                    return wire::failure(id, "bad_request", "deny needs no collector: use computer_use.approvals.deny");
+                }
+                None => return wire::failure(id, "bad_request", "decision is once or session"),
+            },
+        };
         let Some(request) = lock(&self.questions).get(&question).map(|question| question.request.clone()) else {
             return wire::failure(id, "not_found", "no waiting Computer Use question with that id");
         };
         let Some(local) = lock(&self.collectors).local.clone() else {
             return wire::failure(id, "no_collector", "this machine has no local approval dialog; answer on your phone or Mac");
         };
+        {
+            let now = tokio::time::Instant::now();
+            let mut prompted = lock(&self.prompted);
+            if prompted.get(&question).is_some_and(|last| now.duration_since(*last) < PROMPT_COOLDOWN) {
+                return wire::failure(
+                    id,
+                    "cooldown",
+                    format!("that question was shown less than {} s ago", PROMPT_COOLDOWN.as_secs()),
+                );
+            }
+            prompted.insert(question, now);
+        }
         match local.ask(&request, offered).await {
             Some(answer) => {
                 let decision = answer.decision;
@@ -575,6 +653,7 @@ impl HostCore {
 
     pub(crate) fn worker_cancelled(&self, message: &Value) {
         let Some(id) = message.get("id").and_then(Value::as_u64) else { return };
+        lock(&self.prompted).remove(&id);
         if let Some(question) = lock(&self.questions).remove(&id)
             && let Some(task) = question.task
         {
@@ -601,12 +680,14 @@ impl HostCore {
     /// The first answer for question `id` (or none): to the worker, once.
     fn deliver(&self, id: u64, answer: Option<ApproverDecision>) {
         let Some(question) = lock(&self.questions).remove(&id) else { return };
+        lock(&self.prompted).remove(&id);
         if let Some(task) = &question.task {
             task.abort();
         }
         let message = match &answer {
             Some(answer) => {
                 if answer.decision == Decision::Always {
+                    let _saved = lock(&self.saved_lock);
                     let mut apps = self.saved_apps();
                     if !apps.iter().any(|app| app.key() == question.request.target.key()) {
                         apps.push(question.request.target.clone());
@@ -666,11 +747,35 @@ pub fn peer_is_daemon(bootstrap: &Bootstrap, same_user: bool, pid: u32) -> bool 
     #[cfg(windows)]
     {
         let normalize = |path: &Path| path.to_string_lossy().to_ascii_lowercase();
-        match (crate::platform::process_exe(pid), bootstrap.daemon_exe.as_deref()) {
+        let runs_daemon_exe = match (crate::platform::process_exe(pid), bootstrap.daemon_exe.as_deref()) {
             (Some(running), Some(expected)) => normalize(&running) == normalize(expected),
             _ => false,
-        }
+        };
+        let serving_socket = bootstrap
+            .daemon_socket
+            .as_deref()
+            .and_then(crate::platform::listener_pid)
+            .is_some_and(|listener| listener == pid);
+        windows_daemon_peer(bootstrap, runs_daemon_exe, crate::platform::ProcessStamp::of(pid), serving_socket)
     }
+}
+
+/// The Windows rule: the peer runs the daemon's executable and is either the
+/// daemon that started this host (its pid and creation time from the bootstrap,
+/// so a recycled pid or another copy of the same executable does not pass) or
+/// the process now serving the daemon's socket (a handoff's new daemon).
+pub fn windows_daemon_peer(
+    bootstrap: &Bootstrap,
+    runs_daemon_exe: bool,
+    peer: Option<crate::platform::ProcessStamp>,
+    serving_daemon_socket: bool,
+) -> bool {
+    let Some(peer) = peer else { return false };
+    let started_us = bootstrap
+        .daemon_pid
+        .zip(bootstrap.daemon_start)
+        .is_some_and(|(pid, start)| peer.pid == pid && peer.start == start);
+    runs_daemon_exe && (started_us || serving_daemon_socket)
 }
 
 /// `cmux-remote-host host`: serves until drained or orphaned.
@@ -857,6 +962,26 @@ mod tests {
         tokio::time::advance(Duration::from_secs(11)).await;
         prompt(json!({"id": id, "decision": "once"})).await;
         assert_eq!(lock(&offers.0).as_slice(), &[Decision::Session, Decision::Once]);
+    }
+
+    #[test]
+    fn a_windows_supervisor_must_be_the_daemon_process_not_just_its_image() {
+        use crate::platform::ProcessStamp;
+        let bootstrap = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32), "daemon_pid": 40, "daemon_start": 777})).unwrap();
+        let daemon = ProcessStamp { pid: 40, start: 777 };
+        assert!(windows_daemon_peer(&bootstrap, true, Some(daemon), false));
+        // Another process running the same executable.
+        assert!(!windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 41, start: 900 }), false));
+        // The daemon's pid, reused by a later process.
+        assert!(!windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 40, start: 778 }), false));
+        // The right process but another image, or a gone process.
+        assert!(!windows_daemon_peer(&bootstrap, false, Some(daemon), false));
+        assert!(!windows_daemon_peer(&bootstrap, true, None, true));
+        // A handoff's new daemon serves the daemon socket.
+        assert!(windows_daemon_peer(&bootstrap, true, Some(ProcessStamp { pid: 41, start: 900 }), true));
+        // An old daemon's bootstrap without the pid: only the socket's server.
+        let old = Bootstrap::parse(&json!({"supervisor_secret": "00".repeat(32)})).unwrap();
+        assert!(!windows_daemon_peer(&old, true, Some(daemon), false));
     }
 
     #[tokio::test]

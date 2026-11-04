@@ -359,6 +359,10 @@ impl Inner {
                 // and its socket (the Computer Use worker admits only its bridges), and
                 // the client whose saved approvals apply.
                 "daemon_exe": std::env::current_exe().ok().map(|exe| exe.display().to_string()),
+                // This daemon by pid and creation time: a Windows host admits a supervisor
+                // only when it is this process (or the one serving the daemon socket later).
+                "daemon_pid": std::process::id(),
+                "daemon_start": platform::process_start(std::process::id()).map(|(start, _)| start),
                 "acpmux": platform::acpmux_executable().map(|exe| exe.display().to_string()),
                 "acpmux_socket": paths.acpmux_socket.as_ref().map(|socket| socket.display().to_string()),
                 "client": paths.scope,

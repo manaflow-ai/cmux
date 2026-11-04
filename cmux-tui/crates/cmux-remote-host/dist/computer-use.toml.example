@@ -16,3 +16,17 @@ mode = "ask"
 # [environment]
 # CUA_DRIVER_PERMISSION_MODE = "unrestricted"
 # CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"
+
+# Device hub approvals: only approvers pinned here answer this machine's questions.
+# `cmux computer-use setup --device-hub URL --hub-token-command PROGRAM --approver DEVICE_ID`
+# shows each device's key fingerprint and writes these after you confirm.
+# [device_hub]
+# url = "https://device-hub.example.com"
+# token_command = "/usr/local/bin/cmux-hub-token"
+# allow_always = false
+#
+# [[approvers]]
+# device_id = "0f8e2c84-3d1a-4f27-9a51-6c2b7e8d9a10"
+# approval_key_fingerprint = "<64 hex digits>"
+# name = "My iPhone"
+# platform = "ios"

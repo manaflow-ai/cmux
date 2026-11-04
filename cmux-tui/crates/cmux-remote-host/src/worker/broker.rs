@@ -25,7 +25,8 @@ pub enum Outcome {
     Unavailable,
 }
 
-/// Applies an Allow to the session (and the saved list), on time or late.
+/// Applies an Allow to the session (and the saved list), on time or late, and
+/// a late once as one call's credit.
 pub trait GrantSink: Send + Sync {
     fn grant(&self, session: &str, target: &Target, decision: Decision);
 }
@@ -127,12 +128,20 @@ impl Broker {
             let mut asked = lock(&self.asked);
             let Some(entry) = asked.get_mut(&id) else { return };
             match entry.pending.accept(decision, digest, now_ms()) {
-                Ok(decision) => Some((entry.pending.request.session.clone(), entry.pending.request.target.clone(), decision)),
+                // Late: every call that waited on it has stopped waiting (its receiver is gone).
+                Ok(decision) => Some((
+                    entry.pending.request.session.clone(),
+                    entry.pending.request.target.clone(),
+                    decision,
+                    entry.outcome.receiver_count() == 0,
+                )),
                 Err(_) => None,
             }
         };
-        let Some((session, target, decision)) = accepted else { return };
-        if matches!(decision, Decision::Session | Decision::Always) {
+        let Some((session, target, decision, late)) = accepted else { return };
+        // A late once is one call's credit, so the agent's retry runs (as on macOS);
+        // an on-time once is the waiting call's alone.
+        if matches!(decision, Decision::Session | Decision::Always) || (decision == Decision::Once && late) {
             self.sink.grant(&session, &target, decision);
         }
         self.finish(id, Outcome::Decided(decision));

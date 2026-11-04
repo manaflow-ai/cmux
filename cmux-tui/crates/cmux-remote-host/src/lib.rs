@@ -8,6 +8,7 @@ pub mod approver;
 pub mod collectors;
 pub mod config;
 pub mod host;
+pub mod hub;
 pub mod platform;
 pub mod policy;
 pub mod wire;
