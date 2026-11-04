@@ -32,7 +32,8 @@ outward is ring 3 and goes through ring 3, ring 2, ring 1 and (terminal) the gro
 A found (or cut) side gives:
   edge_err   the content's outer edge (the ground strip's outer end: the terminal view's edge; ring 1's for a page)
              minus the pane edge of the shown sample, device px (+ toward higher x or y); dev: minus its rest value
-  gap        shell-colored px just beyond the content edge, at most to the pane's own edge and a divider's 16 px
+  gap        shell-colored px just beyond the content edge, at most to the pane's own edge and the divider band to the
+             next pane across that edge (16 px at most; 16 px where no pane is across it): never into the next pane
   rings      ring 1, 2, 3 widths; hidden: narrower than at rest by more than 1 px (an overlap or the clip)
   strip      the ground strip's width; remainder (high side): minus the low side's, the whole-cell remainder
   lag        k: the content edge shows the pane edge of k samples before the shown one (the first k of 0..12, -1..-3
@@ -441,6 +442,29 @@ def visible_span(film, lo_pt, hi_pt, axis):
     return max(lo_pt, a), min(hi_pt, b), lo_pt >= a - 0.5, hi_pt <= b + 0.5
 
 
+def band_to_neighbour(sample, pid, axis, side, s):
+    """Device px from pane PID's SIDE edge to the nearest pane across it (a pane beyond that edge that shares part of
+    its extent across the line's axis: the panes on the far side of the same divider), or None when no pane is
+    there (the window's edge). A side's gap runs past its pane edge at most this far: past it, the shell is the
+    next pane's (its own side and shell-inside checks judge it), not this pane's gap (FRAME OWNER's 3a: on the
+    reduce row drag, the next column's moving row divider crossed p0's line)."""
+    me = sample.panes.get(pid)
+    (x, y, w, h), _ = pane_rect(me)
+    lo, hi, a0, a1 = (x, x + w, y, y + h) if axis == "row" else (y, y + h, x, x + w)
+    best = None
+    for other, row in sample.panes.items():
+        if other == pid or len(row) < 6 or float(row[5]) < 0.99 or float(row[3]) <= 0 or float(row[4]) <= 0:
+            continue
+        (ox, oy, ow, oh), _ = pane_rect(row)
+        olo, ohi, o0, o1 = (ox, ox + ow, oy, oy + oh) if axis == "row" else (oy, oy + oh, ox, ox + ow)
+        if min(a1, o1) - max(a0, o0) <= 0:
+            continue  # no shared extent: not across this pane's edge
+        gap = (olo - hi) if side == "hi" else (lo - ohi)
+        if gap >= -0.01 and (best is None or gap < best):
+            best = max(0.0, gap)
+    return None if best is None else best * s
+
+
 def measure(film, codes, axis, coord_px, sample):
     """{pane id: {"lo": side, "hi": side, "span": [lo, hi], "shell_in": px, "has_fill": bool}} for the fixture panes whose
     content (below their tab strip) this line crosses."""
@@ -471,7 +495,9 @@ def measure(film, codes, axis, coord_px, sample):
                 continue
             m = find_side(codes, a, b, edge, step, info["kind"], film.roles, info["fill"], near, skip)
             if m.get("view_edge") is not None:
-                m["gap"] = min(m.get("gap", 0.0), max(0.0, (edge - m["view_edge"]) * step) + GAP_CAP_PX)
+                band = band_to_neighbour(sample, pid, axis, side, s)
+                band = GAP_CAP_PX if band is None else min(GAP_CAP_PX, band)
+                m["gap"] = min(m.get("gap", 0.0), max(0.0, (edge - m["view_edge"]) * step) + band)
             sides[side] = m
         out[str(pid)] = {"lo": sides["lo"], "hi": sides["hi"], "span": [round(lo, 2), round(hi, 2)],
                          "shell_in": int(np.count_nonzero(codes[a:b] == film.roles["shell"])),
