@@ -1705,7 +1705,10 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 self.assertIn("scripts/ci/job_reuse.py lookup", lookup["run"])
                 self.assertIn("steps.reuse-key.outputs.key", json.dumps(lookup))
                 self.assertIn("steps.reuse-key.outputs.key != ''", lookup["if"])
-                self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+                # A feat-cmux-next push or dispatch lists with a cmux-bot read token (minted only off
+                # pull_request), falling back to the workflow token.
+                self.assertIn(lookup.get("env", {}).get("GH_TOKEN"),
+                              ("${{ github.token }}", "${{ steps.reuse-token.outputs.token || github.token }}"))
                 self.assertIs(lookup.get("continue-on-error"), True)
                 # No actions/cache store: a cache entry of one pull request is unreadable from the others.
                 self.assertFalse([s for s in steps if JOB_PASS_DIR in json.dumps(s)])
