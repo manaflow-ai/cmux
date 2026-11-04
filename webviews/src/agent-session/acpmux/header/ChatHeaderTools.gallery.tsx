@@ -132,12 +132,16 @@ const squareTools =
     for (const button of buttons) {
       const box = button.getBoundingClientRect();
       if (Math.round(box.width) !== size || Math.round(box.height) !== size)
-        throw new Error(`header button ${button.getAttribute("aria-label")} is ${box.width}x${box.height}, not a ${size}px square`);
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} is ${box.width}x${box.height}, not a ${size}px square`,
+        );
       const glyph = button.querySelector("[data-icon]")?.getBoundingClientRect();
       if (!glyph) throw new Error(`header button ${button.getAttribute("aria-label")} draws no glyph`);
       const pads = [glyph.left - box.left, box.right - glyph.right, glyph.top - box.top, box.bottom - glyph.bottom];
       if (Math.max(...pads) - Math.min(...pads) > 0.5)
-        throw new Error(`header button ${button.getAttribute("aria-label")} pads its glyph unevenly: ${pads.join(", ")}`);
+        throw new Error(
+          `header button ${button.getAttribute("aria-label")} pads its glyph unevenly: ${pads.join(", ")}`,
+        );
     }
     const lefts = buttons.map((button) => button.getBoundingClientRect().left);
     if (lefts.slice(1).some((left, index) => Math.round(left - lefts[index]!) !== size + gap))
