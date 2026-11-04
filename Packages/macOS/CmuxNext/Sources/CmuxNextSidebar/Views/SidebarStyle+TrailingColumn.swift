@@ -26,9 +26,10 @@ extension SidebarStyle {
     /// and a trailing click must not grab the resize edge), measured from `trailingClearanceEdge`, where the
     /// fill ended before rows kept a gap from the sidebar's edge. The gap moves the fill, never the column
     /// (#32647): the marks stay on the grid's 24 pt line at every density and text size, as before 2026-11-02.
-    /// So the slot now ends inside the fill by the old clearance less the gap, not by the full row inset: at
-    /// comfortable density the hover close (the row's × at the end of the title's line, Lawrence 2026-10-23)
-    /// ends 7 pt inside a fill whose inset is 8.
+    /// So this floor now sits inside the fill by the old clearance less the gap (1.5 pt comfortable, 2.5 compact),
+    /// not by the full row inset. The grid's line, not the floor, places the marks: at comfortable density the
+    /// hover close (the row's × at the end of the title's line) ends 7 pt inside a fill whose inset is 8
+    /// (24 - 8 - 9), at compact 9 pt inside a fill whose inset is 6.
     static var trailingColumnInset: CGFloat {
         max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
             max(0, (searchHeight - trailingSlotSide) / 2)))
