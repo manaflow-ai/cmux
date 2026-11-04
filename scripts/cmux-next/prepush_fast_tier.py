@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fcntl
 import importlib.util
 import json
 import os
@@ -72,7 +73,9 @@ def check_range(root: Path, own, scratch: Path | None = None) -> list[dict]:
                                              own.base, own.head).split(b"\0") if p)
     # Use data-only parsers; never import changed Python or source shell files.
     for path in sorted(changed):
-        if not path.endswith((".py", ".json")):
+        # .json also names JSONC configuration (tsconfig, VS Code); only package manifests
+        # have a strict JSON contract here. Their valid comments must not become false reds.
+        if not (path.endswith(".py") or Path(path).name == "package.json"):
             continue
         data = git(root, "show", f"{own.head}:{path}")
         try:
@@ -132,6 +135,8 @@ def check_range(root: Path, own, scratch: Path | None = None) -> list[dict]:
         tests = sorted({entry["test"] for entry in selected})
         checks.append({"name": "selected unit suites", **execute(prefix + [
             "/tools/bun", "test", "--timeout", "1000", *[f"./{p}" for p in tests]])})
+        if checks[-1]["status"] == "passed" and not re.search(r"\b[1-9][0-9]* pass\b", checks[-1]["detail"]):
+            checks[-1] = {"name": "selected unit suites", "status": "deferred", "detail": "no executed-test evidence"}
     return checks
 
 
@@ -170,8 +175,22 @@ def main(argv=None) -> int:
             print(json.dumps({"head": None, "checks": [{"name": "tier", "status": "deferred", "detail": str(error)}]}))
         return 0
     started = time.monotonic()
+    # Hook installs retire old versioned snapshots only under an exclusive .in-use lock.
+    # Retain this one while the worker imports the manifest and sibling helpers.
+    snapshot_lock = None
+    try:
+        snapshot_lock = (HERE / ".in-use").open("r")
+        fcntl.flock(snapshot_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    except OSError:
+        if HERE.name.startswith("cmux-next-checks."):
+            print(json.dumps({"status": "deferred", "checks": [], "detail": "installed snapshot is retiring"}))
+            return 0
     timing = sibling("inner_loop_timing")
-    receipt = {"started_at": timing.now(), "checks": [], "head": None}
+    pushed_heads = [line.split()[1] for line in refs.splitlines()
+                    if len(line.split()) == 4 and re.fullmatch(r"[0-9a-f]{40}", line.split()[1])
+                    and line.split()[1] != "0" * 40]
+    receipt = {"started_at": timing.now(), "checks": [],
+               "head": pushed_heads[0] if len(pushed_heads) == 1 else None}
     if os.environ.get("CMUX_FAST_TIER_DISABLED") == "1":
         receipt["checks"] = [{"name": "tier", "status": "deferred", "detail": "CMUX_FAST_TIER_DISABLED=1"}]
     else:
@@ -197,6 +216,8 @@ def main(argv=None) -> int:
     receipt["status"] = "failed" if "failed" in statuses else "deferred" if "deferred" in statuses else "passed"
     timing.record(args.repo, prepush=receipt)
     print(json.dumps(receipt))
+    if snapshot_lock is not None:
+        snapshot_lock.close()
     return 1 if receipt["status"] == "failed" else 0
 
 

@@ -73,6 +73,34 @@ class TierTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(receipt["status"], "deferred")
 
+    def test_jsonc_configuration_is_left_to_its_own_checker(self):
+        self.write("tsconfig.json", '{"compilerOptions": {}}')
+        self.commit()
+        self.base = self.git("rev-parse", "HEAD").strip()
+        self.write("tsconfig.json", '{// JSONC is valid for TypeScript\n"compilerOptions": {}}')
+        self.commit()
+        code, receipt = self.tier()
+        self.assertEqual(code, 0, receipt)
+        self.assertFalse(any(c["name"] == "tsconfig.json" for c in receipt["checks"]))
+
+    def test_slow_range_discovery_defers_and_supervisor_cleans_its_scratch(self):
+        installed = Path(self.temp.name) / "installed"
+        installed.mkdir()
+        for name in ("prepush_fast_tier.py", "inner_loop_timing.py"):
+            shutil.copy2(TIER.with_name(name), installed / name)
+        (installed / "push_range.py").write_text(
+            "import time\ndef given_range(*args):\n    time.sleep(60)\n")
+        scratch = Path(self.temp.name) / "scratch"
+        scratch.mkdir()
+        run = subprocess.run([sys.executable, "-I", str(installed / TIER.name), "--repo", str(self.repo),
+                              "--base", self.base, "--head", "HEAD"], capture_output=True,
+                             text=True, env={**self.env, "TMPDIR": str(scratch)}, timeout=8)
+        receipt = json.loads(run.stdout)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(receipt["status"], "deferred")
+        self.assertIn("budget exhausted", receipt["checks"][0]["detail"])
+        self.assertEqual(list(scratch.iterdir()), [])
+
     def test_edit_timestamp_survives_commits_and_resets_on_branch_change(self):
         spec = importlib.util.spec_from_file_location("timing_test", TIER.with_name("inner_loop_timing.py"))
         timing = importlib.util.module_from_spec(spec)
@@ -87,6 +115,17 @@ class TierTest(unittest.TestCase):
         self.git("checkout", "-qb", "other")
         timing.record(self.repo, prepush={"head": self.git("rev-parse", "HEAD").strip()})
         self.assertIsNone(json.loads(path.read_text())["first_edit_at"])
+
+    def test_post_tool_read_and_failed_edit_do_not_start_edit_clock(self):
+        spec = importlib.util.spec_from_file_location("post_edit_timing_test", ROOT / "scripts/ci/post_edit_checks.py")
+        post_edit = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(post_edit)
+        payload = {"tool_name": "Read", "tool_input": {"file_path": "check.py"}}
+        self.assertFalse(post_edit.is_edit_event(json.dumps(payload)))
+        payload["tool_name"] = "Edit"
+        self.assertTrue(post_edit.is_edit_event(json.dumps(payload)))
+        payload["tool_response"] = {"is_error": True}
+        self.assertFalse(post_edit.is_edit_event(json.dumps(payload)))
 
     @unittest.skipUnless(sys.platform == "linux" and shutil.which("bwrap") and shutil.which("bun"),
                          "needs the Linux sandbox and warm Bun")

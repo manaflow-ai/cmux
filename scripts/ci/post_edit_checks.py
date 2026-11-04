@@ -85,6 +85,21 @@ def payload_paths(raw: str) -> tuple[set[str], str | None]:
     return found, cwd
 
 
+def is_edit_event(raw: str) -> bool:
+    """PostToolUse also fires for reads; those are not evidence of a lane's first edit."""
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("tool_name", "")).split(".")[-1].lower()
+    result = payload.get("tool_response") or {}
+    if isinstance(result, dict) and (result.get("is_error") or result.get("isError")):
+        return False
+    return name in {"edit", "write", "multiedit", "apply_patch"}
+
+
 def relative(root: Path, path: str, cwd: str | None) -> str | None:
     if not os.path.isabs(path) and cwd:
         path = os.path.join(cwd, path)
@@ -274,9 +289,12 @@ def main(argv=None) -> int:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5).stdout.strip())
         if args.paths is not None:
             paths, cwd = set(args.paths), None
+            edit_event = False
         else:
-            paths, cwd = payload_paths(sys.stdin.read())
-        if any(relative(root, path, cwd) is not None for path in paths):
+            raw = sys.stdin.read()
+            paths, cwd = payload_paths(raw)
+            edit_event = is_edit_event(raw)
+        if edit_event and any(relative(root, path, cwd) is not None for path in paths):
             # This timestamp is an observed edit event, not a commit date or worktree mtime.
             # Keep it local to this worktree so a CI client can measure edit-to-first-signal.
             import importlib.util

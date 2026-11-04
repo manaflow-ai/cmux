@@ -5,7 +5,7 @@ web and native source checks. Those existing checks and fleet verification keep
 their current authority. The budget applies to this additional tier, not to the
 entire hook.
 
-The tier reads the pushed commit's Python and JSON files as data and reports new
+The tier reads the pushed commit's Python files and package.json manifests as data and reports new
 syntax errors. A reviewed manifest selects small pure TypeScript modules and their
 Bun unit suites when either source or test changes. TypeScript checks only those
 source files with strict ES2022 settings; project-wide checks still run in CI.
