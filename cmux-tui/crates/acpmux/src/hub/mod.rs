@@ -144,6 +144,7 @@ pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_k
 mod profile_respawn;
 mod resolve;
 mod route_switch;
+mod stale_host_respawn;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
