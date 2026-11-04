@@ -259,7 +259,7 @@ public final class SettingsController {
     }
 
     /// Writes `window.titlebar` through `setSetting`; the default
-    /// ("minimal") removes the key, and the `window` object when it empties.
+    /// ("standard") removes the key, and the `window` object when it empties.
     public func setTitlebar(_ style: TitlebarStyle) async throws {
         try await setSetting(at: WindowTitlebarSetting.configPath, to: style == WindowTitlebarSetting.fallback ? nil : .string(style.rawValue), by: .currentRun())
     }
