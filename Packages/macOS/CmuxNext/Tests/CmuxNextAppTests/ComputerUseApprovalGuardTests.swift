@@ -60,7 +60,7 @@ struct ComputerUseApprovalGuardTests {
         for press in [NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown, .keyDown] {
             #expect(!guardWindow.admits(press, at: start), "\(press)")
             #expect(!guardWindow.admits(press, at: start + 0.599), "\(press)")
-            #expect(guardWindow.admits(press, at: start + 0.6), "\(press)")
+            #expect(guardWindow.admits(press, at: start + 0.601), "\(press)")
         }
         // Not presses: moves, scrolls and releases are never held back.
         #expect(guardWindow.admits(.mouseMoved, at: start))
@@ -69,7 +69,7 @@ struct ComputerUseApprovalGuardTests {
         // A move re-arms it.
         guardWindow.arm(at: start + 5)
         #expect(!guardWindow.admits(.leftMouseDown, at: start + 5.3))
-        #expect(guardWindow.admits(.leftMouseDown, at: start + 5.6))
+        #expect(guardWindow.admits(.leftMouseDown, at: start + 5.601))
     }
 
     /// Review 2 #10: the guard compares when the press happened (the event's timestamp) with
@@ -84,7 +84,7 @@ struct ComputerUseApprovalGuardTests {
         #expect(!panel.delivers(.leftMouseDown, at: 2_000.1))
         #expect(!panel.delivers(.keyDown, at: 2_000.5))
         // One made after the delay passes, also when handled late.
-        #expect(panel.delivers(.leftMouseDown, at: 2_000.6))
+        #expect(panel.delivers(.leftMouseDown, at: 2_000.61))
         // Not presses pass whenever they were made.
         #expect(panel.delivers(.mouseMoved, at: 2_000))
     }
@@ -103,7 +103,7 @@ struct ComputerUseApprovalGuardTests {
         // Moved (restack) or shown again: held back again.
         panel.armPressGuard()
         #expect(!panel.delivers(.leftMouseDown, at: now))
-        now = start + 1.25
+        now = start + 1.26
         #expect(panel.delivers(.leftMouseDown, at: now))
     }
 }

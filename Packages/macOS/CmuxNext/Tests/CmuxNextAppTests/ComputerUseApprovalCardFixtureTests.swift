@@ -10,8 +10,12 @@ import Testing
 /// dismissal do, nothing is decided, saved or sent to a worker.
 @MainActor
 struct ComputerUseApprovalCardFixtureTests {
-    @Test func theFixtureAsksForClaudeInApiServerToUseSafari() {
-        let request = ComputerUseApprovalCards.fixtureRequest(client: ComputerUseApprovalTests.client, nowMs: ComputerUseApprovalTests.nowMs)
+    static func fixture() throws -> ComputerUseApprovalRequest {
+        try #require(ComputerUseApprovalCards.fixtureRequest(client: ComputerUseApprovalTests.client, nowMs: ComputerUseApprovalTests.nowMs))
+    }
+
+    @Test func theFixtureAsksForClaudeInApiServerToUseSafari() throws {
+        let request = try Self.fixture()
         #expect(request.agent == "Claude")
         #expect(request.workspace == "api-server")
         #expect(request.target == ComputerUseApprovalApp(bundleID: "com.apple.Safari", executable: nil, name: "Safari"))
@@ -32,16 +36,14 @@ struct ComputerUseApprovalCardFixtureTests {
         _ = broker.attach(sink)
 
         for decision in ComputerUseApprovalDecision.allCases {
-            let request = ComputerUseApprovalCards.fixtureRequest(client: ComputerUseApprovalTests.client, nowMs: ComputerUseApprovalTests.nowMs)
-            let id = cards.showFixture(request)
+            let id = cards.showFixture(try Self.fixture())
             let dialog = try #require(cards.dialogID(id), "\(decision)")
             #expect(cards.center.press(dialog, button: decision.rawValue), "\(decision)")
             #expect(cards.dialogID(id) == nil, "\(decision)")
             #expect(broker.pending.isEmpty, "\(decision)")
         }
         // A dismissal of the fixture closes it the same way.
-        let shown = cards.showFixture(ComputerUseApprovalCards.fixtureRequest(client: ComputerUseApprovalTests.client,
-                                                                               nowMs: ComputerUseApprovalTests.nowMs))
+        let shown = cards.showFixture(try Self.fixture())
         #expect(cards.dialogID(shown) != nil)
         #expect(cards.dismissFixtures() == 1)
         #expect(cards.dialogID(shown) == nil)
