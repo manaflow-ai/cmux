@@ -1,0 +1,653 @@
+//! Snapshots of a synced folder on this Mac, and putting it back
+//! (`cmux link sync history|undo|restore LOCAL REMOTE`).
+//!
+//! After every push and around every pull that changes something here,
+//! this Mac keeps a snapshot of the folder's synced paths: a small manifest
+//! of each file's SHA-256 and permissions, each symlink's text and, in git,
+//! the branch, HEAD commit and staged tree. The newest [`KEEP`] are kept per
+//! local folder and machine folder in
+//! `<state>/link-sync/history/<key>/<seq>.json` (the key is the one the base
+//! record uses, [`super::base`]).
+//!
+//! A snapshot points at file contents by SHA-256 only. The bytes are blobs
+//! in `<state>/link-sync/blobs/<aa>/<sha256>` (0600), shared by every folder
+//! and named the way the content-addressed store in Cloud names them (a
+//! file's lowercase hex SHA-256, `/v1/sync/blobs/<sha256>`), so a snapshot's
+//! files can be looked up in either. A blob is kept when a push writes a
+//! file, and before and after a pull replaces one; each is checked against
+//! its hash before it is renamed into place. Blobs no kept snapshot names
+//! go once they are an hour old (younger ones may belong to a sync still
+//! going on).
+//!
+//! Inside git only the working tree is snapshotted: the repository's own
+//! files have git's history. Restoring moves the branch back only while it
+//! is still where the newest snapshot left it, and the staged tree only
+//! while it is still the newest snapshot's.
+//!
+//! A restore changes only paths whose state differs between the snapshot
+//! and the newest one, and only when each of those is here still as the
+//! newest snapshot says: a file changed here since the last sync stops it
+//! and nothing changes (`sync_restore_conflict`). It goes through the same
+//! transaction as a pull ([`super::place`]), so a failure puts everything
+//! back. `undo` restores the snapshot before the newest one that differs
+//! from it; after an undo, the next undo goes one further back. The machine
+//! is not touched: the next push sends what the restore put back.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write as _;
+use std::os::unix::fs::{DirBuilderExt as _, OpenOptionsExt as _};
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context as _, bail};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use sha2::{Digest as _, Sha256};
+
+use super::local::GitDirs;
+use super::place::{self, Dir, Entry, Expected, Transaction};
+use super::{Manifest, base, git_back};
+
+/// Snapshots kept per folder.
+pub(super) const KEEP: usize = 10;
+
+/// A blob no snapshot names is removed once it is this old.
+const BLOB_GRACE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// One path of a snapshot.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(super) enum Held {
+    File { sha256: String, permissions: u32 },
+    Link { text: String },
+}
+
+/// The git state of a snapshot.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct GitAt {
+    #[serde(default)]
+    pub head_ref: Option<String>,
+    #[serde(default)]
+    pub head: Option<String>,
+    /// The staged tree (`git write-tree`); None when it has unmerged paths.
+    #[serde(default)]
+    pub tree: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct Snapshot {
+    pub version: u32,
+    pub seq: u64,
+    /// Seconds since 1970.
+    pub at: u64,
+    /// `push`, `before_pull`, `pull` or `restore`.
+    pub action: String,
+    /// For a restore: the snapshot it put back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored: Option<u64>,
+    pub paths: BTreeMap<String, Held>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitAt>,
+}
+
+impl Snapshot {
+    /// Whether `other` is the same folder state.
+    fn same_state(&self, other: &Self) -> bool {
+        self.paths == other.paths && self.git == other.git
+    }
+}
+
+fn link_sync_dir() -> anyhow::Result<PathBuf> {
+    let Some(state) = cmux_tui_core::platform::workspace_state_dir() else {
+        bail!("this Mac has no state folder to keep sync snapshots in");
+    };
+    Ok(state.join("link-sync"))
+}
+
+fn history_dir(local: &Path, remote_root: &str) -> anyhow::Result<PathBuf> {
+    Ok(link_sync_dir()?.join("history").join(base::key(local, remote_root)))
+}
+
+/// Where the blob of `sha256` is kept.
+pub(super) fn blob_path(sha256: &str) -> anyhow::Result<PathBuf> {
+    if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        bail!("{sha256} is not a SHA-256");
+    }
+    Ok(link_sync_dir()?.join("blobs").join(&sha256[..2]).join(sha256))
+}
+
+/// The blob of `sha256`, when this Mac keeps it.
+pub(super) fn blob(sha256: &str) -> Option<PathBuf> {
+    blob_path(sha256).ok().filter(|path| path.is_file())
+}
+
+fn make_dir(path: &Path) -> anyhow::Result<()> {
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+        .with_context(|| format!("cannot make {}", path.display()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Keeps the file at `relative` under `root` (read through folder handles,
+/// never a symlink) as the blob of `sha256`, when it still has that hash.
+/// Whether the blob is there afterwards.
+pub(super) fn keep_blob(root: &Dir, relative: &str, sha256: &str) -> bool {
+    keep_blob_inner(root, relative, sha256).unwrap_or(false)
+}
+
+fn keep_blob_inner(root: &Dir, relative: &str, sha256: &str) -> anyhow::Result<bool> {
+    let path = blob_path(sha256)?;
+    if path.is_file() {
+        // Fresh again, so a sweep running now leaves it.
+        let _ = std::fs::File::options().append(true).open(&path).and_then(|file| {
+            file.set_modified(std::time::SystemTime::now())
+        });
+        return Ok(true);
+    }
+    let Some((dir, name)) = place::parent_of(root, relative)? else { return Ok(false) };
+    if !matches!(dir.entry(&name)?, Entry::File { .. }) {
+        return Ok(false);
+    }
+    let mut source = dir.open_file(&name)?;
+    let folder = path.parent().context("no blob folder")?;
+    make_dir(folder)?;
+    let part = folder.join(format!(".{sha256}.{}.part", std::process::id()));
+    let _ = std::fs::remove_file(&part);
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&part)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let read = std::io::Read::read(&mut source, &mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+        out.write_all(&buffer[..read])?;
+    }
+    if hex(&hasher.finalize()) != sha256 {
+        drop(out);
+        let _ = std::fs::remove_file(&part);
+        return Ok(false);
+    }
+    out.sync_all()?;
+    std::fs::rename(&part, &path)?;
+    Ok(true)
+}
+
+/// A working-tree path of a record (nothing in the top repository folder,
+/// not the record itself).
+pub(super) fn is_worktree_path(relative: &str) -> bool {
+    relative != ".git"
+        && !relative.starts_with(".git/")
+        && relative != ".cmux-sync.json"
+        && !relative.ends_with(".cmux-sync-part")
+}
+
+/// The paths of a record as a snapshot holds them: its working-tree files
+/// and symlinks (by this Mac's own text).
+pub(super) fn paths_of(manifest: &Manifest) -> BTreeMap<String, Held> {
+    let mut paths: BTreeMap<String, Held> = manifest
+        .files
+        .iter()
+        .filter(|(relative, _)| is_worktree_path(relative))
+        .map(|(relative, pushed)| {
+            (
+                relative.clone(),
+                Held::File { sha256: pushed.sha256.clone(), permissions: pushed.permissions },
+            )
+        })
+        .collect();
+    for (relative, linked) in &manifest.links {
+        if is_worktree_path(relative) {
+            let text = linked.here.clone().unwrap_or_else(|| linked.target.clone());
+            paths.insert(relative.clone(), Held::Link { text });
+        }
+    }
+    paths
+}
+
+/// The git state of the working copy at `local` now; None outside git.
+pub(super) fn git_now(local: &Path) -> Option<GitAt> {
+    if !matches!(GitDirs::of(local), Ok(Some(_))) {
+        return None;
+    }
+    let base = git_back::base_of(local).ok()?;
+    let tree = super::local::git(local, &["write-tree"]).ok().map(|tree| tree.trim().to_string());
+    Some(GitAt { head_ref: base.head_ref, head: base.head, tree })
+}
+
+/// Every snapshot kept for `local` synced to `remote_root`, oldest first.
+pub(super) fn list(local: &Path, remote_root: &str) -> anyhow::Result<Vec<Snapshot>> {
+    read_dir_snapshots(&history_dir(local, remote_root)?)
+}
+
+fn read_dir_snapshots(dir: &Path) -> anyhow::Result<Vec<Snapshot>> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", dir.display())),
+    };
+    let mut snapshots = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.ends_with(".json") {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(entry.path()) else { continue };
+        if let Ok(snapshot) = serde_json::from_slice::<Snapshot>(&bytes) {
+            snapshots.push(snapshot);
+        }
+    }
+    snapshots.sort_by_key(|snapshot| snapshot.seq);
+    Ok(snapshots)
+}
+
+/// The newest snapshot of `local` synced to `remote_root`.
+pub(super) fn newest(local: &Path, remote_root: &str) -> Option<Snapshot> {
+    list(local, remote_root).ok().and_then(|mut all| all.pop())
+}
+
+/// Keeps a snapshot of `paths` and `git` for `local` synced to
+/// `remote_root`, unless it is the newest one's state again (a `restore`
+/// is always kept: it moves the undo point). Older ones beyond [`KEEP`] go,
+/// and so do the blobs no snapshot names. Its number, or None when nothing
+/// new was kept.
+pub(super) fn record(
+    local: &Path,
+    remote_root: &str,
+    action: &str,
+    paths: BTreeMap<String, Held>,
+    git: Option<GitAt>,
+    restored: Option<u64>,
+) -> anyhow::Result<Option<u64>> {
+    let dir = history_dir(local, remote_root)?;
+    make_dir(&dir)?;
+    let mut all = read_dir_snapshots(&dir)?;
+    let seq = all.last().map_or(1, |last| last.seq + 1);
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let snapshot = Snapshot { version: 1, seq, at, action: action.into(), restored, paths, git };
+    if restored.is_none() && all.last().is_some_and(|last| last.same_state(&snapshot)) {
+        return Ok(None);
+    }
+    let path = dir.join(format!("{seq:016}.json"));
+    let part = dir.join(format!(".{seq:016}.{}.part", std::process::id()));
+    let _ = std::fs::remove_file(&part);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&part)
+        .with_context(|| format!("cannot write {}", part.display()))?;
+    file.write_all(&serde_json::to_vec(&snapshot)?)?;
+    file.sync_all()?;
+    std::fs::rename(&part, &path)?;
+    all.push(snapshot);
+    while all.len() > KEEP {
+        let old = all.remove(0);
+        let _ = std::fs::remove_file(dir.join(format!("{:016}.json", old.seq)));
+    }
+    sweep_blobs();
+    Ok(Some(seq))
+}
+
+/// Removes the blobs no kept snapshot of any folder names, once they are
+/// older than [`BLOB_GRACE`].
+fn sweep_blobs() {
+    let Ok(root) = link_sync_dir() else { return };
+    let mut named: BTreeSet<String> = BTreeSet::new();
+    let Ok(folders) = std::fs::read_dir(root.join("history")) else { return };
+    for folder in folders.filter_map(Result::ok) {
+        let Ok(snapshots) = read_dir_snapshots(&folder.path()) else { return };
+        for snapshot in snapshots {
+            for held in snapshot.paths.values() {
+                if let Held::File { sha256, .. } = held {
+                    named.insert(sha256.clone());
+                }
+            }
+        }
+    }
+    let Ok(prefixes) = std::fs::read_dir(root.join("blobs")) else { return };
+    let now = std::time::SystemTime::now();
+    for prefix in prefixes.filter_map(Result::ok) {
+        let Ok(blobs) = std::fs::read_dir(prefix.path()) else { continue };
+        for blob in blobs.filter_map(Result::ok) {
+            let name = blob.file_name().to_string_lossy().into_owned();
+            if named.contains(&name) {
+                continue;
+            }
+            let old = blob
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age > BLOB_GRACE);
+            if old {
+                let _ = std::fs::remove_file(blob.path());
+            }
+        }
+    }
+}
+
+/// What this Mac has at `relative` now, as a snapshot would hold it; Err
+/// with the path's name when it is anything else (a folder, a special
+/// file, a path through a symlink).
+fn held_here(root: &Dir, relative: &str) -> anyhow::Result<Result<Option<Held>, ()>> {
+    let (dir, name) = match place::parent_of(root, relative) {
+        Ok(Some(found)) => found,
+        Ok(None) => return Ok(Ok(None)),
+        Err(error) if matches!(error.raw_os_error(), Some(libc::ENOTDIR | libc::ELOOP)) => {
+            return Ok(Err(()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    Ok(match dir.entry(&name)? {
+        Entry::Missing => Ok(None),
+        Entry::File { mode } => {
+            let mut file = dir.open_file(&name)?;
+            let mut hasher = Sha256::new();
+            std::io::copy(&mut file, &mut hasher)?;
+            Ok(Some(Held::File {
+                sha256: hex(&hasher.finalize()),
+                permissions: super::local::permissions_of(mode),
+            }))
+        }
+        Entry::Link => dir.read_link(&name).map(|text| Some(Held::Link { text })).map_err(drop),
+        Entry::Dir | Entry::Other => Err(()),
+    })
+}
+
+/// Which snapshot `which` names: a number, or the undo target.
+pub(super) enum Which {
+    Undo,
+    Seq(u64),
+}
+
+/// A restore that changed nothing, and why.
+#[derive(Debug)]
+pub(super) struct Refused {
+    pub code: &'static str,
+    pub error: String,
+    pub paths: Vec<String>,
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.error)
+    }
+}
+
+impl std::error::Error for Refused {}
+
+fn refused(code: &'static str, error: String, paths: Vec<String>) -> anyhow::Error {
+    Refused { code, error, paths }.into()
+}
+
+/// The snapshot `which` names, out of `all` (oldest first, not empty).
+fn target<'a>(all: &'a [Snapshot], which: &Which) -> anyhow::Result<&'a Snapshot> {
+    let newest = all.last().context("no snapshot")?;
+    match which {
+        Which::Seq(seq) => all.iter().find(|snapshot| snapshot.seq == *seq).ok_or_else(|| {
+            refused("sync_no_snapshot", format!("no snapshot {seq} is kept"), Vec::new())
+        }),
+        Which::Undo => {
+            // After an undo, the state is the snapshot it put back: the next
+            // one goes further back from there.
+            let from = newest.restored.unwrap_or(newest.seq);
+            all.iter()
+                .rev()
+                .filter(|snapshot| snapshot.seq < from && snapshot.action != "restore")
+                .find(|snapshot| !snapshot.same_state(newest))
+                .ok_or_else(|| {
+                    refused("sync_no_snapshot", "there is nothing earlier to undo to".into(), vec![])
+                })
+        }
+    }
+}
+
+/// Puts `local` (synced to `remote_root`) back as the snapshot `which`
+/// names. Its answer line.
+pub(super) fn restore(local: &Path, remote_root: &str, which: &Which) -> anyhow::Result<Value> {
+    let local =
+        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let all = list(&local, remote_root)?;
+    if all.is_empty() {
+        return Err(refused(
+            "sync_no_snapshot",
+            "no sync of this folder to that machine folder has a snapshot on this Mac".into(),
+            Vec::new(),
+        ));
+    }
+    let newest = all.last().context("no snapshot")?.clone();
+    let target = target(&all, which)?.clone();
+    let root = Dir::open(&local)?;
+
+    // The paths that differ, each here still as the newest snapshot says.
+    let changing: Vec<String> = newest
+        .paths
+        .keys()
+        .chain(target.paths.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|relative| newest.paths.get(*relative) != target.paths.get(*relative))
+        .cloned()
+        .collect();
+    let mut changed_here = Vec::new();
+    for relative in &changing {
+        if held_here(&root, relative)? != Ok(newest.paths.get(relative).cloned()) {
+            changed_here.push(relative.clone());
+        }
+    }
+    if !changed_here.is_empty() {
+        return Err(refused(
+            "sync_restore_conflict",
+            format!(
+                "{} changed here since the last sync; nothing was put back",
+                changed_here.join(", ")
+            ),
+            changed_here,
+        ));
+    }
+    let missing: Vec<String> = changing
+        .iter()
+        .filter(|relative| match target.paths.get(*relative) {
+            Some(Held::File { sha256, .. }) => blob(sha256).is_none(),
+            _ => false,
+        })
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(refused(
+            "sync_restore_missing",
+            format!("this Mac no longer keeps {}; nothing was put back", missing.join(", ")),
+            missing,
+        ));
+    }
+
+    let git = GitDirs::of(&local)?;
+    let staging = super::pull::Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
+    let mut transaction = Transaction::new(&local, &staging.0)?;
+    let applied = (|| -> anyhow::Result<(u64, u64)> {
+        let (mut written, mut deleted) = (0u64, 0u64);
+        for relative in &changing {
+            let now = newest.paths.get(relative);
+            let then = target.paths.get(relative);
+            // What is here goes first, unless a file is replaced by a file.
+            match (now, then) {
+                (Some(Held::Link { text }), _) => transaction.remove_link(relative, text)?,
+                (Some(Held::File { sha256, permissions }), None | Some(Held::Link { .. })) => {
+                    let expected = Expected { sha256: sha256.clone(), permissions: *permissions };
+                    transaction.delete(relative, &expected)?;
+                }
+                _ => {}
+            }
+            match then {
+                Some(Held::File { sha256, permissions }) => {
+                    let blob = blob(sha256).with_context(|| format!("{relative} is gone"))?;
+                    let staged = staging.copy_in(&blob, sha256, *permissions)?;
+                    let expected = match now {
+                        Some(Held::File { sha256, permissions }) => {
+                            Some(Expected { sha256: sha256.clone(), permissions: *permissions })
+                        }
+                        _ => None,
+                    };
+                    transaction.write(relative, &staged, expected.as_ref())?;
+                    written += 1;
+                }
+                Some(Held::Link { text }) => {
+                    transaction.link(relative, text)?;
+                    written += 1;
+                }
+                None => deleted += 1,
+            }
+        }
+        Ok((written, deleted))
+    })();
+    let (written, deleted) = match applied {
+        Ok(counts) => counts,
+        Err(error) => return Err(rolled_back(transaction, &staging, error)),
+    };
+    let git_moved = match restore_git(&local, newest.git.as_ref(), target.git.as_ref()) {
+        Ok(moved) => moved,
+        Err(error) => return Err(rolled_back(transaction, &staging, error)),
+    };
+    transaction.finish();
+    let recorded = record(
+        &local,
+        remote_root,
+        "restore",
+        target.paths.clone(),
+        target.git.clone(),
+        Some(target.seq),
+    )?;
+    Ok(json!({
+        "ok": true,
+        "restored": target.seq,
+        "written": written,
+        "deleted": deleted,
+        "git_moved": git_moved,
+        "snapshot": recorded,
+    }))
+}
+
+/// Puts back what `transaction` changed after `error`.
+fn rolled_back(
+    transaction: Transaction,
+    staging: &super::pull::Staging,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    if let Err(left) = transaction.roll_back() {
+        staging.keep();
+        return error.context(format!(
+            "cmux could not put back {}; what it moved aside is in {}",
+            left.join(", "),
+            staging.0.display()
+        ));
+    }
+    if let Some(changed) = error.downcast_ref::<place::Changed>() {
+        return refused(
+            "sync_restore_conflict",
+            format!("{} changed here during the restore; nothing was put back", changed.0),
+            vec![changed.0.clone()],
+        );
+    }
+    error
+}
+
+/// Moves the branch and staged tree from `now` back to `then`, each only
+/// while git is still at `now`. Whether anything moved.
+fn restore_git(local: &Path, now: Option<&GitAt>, then: Option<&GitAt>) -> anyhow::Result<bool> {
+    let (Some(now), Some(then)) = (now, then) else { return Ok(false) };
+    if now == then {
+        return Ok(false);
+    }
+    let here = git_back::base_of(local)?;
+    let mut moved = false;
+    if now.head != then.head
+        && here.head_ref == now.head_ref
+        && here.head == now.head
+        && now.head_ref == then.head_ref
+        && let (Some(old), Some(new)) = (&now.head, &then.head)
+    {
+        let mut command = git_back::local(local);
+        command.args(["update-ref", "-m", "cmux sync restore"]);
+        match &now.head_ref {
+            Some(name) => command.arg(name),
+            None => command.args(["--no-deref", "HEAD"]),
+        };
+        let status = command.args([new, old]).status().context("cannot run git")?;
+        if !status.success() {
+            bail!("cannot move the branch back");
+        }
+        moved = true;
+    }
+    let tree_here =
+        super::local::git(local, &["write-tree"]).ok().map(|tree| tree.trim().to_string());
+    if now.tree != then.tree
+        && tree_here == now.tree
+        && let Some(tree) = &then.tree
+    {
+        let status =
+            git_back::local(local).args(["read-tree", tree]).status().context("cannot run git")?;
+        if !status.success() {
+            bail!("cannot put the staged changes back");
+        }
+        moved = true;
+    }
+    Ok(moved)
+}
+
+/// The answer line of `cmux link sync history`.
+pub(super) fn history_line(local: &Path, remote_root: &str) -> anyhow::Result<Value> {
+    let local =
+        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let snapshots: Vec<Value> = list(&local, remote_root)?
+        .iter()
+        .rev()
+        .map(|snapshot| {
+            json!({
+                "seq": snapshot.seq,
+                "at": snapshot.at,
+                "action": snapshot.action,
+                "restored": snapshot.restored,
+                "files": snapshot.paths.values().filter(|held| matches!(held, Held::File { .. })).count(),
+                "links": snapshot.paths.values().filter(|held| matches!(held, Held::Link { .. })).count(),
+                "head": snapshot.git.as_ref().and_then(|git| git.head.clone()),
+            })
+        })
+        .collect();
+    Ok(json!({ "ok": true, "snapshots": snapshots }))
+}
+
+/// The snapshot of the paths `changes` sets, on top of the newest kept one
+/// (or `manifest`'s paths when none is kept): each path's state, None for
+/// gone.
+pub(super) fn on_top(
+    local: &Path,
+    remote_root: &str,
+    manifest: &Manifest,
+    changes: impl IntoIterator<Item = (String, Option<Held>)>,
+) -> BTreeMap<String, Held> {
+    let mut paths = newest(local, remote_root).map_or_else(|| paths_of(manifest), |n| n.paths);
+    for (relative, held) in changes {
+        if !is_worktree_path(&relative) {
+            continue;
+        }
+        match held {
+            Some(held) => paths.insert(relative, held),
+            None => paths.remove(&relative),
+        };
+    }
+    paths
+}

@@ -42,6 +42,7 @@ use cmux_json::JsonSet as _;
 
 mod base;
 mod git_back;
+mod history;
 mod links;
 mod local;
 mod names;
@@ -69,7 +70,7 @@ use sha2::{Digest as _, Sha256};
 use local::{LocalFile, Source};
 use remote::{Remote, RemoteEntry};
 
-const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER";
+const USAGE: &str = "usage: cmux link sync push|pull --socket PATH LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync history|undo LOCAL_FOLDER REMOTE_FOLDER\n       cmux link sync restore LOCAL_FOLDER REMOTE_FOLDER SNAPSHOT";
 
 /// What the machine holds of earlier pushes; this Mac keeps a copy
 /// ([`base`]), which is what a pull trusts.
@@ -191,6 +192,9 @@ pub(super) fn run(args: &[String]) -> i32 {
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
         println!("{USAGE}");
         return 0;
+    }
+    if let Some(code) = run_history(args) {
+        return code;
     }
     let Some((action, socket, local, remote)) = parse(args) else {
         eprintln!("{USAGE}");
@@ -393,6 +397,54 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
     };
     println!("{line}");
     1
+}
+
+/// `history`, `undo` and `restore`: this Mac's snapshots of a synced
+/// folder ([`history`]); no machine is reached. None for another action.
+fn run_history(args: &[String]) -> Option<i32> {
+    let [action, rest @ ..] = args else { return None };
+    if !matches!(action.as_str(), "history" | "undo" | "restore") {
+        return None;
+    }
+    let usage = || {
+        eprintln!("{USAGE}");
+        Some(64)
+    };
+    if rest.iter().any(|arg| arg.starts_with('-')) {
+        return usage();
+    }
+    let (local, remote, which) = match (action.as_str(), rest) {
+        ("history" | "undo", [local, remote]) => (local, remote, history::Which::Undo),
+        ("restore", [local, remote, seq]) => match seq.parse() {
+            Ok(seq) => (local, remote, history::Which::Seq(seq)),
+            Err(_) => return usage(),
+        },
+        _ => return usage(),
+    };
+    if !remote.starts_with('/') {
+        return usage();
+    }
+    let remote = remote.trim_end_matches('/');
+    let local = PathBuf::from(local);
+    let answer = if action == "history" {
+        history::history_line(&local, remote)
+    } else {
+        history::restore(&local, remote, &which)
+    };
+    let line = match answer {
+        Ok(line) => {
+            println!("{line}");
+            return Some(0);
+        }
+        Err(error) => match error.downcast_ref::<history::Refused>() {
+            Some(refused) => json!({ "ok": false, "error": refused.error,
+                                     "error_code": refused.code, "paths": refused.paths }),
+            None => json!({ "ok": false, "error": format!("{error:#}"),
+                            "error_code": "sync_failed" }),
+        },
+    };
+    println!("{line}");
+    Some(1)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -676,7 +728,32 @@ fn push_inner(
         .context("cannot save the sync manifest")?;
     // A pull's base is this copy, never the machine's.
     base::save(&local, remote_root, &next).context("cannot keep the sync record on this Mac")?;
+    // What this push left, for `cmux link sync undo`: every file's blob this
+    // Mac does not keep yet, and a snapshot ([`history`]). Neither can fail
+    // the push.
+    snapshot_push(&local, remote_root, &next, &set.files, git_record);
     Ok(summary)
+}
+
+/// Keeps the blobs and the snapshot of a push that left `next`.
+fn snapshot_push(
+    local: &Path,
+    remote_root: &str,
+    next: &Manifest,
+    files: &BTreeMap<String, LocalFile>,
+    git: bool,
+) {
+    let Ok(root) = place::Dir::open(local) else { return };
+    for (relative, pushed) in &next.files {
+        if history::is_worktree_path(relative)
+            && matches!(files.get(relative).map(|file| &file.source), Some(Source::File(_)))
+            && history::blob(&pushed.sha256).is_none()
+        {
+            history::keep_blob(&root, relative, &pushed.sha256);
+        }
+    }
+    let git = if git { history::git_now(local) } else { None };
+    let _ = history::record(local, remote_root, "push", history::paths_of(next), git, None);
 }
 
 /// Saves the manifest of a push still going on the machine: what it wrote
