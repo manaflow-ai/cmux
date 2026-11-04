@@ -193,9 +193,15 @@ public final class CmuxDialogView: NSView {
             for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }
         }
         let row = NSStackView()
-        row.orientation = .horizontal
         row.spacing = Metrics.space2
-        row.addArrangedSubview(NSView())
+        switch spec.buttonLayout {
+        case .row:
+            row.orientation = .horizontal
+            row.addArrangedSubview(NSView())
+        case .column:
+            row.orientation = .vertical
+            row.alignment = .width
+        }
         for button in spec.buttons {
             let view = CmuxDialogButtonView(button, hint: CmuxDialogKeys.hint(for: button, in: spec), target: self, action: #selector(pressed(_:)))
             buttonViews.append(view)

@@ -20,9 +20,21 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
     public var icon: Data?
     /// The accessibility identifier of the dialog view (tests, automation).
     public var identifier: String?
+    /// How the buttons are laid out. A row drops what does not fit its width, so a dialog
+    /// with more buttons than a row holds stacks them (macOS alerts do the same past two).
+    public var buttonLayout: ButtonLayout
+
+    /// How a dialog lays out its buttons.
+    public enum ButtonLayout: Equatable, Sendable {
+        /// One row, right-aligned (the default).
+        case row
+        /// One full-width button per line, in `buttons` order, top to bottom.
+        case column
+    }
 
     public init(title: String, lines: [String] = [], origin: String? = nil, fields: [CmuxDialogField] = [],
-                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil) {
+                buttons: [CmuxDialogButton], icon: Data? = nil, identifier: String? = nil,
+                buttonLayout: ButtonLayout = .row) {
         self.title = title
         self.lines = lines
         self.origin = origin
@@ -30,6 +42,7 @@ public nonisolated struct CmuxDialogSpec: Equatable, Sendable {
         self.buttons = buttons
         self.icon = icon
         self.identifier = identifier
+        self.buttonLayout = buttonLayout
     }
 
     /// The button Return presses: the first `.default`, else none.

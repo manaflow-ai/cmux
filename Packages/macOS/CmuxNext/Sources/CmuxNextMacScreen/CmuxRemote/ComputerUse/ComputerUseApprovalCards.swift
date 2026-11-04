@@ -163,15 +163,18 @@ public final class ComputerUseApprovalCards: ComputerUseApprovalPresenting {
                     request.target.bundleID ?? request.target.executable ?? "",
                     ComputerUseApprovalStrings.client(request.client),
                     ComputerUseApprovalStrings.expires(until)],
+            // Four answers do not fit one row of the card (a row drops the first, Deny): one per
+            // line, the narrowest grant first and Deny last, where the eye ends.
             buttons: [
-                CmuxDialogButton(id: ComputerUseApprovalDecision.deny.rawValue, title: ComputerUseApprovalStrings.deny, role: .cancel),
                 // No Return default and no Command key on an allow: a stray key never grants.
-                CmuxDialogButton(id: ComputerUseApprovalDecision.always.rawValue, title: ComputerUseApprovalStrings.allowAlways(app), role: .normal),
-                CmuxDialogButton(id: ComputerUseApprovalDecision.session.rawValue, title: ComputerUseApprovalStrings.allowSession, role: .normal),
                 CmuxDialogButton(id: ComputerUseApprovalDecision.once.rawValue, title: ComputerUseApprovalStrings.allowOnce, role: .normal),
+                CmuxDialogButton(id: ComputerUseApprovalDecision.session.rawValue, title: ComputerUseApprovalStrings.allowSession, role: .normal),
+                CmuxDialogButton(id: ComputerUseApprovalDecision.always.rawValue, title: ComputerUseApprovalStrings.allowAlways(app), role: .normal),
+                CmuxDialogButton(id: ComputerUseApprovalDecision.deny.rawValue, title: ComputerUseApprovalStrings.deny, role: .cancel),
             ],
             icon: icon,
-            identifier: ComputerUseApprovalService.approvalDialogIdentifier)
+            identifier: ComputerUseApprovalService.approvalDialogIdentifier,
+            buttonLayout: .column)
     }
 
     /// The target app's icon as TIFF data, nil when it cannot be found.
@@ -247,6 +250,9 @@ final class ComputerUseApprovalCardPanel: NSPanel {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
+        // The card is in no cmux window: without this its dialog keeps the ink it was built with
+        // (another theme's text on a grey slab, cx-ujp), as the permission panel does.
+        ThemeScope.app.store.adopt(panel)
         return panel
     }
 }
