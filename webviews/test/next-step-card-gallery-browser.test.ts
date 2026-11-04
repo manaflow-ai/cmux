@@ -139,7 +139,15 @@ await requireBrowserLane("next-step-card-gallery-browser.test.ts", async () => {
         timeout: 90_000,
       });
       const card = page.locator(".acpmux-next-step").first();
-      await card.waitFor();
+      await card.waitFor({ timeout: 20_000 }).catch(async (error: unknown) => {
+        const seen = await page.evaluate(() => ({
+          attach: (window as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] }).cmuxGalleryLog
+            .filter((entry) => entry.method.includes("attach") || entry.method.includes("session/load"))
+            .map((entry) => JSON.stringify(entry.params)),
+          text: document.body.innerText.slice(0, 1200),
+        }));
+        throw new Error(`no next-step box; attach ${seen.attach.join(" | ")}; page: ${seen.text}`, { cause: error });
+      });
       expect(await card.textContent()).toContain("Checked the folder: it is empty.");
       expect(await card.locator(".acpmux-next-step__answer").allTextContents()).toEqual([
         expect.stringContaining("Yes, add README"),
