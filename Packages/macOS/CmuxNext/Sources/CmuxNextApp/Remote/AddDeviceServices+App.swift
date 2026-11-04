@@ -36,9 +36,7 @@ extension AddDeviceServices {
                 _ = services?.registry.perform("newCloudMachine")
             },
             copy: { CloudPresenter.copy($0) },
-            installTailscale: {
-                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
-            },
+            installTailscale: { if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) } },
             // Labs labs.machineJoin: read at each opening, so the switch takes effect on the next one.
             machineJoin: { [weak services] in
                 guard let services, services.settings?.snapshot.machineJoin == true else { return nil }
@@ -52,7 +50,8 @@ extension AddDeviceServices {
             copyConcealed: { line in
                 SystemPasswordPasteboard().write(line, markers: [ConcealedPasteboard.concealedType, ConcealedPasteboard.transientType])
             },
-            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) })
+            showMachines: { [weak services] in _ = services?.registry.perform(RightSidebarMode.machines.actionID) },
+            signIn: { [weak services] in _ = services?.registry.perform("palette.auth.signIn") })
     }
 }
 

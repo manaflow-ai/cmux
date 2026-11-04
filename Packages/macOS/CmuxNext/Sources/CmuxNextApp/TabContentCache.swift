@@ -95,6 +95,7 @@ final class TabContentCache {
     private var framedStandIns: Set<String> = [] // stand-in tabs whose page waited for their first frame
     /// Runs work after the current pass's frame committed (`AfterFrameCommit`); tests pass their own.
     private let afterFrame: (@escaping @MainActor () -> Void) -> Void
+    lazy var standInTerminals = AfterKeyFrameGate(afterFrame: afterFrame) // a stand-in terminal's surface waits for its key's frame
     /// Restored tabs whose page waits for Reload (`DeferredBrowserTab`, one notice on that tab):
     /// the pages a run that ended early in a restart loop had started (`LaunchRecovery.crashedPages`).
     /// Every other restored tab loads when it shows.
@@ -492,7 +493,7 @@ final class TabContentCache {
         if displacing { pageRequests.services?.tabMirrors.remove(key) }
         if let owner = ledger.remove(key), displacing { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
-        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key)
+        pendingMounts[key] = nil; framedStandIns.remove(key); pendingBrowsers.remove(key); standInTerminals.forget(key)
         hibernation?.forget(key)
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)

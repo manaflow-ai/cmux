@@ -102,8 +102,8 @@ def main():
     if opts.release_signing:
         res["plain_helper_hardened"] = release_sign(plain, opts.out)
 
-    exe_dir = os.path.join(app, "Contents", "MacOS")
-    exe = os.path.join(exe_dir, sorted(os.listdir(exe_dir))[0])
+    with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+        exe = os.path.join(app, "Contents", "MacOS", plistlib.load(f)["CFBundleExecutable"])
     sock = f"/tmp/cmux-debug-{opts.tag}.sock"
     if os.path.exists(sock):
         os.unlink(sock)

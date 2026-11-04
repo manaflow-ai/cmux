@@ -157,15 +157,15 @@ body {
    (ui/Tooltip.tsx), a toolbar hint (ui/Toolbar.tsx) and the title tooltip that replaces WebKit's
    bubble on every first-party page (ui/titleTooltips.ts) all sit on the one tooltip surface
    (--tooltip-*, below; Leo, 2026-10-14): frosted glass under a tint the primary ink reads on, a
-   one-device-pixel separator rim and a small tight shadow, in the caption font. The first of a warm
+   one-device-pixel separator rim and a small tight shadow, in the caption font. The title is an
+   emphasized first line and an optional detail sits below in dimmer ink. The first of a warm
    group fades in and rises 2px; a warm neighbor's is there at once (data-instant); each fades out
-   quicker than it came. A truncated row's title tooltip is as wide as the row (tooltipWidth sets
-   its min and max width). */
+   quicker than it came. Truncated text wraps inside the same compact bubble. */
 .ui-tooltip,
 .ui-title-tooltip {
   box-sizing: border-box;
-  max-width: min(320px, calc(100vw - 12px));
-  padding: 4px 8px;
+  max-width: min(var(--tooltip-max-width), calc(100vw - var(--tooltip-edge) - var(--tooltip-edge)));
+  padding: var(--tooltip-pad-block) var(--tooltip-pad-inline);
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: 5px;
@@ -206,6 +206,7 @@ body {
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
    the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
+  padding: var(--grid-base) calc(var(--grid-base) * 2);
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
@@ -240,7 +241,13 @@ body {
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
 .ui-tooltip-detail {
   display: block;
+  margin-block-start: var(--tooltip-detail-gap);
+  font-weight: var(--weight-regular);
   color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
+.ui-tooltip-text {
+  font-weight: var(--weight-emphasis);
 }
 
 .ui-tooltip-hint {
@@ -546,6 +553,12 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
+  --tooltip-max-width: calc(var(--grid-base) * 80);
+  /* Compact overlay scale: all tooltip dimensions stay on the 4px grid and follow interface zoom. */
+  --tooltip-edge: var(--grid-base);
+  --tooltip-pad-block: calc(var(--grid-base) / 2);
+  --tooltip-pad-inline: calc(var(--grid-base) * 2);
+  --tooltip-detail-gap: calc(var(--grid-base) / 2);
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */
