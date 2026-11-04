@@ -16,10 +16,12 @@
 //!    check out: a sync marker among them means synced records are damaged (media damage, never a
 //!    crash), and their LSNs are never used again.
 //! 5. Damage that is not a torn tail (a bad header, or records missing before the next segment)
-//!    keeps the valid prefix; the later segments move to `quarantine/` (never deleted). New
-//!    records take LSNs after every LSN that any segment, live or quarantined, holds, so no LSN
-//!    is ever used twice, also after a crash in the middle of an earlier recovery. The damage is
-//!    written to `DAMAGE` (whole, synced) before the new segment of step 6 hides it from later
+//!    keeps the valid prefix; the later segments move to `quarantine/` (never deleted), each
+//!    named `<segment>.<n>.<floor>` with the highest LSN counted when it moved. New records take
+//!    LSNs after every LSN that any segment, live or quarantined, holds (the quarantine's from
+//!    the names: no file is read and no header can hide them), so no LSN is ever used twice, also
+//!    after a crash in the middle of an earlier recovery. The damage is written to `DAMAGE`
+//!    (whole, synced) before the moves and before the new segment of step 6 hides it from later
 //!    opens, and every open reports it again until `Journal::clear_damage`.
 //! 6. The journal goes on in a segment this open makes (the copy of step 4, or an empty one), never
 //!    in a segment an earlier process wrote: that one may hold a page its cache had and its disk
@@ -39,7 +41,10 @@ mod damage;
 mod scan;
 pub(crate) use damage::clear_damage;
 use damage::{read_damage, write_damage};
-use scan::{Reader, quarantine, quarantined_floor, quarantined_journal_id, scan_beyond_path};
+use scan::{
+    Quarantined, Reader, move_quarantined, plan_quarantine, quarantined_journal_id,
+    scan_beyond_path,
+};
 
 pub(crate) const LOCK_NAME: &str = "LOCK";
 pub(crate) const QUARANTINE_DIR: &str = "quarantine";
@@ -138,8 +143,10 @@ struct Bad {
 }
 
 /// `damage` without the losses ([`Damage::Corrupt`]) whose LSN range lies inside another's; of
-/// two equal ranges the first stays. Other damage stays as it is.
-fn distinct_losses(damage: Vec<Damage>) -> Vec<Damage> {
+/// two equal ranges the first stays. A dropped loss's files (`moved`) and reason go to a kept
+/// loss whose range holds it, so the record still names every quarantined file (review N3).
+/// Other damage stays as it is.
+fn distinct_losses(mut damage: Vec<Damage>) -> Vec<Damage> {
     let ranges: Vec<Option<(Lsn, Lsn)>> = damage
         .iter()
         .map(|entry| match entry {
@@ -147,20 +154,50 @@ fn distinct_losses(damage: Vec<Damage>) -> Vec<Damage> {
             _ => None,
         })
         .collect();
-    let inside_another = |index: usize| {
-        let Some(Some((after, through))) = ranges.get(index).copied() else { return false };
-        ranges.iter().enumerate().any(|(other, range)| {
-            let Some((other_after, other_through)) = *range else { return false };
-            other != index
-                && other_after <= after
-                && through <= other_through
-                && ((other_after, other_through) != (after, through) || other < index)
-        })
+    let holds = |outer: usize, inner: usize| match (
+        ranges.get(outer).copied().flatten(),
+        ranges.get(inner).copied().flatten(),
+    ) {
+        (Some((outer_after, outer_through)), Some((after, through))) => {
+            outer != inner && outer_after <= after && through <= outer_through
+        }
+        _ => false,
     };
+    let dropped: Vec<bool> = (0..damage.len())
+        .map(|inner| {
+            (0..damage.len()).any(|outer| {
+                holds(outer, inner) && (ranges.get(outer) != ranges.get(inner) || outer < inner)
+            })
+        })
+        .collect();
+    let is_dropped = |index: usize| dropped.get(index).copied().unwrap_or(false);
+    for inner in (0..damage.len()).filter(|index| is_dropped(*index)) {
+        let Some(outer) =
+            (0..damage.len()).find(|outer| !is_dropped(*outer) && holds(*outer, inner))
+        else {
+            continue;
+        };
+        let Some(Damage::Corrupt { moved, reason, .. }) = damage.get(inner).cloned() else {
+            continue;
+        };
+        if let Some(Damage::Corrupt { moved: kept_moved, reason: kept_reason, .. }) =
+            damage.get_mut(outer)
+        {
+            for name in moved {
+                if !kept_moved.contains(&name) {
+                    kept_moved.push(name);
+                }
+            }
+            if !kept_reason.contains(reason.as_str()) {
+                kept_reason.push_str("; ");
+                kept_reason.push_str(&reason);
+            }
+        }
+    }
     damage
         .into_iter()
         .enumerate()
-        .filter(|(index, _)| !inside_another(*index))
+        .filter(|(index, _)| !is_dropped(*index))
         .map(|(_, entry)| entry)
         .collect()
 }
@@ -194,15 +231,13 @@ pub(crate) fn recover(
     let listed = list_segments(storage, dir)?;
     let quarantined = list_quarantined(storage, dir)?;
     let live_max_seq = listed.last().map_or(0, |(seq, _)| *seq);
-    let q_max_seq = quarantined.iter().map(|(seq, _)| *seq).max().unwrap_or(0);
+    let q_max_seq = quarantined.iter().map(|entry| entry.seq).max().unwrap_or(0);
+    // The quarantine's floor, from the names alone: no file is read, and no header can hide it
+    // (reviews G4, G7, G8).
+    let q_floor = quarantined.iter().map(|entry| entry.floor).max().unwrap_or(0);
 
     // 1 and 2.
     let Headers { mut segments, reuse, mut bad } = read_headers(storage, dir, &listed)?;
-    // The newest segment whose header checked out. Only such a header carries the LSN floor of
-    // the quarantine before it (a damaged one says nothing: review G7).
-    let checked_max_seq = segments.last().map_or(0, |segment| segment.seq);
-    // The quarantine is unfinished, or its floor is not known from a live header.
-    let quarantine_open = q_max_seq > checked_max_seq;
     if let Some(last) = segments.last() {
         storage
             .open(&dir.join(&last.name), OpenMode::Write)
@@ -275,19 +310,13 @@ pub(crate) fn recover(
         }
     }
 
-    // 5: every LSN a quarantined segment holds counts, from this open's moves and earlier ones.
-    // Once a segment whose header checked out is numbered above every quarantined one, it was
-    // made after their quarantine with a first LSN above all of theirs, and `journal_end` is at
-    // least that: the quarantined files are not read again (review G4). The scan starts from the
-    // running floor, so a quarantined file with no readable header is scanned for LSNs above
-    // what is already counted (review G7).
+    // 5: every LSN a quarantined segment holds counts, from earlier opens (`q_floor`, their
+    // names) and from this one's moves (planned below, from this floor).
     let before_quarantine = floor;
-    let q_floor =
-        if quarantine_open { quarantined_floor(storage, dir, &quarantined, floor)? } else { floor };
     floor = floor.max(q_floor);
     // Reported only when the quarantine holds LSNs that nothing else counted: an old quarantine
     // behind a segment torn by a crash at its creation holds none, and a crash is not damage.
-    if quarantine_open && bad.is_none() && q_floor > before_quarantine {
+    if bad.is_none() && q_floor > before_quarantine {
         // An earlier recovery moved segments and stopped before its next segment was made, or
         // that segment's header is damaged.
         report.damage.push(Damage::Corrupt {
@@ -297,7 +326,7 @@ pub(crate) fn recover(
                      earlier recovery stopped before it made the next segment, or its header is \
                      damaged"
                 .to_owned(),
-            moved: quarantined.iter().map(|(_, name)| name.clone()).collect(),
+            moved: quarantined.iter().map(|entry| entry.name.clone()).collect(),
             lost_after: journal_end,
             lost_through: q_floor,
         });
@@ -320,15 +349,20 @@ pub(crate) fn recover(
         }
         reuse = None;
     }
-    if let Some(bad) = bad {
-        let moved = quarantine(storage, dir, &listed, bad.from_seq, floor)?;
-        let lost_through = floor.max(bad.lost_through).max(moved.highest);
+    let plan = match &bad {
+        Some(bad) => {
+            Some(plan_quarantine(storage, dir, &listed, &quarantined, bad.from_seq, floor)?)
+        }
+        None => None,
+    };
+    if let (Some(bad), Some(plan)) = (bad, plan.as_ref()) {
+        let lost_through = floor.max(bad.lost_through).max(plan.highest);
         floor = lost_through;
         report.damage.push(Damage::Corrupt {
             segment: bad.segment,
             offset: bad.offset,
             reason: bad.reason.to_owned(),
-            moved: moved.names,
+            moved: plan.names.clone(),
             lost_after: journal_end,
             lost_through,
         });
@@ -349,10 +383,11 @@ pub(crate) fn recover(
         None => quarantined_journal_id(storage, dir, &quarantined)?.unwrap_or_else(new_journal_id),
     };
     let copy = last_read.as_ref().filter(|read| read.end > read.vouched);
-    // The damage found here, durable before the new segment hides it from every later open
-    // (review G2), after the damage earlier opens recorded. A loss that lies inside another is
-    // the same loss found again (after a crash, or by two steps of this open): it is recorded and
-    // reported once, as the larger range (review N1).
+    // The damage found here, durable before the moves into `quarantine/` (review N4) and before
+    // the new segment hides it from every later open (review G2), after the damage earlier opens
+    // recorded. A loss that lies inside another is the same loss found again (after a crash, or
+    // by two steps of this open): it is recorded and reported once, as the larger range, with
+    // the files and reasons of both (reviews N1, N3).
     let mut all = earlier.clone();
     all.append(&mut report.damage);
     let all = distinct_losses(all);
@@ -362,6 +397,9 @@ pub(crate) fn recover(
         write_damage(storage, dir, &recorded).map_err(io("record the damage"))?;
     }
     report.damage = all;
+    if let Some(plan) = &plan {
+        move_quarantined(storage, dir, plan)?;
+    }
     // The writer always starts in a segment this open makes: an earlier process's segment may
     // hold a page that its cache had and its disk never got (a failed sync), so nothing is
     // appended to it again. It is read only through the next segment's "previous last LSN".
@@ -427,8 +465,8 @@ fn list_segments(storage: &dyn Storage, dir: &Path) -> Result<Vec<(u64, String)>
     Ok(listed)
 }
 
-/// The files in `quarantine/` (named `<segment>.<n>`), by the segment number in their name.
-fn list_quarantined(storage: &dyn Storage, dir: &Path) -> Result<Vec<(u64, String)>, OpenError> {
+/// The segment files in `quarantine/` ([`Quarantined`]), by segment number and attempt.
+fn list_quarantined(storage: &dyn Storage, dir: &Path) -> Result<Vec<Quarantined>, OpenError> {
     let names = match storage.list(&dir.join(QUARANTINE_DIR)) {
         Ok(names) => names,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -436,14 +474,8 @@ fn list_quarantined(storage: &dyn Storage, dir: &Path) -> Result<Vec<(u64, Strin
             return Err(OpenError::Io { what: "list the quarantine folder".into(), error });
         }
     };
-    let mut out: Vec<(u64, String)> = names
-        .into_iter()
-        .filter_map(|name| {
-            let (segment, _) = name.rsplit_once('.')?;
-            Some((format::parse_segment_name(segment)?, name))
-        })
-        .collect();
-    out.sort();
+    let mut out: Vec<Quarantined> = names.into_iter().filter_map(Quarantined::parse).collect();
+    out.sort_by(|a, b| (a.seq, a.attempt).cmp(&(b.seq, b.attempt)));
     Ok(out)
 }
 

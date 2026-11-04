@@ -185,29 +185,15 @@ pub(super) fn highest_lsn(storage: &dyn Storage, path: &Path, base: Lsn) -> Resu
     Ok(scan_beyond(&mut reader, offset, from_lsn)?.max_lsn.max(from_lsn))
 }
 
-/// The highest LSN of the quarantined segments that lies above `base`.
-pub(super) fn quarantined_floor(
-    storage: &dyn Storage,
-    dir: &Path,
-    quarantined: &[(u64, String)],
-    base: Lsn,
-) -> Result<Lsn, OpenError> {
-    let mut floor = base;
-    for (_, name) in quarantined {
-        floor = floor.max(highest_lsn(storage, &dir.join(QUARANTINE_DIR).join(name), floor)?);
-    }
-    Ok(floor)
-}
-
 /// The journal id of a quarantined segment whose header reads, when no live one is left.
 pub(super) fn quarantined_journal_id(
     storage: &dyn Storage,
     dir: &Path,
-    quarantined: &[(u64, String)],
+    quarantined: &[Quarantined],
 ) -> Result<Option<u64>, OpenError> {
-    for (_, name) in quarantined {
+    for entry in quarantined {
         let file = storage
-            .open(&dir.join(QUARANTINE_DIR).join(name), OpenMode::Read)
+            .open(&dir.join(QUARANTINE_DIR).join(&entry.name), OpenMode::Read)
             .map_err(io("open a quarantined segment"))?;
         let size = file.size().map_err(io("read a segment's size"))?;
         if let Ok(header) = read_header(file.as_ref(), size)? {
@@ -217,45 +203,76 @@ pub(super) fn quarantined_journal_id(
     Ok(None)
 }
 
-/// The segments moved to quarantine, and the highest LSN they hold.
-pub(super) struct Moved {
+/// A segment file in `quarantine/`, named `<segment>.<attempt>.<floor>`: no LSN at or below
+/// `floor` is ever used again (it is the highest LSN this segment and every one moved with it
+/// before it hold, or the floor of the open that moved them). The floor is in the name, so an
+/// open counts it without reading the file, whatever happened to any header (review G8).
+pub(super) struct Quarantined {
+    pub(super) seq: u64,
+    pub(super) attempt: u32,
+    pub(super) floor: Lsn,
+    pub(super) name: String,
+}
+
+impl Quarantined {
+    /// The name's parts; `None` for a name this crate did not make.
+    pub(super) fn parse(name: String) -> Option<Self> {
+        let (digits, rest) = name.split_once(".seg.")?;
+        let seq = format::parse_segment_name(&format!("{digits}.seg"))?;
+        let (attempt, floor) = rest.split_once('.')?;
+        let (attempt, floor) = (attempt.parse().ok()?, floor.parse().ok()?);
+        Some(Self { seq, attempt, floor, name })
+    }
+}
+
+/// The segments to move into `quarantine/` (step 5), measured before anything moves: each one's
+/// new name, and the highest LSN of them all.
+pub(super) struct Plan {
+    moves: Vec<(String, String)>,
     pub(super) names: Vec<String>,
     pub(super) highest: Lsn,
 }
 
-/// Moves every listed segment from number `from_seq` on into `quarantine/`, under a name no
-/// earlier recovery used. Their highest LSN is read first, then all are moved, then both folders
-/// are synced. A crash in between is safe: the next open counts the LSNs of every quarantined
-/// segment, and reports a quarantine that no new segment followed.
-pub(super) fn quarantine(
+/// Measures every listed segment from number `from_seq` on and names it for `quarantine/`. Each
+/// file is scanned from the floor counted so far (`base`, then the files before it), so a file
+/// with no readable header is read for the LSNs above what is counted, and its name carries the
+/// floor after it. Nothing moves yet: the caller records the loss durably first (review N4).
+pub(super) fn plan_quarantine(
     storage: &dyn Storage,
     dir: &Path,
     listed: &[(u64, String)],
+    quarantined: &[Quarantined],
     from_seq: u64,
     base: Lsn,
-) -> Result<Moved, OpenError> {
+) -> Result<Plan, OpenError> {
+    let mut used: std::collections::BTreeSet<(u64, u32)> =
+        quarantined.iter().map(|entry| (entry.seq, entry.attempt)).collect();
+    let mut plan = Plan { moves: Vec::new(), names: Vec::new(), highest: base };
+    for (seq, name) in listed.iter().filter(|(seq, _)| *seq >= from_seq) {
+        plan.highest = plan.highest.max(highest_lsn(storage, &dir.join(name), plan.highest)?);
+        let attempt =
+            (0u32..).find(|attempt| !used.contains(&(*seq, *attempt))).unwrap_or(u32::MAX);
+        used.insert((*seq, attempt));
+        let new_name = format!("{name}.{attempt}.{}", plan.highest);
+        plan.moves.push((name.clone(), new_name.clone()));
+        plan.names.push(new_name);
+    }
+    Ok(plan)
+}
+
+/// Moves the planned segments into `quarantine/`, then syncs both folders. A crash in between is
+/// safe: each moved file's name carries its floor, and a segment not moved yet is found damaged
+/// again and planned the same way.
+pub(super) fn move_quarantined(
+    storage: &dyn Storage,
+    dir: &Path,
+    plan: &Plan,
+) -> Result<(), OpenError> {
     let target = dir.join(QUARANTINE_DIR);
     storage.create_dir_all(&target).map_err(io("make the quarantine folder"))?;
-    let taken = storage.list(&target).map_err(io("list the quarantine folder"))?;
-    let moving: Vec<&String> =
-        listed.iter().filter(|(seq, _)| *seq >= from_seq).map(|(_, name)| name).collect();
-    let mut moved = Moved { names: Vec::new(), highest: base };
-    for name in &moving {
-        moved.highest = moved.highest.max(highest_lsn(storage, &dir.join(name), moved.highest)?);
-    }
-    for name in moving {
-        let mut attempt = 0u32;
-        let new_name = loop {
-            let candidate = format!("{name}.{attempt}");
-            if !taken.contains(&candidate) {
-                break candidate;
-            }
-            attempt = attempt.saturating_add(1);
-        };
-        storage.rename(&dir.join(name), &target.join(&new_name)).map_err(io("move a segment"))?;
-        moved.names.push(new_name);
+    for (from, to) in &plan.moves {
+        storage.rename(&dir.join(from), &target.join(to)).map_err(io("move a segment"))?;
     }
     storage.sync_dir(&target).map_err(io("sync the quarantine folder"))?;
-    storage.sync_dir(dir).map_err(io("sync the folder"))?;
-    Ok(moved)
+    storage.sync_dir(dir).map_err(io("sync the folder"))
 }
