@@ -1,6 +1,7 @@
 public import CmuxNextRemoteView
 public import CmuxScreenKit
 import CmuxNextCompat
+import CmuxNextWakeups
 public import CoreGraphics
 import Foundation
 import Network
@@ -118,7 +119,10 @@ public final class MacScreenSession {
         transport = nil
         process?.stop()
         process = nil
-        if let socketDirectory { try? FileManager.default.removeItem(at: socketDirectory) }
+        if let socketDirectory {
+            // The link bridge's private directory goes on a background thread: no disk work on main.
+            Task.detached(priority: WorkPriority.bestEffort.taskPriority) { try? FileManager.default.removeItem(at: socketDirectory) }
+        }
         socketDirectory = nil
         if case .connecting = phase { phase = .ended }
         if case .connected = phase { phase = .ended }
