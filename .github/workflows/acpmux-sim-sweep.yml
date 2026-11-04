@@ -31,16 +31,19 @@ on:
         default: "crash,network"
         type: string
 
+# A started sweep always finishes: acpmux landings come often enough that cancelling on a
+# newer push left no sweep finishing (the first one after #34601 was cancelled). The group
+# still keeps at most one sweep running and one waiting, the newest.
 concurrency:
   group: acpmux-sim-sweep-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   sweep:
-    name: acpmux simulation sweep (${{ matrix.faults }})
+    name: acpmux simulation sweep (${{ matrix.faults }}${{ matrix.resend == '0' && ', bare resend' || '' }}${{ matrix.known_gap && ', known gap' || '' }})
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 90
     continue-on-error: ${{ matrix.known_gap }}
