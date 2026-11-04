@@ -88,6 +88,8 @@ async fn install(plan: &Plan, dir: &Path) -> bool {
         .args(args)
         .current_dir(dir)
         .stdin(std::process::Stdio::null())
+        // The installer's own output would break `--json`; its errors still go to stderr.
+        .stdout(std::process::Stdio::null())
         .status()
         .await
         .is_ok_and(|s| s.success())
@@ -141,8 +143,9 @@ async fn one(
                 let (plan2, path) = (plan.clone(), archive_path.clone());
                 match blocking(move || restore_into(&plan2, &path, codec)).await {
                     Ok(()) => report.restore = "restored",
-                    // The install below still runs, cold, and the next machine gets a fresh archive.
+                    // The install below still runs, cold, and its archive is uploaded.
                     Err(error) => {
+                        cold = true;
                         report.restore = "error";
                         report.error = Some(format!("restore: {error:#}"));
                     }

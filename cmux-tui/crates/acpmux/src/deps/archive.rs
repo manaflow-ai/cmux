@@ -43,11 +43,26 @@ fn piped<T>(pipe: Option<&mut T>) -> io::Result<&mut T> {
     pipe.ok_or_else(|| io::Error::other("zstd pipe closed"))
 }
 
-/// Whether a name may hold a credential: one of `DENIED`, or `.env.<anything>`.
+/// Name prefixes that may hold a credential: `.env`, `.envrc`, `.env.local`,
+/// `.yarnrc.local`, `credentials-prod.json`, `.npmrc.bak` and the like.
+const DENIED_PREFIXES: &[&str] = &[".env", ".yarnrc", ".npmrc", ".netrc", ".pypirc", "credentials"];
+
+/// Whether a name may hold a credential: one of `DENIED`, or one starting
+/// with a `DENIED_PREFIXES` entry.
 pub fn denied(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
-    DENIED.contains(&lower.as_str()) || lower.starts_with(".env.")
+    if DENIED.contains(&lower.as_str()) {
+        return true;
+    }
+    // A package's source file named for credentials (`credentials-helper.js`)
+    // is code, not a secret, and dropping it would break the package.
+    let code = CODE_EXTENSIONS.iter().any(|ext| lower.ends_with(ext));
+    DENIED_PREFIXES.iter().any(|p| lower.starts_with(p))
+        && !(code && lower.starts_with("credentials"))
 }
+
+const CODE_EXTENSIONS: &[&str] =
+    &[".js", ".cjs", ".mjs", ".ts", ".cts", ".mts", ".map", ".rs", ".py", ".pyi", ".d.ts"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Codec {
@@ -322,6 +337,11 @@ mod tests {
         write(&nm.join(".bin/.keep"), "");
         #[cfg(unix)]
         std::os::unix::fs::symlink("../left-pad/index.js", nm.join(".bin/left-pad")).unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::Permissions::from_mode(0o4755);
+            std::fs::set_permissions(nm.join("left-pad/index.js"), mode).unwrap();
+        }
         write(&src.path().join(".npmrc"), "outside the packed folder");
 
         let out = tempfile::tempdir().unwrap();
@@ -342,6 +362,13 @@ mod tests {
             "module.exports = 1"
         );
         assert!(!got.join("left-pad/.npmrc").exists());
+        {
+            // Execute bits survive the unpack; setuid does not.
+            use std::os::unix::fs::PermissionsExt;
+            let mode =
+                std::fs::metadata(got.join("left-pad/index.js")).unwrap().permissions().mode();
+            assert_eq!(mode & 0o7777, 0o755, "{mode:o}");
+        }
         assert!(!got.join("pkg/.env.local").exists());
         assert!(!got.join(".cache").exists());
         assert!(!dest.path().join(".npmrc").exists());
@@ -397,9 +424,18 @@ mod tests {
 
     #[test]
     fn credential_names() {
-        for name in
-            [".npmrc", ".NPMRC", ".env", ".env.production", "credentials.toml", ".yarnrc.yml"]
-        {
+        for name in [
+            ".npmrc",
+            ".NPMRC",
+            ".env",
+            ".envrc",
+            ".env.production",
+            "credentials.toml",
+            "credentials-prod.json",
+            ".yarnrc.yml",
+            ".yarnrc.local",
+            ".npmrc.bak",
+        ] {
             assert!(denied(name), "{name}");
         }
         for name in ["index.js", "environment.js", "env", "credentials-helper.js"] {
