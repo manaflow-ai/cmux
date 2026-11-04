@@ -16,6 +16,7 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+pub(crate) mod foreign_login;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
 pub(crate) use command::{

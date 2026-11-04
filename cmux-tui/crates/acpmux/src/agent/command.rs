@@ -123,6 +123,15 @@ pub(crate) fn harness_command(
     if !remote_environment {
         crate::login_env::restore_machine_tokio(&mut cmd);
     }
+    // Every other harness's login, from the daemon's env, the login shell or
+    // machine env (`foreign_login.rs`). The profile's env, applied below, may
+    // still set one on purpose. A Claude Code kind is Claude's whatever its family.
+    let login_family = if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+        "claude"
+    } else {
+        family_name.as_str()
+    };
+    super::foreign_login::scrub(&mut cmd, login_family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
         if k.to_string_lossy().starts_with("ACPMUX_") {
@@ -761,6 +770,9 @@ mod tests {
             profile(HarnessKind::Acp, "codex-acp", serde_json::json!({"ANTHROPIC_API_KEY": "own"}));
         let cmd = harness_command("local", &chosen, &std::env::temp_dir(), None, None).unwrap();
         let env = command_env(&cmd);
-        assert_eq!(env.iter().find(|(k, _)| k == "ANTHROPIC_API_KEY").map(|(_, v)| v.as_str()), Some("own"));
+        assert_eq!(
+            env.iter().find(|(k, _)| k == "ANTHROPIC_API_KEY").map(|(_, v)| v.as_str()),
+            Some("own")
+        );
     }
 }
