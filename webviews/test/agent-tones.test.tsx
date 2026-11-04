@@ -50,7 +50,12 @@ describe("agent tones", () => {
   test("an agent keeps its tone as others start, end and older ones load", () => {
     const first = agentTones([agent(CLASHING[1]!, 10), agent(CLASHING[2]!, 20)]);
     // A new agent starts, and older history brings in one that started before both.
-    const later = agentTones([agent(CLASHING[0]!, 0), agent(CLASHING[1]!, 10), agent(CLASHING[2]!, 20), agent("agent-new", 30)]);
+    const later = agentTones([
+      agent(CLASHING[0]!, 0),
+      agent(CLASHING[1]!, 10),
+      agent(CLASHING[2]!, 20),
+      agent("agent-new", 30),
+    ]);
     expect(later.get(CLASHING[1]!)).toBe(first.get(CLASHING[1]!)!);
     expect(later.get(CLASHING[2]!)).toBe(first.get(CLASHING[2]!)!);
     expect(new Set(later.values()).size).toBe(4);

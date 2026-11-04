@@ -7,9 +7,10 @@
 // A tone from the id's hash alone gives three agents a shared colour about half the time (five
 // tones), so the shown chat assigns its agents' tones together (`agentTones`): in start order each
 // takes its hash's tone, or the next one none of its siblings holds, so up to `AGENT_TONES` agents
-// in a chat never share one. An agent keeps the tone it was given while the page lives (a new
-// agent, a finished one, older history loading later never recolor it), and the same chat's agents
-// in the same start order get the same tones after a reload. `agentTone(id)` reads that assignment,
+// in a chat never share one. While the chat has no more agents than tones, an agent keeps the tone
+// it was given while the page lives (a new agent, a finished one, older history loading later never
+// recolor it); past that, or for two agents first colored in separate lists, a later one can move.
+// The same chat's full list gets the same tones after a reload. `agentTone(id)` reads that assignment,
 // so every surface that draws the agent draws its tone; an id no chat assigned (a gallery, a test)
 // falls back to its hash. subagents.css maps the tones to the theme's terminal colors.
 import { createContext } from "react";
