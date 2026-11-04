@@ -8775,7 +8775,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     const request: CloudStart = { task: text, attachments, ...start };
-    beginCloudSend(request);
+    void beginCloudSend(request);
     return false;
   };
   const beginCloudSend = (request: CloudStart, signingIn = false): Promise<CloudStartAnswer> | undefined => {

@@ -149,6 +149,7 @@ test("a start this Mac's pane refused says why by its code, never the generic co
   expect(outside).toEqual({
     ...begun(),
     state: "failed",
+    code: "transport.path_outside_roots",
     message: "This folder isn't open in this tab; pick it to send it to Cloud.",
     refusedHere: true,
   });
@@ -186,6 +187,7 @@ test("the pane's other refusals before Cloud (attachments, a busy pane) mark no 
   expect(cloudStartEnded(begun(), "k-1", { ok: false, code: "cloud_attachments", message: attachment })).toEqual({
     ...begun(),
     state: "failed",
+    code: "cloud_attachments",
     message: attachment,
     refusedHere: true,
   });
