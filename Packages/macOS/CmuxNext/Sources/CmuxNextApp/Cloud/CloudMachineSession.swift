@@ -87,6 +87,8 @@ final class CloudMachineSession {
     /// (`CloudService.resumeMachine`), for an attach to a paused machine.
     /// Set by `CloudService`; nil where nothing resumes (some tests).
     @ObservationIgnored var resumer: (@MainActor (String) async throws -> Void)?
+    /// Resumes a machine for a passive hint, preserving the script origin instead of a user gesture.
+    @ObservationIgnored var passiveResumer: (@MainActor (String) async throws -> Void)?
     /// Reads the machine list again (`CloudService.refresh`); `force` false
     /// skips a list read in the last 30 seconds. Set by `CloudService`; nil in
     /// some tests. The record is read on launch and on activation, so a
@@ -158,7 +160,10 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, !machine.shownStatus.isChanging else {
+        // A person pressing Enter is an explicit retry even while a passive typing wake is
+        // reflected as `starting`; never drop that intent behind the hint's provider transition.
+        let userRetryingPassiveStart = allowsPassiveStartRetry(origin: origin)
+        guard !disconnected, !machine.shownStatus.isChanging || userRetryingPassiveStart else {
             if appLink == nil { Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (\(self.disconnected ? "disconnected" : "changing: \(self.machine.shownStatus.rawValue)", privacy: .public))") }
             return
         }
@@ -178,7 +183,8 @@ final class CloudMachineSession {
         // task-owner: one lifecycle hop; each later hop waits for this one
         linkTransition = Task {
             await previous?.value
-            guard !disconnected, !machine.shownStatus.isChanging else {
+            let userRetryingPassiveStart = allowsPassiveStartRetry(origin: origin)
+            guard !disconnected, !machine.shownStatus.isChanging || userRetryingPassiveStart else {
                 noteMutationInterruption()
                 appConnecting = false
                 retryIfHopFails = false
@@ -284,7 +290,8 @@ final class CloudMachineSession {
             ticket = try await appLink.connect(origin: origin)
         } catch {
             // A pause or a disconnect cancelled this connect: not a failure.
-            if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
+            if disconnected || suspends != suspendsBefore || Task.isCancelled ||
+                (machine.shownStatus.isChanging && !allowsPassiveStartRetry(origin: origin)) {
                 noteMutationInterruption()
                 await appLink.end(reason: "connect cancelled")
                 linkPhase = .idle
@@ -296,7 +303,8 @@ final class CloudMachineSession {
             showEnded(error)
             return
         }
-        if disconnected || suspends != suspendsBefore || Task.isCancelled || machine.shownStatus.isChanging {
+        if disconnected || suspends != suspendsBefore || Task.isCancelled ||
+            (machine.shownStatus.isChanging && !allowsPassiveStartRetry(origin: origin)) {
             // The transition overtook this connect after the carrier answered. End the
             // ticket/transport so the carrier cannot remain attached without a daemon.
             noteMutationInterruption()
@@ -327,6 +335,13 @@ final class CloudMachineSession {
                 throw error
             }
         })
+    }
+
+    /// An explicit app-link connect may race the passive typing wake's accepted `starting`
+    /// overlay. Keep that user intent alive through the carrier answer; pause/delete transitions
+    /// and legacy links retain their strict cancellation guards.
+    private func allowsPassiveStartRetry(origin: CloudLinkOrigin) -> Bool {
+        origin == .user && appLink != nil && machine.shownStatus == .starting
     }
 
     private func noteMutationInterruption() {
