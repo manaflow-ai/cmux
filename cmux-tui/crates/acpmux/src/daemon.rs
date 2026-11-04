@@ -54,6 +54,8 @@ mod stop_causes;
 #[cfg(unix)]
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
+#[cfg(unix)]
+mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -593,7 +595,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
-        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
@@ -721,7 +730,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    tracing::warn!("stopping: SIGTERM (a restart handoff)");
+                    match term_sender::last() {
+                        Some(pid) => tracing::warn!(
+                            "stopping: SIGTERM from {} (a restart handoff)",
+                            term_sender::describe(pid)
+                        ),
+                        None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
+                    }
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),

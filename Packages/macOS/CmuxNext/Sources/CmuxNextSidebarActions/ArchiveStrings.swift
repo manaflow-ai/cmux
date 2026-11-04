@@ -15,6 +15,8 @@ nonisolated enum ArchiveStrings {
     static var autoArchiveBadRule: String { text("autoArchive.refusal.badRule", "auto-archive takes default, never or a number of hours") }
     static var autoArchiveNeedsItem: String { text("autoArchive.refusal.needsItem", "name an archived workspace item, or all") }
     static var noSuchItem: String { text("archive.refusal.noSuchItem", "no such sidebar item") }
+    static var groupSortNeedsDocument: String { text("groupSort.refusal.needsDocument", "this sidebar cannot sort groups yet") }
+    static var groupSortBadValue: String { text("groupSort.refusal.badSort", "a group sorts by manual, name or recent") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "SidebarArchive", bundle: .module)

@@ -4411,7 +4411,8 @@ a.cv-sha:focus-visible {
   letter-spacing: var(--text-caption--letter-spacing);
   white-space: nowrap;
 }
-.cv-iconbtn.cv-turn-continue:disabled {
+.cv-iconbtn.cv-turn-continue:disabled,
+.cv-user__queued-hover .cv-message-retry .cv-iconbtn:disabled {
   opacity: 0.5;
   pointer-events: none;
 }
@@ -5692,6 +5693,14 @@ a.cv-sha:focus-visible {
 .cv-plan__chevron {
   color: var(--cv-text-muted);
 }
+/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
+   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
+.cv-plan__summary .cv-plan__chevron {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
+}
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
   /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
@@ -5999,7 +6008,8 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   top: calc((var(--grid-gap-turn) - var(--grid-transcript-action-control)) / 2 - 1.5px);
 }
 
-/* An unread steer shows only Send now and remove, with the same quiet height as hover actions. */
+/* An unread steer shows Send now at rest, and Copy, Retry, Fork and remove on hover (PendingSteer.tsx),
+   with the same quiet height as hover actions. */
 .cv-user__pending {
   display: inline-flex;
   align-items: center;
