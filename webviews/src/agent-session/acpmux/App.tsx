@@ -184,6 +184,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, browserSwitchClock, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { NewChatPrewarm, type PrewarmTarget } from "./newChatPrewarm";
 import { harnessModeName, highestMode } from "./harnessModes";
+import { CloudComposeReservation, reservedCloudCall } from "./cloudComposeReservation";
 import { harnessProfiles } from "./harnessProfiles";
 import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
@@ -309,7 +310,7 @@ import {
 } from "./session-info/subagentScope";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { SubagentTray } from "./subagents/SubagentTray";
-import { TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
+import { pullTabCounts, TrayPullTab, tuckTray } from "./subagents/TrayPullTab";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
@@ -570,8 +571,21 @@ import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { SubagentComposer } from "./subagents/SubagentComposer";
+import {
+  draftMessage as subagentDraftMessage,
+  subagentDraftUnsaved,
+  takeUnsavedSubagentDrafts,
+  wakeIntoSubagentDrafts,
+  wakeSubagentDrafts,
+} from "./subagents/subagentDrafts";
+import {
+  subagentRelayPrompt,
+  subagentRelaySteers,
+  subagentTarget,
+  workflowAgentTarget,
+} from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
-import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
@@ -592,7 +606,13 @@ import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProg
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatSizing } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay, useChatPinnedPlan, useTrayTucked } from "./chatDisplay";
+import {
+  registerChatDisplayHost,
+  useChatDisplay,
+  useChatPinnedPlan,
+  useTrayHandle,
+  useTrayTucked,
+} from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { wrapOutputRow } from "./header/transcriptViewRow";
 import { presentationRow } from "./header/presentationRow";
@@ -1245,7 +1265,9 @@ const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { s
 
 /// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
 /// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
-function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null } | undefined {
+function readWake(
+  value: unknown,
+): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null; subagentDrafts?: unknown } | undefined {
   if (!value || typeof value !== "object") return undefined;
   const wake = value as {
     attachments?: unknown;
@@ -1253,6 +1275,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
     shellText?: unknown;
     scrollAnchor?: unknown;
     atLatest?: unknown;
+    subagentDrafts?: unknown;
   };
   const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
   return {
@@ -1267,6 +1290,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
         : wake.atLatest === true
           ? null
           : undefined,
+    subagentDrafts: wake.subagentDrafts,
   };
 }
 
@@ -2705,6 +2729,9 @@ const JUMP_LATEST_DISTANCE = 80;
 const READER_SCROLL_MS = 1000;
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
+/// How long after a send from the latest row the rows that come still rise on its glide: the prompt's
+/// own row and its reply's first rows (acpmux's echo, the live line) land within it.
+const SEND_RISE_MS = 1000;
 /// How long it keeps the room a withdrawn prompt's card left after the reply last grew: a reply
 /// streaming fills it, and a turn in a tool call or thinking brings nothing to fill it with.
 const WITHDRAWN_HOLD_MS = 250;
@@ -3744,6 +3771,9 @@ export function VirtualTranscript({
   /// A prompt was sent before the chat opened (while it seeks `openAt`'s row, or while its tail still
   /// fits): it opens at the latest message, not at the reader's old place.
   const sentBeforeOpen = useRef(false);
+  /// Until when rows that come move the followed view on a send's glide (`followGlide.sent`): the
+  /// sent prompt's row and its reply's first rows can land a commit or two after the send itself.
+  const sendRiseUntil = useRef(Number.NEGATIVE_INFINITY);
   const seekTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /// When the walk began, and the first row it had then: a new first row is a page landed.
   const seekStart = useRef<number | undefined>(undefined);
@@ -4506,6 +4536,7 @@ export function VirtualTranscript({
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
       sentBeforeOpen.current = false;
+      sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       endSeek();
       setSeeking(false);
       setSeekExpired(false);
@@ -4683,8 +4714,14 @@ export function VirtualTranscript({
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
         followGlide.current?.fit(room);
+        // The reader just sent a prompt from the latest row (a send in this commit, or one a moment
+        // ago whose rows land now): the rows that came lift the thread on the send's glide, the
+        // prompt rising out from behind the composer, instead of the view jumping a row in a frame.
+        const sendRows = (sends !== seenSends.current || now < sendRiseUntil.current) && rows.length > oldRows.length;
+        if (sendRows && !jumping && !bottomStacking && !resizing && !heightFoldPlaying() && rose > 0.5)
+          followGlide.current?.sent(thread.current, rose);
         // A disclosure's height fold moves the rows on its own frames: easing them too lagged it.
-        if (
+        else if (
           !jumping &&
           !bottomStacking &&
           !resizing &&
@@ -4754,9 +4791,17 @@ export function VirtualTranscript({
         setSeeking(false);
       } else {
         const top = at < 0 ? latest : Math.min(latest, layout.geometry.topAt(at) + openAt!.offset);
+        const before = node.scrollTop;
         clearScrollOrigin(node);
         if (at < 0) node.scrollTop = top;
         else writeAnchorScrollTop(node, top);
+        // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
+        // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
+        // from behind the composer, instead of the whole chat moving up a row in one frame.
+        // The send's own effect runs after this pass, so a send in this commit counts here too.
+        const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
+        if (sentHere && at < 0 && node.scrollTop - before > 0.5)
+          followGlide.current?.sent(thread.current, node.scrollTop - before);
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
         setScrollAt(node.scrollTop, 0);
@@ -5217,6 +5262,9 @@ export function VirtualTranscript({
       // The chat has not opened yet: it stops paging back to the reader's old place and opens at
       // the latest message (the placement pass, which `seekExpired` runs again).
       sentBeforeOpen.current = true;
+      // A tail that fit and overflows with this send opens at the latest row on the send's glide
+      // (placement pass), and the reply's rows that land next rise on it too (`sendRows`).
+      sendRiseUntil.current = performance.now() + SEND_RISE_MS;
       setSeekExpired(true);
       return;
     }
@@ -5225,7 +5273,13 @@ export function VirtualTranscript({
     stopBottomStackFold();
     foldAnchor.current = undefined;
     dropFoldRoom();
-    stopJump();
+    // Sent from the latest row: the view only moves by what came below, and the send's glide that
+    // the placement pass may have started this commit (`followGlide.sent`) keeps playing.
+    const fromLatest = followingRef.current && jumpTarget.current === undefined;
+    if (fromLatest) {
+      wheelGlide.current?.stop();
+      stopScroll(node);
+    } else stopJump();
     // The room the stack grew while scrolled up is room under the last row again (`room`).
     heldRoom.current = dockRoomRef.current;
     // The placement pass already has the latest estimated total and measured viewport. Reusing
@@ -5233,17 +5287,34 @@ export function VirtualTranscript({
     // paints; the following placement pass reconciles any drawn-height correction. A fractional
     // end is rounded up, as settleFollowBottom does, so WebKit's floor never rests a pixel short.
     clearScrollOrigin(node);
-    node.scrollTop = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
-    const top = node.scrollTop;
-    scrolledTo.current = { top, atLatest: true };
-    seenAnchor.current = null;
-    followTrace.set(top);
-    scrollPacer.current?.cancel();
-    setScrollAt(top);
-    // The commit this asks for places the rows with the stack's room and settles at that end, even
-    // inside the hold that follows the reader's last input.
-    followRequest.current = userScrollIntent(node).request();
-    follow(true);
+    const latest = Math.max(0, Math.ceil(layout.totalHeight - height - 0.01));
+    const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    // The prompt's rows that land in the next commits glide in too (placement pass, `sendRows`).
+    sendRiseUntil.current = performance.now() + SEND_RISE_MS;
+    // Sent while scrolled up: the view glides down to the latest message on Jump to latest's ride
+    // (one viewport at most, its curve and duration) instead of cutting there in one frame, and the
+    // prompt's row and reply land on the moving end. Reduce Motion and motion off still cut.
+    if (!fromLatest && !reduce) {
+      rideToLatest(node, latest, false, false);
+      followRequest.current = userScrollIntent(node).request();
+      follow(true);
+    } else {
+      const before = node.scrollTop;
+      node.scrollTop = latest;
+      const top = node.scrollTop;
+      scrolledTo.current = { top, atLatest: true };
+      seenAnchor.current = null;
+      followTrace.set(top);
+      scrollPacer.current?.cancel();
+      setScrollAt(top);
+      // The commit this asks for places the rows with the stack's room and settles at that end, even
+      // inside the hold that follows the reader's last input.
+      followRequest.current = userScrollIntent(node).request();
+      follow(true);
+      // Rows this commit added that the placement pass left unfollowed (a held follow): they rise on
+      // the send's glide too.
+      if (fromLatest && top - before > 0.5) followGlide.current?.sent(thread.current, top - before);
+    }
     // The kept place is the latest message again: a relaunch opens there.
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -5251,6 +5322,59 @@ export function VirtualTranscript({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a new send moves the view
   }, [sends]);
+  /// Jump to latest's ride from where the view is to `target` (the latest row's end), following the
+  /// end as it moves: the button's, and a send's while scrolled up. `flush` mounts a skipped middle's
+  /// rows at once from an event handler; a layout effect's own update already renders before paint.
+  const rideToLatest = (node: HTMLDivElement, target: number, reduce: boolean, flush: boolean) => {
+    // Use the rail's shared curve and distance duration, scaled by the host's move token.
+    const move = cssTimeMs(
+      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
+    );
+    jumpTarget.current = target;
+    // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
+    // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
+    const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
+    if (!reduce && glideFrom !== node.scrollTop) {
+      node.scrollTop = glideFrom;
+      // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
+      // frame painted the skip with the rows of the old place, out of view: one blank frame
+      // (transcript-cached-rows-browser "jump"). A layout effect's update renders before the paint.
+      if (flush) flushSync(() => setScrollAt(node.scrollTop));
+      else setScrollAt(node.scrollTop);
+    }
+    const duration = reduce
+      ? 0
+      : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
+    animateScroll(
+      node,
+      () =>
+        Math.max(
+          0,
+          node.scrollHeight > 0
+            ? node.scrollHeight - node.clientHeight
+            : latestLayout.current.layout.totalHeight - node.clientHeight,
+        ),
+      duration,
+      JUMP_CURVE,
+      () => {
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: true };
+        seenAnchor.current = null;
+        followTrace.set(node.scrollTop);
+        scrollPacer.current?.cancel();
+        setScrollAt(node.scrollTop, 0);
+      },
+      () => {
+        // A native turn/bookmark command can replace the shared ride without a DOM input event.
+        // Explicit stopJump disowns first; only an external replacement releases bottom follow.
+        if (jumpTarget.current === undefined) return;
+        jumpTarget.current = undefined;
+        scrolledTo.current = { top: node.scrollTop, atLatest: false };
+        follow(false);
+      },
+      { explicit: true },
+    );
+  };
   /// The older-history check (below), which every scroll event runs too.
   const checkOlderNow = useRef<() => void>(() => {});
   const handleScroll = (node: HTMLDivElement, immediate = false) => {
@@ -5377,53 +5501,7 @@ export function VirtualTranscript({
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
     stopJump();
-    // Use the rail's shared curve and distance duration, scaled by the host's move token.
-    const move = cssTimeMs(
-      node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "",
-    );
-    jumpTarget.current = target;
-    // A long way from the end: skip the middle at once and glide only the last viewport, so the rows
-    // in between never mount (jumpGlideStart). Set after jumpTarget, so its scroll reads as a glide step.
-    const glideFrom = jumpGlideStart(node.scrollTop, target, node.clientHeight);
-    if (!reduce && glideFrom !== node.scrollTop) {
-      node.scrollTop = glideFrom;
-      // Mount the rows at the new offset before this frame paints. Left to the scroll pacer, the
-      // frame painted the skip with the rows of the old place, out of view: one blank frame
-      // (transcript-cached-rows-browser "jump").
-      flushSync(() => setScrollAt(node.scrollTop));
-    }
-    const duration = reduce
-      ? 0
-      : jumpDuration(target - node.scrollTop) * ((move ?? MOTION_MS.standard) / MOTION_MS.standard);
-    animateScroll(
-      node,
-      () =>
-        Math.max(
-          0,
-          node.scrollHeight > 0
-            ? node.scrollHeight - node.clientHeight
-            : latestLayout.current.layout.totalHeight - node.clientHeight,
-        ),
-      duration,
-      JUMP_CURVE,
-      () => {
-        jumpTarget.current = undefined;
-        scrolledTo.current = { top: node.scrollTop, atLatest: true };
-        seenAnchor.current = null;
-        followTrace.set(node.scrollTop);
-        scrollPacer.current?.cancel();
-        setScrollAt(node.scrollTop, 0);
-      },
-      () => {
-        // A native turn/bookmark command can replace the shared ride without a DOM input event.
-        // Explicit stopJump disowns first; only an external replacement releases bottom follow.
-        if (jumpTarget.current === undefined) return;
-        jumpTarget.current = undefined;
-        scrolledTo.current = { top: node.scrollTop, atLatest: false };
-        follow(false);
-      },
-      { explicit: true },
-    );
+    rideToLatest(node, target, reduce, true);
   };
   useEffect(() => {
     const node = ref.current;
@@ -6480,15 +6558,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         browserSwitchClock,
       ),
   );
+  const [cloudReservation] = useState(() => new CloudComposeReservation(callNative, browserSwitchClock));
+  const cloudComposeEligible = useRef(false);
   // The page going away (its tab closed) with an unsent prompt gives the warm agent back now.
   useEffect(() => {
-    const gone = () => newChatPrewarm.abandon();
+    const gone = () => {
+      newChatPrewarm.abandon();
+      cloudReservation.abandon();
+    };
     window.addEventListener("pagehide", gone);
     return () => {
       window.removeEventListener("pagehide", gone);
       gone();
     };
-  }, [newChatPrewarm]);
+  }, [newChatPrewarm, cloudReservation]);
   const queryClient = useQueryClient();
   // Each Cmd-T adoption of this page (kept mounted or not, newtab/adoption.ts): the folder's trust and
   // harnesses are read again with the tab's roots (a parked spare's reads had none, SHORTCUT FRAMES F2).
@@ -6755,7 +6838,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
   /// This pane was opened on a subagent (a `subagent:` reveal): while it shows a subagent, it shows
-  /// it read only (`readOnlySubagent`).
+  /// the subagent's composer in place of the chat's (`readOnlySubagent`).
   const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   /// Brings one message's row into the transcript, the way a running line's count does, and says
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
@@ -7647,6 +7730,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pinnedPlan = useChatPinnedPlan();
   // The hat tucked away to its pull tab (chatDisplay.ts TRAY_TUCKED_KEY; Leo, 2026-11-04).
   const trayTucked = useTrayTucked();
+  // Where its tuck chevron and pull tab sit along the composer's top edge (chatDisplay.ts TRAY_HANDLE_KEY).
+  const trayHandle = useTrayHandle();
   // Debug Settings agent.sessionStatus draws its activity line under the pinned list, so it pins it.
   const planInHat = subagentTray && !pinnedPlan && !sessionStatus && !quick && !childRows && snapshot.isWorking;
   const hatPlanRow = useMemo(() => (planInHat ? liveTurnPlan(turnRowsShown) : undefined), [planInHat, turnRowsShown]);
@@ -7861,8 +7946,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }, [requestedSubagent, shownSessionId]);
-  // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
-  // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
+  // A subagent's pane shows the subagent with its own composer (SubagentComposer.tsx), never the
+  // chat's composer, queue or pull request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
   const readOnlySubagent =
     workflowRequest !== undefined ||
@@ -7928,6 +8013,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
+  // The chat part of its subagents' draft keys (subagents/subagentDrafts.ts), for the wake state.
+  const subagentDraftChat = shownSessionId ?? chatName;
+  const subagentDraftChatRef = useRef(subagentDraftChat);
+  subagentDraftChatRef.current = subagentDraftChat;
   /// Opens the turn's changes in a diff tab right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"; Leo, 2026-11-03: "just put it in a tab???"): the chat folder's diff, on the chat's
@@ -8246,6 +8335,56 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
   });
+  // A subagent's own pane sends to the chat, which passes the message on (subagents/subagentMessage.ts):
+  // the chat Restart would send to, as the pane's composer reaches it.
+  const subagentRelayChat = restartOwner({
+    connected,
+    sessionId: snapshot.sessionId,
+    watching: Boolean(snapshot.summary?.watching),
+    readOnly: false,
+    canSend: remoteComposer(snapshot).canSend,
+  });
+  const shownSubagentId = subagentView ?? requestedSubagent;
+  const shownSubagentTarget = useMemo(() => {
+    if (!readOnlySubagent) return undefined;
+    if (workflowRequest)
+      return selectedWorkflowAgent && workflowAgentTarget(selectedWorkflowAgent, translate("tray.kind.subagent"));
+    const agent = freshAgents.find((entry) => entry.id === shownSubagentId);
+    return agent && subagentTarget(agent, snapshot.summary?.family ?? snapshot.summary?.harness?.split(/[-_/]/)[0]);
+  }, [
+    readOnlySubagent,
+    workflowRequest,
+    selectedWorkflowAgent,
+    freshAgents,
+    shownSubagentId,
+    snapshot.summary?.family,
+    snapshot.summary?.harness,
+  ]);
+  // Only to the chat the pane shows and the client has selected, and only once the pane knows which
+  // subagent it is for: a prompt never goes to a target the composer does not name.
+  const relaySteers = subagentRelaySteers(snapshot);
+  const sendToSubagent =
+    subagentRelayChat && shownSubagentTarget
+      ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
+          if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
+            return Promise.reject(new Error(translate("error.notOpen")));
+          // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
+          // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
+          // It settles once the chat took the message (`accepted`), not when the turn ends: from then the
+          // chat holds it, and the composer no longer keeps it as in flight (subagentDrafts.ts).
+          return new Promise<void>((resolve, reject) => {
+            callNative("chat.send", {
+              text: subagentRelayPrompt(target, message, translate),
+              expectedSessionId: owner,
+              steer: relaySteers,
+              accepted: () => resolve(),
+            }).then(
+              () => resolve(),
+              (error: unknown) => (keptInChat(error) ? resolve() : reject(error)),
+            );
+          });
+        })(subagentRelayChat, shownSubagentTarget)
+      : undefined;
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
@@ -8792,6 +8931,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     onMode: (mode: RunMode) => {
       runModePicked.current = true;
       sandbox.setMode(mode);
+      cloudComposeEligible.current = mode === "cloud" && sandboxOffered;
+      if (cloudComposeEligible.current) {
+        newChatPrewarm.abandon();
+        cloudReservation.selected();
+      } else cloudReservation.abandon();
     },
   };
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
@@ -8826,8 +8970,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
+  const [startCloud] = useState(() =>
+    grantedCloudStart(reservedCloudCall(callNative, cloudReservation), cloudFolderGrant),
+  );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -8845,7 +8992,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
-    const request: CloudStart = { task: text, attachments, ...start };
+    if (cloudStartPending.current) return false;
+    const reservationKey = cloudReservation.handoff(start.environment);
+    const request: CloudStart = { task: text, attachments, ...start, ...(reservationKey ? { reservationKey } : {}) };
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
     const started = startCloud(request, key);
@@ -8888,13 +9037,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setSandboxViewing(false);
     sandboxWake.current = undefined;
     runModePicked.current = false;
+    cloudReservation.reset();
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
-  }, [snapshot.sessionId, newTabGeneration]);
+  }, [snapshot.sessionId, newTabGeneration, cloudReservation]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
-    if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
-  }, [sandbox.mode]);
+    if (sandbox.mode !== "cloud") {
+      cloudReservation.abandon();
+      setCloudStart((current) => (current?.state === "failed" ? undefined : current));
+    }
+  }, [sandbox.mode, cloudReservation]);
   /// Run on This Mac from the cap card (runHereSend): the kept prompt sends once the mode is this Mac's.
   useEffect(() => {
     if (!runHereSend.current || sandbox.mode !== "persistent") return;
@@ -9780,6 +9933,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             enters={trayEnters}
             plan={hatPlan}
             onTuck={trayPlacement === "tray" ? tuckTray : undefined}
+            tuckSide={trayHandle}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -11139,6 +11293,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
         if (wake) {
+          // Each subagent's unsent prompt comes back before its pane's composer reads it.
+          wakeIntoSubagentDrafts(wake.subagentDrafts);
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
@@ -12203,7 +12359,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The tab closes (AgentPageRetirer, while the bridge still answers): held prompts go
             // into their chats' drafts and kept chips, never its composer, which goes with it.
             if (closing === true) {
-              const all = held.release();
+              // A subagent's draft the storage refused lives only in this page: it goes into its
+              // chat's draft and kept chips the same way, a pasted chip's text in its place.
+              const subagents = takeUnsavedSubagentDrafts().map(({ chat, draft }) => ({
+                id: crypto.randomUUID(),
+                chat,
+                cwd: undefined,
+                text: subagentDraftMessage(draft),
+                attachments: draft.attachments.filter((chip) => chip.kind !== "pasted"),
+                ticket: Promise.resolve(undefined),
+              }));
+              const all = [...held.release(), ...subagents];
               if (all.length) await giveBackTrustHeld.current(all, false, true, until);
               return {};
             }
@@ -12219,12 +12385,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
             // sends, composition and popups; quit and close still hand back their state.
             if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
+            // A subagent's draft the storage refused lives only in this page (subagentDrafts.ts).
+            if (quitting !== true && subagentDraftUnsaved()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
+            // Subagents' unsent prompts have no acpmux session: the host keeps them with the tab, the
+            // ones this page kept and its chat's.
+            const subagentDrafts = wakeSubagentDrafts(subagentDraftChatRef.current);
             return {
               ...composer,
               ...(attachments.length ? { attachments } : {}),
+              ...(subagentDrafts ? { subagentDrafts } : {}),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
             };
           },
@@ -13498,23 +13670,31 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     (text: string) => {
       newChatDraft.typed = text;
       const sent = postNewChatDraft();
+      if (cloudComposeEligible.current) {
+        cloudReservation.typed(text);
+        return sent;
+      }
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
       newChatPrewarm.typed(text, target);
       return sent;
     },
-    [newChatPrewarm],
+    [newChatPrewarm, cloudReservation],
   );
   const onNewTabPromptTyped = useCallback(
     (text: string, target?: { harness?: string; cwd?: string }) => {
       newTabFieldEdited(text);
+      if (cloudComposeEligible.current) {
+        cloudReservation.typed(text);
+        return;
+      }
       newChatPrewarm.typed(
         text,
         target?.cwd ? { ...(target.harness ? { harness: target.harness } : {}), cwd: target.cwd } : undefined,
       );
     },
-    [newChatPrewarm, newTabFieldEdited],
+    [newChatPrewarm, newTabFieldEdited, cloudReservation],
   );
   const newTabSnapshot = useMemo(
     () =>
@@ -14066,9 +14246,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
   };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
-  // request bars there were the chat's, and a prompt typed in it went to the chat.
+  // request bars there were the chat's, and a prompt typed in it went to the chat. It draws the
+  // subagent's composer instead, whose prompt the chat passes on to the subagent.
+  // The subagent's draft is its own, by keys that hold while its pane is open: the chat's session and
+  // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
+  // id, task name and connected chat arrive or change later and would remount the composer empty.
+  const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
   const composer = readOnlySubagent ? (
-    <SubagentPaneFooter chat={chatName} />
+    <SubagentComposer
+      key={subagentDraftKey}
+      subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
+      chat={chatName}
+      draftKey={subagentDraftKey}
+      onSend={sendToSubagent}
+    />
   ) : (
     !reviewing && (
       <>
@@ -14258,7 +14449,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             composer's top middle (subagents/TrayPullTab.tsx). */}
         {trayPlacement === "tray" &&
           (trayTucked && trayNode ? (
-            <TrayPullTab running={trayList.length > 0 || (hatPlan !== undefined && hatPlan.length > 0)} />
+            <TrayPullTab
+              chat={shownSessionId}
+              {...pullTabCounts(trayList, waitingAgents)}
+              working={hatPlan !== undefined && hatPlan.length > 0}
+              side={trayHandle}
+            />
           ) : (
             trayNode
           ))}

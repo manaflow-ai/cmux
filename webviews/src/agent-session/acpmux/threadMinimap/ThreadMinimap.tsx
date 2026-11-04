@@ -29,7 +29,7 @@ import {
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
 import { PreviewCard } from "./PreviewCard";
-import { railEdge, useRailSide } from "./railSide";
+import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { ScrollMap } from "./ScrollMap";
 import { threadMinimapLayout } from "./layout.experiment";
@@ -1248,6 +1248,7 @@ export function ThreadMinimap({
         <nav
           ref={rail}
           className="acpmux-minimap__rail"
+          id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
           style={

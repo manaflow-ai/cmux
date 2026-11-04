@@ -1,46 +1,23 @@
 import CmuxNextCompat
+import CmuxNextRemoteView
 import Foundation
 import os
 
-/// One line from `cmux rd serve|connect` (src/serve.rs and src/connect.rs list them).
-nonisolated struct MacScreenRdMessage: Decodable, Sendable, Equatable {
-    struct Path: Decodable, Sendable, Equatable {
-        var kind: String?
-        var rttMs: Double?
-        enum CodingKeys: String, CodingKey { case kind, rttMs = "rtt_ms" }
+/// One line of `cmux rd serve|connect`, as the shared Rust reader types it.
+typealias MacScreenRdMessage = RemoteRdLineReader.Line
+
+/// Reads one process's stdout into typed lines (the Rust reader, `RemoteRdLineReader`). The pipe's
+/// readabilityHandler is its only caller; the lock keeps the reader, which is not `Sendable`, to one
+/// thread at a time.
+private nonisolated final class MacScreenRdLineSink: Sendable {
+    private let reader: Mutex<RemoteRdLineReader>
+
+    init(reader: consuming sending RemoteRdLineReader) {
+        self.reader = Mutex(reader)
     }
 
-    var key: String?
-    var candidate: String?
-    var candidatesDone: Bool?
-    var connected: Bool?
-    var listening: Bool?
-    var ended: String?
-    var path: Path?
-    var displays: [[UInt32]]?
-    var current: Int?
-    var error: String?
-
-    enum CodingKeys: String, CodingKey {
-        case key, candidate, connected, listening, ended, path, displays, current, error
-        case candidatesDone = "candidates_done"
-    }
-}
-
-/// Splits stdout bytes into lines (one reader at a time: Foundation's pipe queue).
-private nonisolated final class MacScreenRdLines: Sendable {
-    private let pending = Mutex(Data())
-
-    func append(_ data: Data) -> [Data] {
-        pending.withLock { pending in
-            pending.append(data)
-            var lines: [Data] = []
-            while let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
-                lines.append(Data(pending[pending.startIndex ..< newline]))
-                pending.removeSubrange(pending.startIndex ... newline)
-            }
-            return lines
-        }
+    func push(_ data: Data) -> [MacScreenRdMessage] {
+        reader.withLock { $0.push(data) }
     }
 }
 
@@ -89,7 +66,9 @@ nonisolated final class MacScreenRdProcess: Sendable {
         process.standardOutput = stdout
         process.standardError = stderr
         let continuation = continuation
-        let splitter = MacScreenRdLines()
+        // The Rust line reader (cmux_rd_line_reader_*): one per process, used only on the pipe's queue.
+        guard let reader = RemoteRdLineReader() else { throw CocoaError(.fileReadUnknown) }
+        let lines = MacScreenRdLineSink(reader: reader)
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.blockingAvailableData()
@@ -98,11 +77,9 @@ nonisolated final class MacScreenRdProcess: Sendable {
                 continuation.finish()
                 return
             }
-            for line in splitter.append(data) {
-                // A line this app does not know (a newer cmux) decodes to an empty message and is ignored.
-                if let message = try? JSONDecoder().decode(MacScreenRdMessage.self, from: line) {
-                    continuation.yield(message)
-                }
+            // A line this app does not know (a newer cmux's) reads as an empty line; its fields are nil.
+            for line in lines.push(data) {
+                continuation.yield(line)
             }
         }
         let logger = logger
