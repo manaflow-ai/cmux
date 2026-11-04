@@ -144,11 +144,11 @@ function readWord(text: string, start: number, out: Token[]): number {
 }
 
 /// The steps of a command and how each is joined to the next.
-function steps(text: string): { words: string[]; then?: string }[] {
-  const list: { words: string[]; then?: string }[] = [{ words: [] }];
+function steps(text: string): { words: string[]; joiner?: string }[] {
+  const list: { words: string[]; joiner?: string }[] = [{ words: [] }];
   for (const token of tokens(text)) {
     if ("op" in token) {
-      list[list.length - 1]!.then = token.op;
+      list[list.length - 1]!.joiner = token.op;
       list.push({ words: [] });
     } else list[list.length - 1]!.words.push(token.word);
   }
@@ -201,7 +201,7 @@ export function programWords(command: string): string[] {
   while (
     step < list.length - 1 &&
     STAGING(list[step]!.words) &&
-    (list[step]!.then === "&&" || list[step]!.then === ";")
+    (list[step]!.joiner === "&&" || list[step]!.joiner === ";")
   )
     step += 1;
   const words = list[step]?.words ?? [];

@@ -54,8 +54,18 @@ describe("a background command reads in words", () => {
       "https://github.com/manaflow-ai/cmux/pull/34395",
     ],
     ["cd ~/x && gh pr merge 34361 --squash --match-head-commit 73d09e86", "Merging #34361", "gh"],
-    ["gh pr checks 33896 --repo manaflow-ai/cmux --watch", "Waiting on cmux#33896 checks", "gh", "https://github.com/manaflow-ai/cmux/pull/33896"],
-    ["timeout 100 gh pr merge 33896 --repo manaflow-ai/cmux --squash", "Merging cmux#33896", "gh", "https://github.com/manaflow-ai/cmux/pull/33896"],
+    [
+      "gh pr checks 33896 --repo manaflow-ai/cmux --watch",
+      "Waiting on cmux#33896 checks",
+      "gh",
+      "https://github.com/manaflow-ai/cmux/pull/33896",
+    ],
+    [
+      "timeout 100 gh pr merge 33896 --repo manaflow-ai/cmux --squash",
+      "Merging cmux#33896",
+      "gh",
+      "https://github.com/manaflow-ai/cmux/pull/33896",
+    ],
     ["gh pr create --base feat-cmux-next --title 'x' --body-file b.md", "Opening a pull request", "gh"],
     ['S=/tmp/s; cd ~/w && cmux-ci test -- bash -c "$(cat $S/web-ci.sh)" > $S/ci5w.log 2>&1', "Fleet tests", "cmux-ci"],
     [
