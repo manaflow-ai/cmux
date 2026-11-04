@@ -294,6 +294,18 @@ class NightlyNextBuildVariable(unittest.TestCase):
                 self.assertTrue(drifted_runner_variables({name: label}))
 
 
+class NightlySigningPoolVariable(unittest.TestCase):
+    def test_only_glaedas_signing_label_is_allowed(self) -> None:
+        name = "CI_NIGHTLY_SIGNING_POOL"
+        for label in ("glaeda-signing-xcode-26.6", "glaeda-signing-xcode-27", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-std-xcode-26.6",
+                      "blacksmith-6vcpu-macos-26", "glaeda-signing", "glaeda-signing-xcode-26.6 self-hosted"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
 class SideLaneVariable(unittest.TestCase):
     def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER are the picker-less side lanes' whole runs-on.

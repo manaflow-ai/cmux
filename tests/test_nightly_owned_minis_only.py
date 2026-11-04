@@ -159,7 +159,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
         self.assertEqual(manaflow_route("promote-nightly-next"),
                          "${{  github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
                          "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}")
+                         "vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6' }}")
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):
                 route = manaflow_route(name)
@@ -170,7 +170,7 @@ class PublishersHoldTheWholeMini(unittest.TestCase):
                 self.assertNotIn("CI_NIGHTLY_ONLY_RUNNER", route)
                 self.assertNotIn("glaeda-nightly-only-m4pro", route)
                 self.assertTrue(route.rstrip(" }").endswith(
-                    "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6'"))
+                    "vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6'"))
 
     def test_claim_gate_first_then_claim_and_clean_workdir_before_any_secret(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:

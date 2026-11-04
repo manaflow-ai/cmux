@@ -717,6 +717,10 @@ OWNED_ONLY_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "verify-nig
                                      "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
                                      "verify-recovered-nightly-next"})
 OWNED_ONLY_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# The secret-bearing ones end on glaeda's signing label alone (signing_runner.SIGNING_SLOT_LABEL).
+SIGNING_NIGHTLY_JOBS = frozenset({"sign-nightly-identity-legacy", "generate-nightly-deltas", "build-sign-notarize-nightly",
+                                  "recover-nightly-next-notarization"})
+SIGNING_NIGHTLY_FALLBACK = "|| vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6' }}"
 
 
 TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|\.|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.*-]*)")
@@ -1514,6 +1518,9 @@ class Wiring(unittest.TestCase):
                     with self.subTest(workflow=path.name, job=name, attempt=attempt):
                         if attempt != last:
                             checked.add((path.name, name, any(str(item).startswith("glaeda-") for item in labels)))
+                        elif path.name == "nightly.yml" and name in SIGNING_NIGHTLY_JOBS:
+                            self.assertTrue(runs_on.endswith(SIGNING_NIGHTLY_FALLBACK), runs_on)
+                            self.assertEqual(labels, ["glaeda-signing-xcode-26.6"])
                         elif path.name == "nightly.yml" and name in OWNED_ONLY_NIGHTLY_JOBS:
                             # Owned-only by design: the late attempt takes the owned pool route, not a picked mini.
                             self.assertTrue(runs_on.endswith(OWNED_ONLY_NIGHTLY_FALLBACK), runs_on)

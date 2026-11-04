@@ -285,6 +285,10 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
 # one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
 NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# glaeda's signing label: only the nightly slot of a mini enrolled for signing carries it, and nightly.yml's signing
+# jobs queue on it (vars.CI_NIGHTLY_SIGNING_POOL; signing_runner.SIGNING_SLOT_LABEL), so the watch judges it as a
+# nightly slot.
+SIGNING_SLOT_LABEL = re.compile(r"glaeda-signing-xcode-[0-9]+(?:\.[0-9]+)*")
 # NEXT's all-nightly reservation is a set of labels rather than a normal
 # persistent pool.  The app build can be queued on the reservation while the
 # rest of the run is still healthy, so it must be visible to this rescue too.
@@ -298,7 +302,7 @@ def nightly_owned_label(label: object) -> bool:
     """Whether a label is a NEXT nightly-owned route judged by the rescue."""
     value = str(label or "")
     return (bool(TRUSTED_LABEL.fullmatch(value)) or bool(NIGHTLY_SLOT_LABEL.fullmatch(value))
-            or nightly_dedicated(value) or value.startswith(NIGHTLY_ONLY_LABEL_PREFIX))
+            or bool(SIGNING_SLOT_LABEL.fullmatch(value)) or nightly_dedicated(value) or value.startswith(NIGHTLY_ONLY_LABEL_PREFIX))
 # feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
 # workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
 # workflow is already not watched) and only records the acknowledgement while main takes no merges.

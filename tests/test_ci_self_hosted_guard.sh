@@ -1366,7 +1366,9 @@ check_no_self_hosted_fleet_runners() {
   # slot-N, tart-*, ...), macos-26 outside the fork branch, and an owned label
   # named directly with no picker or variable route.
   local owned='glaeda-(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
-  local owned_pool="'glaeda-((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'"
+  # glaeda-signing-xcode-<v>: glaeda's signing label (only the nightly slots of minis enrolled for signing carry it),
+  # where nightly.yml's signing jobs queue; a pool many minis serve, like the others.
+  local owned_pool="'glaeda-(((side|gui|session|nightly|dev|fast)-)?(aws-)?(xl|std|light)|signing)-xcode-[0-9]+([.][0-9]+)*'"
   # startsWith(vars.X, 'glaeda-side-') checks a variable's shape; it names no runner.
   local owned_prefix_check="startsWith\\((vars|needs)\\.[A-Za-z0-9_.-]+, 'glaeda-[a-z-]+-'\\)"
   local fork_pr_branch="github\\.event_name == 'pull_request' && github\\.event\\.pull_request\\.head\\.repo\\.full_name != github\\.repository && '(blacksmith-(6|12)vcpu-macos-(15|26|latest))'"
@@ -1484,7 +1486,8 @@ PYTHON
 
   # Owned pools through the picker/vars pattern pass; direct names do not.
   for probe in "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.runner || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}" \
-               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}"; do
+               "runs-on: \${{ vars.CI_PR_POOL_OWNED == '1' && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || 'blacksmith-6vcpu-macos-26' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick.outputs.sign_owned || vars.CI_NIGHTLY_SIGNING_POOL || 'glaeda-signing-xcode-26.6' }}"; do
     content_without_allowed="$(strip_owned_pool_selection "$probe" 0 | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     if printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)"; then
       echo "FAIL: fleet-runner guard self-test refused an owned pool reached through the picker/vars pattern: $probe"

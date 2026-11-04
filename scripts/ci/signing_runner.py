@@ -56,6 +56,7 @@ import collections
 import datetime as dt
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -67,6 +68,24 @@ import nightly_sign_runner as blacksmith_picker  # noqa: E402
 import pr_runner_pool as pool  # noqa: E402
 import warm_distance  # noqa: E402
 from nightly_build_runner import NIGHTLY_SLOT_LABEL, owned_label  # noqa: E402
+
+# SIGNING_SLOT_LABEL: glaeda's signing label, glaeda-signing-xcode-<v>, which glaeda gives only the nightly slot of a
+# mini enrolled for signing (its manifest's runner.nightlySigning). nightly.yml's signing jobs and their pickers ask
+# for it alone (vars.CI_NIGHTLY_SIGNING_POOL), never a label they share with nightly builds or PR side lanes: on
+# 2026-11-04 eleven sign-nightly-identity-legacy jobs queued on the shared std nightly label reached an M5 Ultra
+# Studio's nightly slot, a host never enrolled for signing, and GitHub delivered their secrets there before glaeda's
+# hook refused them. A signing slot is a nightly slot, so it drains like one.
+SIGNING_SLOT_LABEL = re.compile(r"glaeda-signing-xcode-[0-9]+(?:\.[0-9]+)*")
+
+
+def signing_route_label(label: str) -> bool:
+    """An owned label a signing job may be routed to: owned_label()'s, or glaeda's signing label."""
+    return owned_label(label) or bool(SIGNING_SLOT_LABEL.fullmatch(label or ""))
+
+
+def slot_label(label: str) -> bool:
+    """A label only glaeda's nightly slots carry (a nightly slot or signing label): the drain path offers these."""
+    return bool(NIGHTLY_SLOT_LABEL.fullmatch(label) or SIGNING_SLOT_LABEL.fullmatch(label))
 
 ENABLED_VALUE = "1"
 # The signing jobs glaeda gives the whole mini (glaeda SIGNING_JOBS; tests/test_ci_signing_owned_mac.py keeps the
@@ -151,7 +170,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
     """
     # The owned labels nightly_build_runner offers: a persistent pool or glaeda's nightly slot, which
     # vars.CI_NIGHTLY_NEXT_BUILD_RUNNER may name (its hook still admits a signing job only as the exclusive class).
-    wanted = [label for label in labels if label and owned_label(label)]
+    wanted = [label for label in labels if label and signing_route_label(label)]
     if not wanted:
         return "", f"no owned pool label among {list(labels) or 'none'}"
     busy: collections.Counter[str] = collections.Counter()
@@ -187,7 +206,7 @@ def drained_runner(runners: Sequence[Mapping[str, Any]], labels: Sequence[str], 
         anyway = []
         for mini, found in idle.items():
             for label, name in found:
-                if not NIGHTLY_SLOT_LABEL.fullmatch(label):
+                if not slot_label(label):
                     continue
                 if mini not in waits:
                     waits[mini] = drain_seconds(busy_names.get(mini, []), running, weights, moment)
@@ -272,7 +291,7 @@ def owned_signing_jobs(read: Callable[[str], Any]) -> int:
                 for job in jobs:
                     name = str(job.get("name") or "").split(" (", 1)[0]
                     labels = {str(label) for label in job.get("labels") or []}
-                    owned_route = any(label.startswith(pool.RUNNER_LABEL_PREFIX) or owned_label(label)
+                    owned_route = any(label.startswith(pool.RUNNER_LABEL_PREFIX) or signing_route_label(label)
                                       for label in labels)
                     if (name in names and job.get("status") in ("queued", "in_progress", "waiting", "pending", "requested")
                             and owned_route):
