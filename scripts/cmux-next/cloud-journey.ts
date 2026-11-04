@@ -567,7 +567,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const local = mkdtempSync(path.join(tmpdir(), `cmux-journey-sync-${tag}-`));
       const source = path.join(local, "file.txt");
       writeFileSync(source, Buffer.from(payload, "base64"));
-      const remote = `/tmp/${tag}/sync`;
+      const remote = `/home/cmux/.cmux-journey-${tag}/sync`;
       const push = spawnSync(cmux!, ["link", "sync", "push", "--socket", headlessLink.bridgeSocket, local, remote], { encoding: "utf8", timeout: 120_000 });
       if (push.error || push.status !== 0) throw new Error(`sync push failed: ${push.stdout || push.stderr || push.error?.message}`);
       const mutate = await exec(`printf '%s' ${shq("remote-change\n")} >> ${shq(`${remote}/file.txt`)}`);
