@@ -268,6 +268,55 @@ fn a_frame_sent_after_a_key_the_port_holds_reaches_the_host_after_it() {
     );
 }
 
+/// R-DAEMON-STATE S1.6b: a write that is not the person's key (a script's `cmux send`, a resource input effect, the
+/// creating-input flush) answers when the input port wrote it, as the old path answered after its socket write, so
+/// it never answers ok for bytes the port has not written.
+#[cfg(unix)]
+#[test]
+fn an_automation_write_answers_after_the_port_wrote_it() {
+    let (_mux, surface, mut host) =
+        hosted_typing_surface("hosted-input-port-automation-reply", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| surface.write_bytes(b"a"));
+        std::thread::sleep(Duration::from_millis(200));
+        let answered_early = writing.is_finished();
+        resume.send(()).expect("the port's writer waits");
+        writing.join().unwrap().expect("the write");
+        assert!(!answered_early, "an automation write answered before the port wrote it");
+    });
+    let frame = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    )
+    .expect("the host reads the write")
+    .expect("the host connection stays open");
+    assert_eq!((frame.kind, frame.payload.as_slice()), (MessageKind::Input, &b"a"[..]));
+}
+
+/// R-DAEMON-STATE S1.6b: a write that is not the person's key gets the error of its own frame (here the reader
+/// shut the connection down after the port took the bytes), as the old path's write failed, so `cmux send` exits
+/// non-zero and a resource input effect is marked failed.
+#[cfg(unix)]
+#[test]
+fn an_automation_write_gets_the_error_of_its_frame() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-automation-error", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    std::thread::scope(|scope| {
+        let writing = scope.spawn(|| surface.write_bytes(b"b"));
+        std::thread::sleep(Duration::from_millis(100));
+        pty.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+        resume.send(()).expect("the port's writer waits");
+        let error = writing
+            .join()
+            .unwrap()
+            .expect_err("an automation write the port could not write answered ok");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotConnected, "{error}");
+    });
+}
+
 /// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
 /// one writer thread), and a key the port took returns before the host read anything (#34544 review).
 #[cfg(unix)]
