@@ -13,7 +13,9 @@
 //!
 //! It goes back as an ordinary `queued` record under its own prompt and turn ids, written once
 //! here, so the restored queue runs it, a crash before it ran restores it again as any queued
-//! prompt (`lost_start.rs`), and a client's resend of its id joins that run (`prompt_ids.rs`).
+//! prompt (`lost_start.rs`), and a client's resend of its id joins that run (the ledger entry
+//! the restore makes). It keeps what the prompt came with that the run checks again: its
+//! control and `cloudMobile` (the mobile asking-mode rule, `turns.rs`).
 //! What settles it first: its turn's start, result or removal, a refusal, a copy queued or run
 //! under another turn id, and a Stop (`logged_prompt`, checked when it would go back).
 
@@ -26,6 +28,9 @@ use std::collections::{BTreeMap, HashSet};
 pub(super) struct Unstarted {
     /// Turns that came out of the queue: their prompts are `lost_start.rs`'s.
     queued_turns: HashSet<String>,
+    /// Turns already started: a watched conversation logs `turn_started` before the prompt's
+    /// `user_message` (`watch.rs`), so that prompt is never this restore's.
+    started_turns: HashSet<String>,
     /// By turn id: the prompt's `user_message`, in log order of `seq`.
     by_turn: BTreeMap<String, EventRecord>,
 }
@@ -56,7 +61,7 @@ impl Unstarted {
                 let (Some(t), Some(p)) = (turn, prompt) else { return };
                 // Run again under another turn id: that copy is the prompt's.
                 self.by_turn.retain(|other, q| other == t || field(q, "promptId") != Some(p));
-                if self.queued_turns.contains(t) {
+                if self.queued_turns.contains(t) || self.started_turns.contains(t) {
                     return;
                 }
                 let provenance = crate::prompt_provenance::recorded(&e.msg);
@@ -72,6 +77,9 @@ impl Unstarted {
             "turn_started" | "turn_result" | "queue_removed" | "prompt_refused" | "dequeued" => {
                 if let Some(t) = turn {
                     self.by_turn.remove(t);
+                    if e.kind == "turn_started" {
+                        self.started_turns.insert(t.to_owned());
+                    }
                 }
                 if e.kind != "dequeued" {
                     self.settle_prompt(prompt);
@@ -129,6 +137,10 @@ mod tests {
         assert!(
             left(&[um(1, "a", "ta"), rec(2, "prompt_refused", json!({"promptId": "a"}))])
                 .is_empty()
+        );
+        // A watched conversation's turn starts before its prompt is logged: not left.
+        assert!(
+            left(&[rec(1, "turn_started", json!({"turnId": "tw"})), um(2, "w", "tw")]).is_empty()
         );
         // Out of the queue: `lost_start.rs`'s.
         assert!(

@@ -141,7 +141,7 @@ async fn a_prompt_accepted_before_its_turn_started_runs_once_after_a_restart() {
         at: acpmux::store::now_ms(),
         dir: "mux".into(),
         kind: "user_message".into(),
-        msg: json!({"text": "hi", "client": "test", "promptId": "p-cut", "turnId": "t-cut", "control": "local"}),
+        msg: json!({"text": "hi", "client": "test", "promptId": "p-cut", "turnId": "t-cut", "control": "local", "cloudMobile": true}),
         host_seq: None,
     };
     store.append(&id, &record).unwrap();
@@ -155,11 +155,22 @@ async fn a_prompt_accepted_before_its_turn_started_runs_once_after_a_restart() {
     let retry =
         c.request(method::SESSION_PROMPT, prompt_with_id(&id, "hi", "p-cut", true)).await.unwrap();
     let turns = naming(&hub, &id, "turn_started", "p-cut");
+    // It went back as it came: the mobile asking-mode rule still applies to its run.
+    let requeued: Vec<Value> = hub
+        .events(&id, 0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.kind == "queued" && r.msg["promptId"] == "p-cut")
+        .map(|r| r.msg)
+        .collect();
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(result["stopReason"], "end_turn", "{result}");
     assert_eq!(retry["_meta"]["acpmux"]["duplicate"], true, "{retry}");
     assert_eq!(turns, 1, "the accepted prompt ran {turns} times");
+    assert_eq!(requeued.len(), 1, "{requeued:?}");
+    assert_eq!(requeued[0]["cloudMobile"], true, "{requeued:?}");
+    assert_eq!(requeued[0]["restored"], "unstarted", "{requeued:?}");
 }
 
 /// Cancel during a steer: the person steers into the running turn, then Stops it. The steer

@@ -1192,7 +1192,7 @@ impl Hub {
                 "trustGate": true,
                 "restored": "unstarted",
             });
-            for k in ["control", "images", "inlineParts", "pasted", "_meta"] {
+            for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
                 if let Some(v) = e.msg.get(k) {
                     queued.set(k, v.clone());
                 }
@@ -1268,6 +1268,13 @@ impl Hub {
                         if super::auto_resume::Cut::queued(
                             e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
                         ) && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
+                        }
+                        // An accepted prompt a restart put back (`unstarted_prompt.rs`) stays at
+                        // the head across a second restart before it ran.
+                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted")
+                            && let Some(id) = e.msg.get("promptId")
                         {
                             order.prioritize_restart(id);
                         }
