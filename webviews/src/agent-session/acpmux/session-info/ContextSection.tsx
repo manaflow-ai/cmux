@@ -12,6 +12,8 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { Button } from "../../../ui/Button";
+import "../../../ui/controls.css";
 import type { AcpmuxContextBreakdown } from "../model";
 import "./sessionInfo.css";
 import "./ContextSection.css";
@@ -250,19 +252,20 @@ export function ContextSection({
             </span>
           )}
           {onOpenSetup && (
-            <button
-              type="button"
+            <Button
+              size="sm"
+              variant="subtle"
               className="acpmux-session-info-context__compact"
               data-context-setup
               onClick={onOpenSetup}
             >
               {t("context.setup")}
-            </button>
+            </Button>
           )}
           {onCompact && (
-            <button type="button" className="acpmux-session-info-context__compact" onClick={onCompact}>
+            <Button size="sm" variant="subtle" className="acpmux-session-info-context__compact" onClick={onCompact}>
               {t("sessionInfo.context.compactSession")}
-            </button>
+            </Button>
           )}
         </div>
       )}
