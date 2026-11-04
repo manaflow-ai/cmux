@@ -32,7 +32,7 @@ def definitions(path, names):
 
 GOLDEN = definitions(ROOT.parent / "ci/frame-pacing/golden.py", {"EPS", "THRESHOLDS", "motion", "percentile"})
 MEASURE = definitions(ROOT / "pane-perf-terminal.py",
-                      {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE",
+                      {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP",
                        "first_window", "measure"})
 
 

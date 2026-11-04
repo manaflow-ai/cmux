@@ -93,7 +93,7 @@ def load_stress():
 
 STRESS_MODULE = load_stress()
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "frame-pacing"))
-from golden import motion as frame_motion, percentile  # noqa: E402  the shared display-frame analysis
+from golden import THRESHOLDS as MOTION_THRESHOLDS, motion as frame_motion, percentile  # noqa: E402  the shared display-frame analysis
 # 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
 # ("not enough room to split this pane"), so the 30-pane split row measured nothing.
 CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
@@ -169,6 +169,14 @@ BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr",
 WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
 WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
+# Window geometry is sampled from the native display-link trace and cross-checked against the
+# action's display-frame probe. Keep this acceptance local to the window rows: other action rows
+# retain their existing informational missed-frame semantics. The 15% tolerance matches the
+# virtual-display readiness check in split-spring.sh; this proves native geometry pacing, not the
+# final composited pixels or absence of a tear (the separate recording/readback remains required).
+WINDOW_TARGET_HZ = 120.0
+WINDOW_REFRESH_TOLERANCE = 0.15
+WINDOW_MAX_STEP = MOTION_THRESHOLDS["window_resize"]["max_step"]
 
 
 def rpc(method, params=None, timeout=30):
@@ -453,7 +461,9 @@ def measure(label, name):
                       window_intermediate=travel["intermediate"], window_max_step=travel["max_step"],
                       window_frame_p95_ms=round(percentile(intervals, 0.95), 2),
                       window_frame_max_ms=round(max(intervals, default=0), 2), window_refresh_ms=refresh,
-                      window_frame_missed=sum(dt > refresh * 1.5 for dt in intervals) if refresh > 0 else None)
+                      window_frame_missed=sum(dt > refresh * 1.5 for dt in intervals) if refresh > 0 else None,
+                      window_monitor_refresh_ms=frames.get("refresh_ms"),
+                      window_monitor_missed=frames.get("missed"))
         if not window_before or not window_after or not any(abs(a - b) > 1 for a, b in zip(window_before, window_after)):
             error = error or "window zoom changed no frame"
         elif name == "window-unzoom" and (not WINDOW_RESTORE or any(abs(a - b) > 1 for a, b in zip(WINDOW_RESTORE, window_after))):
@@ -463,8 +473,23 @@ def measure(label, name):
             error = error or f"window zoom did not reach its screen's visible frame {standard}: {window_after}"
         if travel["intermediate"] == 0:
             error = error or "window zoom had no intermediate display frame (snapped or trace unavailable)"
+        target_period = 1000.0 / WINDOW_TARGET_HZ
+        min_period = target_period * (1 - WINDOW_REFRESH_TOLERANCE)
+        max_period = target_period * (1 + WINDOW_REFRESH_TOLERANCE)
+        monitor_refresh = frames.get("refresh_ms")
         if not (window_trace or {}).get("refresh_ms") or not frames.get("frames"):
             error = error or "window zoom has no display refresh evidence"
+        if not (min_period <= refresh <= max_period) or not (isinstance(monitor_refresh, (int, float))
+                                                               and min_period <= monitor_refresh <= max_period):
+            error = error or (f"window zoom display is not near {WINDOW_TARGET_HZ:.0f} Hz "
+                              f"(trace {refresh}, monitor {monitor_refresh})")
+        if travel["max_step"] > WINDOW_MAX_STEP:
+            error = error or (f"window zoom geometry step {travel['max_step']:.3f} exceeds "
+                              f"{WINDOW_MAX_STEP:.2f} of travel")
+        if result["window_frame_missed"]:
+            error = error or f"window zoom missed {result['window_frame_missed']} native display frame(s)"
+        if isinstance(result["window_monitor_missed"], (int, float)) and result["window_monitor_missed"]:
+            error = error or f"window zoom display probe missed {result['window_monitor_missed']} frame(s)"
         result["error"] = error
     extra = ""
     if name in WINDOW_ACTIONS:
