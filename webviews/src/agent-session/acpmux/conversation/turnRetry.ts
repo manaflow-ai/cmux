@@ -51,12 +51,22 @@ export type OwnedResendDeps<Client, Draft> = {
   send: (draft: Draft) => Promise<unknown>;
 };
 
+/// A Retry that sent nothing: the chat the failed row was drawn for is not the one the pane's client
+/// reaches any more. It rejects, so the card says Retry could not run instead of taking it as sent
+/// (cmux#34369: a Retry that settled as sent with nothing sent read as a dead button).
+export class RetryNotSent extends Error {
+  constructor() {
+    super("retry.not_sent");
+    this.name = "RetryNotSent";
+  }
+}
+
 /// The prompt sent again, only to the chat the failed row was drawn for: checked before the restore
 /// and again after it, on the same client, as Cloud credential recovery does. A chat switch while the
-/// attachments are restored sends nothing to the next chat.
+/// attachments are restored sends nothing to the next chat, and rejects with ``RetryNotSent``.
 export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client, Draft>): Promise<unknown> {
-  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
   const draft = await deps.restore();
-  if (!deps.owns() || deps.currentClient() !== deps.client) return undefined;
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
   return deps.send(draft);
 }
