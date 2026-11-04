@@ -1055,3 +1055,17 @@ fn a_freeze_marker_makes_the_next_open_write_the_lines_again_then_goes() {
     assert!(inode().1 > 0, "the log is gone");
     assert!(!marker.exists(), "the checkpoint after the rewrite left the marker");
 }
+
+/// Scratch, never merged (lead 2026-11-04): `a_failed_log_sync_freezes_the_checkpoint` 50 times in
+/// a row in one process, alone; counts the runs that fail instead of stopping at the first.
+#[test]
+fn a_failed_log_sync_freezes_the_checkpoint_x50() {
+    let mut failed = Vec::new();
+    for run in 0..50 {
+        if std::panic::catch_unwind(a_failed_log_sync_freezes_the_checkpoint).is_err() {
+            failed.push(run);
+        }
+    }
+    eprintln!("ACPMUX-X50 failed {} of 50 runs: {failed:?}", failed.len());
+    assert!(failed.is_empty(), "failed {} of 50 runs: {failed:?}", failed.len());
+}
