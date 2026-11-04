@@ -29,14 +29,11 @@ fn projection_workspace_target_follows_id_after_tree_reorder() {
 /// Waits until the daemon's agent roster lists `surface`'s agent. The roster's
 /// owner thread folds a report right after the report answered (cmux-tui-core
 /// `mux/agent_roster_worker.rs`), and the sidebar reads the roster.
-fn wait_for_listed_agent(mux: &Mux, surface: cmux_tui_core::SurfaceId) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+fn wait_for_listed_agent(mux: &Mux, surface: SurfaceId) {
+    let deadline = Instant::now() + Duration::from_secs(10);
     while mux.list_agents(Some(surface), None).is_empty() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the agent roster never listed the reported agent"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(Instant::now() < deadline, "the agent roster never listed the reported agent");
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
