@@ -82,6 +82,12 @@ extension HomeAgentChatContent {
             details: details,
             messages: thread.entries.map { Message(sender: Sender($0.sender), text: $0.text) },
             workspaceLink: thread.workspaceLink)
+        // Only this chat's session (a restarted agent has another); once it moved, its own link opens it
+        // where acpmux has it now, not the Chief's link to where it started.
+        if let session, session.session == thread.session, session.hasMoved {
+            place = session.place
+            workspaceLink = session.sessionLink ?? thread.workspaceLink
+        }
     }
 
     /// The status words for `state`.
