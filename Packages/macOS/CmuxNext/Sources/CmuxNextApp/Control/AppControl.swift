@@ -99,6 +99,7 @@ final class AppControl {
         }])
         service.router.register(SettingsControl.methods(services: services))
         service.router.register(services.cmuxRemoteActions.controlMethods())
+        service.router.register(services.mcpServers.controlMethods())
         service.router.register(TerminalLinkOpenControl.methods(services: services))
         service.router.register(PermissionsControl.methods(services: services))
         service.router.register(NotificationsControl.methods(services: services))
