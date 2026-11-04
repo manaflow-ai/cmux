@@ -17,9 +17,10 @@
 //!   stream change and writes to the new host, until `HOST_INPUT_RECONNECT_WAIT`.
 //! - A full port refuses at once with a typed error: nothing is dropped silently and nothing waits. Each queued
 //!   frame counts its bookkeeping too ([`PORT_FRAME_COST`]), so many tiny frames cannot grow the queue without bound.
-//! - A terminal whose host reader ended (no connection will come back) takes no input: the write is refused at once,
-//!   as the old path's write failed then (`Surface::enqueue_on_input_port`). A `Failed` connection whose reader still
-//!   retries is accepted, as in any reconnect wait.
+//! - A connection the reader shut down (`Failed`, it keeps retrying: [`InputRoute::Failed`]) or a reader that ended
+//!   takes no input: the write is refused at once, as the old path's write failed then
+//!   (`Surface::enqueue_on_input_port`). A replacement's route is accepted as soon as it is installed. While a lost
+//!   connection is still `Reconnecting`, input is accepted and the writer waits for the reconnect.
 //! - Input the port took and then could not write (the host is gone and no new one came) is lost, as a failed write
 //!   was before; the request had already been answered, so the port logs it.
 //! - Stage S1 step 6b, before the default flip: every other frame of the connection (viewer size, cell pixels,
@@ -52,6 +53,9 @@ pub(crate) enum InputRoute {
     Hosted(HostInputRoute),
     /// The host exited and the terminal keeps its final screen: input is dropped, as `write_bytes` drops it.
     Exited,
+    /// The reader shut the host connection down and keeps retrying (`Failed`): input is refused until a
+    /// replacement is installed, as the old path's write to the shut connection failed.
+    Failed,
 }
 
 /// Why the port did not take a write.
@@ -239,6 +243,14 @@ fn write_with_reconnect(
             Some(InputRoute::Hosted(route)) => route.send(kind, bytes),
             // Keep-on-exit: the final screen drops input; input that already failed keeps its error.
             Some(InputRoute::Exited) => return first_error.map_or(Ok(()), Err),
+            Some(InputRoute::Failed) => {
+                return Err(first_error.unwrap_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotConnected,
+                        "the terminal's host connection failed; input not written",
+                    )
+                }));
+            }
             None => {
                 return Err(first_error.unwrap_or_else(|| {
                     std::io::Error::new(

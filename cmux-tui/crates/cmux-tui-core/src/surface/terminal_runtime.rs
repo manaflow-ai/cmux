@@ -71,6 +71,14 @@ impl PtyTerminalRuntime {
         *runtime = next;
         self.input_route.store(Self::input_route_of(runtime));
     }
+
+    /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
+    /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
+    /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_failed(&self, _runtime: &PtyRuntime) {
+        self.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+    }
 }
 
 impl PtyTerminalRuntime {

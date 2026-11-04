@@ -197,6 +197,35 @@ fn a_key_does_not_wait_for_another_writers_blocked_host_socket() {
     );
 }
 
+/// A key to a terminal whose host connection the reader shut down (`Failed`, still retrying) is refused at once, as
+/// the old path's write to the shut connection failed (`cmux send` exits non-zero); once a replacement's route is
+/// published, keys go through again (#34544 review 3).
+#[cfg(unix)]
+#[test]
+fn a_key_to_a_failed_link_is_refused_until_a_live_route_is_published() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-failed", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+    let refused = surface.write_bytes(b"x").expect_err("a key to a failed link was accepted");
+    assert_eq!(refused.kind(), std::io::ErrorKind::NotConnected, "{refused}");
+
+    let live = PtyTerminalRuntime::input_route_of(&pty.runtime.lock().unwrap());
+    pty.input_route.store(live);
+    surface.write_bytes(b"y").expect("the key after the replacement was refused");
+    let frame = loop {
+        let frame = crate::terminal_host_protocol::read_frame(
+            &mut host,
+            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+        )
+        .expect("the host reads the key")
+        .expect("the host connection stays open");
+        if frame.kind == MessageKind::Input {
+            break frame;
+        }
+    };
+    assert_eq!(frame.payload, b"y", "the refused key must not reach the host");
+}
+
 /// Keys to a hosted terminal on the input port reach the host once each, in the order they were typed (the port's
 /// one writer thread), and a key the port took returns before the host read anything (#34544 review).
 #[cfg(unix)]
@@ -222,19 +251,17 @@ fn keys_on_the_input_port_reach_the_host_once_each_in_order() {
     assert_eq!(written, keys, "the keys reached the host in another order or more than once");
     // Nothing more: no key is written twice.
     host.set_read_timeout(Some(Duration::from_millis(150))).unwrap();
-    loop {
-        match crate::terminal_host_protocol::read_frame(
-            &mut host,
-            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-        ) {
-            Ok(Some(frame)) => assert_ne!(
-                frame.kind,
-                MessageKind::Input,
-                "a key reached the host twice: {:?}",
-                frame.payload
-            ),
-            Ok(None) | Err(_) => break,
-        }
+    // Ends at the read timeout (nothing more) or at end of stream.
+    while let Ok(Some(frame)) = crate::terminal_host_protocol::read_frame(
+        &mut host,
+        crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+    ) {
+        assert_ne!(
+            frame.kind,
+            MessageKind::Input,
+            "a key reached the host twice: {:?}",
+            frame.payload
+        );
     }
 }
 
