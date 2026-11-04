@@ -1,3 +1,4 @@
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 @testable import CmuxNextDesign
 import Testing
@@ -32,3 +33,4 @@ struct LayoutPassGuardInstancesTests {
         #expect(guardian.instancesByCalls(limit: 1).count == 1, "the limit")
     }
 }
+#endif

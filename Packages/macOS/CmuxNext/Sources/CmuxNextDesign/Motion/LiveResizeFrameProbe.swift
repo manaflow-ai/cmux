@@ -38,7 +38,8 @@ final class LiveResizeFrameProbe {
     func frameWillApply(in window: NSWindow, eventTime: TimeInterval?, atTick: Bool) -> Frame? {
         guard MotionTrace.isEnabled else { return nil }
         let start = CACurrentMediaTime()
-        let target = Self.target(after: start, lastTick: FrameScheduler.forWindow(window).lastTick)
+        let tick = FrameScheduler.forWindow(window).lastTick
+        let target = tick.flatMap { tick in tick.refreshInterval.flatMap { Self.target(after: start, frameTarget: tick.targetTimestamp, interval: $0) } }
         if let eventTime { MotionTrace.sample("liveResize.wait_ms", (start - eventTime) * 1000) }
         MotionTrace.sample("liveResize.at_tick", atTick ? 1 : 0)
         if let target { MotionTrace.sample("liveResize.lead_ms", (target - start) * 1000) }
@@ -67,13 +68,13 @@ final class LiveResizeFrameProbe {
         observer = nil
     }
 
-    /// The first display time at or after `time` on a display link whose last frame was `lastTick`; nil when that frame
-    /// is older than ``linkFreshness`` or was synthesized (no refresh period).
-    static func target(after time: CFTimeInterval, lastTick: FrameTick?) -> CFTimeInterval? {
-        guard let tick = lastTick, let interval = tick.refreshInterval, interval > 0,
-              time - tick.targetTimestamp < linkFreshness else { return nil }
-        guard time > tick.targetTimestamp else { return tick.targetTimestamp }
-        return tick.targetTimestamp + ((time - tick.targetTimestamp) / interval).rounded(.up) * interval
+    /// The first display time at or after `time` on a display link whose last frame shows at `frameTarget`, one refresh
+    /// every `interval` seconds; nil when that frame is older than ``linkFreshness`` or `interval` is not a period. A
+    /// synthesized frame (no refresh period) places nothing: the caller passes none.
+    static func target(after time: CFTimeInterval, frameTarget: CFTimeInterval, interval: Double) -> CFTimeInterval? {
+        guard interval > 0, interval.isFinite, time - frameTarget < linkFreshness else { return nil }
+        guard time > frameTarget else { return frameTarget }
+        return frameTarget + ((time - frameTarget) / interval).rounded(.up) * interval
     }
 }
 #endif
