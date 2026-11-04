@@ -1,5 +1,5 @@
 """Chief conversation hooks parity flows (feat-cmux-next-ios-conversation-hooks-parity, cmux#25834):
-Reply with Selection and Chief Zoom In / Zoom Out / Actual Size on the phone's Chief.
+Reply with Selection, Chief Zoom In / Zoom Out / Actual Size and Chat Colors on the phone's Chief.
 
 Same rig as pq_chatx.py: the phone app in ONE headless simulator, the real tagged cmux-next Mac
 app (rmac.py), the real link between them. Every action under test is done on the phone; the
@@ -242,7 +242,48 @@ def zoom_flow(j, label):
     return out
 
 
-FLOWS = {"select": select_flow, "zoom": zoom_flow}
+def colors_flow(j, label):
+    """Chief's page menu > Chat Colors…: the Mac's swatches for my and their bubbles. Picks show
+    live under the sheet, stay after the app is quit and opened again (kept on this phone, per
+    chat), and Reset brings Messages' colours back."""
+    out = {"open_s": round(open_chief(j), 1)}
+    ensure_source(j)
+    pq.shot(f"colors-{label}-rest")
+    open_page_menu(j)
+    out["menu"] = [x for x in labels(j) if x in ("Invite to cmux", "Chat Colors…") or x.startswith(("Text Size", "Zoom", "Actual"))]
+    pq.shot(f"colors-{label}-menu")
+    if label == "before":
+        out["has_chat_colors"] = "Chat Colors…" in out["menu"]
+        dismiss_menu(j)
+        return out
+    tap_menu(j, "Chat Colors…")
+    check(j.sim.wait(ident="chief.colors.sent.default", timeout=8), f"no Chat Colors sheet: {labels(j)[:30]}")
+    pq.shot(f"colors-{label}-sheet")
+    j.sim.tap_q(ident="chief.colors.sent.#34C759")
+    time.sleep(1.2)
+    j.sim.tap_q(ident="chief.colors.received.#1C2A4A")
+    time.sleep(1.5)
+    pq.shot(f"colors-{label}-picked")
+    j.sim.tap_q(ident="chief.colors.done")
+    time.sleep(1.5)
+    pq.shot(f"colors-{label}-applied")
+    j.sim.launch(pq.BUNDLE)
+    time.sleep(4)
+    open_chief(j)
+    pq.shot(f"colors-{label}-relaunched")
+    open_page_menu(j)
+    tap_menu(j, "Chat Colors…")
+    j.sim.wait(ident="chief.colors.reset", timeout=8)
+    out["reset_enabled"] = bool(j.sim.find(ident="chief.colors.reset"))
+    j.sim.tap_q(ident="chief.colors.reset")
+    time.sleep(1.2)
+    j.sim.tap_q(ident="chief.colors.done")
+    time.sleep(1.5)
+    pq.shot(f"colors-{label}-reset")
+    return out
+
+
+FLOWS = {"select": select_flow, "zoom": zoom_flow, "colors": colors_flow}
 
 
 def run(name, label):
