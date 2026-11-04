@@ -160,7 +160,17 @@ extension SidebarListViewComponents {
         // has one, and the first one goes to the selection (`revealFirstViewport`, REOPEN-F7).
         if let clip = enclosingScrollView?.contentView, clip.bounds.height <= 0 { return .null }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
-        return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        let rect = visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        // Responsive scrolling (`SidebarScrollView`) asks for content past the visible rows before it scrolls
+        // there off the main thread; those rows are drawn too, up to a quarter screen past each edge.
+        let prepared = preparedContentRect.intersection(visible.insetBy(dx: 0, dy: -visible.height / 4))
+        return prepared.isEmpty ? rect : rect.union(prepared)
+    }
+    /// Responsive scrolling's overdraw: AppKit prepares the rect it may scroll to next, and the rows in it get views
+    /// now (`realizationRect`), so a scroll that runs ahead of a busy main thread finds them drawn.
+    override func prepareContent(in rect: NSRect) {
+        super.prepareContent(in: rect)
+        realizeVisibleRows()
     }
     /// `newRowsInPlace`: a reveal jumps after this apply. A new row this apply gives no view (outside the rows drawn
     /// now) is not opening: the jump draws it whole in its slot (`RowMotion.place`), since its gap is open by then and
