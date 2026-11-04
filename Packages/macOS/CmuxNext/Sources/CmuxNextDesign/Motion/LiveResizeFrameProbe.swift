@@ -22,7 +22,11 @@ import CmuxNextWakeups
 /// - `liveResize.commit_inside`: 1 when a Core Animation commit happened inside the `setFrame` (AppKit flushed the new
 ///   size there: what S7 sends when the `setFrame` returns misses that commit), else 0 (``CommitWitness``);
 /// - `liveResize.commit_before_didresize`: 1 when that commit happened before the window's didResize inside the
-///   `setFrame`, 0 when after it; -1 when no didResize came inside the `setFrame`.
+///   `setFrame`, 0 when after it; -1 when no didResize came inside the `setFrame`;
+/// - `liveResize.view_layouts_inside`: `-[NSView layout]` calls (any window) inside the `setFrame`;
+/// - `liveResize.view_layouts_after`: those calls from the `setFrame`'s end to the end of the turn's commit (what the
+///   turn still laid out after a commit inside the `setFrame` shows one commit later);
+/// - `liveResize.after_ms`: from the `setFrame`'s end to the end of the turn's commit.
 @MainActor
 final class LiveResizeFrameProbe {
     /// A `setFrame` of the resize: when it started and the display time it can first make (nil: no recent display link).
@@ -31,6 +35,8 @@ final class LiveResizeFrameProbe {
         let target: CFTimeInterval?
         /// ``LayoutPassGuard/windowLayoutsBegun`` when the `setFrame` started.
         let layoutsBegun: Int
+        /// ``LayoutPassGuard/viewLayoutCalls`` when the `setFrame` started.
+        let viewLayouts: Int
     }
 
     /// How old the window's last display-link frame may be for its target to place a `setFrame` on the refresh.
@@ -40,6 +46,8 @@ final class LiveResizeFrameProbe {
 
     /// The display times of the frames applied since the last commit.
     private var awaitingCommit: [CFTimeInterval] = []
+    /// When the last applied `setFrame` ended and ``LayoutPassGuard/viewLayoutCalls`` then (nil: none since the commit).
+    private var lastApplied: (end: CFTimeInterval, viewLayouts: Int)?
     private let witness = CommitWitness()
     /// Whether a commit happened before the window's didResize in the `setFrame` running now (nil: no didResize yet).
     private var committedBeforeResize: Bool?
@@ -60,7 +68,8 @@ final class LiveResizeFrameProbe {
         if let root = window.contentView?.layer { witness.attach(to: root) }
         witness.arm()
         (committedBeforeResize, applying) = (nil, true)
-        return Frame(start: start, target: target, layoutsBegun: LayoutPassGuard.shared.windowLayoutsBegun)
+        return Frame(start: start, target: target, layoutsBegun: LayoutPassGuard.shared.windowLayoutsBegun,
+                     viewLayouts: LayoutPassGuard.shared.viewLayoutCalls)
     }
 
     /// The window's didResize (its delegate's, synchronous on the main thread): inside a `setFrame` of the resize, whether
@@ -77,8 +86,10 @@ final class LiveResizeFrameProbe {
         applying = false
         MotionTrace.sample("liveResize.commit_inside", witness.committed ? 1 : 0)
         MotionTrace.sample("liveResize.commit_before_didresize", committedBeforeResize.map { $0 ? 1 : 0 } ?? -1)
-        guard let target = frame.target else { return }
-        awaitingCommit.append(target)
+        let viewLayouts = LayoutPassGuard.shared.viewLayoutCalls
+        MotionTrace.sample("liveResize.view_layouts_inside", Double(viewLayouts - frame.viewLayouts))
+        lastApplied = (CACurrentMediaTime(), viewLayouts)
+        if let target = frame.target { awaitingCommit.append(target) }
         guard observer == nil else { return }
         // One shot: the turn's commit ends just before it; the run loop drops it after it runs.
         let observer = MainRunLoopObserver.afterCommitObserver(activities: [.beforeWaiting, .exit], repeats: false,
@@ -93,6 +104,11 @@ final class LiveResizeFrameProbe {
         let end = CACurrentMediaTime()
         for target in awaitingCommit { MotionTrace.sample("liveResize.commit_slack_ms", (target - end) * 1000) }
         awaitingCommit.removeAll()
+        if let lastApplied {
+            MotionTrace.sample("liveResize.view_layouts_after", Double(LayoutPassGuard.shared.viewLayoutCalls - lastApplied.viewLayouts))
+            MotionTrace.sample("liveResize.after_ms", (end - lastApplied.end) * 1000)
+        }
+        lastApplied = nil
         observer = nil
     }
 
