@@ -1,28 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UiVirtualAnchor } from "../../ui/Popover";
 import { useOpenSide, type UiPopupFlip, type UiPopupSide } from "../../ui/openSide";
 import { registerPicker } from "./pickerOpeners";
 
 /// The composer a location control heads: the chat pane's form, or the New Tab page's composer.
 const COMPOSER = "form.acpmux-composer, .nt-composer";
-
-/** Close a location menu before the columns model chip opens on the same pointer press. */
-export function useComposerPopoverSwitch(open: boolean, trigger: RefObject<HTMLElement | null>, close: () => void) {
-  const latestClose = useRef(close);
-  latestClose.current = close;
-  useEffect(() => {
-    const doc = trigger.current?.ownerDocument;
-    if (!open || !doc) return;
-    const switchPopover = (event: Event) => {
-      const target = (event as CustomEvent<unknown>).detail;
-      if (!(target instanceof Element)) return;
-      const composer = trigger.current?.closest(COMPOSER);
-      if (composer && target.closest(COMPOSER) === composer) latestClose.current();
-    };
-    doc.addEventListener("cmux-composer-popover-switch", switchPopover);
-    return () => doc.removeEventListener("cmux-composer-popover-switch", switchPopover);
-  }, [open, trigger]);
-}
 
 /// The side away from the conversation (Leo 2026-10-29: "make them open away from teh chat, which
 /// is obviously up if it's up, down if it's down"). It is read from where the composer sits in the

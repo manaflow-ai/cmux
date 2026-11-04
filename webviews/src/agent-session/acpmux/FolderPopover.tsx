@@ -6,7 +6,7 @@ import { AddProjectDialog, type BrowseRequest, type BrowseResult } from "./AddPr
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { translate as t } from "./i18n";
-import { useComposerPopoverSwitch, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -171,7 +171,6 @@ export function FolderPopover({
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
-  useComposerPopoverSwitch(open, trigger, close);
   const submit = (value: string) => {
     // Add folder… keeps the menu open: its list now adds a folder.
     if (value === ACTION_EXTRA) {

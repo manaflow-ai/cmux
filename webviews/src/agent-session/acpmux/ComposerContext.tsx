@@ -56,7 +56,7 @@ import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t, useT } from "./i18n";
-import { useComposerPopoverSwitch, useLocationOpener, useLocationPopover } from "./locationPopover";
+import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
@@ -1262,7 +1262,6 @@ function LocationPicker({
   };
   const press = usePopoverTrigger(open, changeOpen);
   const trigger = useRef<HTMLButtonElement>(null);
-  useComposerPopoverSwitch(open, trigger, () => changeOpen(false));
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   useEffect(() => {
     if (!closeOnTrustAsk || !open) return;
