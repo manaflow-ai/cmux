@@ -10,7 +10,11 @@ pub(super) const TRUST_PEER_EXTENSION: &str = "acp.trust.peer-v1";
 
 /// Peer aliases belong to this daemon's local caller, not to another daemon's clients. A
 /// forwarded request has already consumed its selector; it cannot select a third machine.
-pub(super) fn refuse_peer_selector(origin: Origin, m: &str, params: &Value) -> Result<(), RpcError> {
+pub(super) fn refuse_peer_selector(
+    origin: Origin,
+    m: &str,
+    params: &Value,
+) -> Result<(), RpcError> {
     let selects = match m {
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => params.get("peer").is_some(),
         method::SESSION_NEW => params.pointer("/_meta/acpmux/peer").is_some(),
