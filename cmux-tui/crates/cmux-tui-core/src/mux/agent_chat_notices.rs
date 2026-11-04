@@ -683,10 +683,13 @@ fn read_watch(
     unlisted: &mut HashMap<String, Chat>,
 ) -> std::io::Result<Option<Instant>> {
     let mut writer = stream.try_clone()?;
+    // `observer`: this connection only watches, so it keeps no acpmux daemon whose app has quit
+    // (acpmux `daemon/unused_exit.rs`); this daemon outlives the app while it holds shells.
     let initialize = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": 1,
         "clientInfo": {"name": "cmux-tui-agent-chat-notices", "version": "1"},
         "clientCapabilities": {},
+        "_meta": {"acpmux": {"observer": true}},
     }});
     let watch = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
         "params": {"enabled": true, "limit": PAGE_SESSIONS}});
