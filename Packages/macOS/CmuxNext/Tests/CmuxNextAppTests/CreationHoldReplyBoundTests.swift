@@ -4,7 +4,6 @@ import CmuxNextActions
 @testable import CmuxNextDaemon
 @testable import CmuxNextFocusUI
 import CmuxNextTerminal
-import Darwin
 import Foundation
 import Testing
 
@@ -15,9 +14,12 @@ import Testing
 /// at the bound the held keys go on, in typing order, to what has the keyboard; none is lost.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CreationHoldReplyBoundTests {
-    /// Cmd-N for a terminal workspace while the daemon does not answer (its room pin, then the create, wait): the keys typed
+    /// Cmd-N for a terminal workspace whose daemon never answers (its room pin, then the create, never reply): the keys typed
     /// after it wait at most the hold's bound, then go on in order to the terminal that has the keyboard (the window still
-    /// shows it: the new workspace never came). Base: they waited for the pin to give up (30 s), then were dropped.
+    /// shows it: the new workspace never came). Base: they waited for the reply that never comes.
+    /// The hold is opened as Cmd-N opens it for a person (`beginWorkspace(in:)`; a test window is never key, so `newTab`
+    /// performed here has no source window and opens no person hold: PersonTerminalKeyboardClaimTests does the same), and
+    /// its reply never comes: nothing resolves the ticket, as when the daemon never answers.
     @Test func keysTypedAfterCmdNWhoseDaemonNeverAnswersReachTheFocusedTerminalAtTheBound() async throws {
         var replayed: [(text: String, at: ContinuousClock.Instant, terminalHadKeyboard: Bool)] = []
         var terminalView: NSView?
@@ -55,12 +57,8 @@ struct CreationHoldReplyBoundTests {
                     && (window.firstResponder as? NSView)?.isDescendant(of: shown.pane.view) == true
             }, report: { "the terminal pane does not have the keyboard: \(content.focus.state.resolved)" })
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) }, report: { "the split's creation hold did not end" })
-            let pid = try #require(services.daemon.identity?.pid)
-            #expect(kill(pid, SIGSTOP) == 0)
-            var resumed = false
-            defer { if !resumed { kill(pid, SIGCONT) } }
-            // The person's Cmd-N for a terminal workspace (this Mac hosts no New Tab page here).
-            let work = services.registry.capturingWork { _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)) }
+            // The person's Cmd-N for a terminal workspace: its key hold and keyboard claim, and a reply that never comes.
+            let ticket = try #require(coordinator.beginWorkspace(in: services.windows.active), "a person's new workspace opened no key hold")
             let typed = ContinuousClock.now
             for character in "echo held\r" {
                 let text = String(character)
@@ -78,9 +76,9 @@ struct CreationHoldReplyBoundTests {
             let withoutTerminal = replayed.filter { !$0.terminalHadKeyboard }.map(\.text)
             #expect(withoutTerminal.isEmpty, "held keys went on while no terminal had the keyboard: \(withoutTerminal)")
             if let last = replayed.last { #expect(last.at - typed < .seconds(3), "the keys waited \(last.at - typed), past the bound") }
-            #expect(kill(pid, SIGCONT) == 0)
-            resumed = true
-            for task in work { _ = await task.value }
+            let end = coordinator.lastHoldEnd(in: window).map { "\($0)" } ?? "none" // by name: the red build has no such case
+            #expect(end == "replyBoundReached", "the hold ended \(end), not at its reply bound")
+            coordinator.resolve(ticket, landed: false, in: window) // a reply after the bound belongs to no hold
             // What the person sees: the terminal that had the keyboard shows the line and the shell's answer.
             func ran(_ text: String) -> Bool {
                 text.contains("echo held") && text.components(separatedBy: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "held" }
