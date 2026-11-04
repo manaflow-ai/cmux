@@ -104,6 +104,7 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+mod machine_info;
 mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;

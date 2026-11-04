@@ -139,6 +139,14 @@ fn base_tools() -> Value {
             }
         },
         {
+            "name": "machine_info",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
             "name": "team_send",
             "description": "Send an information message to a teammate's agent or a team role. Addresses are team-scoped (for example @lawrence/coordinator or @team/reviewer). The receipt includes the hub's resolution and whether the message may start work; a normal message never starts work automatically.",
             "inputSchema": {
@@ -278,11 +286,23 @@ pub async fn run() -> Result<()> {
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
                 }
+                if name == "machine_info" {
+                    return machine_info(&daemon, &session).await;
+                }
                 call(&daemon, &params).await
             }
         },
     )
     .await
+}
+
+async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
+    match daemon.request(method::MUX_MACHINE_INFO, json!({"sessionId": session})).await {
+        Ok(result) => {
+            ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()), result)
+        }
+        Err(error) => refusal(error),
+    }
 }
 
 fn ok(text: String, structured: Value) -> Value {

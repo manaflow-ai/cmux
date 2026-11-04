@@ -69,6 +69,7 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "ls",
             "last",
             "info",
+            "machine_info",
             "team_send",
             "team_inbox",
             "team_ack",
@@ -86,8 +87,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
     assert!(send.contains("Message another agent session"), "{send}");
     assert!(send.contains("instead of running `acpmux send` in a shell"), "{send}");
     assert!(send.contains("batch them in one call with messages"), "{send}");
-    assert_eq!(tools[6]["inputSchema"]["required"], json!(["to", "body"]));
-    assert_eq!(tools[8]["inputSchema"]["required"], json!(["id"]));
+    assert_eq!(tools[7]["inputSchema"]["required"], json!(["to", "body"]));
+    assert_eq!(tools[9]["inputSchema"]["required"], json!(["id"]));
 }
 
 /// The first shape's fields are as they were (a snapshot): only new optional fields were added,
