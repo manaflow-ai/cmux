@@ -475,7 +475,7 @@ fn list_quarantined(storage: &dyn Storage, dir: &Path) -> Result<Vec<Quarantined
         }
     };
     let mut out: Vec<Quarantined> = names.into_iter().filter_map(Quarantined::parse).collect();
-    out.sort_by(|a, b| (a.seq, a.attempt).cmp(&(b.seq, b.attempt)));
+    out.sort_by_key(|entry| (entry.seq, entry.attempt));
     Ok(out)
 }
 
