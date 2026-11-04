@@ -2,8 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// Glass bar that asks the first pending prompt of the tab: a permission
-/// request (camera, microphone, location, notifications, downloads,
-/// Chromium's other requests), a JavaScript alert, confirm, or text input, HTTP
+/// request (camera, microphone, location, notifications, downloads), a JavaScript alert, confirm, or text input, HTTP
 /// authentication (user name and password), or a link to another app
 /// (Open, with "Always allow" for the site).
 final class PromptBarView: ChromeFrameView {
@@ -159,10 +158,9 @@ final class PromptBarView: ChromeFrameView {
             case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
             case .location: Strings.permissionLocation(prompt.origin)
             case .notifications: Strings.permissionNotifications(prompt.origin)
-            case .capabilities(let items): Strings.permissionCapabilities(prompt.origin, items)
             }
             switch kind {
-            case .automaticDownloads, .location, .notifications, .capabilities:
+            case .automaticDownloads, .location, .notifications:
                 // Chrome's question: Block or Allow, remembered for the site.
                 addButton(PageInfoStrings.block, prominent: false, response: .deny)
                 addButton(PageInfoStrings.allow, prominent: true, response: .allow)

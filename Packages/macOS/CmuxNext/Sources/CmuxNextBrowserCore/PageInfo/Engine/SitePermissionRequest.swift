@@ -2,12 +2,9 @@ import CmuxSafeConcurrency
 package import Foundation
 
 /// A site's request for a permission the prompt bar asks about (camera and
-/// microphone, location, notifications; in Chromium tabs also Chromium's
-/// other requests), in either engine: answered from the
+/// microphone, location, notifications), in either engine: answered from the
 /// shared store, asking only when the site has no decision, and the answer
-/// stored ("Allow this time" stores nothing). A request with no per-site
-/// setting (`capabilities` with an item cmux keeps no setting for) is always
-/// asked and stores nothing.
+/// stored ("Allow this time" stores nothing).
 package struct SitePermissionRequest {
     package enum Outcome: Equatable {
         case grant
@@ -21,18 +18,14 @@ package struct SitePermissionRequest {
     package let origin: String
     package let store: SitePermissionStore
 
-    /// `ask` is the tab's `enqueuePrompt`; `done` runs once. `confirm` sees
-    /// the outcome before `done` and may change it (Chromium tabs ask macOS
-    /// for a capture the site is allowed, `CEFCaptureAccess`); WebKit passes
-    /// it through.
+    /// `ask` is the tab's `enqueuePrompt`; `done` runs once.
     package func decide(ask: @escaping @MainActor (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void,
-                confirm: @escaping @MainActor (Outcome) async -> Outcome,
                 done: @escaping @MainActor (Outcome) -> Void) {
         // Automatic downloads have their own gate (`AutomaticDownloadGate`).
         guard kind != .automaticDownloads else { return done(.deny) }
         let kinds = kind.siteKinds
         let (kind, origin, store) = (kind, origin, store)
-        // main-hop-allow: one main-actor chain per request: the store's one file read (whenLoaded), the prompt's answer and the engine's async `confirm` (macOS capture access) each resume on main, where the store and the prompt bar live
+        // main-hop-allow: one main-actor chain per request: the store's one file read (whenLoaded) and the prompt's answer each resume on main, where the store and the prompt bar live
         Task {
             await store.whenLoaded()
             let settings = kinds.map { store.setting($0, for: origin) }
@@ -57,7 +50,7 @@ package struct SitePermissionRequest {
                 default: outcome = .dismiss
                 }
             }
-            done(await confirm(outcome))
+            done(outcome)
         }
     }
 
@@ -70,8 +63,7 @@ package struct SitePermissionRequest {
 
 extension BrowserPermissionKind {
     /// The per-site settings that decide it (automatic downloads have their
-    /// own gate, `AutomaticDownloadGate`). Empty when any part of the request
-    /// has no setting: then it is always asked.
+    /// own gate, `AutomaticDownloadGate`).
     package var siteKinds: Set<SitePermissionKind> {
         switch self {
         case .camera: [.camera]
@@ -80,15 +72,6 @@ extension BrowserPermissionKind {
         case .location: [.location]
         case .notifications: [.notifications]
         case .automaticDownloads: []
-        case .capabilities(let items):
-            items.allSatisfy { $0.siteKind != nil } ? Set(items.compactMap(\.siteKind)) : []
         }
-    }
-
-    /// The per-site settings the request touches, for Page Info's activity
-    /// (`PageInfoActivity.recordRequest`), also when it is always asked.
-    package var requestedSiteKinds: Set<SitePermissionKind> {
-        if case .capabilities(let items) = self { return Set(items.compactMap(\.siteKind)) }
-        return siteKinds
     }
 }

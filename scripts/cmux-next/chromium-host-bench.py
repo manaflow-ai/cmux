@@ -170,9 +170,8 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on, the permission rows (p01-process-062, feature
-chromiumPermissionPromptsFromData): camera, microphone, location and notifications on a page served from 127.0.0.1.
-Each is asked in cmux's prompt bar and answered Block through `debug.browser.prompts`, the page hears the refusal,
+and shows no window, with feature chromiumHostFileDialogs on, the location permission row on a page served from 127.0.0.1.
+It is asked in cmux's prompt bar and answered Block through `debug.browser.prompts`, the page hears the refusal,
 and the app's child processes show no window, then the chooser rows (chromium_host_native_ui_choosers.py,
 p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
 and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows

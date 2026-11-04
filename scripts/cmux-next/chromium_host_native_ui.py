@@ -35,24 +35,14 @@ within the row's deadline; it records the widget and how long it took to show. W
 null: host mode not live in this build, or the feature off) every widget row says so and the mode fails: it could not
 run.
 
-The permission rows (p01-process-062, feature `chromiumPermissionPromptsFromData`) run on a page served from
-http://127.0.0.1. That is a secure context with a real origin; a file: page has no origin for the prompt bar. They use
-Chromium's fake camera and microphone (`use-fake-device-for-media-stream` in CMUX_NEXT_CEF_EXTRA_SWITCHES), because a
-fleet Mac has no camera:
+The permission row runs on a page served from http://127.0.0.1. That is a secure context with a real origin; a file:
+page has no origin for the prompt bar. cmux's prompt bar asks location only (CEFShim permission_prompt_policy.h):
 
-  permission_camera         getUserMedia({video}): Block gives the page NotAllowedError
-  permission_microphone     getUserMedia({audio}): Block gives the page NotAllowedError
   permission_location       geolocation.getCurrentPosition: Block gives the page PERMISSION_DENIED (code 1)
-  permission_notifications  Notification.requestPermission: Block gives the page "denied"
 
-Each row starts the request in the page and waits for cmux's prompt bar to ask it (`debug.browser.prompts`, Debug
+The row starts the request in the page and waits for cmux's prompt bar to ask it (`debug.browser.prompts`, Debug
 builds). While the question shows, it counts the on-screen windows of the app's child processes (pass: 0, so no
 Chromium bubble and no host window). Then it answers Block as the bar's button does and reads the page's result.
-The rows answer Block, never Allow: an Allow asks macOS for the camera, microphone or location in cmux's name, and
-that system dialog belongs to the TCC rows of task p01-process-089 on each macOS version. Chromium keeps notifications
-off (CEFSwitches passes disable-notifications, because DesktopNotifier owns cmux's one macOS notification grant) until
-Chromium's notification display goes to cmux. Until then the notifications row reports that the page has no
-Notification API, and it fails.
 """
 import http.server
 import json
@@ -75,7 +65,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
 """ + suggestions.FIELDS
 
 # The permission rows, on their own served page.
-PERMISSION_ROW_NAMES = ("permission_camera", "permission_microphone", "permission_location", "permission_notifications")
+PERMISSION_ROW_NAMES = ("permission_location",)
 # Every row, in the order they run.
 ROWS = ("select", "context_menu", "download", "date", "datalist", "popup_window", "devtools_docked", "devtools_window",
         "extension_popup", "side_panel", *suggestions.ROWS, *PERMISSION_ROW_NAMES)
@@ -109,29 +99,16 @@ window.__perm = {};
 function settle(name, state, detail) { window.__perm[name] = Object.assign({state}, detail || {}); }
 function ask(name) {
   settle(name, "pending");
-  const media = c => navigator.mediaDevices.getUserMedia(c).then(
-    s => { s.getTracks().forEach(t => t.stop()); settle(name, "granted"); },
-    e => settle(name, "error", {name: e.name, message: String(e.message || "")}));
-  if (name === "camera") return media({video: true});
-  if (name === "microphone") return media({audio: true});
   if (name === "location") return navigator.geolocation.getCurrentPosition(
     () => settle(name, "granted"), e => settle(name, "error", {code: e.code, message: String(e.message || "")}),
     {timeout: 60000});
-  if (name === "notifications") {
-    if (typeof Notification === "undefined") return settle(name, "unavailable");
-    return Notification.requestPermission().then(r => settle(name, "answered", {result: r}));
-  }
 }
 </script><p>permission probe</p>
 """
 
 # (row, the request's name in PERMISSION_PAGE, a word of cmux's prompt kind, whether the page's result is Block's).
 PERMISSION_ROWS = (
-    ("permission_camera", "camera", "camera", lambda r: r.get("state") == "error" and r.get("name") == "NotAllowedError"),
-    ("permission_microphone", "microphone", "microphone",
-     lambda r: r.get("state") == "error" and r.get("name") == "NotAllowedError"),
     ("permission_location", "location", "location", lambda r: r.get("state") == "error" and r.get("code") == 1),
-    ("permission_notifications", "notifications", "notifications", lambda r: r.get("result") == "denied"),
 )
 
 # How long the prompt bar may take to ask after the page's request, and the page to hear the answer.
@@ -179,11 +156,9 @@ def write_extensions(root):
 
 
 def launch_env(extension_paths):
-    """What the app needs for these rows: the features, the test extensions, and Chromium's fake capture devices."""
-    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostPopupMenus,chromiumHostSuggestions,"
-                                    "chromiumPermissionPromptsFromData",
-            "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths),
-            "CMUX_NEXT_CEF_EXTRA_SWITCHES": "use-fake-device-for-media-stream"}
+    """What the app needs for these rows: the features and the test extensions."""
+    return {"CMUX_ENABLE_FEATURES": "chromiumHostWidgets,chromiumHostPopupMenus,chromiumHostSuggestions",
+            "CMUX_NEXT_CEF_LOAD_EXTENSIONS": ":".join(extension_paths)}
 
 
 def rows_named(names, rows=ROWS):
@@ -369,9 +344,6 @@ def permission_row(rpc, wait, page_eval, host_windows, name, word, blocked):
         rpc("debug.browser.prompts", {"respond": "cancel"})
     result = lambda: page_eval(f"window.__perm && window.__perm[{json.dumps(name)}]") or {}
     page_eval(f"ask({json.dumps(name)}), true")
-    if result().get("state") == "unavailable":
-        return {"ok": False, "not_run": f"the page has no {name} API: Chromium runs with disable-notifications "
-                                        "(CEFSwitches) until its notification display goes to cmux's DesktopNotifier"}
     started = time.time()
     prompt = wait(lambda: asked(rpc, word), PROMPT_DEADLINE_S)
     row = {"prompt": prompt, "prompt_ms": round((time.time() - started) * 1000, 1) if prompt else None}
