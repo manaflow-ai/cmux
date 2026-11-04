@@ -146,7 +146,7 @@
       ]
     },
     {
-      "do": "script_new_terminal",
+      "do": "new_terminal",
       "name": "jr-quit-daemons",
       "as": "last"
     },
