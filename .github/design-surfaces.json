@@ -98,6 +98,11 @@
         "webviews/src/agent-session/acpmux/bottomStack.css"
       ]
     },
+    "background-tasks": {
+      "spec": "leo-workspace design/background-tasks.md",
+      "aliases": ["background tasks", "background commands", "subagent transcript"],
+      "paths": ["webviews/src/agent-session/acpmux/backgroundTasks/"]
+    },
     "running-tray": {
       "spec": "leo-workspace design/running-tray.md",
       "aliases": ["running tray", "subagent tray", "running in background"],

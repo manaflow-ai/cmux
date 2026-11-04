@@ -144,6 +144,18 @@ export class FrameRing {
 
 export type TypingSample = { frame: number; paint: number };
 type AgentMark = "handshakeStart" | "handshakeReady" | "composerReady" | "snapshotPaint" | "firstToken";
+/**
+ * The page's connect path on the wall clock (`Date.now()`), the first time of each since the page
+ * loaded: the relaunch-reconnect bench lines them up with the app's launch marks
+ * (scripts/cmux-next/bench_relaunch_reconnect.py). `handshakeStart` is the first ask (a retry
+ * keeps it), `connectStart` and `connected` bracket the client's connect (transport open,
+ * `initialize`, the first read), `firstEvent` is the first event of the shown chat to arrive, and
+ * `liveEvent` the first that arrives within LIVE_EVENT_LAG_MS of when acpmux recorded it: the chat
+ * is live, past any backlog.
+ */
+type LaunchMark = "handshakeStart" | "handshakeReady" | "connectStart" | "connected" | "firstEvent" | "liveEvent";
+/** An event that arrives this soon after acpmux recorded it is live, not backlog. */
+export const LIVE_EVENT_LAG_MS = 1000;
 
 /** Typing latency: keydown event time to the next frame and to after that frame paints. */
 export function typingSummary(samples: TypingSample[]) {
@@ -173,6 +185,8 @@ export class AcpmuxPerf {
   private commitWaiters: ((now: number) => void)[] = [];
   readonly typing: TypingSample[] = [];
   private agentMarks: Partial<Record<AgentMark, number>> = {};
+  private launchMarks: Partial<Record<LaunchMark, number>> = {};
+  private handshakeAttempts = 0;
   private keyListener: ((event: KeyboardEvent) => void) | undefined;
 
   /** Turns measurement on; installs the composer key listener once. */
@@ -208,6 +222,29 @@ export class AcpmuxPerf {
     }
     if (stage === "firstToken" && this.agentMarks.firstToken !== undefined) return;
     this.agentMarks[stage] = performance.now();
+  }
+
+  /** Records `stage` on the wall clock once per page (`LaunchMark`). */
+  markLaunch(stage: LaunchMark, now = Date.now()): void {
+    if (stage === "handshakeStart") this.handshakeAttempts += 1;
+    if (this.launchMarks[stage] === undefined) this.launchMarks[stage] = now;
+  }
+
+  /** An event of the shown chat arrived; `at` is when acpmux recorded it (ms since 1970). */
+  markEvent(at: unknown, now = Date.now()): void {
+    if (this.launchMarks.liveEvent !== undefined) return;
+    this.markLaunch("firstEvent", now);
+    if (typeof at === "number" && Number.isFinite(at) && at > 0 && now - at <= LIVE_EVENT_LAG_MS)
+      this.launchMarks.liveEvent = now;
+  }
+
+  /** The page's launch marks (ms since 1970) and how many handshakes it asked for. */
+  launchTimeline(): Record<string, number> {
+    const value: Record<string, number> = { handshake_attempts: this.handshakeAttempts };
+    if (typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin))
+      value.page_origin_epoch_ms = Math.round(performance.timeOrigin);
+    for (const [name, at] of Object.entries(this.launchMarks)) if (at !== undefined) value[`${name}_epoch_ms`] = at;
+    return value;
   }
 
   agentLatency(): Record<string, number> {

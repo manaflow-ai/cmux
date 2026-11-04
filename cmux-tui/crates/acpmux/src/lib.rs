@@ -57,6 +57,7 @@ pub mod cwd_pin;
 pub mod daemon;
 mod default_harness;
 pub mod deliver;
+pub mod deps;
 pub mod forum;
 pub mod forum_mcp;
 pub mod frame_compress;
@@ -174,5 +175,7 @@ pub mod workflow_journal;
 pub mod workflow_reply;
 pub mod workflow_runs;
 pub mod worktree_sessions;
+pub mod wrap_up_suggestion;
+pub mod write_journal;
 
 pub mod model_catalog;

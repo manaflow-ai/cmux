@@ -786,6 +786,21 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(pool.live_owned_free(runners, ("cmux-fleet-linux-x64",)),
                          {"cmux-fleet-linux-x64": 1})
 
+    def test_org_only_census_keeps_repository_visibility_and_approved_groups(self):
+        mini = {"id": 10, "status": "online", "busy": False, "labels": [{"name": MINI}]}
+        client, calls = self.fake_api({
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP},
+                                            {"id": 24, "name": "unapproved-group"}]},
+            self.GROUP_RUNNERS: {"runners": [mini]},
+        })
+        self.assertEqual(client.runners(include_repository=False), [mini])
+        self.assertEqual(calls, [self.GROUPS, self.GROUP_RUNNERS])
+
+    def test_org_only_census_still_requires_the_owned_group(self):
+        client, _ = self.fake_api({self.GROUPS: {"runner_groups": []}})
+        with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
+            client.runners(include_repository=False)
+
     def test_runners_fails_closed_when_approved_gcp_group_is_unreadable(self):
         client, _ = self.fake_api({
             self.REPO_RUNNERS: {"runners": []},
@@ -4372,8 +4387,7 @@ class SharedRunnerStateTests(unittest.TestCase):
             "ios-internal-nightly.yml": ("ios_internal_runner.py",),
             "cmux-next-guards.yml": ("portable_job_placement.py",),
             "cmux-tui-artifacts.yml": ("portable_job_placement.py",),
-            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py",
-                             "nightly_sign_runner.py", "signing_runner.py"),
+            "nightly.yml": ("portable_job_placement.py", "nightly_build_runner.py", "signing_runner.py"),
         }
 
         def mappings(value):

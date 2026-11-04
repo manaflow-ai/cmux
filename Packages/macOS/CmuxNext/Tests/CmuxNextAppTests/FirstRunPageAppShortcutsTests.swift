@@ -107,6 +107,26 @@ struct FirstRunPageAppShortcutsTests {
         }
     }
 
+    /// A script's New Tab (no target) over the page is refused and changes nothing the person
+    /// sees: the page stays and no tab is added to the workspace parked under it (on #34547 the
+    /// run went on with no focused pane and filled a tab into that parked workspace).
+    @Test func aScriptsNewTabOverTheFirstRunPageIsRefused() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let controller = try #require(services.windows.active)
+            try Self.showFirstRunPage(services, controller)
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            for origin in [ActionOrigin.script, .cli, .mcp] {
+                for id in ["newTab.default", "newSurface"] as [ActionID] {
+                    #expect(!services.registry.perform(id, invocation: ActionInvocation(origin: origin)), "\(origin) \(id) ran over the page")
+                }
+            }
+            // Give a wrongly started daemon create the time to land before the store is read.
+            try await Task.sleep(for: .seconds(2))
+            #expect(controller.shownTopPage == .page(.importHistory), "automation took the person's page away")
+            #expect(Set(PasswordManagerRouteTests.tabs(services).map(\.id)) == before, "automation added a tab under the page")
+        }
+    }
+
     /// Every action the rule names exists in the catalog and carries the flag (a rename must not drop one silently).
     @Test func everyContentOpenerIsACatalogAction() {
         let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
