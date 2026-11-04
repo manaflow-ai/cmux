@@ -15,7 +15,7 @@ cancels or re-runs target jobs itself. Each pass:
 
 - lists the in-flight (`queued`, `in_progress`) pull request runs of every workflow file that declares a hosted
   light job, created STALL_SECONDS to WINDOW ago (one listing page per workflow and status);
-- reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head), oldest first;
+- reads the jobs of at most MAX_RUNS of them (plus one re-read per rescue, so at most MAX_RUNS + MAX_RESCUES) (attempt 1 only, at the pull request's current head); the first pass is oldest first and later passes rotate from a bounded in-memory cursor;
 - finds a stalled job: queued, no runner id or name, every label a GitHub-hosted `ubuntu-*` label (in this repo only
   declared hosted light jobs may ask for one, tests/test_ci_self_hosted_guard.sh), created STALL_SECONDS or more ago;
 - when every unfinished job of the run is such a stalled job (so the cancel stops nothing that is running), cancels
@@ -41,7 +41,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableSequence, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -234,8 +234,31 @@ def verdict(jobs: Sequence[Mapping[str, Any]], now: dt.datetime) -> tuple[str, l
     return ("gated" if others else "rescue"), stuck
 
 
+def run_key(run: Mapping[str, Any]) -> tuple[str, int]:
+    """The stable ordering key shared by the bounded scan and its in-memory cursor."""
+    return str(run.get("created_at") or ""), int(run["id"])
+
+
+def scan_slice(runs: Sequence[Mapping[str, Any]], cursor: tuple[str, int] | None) -> tuple[
+        list[Mapping[str, Any]], tuple[str, int] | None]:
+    """Select one bounded rotating slice and return the key after which the next pass starts.
+
+    The cursor is intentionally only process-local. A new sweeper starts from the oldest run, while the
+    minute passes in one sweeper visit every candidate even when old runs stay gated. If the run at the
+    cursor disappears, the first remaining run after it (or the oldest run after a full wrap) is safe.
+    """
+    if not runs:
+        return [], cursor
+    start = 0 if cursor is None else next(
+        (index for index, run in enumerate(runs) if run_key(run) > cursor), 0)
+    ordered = list(runs[start:]) + list(runs[:start])
+    selected = ordered[:MAX_RUNS]
+    return selected, run_key(selected[-1])
+
+
 def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: bool,
-          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> list[str]:
+          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
+          scan_cursor: MutableSequence[tuple[str, int] | None] | None = None) -> list[str]:
     lines: list[str] = []
     start, end = now - WINDOW, now - dt.timedelta(seconds=STALL_SECONDS)
     listed: dict[int, Mapping[str, Any]] = {}
@@ -249,10 +272,14 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             for run in page:
                 if isinstance(run, Mapping) and isinstance(run.get("id"), int) and candidate(run):
                     listed[run["id"]] = {**run, "_workflow": workflow}
-    runs = sorted(listed.values(), key=lambda run: (str(run.get("created_at")), run["id"]))
-    if len(runs) > MAX_RUNS:
-        lines.append(f"{len(runs)} candidate runs; read the oldest {MAX_RUNS}")
-        runs = runs[:MAX_RUNS]
+    runs = sorted(listed.values(), key=run_key)
+    candidate_count = len(runs)
+    cursor = scan_cursor[0] if scan_cursor else None
+    runs, next_cursor = scan_slice(runs, cursor)
+    if scan_cursor is not None:
+        scan_cursor[:] = [next_cursor]
+    if candidate_count > MAX_RUNS:
+        lines.append(f"{candidate_count} candidate runs; read a rotating slice of {MAX_RUNS}")
     rescued = 0
     deadline = clock() + SETTLE_BUDGET_S
     for run in runs:
@@ -327,7 +354,7 @@ def sweep(client: Any, workflows: Sequence[str], *, now: dt.datetime, dry_run: b
             continue
         rescued += 1
         lines.append(f"{where}: {names} stalled; cancelled and re-ran its failed jobs on their fallback route")
-    lines.append(f"{len(listed)} candidate runs, {min(len(runs), MAX_RUNS)} read, {rescued} failed over")
+    lines.append(f"{len(listed)} candidate runs, {len(runs)} read, {rescued} failed over")
     return lines
 
 
@@ -360,8 +387,9 @@ def from_env(env: Mapping[str, str], repo: str, *, now: Callable[[], dt.datetime
     runners = json.loads((directory / "runners.json").read_text(encoding="utf-8"))
     workflows = with_callers(declared_workflows(runners), directory / "workflows")
     client = GitHub(token, repo)
+    scan_cursor: list[tuple[str, int] | None] = [None]
     def once() -> None:
-        for line in sweep(client, workflows, now=now(), dry_run=False):
+        for line in sweep(client, workflows, now=now(), dry_run=False, scan_cursor=scan_cursor):
             log(f"[hosted light] {line}")
     return once
 
