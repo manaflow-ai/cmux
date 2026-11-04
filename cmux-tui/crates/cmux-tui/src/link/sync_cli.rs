@@ -1097,6 +1097,9 @@ fn send_through_store(
 /// plan, grant and fetch round trips cost more than the bytes themselves.
 const STORE_MIN_BYTES: u64 = 1024 * 1024;
 
+/// What becomes of one write: recorded, or skipped for a symlink in its way.
+type Landed<'a> = dyn FnMut(Job, anyhow::Result<String>, &mut Remote) -> anyhow::Result<()> + 'a;
+
 /// Records each deferred file: its revision on the machine when the store
 /// wrote it (`written`, the revision its write left), or a write over the
 /// link when it did not (`written` is `None` when the store wrote nothing).
@@ -1106,7 +1109,7 @@ fn finish_deferred(
     deferred: Vec<Job>,
     written: Option<&BTreeMap<String, String>>,
     mut part: serde_json::Value,
-    landed: &mut dyn FnMut(Job, anyhow::Result<String>, &mut Remote) -> anyhow::Result<()>,
+    landed: &mut Landed<'_>,
 ) -> anyhow::Result<serde_json::Value> {
     let mut direct = 0u64;
     let mut seen = BTreeMap::new();
