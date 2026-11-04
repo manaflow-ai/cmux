@@ -283,7 +283,7 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       onClick={() => onOpen?.(session.sessionId)}
     >
       <span className="acpmux-lineage__icon" data-state={status}>
-        <AgentIdentity harness={session.harness} tone={agentTone(session.sessionId)} size={ROW_ICON} />
+        <AgentIdentity harness={session.harness} tone={agentTone(session.sessionId)} size={ROW_ICON} look="tint" />
       </span>
       <span className="acpmux-summary-text">
         <span className="acpmux-summary-agent__name">{subsessionDisplayName(t, session)}</span>

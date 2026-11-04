@@ -176,6 +176,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}
+              look="tint"
             />
           </span>
           {quiet ? (

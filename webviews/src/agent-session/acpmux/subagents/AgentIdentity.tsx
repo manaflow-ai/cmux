@@ -13,8 +13,11 @@ export function isRepeatedAgentKind(kind: string | undefined): boolean {
 /// different?").
 export const SUBAGENT_FALLBACK = "task.ai";
 
+/// The stable hue on a subagent's harness mark. Alternatives are kept in the gallery.
+export type AgentIdentityLook = "tint" | "badge" | "marker";
+
 /// One identity mark shared by agent and session lists. A missing harness keeps the same icon slot,
-/// but the stable tone makes two unknown harnesses distinguishable.
+/// and subagent surfaces tint every harness in the same stable identity tone.
 export function AgentIdentity({
   harness,
   tone,
@@ -23,6 +26,7 @@ export function AgentIdentity({
   fallbackNode,
   className,
   style,
+  look,
 }: {
   harness?: string;
   tone?: number;
@@ -31,6 +35,7 @@ export function AgentIdentity({
   fallbackNode?: ReactNode;
   className?: string;
   style?: CSSProperties;
+  look?: AgentIdentityLook;
 }) {
   // Keep the full id subscribed: a profile icon may arrive after this row mounts.
   const family = harness?.split(/[-_/]/)[0];
@@ -40,11 +45,24 @@ export function AgentIdentity({
     </span>
   );
   return (
-    <span className={className} style={style} aria-hidden="true">
+    <span
+      className={[className, look && "acpmux-agent-identity"].filter(Boolean).join(" ") || undefined}
+      style={style}
+      data-agent-tone={look ? tone : undefined}
+      data-identity-look={look}
+      aria-hidden="true"
+    >
       <AgentMark
         agent={harness}
         size={size}
-        fallback={family && family !== harness ? <AgentMark agent={family} size={size} fallback={glyph} /> : glyph}
+        tint={look === "tint"}
+        fallback={
+          family && family !== harness ? (
+            <AgentMark agent={family} size={size} tint={look === "tint"} fallback={glyph} />
+          ) : (
+            glyph
+          )
+        }
       />
     </span>
   );

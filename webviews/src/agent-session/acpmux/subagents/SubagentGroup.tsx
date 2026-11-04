@@ -84,7 +84,7 @@ export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
       style={style}
       data-state={agent.state}
     >
-      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} fallback={SUBAGENT_FALLBACK} />
+      <AgentIdentity harness={harness} tone={agentTone(agent.id)} size={14} fallback={SUBAGENT_FALLBACK} look="tint" />
     </span>
   );
 }
@@ -182,7 +182,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       id={row.id}
       className="cv-subagent"
       data-edge={row.status}
-      data-agent-tone={tones?.get(agent.id)}
+      data-agent-tone={tones?.get(agent.id) ?? agentTone(agent.id)}
       // tooltip-allow: its kind, which the line no longer shows
       title={kind}
     >
@@ -194,7 +194,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       id={row.id}
       className="cv-subagent"
       data-edge={row.status}
-      data-agent-tone={tones?.get(agent.id)}
+      data-agent-tone={tones?.get(agent.id) ?? agentTone(agent.id)}
       aria-label={t("subagents.open", { name: subagentDisplayName(t, agent) })}
       // tooltip-allow: its kind, which the line no longer shows
       title={kind}

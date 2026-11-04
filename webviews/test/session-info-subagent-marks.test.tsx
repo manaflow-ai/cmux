@@ -38,19 +38,20 @@ const session = (sessionId: string, harness?: string): StartedSession => ({
 /// Each icon span's inner markup, and the tone of the icon it falls back to, in order.
 const icons = (html: string) =>
   [...html.matchAll(/<span class="acpmux-lineage__icon[^"]*"[^>]*>(.*?)<\/span><span class="acpmux-summary-text/g)].map(
-    (match) => ({ inner: match[1]!, tone: /class="acpmux-toned-icon" data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
+    (match) => ({ inner: match[1]!, tone: /data-agent-tone="(\d)"/.exec(match[1]!)?.[1] }),
   );
 
-const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} />);
+const mark = (harness: string) => renderToStaticMarkup(<AgentMark agent={harness} size={rowIconSize(12)} tint />);
 
 test("a subagent line draws its harness's mark: another family's its own, the chat's own the chat's", () => {
   const html = renderToStaticMarkup(
     <SubagentsSection agents={[agent("reviewer", "codex"), agent("explorer")]} waiting={new Set()} harness="claude" />,
   );
   const [codex, claude] = icons(html);
-  expect(codex?.inner).toBe(mark("codex"));
-  expect(claude?.inner).toBe(mark("claude"));
-  expect(codex?.tone).toBeUndefined();
+  expect(codex?.inner).toContain(mark("codex"));
+  expect(claude?.inner).toContain(mark("claude"));
+  expect(codex?.tone).toBe(String(agentTone("reviewer")));
+  expect(claude?.tone).toBe(String(agentTone("explorer")));
   expect(mark("codex")).not.toBe(mark("claude"));
 });
 
@@ -75,7 +76,7 @@ test("a chat the agent started draws its own harness's mark, else its icon in it
     />,
   );
   const [codex, plain] = icons(html);
-  expect(codex?.inner).toBe(mark("codex"));
+  expect(codex?.inner).toContain(mark("codex"));
   expect(plain?.tone).toBe(String(agentTone("plain-child")));
 
   const rows = renderToStaticMarkup(
@@ -102,7 +103,7 @@ test("a harness with no drawable mark (a glyph icon) keeps the toned icon, and t
   rememberHarnessIcons([{ id: "late-harness", iconSpec: { kind: "emoji", text: "🦊", source: "profile" } }]);
   const [, late] = icons(render());
   expect(late?.inner).toContain("🦊");
-  expect(late?.tone).toBeUndefined();
+  expect(late?.tone).toBe(String(agentTone("late-child")));
 });
 
 test("a subagent row keeps its name and harness mark without a fork icon or usage counts", () => {
@@ -113,7 +114,7 @@ test("a subagent row keeps its name and harness mark without a fork icon or usag
     />,
   );
   expect(html).toContain("reviewer");
-  expect(icons(html)[0]?.inner).toBe(mark("codex"));
+  expect(icons(html)[0]?.inner).toContain(mark("codex"));
   expect(html).not.toContain("acpmux-agent-line__kind-icon");
   expect(html).not.toContain("acpmux-agent-line__progress");
   expect(html).not.toContain("107.5K");
