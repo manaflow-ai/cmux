@@ -22,6 +22,11 @@
 //! outside, at nothing or into a repository folder is skipped and named.
 //! A machine without `fs-symlink-v1` gets none, each named as skipped.
 //!
+//! Small files are written several at once, each on a connection of its
+//! own ([`CONNECTIONS`], `CMUX_SYNC_PUSH_CONNECTIONS`); a file over
+//! [`ALONE_BYTES`] is written after them, alone. The first failed write
+//! stops new ones; those under way finish and are recorded.
+//!
 //! The manifest is also saved as a push goes (every [`SAVE_EVERY_FILES`]
 //! files or [`SAVE_EVERY_BYTES`] written), so a push cut off partway is
 //! resumed by the next one into the same folder: what already landed is
@@ -160,6 +165,144 @@ pub(super) const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from
 const SAVE_EVERY_FILES: u64 = 500;
 /// ...or this many bytes written.
 const SAVE_EVERY_BYTES: u64 = 256 * 1024 * 1024;
+/// Connections a push writes small files on at once, unless
+/// `CMUX_SYNC_PUSH_CONNECTIONS` says otherwise (1 to [`MOST_CONNECTIONS`]).
+const CONNECTIONS: usize = 8;
+const MOST_CONNECTIONS: usize = 64;
+/// A file bigger than this is written alone, after the small ones.
+const ALONE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// How many connections a push writes small files on at once.
+fn connections() -> usize {
+    std::env::var("CMUX_SYNC_PUSH_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(CONNECTIONS)
+        .clamp(1, MOST_CONNECTIONS)
+}
+
+/// One file a push writes.
+struct Job {
+    relative: String,
+    target: String,
+    file: LocalFile,
+    sha256: String,
+    bytes: u64,
+}
+
+/// What a push needs to save its record partway.
+struct Saving<'a> {
+    manifest_path: &'a str,
+    previous: &'a Manifest,
+    listed: &'a BTreeMap<String, LocalFile>,
+}
+
+/// What a push has done so far: its answer, its record and its progress.
+struct Tally<'a> {
+    summary: Summary,
+    next: Manifest,
+    done: Progress,
+    progress: Option<&'a mut dyn FnMut(Progress)>,
+    save_every_files: u64,
+    /// Files and bytes written since the record was last saved.
+    since_save: (u64, u64),
+}
+
+impl Tally<'_> {
+    fn step(&mut self, bytes: u64) {
+        self.done.files_done += 1;
+        self.done.bytes_done += bytes;
+        if let Some(report) = self.progress.as_mut() {
+            report(self.done);
+        }
+    }
+
+    fn unchanged(&mut self, relative: &str, pushed: &Pushed, bytes: u64) {
+        self.summary.unchanged += 1;
+        self.next.files.insert(relative.to_string(), pushed.clone());
+        self.step(bytes);
+    }
+
+    /// Records a file that landed as `revision`, and saves the record
+    /// partway when it is due ([`save_partway`]).
+    fn written(
+        &mut self,
+        job: Job,
+        revision: String,
+        remote: &mut Remote,
+        saving: &Saving<'_>,
+    ) -> anyhow::Result<()> {
+        let bytes = job.bytes;
+        self.summary.written += 1;
+        self.summary.bytes += bytes;
+        let pushed = Pushed { sha256: job.sha256, permissions: job.file.permissions, revision };
+        self.next.files.insert(job.relative, pushed);
+        self.since_save = (self.since_save.0 + 1, self.since_save.1 + bytes);
+        if self.since_save.0 >= self.save_every_files || self.since_save.1 >= SAVE_EVERY_BYTES {
+            save_partway(remote, saving.manifest_path, saving.previous, &self.next, saving.listed)?;
+            self.since_save = (0, 0);
+        }
+        self.step(bytes);
+        Ok(())
+    }
+}
+
+/// Writes `jobs` on up to `connections` connections of their own, each
+/// opened on its first job; `landed` hears each write's outcome, on this
+/// thread, as it comes. The first error `landed` answers stops new writes,
+/// the ones under way finish (and are still heard), and that error is the
+/// answer.
+fn write_parallel(
+    socket: &Path,
+    jobs: Vec<Job>,
+    connections: usize,
+    landed: &mut dyn FnMut(Job, anyhow::Result<String>) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let workers = connections.min(jobs.len());
+    if workers == 0 {
+        return Ok(());
+    }
+    let queue = std::sync::Mutex::new(jobs.into_iter());
+    let stop = AtomicBool::new(false);
+    let (sent, results) = std::sync::mpsc::channel::<(Job, anyhow::Result<String>)>();
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let sent = sent.clone();
+            let (queue, stop) = (&queue, &stop);
+            scope.spawn(move || {
+                let mut remote: Option<Remote> = None;
+                while !stop.load(Ordering::Relaxed) {
+                    let Some(job) = queue.lock().ok().and_then(|mut jobs| jobs.next()) else {
+                        break;
+                    };
+                    let written = write_on(&mut remote, socket, &job);
+                    if sent.send((job, written)).is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(sent);
+        let mut failed = None;
+        for (job, written) in results {
+            if let Err(error) = landed(job, written) {
+                stop.store(true, Ordering::Relaxed);
+                failed.get_or_insert(error);
+            }
+        }
+        failed.map_or(Ok(()), Err)
+    })
+}
+
+/// Writes `job` on `remote`, connecting it first when it is not yet.
+fn write_on(remote: &mut Option<Remote>, socket: &Path, job: &Job) -> anyhow::Result<String> {
+    if remote.is_none() {
+        *remote = Some(Remote::connect_negotiated(socket)?);
+    }
+    let Some(remote) = remote.as_mut() else { anyhow::bail!("no connection to the machine") };
+    write(remote, &job.target, &job.file)
+}
 
 /// Prints a push's progress on stderr as JSON lines, at most every
 /// [`PROGRESS_EVERY`]; the first and the last always go.
@@ -507,7 +650,7 @@ fn push_inner(
     let (skipped_files, skipped_counts) = set.skips.json();
     let mut summary =
         Summary { skipped: set.skips.total(), skipped_files, skipped_counts, ..Summary::default() };
-    let mut done = Progress {
+    let done = Progress {
         files_total: set.files.len() as u64,
         bytes_total: set.files.values().map(|file| size(file).unwrap_or(0)).sum(),
         ..Progress::default()
@@ -564,9 +707,17 @@ fn push_inner(
 
     let mut made: BTreeSet<String> = BTreeSet::new();
     let mut folder_links: BTreeMap<String, bool> = BTreeMap::new();
-    let mut next = Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() };
-    let save_every_files = SAVE_EVERY_FILES.max(done.files_total / 20);
-    let (mut files_since_save, mut bytes_since_save) = (0u64, 0u64);
+    let mut tally = Tally {
+        summary,
+        next: Manifest { version: 1, files: BTreeMap::new(), git, links: BTreeMap::new() },
+        save_every_files: SAVE_EVERY_FILES.max(done.files_total / 20),
+        since_save: (0, 0),
+        done,
+        progress,
+    };
+    // What is unchanged is settled here; what is not becomes a write, its
+    // folder made first (once each).
+    let (mut small, mut alone) = (Vec::new(), Vec::new());
     for (relative, file) in &set.files {
         let target = format!("{remote_root}/{relative}");
         let (parent, _) = remote::split(&target)?;
@@ -577,51 +728,46 @@ fn push_inner(
             && pushed.permissions == file.permissions
             && listings.revision(&mut remote, &target)?.as_deref() == Some(pushed.revision.as_str())
         {
-            summary.unchanged += 1;
-            next.files.insert(relative.clone(), pushed.clone());
-        } else {
-            // A symlink of the machine's on the way to it: the write would
-            // land wherever that link points, so this Mac's file stays.
-            if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
-                set.skips.note(relative, skips::Why::SymlinkTaken);
-                done.files_done += 1;
-                done.bytes_done += bytes;
-                continue;
-            }
-            if made.insert(parent.to_string()) {
-                remote.mkdir_all(parent)?;
-            }
-            let revision = match write(&mut remote, &target, file) {
-                Ok(revision) => revision,
-                // A symlink of the machine's at its path: a file written
-                // there would go through it, so this Mac's file stays.
-                Err(error) if error.is::<LinkInTheWay>() => {
-                    set.skips.note(relative, skips::Why::SymlinkTaken);
-                    done.files_done += 1;
-                    done.bytes_done += bytes;
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-            summary.written += 1;
-            summary.bytes += bytes;
-            next.files.insert(
-                relative.clone(),
-                Pushed { sha256, permissions: file.permissions, revision },
-            );
-            files_since_save += 1;
-            bytes_since_save += bytes;
-            if files_since_save >= save_every_files || bytes_since_save >= SAVE_EVERY_BYTES {
-                save_partway(&mut remote, &manifest_path, &previous, &next, &set.files)?;
-                (files_since_save, bytes_since_save) = (0, 0);
-            }
+            tally.unchanged(relative, pushed, bytes);
+            continue;
         }
-        done.files_done += 1;
-        done.bytes_done += bytes;
-        if let Some(report) = progress.as_mut() {
-            report(done);
+        // A symlink of the machine's on the way to it: the write would
+        // land wherever that link points, so this Mac's file stays.
+        if through_link(&mut remote, remote_root, parent, &mut folder_links)? {
+            set.skips.note(relative, skips::Why::SymlinkTaken);
+            tally.step(bytes);
+            continue;
         }
+        if made.insert(parent.to_string()) {
+            remote.mkdir_all(parent)?;
+        }
+        let job = Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes };
+        if bytes > ALONE_BYTES { alone.push(job) } else { small.push(job) }
     }
+    let saving = Saving { manifest_path: &manifest_path, previous: &previous, listed: &set.files };
+    let named = &mut set.skips;
+    // What became of one write: recorded, or (a symlink of the machine's at
+    // its path, which a file written there would go through) skipped.
+    let mut landed = |job: Job, written: anyhow::Result<String>, remote: &mut Remote| match written
+    {
+        Ok(revision) => tally.written(job, revision, remote, &saving),
+        Err(error) if error.is::<LinkInTheWay>() => {
+            named.note(&job.relative, skips::Why::SymlinkTaken);
+            tally.step(job.bytes);
+            Ok(())
+        }
+        Err(error) => Err(error),
+    };
+    // Small files go several at once, each connection its own write
+    // stream; big ones after them, one at a time.
+    write_parallel(socket, small, connections(), &mut |job, written| {
+        landed(job, written, &mut remote)
+    })?;
+    for job in alone {
+        let written = write(&mut remote, &job.target, &job.file);
+        landed(job, written, &mut remote)?;
+    }
+    let Tally { mut summary, mut next, .. } = tally;
 
     // A link whose target is a link not made yet waits for the next pass;
     // passes go on while one makes something.
