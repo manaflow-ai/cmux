@@ -84,6 +84,9 @@ pub(super) struct TerminalSizingEntry {
     /// After a phone or tablet departs, the grid does not grow past this size until the
     /// instant passes (`DEPARTED_GRID_HOLD`); it may shrink.
     pub(super) hold: std::cell::Cell<Option<((u16, u16), Instant)>>,
+    /// Where this terminal's runtime publishes the view a key may skip its sizing note for (stage S1); `None` when
+    /// no surface of the runtime was found when the entry was made (its keys always take the slow path).
+    pub(super) fast_path_slot: Option<sizing_fast_path::SizingFastPathSlot>,
 }
 
 /// Which connection and placement one engine participant belongs to.
@@ -123,8 +126,9 @@ pub(super) struct ClientSizingState {
     pub(super) next_size_order: u64,
     pub(super) policies: HashMap<SurfaceId, SurfaceClientSizing>,
     pub(super) terminal_runtime_by_placement: HashMap<SurfaceId, SurfaceId>,
-    /// Shared sizing engines keyed by terminal runtime id.
-    pub(super) terminal_sizing: HashMap<SurfaceId, TerminalSizingEntry>,
+    /// Shared sizing engines keyed by terminal runtime id; each access marks its entry, which the sizing guard then
+    /// republishes (`sizing_fast_path`).
+    pub(super) terminal_sizing: sizing_fast_path::SizingEntries,
     /// Per-terminal policy overrides keyed by terminal runtime id.
     pub(super) terminal_size_policies: HashMap<SurfaceId, TerminalSizingPolicy>,
     /// Workspace default policies for terminals without an override.

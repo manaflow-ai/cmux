@@ -69,9 +69,6 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("stable-next.yml", "swift-suites"):
-        "only submits the suites to the build fleet (cmux-ci run); the fleet step selects "
-        "CMUX_CI_XCODE_APP itself",
     ("stable-next.yml", "perf-budgets"):
         "only submits the perf budgets to the build fleet (cmux-ci run, exclusive measure step); "
         "builds nothing here",

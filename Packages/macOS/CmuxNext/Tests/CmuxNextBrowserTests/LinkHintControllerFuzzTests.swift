@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -10,11 +11,12 @@ import Testing
 /// label scripts) and the answer's bound. After every event: no typed key is lost, none reaches the app twice, a key the
 /// session took (a hint letter) never reaches the page, keys reach the app in the order typed, and the controller's one
 /// session is the model's. `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS` replay or widen a run.
-@MainActor @Suite(.serialized) struct LinkHintControllerFuzzTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct LinkHintControllerFuzzTests {
     @Test func randomEventsKeepEveryKeyOnceInOrderAndHintLettersOffThePage() async throws {
         let fuzz = FuzzSeed(default: 0x11_4B_32_537)
         var rng = Rng(state: fuzz.seed)
         let rig = try Rig()
+        defer { rig.shell.closeAfterTest() }
         for sequence in 0..<fuzz.iterations(3_000) {
             rig.reset()
             var model = Model(), log: [String] = [], typed = 0, failure: String?
