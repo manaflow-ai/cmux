@@ -61,6 +61,32 @@ struct PaneCloseKeptHandleTests {
                        focused: "p1", closing: "p1", kept: .columnEdge("c0"))
     }
 
+    /// The `debug.motion` trace reports a closing pane's ground (`closing`, `[pane, x, y, width, height, alpha, z]`) apart
+    /// from the live panes (`panes`, whose rows also say how their content is laid out): a trace judge that centres a
+    /// handle on its panes' gap reads the closing ground beside it (R-HARNESS pair C), and the live-pane judges do not take
+    /// it for a pane whose content is gone.
+    @Test func theTraceReportsAClosingPaneApartFromTheLivePanes() throws {
+        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
+        defer { rig.close() }
+        rig.root.context.contentPolicyOverride = true
+        let screen = try rig.screen
+        _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close")
+        rig.root.syncWithModel()
+        rig.root.layoutSubtreeIfNeeded()
+        let host = try #require(rig.root.context.closingHost("p2", of: "s"), "SETUP: p2 is not closing")
+        try #require(!host.isHidden && host.showsClosingGround, "SETUP: p2's ground does not show")
+        let sample = try #require(ScreenContentView.motionSample(screen), "the screen gives no trace sample")
+        let ids = { (key: String) in (sample[key] ?? []).compactMap { ($0 as? [Any])?.first as? String } }
+        #expect(!ids("panes").contains("p2"), "the closing pane is in the live panes: \(ids("panes"))")
+        let row = try #require((sample["closing"] ?? []).compactMap { $0 as? [Any] }.first { $0.first as? String == "p2" },
+                               "the trace does not report the closing pane: \(sample.keys.sorted())")
+        let rect = row.dropFirst().prefix(4).compactMap { $0 as? Double }
+        try #require(rect.count == 4, "the closing row has no rect: \(row)")
+        let shown = host.convert(host.bounds, to: nil)
+        #expect(abs(rect[0] - shown.minX) < 1 && abs(rect[2] - shown.width) < 1,
+                "the closing row \(rect) is not where its ground shows \(shown)")
+    }
+
     static func check(_ root: SplitNode, closing pane: PaneID, kept kind: DividerHandleView.Kind) throws {
         try check(layout: PaneGroundCoversPaneTests.column(root), focused: pane, closing: pane, kept: kind)
     }
