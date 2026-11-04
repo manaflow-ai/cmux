@@ -439,12 +439,14 @@ for (const mode of ["visible", "hidden"] as const) {
     let schedule: (run: () => void) => void = (run) => void frames.push(run);
     let current = noChat();
     let presentations = 0;
+    const frameEnds: (() => void)[] = [];
     const presentation = snapshotFrames(
       (run) => schedule(run),
       (update) => {
         current = update(current);
         presentations += 1;
       },
+      (run) => frameEnds.push(run),
     );
     const { socket, client } = await openPane((next, timing) => presentation.push(next, timing));
     const originals = { requestAnimationFrame: scope.requestAnimationFrame, setTimeout: scope.setTimeout };
@@ -454,6 +456,8 @@ for (const mode of ["visible", "hidden"] as const) {
     try {
       setVisibility(mode);
       flushFrames();
+      // The handshake's frames end before the chunk's frame.
+      for (const end of frameEnds.splice(0)) end();
       scope.requestAnimationFrame = (run: FrameRequestCallback) => {
         animationFrames.push(() => run(now));
         return animationFrames.length;

@@ -3,7 +3,9 @@ import type { AcpmuxSnapshot } from "./model";
 import { noChat as emptySnapshot } from "../../gallery/fixtures/acpmux";
 import { presentFrame, snapshotFrames } from "./snapshotFrames";
 
-function rig() {
+/// `frameEnds` given: the display frame ends only when the test runs them; else each publication
+/// is its own frame.
+function rig(frameEnds?: (() => void)[]) {
   const frames: (() => void)[] = [];
   const shown: AcpmuxSnapshot[] = [];
   let current = emptySnapshot();
@@ -13,6 +15,7 @@ function rig() {
       current = update(current);
       shown.push(current);
     },
+    frameEnds ? (run) => frameEnds.push(run) : (run) => run(),
   );
   return { frames, shown, presenter, paint: () => frames.shift()?.() };
 }
@@ -388,4 +391,27 @@ test("flush presents what is queued in the caller's commit, and its frame presen
   expect(frames).toHaveLength(1);
   paint();
   expect(shown).toHaveLength(1);
+});
+
+test("a control snapshot then a streamed one in one display frame publish once", () => {
+  const frameEnds: (() => void)[] = [];
+  const { presenter, shown, frames, paint } = rig(frameEnds);
+  const control = { ...emptySnapshot(), sessionId: "chat", connection: "attached" };
+  const streamed: AcpmuxSnapshot = {
+    ...control,
+    connection: "connected",
+    rows: [{ id: "agent-1", version: 1, at: 1, kind: "agent" as const, text: "First streamed chunk" }],
+  };
+  presenter.push(control);
+  // The presenter's frame callback was registered first and runs first in this display frame...
+  paint();
+  expect(shown).toEqual([control]);
+  // ...then the client's own frame callback delivers its framed snapshot in the same frame.
+  presenter.push(streamed, "frame");
+  expect(shown).toHaveLength(1);
+  expect(frames).toHaveLength(1);
+  for (const end of frameEnds.splice(0)) end();
+  paint();
+  expect(shown).toHaveLength(2);
+  expect(shown[1]!.rows).toEqual(streamed.rows);
 });

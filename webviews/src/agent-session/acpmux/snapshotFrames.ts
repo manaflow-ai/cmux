@@ -55,14 +55,22 @@ export function presentFrame(run: () => void): void {
   setTimeout(once, 50);
 }
 
+/// The task after the display frame now running: every frame callback of this frame runs before it.
+export function afterFrame(run: () => void): void {
+  setTimeout(run, 0);
+}
+
 export function snapshotFrames(
   schedule: (run: () => void) => void,
   publish: (update: (current: AcpmuxSnapshot) => AcpmuxSnapshot) => void,
+  frameEnd: (run: () => void) => void = afterFrame,
 ) {
   let active = true;
   let generation = 0;
   let queued: number | undefined;
   let pending: AcpmuxSnapshot[] = [];
+  /// This display frame already published: until it ends, a framed delivery waits for the next.
+  let framePublished = false;
   const flush = () => {
     queued = undefined;
     const batch = pending;
@@ -70,6 +78,22 @@ export function snapshotFrames(
     // Fold once against React's actual current state. Pre-folding and then falling back to
     // committed state would erase an explicit handoff clear or a session boundary.
     if (active && batch.length) publish((current) => withBatchProgress(batch).reduce(keepHandoff, current));
+  };
+  /// A flush from a frame callback: the only publication of this display frame.
+  const flushInFrame = () => {
+    flush();
+    if (framePublished) return;
+    framePublished = true;
+    frameEnd(() => (framePublished = false));
+  };
+  const scheduleFlush = () => {
+    if (queued !== undefined) return;
+    const mine = ++generation;
+    queued = mine;
+    schedule(() => {
+      // A framed delivery may have drained this batch and a later burst scheduled its own frame.
+      if (queued === mine) flushInFrame();
+    });
   };
   return {
     guard<Args extends unknown[]>(receive: (...args: Args) => void) {
@@ -82,17 +106,13 @@ export function snapshotFrames(
       pending.push(value);
       // Direct event streams already waited for their display frame. Present them now, together
       // with preceding immediate snapshots; another schedule would add a full frame of latency.
-      if (timing === "frame") {
-        flush();
+      // A frame that already published (the presenter's own frame callback ran first) keeps its
+      // one publication: this delivery joins the next frame.
+      if (timing === "frame" && !framePublished) {
+        flushInFrame();
         return;
       }
-      if (queued !== undefined) return;
-      const mine = ++generation;
-      queued = mine;
-      schedule(() => {
-        // A framed delivery may have drained this batch and a later burst scheduled its own frame.
-        if (queued === mine) flush();
-      });
+      scheduleFlush();
     },
     /// Presents what is queued now, in the caller's commit; the frame asked for presents nothing.
     flush() {
