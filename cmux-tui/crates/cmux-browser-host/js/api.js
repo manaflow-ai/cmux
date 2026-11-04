@@ -531,6 +531,42 @@
       return new Image(bytes);
     }
 
+    // Open a local preview in this workspace's browser and return the evidence
+    // in one tool result. The screenshot path is deliberately printed in the
+    // same result as the console errors so the transcript's existing image
+    // attachment extraction can render it beside the report.
+    async function previewProof(port, options = {}) {
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`previewProof: port must be an integer from 1 to 65535, got ${JSON.stringify(port)}`);
+      }
+      if (options === null || typeof options !== "object" || Array.isArray(options)) {
+        throw new Error(`previewProof: options must be an object, got ${JSON.stringify(options)}`);
+      }
+      const pathName = options.path === undefined ? "/" : String(options.path);
+      if (!pathName.startsWith("/")) {
+        throw new Error(`previewProof: path must start with '/', got ${JSON.stringify(pathName)}`);
+      }
+      const url = `http://127.0.0.1:${port}${pathName}`;
+      // Register the page before navigation so startup console events are captured.
+      const preview = await tabs.open();
+      await preview.goto(url, { waitUntil: "load" });
+      const image = await screenshot(preview, options.screenshot || {});
+      const consoleErrors = (await preview.consoleMessages({ level: "error" })).map((message) => ({
+        type: message.type(),
+        text: message.text(),
+      }));
+      const pageErrors = (await preview.errors()).map((error) => ({
+        message: String(error && error.message ? error.message : error),
+        ...(error && error.stack ? { stack: String(error.stack) } : {}),
+      }));
+      return {
+        url: preview.url(),
+        screenshot: imageLine(image),
+        consoleErrors,
+        pageErrors,
+      };
+    }
+
     class Headers {
       constructor(init) {
         this._map = new Map();
@@ -768,6 +804,7 @@
       history: historyApi,
       snapshot,
       screenshot,
+      previewProof,
       fetch: fetchWithCookies,
       fs,
       path,
