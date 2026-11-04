@@ -325,6 +325,31 @@ final class LinkOpener {
         }
     }
 
+    /// An action's file open beside the chat `source` shows (``ViewerService/openFile(_:on:from:userChose:asText:)``). An open
+    /// that waits its turn behind another beside the chat runs later: in this run's scope (a script's open never takes the
+    /// focus), and a refusal then goes to `late`, as the action already answered. Returns the refusal of an open made now.
+    func openViewerFile(_ file: URL, on machine: DaemonService?, from source: PaneController, opener: FilePageOpener, userChose: Bool,
+                        asText: Bool, late: @escaping @MainActor (String) -> Void) -> String? {
+        let scope = ActionRunScope.current
+        var refusal: String?, answered = false
+        let make: Make = { [weak self] target, placed in
+            ActionRunScope.carrying(scope) { () -> Bool in
+                let inPlace: (@MainActor () -> Void)? = placed == nil ? nil : { self?.openedInPlace() }
+                let reason: String?
+                if let machine {
+                    reason = opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                } else {
+                    reason = opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
+                }
+                if answered, let reason { late(reason) } else { refusal = reason }
+                return reason == nil
+            }
+        }
+        open(from: source, background: !ActionRunScope.viewChangeAllowed(), besideChat: true, make)
+        answered = true
+        return refusal
+    }
+
     /// A folder: a terminal there. In a new split it is the split's own terminal (Split Right with
     /// that folder); a column or the pane on the right gets a terminal tab.
     func openFolder(_ path: String, from source: PaneController?) {

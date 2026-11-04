@@ -67,24 +67,7 @@ final class ViewerService {
             if let machine { return openFile(file, on: machine, in: pane, userChose: userChose, asText: asText) }
             return openFile(file, in: pane, userChose: userChose, asText: asText)
         }
-        // An open that waits its turn behind another beside the chat runs later: in this run's scope (a script's
-        // open never takes the focus), and its refusal shows then, as the action already answered.
-        let scope = ActionRunScope.current
-        var refusal: String?, answered = false
-        links.open(from: pane, background: !ActionRunScope.viewChangeAllowed(), besideChat: true) { [weak self] target, placed in
-            ActionRunScope.carrying(scope) {
-                let inPlace: (@MainActor () -> Void)? = placed == nil ? nil : { links.openedInPlace() }
-                let reason: String? = if let machine {
-                    opener.open(file, on: machine, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
-                } else {
-                    opener.open(file, in: target, userChose: userChose, asText: asText, placed: placed, shownInPlace: inPlace)
-                }
-                if answered, let reason { self?.showRefusal(reason) } else { refusal = reason }
-                return reason == nil
-            }
-        }
-        answered = true
-        return refusal
+        return links.openViewerFile(file, on: machine, from: pane, opener: opener, userChose: userChose, asText: asText) { [weak self] in self?.showRefusal($0) }
     }
 
     /// A local Markdown file a new browser tab would show as text opens the markdown page instead
