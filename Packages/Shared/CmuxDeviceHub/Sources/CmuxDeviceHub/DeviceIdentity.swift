@@ -83,10 +83,14 @@ public struct DeviceIdentity: Sendable {
 
     public let deviceID: UUID
     public let keys: any DeviceKeyMaterial
+    /// An approver's (the iPhone's) Computer Use approval key: it alone signs an Allow,
+    /// and only after Face ID. Nil on a device that never answers (``forApp(bundleIdentifier:approvalKeys:)``).
+    public let approvalKey: ComputerUseApprovalKey?
 
-    public init(deviceID: UUID, keys: any DeviceKeyMaterial) {
+    public init(deviceID: UUID, keys: any DeviceKeyMaterial, approvalKey: ComputerUseApprovalKey? = nil) {
         self.deviceID = deviceID
         self.keys = keys
+        self.approvalKey = approvalKey
     }
 
     /// The id on the wire: the UUID, lowercase.
@@ -165,16 +169,58 @@ extension DeviceIdentity {
     /// This app's identity: the device id and the Secure Enclave key blobs in
     /// the Keychain under `<bundleIdentifier>.device-hub`, created on first
     /// use. A missing or unreadable part makes a new identity (a new device).
-    public static func forApp(bundleIdentifier: String) throws -> DeviceIdentity {
-        try load(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub"))
+    ///
+    /// With `approvalKeys` (an approver: the iPhone app) it also holds the Computer Use
+    /// approval key, made by that factory on first use (a device registered before it had
+    /// one gets one and keeps its id). The hub keeps a device's first approval key, so a
+    /// kept one that cannot be read back makes a new identity too.
+    ///
+    /// An approval key that cannot be made (no passcode, a Keychain error) leaves the
+    /// identity without one: Allows are then refused (`approval_key_required`), the rest works.
+    public static func forApp(bundleIdentifier: String, approvalKeys: ComputerUseApprovalKeyFactory? = nil) throws -> DeviceIdentity {
+        // One load at a time per process: the Screen Sharing hub and a cold Computer Use client
+        // must not each make an approval key (the hub keeps the first one it hears).
+        try loading.withLock { _ in
+            let keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub")
+            let identity = try load(keychain: keychain)
+            guard let approvalKeys else { return identity }
+            do {
+                return try identity.withApprovalKey(keychain: keychain, factory: approvalKeys)
+            } catch Failure.corruptKeyBlob {
+                return try renewUnlocked(keychain: keychain, approvalKeys: approvalKeys)
+            } catch {
+                return identity
+            }
+        }
     }
 
     /// Forgets this app's identity and makes a new one: the hub refused the old
-    /// id (`device_removed`, `device_key_mismatch`), so this is a new device.
-    public static func renew(bundleIdentifier: String) throws -> DeviceIdentity {
-        let keychain = DeviceKeychain(service: bundleIdentifier + ".device-hub")
-        for account in [idAccount, signingAccount, agreementAccount] { try keychain.delete(account) }
-        return try load(keychain: keychain)
+    /// id (`device_removed`, `device_key_mismatch`, `approval_key_mismatch`), so this is a new device.
+    public static func renew(bundleIdentifier: String, approvalKeys: ComputerUseApprovalKeyFactory? = nil) throws -> DeviceIdentity {
+        try loading.withLock { _ in
+            try renewUnlocked(keychain: DeviceKeychain(service: bundleIdentifier + ".device-hub"), approvalKeys: approvalKeys)
+        }
+    }
+
+    /// ``renew(bundleIdentifier:approvalKeys:)`` with ``loading`` held.
+    static func renewUnlocked(keychain: DeviceKeychain, approvalKeys: ComputerUseApprovalKeyFactory?) throws -> DeviceIdentity {
+        for account in [idAccount, signingAccount, agreementAccount, approvalAccount] { try keychain.delete(account) }
+        let identity = try load(keychain: keychain)
+        guard let approvalKeys else { return identity }
+        do {
+            return try identity.withApprovalKey(keychain: keychain, factory: approvalKeys)
+        } catch {
+            return identity
+        }
+    }
+
+    /// Serializes identity loads and renewals in this process.
+    static let loading = Mutex(())
+
+    /// This identity with its approval key from `keychain` (made by `factory` when there is none).
+    func withApprovalKey(keychain: DeviceKeychain, factory: ComputerUseApprovalKeyFactory) throws -> DeviceIdentity {
+        let key = try ComputerUseApprovalKey.load(keychain: keychain, account: Self.approvalAccount, factory: factory)
+        return DeviceIdentity(deviceID: deviceID, keys: keys, approvalKey: key)
     }
 
     static func load(keychain: DeviceKeychain) throws -> DeviceIdentity {
@@ -221,4 +267,5 @@ extension DeviceIdentity {
     static let idAccount = "device-id"
     static let signingAccount = "device-signing-key"
     static let agreementAccount = "device-agreement-key"
+    static let approvalAccount = "cu-approval-key"
 }

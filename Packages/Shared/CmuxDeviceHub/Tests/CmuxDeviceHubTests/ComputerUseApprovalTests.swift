@@ -233,7 +233,8 @@ func vectorApproval(id: String = "0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60", asker: 
 
     @Test func newErrorCodesRoundTrip() {
         for raw in ["digest_mismatch", "approval_exists", "self_approval", "not_approver", "not_asker", "approval_not_pending",
-                    "approval_expired", "always_not_allowed", "bad_decision_signature", "not_self"] {
+                    "approval_expired", "always_not_allowed", "bad_decision_signature", "not_self", "approval_key_required",
+                    "approval_key_mismatch"] {
             let code = DeviceHubError.Code(raw)
             #expect(code.rawValue == raw)
             #expect(code != .other(raw))
@@ -243,7 +244,8 @@ func vectorApproval(id: String = "0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60", asker: 
 
 @Suite struct ComputerUseApprovalClientTests {
     @Test func approvalEndpointsHaveTheirMethodPathAndBody() async throws {
-        let identity = DeviceIdentity.software()
+        let approvalKey = try ComputerUseApprovalKey(making: .software)
+        let identity = DeviceIdentity.software(approvalKey: approvalKey)
         let approval = try vectorApproval(id: "ap1")
         let hub = StubHub.routes([
             "GET /v1/approvals": (200, #"{"approvals":[\#(approval)]}"#),
@@ -255,7 +257,8 @@ func vectorApproval(id: String = "0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60", asker: 
         #expect(try await client.pendingApprovals().map(\.id) == ["ap1"])
         let fetched = try await client.approval(id: "ap1")
         let digest = try fetched.request.computedDigest()
-        let decided = try await client.decide(id: "ap1", decision: .once, digest: digest)
+        let decided = try await client.decide(id: "ap1", decision: .once, digest: digest,
+                                              authorization: try await approvalKey.authorize(reason: "Allow"))
         #expect(decided.state == .decided)
         let push = try await client.registerPush(token: "ab12", topic: "dev.cmux.mobile", environment: .development)
         #expect(push == DeviceHubPushRegistration(registered: true, configured: false))
@@ -275,7 +278,9 @@ func vectorApproval(id: String = "0b9f4c1e-8d1a-4d7e-9a43-2f0c5e7b1a60", asker: 
         #expect(decision["decision"] as? String == "once")
         #expect(decision["digest"] as? String == digest)
         let sig = try #require(decision["sig"] as? String)
-        #expect(DeviceIdentity.verifyApproval(signature: sig, digest: digest, decision: .once, signingKey: identity.signingKey))
+        // An Allow is the approval key's signature, never the device signing key's.
+        #expect(DeviceIdentity.verifyApproval(signature: sig, digest: digest, decision: .once, signingKey: approvalKey.publicKey))
+        #expect(!DeviceIdentity.verifyApproval(signature: sig, digest: digest, decision: .once, signingKey: identity.signingKey))
         let register = try #require(calls[3].jsonBody)
         #expect(register["token"] as? String == "ab12" && register["topic"] as? String == "dev.cmux.mobile" && register["environment"] as? String == "development")
         let forget = try #require(calls[4].jsonBody)

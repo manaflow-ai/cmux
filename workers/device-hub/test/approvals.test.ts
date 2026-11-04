@@ -52,7 +52,8 @@ async function ask(asker: Device, request: Record<string, unknown>, allowAlways?
 }
 
 async function answer(decider: Device, id: string, digest: string, decision: string, opts: { sigBy?: Device; sigDecision?: string; sigDigest?: string } = {}) {
-  const sig = await (opts.sigBy ?? decider).sign(decisionMessage(opts.sigDigest ?? digest, (opts.sigDecision ?? decision) as "once"));
+  const sigDecision = opts.sigDecision ?? decision;
+  const sig = await (opts.sigBy ?? decider).signDecision(decisionMessage(opts.sigDigest ?? digest, sigDecision as "once"), sigDecision);
   return decider.call("POST", `/v1/approvals/${id}/decision`, { decision, digest, sig });
 }
 
@@ -83,8 +84,8 @@ describe("Computer Use approvals", () => {
 
     const msg = await box.user!.next((m) => m.type === "approval.decided");
     expect(msg).toMatchObject({ id, decision: "session", digest: request.digest, deciderId: phone.id });
-    // The asking machine checks the signature with the decider's registered key itself.
-    expect(await verifyDeviceSignature(phone.signingKey, msg.sig, decisionMessage(request.digest as string, "session"))).toBe(true);
+    // The asking machine checks the signature with the decider's approval key itself (an Allow).
+    expect(await verifyDeviceSignature(phone.approvalKey!, msg.sig, decisionMessage(request.digest as string, "session"))).toBe(true);
     expect(await mac.user!.next((m) => m.type === "approval.closed")).toEqual({ type: "approval.closed", id, state: "decided", decision: "session" });
     expect(await phone.user!.none((m) => m.type === "approval.closed")).toBe(true);
 
@@ -185,7 +186,7 @@ describe("Computer Use approvals", () => {
     const { box, mac, phone } = await family();
     const r = await question();
     const id = (await ask(box, r)).json.approval.id;
-    const sig = await phone.sign(decisionMessage(r.digest as string, "once"));
+    const sig = await phone.signDecision(decisionMessage(r.digest as string, "once"), "once");
     const body = { decision: "once", digest: r.digest, sig };
     const first = await phone.call("POST", `/v1/approvals/${id}/decision`, body);
     expect(first.status).toBe(200);
@@ -325,7 +326,7 @@ describe("Computer Use approvals", () => {
 
     const r2 = await question();
     const other = (await ask(box, r2)).json.approval.id as string;
-    const sig = await mac.sign(decisionMessage(r2.digest as string, "once"));
+    const sig = await mac.signDecision(decisionMessage(r2.digest as string, "once"), "once");
     // Another machine's question is not this Mac's to read, list or answer.
     for (const path of [`/v1/approvals/${other}`, "/v1/approvals"]) {
       const read = await mac.call("GET", path, undefined, { session: host });
@@ -414,6 +415,77 @@ describe("device registration for Computer Use machines", () => {
     expect((await reg("linux", "hardware")).json.error.code).toBe("device_platform_mismatch");
     expect((await reg("linux", "file")).json.device.assurance).toBe("file");
     expect((await reg("linux", "keystore")).status).toBe(409);
+  });
+});
+
+describe("approval keys: an Allow is signed only by the approver's presence-gated key", () => {
+  it("registers, lists and keeps an approver's first approval key", async () => {
+    const account = await signIn();
+    const phone = await Device.create(account, "iPhone", "ios");
+    const reg = await phone.register();
+    expect(reg.json.device.approvalKey).toBe(phone.approvalKey);
+    const listed = (await phone.call("GET", "/v1/devices")).json.devices.find((d: any) => d.id === phone.id);
+    expect(listed.approvalKey).toBe(phone.approvalKey);
+    const body = { id: phone.id, name: "iPhone", platform: "ios", signingKey: phone.signingKey, agreementKey: phone.agreementKey };
+    // Registering again without one keeps it.
+    expect((await phone.call("POST", "/v1/devices", body)).json.device.approvalKey).toBe(phone.approvalKey);
+    // Another approval key for the same id is another device.
+    const other = await Device.create(account, "x", "ios");
+    const swapped = await phone.call("POST", "/v1/devices", { ...body, approvalKey: other.approvalKey });
+    expect(swapped.status).toBe(409);
+    expect(swapped.json.error.code).toBe("approval_key_mismatch");
+    // Never the signing key itself, never on a machine that does not answer.
+    const fresh = await Device.create(account, "y", "ios");
+    const same = await fresh.call("POST", "/v1/devices", { id: fresh.id, name: "y", platform: "ios", signingKey: fresh.signingKey, agreementKey: fresh.agreementKey, approvalKey: fresh.signingKey });
+    expect(same.status).toBe(400);
+    const box = await Device.create(account, "box", "linux");
+    const onBox = await box.call("POST", "/v1/devices", { id: box.id, name: "box", platform: "linux", signingKey: box.signingKey, agreementKey: box.agreementKey, approvalKey: other.approvalKey });
+    expect(onBox.status).toBe(400);
+    const bad = await fresh.call("POST", "/v1/devices", { id: fresh.id, name: "y", platform: "ios", signingKey: fresh.signingKey, agreementKey: fresh.agreementKey, approvalKey: "AAAA" });
+    expect(bad.status).toBe(400);
+  });
+
+  it("an approver registered before approval keys gets one later and keeps its id", async () => {
+    const account = await signIn();
+    const phone = await Device.create(account, "iPhone", "ios");
+    const body = { id: phone.id, name: "iPhone", platform: "ios", signingKey: phone.signingKey, agreementKey: phone.agreementKey };
+    expect((await phone.call("POST", "/v1/devices", body)).json.device.approvalKey).toBeNull();
+    const later = await phone.call("POST", "/v1/devices", { ...body, approvalKey: phone.approvalKey });
+    expect(later.status, JSON.stringify(later.json)).toBe(200);
+    expect(later.json.device).toMatchObject({ id: phone.id, approvalKey: phone.approvalKey });
+  });
+
+  it("refuses an Allow signed by the device's signing key, and one from a device with no approval key", async () => {
+    const { box, phone } = await family();
+    const r = await question({}, {});
+    const id = (await ask(box, r, true)).json.approval.id;
+    for (const decision of ["once", "session", "always"]) {
+      // The device key (no Face ID behind it) does not sign an Allow.
+      const sig = await phone.sign(decisionMessage(r.digest as string, decision as "once"));
+      const res = await phone.call("POST", `/v1/approvals/${id}/decision`, { decision, digest: r.digest, sig });
+      expect(res.status, decision).toBe(400);
+      expect(res.json.error.code).toBe("bad_decision_signature");
+    }
+    // An approval-key signature does not carry a Deny either: Deny is the signing key's.
+    const denyByApproval = await phone.call("POST", `/v1/approvals/${id}/decision`, {
+      decision: "deny",
+      digest: r.digest,
+      sig: await phone.sign(decisionMessage(r.digest as string, "deny"), phone.approval!.privateKey),
+    });
+    expect(denyByApproval.json.error.code).toBe("bad_decision_signature");
+    expect(await box.user!.none((m) => m.type === "approval.decided")).toBe(true);
+
+    const account = phone.account;
+    const legacy = await Device.create(account, "old iPhone", "ios", { approvalKey: false });
+    await legacy.register();
+    const refused = await answer(legacy, id, r.digest as string, "once");
+    expect(refused.status).toBe(403);
+    expect(refused.json.error.code).toBe("approval_key_required");
+    // It can still say no.
+    const deny = await answer(legacy, id, r.digest as string, "deny");
+    expect(deny.status, JSON.stringify(deny.json)).toBe(200);
+    const msg = await box.user!.next((m) => m.type === "approval.decided");
+    expect(await verifyDeviceSignature(legacy.signingKey, msg.sig, decisionMessage(r.digest as string, "deny"))).toBe(true);
   });
 });
 

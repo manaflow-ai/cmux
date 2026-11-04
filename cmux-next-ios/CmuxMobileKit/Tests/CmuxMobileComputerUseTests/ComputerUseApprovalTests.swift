@@ -69,6 +69,22 @@ struct TestKeys: DeviceKeyMaterial {
     }
 }
 
+/// A software approval key (the app's is a Secure Enclave key with `.userPresence`).
+struct TestApprovalKey: ComputerUseApprovalKeyMaterial {
+    let key = P256.Signing.PrivateKey()
+    var publicKey: P256.Signing.PublicKey { key.publicKey }
+    var stored: Data { key.rawRepresentation }
+    func signature(for message: Data, presence: ComputerUseApprovalPresence) throws -> P256.Signing.ECDSASignature {
+        try key.signature(for: message)
+    }
+}
+
+extension ComputerUseApprovalKeyFactory {
+    /// Software keys and no Face ID sheet: tests only.
+    static let test = ComputerUseApprovalKeyFactory(make: { _, _ in TestApprovalKey() }, restore: { _ in nil },
+                                                    checkPresence: { _ in .unchecked() })
+}
+
 // MARK: The review (sheet model)
 
 @Suite struct ComputerUseApprovalReviewTests {
@@ -185,13 +201,23 @@ final class ApprovalHubStub: URLProtocol, @unchecked Sendable {
 
 @MainActor
 @Suite(.serialized) struct ComputerUseApprovalsTests {
-    let identity = DeviceIdentity(deviceID: UUID(uuidString: Fixture.phone)!, keys: TestKeys())
+    let identity: DeviceIdentity
+    let approvalKey: ComputerUseApprovalKey
 
-    func approvals(presence: @escaping @MainActor (String) async throws -> Void = { _ in },
+    init() throws {
+        approvalKey = try ComputerUseApprovalKey(making: .test)
+        identity = DeviceIdentity(deviceID: UUID(uuidString: Fixture.phone)!, keys: TestKeys(), approvalKey: approvalKey)
+    }
+
+    func approvals(identity: DeviceIdentity? = nil, presence: @escaping @MainActor (String) async throws -> Void = { _ in },
                    answerMac: @escaping @MainActor (ComputerUseMacAnswer) async throws -> Void = { _ in }) -> ComputerUseApprovals {
-        let client = ApprovalHubStub.client(identity: identity)
+        let client = ApprovalHubStub.client(identity: identity ?? self.identity)
         return ComputerUseApprovals(environment: ComputerUseApprovals.Environment(
-            hubURL: URL(string: "https://hub.test")!, client: { client }, answerMac: answerMac, userPresence: presence,
+            hubURL: URL(string: "https://hub.test")!, client: { client }, answerMac: answerMac,
+            authorizeApproval: { key, reason in
+                try await presence(reason)
+                return try await key.authorize(reason: reason)
+            },
             isInteractive: { true }, pushTopic: "dev.cmux.mobile", now: { Fixture.before }))
     }
 
@@ -227,7 +253,63 @@ final class ApprovalHubStub: URLProtocol, @unchecked Sendable {
         let body = try #require(ApprovalHubStub.lock.withLock { ApprovalHubStub.bodies["POST /v1/approvals/ap1/decision"] })
         let sent = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
         #expect(sent["decision"] == "session" && sent["digest"] == review.digest)
-        #expect(DeviceIdentity.verifyApproval(signature: sent["sig"] ?? "", digest: review.digest, decision: .session, signingKey: identity.signingKey))
+        // Signed by the approval key (the one Face ID unlocks), never the device's signing key.
+        #expect(DeviceIdentity.verifyApproval(signature: sent["sig"] ?? "", digest: review.digest, decision: .session, signingKey: approvalKey.publicKey))
+        #expect(!DeviceIdentity.verifyApproval(signature: sent["sig"] ?? "", digest: review.digest, decision: .session, signingKey: identity.signingKey))
+    }
+
+    @Test func anAllowUnlocksThisPhonesApprovalKey() async throws {
+        let approval = try Fixture.approvalJSON()
+        ApprovalHubStub.routes = [
+            "GET /v1/approvals/ap1": (200, #"{"approval":\#(approval)}"#),
+            "POST /v1/approvals/ap1/decision": (200, #"{"approval":\#(approval.replacingOccurrences(of: #""state":"pending""#, with: #""state":"decided""#))}"#),
+        ]
+        var unlocked: [String] = []
+        let client = ApprovalHubStub.client(identity: identity)
+        let model = ComputerUseApprovals(environment: ComputerUseApprovals.Environment(
+            hubURL: URL(string: "https://hub.test")!, client: { client },
+            authorizeApproval: { key, reason in
+                unlocked.append(key.fingerprint)
+                return try await key.authorize(reason: reason)
+            },
+            isInteractive: { true }, pushTopic: "dev.cmux.mobile", now: { Fixture.before }))
+        await model.open("ap1")
+        await model.decide(try #require(model.sheet?.review), choice: .allowOnce)
+        #expect(model.sheet?.phase == .decided(.once))
+        #expect(unlocked == [approvalKey.fingerprint])
+    }
+
+    @Test func aPhoneWithoutAnApprovalKeySignsNoAllow() async throws {
+        ApprovalHubStub.routes = ["GET /v1/approvals/ap1": (200, #"{"approval":\#(try Fixture.approvalJSON())}"#)]
+        ApprovalHubStub.lock.withLock { ApprovalHubStub.bodies = [:] }
+        var asked = 0
+        let model = approvals(identity: DeviceIdentity(deviceID: UUID(uuidString: Fixture.phone)!, keys: TestKeys()), presence: { _ in asked += 1 })
+        await model.open("ap1")
+        await model.decide(try #require(model.sheet?.review), choice: .allowOnce)
+        guard case .failed? = model.sheet?.phase else {
+            Issue.record("an Allow went without an approval key")
+            return
+        }
+        #expect(asked == 0)
+        #expect(ApprovalHubStub.lock.withLock { ApprovalHubStub.bodies["POST /v1/approvals/ap1/decision"] } == nil)
+    }
+
+    @Test func aDenyIsSignedByTheDeviceKeyWithoutFaceID() async throws {
+        let approval = try Fixture.approvalJSON()
+        ApprovalHubStub.routes = [
+            "GET /v1/approvals/ap1": (200, #"{"approval":\#(approval)}"#),
+            "POST /v1/approvals/ap1/decision": (200, #"{"approval":\#(approval.replacingOccurrences(of: #""state":"pending""#, with: #""state":"decided""#))}"#),
+        ]
+        var asked = 0
+        let model = approvals(presence: { _ in asked += 1 })
+        await model.open("ap1")
+        let review = try #require(model.sheet?.review)
+        await model.decide(review, choice: .deny)
+        #expect(model.sheet?.phase == .decided(.deny))
+        #expect(asked == 0)
+        let body = try #require(ApprovalHubStub.lock.withLock { ApprovalHubStub.bodies["POST /v1/approvals/ap1/decision"] })
+        let sent = try #require(try JSONSerialization.jsonObject(with: body) as? [String: String])
+        #expect(DeviceIdentity.verifyApproval(signature: sent["sig"] ?? "", digest: review.digest, decision: .deny, signingKey: identity.signingKey))
     }
 
     @Test func cancelledFaceIDSignsNothing() async throws {

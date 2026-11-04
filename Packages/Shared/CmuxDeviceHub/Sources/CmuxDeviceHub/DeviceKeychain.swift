@@ -39,6 +39,15 @@ public struct DeviceKeychain: Sendable {
         guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
     }
 
+    /// Adds the item; throws `keychain(errSecDuplicateItem)` when it exists (never replaces one).
+    public func add(_ data: Data, account: String) throws {
+        var add = query(account)
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(add as CFDictionary, nil)
+        guard status == errSecSuccess else { throw DeviceIdentity.Failure.keychain(status) }
+    }
+
     /// Every account under this service (empty when none or unreadable).
     public func accounts() -> [String] {
         var query = query("")

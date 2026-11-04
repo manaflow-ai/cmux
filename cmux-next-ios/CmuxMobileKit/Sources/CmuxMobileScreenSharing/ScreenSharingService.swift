@@ -122,7 +122,9 @@ public final class ScreenSharingService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: configuration.baseURL, bundleIdentifier: configuration.bundleIdentifier,
-                                                 deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
+                                                 deviceName: configuration.deviceName, platform: .ios,
+                                                 // This iPhone answers Computer Use questions: its Allows need a Face ID key.
+                                                 approvalKeys: .platform, tokens: configuration.tokens)
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.loadStatus = .failed(String(describing: error))

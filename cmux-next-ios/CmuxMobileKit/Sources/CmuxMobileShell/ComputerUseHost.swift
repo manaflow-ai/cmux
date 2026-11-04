@@ -73,7 +73,7 @@ final class ComputerUseHost {
         let bundle = Bundle.main.bundleIdentifier ?? "dev.cmux.mobile"
         let identity: CmuxDeviceHub.DeviceIdentity
         do {
-            identity = try await Task.detached(priority: .userInitiated) { try CmuxDeviceHub.DeviceIdentity.forApp(bundleIdentifier: bundle) }.value
+            identity = try await Task.detached(priority: .userInitiated) { try CmuxDeviceHub.DeviceIdentity.forApp(bundleIdentifier: bundle, approvalKeys: .platform) }.value
         } catch {
             log.error("computer use: this phone's device identity did not load: \(String(describing: error), privacy: .public)")
             return nil

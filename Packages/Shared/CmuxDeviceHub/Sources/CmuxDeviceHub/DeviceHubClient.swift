@@ -158,12 +158,18 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/me", as: HubMe.self)
     }
 
-    /// Registers or updates this device, signed by the key it registers.
+    /// Registers or updates this device, signed by the key it registers. An approver's
+    /// identity also sends its Computer Use `approvalKey` (the hub keeps the first one).
     public func registerDevice(name: String, platform: DevicePlatform) async throws -> HubDevice {
-        struct Body: Encodable { var id, name: String; var platform: DevicePlatform; var signingKey, agreementKey: String }
+        struct Body: Encodable {
+            var id, name: String
+            var platform: DevicePlatform
+            var signingKey, agreementKey: String
+            var approvalKey: String?
+        }
         let identity = signer.identity
         let body = Body(id: identity.id, name: name, platform: platform, signingKey: identity.signingKey,
-                        agreementKey: identity.agreementKey)
+                        agreementKey: identity.agreementKey, approvalKey: identity.approvalKey?.publicKey)
         return try await call("POST", "/v1/devices", body: body, as: DeviceAnswer.self).device
     }
 
@@ -267,14 +273,28 @@ public actor DeviceHubClient {
         try await call("GET", "/v1/approvals/\(segment(id))", as: ApprovalAnswer.self).approval
     }
 
-    /// Answers an approval (`POST /v1/approvals/:id/decision`), signed with this
-    /// device's key over `"cmux-cu-approval-v1\n<digest>\n<decision>"`. The caller
-    /// checks the approval first (``ComputerUseApproval/refusal(thisDeviceID:now:)``)
-    /// and passes the digest it recomputed.
-    public func decide(id: String, decision: ComputerUseDecision, digest: String) async throws -> ComputerUseApproval {
+    /// Answers an approval (`POST /v1/approvals/:id/decision`) with a signature over
+    /// `"cmux-cu-approval-v1\n<digest>\n<decision>"`: an Allow (`once`, `session`,
+    /// `always`) with `authorization`, this device's approval key after Face ID
+    /// (``ComputerUseApprovalKey/authorize(reason:)``); `deny` with the device's signing
+    /// key, no Face ID (it only refuses). An Allow without an authorization is refused
+    /// here, before anything is sent. The caller checks the approval first
+    /// (``ComputerUseApproval/refusal(thisDeviceID:now:)``) and passes the digest it recomputed.
+    public func decide(id: String, decision: ComputerUseDecision, digest: String,
+                       authorization: ComputerUseApprovalAuthorization? = nil) async throws -> ComputerUseApproval {
         struct Body: Encodable { var decision: ComputerUseDecision; var digest, sig: String }
         let sig: String
-        do { sig = try signer.identity.signApproval(digest: digest, decision: decision) } catch {
+        do {
+            if decision == .deny {
+                sig = try signer.identity.signApproval(digest: digest, decision: decision)
+            } else if let authorization {
+                sig = try authorization.signApproval(digest: digest, decision: decision)
+            } else {
+                throw DeviceHubError.identity("an Allow is signed only by the approval key, after Face ID")
+            }
+        } catch let error as DeviceHubError {
+            throw error
+        } catch {
             throw DeviceHubError.identity("\(error)")
         }
         return try await call("POST", "/v1/approvals/\(segment(id))/decision", body: Body(decision: decision, digest: digest, sig: sig),

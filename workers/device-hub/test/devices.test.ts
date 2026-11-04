@@ -12,7 +12,7 @@ describe("device registration and signed requests", () => {
     expect(me.json).toMatchObject({ userId: account.userId, plan: "free", device: { id: d.id } });
     // Re-registering updates the name and keeps the key.
     const again = await Device.create(account);
-    Object.assign(again, { id: d.id, signing: d.signing, signingKey: d.signingKey });
+    Object.assign(again, { id: d.id, signing: d.signing, signingKey: d.signingKey, approval: d.approval, approvalKey: d.approvalKey });
     (again as any).name = "Renamed";
     expect((await again.register()).json.device.name).toBe("Renamed");
     expect(await auditEvents(d)).toEqual(["device_added"]);

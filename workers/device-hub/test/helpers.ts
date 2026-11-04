@@ -216,6 +216,9 @@ export class Device {
   signing!: CryptoKeyPair;
   signingKey!: string;
   agreementKey!: string;
+  /** An approver's (Mac, iPhone) Computer Use approval key: it signs Allows. Null for others. */
+  approval: CryptoKeyPair | null = null;
+  approvalKey: string | null = null;
   user: Peer | null = null;
 
   private constructor(
@@ -224,8 +227,12 @@ export class Device {
     readonly platform: Platform,
   ) {}
 
-  static async create(account: { userId: string; session: string }, name = "Mac", platform: Platform = "macos") {
+  static async create(account: { userId: string; session: string }, name = "Mac", platform: Platform = "macos", opts: { approvalKey?: boolean } = {}) {
     const d = new Device(account, name, platform);
+    if (opts.approvalKey ?? (platform === "macos" || platform === "ios")) {
+      d.approval = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+      d.approvalKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.approval.publicKey)) as ArrayBuffer));
+    }
     d.signing = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
     d.signingKey = base64(new Uint8Array((await crypto.subtle.exportKey("raw", d.signing.publicKey)) as ArrayBuffer));
     const agreement = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
@@ -235,6 +242,12 @@ export class Device {
 
   async sign(message: string, key = this.signing.privateKey): Promise<string> {
     return base64(new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, enc.encode(message))));
+  }
+
+  /** A Computer Use decision signature: an Allow with the approval key, a Deny with the signing key. */
+  async signDecision(message: string, decision: string): Promise<string> {
+    if (decision === "deny" || !this.approval) return this.sign(message);
+    return this.sign(message, this.approval.privateKey);
   }
 
   async headers(method: string, pathAndQuery: string, bodyText: string, opts: { ts?: number; key?: CryptoKey; id?: string } = {}) {
@@ -262,6 +275,7 @@ export class Device {
       platform: this.platform,
       signingKey: this.signingKey,
       agreementKey: this.agreementKey,
+      ...(this.approvalKey ? { approvalKey: this.approvalKey } : {}),
     });
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     return res;

@@ -20,9 +20,18 @@ struct SoftwareDeviceKeys: DeviceKeyMaterial {
 }
 
 extension DeviceIdentity {
-    static func software(_ id: String = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566") -> DeviceIdentity {
-        DeviceIdentity(deviceID: UUID(uuidString: id)!, keys: SoftwareDeviceKeys())
+    static func software(_ id: String = "6f1c2a4e-0d3b-4c5a-9e7f-112233445566", approvalKey: ComputerUseApprovalKey? = nil) -> DeviceIdentity {
+        DeviceIdentity(deviceID: UUID(uuidString: id)!, keys: SoftwareDeviceKeys(), approvalKey: approvalKey)
     }
+}
+
+extension ComputerUseApprovalKeyFactory {
+    /// Software approval keys and no Face ID sheet: tests only.
+    static let software = ComputerUseApprovalKeyFactory(
+        make: { _, _ in SoftwareApprovalKey(key: P256.Signing.PrivateKey()) },
+        restore: { raw in (try? P256.Signing.PrivateKey(rawRepresentation: raw)).map(SoftwareApprovalKey.init) },
+        checkPresence: { _ in .unchecked() }
+    )
 }
 
 /// A fixed clock: 1_800_000_000 (2027-01-15).
