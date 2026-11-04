@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_web_overlay_manifest_commit.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
+
+[[test]]
 path = "tests/test_prepush_fast_tier.py"
 lane = "manual"
 reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."

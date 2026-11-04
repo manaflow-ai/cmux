@@ -413,7 +413,7 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList),
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .projectIcon, .agentAvatar, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
              .sandboxState, .subagentShown: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).

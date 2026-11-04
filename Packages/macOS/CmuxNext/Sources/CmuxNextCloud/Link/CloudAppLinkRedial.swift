@@ -11,17 +11,28 @@ public final class CloudAppLinkRedial {
     private var backoff: Backoff
     private let tries: Int
     private let healthy: Duration
-    private let clock = ContinuousClock()
+    /// Time on the injected clock since this redial was made, and a sleep on it (a test's ``ManualClock``).
+    private let elapsed: @Sendable () -> Duration
+    private let sleep: @Sendable (Duration) async throws -> Void
     /// Ends since the count last started over; the next redial is the `ends`th.
     public private(set) var ends = 0
-    private var upSince: ContinuousClock.Instant?
+    private var upSince: Duration?
     private var pending: Task<Void, Never>?
 
-    public init(backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(30)), tries: Int = 6, healthy: Duration = .seconds(30)) {
+    public convenience init(backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(30)), tries: Int = 6, healthy: Duration = .seconds(30)) {
+        self.init(backoff: backoff, tries: tries, healthy: healthy, clock: ContinuousClock())
+    }
+
+    public init<C: Clock & Sendable>(backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(30)), tries: Int = 6,
+                                     healthy: Duration = .seconds(30), clock: C) where C.Duration == Duration {
         policy = backoff
         self.backoff = backoff
         self.tries = tries
         self.healthy = healthy
+        let start = clock.now
+        elapsed = { start.duration(to: clock.now) }
+        // wakeup-allow: the one backoff delay before a bounded redial (`ended`); async on the injected clock, never a blocking wait
+        sleep = { try await clock.sleep(for: $0) }
     }
 
     /// The last end is one a redial can help (``CloudLinkError/isRedialable(_:)``), or any end but a revoke once redials
@@ -32,7 +43,7 @@ public final class CloudAppLinkRedial {
     public var isPending: Bool { pending != nil }
 
     /// The link's daemon connection came up (its handshake passed).
-    public func up() { upSince = clock.now }
+    public func up() { upSince = elapsed() }
 
     /// The link ended with `error`: schedules `redial` after the next delay and returns true, or returns false when no
     /// redial follows. Only a `live` machine's link (running, not removed) redials, and `read` (a forced read of the
@@ -44,7 +55,7 @@ public final class CloudAppLinkRedial {
     @discardableResult
     public func ended(_ error: any Error, live: Bool = true, read: (@MainActor (_ force: Bool) async -> Void)? = nil,
                       redial: @escaping @MainActor () -> Void) -> Bool {
-        if let upSince, upSince.duration(to: clock.now) >= healthy { startOver() }
+        if let upSince, elapsed() - upSince >= healthy { startOver() }
         upSince = nil
         let revoked = if case CloudLinkError.revoked = error { true } else { false }
         lastEndRedialable = CloudLinkError.isRedialable(error) || (ends > 0 && !revoked)
@@ -58,9 +69,9 @@ public final class CloudAppLinkRedial {
         let delay = backoff.next()
         pending?.cancel()
         // task-owner: one delayed redial; a later end, a click, a pause or a disconnect cancels it
-        pending = Task { [weak self] in
+        pending = Task { [weak self, sleep] in
             // wakeup-allow: one backoff delay before a bounded redial of a dropped link
-            try? await Task.sleep(for: delay)
+            try? await sleep(delay)
             guard !Task.isCancelled else { return }
             await read?(true)
             guard !Task.isCancelled else { return }

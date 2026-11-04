@@ -78,7 +78,12 @@ class FakeGitHub:
             # Both list every status: the dispatch fallback for deferred_first_runs, the window because a finished
             # job in a running base run is already a verdict.
             assert "branch=feat-cmux-next" in route and "status=" not in route, route
-            return {"workflow_runs": copy.deepcopy(self.base_runs)}
+            runs = copy.deepcopy(self.base_runs)
+            if "&event=" in route:
+                # GitHub filters by event, as the tip suite's dispatch read asks it to.
+                event = route.split("&event=", 1)[1].split("&", 1)[0]
+                runs = [run for run in runs if run.get("event") == event]
+            return {"workflow_runs": runs}
         if "/actions/runs/" in route:
             return {"id": int(route.rsplit("/", 1)[1]), "workflow_id": 7}
         raise AssertionError(route)
@@ -399,6 +404,22 @@ class Excusing(unittest.TestCase):
         self.assertIn("writesTheRequestAfterTheReadyMarkerAndReturnsTheReply()", text)
         # The cancelled run 21 has no verdict; the newest run with one decides.
         self.assertNotIn("run 21", text)
+
+    def test_a_pull_request_target_run_is_never_base_evidence(self):
+        # Like a pull_request run, it ran in a PR's context: its red is not the base's.
+        self.gh.base_runs[1]["event"] = "pull_request_target"
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next run of its workflow has a verdict"):
+            self.judge()
+
+    def test_the_newest_base_run_decides_whatever_order_github_lists_them(self):
+        # Run 22 is newer and green; listed after the older red run 20, it still decides: not red on the base.
+        self.gh.jobs[3] = dict(failed_job(3, 22, "c" * 40), conclusion="success",
+                               steps=[{"name": TEST_STEP, "status": "completed", "conclusion": "success"}])
+        self.gh.base_runs[1]["created_at"] = "2026-11-04T10:00:00Z"
+        self.gh.base_runs.append({"id": 22, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                                  "conclusion": "success", "head_sha": "c" * 40, "created_at": "2026-11-04T11:00:00Z"})
+        with self.assertRaisesRegex(excuse.Refused, "not red on feat-cmux-next run 22"):
+            self.judge()
 
     def test_counts_do_not_matter_only_names(self):
         # The base fails one more test than the head; the head's are all on the base.
@@ -941,6 +962,16 @@ class Excusing(unittest.TestCase):
         lines = excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
         self.assertIn(f"macos / {SWIFT}", "\n".join(lines))
         self.assertNotIn("'ci-status'", "\n".join(lines))
+
+    def test_a_red_ci_status_check_whose_job_was_retried_green_blocks(self):
+        # The check-run can stay failed while its exact job was re-run green: never rescan the run and excuse
+        # its child reds then, as for a routed rollup (the Guard status).
+        for job_id in (1, 2):
+            self.gh.jobs[job_id]["name"] = f"macos / {SWIFT}"
+        self.red_ci_status()
+        self.gh.jobs[3]["conclusion"] = "success"
+        with self.assertRaisesRegex(excuse.Refused, "exact aggregate job is success, not failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["ci-status"])
 
     def test_a_red_ci_status_whose_failed_jobs_are_all_outside_its_needs_blocks(self):
         # The run's only red job is not under ci-status's needs (ci.yml's pr-red-checks, say), so it did not turn
@@ -2377,6 +2408,19 @@ class GuardGroupPerStep(unittest.TestCase):
 
 
 class Script(unittest.TestCase):
+    def test_a_rate_limited_read_exits_3(self):
+        # gh-merge-green reports exit 3 as a rate limit, not a red (main's main_fix_evidence.RateLimited).
+        class RateLimited(excuse.Refused):
+            pass
+
+        def judge(*args, **kwargs):
+            raise RateLimited("GitHub rate-limited `gh api`")
+
+        with unittest.mock.patch.object(excuse, "RateLimited", RateLimited), \
+                unittest.mock.patch.object(excuse, "judge", judge), \
+                unittest.mock.patch.object(excuse.test_reds, "load_flake_state", lambda *a, **k: None):
+            self.assertEqual(excuse.main(["--repo", REPO, "--base", "main", "--sha", HEAD, "--check", "x"]), 3)
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
