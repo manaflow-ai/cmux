@@ -107,7 +107,7 @@ import Testing
             placeholderWindowId: placeholder, cmuxOwnedWindowIds: [a, b, c])
         #expect(adoptions.count == 3)
         let commands = tmux.directory.appendingPathComponent("adopt.conf")
-        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions).map { $0.joined(separator: " ; ") }
+        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions, viewSessionName: "view").map { $0.joined(separator: " ; ") }
             .joined(separator: "\n")
             .write(to: commands, atomically: true, encoding: .utf8)
         try tmux.run(["source-file", commands.path])
@@ -131,7 +131,7 @@ import Testing
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let command = try #require(RemoteTmuxViewOnlyWindows.linkCommands([
             .init(windowId: x, sessionName: "gone", afterWindowId: "@999"),
-        ]).first)
+        ], viewSessionName: "view").first)
         let file = tmux.directory.appendingPathComponent("refused.conf")
         try command.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
         tmux.runIgnoringFailure(["source-file", file.path])
@@ -165,7 +165,7 @@ import Testing
             placeholderWindowId: placeholder, cmuxOwnedWindowIds: [a])
         #expect(adoptions.count == 1)
         let file = tmux.directory.appendingPathComponent("dollar.conf")
-        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions).map { $0.joined(separator: " ; ") }
+        try RemoteTmuxViewOnlyWindows.linkCommands(adoptions, viewSessionName: "view").map { $0.joined(separator: " ; ") }
             .joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
         tmux.runIgnoringFailure(["source-file", file.path])
 
@@ -187,7 +187,7 @@ import Testing
         try tmux.run(["link-window", "-d", "-s", a, "-t", "=view:"])
         let index = try tmux.run(["display-message", "-p", "-t", "=view:\(a)", "#{window_index}"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try tmux.run(["set-option", "-w", "-t", a, RemoteTmuxViewSession.optLinked, "1"])
+        _ = try tmux.run(["set-option", "-w", "-t", a, RemoteTmuxViewSession.optLinked(viewSessionName: "view"), "1"])
 
         let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(
             windowId: a, viewSessionName: "view", windowIndex: try #require(Int(index)))
@@ -200,6 +200,42 @@ import Testing
         #expect(try tmux.windowMark(a) == "")
     }
 
+    /// Two cmux installs mirroring one host each have a view, and a window can sit in both. The
+    /// mark is a window option, so one name for every view would let one view's cleanup clear the
+    /// mark the other view's copy relies on, and that view's next bringup would adopt its copy of
+    /// a killed session's window into a live session. Each view's mark has its own name.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func oneViewsUnlinkKeepsAnotherViewsMarkInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        let a = try tmux.run(["new-session", "-d", "-s", "main", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        for viewName in ["view", "other"] {
+            _ = try tmux.run(["new-session", "-d", "-s", viewName])
+            let link = RemoteTmuxViewSession.linkAndMark(
+                "link-window -d -s \(a) -t '=\(viewName):'", windowId: a, viewSessionName: viewName)
+            let file = tmux.directory.appendingPathComponent("link-\(viewName).conf")
+            try link.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
+            try tmux.run(["source-file", file.path])
+        }
+        let index = try tmux.run(["display-message", "-p", "-t", "=view:\(a)", "#{window_index}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(
+            windowId: a, viewSessionName: "view", windowIndex: try #require(Int(index)))
+        let file = tmux.directory.appendingPathComponent("unlink.conf")
+        try commands.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
+        try tmux.run(["source-file", file.path])
+
+        #expect(try tmux.windowMark(a, viewSessionName: "view") == "")
+        #expect(try tmux.windowMark(a, viewSessionName: "other") == "1")
+        let rows = try tmux.run([
+            "list-windows", "-t", "=other", "-F",
+            RemoteTmuxViewConnection.bringupListFormat(viewSessionName: "other"),
+        ]).split(separator: "\n").map(String.init)
+        #expect(RemoteTmuxViewConnection.readBringupRows(rows).adopted.contains(a))
+    }
+
     /// The bringup reads the view's settled flag through a window format, where tmux falls back
     /// from window options to the session's.
     @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
@@ -210,8 +246,8 @@ import Testing
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let marked = try tmux.run(["new-window", "-d", "-t", "=view:", "-P", "-F", "#{window_id}"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        _ = try tmux.run(["set-option", "-w", "-t", marked, RemoteTmuxViewSession.optLinked, "1"])
-        let format = RemoteTmuxViewConnection.bringupListFormat
+        _ = try tmux.run(["set-option", "-w", "-t", marked, RemoteTmuxViewSession.optLinked(viewSessionName: "view"), "1"])
+        let format = RemoteTmuxViewConnection.bringupListFormat(viewSessionName: "view")
         let before = try tmux.run(["list-windows", "-t", "=view", "-F", format]).split(separator: "\n").map(String.init)
         #expect(RemoteTmuxViewConnection.readBringupRows(before).marksSettled == false)
 
@@ -240,6 +276,7 @@ import Testing
                 .init(windowId: "@7", sessionName: "main", afterWindowId: "@1"),
                 .init(windowId: "@8", sessionName: "main", afterWindowId: "@7"),
             ],
+            viewSessionName: view,
             send: { command, completion in
                 sent.append(command)
                 completions.append(completion)
@@ -283,6 +320,7 @@ import Testing
         case .adoption:
             RemoteTmuxViewConnection.adopt(
                 [.init(windowId: "@7", sessionName: "main", afterWindowId: "@1")],
+                viewSessionName: view,
                 on: connection,
                 onLinked: { linked.append($0) }
             )
@@ -306,6 +344,26 @@ import Testing
         if write == .adoption { #expect(linked == ["@7"]) }
     }
 
+    /// A window the reconcile links into the view is cmux's once tmux carries out the link, not
+    /// when it is queued. Owned on a refused link, it would be unlinked with `-k`, which destroys
+    /// it, once it later sat in the view alone.
+    @Test @MainActor func aLinkIntoTheViewReportsTmuxsAnswer() {
+        let stream = AttachedControlStream()
+        defer { stream.close() }
+        var answers: [Bool] = []
+        #expect(RemoteTmuxViewConnection.linkIntoView("@7", viewSessionName: view, on: stream.connection) {
+            answers.append($0)
+        })
+        #expect(RemoteTmuxViewConnection.linkIntoView("@8", viewSessionName: view, on: stream.connection) {
+            answers.append($0)
+        })
+        #expect(answers.isEmpty, "a queued link is not a link yet")
+        stream.reply(["can't find window: @7"], isError: true)
+        stream.reply([])
+        stream.reply([])
+        #expect(answers == [false, true])
+    }
+
     /// tmux runs nothing after a command that fails, so a refused link gets one block and its
     /// mark none. The window stays unowned and the next command still gets its own reply.
     @Test @MainActor func aRefusedAdoptionLeavesTheNextCommandItsOwnReply() {
@@ -315,6 +373,7 @@ import Testing
         var linked: [String] = []
         RemoteTmuxViewConnection.adopt(
             [.init(windowId: "@7", sessionName: "gone", afterWindowId: "@1")],
+            viewSessionName: view,
             on: connection,
             onLinked: { linked.append($0) }
         )
@@ -413,8 +472,9 @@ private final class ViewOnlyTmuxServer {
         process.waitUntilExit()
     }
 
-    func windowMark(_ windowId: String) throws -> String {
-        try run(["display-message", "-p", "-t", windowId, "#{\(RemoteTmuxViewSession.optLinked)}"])
+    func windowMark(_ windowId: String, viewSessionName: String = "view") throws -> String {
+        try run(["display-message", "-p", "-t", windowId,
+                 "#{\(RemoteTmuxViewSession.optLinked(viewSessionName: viewSessionName))}"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
