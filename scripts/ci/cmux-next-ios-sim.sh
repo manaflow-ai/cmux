@@ -61,10 +61,10 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
-#           `--arg discovery` adds the discovery leg: the phone's Allow request
-#           reaches the running Mac within 15 s, and a Mac restart with a
-#           second identity key in its fallback file heals with no action on
-#           the open phone (the key is set aside as mac-identity.superseded).
+#           And the discovery leg: the phone's Allow request reaches the
+#           running Mac within 15 s, and a Mac restart with a second identity
+#           key in its fallback file heals with no action on the open phone
+#           (the key is set aside as mac-identity.superseded).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -103,15 +103,6 @@ if [[ "$mode" == release-build && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: release-build takes no further arguments" >&2; exit 2
 fi
 scenes=("${@:2}")
-# pair-e2e's one option: `discovery` adds its discovery leg (cmux_next_pair_e2e.py, CMUX_PAIR_E2E_DISCOVERY).
-if [[ "$mode" == pair-e2e ]]; then
-  for option in "${@:2}"; do
-    case "$option" in
-      discovery) export CMUX_PAIR_E2E_DISCOVERY=1 ;;
-      *) echo "cmux-next-ios-sim.sh: pair-e2e takes only 'discovery', got '$option'" >&2; exit 2 ;;
-    esac
-  done
-fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi

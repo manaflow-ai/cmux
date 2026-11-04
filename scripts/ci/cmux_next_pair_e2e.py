@@ -284,9 +284,10 @@ def main():
     teardown = TagTeardown(a.mac_app)
     teardown.install()
     streams, app, paired, url, uploaded = [], None, None, None, not probe
-    # CMUX_PAIR_E2E_DISCOVERY=1: the phone's Allow request reaches the running Mac in seconds, and a
-    # Mac restart with a second identity key beside its Keychain key heals with no action on the phone.
-    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") == "1"
+    # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
+    # restart with a second identity key beside its Keychain key heals with no action on the phone.
+    # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
+    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
