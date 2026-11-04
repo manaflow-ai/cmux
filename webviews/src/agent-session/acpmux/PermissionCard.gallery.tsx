@@ -132,7 +132,15 @@ const fourOptions: AcpmuxPermission = {
   ],
 };
 
-function GalleryPermissionCard({ permission, harness, fullAccessMode, shortcuts, scopeStyle, rowStyle, oneTimeStyle }: Props) {
+function GalleryPermissionCard({
+  permission,
+  harness,
+  fullAccessMode,
+  shortcuts,
+  scopeStyle,
+  rowStyle,
+  oneTimeStyle,
+}: Props) {
   return (
     <div
       className="acpmux-shell"
