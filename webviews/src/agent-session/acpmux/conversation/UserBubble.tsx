@@ -25,6 +25,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { PresentationContext } from "./PresentationContext";
 import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -98,6 +99,9 @@ export function UserBubble({
   );
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
+  // The Messages view draws no reply footer for a turn that ended well (messagesRows.ts), so its
+  // prompts keep their own Retry there; the transcript's is the last turn's footer (TurnFooter).
+  const messagesView = useContext(PresentationContext) === "messages";
   const branch = branches?.of.get(row.id);
   const [editing, setEditing] = useState(false);
   const through = edit?.seqs.get(row.id);
@@ -179,7 +183,8 @@ export function UserBubble({
     );
   }
   // A waiting steer's queue row shows Retry and Fork (PendingSteer.tsx); Retry not while it is still
-  // on its way: a second send would duplicate it. The sent row keeps Fork alone: the last turn's
+  // on its way: a second send would duplicate it. The sent row keeps Fork alone (but in the Messages
+  // view, below): the last turn's
   // Retry is its reply footer's (TurnRows.tsx TurnFooter; Leo, 2026-11-04: "Today Retry is on your
   // prompt bubble ... Put it, with the model switch, in the last turn's footer.").
   const retry =
@@ -290,6 +295,7 @@ export function UserBubble({
                   <Pencil size={ROW_ICON} />
                 </button>
               )}
+              {messagesView && retry}
               {forkButton}
               <PinButton rowId={row.id} bookmark />
             </MessageFooterRow>

@@ -43,17 +43,20 @@ const labels = () =>
 /// The tooltip text an item of the row shows on hover (its `title`, which ui/titleTooltips.ts draws).
 const tooltip = (selector: string) => host.querySelector(`.cv-user__actions ${selector}`)?.getAttribute("title");
 
-async function draw(row: AcpmuxRow, actions: object) {
+async function draw(row: AcpmuxRow, actions: object, presentation: "transcript" | "messages" = "transcript") {
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/PresentationContext");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={row} text={row.text ?? ""} />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value={presentation}>
+        <TurnActionsContext.Provider value={actions}>
+          <UserBubble row={row} text={row.text ?? ""} />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     ),
   );
 }
@@ -280,6 +283,20 @@ test("a sent prompt draws no Retry: the last turn's reply footer has it", async 
   );
   expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
   expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
+});
+
+// The Messages view draws no footer for a turn that ended well (messagesRows.ts), so a prompt there
+// keeps the Retry it had, which sends it again.
+test("in the Messages view a sent prompt keeps its Retry", async () => {
+  const sent: [string, string][] = [];
+  await draw(
+    { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
+    { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
+    "messages",
+  );
+  const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
+  act(() => retry.click());
+  expect(sent).toEqual([["user-4", "Cover it"]]);
 });
 
 test("a recorded steer has no receipt checks in its normal hover actions", async () => {

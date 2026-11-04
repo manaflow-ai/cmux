@@ -5,6 +5,7 @@
 // aloud and More (the message's right-click menu), each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
 // with Claude's fade (conversation.css).
 import { useContext, useRef, useState, type ReactNode } from "react";
+import { PresentationContext } from "./PresentationContext";
 import { useLabelClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -319,10 +320,13 @@ export function PromptActions({
   pending?: (actions: ReactNode, queued: QueuedActions) => ReactNode;
 }) {
   const retry = <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />;
+  // The Messages view draws no reply footer for a turn that ended well, so the prompt keeps Retry there.
+  const messagesView = useContext(PresentationContext) === "messages";
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
+      {messagesView && retry}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
