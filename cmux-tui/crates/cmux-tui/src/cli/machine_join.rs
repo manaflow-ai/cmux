@@ -684,7 +684,7 @@ fn entries(body: Value) -> Option<Vec<Value>> {
 }
 
 /// The platform's machine-join refusal codes. Errors print only these, from this table.
-const KNOWN_CODES: [&str; 37] = [
+const KNOWN_CODES: [&str; 39] = [
     "auth.unauthenticated",
     "auth.forbidden",
     "auth.sso_required",
@@ -707,6 +707,8 @@ const KNOWN_CODES: [&str; 37] = [
     "vault.not_found",
     "vault.invalid",
     "vault.too_large",
+    "vault.no_entry",
+    "vault.invalid_hosts",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
