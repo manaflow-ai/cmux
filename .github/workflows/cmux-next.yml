@@ -3450,11 +3450,11 @@ jobs:
       # own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
-        if: ${{ (vars.CI_REBUILD_MIRROR != '0' || vars.CI_NEXT_JOB_REUSE == '1') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ (format('{0}', vars.CI_REBUILD_MIRROR) != '0' || vars.CI_NEXT_JOB_REUSE == '1') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          MIRROR_PLAN: ${{ vars.CI_REBUILD_MIRROR != '0' && format('{0}/ci-rebuild-plan.json', runner.temp) || '' }}
+          MIRROR_PLAN: ${{ format('{0}', vars.CI_REBUILD_MIRROR) != '0' && format('{0}/ci-rebuild-plan.json', runner.temp) || '' }}
           REBUILD_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo --mirror-plan "$MIRROR_PLAN" \
@@ -3467,7 +3467,7 @@ jobs:
 
       - name: Look for a pass on the same inputs
         id: reuse
-        if: ${{ vars.CI_REBUILD_MIRROR == '0' && vars.CI_NEXT_JOB_REUSE == '1' && steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
+        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == '0' && vars.CI_NEXT_JOB_REUSE == '1' && steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
