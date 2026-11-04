@@ -10,16 +10,13 @@ import { inlineToken, type ComposerAttachment } from "../attachments";
 import { useT } from "../i18n";
 import { ComposerBox } from "../ComposerBox";
 import { ArrowUpIcon } from "../ComposerPickers";
-
-export type Draft = { text: string; attachments: ComposerAttachment[] };
-
-/// Each subagent's unsent prompt, by `draftKey` (its chat and the subagent): opening the chat
-/// ("Subagent of") unmounts the composer, and coming back finds the draft where it was left. It
-/// lives as long as the page, as the chat composer's in-memory draft does.
-const drafts = new Map<string, Draft>();
-
-/// The drafts kept, for tests.
-export const subagentDraftsForTests = drafts;
+import {
+  keepSubagentDraft,
+  restoreSubagentDraft,
+  subagentDraft,
+  subscribeSubagentDraft,
+  type Draft,
+} from "./subagentDrafts";
 
 /// The prompt after a send failed: the failed message comes back whole, never dropped and never
 /// mixed with what was typed since (a timed-out send leaves no failed row in the chat to recover it
@@ -52,31 +49,33 @@ export function SubagentComposer({
   onSend?: (message: string) => Promise<unknown>;
 }) {
   const t = useT();
-  const [text, setTextState] = useState(() => drafts.get(draftKey)?.text ?? "");
+  // The kept draft (subagentDrafts.ts): opening the chat ("Subagent of") or another subagent
+  // unmounts this, and coming back, or a page let go, reloaded or quit meanwhile, finds it.
+  const [text, setTextState] = useState(() => subagentDraft(draftKey).text);
   const [failed, setFailed] = useState<string>();
   // A huge paste is a Pasted text chip (composer/pastedChips.ts); its text goes with the message, in
   // its place, since the relay is text only.
-  const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(
-    () => drafts.get(draftKey)?.attachments ?? [],
-  );
+  const [attachments, setAttachmentsState] = useState<ComposerAttachment[]>(() => subagentDraft(draftKey).attachments);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   const textRef = useRef(text);
   textRef.current = text;
-  // A send that fails after the composer is gone (the person opened the chat or another subagent)
-  // comes back in the kept draft, so the pane shows it when it opens again.
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  // A failed send comes back into the kept draft and to whichever composer shows this subagent
+  // then: this one, or one opened again after this was gone (the person opened the chat or another
+  // subagent meanwhile).
+  useEffect(
+    () =>
+      subscribeSubagentDraft(draftKey, (restored) => {
+        textRef.current = restored.text;
+        attachmentsRef.current = restored.attachments;
+        setTextState(restored.text);
+        setAttachmentsState(restored.attachments);
+        setFailed(t("subagents.messageFailed"));
+      }),
+    [draftKey, t],
+  );
   // Every change is the draft kept for this subagent (an empty one is forgotten).
-  const keep = (next: Draft) => {
-    if (next.text || next.attachments.length > 0) drafts.set(draftKey, next);
-    else drafts.delete(draftKey);
-  };
+  const keep = (next: Draft) => keepSubagentDraft(draftKey, next);
   const setText = (update: string | ((current: string) => string)) =>
     setTextState((current) => {
       const next = typeof update === "function" ? update(current) : update;
@@ -115,18 +114,8 @@ export function SubagentComposer({
     setAttachments([]);
     setFailed(undefined);
     onSend(message).catch(() => {
-      // The message comes back to the prompt whole (afterFailedSend).
-      if (!mounted.current) {
-        keep(afterFailedSend(drafts.get(draftKey) ?? { text: "", attachments: [] }, { typed, held, message }));
-        return;
-      }
-      const next = afterFailedSend(
-        { text: textRef.current, attachments: attachmentsRef.current },
-        { typed, held, message },
-      );
-      setText(next.text);
-      setAttachments(next.attachments);
-      setFailed(t("subagents.messageFailed"));
+      // The message comes back to the prompt whole (afterFailedSend), over the draft kept now.
+      restoreSubagentDraft(draftKey, afterFailedSend(subagentDraft(draftKey), { typed, held, message }));
     });
   };
   return (
@@ -149,7 +138,10 @@ export function SubagentComposer({
           className: "acpmux-composer-prompt",
           value: text,
           placeholder: t("subagents.messagePlaceholder", { name: subagent }),
-          attributes: { role: "textbox", "aria-label": t("subagents.messagePlaceholder", { name: subagent }) },
+          attributes: {
+            role: "textbox",
+            "aria-label": t("subagents.messagePlaceholder", { name: subagent }),
+          },
           onChange: (markdown) => setText(markdown),
           onSubmit: () => submit(),
         }}
