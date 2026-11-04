@@ -51,6 +51,13 @@ public struct MobileHostMacIdentity: Sendable, Equatable {
 /// another way (a rebuilt DEV tag, an ad hoc rig build) would otherwise make macOS ask for the
 /// login keychain password. That read is refused instead and the file store is used, with a new
 /// key when the file has none (phones paired with the old build pair again).
+/// Why ``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)`` has no key yet.
+public enum MobileHostMacIdentityError: Error, Equatable {
+    /// The Keychain holds this Mac's key but refused the read (locked, or this build may not read
+    /// it); the caller tries again rather than prove a second identity.
+    case keychainRefused(OSStatus)
+}
+
 public struct MobileHostMacIdentityStore: Sendable {
     public let service: String
     public let fallbackFile: URL
@@ -89,24 +96,38 @@ public struct MobileHostMacIdentityStore: Sendable {
     /// It never shows Keychain UI: an item this build may not read without asking (a
     /// re-signed app) is skipped, with a log line, for the file store.
     ///
-    /// One identity, whichever store answers: a Keychain that refused one read made the file key a
-    /// second identity, and later launches proved whichever store answered first, so a phone that
-    /// pinned the Keychain key refused this Mac as `mac_identity_changed` on every launch the Keychain
-    /// refused (2026-11-03: the approval prompt only came after a relaunch). So once this build has a
-    /// file key, a Keychain read that answers rewrites the file with the Keychain key: the next refusal
-    /// reads the same key the phones pinned. A build that never had a file key writes none here.
-    public func loadOrCreate() throws -> MobileHostMacIdentity {
+    /// One identity, whichever store answers. A Keychain that refused one read used to make a new
+    /// file key, a second identity beside the Keychain's; later launches proved whichever store
+    /// answered, so a phone that pinned the Keychain key refused this Mac as `mac_identity_changed`
+    /// on every launch the Keychain refused (2026-11-03: the approval prompt came only after a
+    /// relaunch). So:
+    /// - a Keychain read that answers removes a file key beside it (the Keychain key is the one
+    ///   phones pin; the copy on disk only made the second identity);
+    /// - a refused read with no file key makes none unless `mintOnRefusal` (the caller retries the
+    ///   read first; a build that can never read the item, a re-signed DEV app, mints after that).
+    public func loadOrCreate(mintOnRefusal: Bool = true) throws -> MobileHostMacIdentity {
         let fileKey = (try? Data(contentsOf: fallbackFile)).flatMap(MobileHostMacIdentity.restore)
-        if useKeychain, let stored = keychainRead().flatMap(MobileHostMacIdentity.restore) {
-            if let fileKey, fileKey != stored {
-                Self.logger.error("iPhone host identity: the file key was a second identity; it now holds the Keychain key")
-                try? writeFallback(stored.privateKey)
+        var refused: OSStatus?
+        if useKeychain {
+            switch keychainRead() {
+            case .found(let data):
+                if let stored = MobileHostMacIdentity.restore(data) {
+                    if fileKey != nil {
+                        Self.logger.error("iPhone host identity: removing the file key beside the Keychain's (a second identity)")
+                        try? FileManager.default.removeItem(at: fallbackFile)
+                    }
+                    return stored
+                }
+            case .notFound:
+                break
+            case .refused(let status):
+                refused = status
             }
-            return stored
         }
         if let fileKey { return fileKey }
+        if let refused, !mintOnRefusal { throw MobileHostMacIdentityError.keychainRefused(refused) }
         let identity = MobileHostMacIdentity.generate()
-        if !(useKeychain && keychainAdd(identity.privateKey)) {
+        if !(useKeychain && refused == nil && keychainAdd(identity.privateKey)) {
             try writeFallback(identity.privateKey)
         }
         return identity
@@ -131,15 +152,17 @@ public struct MobileHostMacIdentityStore: Sendable {
                                          kSecAttrLabel as String: "cmux iPhone host identity"]) { $1 }
     }
 
-    private func keychainRead() -> Data? {
+    enum KeychainRead { case found(Data), notFound, refused(OSStatus) }
+
+    private func keychainRead() -> KeychainRead {
         let (status, data) = loginKeychain.withoutUI { keychain.copy(Self.readQuery(service: service)) }
-        guard status == errSecSuccess else {
-            if status != errSecItemNotFound {
-                Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public)); using the file store")
-            }
-            return nil
+        switch status {
+        case errSecSuccess: return data.map(KeychainRead.found) ?? .notFound
+        case errSecItemNotFound: return .notFound
+        default:
+            Self.logger.error("iPhone host identity: Keychain read refused (\(status, privacy: .public))")
+            return .refused(status)
         }
-        return data
     }
 
     private func keychainAdd(_ privateKey: Data) -> Bool {

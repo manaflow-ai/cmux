@@ -112,22 +112,37 @@ nonisolated let testLoginKeychain = LoginKeychain()
     /// The Keychain refused one read at launch (2026-11-02, -25293) and the store made a file key, a
     /// second identity beside the Keychain's. Later launches proved whichever store answered, so the
     /// phone that pinned the Keychain key refused this Mac (`mac_identity_changed`) whenever the
-    /// Keychain refused again, until a relaunch (2026-11-03). After one read that answers, every
-    /// refused read must give the Keychain key, the one the phones pinned.
+    /// Keychain refused again, until a relaunch (2026-11-03). A refused read must never prove another
+    /// key than the Keychain's: it waits (throws) instead of minting one.
     @Test func aKeychainThatRefusesSometimesKeepsOneIdentity() throws {
         let recorder = Recorder()
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
         let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try store.loadOrCreate(mintOnRefusal: false)
+        for status in [errSecAuthFailed, errSecInteractionNotAllowed, errSecMissingEntitlement] {
+            recorder.refuseReads(status)
+            #expect(throws: MobileHostMacIdentityError.keychainRefused(status)) { try store.loadOrCreate(mintOnRefusal: false) }
+            #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
+            recorder.refuseReads(nil)
+            #expect(try store.loadOrCreate(mintOnRefusal: false) == pinned)
+        }
+    }
+
+    /// A Mac already split (this nightly since 2026-11-02: a file key beside the Keychain's) heals at the
+    /// next read that answers: the file key goes, so no later refused read proves it.
+    @Test func aSecondIdentityInTheFileIsRemovedWhenTheKeychainAnswers() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
         let pinned = try store.loadOrCreate()
+        let second = MobileHostMacIdentity.generate()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try second.privateKey.write(to: store.fallbackFile)
+        #expect(try store.loadOrCreate() == pinned)
+        #expect(!FileManager.default.fileExists(atPath: store.fallbackFile.path))
         recorder.refuseReads(errSecAuthFailed)
-        // The one launch it cannot tell from a build that may never read the item: a file key.
-        _ = try store.loadOrCreate()
-        recorder.refuseReads(nil)
-        #expect(try store.loadOrCreate() == pinned)
-        recorder.refuseReads(errSecAuthFailed)
-        #expect(try store.loadOrCreate() == pinned)
-        recorder.refuseReads(errSecInteractionNotAllowed)
-        #expect(try store.loadOrCreate() == pinned)
+        #expect(throws: MobileHostMacIdentityError.keychainRefused(errSecAuthFailed)) { try store.loadOrCreate(mintOnRefusal: false) }
     }
 }

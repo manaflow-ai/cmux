@@ -187,6 +187,14 @@ public final class IPhoneHostService {
     @ObservationIgnored private var followingAccount: Task<Void, Never>?
     /// The user and team hostd runs for now (the toggle on); a name or email change does not restart it.
     @ObservationIgnored private var running: String?
+    /// The next try at this Mac's identity key after the Keychain refused the read, and how many
+    /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(mintOnRefusal:)``).
+    @ObservationIgnored private var identityRetry: Task<Void, Never>?
+    @ObservationIgnored private var identityRefusals = 0
+    /// The wait between those tries (tests inject their own).
+    @ObservationIgnored var identityRetryClock: any Clock<Duration> = ContinuousClock()
+    /// Waits before each new try; after the last, a build that can never read its item makes a file key.
+    static let identityRetryDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(4), .seconds(8), .seconds(15), .seconds(30)]
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
     /// A host that runs nothing until it is wired and an account with the setting on arrives.
@@ -443,6 +451,7 @@ public final class IPhoneHostService {
         following?.cancel()
         followingAccount?.cancel()
         applying?.cancel()
+        identityRetry?.cancel()
         pairingWatch?.cancel()
         followingFolders?.cancel()
         followingPicks?.cancel()
@@ -462,6 +471,19 @@ public final class IPhoneHostService {
     /// among them), under the quit's deadline.
     public func pairedSavesDrained() async {
         await pairedFile?.drained()
+    }
+
+    /// Starts hostd again after a refused identity read, after the next of ``identityRetryDelays``.
+    private func retryIdentity() {
+        let index = min(identityRefusals, Self.identityRetryDelays.count - 1)
+        identityRefusals += 1
+        identityRetry?.cancel()
+        let delay = Self.identityRetryDelays[index]
+        // task-owner: stored in `identityRetry`; stop() and the next refusal cancel it
+        identityRetry = Task { [weak self, clock = identityRetryClock] in
+            do { try await clock.sleep(for: delay) } catch { return }
+            self?.reconcile()
+        }
     }
 
     private func reconcile() {
@@ -503,7 +525,9 @@ public final class IPhoneHostService {
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
                                                 stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
-                let identity = try await Task.detached { try store.loadOrCreate() }.value
+                let mint = (self?.identityRefusals ?? 0) >= Self.identityRetryDelays.count
+                let identity = try await Task.detached { try store.loadOrCreate(mintOnRefusal: mint) }.value
+                self?.identityRefusals = 0
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
@@ -515,6 +539,13 @@ public final class IPhoneHostService {
                     log: dependencies.stateDirectory.appendingPathComponent("cmux-mobile-host.log", isDirectory: false),
                     browserHosts: dependencies.browserHosts, macIdentity: identity,
                     surfaceHosts: dependencies.surfaceHosts, cloudLinks: dependencies.cloudLinks))
+            } catch MobileHostMacIdentityError.keychainRefused(let status) {
+                // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
+                // try again shortly rather than prove a second key the phones would refuse.
+                logger.error("iPhone host waits for the Keychain (\(status, privacy: .public)) to read this Mac's identity")
+                await supervisor.stop(phase: .waiting(IPhoneHostStrings.unavailable))
+                if self?.running == key { self?.running = nil }
+                self?.retryIdentity()
             } catch {
                 logger.error("iPhone host not started: \(String(describing: error), privacy: .public)")
                 await supervisor.stop(phase: .waiting(String(describing: error)))
