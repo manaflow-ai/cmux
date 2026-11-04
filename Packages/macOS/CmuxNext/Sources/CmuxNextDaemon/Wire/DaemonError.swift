@@ -63,6 +63,16 @@ extension DaemonError {
     /// a retry reaches its successor, so this is a lost connection, never a refusal.
     public static let incompatibleOwnerHandedOff = DaemonError.connectionClosed(reason: "incompatible owner handed off to the bundled build")
 
+    /// The reply missed its deadline (``timedOut(_:)``): the command may still apply, and one that sets an absolute
+    /// value may be sent again quietly (`SidebarFoldPersist.resending`).
+    public var isMissedDeadline: Bool {
+        if case .timedOut = self { return true }
+        return false
+    }
+
+    /// Whether `error` is a ``DaemonError`` whose reply missed its deadline (``isMissedDeadline``).
+    public static func missedDeadline(_ error: any Error) -> Bool { (error as? DaemonError)?.isMissedDeadline == true }
+
     /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
     public var isLostConnection: Bool {
         switch self {
