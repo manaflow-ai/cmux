@@ -283,10 +283,25 @@ class Wrapper(unittest.TestCase):
 
 
 class Collect(unittest.TestCase):
+    def test_a_budget_stopped_retry_retains_only_first_run_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "stopped"
+            log.write_text("--- retry stopped at shared budget ---\n"
+                           "(pass) transient [1.00ms]\n(fail) partial retry [2.00ms]\n"
+                           "--- first failure retained ---\n"
+                           "(pass) first pass [1.00ms]\n(fail) original [2.00ms]\n"
+                           "Ran 2 tests across 1 files.\n")
+            (tmp / "summary").write_text(f"FAIL f.test.ts {log}\n")
+            subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
+            self.assertEqual(json.loads((tmp / "out.json").read_text()), {
+                "f.test.ts > original": False,
+            })
+
     def test_a_summary_becomes_per_test_results(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            logs = {"pass": "(pass) fine [1.00ms]\n", "fail": "(fail) a > b [2.00ms]\n(fail) a > b [2.00ms]\n",
+            logs = {"pass": "(pass) fine [1.00ms]\n", "fail": "(pass) a > good [1.00ms]\n(fail) a > b [2.00ms]\nRan 2 tests across 1 files.\n",
                     "crash": "error: no module\n", "hang": "(fail) slow [9.00s]\n"}
             for name, text in logs.items():
                 (tmp / name).write_text(text)
@@ -294,8 +309,20 @@ class Collect(unittest.TestCase):
                                          f"FAIL c.test.ts {tmp}/crash\nTIMEOUT h.test.ts {tmp}/hang\n")
             subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
             self.assertEqual(json.loads((tmp / "out.json").read_text()), {
-                "p.test.ts": True, "f.test.ts > a > b": False, "c.test.ts": False, "h.test.ts": False,
+                "p.test.ts": True, "f.test.ts > a > good": True, "f.test.ts > a > b": False,
+                "c.test.ts": False, "h.test.ts": False,
                 "h.test.ts > slow": False})
+
+    def test_a_cut_short_failed_file_does_not_publish_named_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            log = tmp / "cut-short"
+            log.write_text("(pass) looks-good [1.00ms]\n(fail) still-red [2.00ms]\n")
+            (tmp / "summary").write_text(f"FAIL f.test.ts {log}\n")
+            subprocess.run([sys.executable, str(COLLECT), str(tmp / "summary"), str(tmp / "out.json")], check=True)
+            self.assertEqual(json.loads((tmp / "out.json").read_text()), {
+                "f.test.ts > still-red": False,
+            })
 
 
 class GuardsUnchanged(unittest.TestCase):

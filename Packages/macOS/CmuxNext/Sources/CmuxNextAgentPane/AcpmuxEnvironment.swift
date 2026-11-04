@@ -16,6 +16,10 @@ public import Foundation
 /// alone (an app launched from another cmux's terminal), it is another
 /// daemon's socket.
 public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
+    /// How long the app waits for the daemon's answer to one request. A loaded daemon answers
+    /// late, not never (#28083); a 2 s bound turned its late answers into failures.
+    public static let answerDeadline: Duration = .seconds(30)
+
     public var executable: URL
     public var home: URL
     public var socketPath: String

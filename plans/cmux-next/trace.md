@@ -174,6 +174,7 @@ counts them (`flow records dropped` in the summary). The app's hops are `key.flo
 | `app.key.terminal` (optional: drawn when emitted, not needed for a complete press) | app main (`TerminalSurfaceView.keyDown`) | flow id |
 | `app.io_write` | Ghostty IO thread (`io_write_cb`) | flow id |
 | `app.send` | the same thread (`TerminalAttachment.enqueueInput`; the `send` request gets `flow`) | flow id |
+| `daemon.send.read` (optional: drawn when emitted) | daemon `mux-conn` reader, right after the `send` line is parsed | flow id |
 | `daemon.send.write`, `daemon.send.written` | daemon `mux-control-dispatch` (`cmd_terminal_io::send`) | flow id |
 | `host.pty.write` (host model) or `daemon.pty.write` (holder model: the daemon writes the PTY itself) | `terminal-host-client-input` / `mux-control-dispatch` | terminal |
 | `host.pty.read` or `holder.pty.read` | `terminal-host-pty` / the holder's poll loop | terminal |
@@ -203,6 +204,17 @@ press with the hops it misses. `check-import` also checks that every flow arrow 
 Limits: the frame's commit is the app's Core Animation commit. The display's own present (vsync) is later and
 has no mark here. The probe follows one press at a time: a key typed before the last echo landed closes the
 open press as unfinished (`--key-interval` keeps keys apart).
+
+Two more record kinds, not press stages (trace.py leaves them out of the press; read them by thread id):
+- `daemon.req.begin.<command>` and `daemon.req.end.<command>` (flow 0, no terminal) on each connection's
+  `mux-control-dispatch` thread around every request it runs: the requests a terminal view sends by name (send,
+  send-key, resize-attached-view, resize-surface, set-client-sizing, set-size-policy, snapshot-request,
+  release-attached-view-size, set-size-counts, set-attach-visibility, detach-attached-view, scroll-surface), every
+  other as `other`. A key whose `daemon.send.write` is late after its `daemon.send.read` waited in its connection's
+  queue; the begin and end records on the same thread id before it name the request it waited for.
+- The daemon's output hops (`daemon.output.host`, `daemon.output.attach`, `daemon.output.holder`) are recorded only
+  for a terminal that had a traced key press in the last 10 s (`cmux_flow_trace::hop_on_traced`): with a thousand
+  busy terminals they filled the ring and it dropped key-press records (3.8 M records dropped in one typing run).
 
 ## How to open it
 

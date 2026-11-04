@@ -179,7 +179,9 @@ export function makeFakeUpstream(apiKey: string) {
           slug: typeof slug === "string" ? slug : null,
           state: "starting",
           resources: { ...(base ?? DEFAULT_RESOURCES) },
-          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" ? Number(read("idleTimeoutSeconds")) : null,
+          // Like the provider: its Vm schema has idleTimeoutSeconds minimum 0, so a create with -1 ("never pause")
+          // reads back as null (production, 2026-11-04).
+          idleTimeoutSeconds: typeof read("idleTimeoutSeconds") === "number" && Number(read("idleTimeoutSeconds")) >= 0 ? Number(read("idleTimeoutSeconds")) : null,
           displayName: typeof read("displayName") === "string" ? String(read("displayName")) : null,
           metadata:
             typeof metadata === "object" && metadata !== null

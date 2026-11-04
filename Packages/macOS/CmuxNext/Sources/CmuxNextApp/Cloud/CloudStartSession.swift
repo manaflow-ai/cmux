@@ -16,12 +16,14 @@ import Foundation
 /// machine's daemon, with this app's key when the machine takes it (``AgentTabRemoteHost/startNow``).
 /// The chat's tab stays in the machine's first workspace, so the person can open it.
 ///
-/// An agent's run (the cmux MCP server, or a shell naming its chat) never starts anything itself:
-/// like an agent's Move to Cloud (``CloudMoveAsks``), it asks the person with a card in its own chat
-/// (Start, Not now), and only the person's Start (on the card, or `cmux agents dialog answer` from
-/// their own terminal, ``CloudAskDialogs``) starts the machine and the session. The run answers
-/// `pending` with the dialog's id as soon as the card shows; the same command again waits for the
-/// answer. The person may delegate it (`cloud.agentsStartWithoutAsking`): then nothing is asked.
+/// An agent's run (the cmux MCP server, or a shell naming its chat) starts the machine and the
+/// session as the person's own would, asking nobody (`cloud.agentsStartWithoutAsking`, on by
+/// default; Leo, 2026-11-03: "shouldn't have needed to ask me"). Only the Cloud plan's own limits
+/// refuse it (the server's answer to the create). With that setting off, it asks the person with a
+/// card in its own chat (Start, Not now) like an agent's Move to Cloud (``CloudMoveAsks``), and only
+/// the person's Start (on the card, or `cmux agents dialog answer` from their own terminal,
+/// ``CloudAskDialogs``) starts it; the run then answers `pending` with the dialog's id as soon as
+/// the card shows, and the same command again waits for the answer.
 @MainActor
 struct CloudStartSession {
     static let action: ActionID = "cloudStartSession"
