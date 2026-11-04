@@ -106,6 +106,19 @@ nonisolated enum TabSettingsSchema {
         ]
     }
 
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab (off by default; ``LoneChatTabSetting``).
+    static func hideLoneChatTab(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(
+            LoneChatTabSetting.configPath, section: .general, group: group,
+            title: SettingsText.keyed("settings.tabs.hideLoneChatTab", "Hide the Tab of a Chat Alone in Its Pane"),
+            help: SettingsText.keyed("settings.tabs.hideLoneChatTab.help",
+                                     "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back."),
+            kind: .toggle,
+            default: .bool(LoneChatTabSetting.fallback),
+            keywords: ["tab", "tabs", "bar", "strip", "hide", "lone", "single", "one", "chat", "top", "row", "minimal"]
+        )
+    }
+
     /// `tabs.swapCmdTAndCmdN`: Cmd-T opens a workspace and Cmd-N a tab.
     static func swapCmdTAndCmdN(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(
