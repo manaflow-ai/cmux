@@ -269,7 +269,7 @@ final class HomeService {
         availability = Task { [weak self] in
             for await connection in ObservationStream({ chief.supports(DaemonCapability.localConversations.rawValue) ? chief.connection : nil }) {
                 guard let self else { continue }
-                homeSource.connectionChanged(connection)
+                homeSource.connectionChanged(connection, chiefHome: chief.home)
                 homeInbox.connectionChanged(connection)
                 guard let connection else { continue }
                 reloadList(connection)

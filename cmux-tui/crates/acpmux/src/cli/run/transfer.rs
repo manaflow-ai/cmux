@@ -41,6 +41,7 @@ pub(super) async fn run(
 pub(super) struct Begun {
     begin: Value,
     transfer_id: String,
+    epoch: u64,
 }
 
 /// Freezes the chat `id` on `src` and makes its bundle (`_acpmux/transfer_begin`). `watch` is
@@ -61,12 +62,18 @@ pub(super) async fn begin_move(
     }
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
     let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
-    Ok(Begun { begin, transfer_id })
+    let epoch = match begin.get("epoch") {
+        None => 0,
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| anyhow!("transfer_begin: epoch must be an unsigned integer"))?,
+    };
+    Ok(Begun { begin, transfer_id, epoch })
 }
 
 /// Gives the chat back on the source: the move did not happen.
 pub(super) async fn abort_move(src: &Client, id: &str, begun: &Begun) {
-    let abort = json!({"sessionId": id, "transferId": begun.transfer_id});
+    let abort = json!({"sessionId": id, "transferId": begun.transfer_id, "epoch": begun.epoch});
     if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
         eprintln!("acpmux: the move failed and the chat stays frozen here: {e}");
     }
@@ -143,6 +150,7 @@ pub(super) async fn finish_move(
         dst,
         begin,
         receive.get("receiveId").unwrap_or(&Value::Null),
+        begun.epoch,
         cwd,
         name,
     )
@@ -169,7 +177,7 @@ pub(super) async fn finish_move(
     to_meta.set("sessionId", moved.get("sessionId").cloned().unwrap_or(Value::Null));
     src.request(
         "_acpmux/transfer_commit",
-        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta}),
+        json!({"sessionId": id, "transferId": transfer_id, "to": to_meta, "epoch": begun.epoch}),
     )
     .await?;
     Ok(moved)
@@ -200,6 +208,7 @@ async fn copy(
     dst: &Client,
     begin: &Value,
     receive_id: &Value,
+    epoch: u64,
     cwd: Option<String>,
     name: Option<String>,
 ) -> Result<Value> {
@@ -207,9 +216,9 @@ async fn copy(
         let path = &file["path"];
         let mut offset = 0u64;
         loop {
-            let read = json!({"transferId": begin["transferId"], "path": path, "offset": offset});
+            let read = json!({"transferId": begin["transferId"], "path": path, "offset": offset, "epoch": epoch});
             let page = src.request("_acpmux/transfer_read", read).await?;
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"]});
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"], "epoch": epoch});
             dst.request("_acpmux/transfer_write", write).await?;
             offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
             if page["eof"] == true {
@@ -217,7 +226,8 @@ async fn copy(
             }
         }
     }
-    let mut finish = json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}});
+    let mut finish =
+        json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}, "epoch": epoch});
     if let Some(cwd) = cwd {
         finish.set("cwd", json!(cwd));
     }
