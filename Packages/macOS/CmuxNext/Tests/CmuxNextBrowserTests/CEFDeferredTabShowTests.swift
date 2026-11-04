@@ -268,7 +268,11 @@ import Testing
         first.container.holdPage(for: PaneMotionHold(trailing: true, bottom: false))
         try #require(first.container.heldPageSize == held, "SETUP: the page does not hold through the key resize")
         var misses: [String] = []
-        let steps = (0...12).map { CGFloat($0) * 10 } + (0...12).map { CGFloat(12 - $0 * 2) * 10 } + (0...12).map { CGFloat($0 - 12) * 10 }
+        // The leading edge's offset from its start in each frame: right 120 pt, left to -120 pt, back to its start.
+        let shrink: [CGFloat] = (0...12).map { CGFloat($0) * 10 }
+        let grow: [CGFloat] = (0...12).map { CGFloat(12 - 2 * $0) * 10 }
+        let back: [CGFloat] = (0...12).map { CGFloat($0 - 12) * 10 }
+        let steps: [CGFloat] = shrink + grow + back
         for (frame, dx) in steps.enumerated() {
             first.container.frame = NSRect(x: 200 + dx, y: 0, width: 600 - dx, height: 500)
             first.container.layoutSubtreeIfNeeded()
