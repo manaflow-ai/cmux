@@ -116,8 +116,9 @@ export function SourceMenu({
   model,
   onSelect,
 }: {
-  additions: number;
-  deletions: number;
+  /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
+  additions: number | null;
+  deletions: number | null;
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
@@ -171,10 +172,17 @@ export function SourceMenu({
         <span className="source-pill-label">{selectedText}</span>
         <Icon name="chevronDown" />
       </button>
-      <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions">+{additions}</span>
-        <span className="source-pill-deletions">-{deletions}</span>
-      </span>
+      {additions == null || deletions == null ? (
+        <span className="source-pill-stats invisible" aria-hidden="true">
+          <span className="source-pill-additions">+0</span>
+          <span className="source-pill-deletions">-0</span>
+        </span>
+      ) : (
+        <span className="source-pill-stats" aria-label={label("diffStats")}>
+          <span className="source-pill-additions">+{additions}</span>
+          <span className="source-pill-deletions">-{deletions}</span>
+        </span>
+      )}
       {open && style
         ? createPortal(
             <div

@@ -304,7 +304,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 "agentPane.display.code.family", "agentPane.display.code.scale",
             ]),
             card("settings.pageGroup.messageBox", "Message Box", [
-                "agentPane.showContextUsage", "agentPane.showDictation", "agentPane.spellChecking",
+                "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.spellChecking",
                 "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.display.harnessPlacement",
             ]),
             card("settings.pageGroup.filesLinks", "Files and Links", [
