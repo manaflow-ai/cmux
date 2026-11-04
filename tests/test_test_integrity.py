@@ -14,6 +14,10 @@ SPEC.loader.exec_module(module)
 
 
 class TestIntegrity(unittest.TestCase):
+    def test_checker_cannot_exempt_a_different_test_file_with_same_name(self):
+        findings = module.analyze("D\ttests/test_integrity.py\n", "")
+        self.assertEqual([f.kind for f in findings], ["deleted-test-file"])
+
     def test_deleted_test_file_is_blocked(self):
         findings = module.analyze("D\ttests/test_deleted.py\n", "")
         self.assertEqual([f.kind for f in findings], ["deleted-test-file"])

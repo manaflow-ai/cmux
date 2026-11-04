@@ -47,7 +47,7 @@ class Finding:
 
 
 def is_test_path(path: str) -> bool:
-    if path.endswith("/test_integrity.py") or path == "test_integrity.py":
+    if path == "scripts/ci/test_integrity.py":
         return False
     return bool(TEST_FILE.search(path))
 
