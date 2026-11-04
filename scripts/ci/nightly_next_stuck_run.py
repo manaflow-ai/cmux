@@ -282,8 +282,14 @@ def stuck_job(run: Run, jobs: list[Job], now: dt.datetime) -> Job | None:
     # as it becomes runnable. Waiting from the latest executed completion is conservative
     # even when that job is not this one's dependency; no workflow graph read is needed.
     completed = max((job.completed for job in jobs if job.completed is not None), default=None)
+    owned_queued = any(queued_without_runner(job)
+                       and any(label.startswith("glaeda-") for label in job.labels)
+                       for job in jobs)
+
     def wait_limit(job: Job) -> float:
-        return OWNED_STUCK_MINUTES if any(label.startswith("glaeda-") for label in job.labels) else STUCK_MINUTES
+        # A downstream job can be created before its owned-pool dependency runs. Keep
+        # the whole run under the rescue grace until that dependency has had its chance.
+        return OWNED_STUCK_MINUTES if owned_queued else STUCK_MINUTES
 
     stuck = [job for job in jobs if queued_without_runner(job)
              and (now - max(job.created, completed or job.created)).total_seconds() / 60 >= wait_limit(job)]
