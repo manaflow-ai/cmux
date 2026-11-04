@@ -4,8 +4,8 @@ public import Foundation
 /// (`CloudStrings.errorText`); ``description`` is the same in English for
 /// logs and any caller that prints the error, never a Swift dump.
 public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible, LocalizedError {
-    /// The link went down or its connection ended. v1 does not reconnect by
-    /// itself: the user connects again.
+    /// The link went down or its connection ended. A running machine's link
+    /// is dialed again a few times (``CloudAppLinkRedial``), then on a click.
     case disconnected(reason: String)
     /// The backend revoked the link.
     case revoked(reason: String)
