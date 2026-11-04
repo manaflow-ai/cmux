@@ -56,9 +56,16 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          # A rename counts as both its old and its new path.
+          # One record per changed file; a rename's old path also counts as changed, but not as a record.
           gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          # The guard comes from the base: a base older than --listed-records gets the old count.
+          listed=()
+          if grep -q -- '--listed-records' scripts/ci/classic_api_guard.py; then
+            listed=(--listed-records "$records")
+          fi
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
-            --expected-files "$CHANGED_FILES"
+            --expected-files "$CHANGED_FILES" "${listed[@]}"
