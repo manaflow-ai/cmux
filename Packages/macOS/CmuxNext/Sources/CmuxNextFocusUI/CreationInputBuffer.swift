@@ -34,11 +34,11 @@ public final class CreationInputBuffer {
     private var movedOnFrom: Set<Int> = []
     /// The new workspaces whose create failed: over, they hold nothing of the person's (``personLeftEveryCreation``).
     private var failedWorkspaces: Set<Int> = []
-    /// New workspaces past the reply bound (``replyWaitLimit``) asked for with no terminal on the keyboard (``pressLanes``) or
-    /// that the person moved on from: their keys are counted and logged, never typed into anything (dogfood v2.2.3, m12).
+    /// New workspaces past the reply bound (``replyWaitLimit``) whose press-time terminal is not the typing target then (or
+    /// that had none, ``pressLanes``): their keys are counted and logged, never typed into anything (dogfood v2.2.3, m12).
     private var strandedWorkspaces: Set<Int> = []
     /// The terminal the person typed into when they asked for each new workspace, by ticket: at the reply bound its keys go
-    /// there unless the person moved on, never into a terminal automation focused since nor a shell they left (#35275).
+    /// there only while it is still the typing target, never into a terminal the focus left since (#35275).
     private var pressLanes: [Int: HeldLane] = [:]
     /// Keys typed for a new workspace's terminal that no terminal could take: counted, never typed.
     public private(set) var untypedTerminalKeys = 0
@@ -79,7 +79,7 @@ public final class CreationInputBuffer {
     /// shows that workspace with its terminal, also after the person left it (``shownWorkspaceToWaitFor``,
     /// ``leftWorkspaceWithKeys``), and are dropped when it fails or has not shown by the hold's limit
     /// (``resolve(_:awaitsFocus:workspace:)``, ``dropKeys(ofWorkspacesOtherThan:)``); at the reply bound they go into the
-    /// press terminal if the person stayed, else nowhere (``endReplyWait(personStayed:)``, cmux-ad m12).
+    /// press terminal if it is still the typing target, else nowhere (``endReplyWait(typingTab:)``, cmux-ad m12).
     /// `at`: when the creation began (tests pass an earlier time).
     /// `pressTerminal`: a new workspace's: the terminal that had the keyboard at the press (``pressLanes``).
     public func open(generation: UInt64, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newWorkspace: Bool = false,
@@ -384,19 +384,20 @@ public final class CreationInputBuffer {
     }
 
     /// The reply bound passed: no creation waits for its reply any more. A new workspace's keys go into the terminal the
-    /// person typed into at the press (``pressLanes``) only when the person stayed (`personStayed`: their keyboard claim
-    /// holds, ``CreationKeyboardClaims``) and did not move on from it (``personMovedOn()``), else are counted, never typed;
-    /// another creation's run as typed in what has the keyboard; a close keeps its lane.
-    public func endReplyWait(personStayed: Bool) {
+    /// person typed into at the press (``pressLanes``) only when the focus core's typing target now (`typingTab`, the tab a
+    /// key typed now is for) is still that terminal: one fact, whatever moved the focus (a click, a menu, the palette, a
+    /// script; lead order on #35275). Else they are counted and logged, never typed. Another creation's keys run as typed in
+    /// what has the keyboard; a close keeps its lane.
+    public func endReplyWait(typingTab: String?) {
         let waiting = Set(pending.keys).subtracting(closingTabs.keys)
         for id in waiting {
             (pending[id], tabs[id], earlyTabs[id]) = (nil, nil, nil)
             if !workspaceTickets.contains(id) {
                 (laneTabs[id], laneMachines[id]) = (nil, nil) // run as typed in what has the keyboard (its provisional view)
-            } else if personStayed, let press = pressLanes[id], !movedOnFrom.contains(id) {
-                (laneTabs[id], laneMachines[id]) = (press.tab, press.machine) // the terminal the person typed into at the press
+            } else if let press = pressLanes[id], press.tab == typingTab {
+                (laneTabs[id], laneMachines[id]) = (press.tab, press.machine) // still the typing target: the press-time terminal
             } else {
-                strandedWorkspaces.insert(id) // asked for over no terminal, or left: never typed into anything (review of #35275)
+                strandedWorkspaces.insert(id) // the target moved, or there was none: never typed into anything
             }
         }
         workspaceTickets.subtract(waiting)
@@ -427,7 +428,7 @@ public final class CreationInputBuffer {
     public func take(focused: String?, keeping kept: Int? = nil, isShortcut: (NSEvent, String) -> Bool) -> [HeldKey] {
         var keys: [HeldKey] = []
         for (event, id) in events where kept == nil || id != kept {
-            if isStranded(id) { untypedTerminalKeys += 1; continue } // asked for over no terminal, or left: counted, never typed
+            if isStranded(id) { untypedTerminalKeys += 1; continue } // its target moved or was none: counted, never typed
             guard let lane = heldLane(id), lane.tab != focused else {
                 keys.append(.run(event, lane: heldLane(id)))
                 continue

@@ -245,10 +245,12 @@ struct CreationHoldReplyBoundTests {
         #expect(fresh.holds(letter, limit: .seconds(2), expiring: true, closes: false, replyLimit: .seconds(10)))
     }
 
-    /// Cmd-N over terminal T, a typed command, then the person moves on (a click on another workspace hides T): at the reply
-    /// bound the command never runs in T, a shell they left; its keys are counted, never typed (review of #35275 at
-    /// 8deeb23ec4e5). Base: the bound gave T the left workspace's keys too.
-    @Test func aNewWorkspaceThePersonLeftTypesNothingIntoThePressTerminalAtTheBound() throws {
+    /// Cmd-N over terminal T and a typed command: at the reply bound the keys go to T only while T is still the focus core's
+    /// typing target (the one fact the bound reads, lead order on #35275). Any other target (a click hid T, a script moved
+    /// the focus, no terminal) keeps them out of T: counted, never typed. Base of the review: a left workspace's keys still
+    /// went to T at the bound.
+    @Test(arguments: [("press_tab", true), ("other_tab", false), (nil, false)] as [(String?, Bool)])
+    func aNewWorkspacesKeysGoToThePressTerminalOnlyWhileItIsTheTypingTarget(_ typingTab: String?, _ typesIntoPress: Bool) throws {
         let buffer = CreationInputBuffer(began: .now)
         let press = CreationInputBuffer.HeldLane(tab: "press_tab", machine: nil)
         _ = buffer.open(generation: 1, newWorkspace: true, pressTerminal: press)
@@ -261,13 +263,12 @@ struct CreationHoldReplyBoundTests {
             buffer.capture(event, focusedTab: press.tab, forNewWorkspace: true)
             typed += 1
         }
-        buffer.personMovedOn()
-        buffer.endReplyWait(personStayed: true) // a stale claim: the move itself still keeps the keys out
+        buffer.endReplyWait(typingTab: typingTab)
         let keys = buffer.take(focused: nil, isShortcut: { _, _ in false })
         let intoPress = keys.flatMap(\.keys).filter { $0.lane == press }.count
-        #expect(intoPress == 0, "\(intoPress) key(s) of the left workspace ran in the press terminal")
-        #expect(keys.isEmpty, "the left workspace's keys went on: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
-        #expect(buffer.untypedTerminalKeys == typed)
+        #expect(intoPress == (typesIntoPress ? typed : 0), "\(intoPress) of \(typed) key(s) went to the press terminal, typing target \(typingTab ?? "none")")
+        #expect(keys.flatMap(\.keys).count == intoPress, "keys went somewhere else: \(keys.flatMap(\.keys).map { $0.event.characters ?? "" })")
+        #expect(buffer.untypedTerminalKeys == (typesIntoPress ? 0 : typed))
     }
 
     /// A close's read opened while a creation waits for its reply (a person's Cmd-W) does not restart that creation's reply
