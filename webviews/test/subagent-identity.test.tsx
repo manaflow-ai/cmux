@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { BackgroundTasksPanel } from "../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel";
 import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
 import { AgentIdentity } from "../src/agent-session/acpmux/subagents/AgentIdentity";
 import { AgentLine } from "../src/agent-session/acpmux/subagents/AgentLine";
@@ -47,4 +48,40 @@ test("a working subagent keeps its spinner and the same identity ink as its fini
     expect(html.includes("cv-spinner")).toBe(working);
     expect(html.includes('data-agent="claude"')).toBe(!working);
   }
+});
+
+test("Background tasks keeps group and nested-agent hues beside their harness marks", () => {
+  const html = renderToStaticMarkup(
+    <BackgroundTasksPanel
+      groups={[
+        {
+          id: "agent:reviewer",
+          kind: "agent",
+          agentId: "reviewer",
+          name: "Reviewer",
+          harness: "claude",
+          state: "running",
+          startedAt: 1,
+          total: 1,
+          failed: 0,
+          finished: [],
+          running: [
+            {
+              id: "explorer",
+              kind: "agent",
+              agentId: "explorer",
+              title: "Explorer",
+              harness: "codex",
+              state: "running",
+            },
+          ],
+        },
+      ]}
+      onClearFinished={() => {}}
+    />,
+  );
+  expect(html).toContain(`data-agent-tone="${agentTone("reviewer")}" data-identity-look="tint"`);
+  expect(html).toContain(`data-agent-tone="${agentTone("explorer")}" data-identity-look="tint"`);
+  expect(html).toContain(renderToStaticMarkup(<AgentMark agent="claude" size={14} tint />));
+  expect(html).toContain(renderToStaticMarkup(<AgentMark agent="codex" size={12} tint />));
 });

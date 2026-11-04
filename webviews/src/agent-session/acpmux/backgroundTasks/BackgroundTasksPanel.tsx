@@ -42,7 +42,9 @@ import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/SubagentGroup";
+import { SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
+import { AgentIdentity, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { agentTone } from "../subagents/agentTones";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -418,6 +420,8 @@ function GroupBlock({
   const [open, setOpen] = useState(startsOpen || look === "flat");
   const agentId = group.agentId;
   const sessionId = group.sessionId;
+  const identity = agentId ?? sessionId;
+  const harness = useContext(SubagentHarnessContext);
   const opens = agentId
     ? () => onDrill({ agentId })
     : sessionId && onOpenSession
@@ -430,6 +434,15 @@ function GroupBlock({
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
         <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
+          {identity && (
+            <AgentIdentity
+              harness={group.harness ?? harness}
+              tone={agentTone(identity)}
+              size={14}
+              fallback={SUBAGENT_FALLBACK}
+              look="tint"
+            />
+          )}
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
@@ -552,6 +565,7 @@ function TaskRow({
   onOpenCommand?(task: BackgroundTask): void;
 }) {
   const agentId = task.agentId;
+  const harness = useContext(SubagentHarnessContext);
   const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
   const opens = agentId
     ? () => onDrill({ agentId, rowId: task.kind === "agent" ? undefined : task.rowId })
@@ -565,7 +579,17 @@ function TaskRow({
       <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
         {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
         <span className="acpmux-bg__disclosure" aria-hidden="true">
-          <Icon name="disclosure.collapsed" size={12} row />
+          {task.kind === "agent" && agentId ? (
+            <AgentIdentity
+              harness={task.harness ?? harness}
+              tone={agentTone(agentId)}
+              size={12}
+              fallback={SUBAGENT_FALLBACK}
+              look="tint"
+            />
+          ) : (
+            <Icon name="disclosure.collapsed" size={12} row />
+          )}
         </span>
         <span className="acpmux-bg__label">{task.title}</span>
       </button>
