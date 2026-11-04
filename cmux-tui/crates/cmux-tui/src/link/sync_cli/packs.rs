@@ -18,10 +18,8 @@
 //! git cannot pack (a broken file) goes as a loose file, as before.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write as _;
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use anyhow::Context as _;
 
@@ -145,7 +143,10 @@ fn index_ids(bytes: &[u8], width: usize) -> Option<Vec<Id>> {
 /// None when git could not (the objects then go loose).
 fn make_pack(common: &Path, kept: &Path, ids: &[&Id]) -> Option<String> {
     let scratch = tempfile::Builder::new().prefix(".making").tempdir_in(kept).ok()?;
-    let mut child = Command::new("git")
+    let names = scratch.path().join("objects");
+    let input: String = ids.iter().map(|id| format!("{id}\n")).collect();
+    std::fs::write(&names, input).ok()?;
+    let output = cmux_process::Command::new("git")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env_remove("GIT_DIR")
@@ -158,23 +159,13 @@ fn make_pack(common: &Path, kept: &Path, ids: &[&Id]) -> Option<String> {
         .arg(common)
         .args(["pack-objects", "-q", "--delta-base-offset"])
         .arg(scratch.path().join("pack"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+        .open_stdin_path(&names)
+        .stderr(cmux_process::Stdio::null())
+        .output()
         .ok()?;
-    let mut stdin = child.stdin.take()?;
-    let input: String = ids.iter().map(|id| format!("{id}\n")).collect();
-    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
-    let output = child.wait_with_output().ok()?;
-    let wrote = writer.join().ok().is_some_and(|written| written.is_ok());
     let hash = String::from_utf8(output.stdout).ok()?;
     let hash = hash.trim();
-    if !output.status.success()
-        || !wrote
-        || hash.is_empty()
-        || !hash.bytes().all(|b| b.is_ascii_hexdigit())
-    {
+    if !output.status.success() || hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     let name = format!("pack-{hash}");
