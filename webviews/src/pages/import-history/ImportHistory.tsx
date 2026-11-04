@@ -126,8 +126,8 @@ function SourceRow({
               if (row.kind === "text" && Boolean(row.expanded) !== checked) store.expand(row.id);
             }}
           />
-          <span className={`history-source-icon icon-${row.id}`}>
-            {row.icon ? row.icon : <AgentMark agent={markFor(row.id)} size={24} label={title} fallback={<MonogramMark name={title} size={24} label={title} />} />}
+          <span className="history-source-icon">
+            <AgentMark agent={markFor(row.id, row.title)} size={24} label={title} fallback={<MonogramMark name={title} size={24} label={title} />} />
           </span>
           {row.kind === "zip" && !row.detected ? (
             <button
@@ -209,10 +209,14 @@ function SourceRow({
   );
 }
 
-function markFor(id: string): string {
+function markFor(id: string, title?: string): string {
   if (id === "claude" || id === "claude-code" || id === "claude-memory") return "claude";
   if (id === "codex" || id === "codex-sessions") return "codex";
   if (id === "chatgpt" || id === "dots" || id === "dot") return "chatgpt";
+  if (id === "grok-bot" || title?.toLowerCase().includes("grok")) return "grok";
+  if (id === "muse" || title?.toLowerCase().includes("muse")) return "muse";
+  if (id === "instinct" || title?.toLowerCase().includes("instinct")) return "instinct";
+  if (title?.toLowerCase().includes("dot")) return "chatgpt";
   return id;
 }
 

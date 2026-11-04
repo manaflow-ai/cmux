@@ -95,7 +95,7 @@ public final class ImportHistoryPageProvider: PageProvider {
             return admitZip(url)
         case "cmux.importHistory.prepareText":
             guard batch != nil, !busy, let text = params["text"]?.stringValue,
-                  let origin = params["summaryOrigin"]?.stringValue,
+                  let origin = params["origin"]?.stringValue,
                   ["grok-bot", "muse", "dots", "instinct"].contains(origin) else {
                 throw PageError.invalidParams("begin an import and supply text with a supported origin")
             }
@@ -107,7 +107,7 @@ public final class ImportHistoryPageProvider: PageProvider {
         case "cmux.importHistory.dryRun", "cmux.importHistory.write":
             guard !busy, let batch, let nativeBatch, params["batch"]?.stringValue == batch,
                   let source = params["source"]?.stringValue, let origin = admitted[source],
-                  (params["summaryOrigin"]?.stringValue ?? "") == origin else {
+                  (params["origin"]?.stringValue ?? "") == origin else {
                 throw PageError.invalidParams("source and batch must belong to this import")
             }
             busy = true

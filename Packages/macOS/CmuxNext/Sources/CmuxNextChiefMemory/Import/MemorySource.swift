@@ -7,8 +7,14 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         case claudeCode = "claude-code"
         case claudeMemory = "claude-memory"
         case codex
+        case codexSessions = "codex-sessions"
         case chatgptExport = "chatgpt-export"
         case claudeAIExport = "claude-ai-export"
+        case grokBot = "grok-bot"
+        case muse
+        case dots
+        case instinct
+        case dotsExport = "dots-export"
         case export
     }
 
@@ -42,9 +48,13 @@ public struct MemorySource: Decodable, Equatable, Sendable {
     public var product: String {
         switch kind {
         case .claudeCode, .claudeMemory: ChiefMemoryImportStrings.productClaudeCode
-        case .codex: ChiefMemoryImportStrings.productCodex
+        case .codex, .codexSessions: ChiefMemoryImportStrings.productCodex
         case .chatgptExport: ChiefMemoryImportStrings.productChatGPT
         case .claudeAIExport: ChiefMemoryImportStrings.productClaudeAI
+        case .grokBot: "Grok Bot"
+        case .muse: "Muse"
+        case .dots, .dotsExport: "ChatGPT Dots"
+        case .instinct: "Instinct"
         case .export: ChiefMemoryImportStrings.productExport
         }
     }
@@ -54,9 +64,14 @@ public struct MemorySource: Decodable, Equatable, Sendable {
         switch kind {
         case .claudeCode: ChiefMemoryImportStrings.claudeCode(count)
         case .claudeMemory: ChiefMemoryImportStrings.claudeMemory(count)
-        case .codex: ChiefMemoryImportStrings.codex(count)
+        case .codex, .codexSessions: ChiefMemoryImportStrings.codex(count)
         case .chatgptExport: ChiefMemoryImportStrings.chatgptExport(fileName)
         case .claudeAIExport: ChiefMemoryImportStrings.claudeAIExport(fileName)
+        case .grokBot: "Grok Bot"
+        case .muse: "Muse"
+        case .dots: "ChatGPT Dots"
+        case .instinct: "Instinct"
+        case .dotsExport: ChiefMemoryImportStrings.exportZip(fileName)
         case .export: ChiefMemoryImportStrings.exportZip(fileName)
         }
     }

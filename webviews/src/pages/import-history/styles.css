@@ -63,22 +63,12 @@
   height: 28px;
   flex: 0 0 28px;
   border-radius: 8px;
-  background: var(--page-text);
-  color: var(--page-elevated);
+  background: var(--page-hover);
+  color: var(--page-text);
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
 }
-.icon-chatgpt,
-.icon-dots { background: #6e8f80; }
-.icon-claude,
-.icon-claude-code,
-.icon-claude-memory { background: #c66b42; }
-.icon-codex,
-.icon-codex-sessions { background: #5d75c9; }
-.icon-grok-bot { background: #141414; }
-.icon-muse { background: #a14c98; }
-.icon-instinct { background: #2a8b80; }
 .history-source-action {
   flex-shrink: 0;
 }

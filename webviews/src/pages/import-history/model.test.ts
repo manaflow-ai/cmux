@@ -26,7 +26,7 @@ function host(handle?: (call: Call) => unknown | Promise<unknown>) {
         case OPS.pickZip:
           return { source: `zip:/selected/${String(call.params.kind)}.zip`, name: "export.zip" } as R;
         case OPS.prepareText:
-          return { source: `text:/private/${String(call.params.summaryOrigin)}.txt` } as R;
+          return { source: `text:/private/${String(call.params.origin)}.txt` } as R;
         case OPS.dryRun:
           return report() as R;
         case OPS.write:
