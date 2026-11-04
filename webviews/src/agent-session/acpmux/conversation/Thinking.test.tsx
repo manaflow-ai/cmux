@@ -117,18 +117,22 @@ test("saved display settings update an already mounted live line", () => {
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Exploring");
   act(() => setChatDisplay({ "agentPane.display.statusVerbs.mode": "thinking" }));
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Thinking");
-  act(() => setChatDisplay({
-    "agentPane.display.statusVerbs.mode": "custom",
-    "agentPane.display.statusVerbs.custom": "Planning, Reading",
-  }));
+  act(() =>
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": "custom",
+      "agentPane.display.statusVerbs.custom": "Planning, Reading",
+    }),
+  );
   expect(container.querySelector(".cv-thinking")?.textContent).toContain("Reading");
 });
 
 test("unreachable and subagent states remain factual with custom verbs", () => {
-  act(() => setChatDisplay({
-    "agentPane.display.statusVerbs.mode": "custom",
-    "agentPane.display.statusVerbs.custom": "Imagining",
-  }));
+  act(() =>
+    setChatDisplay({
+      "agentPane.display.statusVerbs.mode": "custom",
+      "agentPane.display.statusVerbs.custom": "Imagining",
+    }),
+  );
   act(() => root!.render(<Thinking retry={{ attempt: 2, maxRetries: 5, errorStatus: 503 }} />));
   expect(container.querySelector("[data-retrying]")).not.toBeNull();
   expect(container.textContent).not.toContain("Imagining");

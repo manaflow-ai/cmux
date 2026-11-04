@@ -36,7 +36,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
   });
   const open = async () => {
     const page = await browser.newPage({
-      viewport: { width: 760, height: 1000 },
+      viewport: { width: 760, height: 1200 },
       deviceScaleFactor: 2,
     });
     await installPaintedFrames(page);
@@ -57,6 +57,9 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
         label: row.querySelector(".cv-shimmer__base")?.textContent ?? "",
         timeX: row.querySelector(".cv-worked__time")!.getBoundingClientRect().x,
         height: row.getBoundingClientRect().height,
+        rowX: row.getBoundingClientRect().x,
+        rowY: row.getBoundingClientRect().y,
+        rowWidth: row.getBoundingClientRect().width,
         shimmerOffset: Math.abs(
           row.querySelector(".cv-shimmer__lit-time")!.getBoundingClientRect().x -
             row.querySelector(".cv-worked__time")!.getBoundingClientRect().x,
@@ -71,6 +74,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
         const labels = new Set<string>();
         const positions: number[][] = Array.from({ length: count }, () => []);
         const heights = new Set<number>();
+        const geometry: Array<Array<{ x: number; y: number; width: number }>> = Array.from({ length: count }, () => []);
         let shimmerOffset = 0;
         for (let elapsed = 0; elapsed <= 24_000; elapsed += 1_000) {
           await page.evaluate(({ count, elapsed }) => window.__statusVerbs.show(count, elapsed), {
@@ -83,6 +87,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
             expect(row.label).not.toBe("");
             labels.add(row.label);
             positions[index]!.push(row.timeX);
+            geometry[index]!.push({ x: row.rowX, y: row.rowY, width: row.rowWidth });
             heights.add(row.height);
             shimmerOffset = Math.max(shimmerOffset, row.shimmerOffset);
           });
@@ -101,8 +106,23 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
             sharedClocks: clocks.running,
             subscribers: clocks.subscribers,
             heights: [...heights],
+            rowGeometry: positions.map((xs, index) => ({
+              index,
+              timerRange: [Math.min(...xs), Math.max(...xs)],
+              rowX: [...new Set(geometry[index]!.map((rect) => rect.x))],
+              rowY: [...new Set(geometry[index]!.map((rect) => rect.y))],
+              widths: [...new Set(geometry[index]!.map((rect) => rect.width))],
+            })),
           }),
         );
+        // Each chat has its own 336px content box (360px fixture minus 24px padding), stacked
+        // vertically. The shell itself defaults to a horizontal flex row; that is not 20 chats.
+        for (const [index, frames] of geometry.entries()) {
+          expect(new Set(frames.map((rect) => rect.width))).toEqual(new Set([336]));
+          expect(new Set(frames.map((rect) => rect.x))).toEqual(new Set([geometry[0]![0]!.x]));
+          expect(new Set(frames.map((rect) => rect.y)).size).toBe(1);
+          if (index > 0) expect(frames[0]!.y).toBeGreaterThan(geometry[index - 1]![0]!.y);
+        }
         expect(labels.size).toBe(baseline ? 1 : 10);
         expect(displacement).toBeLessThanOrEqual(0.5);
         expect(heights.size).toBe(1);
@@ -172,7 +192,7 @@ await requireBrowserLane("status-verbs-browser.test.ts", async () => {
             await page.evaluate(() => window.cmuxPaintFrame());
             if (output)
               await page
-                .locator("#root")
+                .locator("[data-status-verbs-gallery]")
                 .screenshot({ path: path.join(output, `status-verbs-${variant}-${theme}.png`) });
           }
         }

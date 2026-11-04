@@ -47,7 +47,10 @@ window.__statusVerbs = {
       root.render(
         <>
           {Array.from({ length: count }, (_, index) => (
-            <div key={`${generation}-${index}`} style={{ width: 360, padding: 12 }}>
+            <div
+              key={`${generation}-${index}`}
+              style={{ width: 360, padding: 12, boxSizing: "border-box", flex: "none" }}
+            >
               <Thinking since={since} now={now} />
             </div>
           ))}
@@ -79,7 +82,13 @@ window.__statusVerbs = {
     const entry: ComponentEntry<{ variant: string }> = (await import(/* @vite-ignore */ url)).default;
     await entry.styles?.();
     const Fixture = await entry.load();
-    flushSync(() => root.render(<Fixture key={variant} variant={variant} />));
+    flushSync(() =>
+      root.render(
+        <div data-status-verbs-gallery style={{ width: "100%" }}>
+          <Fixture key={variant} variant={variant} />
+        </div>,
+      ),
+    );
   },
   theme(name) {
     document.documentElement.style.colorScheme = name;
