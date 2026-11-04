@@ -19,6 +19,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 from pathlib import Path
 
@@ -523,6 +524,39 @@ class SharedWait(unittest.TestCase):
         self.assertEqual(write.call_args.args[0].mini_jobs, ("control",))
         self.assertEqual(clock[0], 30)
         self.assertEqual(sum("/10/runners" in path for path in paths), 1)
+
+
+class OrganizationFallback(unittest.TestCase):
+    def observe(self):
+        config = env(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="spent",
+                     ROUTE_TOKEN_FALLBACK="org-only", SNAPSHOT_TOKEN="snapshot", JOBS="control")
+        calls = []
+
+        def api(client, path):
+            token = client.headers["Authorization"].split()[-1]
+            calls.append((token, path))
+            if token == "spent" or path.startswith("/repos/"):
+                remaining = "0" if token == "spent" else "4258"
+                raise urllib.error.HTTPError(path, 403, "Forbidden", {"X-RateLimit-Remaining": remaining}, None)
+            if "visible_to_repository" in path:
+                return {"runner_groups": [{"name": "glaeda-minis", "id": 10}]}
+            if "/10/runners" in path:
+                return {"runners": [dict(runner("synthetic-glaeda"), id=1, os="macOS")]}
+            raise AssertionError(path)
+
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(placement.pool.GitHub, "get_api", autospec=True, side_effect=api), \
+             mock.patch.object(placement.pool.GitHub, "snapshot", return_value=snapshot()), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            runners, fresh = placement.read(config, NOW)
+        return placement.decide(config, runners, fresh, NOW), calls
+
+    def test_org_only_fallback_places_an_idle_mini_when_the_routing_budget_is_spent(self):
+        placed, calls = self.observe()
+        self.assertEqual(placed.mini_jobs, ("control",))
+        self.assertEqual(placed.mini_runner, SIDE)
+        self.assertFalse(any(token == "org-only" and path.startswith("/repos/") for token, path in calls))
+        self.assertTrue(any("visible_to_repository=cmux" in path for _, path in calls))
 
 
 class Wiring(unittest.TestCase):
