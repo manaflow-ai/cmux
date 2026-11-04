@@ -2208,5 +2208,71 @@ class LiveResizeSwitchTests(unittest.TestCase):
         self.assertEqual([o[0] for o in order if o[0] in ("switch", "drag")][:2], ["switch", "drag"])
 
 
+
+class ResizeKeyboardFixtureTests(unittest.TestCase):
+    """cmux-ad m6 (d), the film check of the resize-keyboard journey (frame-owner-s4): the judge's m6 contract (each
+    terminal's content edge within 1 device px of its pane's edge in every frame, or the previous frame clipped and anchored
+    top-left) reads only fixture films (judge_pixel's notes.pixel; R-HARNESS). gen_pixel.py px-keys-rk-3t is the
+    open-P0 journey resize-keyboard's presses (read from its journey file) on a fixture layout of three terminals in the
+    same places, p0 | (p1 / p2): the six speeds, x1 and Reduce Motion (-s1r), and the switch variant (-sw-terminals)."""
+
+    CASE = "px-keys-rk-3t"
+
+    @staticmethod
+    def presses(steps):
+        out = []
+        for st in steps:
+            if st["do"] == "rk_press":
+                out.append((st["key"], tuple(st["modifiers"]), st.get("count", 1)))
+            out += ResizeKeyboardFixtureTests.presses(st.get("steps") or [])
+        return out
+
+    def journeys(self, *extra):
+        with tempfile.TemporaryDirectory() as out:
+            gen("--out", out, "--only", self.CASE, *extra)
+            return {p.stem: json.loads(p.read_text()) for p in sorted(Path(out).glob("*.json"))}
+
+    def test_the_open_p0_journeys_presses_on_three_terminal_fixtures(self):
+        import run as R
+        rk = json.loads((HERE / "journeys" / "video" / "resize-keyboard.json").read_text())
+        want = self.presses(rk["steps"])
+        self.assertEqual(len(want), 8, want)
+        specs = self.journeys()
+        self.assertIn(f"{self.CASE}-s1r", specs)
+        self.assertTrue(any(jid == self.CASE or jid.startswith(self.CASE + "-") and jid[-2:-1] == "-" for jid in specs), sorted(specs))
+        for jid, spec in specs.items():
+            self.assertEqual(R.validate(spec), [], jid)
+            self.assertLessEqual(spec["budget_seconds"], 250, jid)
+            films = [st for st in spec["steps"] if st["do"] == "px_film"]
+            self.assertTrue(films, jid)
+            for film in films:
+                self.assertEqual(self.presses(film["steps"]), want, film["name"])
+                focus = [st for st in film["steps"] if st["do"] == "rk_focus"]
+                self.assertEqual([st["pane"] for st in focus], ["p1"], film["name"])
+                start = next(st for st in film["steps"] if st["do"] == "px_record_start")
+                self.assertEqual({name: f["kind"] for name, f in start["fixture"].items()},
+                                 {"p0": "tui", "p1": "tui", "p2": "tui"}, film["name"])
+                self.assertEqual(start["spring"], "move", film["name"])
+            # p0 | (p1 / p2): p1 by splitRight from p0, p2 by splitDown from p1, as in resize-keyboard.
+            self.assertEqual([st["action"] for st in spec["steps"] if st["do"] == "action" and st["action"].startswith("split")],
+                             ["splitRight", "splitDown"], jid)
+
+    def test_the_switch_variant(self):
+        specs = self.journeys("--switch", SWITCH)
+        self.assertEqual(sorted(specs), [f"{self.CASE}-sw-terminals"])
+        films = [st for st in specs[f"{self.CASE}-sw-terminals"]["steps"] if st["do"] == "px_film"]
+        self.assertEqual([(f["switch"]["value"], f.get("speed"), f.get("reduce")) for f in films],
+                         [(False, 1.0, None), (True, 1.0, None), (False, None, True), (True, None, True)])
+
+    def test_each_film_records_long_enough_for_its_eight_presses(self):
+        specs = self.journeys()
+        self.assertTrue(specs, "gen_pixel.py made no journey of the case")
+        for jid, spec in specs.items():
+            for film in [st for st in spec["steps"] if st["do"] == "px_film"]:
+                start = next(st for st in film["steps"] if st["do"] == "px_record_start")
+                played = sum(st["seconds"] for st in film["steps"] if st["do"] == "wait")
+                self.assertGreater(start["seconds"], played + 2.0, film["name"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
