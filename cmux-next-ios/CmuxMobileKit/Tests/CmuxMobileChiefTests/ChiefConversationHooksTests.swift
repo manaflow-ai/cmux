@@ -81,6 +81,9 @@ struct ChiefConversationHooksTests {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = controller
         window.isHidden = false
+        // A window without a scene sends no appearance calls: UIKit's own transition does.
+        controller.beginAppearanceTransition(true, animated: false)
+        controller.endAppearanceTransition()
         store.apply(.connected(info: .init(id: "chief", title: "Chief", kind: .group, participants: []), meID: "me", lagged: false))
         var pages = loaded.makeAsyncIterator()
         _ = await pages.next()
@@ -97,7 +100,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func replyWithSelectionHandsTheHostTheSelectedWordsAndOpensTheReply() async throws {
         let source = Self.message("m1", "Deploy the build, then run the tests.", seq: 1)
         let (controller, window) = try await loaded([source])
-        defer { controller.store.stop(); window.isHidden = true }
+        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         var replies: [ConversationSelectionReply] = []
         controller.onReplyWithSelection = { [weak controller] reply in
             replies.append(reply)
@@ -125,7 +128,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func withoutTheHookTheSelectionMenuIsTheSystemsAlone() async throws {
         let source = Self.message("m1", "Only the system menu here.", seq: 1)
         let (controller, window) = try await loaded([source])
-        defer { controller.store.stop(); window.isHidden = true }
+        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         controller.beginTextSelection(rowID: source.rowID)
         let selection = try #require(controller.textSelection)
         let interaction = try #require(selection.interactions.compactMap { $0 as? UIEditMenuInteraction }.first)
@@ -138,7 +141,11 @@ struct ChiefConversationHooksTests {
 
     @Test(.timeLimit(.minutes(1))) func textSizeRedrawsTheTranscriptAtThatSizeAndNilFollowsTheSystem() async throws {
         let (controller, window) = try await loaded([Self.message("m1", "Some text", seq: 1)])
-        defer { controller.store.stop(); window.isHidden = true; controller.textSize = nil }
+        defer {
+            controller.textSize = nil
+            ConversationTextSizeOwners.disappeared(controller)
+            controller.store.stop(); window.isHidden = true
+        }
         let system = ConversationTheme.bubbleFont.pointSize
         #expect(ConversationTheme.textSizeTraits == nil)
         controller.textSize = .accessibilityMedium
@@ -157,16 +164,17 @@ struct ChiefConversationHooksTests {
 
     @Test(.timeLimit(.minutes(1))) func headerMenuOpensFromTheTrailingButtonOnlyInTheNormalState() async throws {
         let (controller, window) = try await loaded([])
-        defer { controller.store.stop(); window.isHidden = true }
+        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         let button = controller.header.trailingButton
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
         let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
         controller.headerActionMenu = menu
-        #expect(button.menu === menu && button.showsMenuAsPrimaryAction)
+        // The button keeps a copy of the menu: compare by identifier.
+        #expect(button.menu?.identifier == menu.identifier && button.showsMenuAsPrimaryAction)
         controller.setSelecting(true)
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
         controller.setSelecting(false)
-        #expect(button.menu === menu)
+        #expect(button.menu?.identifier == menu.identifier)
         controller.headerActionMenu = nil
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
     }
@@ -174,7 +182,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func editModeKeepsTheTrailingTapForEndingTheEdit() async throws {
         let source = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine to edit")
         let (controller, window) = try await loaded([source])
-        defer { controller.store.stop(); window.isHidden = true }
+        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
         controller.headerActionMenu = menu
         controller.enterEditMode(for: source)
@@ -182,14 +190,18 @@ struct ChiefConversationHooksTests {
         #expect(controller.header.trailingButton.menu == nil)
         controller.header.trailingButton.sendActions(for: .touchUpInside)
         #expect(controller.editingMessageID == nil)
-        #expect(controller.header.trailingButton.menu === menu)
+        #expect(controller.header.trailingButton.menu?.identifier == menu.identifier)
     }
 
     /// The theme's text size is the front conversation's: a sheet's conversation without one
     /// takes it, and the zoomed one under it gets it back (and re-measures) when the sheet goes.
     @Test(.timeLimit(.minutes(1))) func theFrontConversationOwnsTheThemeTextSize() async throws {
         let (zoomed, window) = try await loaded([Self.message("m1", "Zoomed", seq: 1)])
-        defer { zoomed.store.stop(); window.isHidden = true; zoomed.textSize = nil }
+        defer {
+            zoomed.textSize = nil
+            ConversationTextSizeOwners.disappeared(zoomed)
+            zoomed.store.stop(); window.isHidden = true
+        }
         zoomed.textSize = .accessibilityLarge
         #expect(ConversationTheme.textSizeTraits?.preferredContentSizeCategory == .accessibilityLarge)
         let sheet = ConversationViewController(store: ConversationStore(backend: HooksBackend(messages: [])), options: .chief)
