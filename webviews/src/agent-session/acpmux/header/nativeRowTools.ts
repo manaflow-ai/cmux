@@ -463,7 +463,8 @@ export function dispatchNativeRowTool(value: unknown, bindings: readonly RowTool
   if (event.menuItemId !== undefined) {
     if (typeof event.menuItemId !== "string") return;
     // Only a row the host was actually sent, and that is enabled, runs: stale or truncated ids do nothing.
-    const item = findMenuItem(binding.tool.menu, event.menuItemId) ?? findMenuItem(binding.tool.contextMenu, event.menuItemId);
+    const item =
+      findMenuItem(binding.tool.menu, event.menuItemId) ?? findMenuItem(binding.tool.contextMenu, event.menuItemId);
     if (!item?.enabled) return;
     binding.runMenu?.(event.menuItemId);
     return;
