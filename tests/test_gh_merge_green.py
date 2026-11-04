@@ -1433,7 +1433,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None, extra_args=()):
+                 raw_content=None, app_workflow_body=None, graphql_workflows=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -1441,7 +1441,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
             payload = {"head": HEAD, "workflow": workflow, "probe_status": probe_status,
                        "checks": checks if checks is not None else [{"id": 1, "name": "tests", "status": "completed", "conclusion": "success"}],
                        "statuses": statuses or [], "app_workflow": app_workflow, "files": files or [],
-                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body}
+                       "workflow_body": workflow_body, "raw_content": raw_content, "app_workflow_body": app_workflow_body,
+                       "graphql_workflows": graphql_workflows or {}}
             fixture = directory / "fixture.json"
             fixture.write_text(__import__("json").dumps(payload))
             gh = directory / "gh"
@@ -1457,6 +1458,11 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[:2] == ['api', 'graphql']:
+                    expr = next((arg.removeprefix('expr=') for arg in a if arg.startswith('expr=')), '')
+                    if expr not in x['graphql_workflows']: sys.exit(2)
+                    body = x['graphql_workflows'][expr]
+                    print(json.dumps({'data': {'repository': {'object': {'text': body} if body is not None else None}}}))
                 elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
                     print('gh: Not Found (HTTP 404)', file=sys.stderr)
                     sys.exit(1)
@@ -1557,6 +1563,30 @@ class WorkflowPresenceRegression(unittest.TestCase):
             extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
+
+    def test_large_graphql_workflow_preserves_aggregate_gate(self):
+        # Linux limits each argv element to 128 KiB, even when ARG_MAX is larger.
+        # Keep the aggregate at the end so truncated content cannot silently merge.
+        large_workflow = "name: app\n" + ("# " + "x" * 126 + "\n") * 2048 + "jobs:\n  ci-status:\n    needs: [tests]\n"
+        for name, conclusion, should_merge in (("ci-status", "success", True),
+                                                ("tests", "success", False),
+                                                ("ci-status", "failure", False)):
+            with self.subTest(name=name, conclusion=conclusion):
+                result, merged, queries = self.run_case(
+                    probe_status=500,
+                    graphql_workflows={
+                        "main:.github/workflows/ci.yml": None,
+                        "main:.github/workflows/ci-macos.yml": large_workflow,
+                    },
+                    checks=[{'id': 1, 'name': name, 'status': 'completed', 'conclusion': conclusion}],
+                )
+                self.assertEqual(merged, should_merge, result.stdout + result.stderr)
+                self.assertEqual(result.returncode == 0, should_merge, result.stderr)
+                self.assertIn('expr=main:.github/workflows/ci-macos.yml', queries)
+                self.assertIn('used GraphQL fallback to inspect main:.github/workflows/ci-macos.yml', result.stderr)
+                self.assertNotIn('Argument list too long', result.stderr)
+                if not should_merge:
+                    self.assertIn('ci-status', result.stderr)
 
     def test_workflow_probe_failure_is_not_absence(self):
         for code in (403, 500):
@@ -2317,7 +2347,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
 
 FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     # A recorded GitHub: routes are (substring of the joined arguments, stdout) in order.
-    import json, os, sys
+    import json, os, re, sys
     from pathlib import Path
     x = json.loads(Path(os.environ['FIXTURE']).read_text())
     a = sys.argv[1:]
@@ -2359,9 +2389,17 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
     else:
         for needle, out in x['routes']:
             if needle in joined:
-                if '--paginate' in a and '--slurp' not in a and isinstance(out, list) and all(isinstance(p, dict) for p in out):
+                paged = re.search(r'[?&]page=(\d+)', joined)
+                pages = isinstance(out, list) and bool(out) and all(isinstance(p, dict) for p in out)
+                if '--paginate' in a and '--slurp' not in a and pages:
                     # Real gh without --slurp prints each recorded page object back to back.
                     print(''.join(json.dumps(page) for page in out))
+                elif paged and pages and 'per_page=' in joined:
+                    # Explicit ?page=N (main_fix_evidence pages itself since #30219): the Nth recorded page,
+                    # then the same object with its lists empty, as GitHub answers past the last page.
+                    n = int(paged.group(1))
+                    print(json.dumps(out[n - 1] if n <= len(out) else
+                                     {k: ([] if isinstance(v, list) else v) for k, v in out[0].items()}))
                 else:
                     print(out if isinstance(out, str) else json.dumps(out))
                 sys.exit(0)

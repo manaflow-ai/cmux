@@ -16,7 +16,7 @@ use crate::provider::{
     ProviderCapabilities, ProviderError, SupportedClientAuthModes, TransportProvider,
     sanitized_route,
 };
-use crate::ssh_args::background_ssh_arguments;
+use crate::ssh_args::carrier_ssh_arguments;
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -176,11 +176,11 @@ impl LinkGroup for SshLinkGroup {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
         let mut command = Command::new(&self.config.ssh_binary);
-        // Forwarding stays as configured unless `extra_args` pin
-        // `ControlMaster=no`: otherwise this run can become the shared master
-        // that interactive sessions reuse.
+        // The remote-link run that starts the remote daemon passes its agent
+        // socket and display to the shells, and any carrier may be that run,
+        // so agent and X11 forwarding stay as configured.
         command
-            .args(background_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
+            .args(carrier_ssh_arguments(self.port, &self.config.extra_args, &self.destination))
             .args(remote_link_command(&self.config));
         command
             .stdin(Stdio::piped())
@@ -330,11 +330,9 @@ mod tests {
         assert_eq!(std::fs::read_to_string(outcome).unwrap(), "graceful");
     }
 
-    /// The Swift carrier passes `ControlMaster=auto`, so this link can become
-    /// the shared master and keeps forwarding as configured.
+    /// Runs `open` with a fake `ssh` that records its argv, and returns it.
     #[cfg(unix)]
-    #[tokio::test]
-    async fn provider_link_uses_hardened_ssh_argv() {
+    async fn carrier_argv(extra_args: &[&str]) -> Vec<String> {
         use std::os::unix::fs::PermissionsExt;
 
         let directory = tempfile::tempdir().unwrap();
@@ -352,7 +350,7 @@ mod tests {
             port: Some(2222),
             config: SshProviderConfig {
                 ssh_binary: script.to_string_lossy().into_owned(),
-                extra_args: vec!["-o".into(), "ControlMaster=auto".into()],
+                extra_args: extra_args.iter().map(|argument| (*argument).to_owned()).collect(),
                 ..SshProviderConfig::default()
             },
             evidence: CarrierEvidence::Ssh { destination: "ssh://example.com:2222".into() },
@@ -364,15 +362,15 @@ mod tests {
             .await
             .unwrap();
         link.close().await.unwrap();
+        std::fs::read_to_string(&log).unwrap().lines().map(str::to_owned).collect()
+    }
 
-        assert_eq!(
-            std::fs::read_to_string(&log).unwrap().lines().collect::<Vec<_>>(),
-            [
-                "-T",
-                "-p",
-                "2222",
-                "-o",
-                "ControlMaster=auto",
+    #[cfg(unix)]
+    fn expected_carrier_argv(extra_args: &[&str]) -> Vec<String> {
+        ["-T", "-p", "2222"]
+            .iter()
+            .chain(extra_args)
+            .chain(&[
                 "--",
                 "alice@example.com",
                 "~/.local/bin/cmux-tui",
@@ -380,8 +378,55 @@ mod tests {
                 "--stdio",
                 "--session",
                 "main",
-            ]
-        );
+            ])
+            .map(|argument| (*argument).to_owned())
+            .collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_link_uses_hardened_ssh_argv() {
+        let extra = ["-o", "ControlMaster=auto"];
+        assert_eq!(carrier_argv(&extra).await, expected_carrier_argv(&extra));
+    }
+
+    /// The remote-link run that starts the remote daemon passes its
+    /// `SSH_AUTH_SOCK` and `DISPLAY` to the shells, so a carrier keeps agent
+    /// and X11 forwarding as configured even when it can't become the shared
+    /// master. The app passes `ControlPath=none` in place of a ControlPath from
+    /// the user's ssh_config when an agent socket is set, and
+    /// `ControlMaster=no` when the route has no identity
+    /// (https://github.com/manaflow-ai/cmux/issues/24542). Port forwards from
+    /// ssh_config are still cleared then, since every carrier to the host would
+    /// try to bind them, but a carrier's own `-L` stays.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn provider_link_keeps_agent_forwarding_without_a_shared_master() {
+        for extra in [
+            &["-o", "ControlMaster=auto", "-o", "ControlPersist=yes", "-o", "ControlPath=none"][..],
+            &["-o", "ControlMaster=no", "-o", "ControlPath=none", "-A"],
+        ] {
+            let mut expected = vec!["-o", "ClearAllForwardings=yes"];
+            expected.extend(extra);
+            assert_eq!(carrier_argv(extra).await, expected_carrier_argv(&expected), "{extra:?}");
+        }
+        for extra in [
+            &["-o", "ControlMaster=no", "-A", "-L", "8080:localhost:80"][..],
+            // A caller that turns forwarding off itself, like the managed
+            // machine rail, keeps its options first.
+            &[
+                "-o",
+                "ForwardAgent=no",
+                "-o",
+                "ForwardX11=no",
+                "-o",
+                "ClearAllForwardings=yes",
+                "-o",
+                "ControlMaster=no",
+            ],
+        ] {
+            assert_eq!(carrier_argv(extra).await, expected_carrier_argv(extra), "{extra:?}");
+        }
     }
 
     #[test]
