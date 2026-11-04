@@ -110,7 +110,7 @@ await requireBrowserLane("subagent-tray-tuck.test.ts", async () => {
       expect((await state(page)).label).toBe("Tuck running tray away");
       await page.click(".acpmux-running-tray > .acpmux-tray-grabber");
       await page.locator(".acpmux-tray-tucked").waitFor({ state: "attached" });
-      expect((await state(page)).tray).toBe(false);
+      await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray"));
     } finally {
       await page.close();
     }
