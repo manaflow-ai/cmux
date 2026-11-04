@@ -168,8 +168,12 @@ fn an_undo_puts_the_folder_back_exactly_as_before_the_pull() {
 
     let (ok, history) = local_only(&setup, &["history"]);
     assert!(ok, "{history}");
-    let actions: Vec<&str> =
-        history["snapshots"].as_array().unwrap().iter().filter_map(|s| s["action"].as_str()).collect();
+    let actions: Vec<&str> = history["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["action"].as_str())
+        .collect();
     // Nothing changed here between the push and the pull: the state before
     // the pull is the push's, kept once.
     assert_eq!(actions, ["pull", "push"], "{history}");

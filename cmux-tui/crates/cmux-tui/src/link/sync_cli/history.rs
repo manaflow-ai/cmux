@@ -143,9 +143,10 @@ fn keep_blob_inner(root: &Dir, relative: &str, sha256: &str) -> anyhow::Result<b
     let path = blob_path(sha256)?;
     if path.is_file() {
         // Fresh again, so a sweep running now leaves it.
-        let _ = std::fs::File::options().append(true).open(&path).and_then(|file| {
-            file.set_modified(std::time::SystemTime::now())
-        });
+        let _ = std::fs::File::options()
+            .append(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(std::time::SystemTime::now()));
         return Ok(true);
     }
     let Some((dir, name)) = place::parent_of(root, relative)? else { return Ok(false) };
@@ -410,7 +411,11 @@ fn target<'a>(all: &'a [Snapshot], which: &Which) -> anyhow::Result<&'a Snapshot
                 .filter(|snapshot| snapshot.seq < from && snapshot.action != "restore")
                 .find(|snapshot| !snapshot.same_state(newest))
                 .ok_or_else(|| {
-                    refused("sync_no_snapshot", "there is nothing earlier to undo to".into(), vec![])
+                    refused(
+                        "sync_no_snapshot",
+                        "there is nothing earlier to undo to".into(),
+                        vec![],
+                    )
                 })
         }
     }

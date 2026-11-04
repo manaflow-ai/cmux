@@ -50,11 +50,11 @@ use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
 
 use super::git_back::{self, GitPlan};
+use super::history::{self, Held};
 use super::local::{self, GitDirs};
 use super::place::{self, Dir, Entry, Expected, Transaction};
 use super::remote::{self, Remote};
 use super::skips::Skips;
-use super::history::{self, Held};
 use super::{Linked, Manifest, Pushed, base, links, names};
 
 /// What a pull did, or the paths that stopped it.
