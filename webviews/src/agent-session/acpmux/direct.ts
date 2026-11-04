@@ -4308,9 +4308,11 @@ export class AcpmuxDirectClient {
   }
 
   private noteRequestSettled(id: number | string): void {
+    const wasWaiting = this.daemonWaitingSince !== undefined;
     const request = this.pending.get(id);
     if (request) request.waiting = false;
     if (![...this.pending.values()].some((entry) => entry.waiting)) this.daemonWaitingSince = undefined;
+    if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
   }
 
   /// The newest turn-opening prompt before `events` when they start mid-turn and older history
