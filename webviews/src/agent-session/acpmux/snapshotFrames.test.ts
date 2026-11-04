@@ -349,7 +349,11 @@ test("a hidden page presents at once; a shown page waits for its frame or 50 ms"
   let visibilityState = "hidden";
   const frames: (() => void)[] = [];
   const timers: { delay: number; run: () => void }[] = [];
-  scope.document = { get visibilityState() { return visibilityState; } };
+  scope.document = {
+    get visibilityState() {
+      return visibilityState;
+    },
+  };
   scope.requestAnimationFrame = (run: () => void) => frames.push(run);
   scope.setTimeout = (run: () => void, delay: number) => timers.push({ delay, run });
   try {

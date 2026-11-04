@@ -471,18 +471,21 @@ for (const mode of ["visible", "hidden"] as const) {
         update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "First streamed chunk" } },
       });
       expect(presentations).toBe(before);
-      if (mode === "hidden") {
-        // A hidden page's streamed text waits for the page to show (direct.ts `nextFrame`), then
-        // presents in that one frame: the presenter asks for none of its own.
+      if (mode === "visible") {
+        expect(animationFrames).toHaveLength(1);
+        expect(timers.map(({ at }) => at)).toEqual([50]);
+        now = 16;
+        animationFrames.shift()!();
+      } else {
+        // A hidden page's first reply text draws within 50 ms (direct.ts `hiddenDraw`), and the
+        // presenter shows it in that delivery: it asks for no frame or timer of its own.
         expect(animationFrames).toHaveLength(0);
-        expect(timers).toHaveLength(0);
-        setVisibility("visible");
+        expect(timers.map(({ at }) => at)).toEqual([50]);
+        now = 49;
         expect(presentations).toBe(before);
+        now = 50;
+        timers.shift()!.run();
       }
-      expect(animationFrames).toHaveLength(1);
-      expect(timers.map(({ at }) => at)).toEqual([50]);
-      now = 16;
-      animationFrames.shift()!();
       expect(presentations).toBe(before + 1);
       expect(current.rows.some((row) => row.text?.includes("First streamed chunk"))).toBe(true);
       // The other branch of nextFrame may still fire, but it cannot schedule or publish again.
