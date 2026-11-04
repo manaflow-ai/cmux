@@ -1,6 +1,7 @@
 //! Composer reservations use the person's Stack session and selected team. A bind whose
 //! answer was lost is retried with the same send key; it must never become a cold create.
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{Flags, percent_segment, refused, valid_environment, valid_key};
@@ -28,7 +29,7 @@ impl Call {
     pub(super) fn bind_payload(&self) -> Value {
         let mut body = json!({"sendKey": self.send_key});
         if let Some(environment) = &self.environment {
-            body["environment"] = json!(environment);
+            body.set("environment", json!(environment));
         }
         body
     }
@@ -48,7 +49,7 @@ impl Call {
             Action::Reserve => {
                 let mut body = json!({"composeKey": self.compose_key});
                 if let Some(environment) = &self.environment {
-                    body["environment"] = json!(environment);
+                    body.set("environment", json!(environment));
                 }
                 platform.post("/v1/machines/reservations", body)
             }
