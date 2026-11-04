@@ -75,7 +75,7 @@ await requireBrowserLane("tool-run-sheet-browser.test.ts", async () => {
           expect(await fixture.textContent()).toContain("src/retry.ts:12: retry(request)");
           await fixture.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
           await fixture.locator("img").waitFor();
-          await fixture.locator("img").evaluate((image) => image.decode());
+          await fixture.locator("img").evaluate((image) => (image as HTMLImageElement).decode());
           expect(await fixture.textContent()).not.toContain("Waiting…");
           expect(await fixture.textContent()).not.toContain('"pattern"');
         }
