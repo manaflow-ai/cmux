@@ -225,6 +225,17 @@ def git_oldest_after(head: str, tip: str, git=None):
     if not ancestor(head, tip):
         return UNKNOWN
     try:
+        # A shallow checkout's boundary commits (their parents were not fetched) inside head..tip mean
+        # the range may be missing older commits of a merged side history: the compare API answers.
+        boundary = set()
+        if run("rev-parse", "--is-shallow-repository").strip() == "true":
+            path = Path(run("rev-parse", "--path-format=absolute", "--git-path", "shallow").strip())
+            boundary = set(path.read_text(encoding="utf-8").split()) if path.is_file() else set()
+        if boundary and boundary & set(run("rev-list", f"{head}..{tip}").split()):
+            raise LookupError(f"the shallow checkout cuts history between {head[:12]} and {tip[:12]}")
+    except (OSError, subprocess.SubprocessError) as error:
+        raise LookupError(f"could not check the checkout's depth after {head[:12]}") from error
+    try:
         # The oldest landing by committer date (squash merges set it at landing), not the first in
         # topological order: in a merge history a newer mainline commit can sort before an older
         # side-branch one.

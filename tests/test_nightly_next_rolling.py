@@ -449,6 +449,28 @@ class LocalGapTests(unittest.TestCase):
         self.assertEqual(sha, self.git("rev-parse", "older").strip())
         self.assertEqual(landed, NOW - dt.timedelta(minutes=15))
 
+    def test_a_shallow_cut_inside_the_gap_falls_back(self):
+        """A merged side history cut by the 150-commit fetch: the range may miss older commits, so the
+        compare API answers instead."""
+        clone = Path(self.scratch.name) / "shallow"
+        self.git("checkout", "-q", "-b", "merged", self.shas[3])
+        self.git("merge", "-q", "--no-ff", "-m", "merge side", self.shas[4], when=at(1))
+        tip = self.git("rev-parse", "HEAD").strip()
+        subprocess.run(["git", "clone", "-q", "--depth", "2", "--no-local", "-b", "merged",
+                        f"file://{self.scratch.name}", str(clone)], check=True, capture_output=True)
+        run = lambda *args: subprocess.run(["git", "-C", str(clone), *args], check=True, capture_output=True,
+                                           text=True).stdout
+        self.assertEqual(run("rev-parse", "--is-shallow-repository").strip(), "true")
+        with self.assertRaises(LookupError):
+            rolling.git_oldest_after(self.shas[3], tip, git=run)
+        # Deep enough, the same shallow kind of checkout answers on its own.
+        deep = Path(self.scratch.name) / "deep"
+        subprocess.run(["git", "clone", "-q", "--depth", "10", "--no-local", "-b", "merged",
+                        f"file://{self.scratch.name}", str(deep)], check=True, capture_output=True)
+        run = lambda *args: subprocess.run(["git", "-C", str(deep), *args], check=True, capture_output=True,
+                                           text=True).stdout
+        self.assertEqual(rolling.git_oldest_after(self.shas[3], tip, git=run)[0], self.shas[4])
+
     def test_nothing_waits_at_or_behind_head(self):
         self.assertIsNone(self.gap(self.shas[3], self.shas[3]))
         self.assertIsNone(self.gap(self.shas[3], self.shas[1]))
