@@ -4,9 +4,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { tool } from "../src/gallery/fixtures/acpmux";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
+import gallery from "../src/agent-session/acpmux/conversation/ToolRow.gallery";
+import { toolImages } from "../src/agent-session/acpmux/toolImages";
 
 const image = "data:image/png;base64,iVBORw0KGgo=";
 const envelope = JSON.stringify([{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }]);
+
+test("the running gallery uses a supported partial capture envelope", () => {
+  const items = gallery.variants.running!.snapshot.rows.flatMap((row) => row.items ?? []);
+  const running = items.find((item) => item.tool?.status === "in_progress")?.tool;
+  expect(running).toBeDefined();
+  expect(toolImages(running!)).toHaveLength(1);
+});
 
 export const captureCases = () => [
   renderToStaticMarkup(<ToolRow item={tool("Capture page", "fetch", "completed", { images: [image] })} />),
