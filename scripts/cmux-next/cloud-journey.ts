@@ -259,7 +259,7 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 export function cliExecNeedsDirectFallback(status: number | null, stdout: string, stderr: string): boolean {
   if (status === 0) return false;
   const output = `${stdout}\n${stderr}`;
-  return /501\s+Not Implemented[\s\S]*cloud\.provider\.unsupported|cloud\.provider\.unsupported[\s\S]*501\s+Not Implemented/i.test(output);
+  return /cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(output);
 }
 
 function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {

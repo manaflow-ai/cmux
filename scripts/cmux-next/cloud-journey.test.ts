@@ -23,7 +23,7 @@ describe("cloud journey", () => {
   test("CLI exec falls back only for the documented unsupported provider response", () => {
     expect(cliExecNeedsDirectFallback(1, "", "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported")).toBe(true);
     expect(cliExecNeedsDirectFallback(1, "", "HTTP 501 cloud.provider.unsupported")).toBe(false);
-    expect(cliExecNeedsDirectFallback(1, "", "501 Not Implemented cloud.provider.unsupported: timeout")).toBe(true);
+    expect(cliExecNeedsDirectFallback(1, "501 Not Implemented cloud.provider.unsupported", "")).toBe(false);
     expect(cliExecNeedsDirectFallback(0, "", "501 Not Implemented cloud.provider.unsupported")).toBe(false);
   });
   test("env files and the summary table", () => {
