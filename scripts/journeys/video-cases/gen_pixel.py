@@ -400,7 +400,7 @@ def held_start():
     starts from the same widths. A held film ends with p0 at its minimum width; until 2026-11-04 the next film started
     there (ab-s1bt-sw-523c9f6: off-s1 began with p0 576 pt and 168 pt tabs, on-s1 with p0 200 pt and a scrolled strip of
     72 pt tabs), so a switch's OFF and ON films at x1 did not start alike."""
-    return [focus("p0"), {"do": "action", "action": "equalizeSplits", "title": "set-up: equalize p0 | p1 (every film starts alike)"},
+    return [focus("p0"), {"do": "px_equalize", "panes": ["p0", "p1"], "title": "set-up: equalize p0 | p1 (every film starts alike)"},
             G.settle(1.0)]
 
 

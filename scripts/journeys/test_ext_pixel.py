@@ -1233,7 +1233,7 @@ class PixelCasesTests(unittest.TestCase):
             for jid in ("px-keys-held-2-s1r", "px-keys-held-2-tabclose-s1r"):
                 for film in (f for f in s1r[jid]["steps"] if f["do"] == "px_film"):
                     dos = [(st["do"], st.get("action")) for st in film["steps"]]
-                    self.assertLess(dos.index(("action", "equalizeSplits")), [d for d, _ in dos].index("px_record_start"), (jid, film["name"]))
+                    self.assertLess([d for d, _ in dos].index("px_equalize"), [d for d, _ in dos].index("px_record_start"), (jid, film["name"]))
             made = [x for x in set_up(s1r["px-close-pane-3t-s1r"]) if x[0] != "rk_focus" or x[1] == "p0"]
             self.assertLess(made.index(("adopt_pane", "p2")), made.index(("adopt_pane", "p1")))
             self.assertEqual(made[made.index(("adopt_pane", "p1")) - 2:made.index(("adopt_pane", "p1")) + 1],
@@ -1243,6 +1243,58 @@ class PixelCasesTests(unittest.TestCase):
                          ("px-window-resize-4-s1r", "px-row-drag-3r-s1r", "px-close-column-c3-s1r")):
                 self.assertLessEqual(sum(s1r[i]["budget_seconds"] for i in trio), 260, trio)
 
+
+
+class EqualizeApp:
+    """action.run equalizeSplits: answers, or times out (as on feat 8dea72b7d62f) or fails otherwise; debug.pane_chrome
+    gives p0 and p1 cells whose widths become `after` once the action ran (a spring landing over `polls` reads)."""
+
+    def __init__(self, before, after, error=None, polls=2):
+        self.widths, self.after, self.error, self.polls, self.calls, self.ran = list(before), list(after), error, polls, [], False
+
+    def rpc(self, method, params=None, timeout=None):
+        self.calls.append(method)
+        if method == "action.run":
+            self.ran = True
+            if self.error:
+                raise D.StepError(self.error)
+            return {"action": "equalizeSplits", "ran": True, "waited": True}
+        if method == "debug.pane_chrome":
+            if self.ran:
+                self.polls -= 1
+                if self.polls <= 0:
+                    self.widths = list(self.after)
+            return {"windows": [{"panes": [{"pane": "pane-a", "cell": [208, 0, self.widths[0], 792]},
+                                           {"pane": "pane-b", "cell": [208 + self.widths[0], 0, self.widths[1], 792]}]}]}
+        raise AssertionError(method)
+
+
+class EqualizeTests(unittest.TestCase):
+    TIMEOUT = ("action.run: {'code': 'timeout', 'data': {'deadline_ms': 1999, 'method': 'action.run', 'state': 'in_progress', "
+               "'waiting_on': ['handler@0', 'daemon done@7', 'snapshot@7']}, 'message': 'action.run did not finish within 1999 ms'}")
+
+    def run_step(self, app, **step):
+        return X.step_px_equalize(FakeJourney(app, tempfile.mkdtemp()), dict({"panes": ["p0", "p1"]}, **step))
+
+    def test_the_action_equalizes_and_the_widths_are_read_back(self):
+        out = self.run_step(EqualizeApp([200, 952], [576, 576.5]))
+        self.assertEqual(out["widths"], {"p0": 576, "p1": 576.5})
+        self.assertNotIn("action_timeout", out)
+
+    def test_a_timeout_whose_work_finished_does_not_fail_the_film_and_is_recorded(self):
+        out = self.run_step(EqualizeApp([576, 576], [576, 576], error=self.TIMEOUT))
+        self.assertIn("did not finish within 1999 ms", out["action_timeout"])
+        self.assertEqual(out["widths"], {"p0": 576, "p1": 576})
+
+    def test_widths_still_unequal_fail_the_step(self):
+        with self.assertRaises(D.StepError) as caught:
+            self.run_step(EqualizeApp([200, 952], [200, 952], error=self.TIMEOUT), timeout=0.2)
+        self.assertIn("not equal", str(caught.exception))
+
+    def test_another_action_error_is_not_swallowed(self):
+        with self.assertRaises(D.StepError) as caught:
+            self.run_step(EqualizeApp([576, 576], [576, 576], error="action.run: equalizeSplits refused: the screen has no splits"))
+        self.assertIn("refused", str(caught.exception))
 
 
 # -- px-keys-held-2-tabclose (stage S1B 1b, frame-owner-s1b) --------------------------------------------------------------
@@ -1520,7 +1572,7 @@ class TabCloseCaseTests(unittest.TestCase):
 
     CID = "px-keys-held-2-tabclose"
     # rk_focus, equalizeSplits and its settle: every held film starts with p0 at half the pane area (gen_pixel held_start).
-    FILM = ["rk_focus", "action", "wait", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait",
+    FILM = ["rk_focus", "px_equalize", "wait", "px_tunable", "wait", "px_record_start", "px_hold_tab_close", "wait", "rk_press", "wait",
             "video_stop"]
     REBUILD = ["rk_focus", "px_tab_new", "neutral_prompt", "type", "expect", "wait"]
 
@@ -1535,7 +1587,7 @@ class TabCloseCaseTests(unittest.TestCase):
         for n, f in enumerate(films):
             dos = [st["do"] for st in f["steps"]]
             self.assertEqual(dos, self.FILM, f["name"])
-            self.assertEqual(f["steps"][dos.index("action")]["action"], "equalizeSplits")  # every film starts alike
+            self.assertEqual(f["steps"][dos.index("px_equalize")]["panes"], ["p0", "p1"])  # every film starts alike
             outline = f["steps"][dos.index("px_tunable")]
             self.assertEqual((outline["key"], outline["value"], outline["required"]), (TAB_OUTLINE, True, True))
             hold = f["steps"][dos.index("px_hold_tab_close")]

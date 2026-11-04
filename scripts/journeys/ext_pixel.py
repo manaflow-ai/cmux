@@ -960,6 +960,46 @@ def _hit_width(st):
             "frames": "none: only the divider hit bands read it"}
 
 
+def _cell_widths(j, names):
+    """The cells (window points) of the named fixture panes in debug.pane_chrome: {name: width} (None when not shown)."""
+    chrome = j.app.rpc("debug.pane_chrome") or {}
+    ids = {name: W.named(j, name)["pane"] for name in names}
+    out = {name: None for name in names}
+    for w in chrome.get("windows") or []:
+        for p in w.get("panes") or []:
+            for name, pid in ids.items():
+                if p.get("pane") == pid and p.get("cell"):
+                    out[name] = float(p["cell"][2])
+    return out
+
+
+def step_px_equalize(j, step):
+    """Equalize Splits (action equalizeSplits) before a film, and wait until the named panes ({panes: [a, b]}) have equal
+    widths (1 pt). An action.run timeout whose work finished (the app answered after the layout changed, or the layout
+    was already equal) does not fail the film: it is recorded as `action_timeout` (a product finding to report: on feat
+    8dea72b7d62f action.run equalizeSplits timed out at 1999 ms with its work done at 7 ms; on 84ffac38f96 it answered in
+    5-16 ms). Widths still unequal after `timeout` s fail the step."""
+    names = list(step.get("panes") or ["p0", "p1"])
+    out = {"action": "equalizeSplits"}
+    try:
+        out["reply"] = j.app.rpc("action.run", {"action": "equalizeSplits", "args": {}, "focus": True})
+    except D.StepError as error:
+        text = str(error)
+        if "timeout" not in text:
+            raise
+        out["action_timeout"] = text[:600]
+    end = D.now() + float(step.get("timeout", 3.0))
+    while True:
+        widths = _cell_widths(j, names)
+        vals = [v for v in widths.values() if v is not None]
+        if len(vals) == len(names) and max(vals) - min(vals) <= 1.0:
+            out["widths"] = widths
+            return out
+        if D.now() > end:
+            raise D.StepError(f"px_equalize: {names} not equal after {step.get('timeout', 3.0)} s: {widths} ({out.get('action_timeout', 'action ran')})")
+        time.sleep(0.05)  # orchestration: the layout spring lands; nothing to wait on but the widths
+
+
 def step_px_key_then_drag(j, step):
     """One real HID key, then a real HID drag whose call starts AFTER_MS after the key-down (see the module doc)."""
     st = _state(j)
@@ -1078,6 +1118,7 @@ def step_px_window_frame(j, step):
 
 STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start, "px_tab_new": step_px_tab_new,
+         "px_equalize": step_px_equalize,
          "px_hold_tab_close": step_px_hold_tab_close,
          "px_key_then_drag": step_px_key_then_drag}
 CONDITIONS = {}

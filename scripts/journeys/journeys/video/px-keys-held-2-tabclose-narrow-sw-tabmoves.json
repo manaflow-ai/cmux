@@ -232,8 +232,11 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
-     "do": "action",
-     "action": "equalizeSplits",
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
      "title": "set-up: equalize p0 | p1 (every film starts alike)"
     },
     {
@@ -389,8 +392,11 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
-     "do": "action",
-     "action": "equalizeSplits",
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
      "title": "set-up: equalize p0 | p1 (every film starts alike)"
     },
     {
@@ -546,8 +552,11 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
-     "do": "action",
-     "action": "equalizeSplits",
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
      "title": "set-up: equalize p0 | p1 (every film starts alike)"
     },
     {
@@ -703,8 +712,11 @@
      "title": "set-up: focus p0 (cmux pane focus)"
     },
     {
-     "do": "action",
-     "action": "equalizeSplits",
+     "do": "px_equalize",
+     "panes": [
+      "p0",
+      "p1"
+     ],
      "title": "set-up: equalize p0 | p1 (every film starts alike)"
     },
     {
