@@ -162,8 +162,9 @@ extension SidebarListViewComponents {
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
         let rect = visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
         // Responsive scrolling (`SidebarScrollView`) prepares content past the visible rows before it scrolls there off
-        // the main thread (`prepareContent(in:)`, which keeps it within `overdrawLimit`): those rows are drawn too.
-        let prepared = preparedContentRect
+        // the main thread (`prepareContent(in:)`): those rows are drawn too, within the overdraw limit of the clip as
+        // it is now. A jump far from the last prepared rect (a reveal) realizes none of the rows between them.
+        let prepared = preparedContentRect.intersection(Self.overdrawLimit(visible))
         return prepared.isEmpty ? rect : rect.union(prepared)
     }
     /// The most past the visible rows that is prepared: a quarter screen past each edge.

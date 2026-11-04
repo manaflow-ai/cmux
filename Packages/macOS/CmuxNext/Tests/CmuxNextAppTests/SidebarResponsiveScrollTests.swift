@@ -87,6 +87,18 @@ struct SidebarResponsiveScrollTests {
         #expect(slow.contentView.bounds.minY >= 4, "the 4 held points scrolled; got \(slow.contentView.bounds.minY)")
     }
 
+    /// The rows AppKit prepared for a scroll near the top realize nothing after a jump to the
+    /// bottom (a reveal): the list holds about the rows it shows, never every row between the two
+    /// places (review of #34648).
+    @Test func aFarJumpRealizesOnlyTheRowsAroundItsViewport() {
+        let bench = SidebarScrollBench(count: 500)
+        defer { bench.close() }
+        bench.list.prepareContent(in: bench.clip.bounds.insetBy(dx: 0, dy: -200))
+        _ = bench.frame(to: bench.maxY)
+        let realized = bench.list.rowViews.count, visible = bench.visibleRows
+        #expect(realized <= visible * 2, "a far jump realized \(realized) rows for \(visible) visible")
+    }
+
     @Test func aGestureShowsOneDirectionOnceItMoves() {
         var sideways = ProfileSwipeTracker()
         _ = sideways.feed(deltaX: 0, deltaY: 0, phase: .began)
