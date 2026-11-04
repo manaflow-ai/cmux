@@ -6,7 +6,8 @@ import Testing
 /// The first page of a chat whose view opened empty (a chat picked in Home's list) installs in one
 /// rebuild, at the newest message, and does not arrive as animated receives that slide the rows up
 /// (the user, 2026-11-03: "every time i switch imessage chief chats, i see it scroll all the way to the
-/// bottom"). A message that arrives in a chat already shown is still a receive, and so is my own send
+/// bottom"), and neither do the messages that arrive while that page is read. A message that arrives in
+/// a chat already shown is still a receive, and so is my own send
 /// in an empty chat (it flies in from the message box).
 @MainActor @Suite struct HomeFirstPageDiffTests {
     static let me = ParticipantID("user_me")
@@ -24,6 +25,15 @@ import Testing
         let diff = HomeDiff.plan(old: [], new: Self.items(count), oldSummary: nil,
                                  newSummary: HomeDiffCostTests.summary(lastSeq: count), aliases: [:], me: Self.me)
         #expect(diff.rebuild, "the first page arrived as \(diff.actions.count) receives")
+    }
+
+    /// Messages that arrive while the first page is read reach the view one by one: each is still part
+    /// of opening the chat, not a new message to animate in.
+    @Test func aMessageThatArrivesWhileTheChatOpensIsARebuild() {
+        let old = Self.items(1), new = Self.items(2)
+        let diff = HomeDiff.plan(old: old, new: new, oldSummary: HomeDiffCostTests.summary(lastSeq: 1),
+                                 newSummary: HomeDiffCostTests.summary(lastSeq: 2), aliases: [:], me: Self.me, opening: true)
+        #expect(diff.rebuild, "the second message of an opening chat arrived as \(diff.actions.count) receives")
     }
 
     @Test func aNewMessageInAShownChatIsStillAReceive() {
