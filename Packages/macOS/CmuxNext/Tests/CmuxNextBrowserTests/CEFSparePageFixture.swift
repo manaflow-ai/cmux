@@ -36,11 +36,13 @@ extension CEFSparePageSuites.CEFSparePageTests {
         return (runtime, root)
     }
 
-    /// Ends a test: the main-actor work it left (a taken spare window's `closeSparePlaceholder` Task, a
-    /// `giveBack` close) runs now, while its runtime and the shim's records are still this test's; then the
-    /// spare closes and the switch goes back to its default.
+    /// Ends a test: the main-actor work it left runs now, while its runtime and the shim's records are still this
+    /// test's (a taken spare window's `closeSparePlaceholder` Task, which the main queue runs, and a `giveBack`
+    /// close, a `CFRunLoopPerformBlock` in the common modes). Each run-loop pass with a deadline in the past
+    /// services the main queue and the performed blocks once and waits for nothing; a block one of them queues
+    /// runs in the next pass. Then the spare closes and the switch goes back to its default.
     static func tearDown(_ runtime: CEFRuntime, _ root: URL) {
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        for _ in 0..<8 { RunLoop.main.run(mode: .default, before: .distantPast) }
         runtime.spareWindow.drop(runtime: runtime)
         runtime.spareWindow.onNeeded = nil
         setSparePage(nil)
