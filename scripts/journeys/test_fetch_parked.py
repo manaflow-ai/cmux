@@ -81,7 +81,10 @@ class FetchParked(unittest.TestCase):
         self.park()
         code, scripts, ch = self.go()
         self.assertEqual(code, 0)
-        self.assertEqual(scripts[0], f"cd '{PATH}' && tar c j/video")
+        self.assertTrue(scripts[0].startswith(f"cd '{PATH}' && "), scripts[0])
+        for glob in ("j/video/*.mov", "j/video/*.meta.json", "j/video/*.mov.frames.json"):
+            self.assertIn(glob, scripts[0])
+        self.assertNotIn(".scan", scripts[0])              # the scanline dumps are not fetched
         self.assertEqual(scripts[1], f"rm -rf '{PATH}'")
         self.assertEqual(ch, [["slot-info", "whole-cmux21-1"], ["release", "whole-cmux21-1"]])
         self.assertEqual((self.out / "j" / "video" / "a.mov").read_bytes(), b"movie")
@@ -109,6 +112,13 @@ class FetchParked(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse(any(s.startswith("rm ") for s in scripts))
         self.assertFalse(self.fetched()["ok"])
+
+    def test_a_tar_without_a_movie_keeps_the_folder(self):
+        self.park()
+        code, scripts, _ = self.go(tarred=tar([("j/video/a.meta.json", b"{}")]))
+        self.assertEqual(code, 1)
+        self.assertFalse(any(s.startswith("rm ") for s in scripts))
+        self.assertIn("no movie", self.fetched()["error"])
 
     def test_a_failed_tar_keeps_the_folder(self):
         self.park()
