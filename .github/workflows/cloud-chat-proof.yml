@@ -181,8 +181,16 @@ jobs:
           ditto -x -k "$dir/app.zip" "$dir"
           app="$(find "$dir" -maxdepth 2 -name '*.app' -type d | head -n 1)"
           if [ -z "$app" ]; then echo "::error::the release zip holds no app"; exit 1; fi
+          # Seed and launch only the real signed NEXT DEV app: its bundle id, a valid signature and our team
+          # (router-review F1 at 62482314: a replaced asset must never run with the seeded session).
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
+          if [ "$bundle" != com.cmuxterm.app.debug.next ]; then
+            echo "::error::the release app is $bundle, not com.cmuxterm.app.debug.next"; exit 1
+          fi
+          codesign --verify --deep --strict "$app"
+          team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+          if [ "$team" != 7WLXT3NR37 ]; then echo "::error::the release app is signed by team '$team'"; exit 1; fi
           xattr -cr "$app"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist"
           python3 -I scripts/cmux-next/dev-signin-token.py --seed
           open -n --env "CMUX_NEXT_SOCKET_PATH=/tmp/cmux-debug-$CMUX_PROOF_TAG.sock" "$app"
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
