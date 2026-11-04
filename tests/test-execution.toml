@@ -2232,3 +2232,8 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_no_bundled_webpki_roots.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in no webpki root list (#25452); run python3 tests/test_cmux_tui_no_bundled_webpki_roots.py yourself after changing a cmux-tui Cargo.toml, Cargo.lock or TLS setup (about 1 s, no build)."
+
+[[test]]
+path = "tests/test_classifier_parity.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Unit test for scripts/ci/classifier_parity.py, whose own workflow (classifier-parity.yml) is the CI check; run python3 tests/test_classifier_parity.py after changing it (under 1 s, no build)."

@@ -11,6 +11,7 @@ compares failing test names with the base's, even beside other failing tests in 
 a red check the base does not have is never excused.
 """
 import importlib.util
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -25,6 +26,12 @@ JOB = "workflow-guard-tests / preflight"
 spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
 excuse = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(excuse)
+
+
+def fixture_env() -> dict[str, str]:
+    """The fixtures' red checks are not this step's: the guard runner (run_ci_guards.py) points
+    CMUX_GUARD_CHECK_RESULTS at the running step's results, so the fixtures must not inherit it."""
+    return {k: v for k, v in os.environ.items() if k != "CMUX_GUARD_CHECK_RESULTS"}
 
 
 def guard_script(failing: set[str]) -> str:
@@ -48,7 +55,7 @@ def run_guard(failing: set[str]) -> subprocess.CompletedProcess:
     with tempfile.TemporaryDirectory() as tmp:
         script = Path(tmp) / "guard.sh"
         script.write_text(guard_script(failing), encoding="utf-8")
-        return subprocess.run(["bash", str(script)], capture_output=True, text=True)
+        return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=fixture_env())
 
 
 def job_and_log(failing: set[str], other_test: bool = False) -> tuple[dict, str]:
@@ -81,7 +88,7 @@ class EveryCheckRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             script = Path(tmp) / "guard.sh"
             script.write_text(source, encoding="utf-8")
-            out = subprocess.run(["bash", str(script)], capture_output=True, text=True).stdout
+            out = subprocess.run(["bash", str(script)], capture_output=True, text=True, env=fixture_env()).stdout
         self.assertIn("test runner-guard/check_hosted_ci.yml_job ... FAILED\n", out)
 
     def test_each_failed_check_and_finding_is_an_error_line(self):

@@ -1,0 +1,48 @@
+name: classifier parity
+
+# main's base-red classifier (scripts/ci/base_red_excuse.py and the test_reds parsers it loads) must be the
+# same bytes as feat-cmux-next's, the canonical copy the landers run for every base.
+# scripts/ci/classifier_parity.py decides. A pull request into main that changes those files fails until they
+# match feat-cmux-next; the daily run goes red when feat-cmux-next changed them and main has not been brought level.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - scripts/ci/base_red_excuse.py
+      - scripts/ci/test_reds.py
+      - scripts/ci/webviews_test_results.py
+      - scripts/ci/classifier_parity.py
+      - .github/workflows/classifier-parity.yml
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classifier-parity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: classifier-parity
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/base_red_excuse.py
+            scripts/ci/test_reds.py
+            scripts/ci/webviews_test_results.py
+            scripts/ci/classifier_parity.py
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch feat-cmux-next's classifier
+        run: git fetch --quiet --no-tags --depth=1 origin +refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next
+
+      - name: Compare main's classifier with feat-cmux-next's
+        run: python3 scripts/ci/classifier_parity.py --ref origin/feat-cmux-next

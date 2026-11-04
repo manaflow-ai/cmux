@@ -29,7 +29,9 @@ TEST_STEPS = {
 ISSUE = re.compile(r"✘ Test (.+?) recorded an issue at ([^:]+\.swift):\d+:\d+: (.+)")
 SUMMARY = re.compile(r"✘ Test run with .* failed .* with (\d+) issues?\.")
 MARKERS = re.compile(r"^\+(?:<<<<<<<|>>>>>>>|=======$)", re.MULTILINE)
-MAX_OUTPUT = 32 * 1024 * 1024
+# A cmux-next swift test job log reached about 40 MB on 2026-11-01 (#28391), past the old 32 MiB cap, so
+# no such red could be compared with the base. Output goes to a temporary file, not memory, until read.
+MAX_OUTPUT = 256 * 1024 * 1024
 MAX_ANCESTOR_DEPTH = 100
 MAX_ANCESTOR_NODES = 500
 PATH_FILTERED_PREFIXES = ("docs/", "plans/", "design/")
@@ -69,7 +71,7 @@ class GitHub:
                 process.wait()
                 raise Refused("GitHub evidence request exceeded 90 seconds") from None
             if output.tell() > MAX_OUTPUT or errors.tell() > MAX_OUTPUT:
-                raise Refused("GitHub evidence exceeds the 32 MiB limit")
+                raise Refused(f"GitHub evidence exceeds the {MAX_OUTPUT // (1024 * 1024)} MiB limit")
             output.seek(0)
             errors.seek(0)
             if process.returncode:
@@ -82,7 +84,7 @@ class GitHub:
                 raise Refused("GitHub evidence request failed: " + message)
             return output.read().decode(errors="replace")
 
-    def json(self, route: str, *, paginate: bool = False):
+    def json(self, route: str, *, paginate: bool = False, per_page: int = PER_PAGE):
         if not paginate:
             return json.loads(self.run(["api", route]))
         # The gh-quota broker refuses --paginate, so page explicitly. Keep each
@@ -91,13 +93,15 @@ class GitHub:
         # an empty page also ends the list. MAX_PAGES bounds the walk: a reader
         # that repeats a full page (a stale proxy, a test double) refuses instead
         # of asking for pages forever (the CI fast guards hang, 2026-11-02).
+        # per_page is smaller only for a list whose full pages GitHub can't serve (a run's jobs carry
+        # every step; see base_red_excuse.JOBS_PAGE).
         split = urlsplit(route)
         query = [(key, value) for key, value in parse_qsl(split.query, keep_blank_values=True)
                  if key not in {"page", "per_page"}]
         pages = []
         for page in range(1, MAX_PAGES + 1):
             page_route = urlunsplit((split.scheme, split.netloc, split.path,
-                                     urlencode(query + [("per_page", str(PER_PAGE)), ("page", str(page))]),
+                                     urlencode(query + [("per_page", str(per_page)), ("page", str(page))]),
                                      split.fragment))
             document = json.loads(self.run(["api", page_route]))
             if isinstance(document, list):
@@ -110,9 +114,9 @@ class GitHub:
             if size == 0:
                 return pages
             pages.append(document)
-            if size < PER_PAGE:
+            if size < per_page:
                 return pages
-        raise Refused(f"GitHub evidence for {split.path} has more than {MAX_PAGES} pages of {PER_PAGE}")
+        raise Refused(f"GitHub evidence for {split.path} has more than {MAX_PAGES} pages of {per_page}")
 
     def log(self, repo: str, job: dict) -> str:
         try:

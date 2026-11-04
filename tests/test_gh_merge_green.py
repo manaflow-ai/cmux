@@ -2416,11 +2416,11 @@ LINT = "cmux-next checks (god files, concurrency, crash safety, l10n)"
 TIP = "1" * 40
 
 
-def lint_job(job_id, run_id, sha, conclusion="failure"):
-    steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"},
-             {"name": "Main-thread concurrency", "status": "completed", "conclusion": "success"},
-             {"name": "Type scale", "status": "completed", "conclusion": "success"},
-             {"name": "God files and types (Swift)", "status": "completed", "conclusion": "success"},
+def lint_job(job_id, run_id, sha, conclusion="failure", red=()):
+    # The base-red classifier compares a red job by its failed steps' error lines (scripts/ci/base_red_excuse.py).
+    steps = [{"name": "Set up runner", "status": "completed", "conclusion": "success"}] + [
+             {"name": name, "status": "completed", "conclusion": "failure" if name in red else "success"}
+             for name in ("Main-thread concurrency", "Type scale", "God files and types (Swift)")] + [
              {"name": "Fail on any red check", "status": "completed", "conclusion": conclusion}]
     return {"id": job_id, "run_id": run_id, "head_sha": sha, "name": LINT, "status": "completed",
             "conclusion": conclusion, "steps": steps}
@@ -2429,7 +2429,7 @@ def lint_job(job_id, run_id, sha, conclusion="failure"):
 def lint_log(*red):
     lines = []
     for step in red:
-        lines.append(f"{LINT}\t{step}\t2026-10-19T19:31:23.4759936Z Sources/Next/View.swift:41: {step} finding")
+        lines.append(f"{LINT}\t{step}\t2026-10-19T19:31:23.4759936Z ##[error]Sources/Next/View.swift:41: {step} finding")
         lines.append(f"{LINT}\t{step}\t2026-10-19T19:31:23.4759936Z ##[error]Process completed with exit code 1.")
     lines.append(f"{LINT}\tFail on any red check\t2026-10-19T19:35:08.4268790Z ##[error]Process completed with exit code 1.")
     return "\n".join(lines)
@@ -2450,8 +2450,8 @@ class BaseRedAndReasonRegression(unittest.TestCase):
             directory = Path(directory)
             marker = directory / "merged"
             queries = directory / "queries"
-            head_lint = lint_job(7, 900, HEAD, lint_conclusion)
-            base_job = lint_job(8, 41, TIP, base_lint)
+            head_lint = lint_job(7, 900, HEAD, lint_conclusion, head_red if lint_conclusion == "failure" else ())
+            base_job = lint_job(8, 41, TIP, base_lint, base_red)
             check = lambda job, sha: {"id": job["id"], "name": LINT, "status": "completed", "conclusion": job["conclusion"],
                                       "head_sha": sha, "app": {"slug": "github-actions"},
                                       "details_url": f"https://github.com/manaflow-ai/cmux/actions/runs/{job['run_id']}/job/{job['id']}"}
@@ -2464,13 +2464,20 @@ class BaseRedAndReasonRegression(unittest.TestCase):
                     {"id": 900, "status": "completed", "conclusion": lint_conclusion, "run_attempt": 1,
                      "head_sha": HEAD, "event": "pull_request"}]}],
                 ["actions/runs/900/jobs", [{"jobs": [head_lint]}]],
+                ["actions/runs/41/jobs", [{"jobs": [base_job] if base_lint else []}]],
                 ["actions/runs/900", {"id": 900, "workflow_id": 7}],
                 ["actions/runs/41", {"id": 41, "workflow_id": 7}],
+                # The classifier reads each job's log from the Actions job endpoint (scripts/ci/base_red_excuse.py).
+                ["actions/jobs/7/logs", lint_log(*head_red)],
+                ["actions/jobs/8/logs", lint_log(*base_red)],
                 ["actions/jobs/7", head_lint],
                 ["actions/jobs/8", base_job],
                 ["commits?sha=feat-cmux-next", [{"sha": TIP}]],
                 ["/compare/", {"merge_base_commit": {"sha": TIP}}],
-                ["actions/workflows/7/runs", {"workflow_runs": []}],
+                # The base's runs of the job's workflow, where the classifier looks for its base verdict.
+                ["actions/workflows/7/runs", {"workflow_runs": [
+                    {"id": 41, "status": "completed", "conclusion": base_lint, "run_attempt": 1, "head_sha": TIP,
+                     "event": "push", "head_branch": "feat-cmux-next"}] if base_lint else []}],
             ]
             fixture = directory / "fixture.json"
             fixture.write_text(json.dumps({"head": HEAD, "base": "feat-cmux-next", "routes": routes,
@@ -2506,7 +2513,7 @@ class BaseRedAndReasonRegression(unittest.TestCase):
         self.assertIn(LINT, tail)
         self.assertIn(HEAD[:10], tail)
         self.assertIn("God files and types (Swift)", result.stderr)
-        self.assertIn(f"base tip {TIP[:10]}", result.stderr)
+        self.assertIn("not on feat-cmux-next run 41", result.stderr)
 
     def test_override_waives_a_lint_red_the_base_does_not_have(self):
         # #22203 (2026-10-20) made a red lint check waivable by --override; risk evidence stays unwaivable.
@@ -2522,8 +2529,7 @@ class BaseRedAndReasonRegression(unittest.TestCase):
         result, merged, _ = self.run_case(base_lint=None)
         self.assertNotEqual(result.returncode, 0)
         self.assertIsNone(merged)
-        self.assertIn(f"no feat-cmux-next verdict", result.stderr)
-        self.assertIn(f"base tip ({TIP[:10]}", result.stderr)
+        self.assertIn("no feat-cmux-next run of its workflow has a verdict", result.stderr)
         self.assertIn(HEAD[:10], self.tail(result))
 
     def test_sha_flag_pins_the_head_instead_of_reaching_gh(self):
