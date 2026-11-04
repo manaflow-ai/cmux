@@ -8,6 +8,7 @@ without the script's top-level app launch, using the shared golden motion analys
 import ast
 import contextlib
 import io
+import math
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -33,7 +34,7 @@ def definitions(path, names):
 GOLDEN = definitions(ROOT.parent / "ci/frame-pacing/golden.py", {"EPS", "THRESHOLDS", "motion", "percentile"})
 MEASURE = definitions(ROOT / "pane-perf-terminal.py",
                       {"WINDOW_ACTIONS", "WINDOW_RESTORE", "WINDOW_TARGET_HZ", "WINDOW_REFRESH_TOLERANCE", "WINDOW_MAX_STEP",
-                       "first_window", "measure"})
+                       "finite_nonnegative", "first_window", "measure"})
 
 
 def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh=PERIOD,
@@ -59,7 +60,7 @@ def measured(values=None, *, name="window-zoom", refresh=PERIOD, monitor_refresh
             return frames
         return {}
 
-    namespace = {"opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None),
+    namespace = {"math": math, "opts": SimpleNamespace(browser=False), "time": SimpleNamespace(sleep=lambda _: None),
                  "rpc": rpc, "perform": lambda _: action_error}
     exec(GOLDEN, namespace)
     namespace["frame_motion"] = namespace["motion"]
@@ -122,6 +123,13 @@ class WindowZoomMotion(unittest.TestCase):
 
     def test_monitor_missed_frame_is_rejected(self):
         self.assertIn("missed", measured(missed=1)["error"] or "")
+
+    def test_monitor_missed_frame_counter_requires_finite_nonnegative_number(self):
+        self.assertIsNone(measured(missed=0)["error"])
+        for invalid in (None, float("nan"), True, False, -1, "0"):
+            with self.subTest(invalid=invalid):
+                result = measured(missed=invalid)
+                self.assertIn("invalid missed-frame count", result["error"] or "")
 
     def test_no_refresh_evidence_is_rejected(self):
         for args in [{"refresh": None}, {"monitor_refresh": None}, {"frame_count": 0}, {"trace_missing": True}]:

@@ -47,7 +47,7 @@ Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--b
        [--actions split,close,column,zoom,window,drag,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
-import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -177,6 +177,12 @@ WINDOW_RESTORE = None  # before each window-zoom, checked after its paired windo
 WINDOW_TARGET_HZ = 120.0
 WINDOW_REFRESH_TOLERANCE = 0.15
 WINDOW_MAX_STEP = MOTION_THRESHOLDS["window_resize"]["max_step"]
+
+
+def finite_nonnegative(value):
+    """Whether a native counter or interval is a real, non-negative number."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
 
 
 def rpc(method, params=None, timeout=30):
@@ -456,7 +462,8 @@ def measure(label, name):
         axis = max(range(2), key=lambda i: abs(samples[-1]["window"][i] - samples[0]["window"][i])) if samples else 0
         travel = frame_motion([s["window"][axis] for s in samples], [s["t"] for s in samples])
         intervals = travel["intervals"]
-        refresh = (window_trace or {}).get("refresh_ms") or 0
+        trace_refresh = (window_trace or {}).get("refresh_ms")
+        refresh = trace_refresh if finite_nonnegative(trace_refresh) else 0
         result.update(window_before=window_before, window_after=window_after, window_trace=window_trace,
                       window_intermediate=travel["intermediate"], window_max_step=travel["max_step"],
                       window_frame_p95_ms=round(percentile(intervals, 0.95), 2),
@@ -477,10 +484,10 @@ def measure(label, name):
         min_period = target_period * (1 - WINDOW_REFRESH_TOLERANCE)
         max_period = target_period * (1 + WINDOW_REFRESH_TOLERANCE)
         monitor_refresh = frames.get("refresh_ms")
-        if not (window_trace or {}).get("refresh_ms") or not frames.get("frames"):
+        if not finite_nonnegative(trace_refresh) or not frames.get("frames"):
             error = error or "window zoom has no display refresh evidence"
-        if not (min_period <= refresh <= max_period) or not (isinstance(monitor_refresh, (int, float))
-                                                               and min_period <= monitor_refresh <= max_period):
+        if not (finite_nonnegative(trace_refresh) and min_period <= refresh <= max_period) or not (
+                finite_nonnegative(monitor_refresh) and min_period <= monitor_refresh <= max_period):
             error = error or (f"window zoom display is not near {WINDOW_TARGET_HZ:.0f} Hz "
                               f"(trace {refresh}, monitor {monitor_refresh})")
         if travel["max_step"] > WINDOW_MAX_STEP:
@@ -488,8 +495,11 @@ def measure(label, name):
                               f"{WINDOW_MAX_STEP:.2f} of travel")
         if result["window_frame_missed"]:
             error = error or f"window zoom missed {result['window_frame_missed']} native display frame(s)"
-        if isinstance(result["window_monitor_missed"], (int, float)) and result["window_monitor_missed"]:
-            error = error or f"window zoom display probe missed {result['window_monitor_missed']} frame(s)"
+        monitor_missed = result["window_monitor_missed"]
+        if not finite_nonnegative(monitor_missed):
+            error = error or f"window zoom display probe has invalid missed-frame count {monitor_missed!r}"
+        elif monitor_missed:
+            error = error or f"window zoom display probe missed {monitor_missed} frame(s)"
         result["error"] = error
     extra = ""
     if name in WINDOW_ACTIONS:
