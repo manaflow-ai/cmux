@@ -5589,9 +5589,9 @@ a.cv-sha:focus-visible {
   .cv-plan__item,
   .cv-plan__mark {
     transition:
-      color 160ms var(--agent-ease-out, ease-out),
-      background-color 160ms var(--agent-ease-out, ease-out),
-      border-color 160ms var(--agent-ease-out, ease-out);
+      color var(--agent-motion-in) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in) var(--agent-ease-out, ease-out);
   }
 }
 /* An ended turn's list folds where it stood to its one progress line, which opens the steps
@@ -5635,7 +5635,8 @@ a.cv-sha:focus-visible {
 }
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
-  padding-inline: 0;
+  /* The folded mark sits on the transcript's icon column (gallery invariant icon-column). */
+  padding-inline: 2px 0;
   background: transparent;
   box-shadow: none;
 }

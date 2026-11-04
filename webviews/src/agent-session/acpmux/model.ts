@@ -1872,10 +1872,10 @@ function fallbackRowHeight(
   if (row.kind === "sessionStart") return finish(toolRowHeight());
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   // Ended, it folds to its one 24px progress line unless the reader opened it, which adds the items.
-  if (row.kind === "plan" && row.plan)
-    return finish(
-      40 + (row.turnEnded ? 24 + (planOpen(row.id) ? row.plan.length * 24 : 0) : row.plan.length * 24),
-    );
+  if (row.kind === "plan" && row.plan) {
+    const items = row.plan.length * 24;
+    return finish(40 + (row.turnEnded ? 24 + (planOpen(row.id) ? items : 0) : items));
+  }
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
