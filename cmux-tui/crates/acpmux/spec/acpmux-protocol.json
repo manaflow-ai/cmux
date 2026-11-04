@@ -1190,6 +1190,72 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/mcp_tools",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_watch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connections",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_call_answer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_policy",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_set_key",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_sign_in",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_approve_tools",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_audit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats",
       "params": true,
       "result": true
@@ -1792,6 +1858,11 @@
       "params": {
         "$ref": "#/types/PermissionPending"
       }
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/mcp_connect_pending",
+      "params": true
     },
     {
       "kind": "notification",

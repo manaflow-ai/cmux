@@ -181,6 +181,17 @@ export interface AcpmuxRequests {
   "_acpmux/secret_run": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
+  "_acpmux/mcp_tools": { params: unknown; result: unknown };
+  "_acpmux/mcp_call": { params: unknown; result: unknown };
+  "_acpmux/mcp_watch": { params: unknown; result: unknown };
+  "_acpmux/mcp_connections": { params: unknown; result: unknown };
+  "_acpmux/mcp_call_answer": { params: unknown; result: unknown };
+  "_acpmux/mcp_policy": { params: unknown; result: unknown };
+  "_acpmux/mcp_set_key": { params: unknown; result: unknown };
+  "_acpmux/mcp_sign_in": { params: unknown; result: unknown };
+  "_acpmux/mcp_remove": { params: unknown; result: unknown };
+  "_acpmux/mcp_approve_tools": { params: unknown; result: unknown };
+  "_acpmux/mcp_audit": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
   "_acpmux/chats_watch": { params: unknown; result: unknown };
   "_acpmux/chat_open": { params: unknown; result: unknown };
@@ -293,6 +304,7 @@ export interface AcpmuxNotifications {
   "_acpmux/message": MessageEvent;
   "_acpmux/session_changed": SessionChanged;
   "_acpmux/permission_pending": PermissionPending;
+  "_acpmux/mcp_connect_pending": unknown;
   "_acpmux/presence": PresenceNote;
   "_acpmux/peer_state_changed": PeerStateChanged;
   "_acpmux/harnesses_changed": unknown;
@@ -500,6 +512,17 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_call", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_watch", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_connections", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_call_answer", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_policy", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_set_key", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_sign_in", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_remove", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_approve_tools", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/mcp_audit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats_watch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chat_open", kind: "request", acp: false, typed: false },
@@ -599,6 +622,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/message", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/permission_pending", kind: "notification", acp: false, typed: true },
+  { name: "_acpmux/mcp_connect_pending", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/presence", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/peer_state_changed", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/harnesses_changed", kind: "notification", acp: false, typed: false },
