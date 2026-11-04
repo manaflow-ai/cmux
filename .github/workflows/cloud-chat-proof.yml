@@ -1,10 +1,10 @@
-name: Cloud chat proof (runtime backend, tagged DEV app)
+name: Cloud chat proof (one DEV build, staging and prod)
 
 # One manual trip through a Cloud chat from a tagged DEV build of the dispatched commit, signed in as
-# the team's agent test account: build and launch the app with `scripts/reload.sh --auth-profile agent
+# the team's agent test account: build the app once with `scripts/reload.sh --auth-profile agent
 # --credentials-file`, then through its own CLI run `cmux vm token create` and `cmux cloud start-chat
-# --wait`, read the reply back and kill the machine the chat made. Before the chat, switch the running
-# app with `cloud env set`, wait for its restart and verify auth.status reports the selected backend.
+# --wait`, read the reply back and kill the machine the chat made. Launch the same bundle first with
+# --cloud-backend staging, then --cloud-backend prod; verify auth.status reports each actual backend.
 # The selected Rust environment table supplies every origin and the Stack project. Nothing gates on
 # it. The evidence (each step's exit code and message, and the reply text; never a key) is the run
 # summary and the only artifact.
@@ -15,11 +15,6 @@ name: Cloud chat proof (runtime backend, tagged DEV app)
 on:
   workflow_dispatch:
     inputs:
-      cloud_environment:
-        description: Runtime Cloud backend (local, dev, preview-N, staging or prod)
-        required: false
-        default: staging
-        type: string
       prompt:
         description: The prompt the Cloud chat gets
         required: false
@@ -95,12 +90,13 @@ jobs:
           ) > "$HOME/.secrets/cmuxterm-dev.env"
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
-      - name: Build and launch the tagged app
+      - name: Build the tagged app once
+        id: build
         run: |
           set -euo pipefail
           ./scripts/reload.sh \
             --tag "$CMUX_PROOF_TAG" \
-            --launch \
+            --build-only \
             --auth-profile agent \
             --credentials-file "$HOME/.secrets/cmuxterm-dev.env" \
             --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
@@ -111,43 +107,62 @@ jobs:
           fi
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
-      - name: Switch backend, token, Cloud chat and reply
+      - name: Staging sign-in, Cloud chat and reply
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
           PROOF_AGENT: ${{ inputs.agent }}
-          PROOF_CLOUD_ENVIRONMENT: ${{ inputs.cloud_environment }}
         run: |
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
-            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-environment "$PROOF_CLOUD_ENVIRONMENT" \
-            --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-backend staging \
+            --expected-api-origin https://cloud-api-staging.cmux.dev \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/staging.json"
+
+      - name: Production sign-in, Cloud chat and reply from the same app
+        if: always() && steps.build.outcome == 'success'
+        timeout-minutes: 30
+        env:
+          PROOF_PROMPT: ${{ inputs.prompt }}
+          PROOF_AGENT: ${{ inputs.agent }}
+        run: |
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --cloud-backend prod \
+            --expected-api-origin https://cloud-api.cmux.dev \
+            --evidence "$RUNNER_TEMP/cloud-chat-proof/prod.json"
 
       - name: Summarize the evidence
         id: evidence
         if: always()
         run: |
           set -euo pipefail
-          file="$RUNNER_TEMP/cloud-chat-proof/evidence.json"
-          [ -s "$file" ] || { echo "::warning::no evidence was written"; exit 0; }
-          if grep -Eq 'cmvm_|cmk_|eyJ[A-Za-z0-9_-]{8,}\.|[Bb]earer ' "$file"; then
-            echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
-            exit 1
-          fi
+          found=false
+          for file in "$RUNNER_TEMP/cloud-chat-proof/"*.json; do
+            [ -s "$file" ] || continue
+            found=true
+            if grep -Eq 'cmvm_|cmk_|eyJ[A-Za-z0-9_-]{8,}\.|[Bb]earer ' "$file"; then
+              echo "::error::the evidence holds a secret-shaped value; it is not uploaded"
+              exit 1
+            fi
+          done
+          [ "$found" = true ] || { echo "::warning::no evidence was written"; exit 0; }
           echo "clean=true" >> "$GITHUB_OUTPUT"
-          {
-            echo '## Cloud chat proof (runtime backend)'
-            echo
-            echo '```json'
-            cat "$file"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          for file in "$RUNNER_TEMP/cloud-chat-proof/"*.json; do
+            [ -s "$file" ] || continue
+            {
+              echo '## Cloud chat proof (same DEV app bundle)'
+              echo
+              echo '```json'
+              cat "$file"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
 
       - name: Upload the evidence
         if: always() && steps.evidence.outputs.clean == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-chat-proof-evidence
-          path: ${{ runner.temp }}/cloud-chat-proof/evidence.json
+          path: ${{ runner.temp }}/cloud-chat-proof/*.json
           if-no-files-found: warn
           retention-days: 3
 

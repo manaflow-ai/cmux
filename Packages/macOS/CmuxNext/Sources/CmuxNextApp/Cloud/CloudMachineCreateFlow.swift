@@ -97,13 +97,31 @@ struct CloudMachineCreateFlow {
     /// `madeRoom` hears the machine the server paused to make room at the cap (``CloudMachineCap/madeRoom(_:)``).
     func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, approved: String? = nil,
                 onApproved: @MainActor (String) -> Void = { _ in }, answering: String? = nil, onAnswering: @MainActor (String) -> Void = { _ in },
-                gate: Gate = .allowed, environment: String? = nil, madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
+                gate: Gate = .allowed, environment: String? = nil, request: CloudMachineRequest? = nil,
+                madeRoom: @MainActor (JSONValue) -> Void = { _ in }) async throws -> JSONValue {
         if case .upgrade(let need) = gate { throw Failure.upgradeRequired(need.reason) }
         let machine = Self.named(name, askedBy: askedBy)
         // A person's own gesture is the confirmation, so the backend's hold gets no second prompt.
         if !startedByPerson { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
-        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
+        let requestedMemory = request?.memoryMb ?? machine.memoryMB
+        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(requestedMemory)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
+        // These are deliberately sent through the typed op boundary. Backends that do not
+        // advertise the option must reject it; the client never silently drops a request.
+        if let request {
+            if let size = request.size { args["size_name"] = .string(size) }
+            if request.persistent { args["idle_seconds"] = .number(0) }
+            if let script = request.script {
+                args["bootstrap"] = .object([
+                    "kind": .string(script.kind.rawValue),
+                    "contents_base64": .string(script.contents.base64EncodedString()),
+                    "repo": script.repo.map { .string($0.spec) } ?? .null,
+                ])
+            }
+            if let config = request.machineConfig {
+                args["machine_config_base64"] = .string(config.contents?.base64EncodedString() ?? "")
+            }
+        }
         if let environment { args["environment"] = .string(environment) }
         let op = environment == nil ? "cloud.machine.create" : "cloud.environment.boot"
         let answer = try await approvalLoop(op, args: .object(args), key: key ?? newKey(), confirmed: true,

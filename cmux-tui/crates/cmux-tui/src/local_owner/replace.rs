@@ -160,6 +160,34 @@ pub(crate) fn replace_if_wedged(spec: &OwnerSpec) -> Result<Option<Replaced>, Re
     stop(spec, key)
 }
 
+/// Replaces a healthy owner that was launched for another NEXT Cloud backend.
+/// The owner process is the only thing stopped; its terminal hosts stay alive
+/// and the replacement adopts them from the durable registry. `Ok(None)` means
+/// the socket disappeared or already reports the requested backend.
+pub(crate) fn replace_if_backend_changed(
+    spec: &OwnerSpec,
+    expected_backend: &str,
+) -> Result<Option<Replaced>, ReplaceError> {
+    let Ok(probe) =
+        cmux_tui_core::server::connect_session_socket(&spec.socket, spec.socket_is_derived)
+    else {
+        return Ok(None);
+    };
+    let key = probe.peer_process_key();
+    let mut connection = BufReader::new(probe);
+    let deadline = Instant::now() + PROBE_DEADLINE;
+    let Some(identity) = request(&mut connection, "identify", deadline) else {
+        return Ok(None);
+    };
+    if identity.get("session").and_then(|value| value.as_str()) != Some(spec.session.as_str()) {
+        return Ok(None);
+    }
+    if identity.get("cloud_backend").and_then(|value| value.as_str()) == Some(expected_backend) {
+        return Ok(None);
+    }
+    stop(spec, key)
+}
+
 /// Whether the owner on `stream` is wedged: its `server-stats` name one
 /// holder of the workspace registry lock for `WEDGED_HOLD`. With `session`,
 /// only an owner of that session counts (an owner of another session is

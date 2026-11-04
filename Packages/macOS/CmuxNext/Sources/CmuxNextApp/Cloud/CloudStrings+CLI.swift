@@ -197,13 +197,6 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
-    /// `cloud new-machine` with any option on a Cloud backend whose create takes none yet.
-    static var machineOptionsUnavailable: String {
-        String(localized: "cloud.cli.machineOptionsUnavailable",
-               defaultValue: "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine.",
-               table: "Cloud", bundle: .module)
-    }
-
     /// `cloud new-machine --repo` that is not a GitHub repository in an accepted form.
     static var repoUnrecognized: String {
         String(localized: "cloud.cli.repoUnrecognized",
