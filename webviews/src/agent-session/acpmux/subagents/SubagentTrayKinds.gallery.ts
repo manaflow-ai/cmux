@@ -182,7 +182,7 @@ export default agentPaneEntry({
       snapshot: leoTray,
     },
     mixed: {
-      note: "Every kind: two subagents running (one Codex, by its mark after the counts), a session the agent started, a test run and a server, a subagent done and one failed, in red. The columns hold on every line.",
+      note: "Every kind: two subagents running (one Codex, by its mark: in the header's stacked marks, or after the counts when the stack has no room for it), a session the agent started, a test run and a server, a subagent done and one failed, in red. The columns hold on every line.",
       play: async (ctx) => {
         await open(ctx, 7);
         columns(ctx);
@@ -190,7 +190,9 @@ export default agentPaneEntry({
           throw new Error(`unexpected header: ${title(ctx)}`);
         if (ctx.find({ selector: ".acpmux-running-tray__failed" }).textContent?.trim() !== "· 1 failed")
           throw new Error("the failure count reads after the counts");
-        if (!ctx.document.querySelector(".acpmux-running-tray__marks")) throw new Error("the Codex subagent's mark");
+        // The Codex mark is one of the header's stacked marks, or after the counts.
+        if (!ctx.document.querySelector('.acpmux-running-tray__head svg[data-agent="openai"]'))
+          throw new Error("the Codex subagent's mark");
       },
       snapshot: mixed,
     },
