@@ -1348,6 +1348,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-layout-reducer-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-bookmarks-core",
+ "cmux-cloud-config",
+ "cmux-cloud-start-core",
+ "cmux-focus-core",
+ "cmux-imessage",
+ "cmux-layout-reducer",
+ "cmux-tasks-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-link"
 version = "0.1.0"
 dependencies = [

@@ -49,6 +49,7 @@ members = [
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
+    "crates/cmux-layout-reducer-ffi",
     "crates/cmux-focus-core",
     "crates/cmux-cloud-start-core",
     "crates/cmux-cloud-config",
