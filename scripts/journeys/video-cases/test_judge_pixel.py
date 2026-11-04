@@ -27,7 +27,9 @@ after the divider has landed (B's own defect). Pair C: the film never shows the 
 so only the trace's divider is judged, against the gap between its two panes: divider-off-centre moves the trace's
 divider rect 2 pt right of that gap's middle in samples 30-35, 0.5 pt (1 px) in sample 40 and 0.25 pt in sample 45 (the
 film unchanged; and a pane below the window whose edge is in the gap); closing-slot puts a closing pane's
-rect (pc, not a fixture pane, its slot drawn as its black ground) between A and B, with a divider on each side of it.
+rect (pc, not a fixture pane, its slot drawn as its black ground) between A and B, with a divider on each side of it;
+closing-key is the same film with the closing pane's ground only in the S3d trace key `closing` (its host is not in
+`panes`, as the S3 sampler skips a host that shows a closing ground).
 """
 import collections
 import json
@@ -181,7 +183,7 @@ def frame(k, variant):
             # A's right rings and ground strip gone (its view shrank before the program redrew): the shell after the fill.
             img[:, int(round(aw)) - 60:int(round(aw))] = MAGENTA
     b_x = aw + DIV_PX + (1 if inset else 0)  # and B's 1 px inside its own
-    if variant == "closing-slot":
+    if variant in ("closing-slot", "closing-key"):
         img[:, int(round(aw)) + DIV_PX:int(round(aw)) + DIV_PX + SLOT_PX] = BLACK  # the closing pane's ground
         b_x = aw + DIV_PX + SLOT_PX + DIV_PX
     if variant == "lag1":
@@ -260,14 +262,17 @@ def build(root, name, variant):
         bx = aw + DIV_PX / SCALE
         nudge = {**{j: 2.0 for j in range(30, 36)}, 40: 0.5, 45: 0.25}.get(k, 0.0) if variant == "divider-off-centre" else 0.0
         dividers = [["d0", aw + nudge, 0, DIV_PX / SCALE, 150, 1, 2]]
-        closing = []
+        closing, closing_key = [], None
         if variant == "divider-off-centre":
             # A pane below the window (y 150-200) whose left edge is in the divider's gap: it shares no part of the
             # divider's extent (y 0-150), so it is no neighbour of the divider.
             closing = [["py", aw + 1, 150, 50, 50, 1, 2, aw + 1, 150, 50, 50, 50, 50, 0, aw + 1, 150, 50, 50]]
-        if variant == "closing-slot":
+        if variant in ("closing-slot", "closing-key"):
             cx, cw = bx, SLOT_PX / SCALE
-            closing = [["pc", cx, 0, cw, 150, 0.4, 2, cx, 0, cw, 150, cw, 150, 0, cx, 0, cw, 150]]  # fading out
+            if variant == "closing-slot":
+                closing = [["pc", cx, 0, cw, 150, 0.4, 2, cx, 0, cw, 150, cw, 150, 0, cx, 0, cw, 150]]  # fading out
+            else:
+                closing_key = [["pc", cx, 0, cw, 150, 0.4, 2]]  # S3d: [pane, x, y, width, height, alpha, z]
             dividers.append(["d1", cx + cw, 0, DIV_PX / SCALE, 150, 1, 2])
             bx = cx + cw + DIV_PX / SCALE
         bw = 300 - bx
@@ -276,7 +281,7 @@ def build(root, name, variant):
         shift = 0.5 if variant == "d4-cover" and k >= 30 else 0.0
         page = [bw, 150 - cy, bw + shift, 150 - cy, 0, WINDOW_X + bx, WINDOW_X + bx - shift, bw]
         samples.append({"t": k * P * 1000, "window": [300, 150], "panes": [a] + closing + [b],
-                        "dividers": dividers, "page": [page]})
+                        "dividers": dividers, "page": [page], **({"closing": closing_key} if closing_key else {})})
     # Sample k is taken 1 ms before refresh k is displayed.
     Path(f"{base}.trace.json").write_text(json.dumps({"t0_s": T0 - 0.001, "refresh_ms": P * 1000, "samples": samples}))
     note = {"scale": SCALE, "panes": {"pa": {"kind": "tui", "fill": "#FFFF00", "label": "p0"},
@@ -377,7 +382,7 @@ class JudgePixelTests(unittest.TestCase):
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
                                                                     "strip-touch", "strip-scrolled", "wide-ground",
                                                                     "neighbour-gap", "blip", "divider-off-centre",
-                                                                    "closing-slot")}
+                                                                    "closing-slot", "closing-key")}
 
     @classmethod
     def tearDownClass(cls):
@@ -498,6 +503,17 @@ class JudgePixelTests(unittest.TestCase):
         r = self.reports["closing-slot"]
         self.assertEqual((divider(r, "divider p0|pc")["off_frames"], divider(r, "divider pc|p1")["off_frames"]), (0, 0))
         self.assertNotIn(DIVIDER_RECT, [f["check"] for f in r["findings"]])
+
+    def test_a_closing_ground_in_the_s3d_trace_key_counts_as_the_neighbour(self):
+        # C.1 (frame-owner-s3b): the S3 sampler skips a host that shows a closing ground, so the closing pane is not in
+        # `panes`; S3d records its ground in the sample key `closing` ([pane, x, y, width, height, alpha, z]). The
+        # judge reads that key itself (video_judge's trace loader is unchanged) and counts each row as a pane rect.
+        r = self.reports["closing-key"]
+        self.assertEqual((divider(r, "divider p0|pc")["off_frames"], divider(r, "divider pc|p1")["off_frames"]), (0, 0))
+        self.assertNotIn(DIVIDER_RECT, [f["check"] for f in r["findings"]])
+        film = jp.Film(Path(self.tmp) / "closing-key")
+        self.assertEqual(len(film.closing_rows), len(film.samples))
+        self.assertEqual({tuple(row[:1]) for rows in film.closing_rows for row in rows}, {("pc",)})
 
     def test_rings_found_past_a_page_backdrop(self):
         r = self.reports["backdrop"]
