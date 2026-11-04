@@ -3444,7 +3444,6 @@ CmuxNextBridge	enum	SidebarDocWire	0	MIRROR	0	100	Packages/macOS/CmuxNext/Source
 CmuxNextBridge	extension	SidebarDocSections	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarDocMachines.swift	from struct SidebarDocMachines:11: Sidebar document client, machines and doc copy
 CmuxNextBridge	struct	SidebarDocMachines	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarDocMachines.swift	from struct SidebarDocMachines:11: Sidebar document client, machines and doc copy
 CmuxNextBridge	class	SidebarDocument	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarDocument.swift	from class SidebarDocument:8: Sidebar document client, machines and doc copy
-CmuxNextBridge	extension	SidebarMapping	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+ChatFront.swift	Sidebar row derivation from daemon store (titles, grouping, status, hover detail)
 CmuxNextBridge	extension	SidebarMapping	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Creating.swift	Sidebar row derivation from daemon store (titles, grouping, status, hover detail)
 CmuxNextBridge	extension	SidebarMapping	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+Detail.swift	Sidebar row derivation from daemon store (titles, grouping, status, hover detail)
 CmuxNextBridge	extension	SidebarMapping	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarMapping+MachineIcon.swift	Sidebar row derivation from daemon store (titles, grouping, status, hover detail)
@@ -3465,6 +3464,7 @@ CmuxNextBridge	enum	TabDragGeometry	0	LOGIC	100	0	Packages/macOS/CmuxNext/Source
 CmuxNextBridge	struct	TabDragGhostLayout	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGhostLayout.swift	Tab drag rules: drop rules, reveal policy, ghost geometry/layout/motion
 CmuxNextBridge	struct	TabDragGhostMotion	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGhostMotion.swift	Tab drag rules: drop rules, reveal policy, ghost geometry/layout/motion
 CmuxNextBridge	class	GhostRootView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGhostPanel.swift	from class TabDragGhostPanel:18: Drag ghost NSPanel
+CmuxNextBridge	class	SidebarFaceFFI	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/SidebarFaceFFI.swift	thin FFI call to cmux-layout-reducer rows (sidebar_face C ABI: encode one workspace, one call, copy the reply)
 CmuxNextBridge	class	TabDragGhostPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragGhostPanel.swift	Drag ghost NSPanel
 CmuxNextBridge	class	TabDragLifecycle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragLifecycle.swift	from class TabDragLifecycle:16: Tab drag lifecycle, outcome, window pick
 CmuxNextBridge	enum	TabDragOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBridge/TabDrag/TabDragOutcome.swift	Tab drag lifecycle, outcome, window pick

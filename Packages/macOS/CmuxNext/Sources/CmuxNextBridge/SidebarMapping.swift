@@ -1,6 +1,7 @@
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
+import CCmuxLayoutReducerFFI
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
@@ -8,6 +9,8 @@ import Foundation
 /// may interleave with `personal-mixed-order-v1`).
 public struct SidebarMapping {
     public static let shared = Self()
+    /// The face rules (Rust, through `SidebarFaceFFI`): this Mac's home folder is read once there.
+    private let rules: SidebarFaceFFI
     /// This Mac's home folder as a native string, read once: `NSHomeDirectory()` hands back a bridged
     /// NSString, and comparing or appending to it on every call copied it through `getBytes` (a 2.7 s
     /// NIGHTLY hang in a row flush, 2026-10-29).
@@ -17,6 +20,7 @@ public struct SidebarMapping {
 
     /// A mapping that shortens `home` (this Mac's home folder by default) to `~`.
     init(home: String = NSHomeDirectory()) {
+        rules = home == NSHomeDirectory() ? .shared : SidebarFaceFFI(home: home)
         var native = home
         native.makeContiguousUTF8()
         self.home = native
@@ -137,102 +141,117 @@ public struct SidebarMapping {
                     iconAsset: (String) -> SidebarFavicon? = { _ in nil },
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let unread = showsUnread ? workspace.unreadCount : 0
         let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
         let indicator = statuses.workspace
-        // The focused tab; the row is named for its chat while it is an idle shell (`labelTab`).
-        let focused = frontTab(workspace, selectedTab: selectedTab), front = labelTab(focused, tabs, newTabPages: newTabPages)
-        // The workspace's folder (Group by Folder's bucket).
-        let rowFolder = focused?.cwd ?? tabs.lazy.compactMap(\.cwd).first
-        let folder = folderTab(tabs, label: front)
+        // The face rules run in Rust (cmux-layout-reducer `sidebar_face`, through `SidebarFaceFFI`): which tab the row
+        // stands for and is named for, its folder, kinds, program, status line, unread mark, notice, progress and each
+        // listed tab's title and folder. Another computer's folders shorten against that computer's home (cx-gaq9).
+        let listTitles = tabs.map { tab in
+            tabTitle?(workspace, tab) ?? (newTabPages.contains(tab.id) && !newTabTitle.isEmpty ? newTabTitle : tab.displayTitle)
+        }
+        let facts = rules.face(workspace, local: machine == .local, status: status, showsUnread: showsUnread,
+                               newTabPages: newTabPages, newTabTitled: !newTabTitle.isEmpty, listTitles: listTitles,
+                               selectedTab: selectedTab, branded: {
+                                   $0.agentBrand != nil || harnessIcons.custom(for: $0.agentSession?.harness) != nil
+                               }) ?? SidebarFaceFFI.Face()
+        let fact = facts.row
+        func tabAt(_ index: UInt32) -> TabModel? { facts.index(index).flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
+        let focused = tabAt(fact.front), front = tabAt(fact.label), face = tabAt(fact.face), agent = tabAt(fact.agent)
+        let entries = workspace.status?.entries ?? []
+        func entry(_ index: UInt32) -> String? { facts.index(index).flatMap { entries.indices.contains($0) ? entries[$0].text : nil } }
         // The row's face (name, icon, kind) is one tab's: the label tab, or the work a page beside
         // it was opened from (an agent's PR in its right column), wherever focus is. The page's
         // favicon stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
-        let face = faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages)
         let page = face.flatMap { pageFace(workspace, $0, nil) }
         // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
             browserFaces[tab.id] = tab.id == face?.id ? page : pageFace(workspace, tab, nil)
         }
-        let entries = workspace.status?.entries ?? []
-        // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
-        let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
         let title = Self.sidebarTitle(workspace, page: page)
-        let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
+        let rowAgent = agentMark(agent, harnessIcons: harnessIcons)
+        let folder = tabAt(fact.folder_tab)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
             // An older Chief's subagent workspaces show their task title, never the subagent id.
             title: machine.isLocalChief ? title.chiefTaskTitle ?? title : title,
-            directory: folder?.cwd.map(shorten),
+            directory: facts.text(fact.directory),
             branch: folder?.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
-            process: process(front),
+            process: facts.text(fact.process),
             // The hooks' status line, else the daemon's workspace status
             // (state resources) without the entries other elements show.
-            status: (status ?? Self.statusLine(entries)).flatMap { $0.isEmpty ? nil : $0 },
-            ports: Self.entry(Self.portsKey, in: entries),
-            pullRequest: Self.entry(Self.pullRequestKey, in: entries),
-            lastActivity: lastActivity(tabs),
-            rowKind: rowKind(tabs),
+            status: facts.text(fact.status_line),
+            ports: entry(fact.ports),
+            pullRequest: entry(fact.pull_request),
+            lastActivity: Self.date(nonZeroMs: fact.last_activity_ms),
+            rowKind: Self.rowKind(fact.row_kind),
             agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
                 ?? page?.favicon.map(WorkspaceIcon.favicon),
-            color: color(workspace.color), kind: kind(face),
+            color: color(workspace.color), kind: Self.kind(fact.kind),
             kindBrand: face?.agentBrand,
             // A tab marked unread by hand (Mark Tab Unread) or by an agent that needs the person
             // there (tab-attention-v1) shows as the workspace's manual dot.
-            unread: unread > 0 ? .count(unread)
-                : (showsUnread && (workspace.markedUnread || tabs.contains { $0.markedUnread || $0.attention != nil }) ? .dot : .none),
+            unread: fact.unread == 2 ? .count(workspace.unreadCount) : fact.unread == 1 ? .dot : .none,
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: rowAgent.brand,
             agentIcon: rowAgent.icon,
-            agentName: agentTab(tabs, harnessIcons: harnessIcons)?.agentName,
-            progress: progress(workspace, tabs: tabs),
-            tabs: zip(tabs, statuses.tabs).map { tab, state in
-                let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
-                let title = Self.shortenedPath(tabTitle?(workspace, tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle), of: tab, shorten: shorten)
+            agentName: agent?.agentName,
+            progress: fact.progress == 0 ? nil : SidebarProgress(value: fact.progress_value.isNaN ? nil : fact.progress_value,
+                                                                 isError: fact.progress_error != 0),
+            tabs: zip(tabs, statuses.tabs).enumerated().map { index, pair in
+                let (tab, state) = pair
+                let listed = facts.listed(index)
+                let blank = (listed?.flags ?? 0) & 2 != 0
                 // The hover card's tab rows show each tab's own folder and status; a New Tab page shows neither.
-                var listed = SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
-                                  folder: isNewTabPage ? nil : tab.cwd.flatMap { $0.isEmpty ? nil : shorten($0) },
-                                  state: isNewTabPage ? .idle : state,
-                                  host: isNewTabPage || tab.kind != .browser ? nil : Self.pageHost(tab.url),
-                                  branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
-                                  lastActivity: lastActivity([tab]))
+                let title = listed.flatMap { $0.flags & 1 != 0 ? facts.text($0.title) : nil } ?? listTitles[index]
+                var item = SidebarTab(id: TabID(tab.id), title: title,
+                                      kind: Self.listedKind(listed?.kind, tab), isUnread: tab.showsUnread,
+                                      brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon,
+                                      folder: listed.flatMap { facts.text($0.folder) },
+                                      state: blank ? .idle : state,
+                                      host: blank || tab.kind != .browser ? nil : Self.pageHost(tab.url),
+                                      branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
+                                      lastActivity: Self.date(nonZeroMs: listed?.last_activity_ms ?? 0))
                 // Its chat's running subagents and commands, which the tab row counts.
-                (listed.subagentsRunning, listed.commandsRunning) = Self.running(tab)
+                (item.subagentsRunning, item.commandsRunning) = Self.running(tab)
                 // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata"):
                 // a page's path, a chat's model, a terminal's running program, a remote terminal's machine.
-                if !isNewTabPage { Self.listedFacts(&listed, of: tab, process: process(tab)) }
-                return listed
+                if !blank { Self.listedFacts(&item, of: tab, process: process(tab)) }
+                return item
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`); a
             // window's own Home closes only with its window.
             isClosable: !workspace.isAnyHome,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
-            folder: rowFolder.map(shorten)
+            folder: facts.text(fact.bucket)
         )
         row.focusedTab = focused.map { TabID($0.id) }
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
-        row.lastMessage = lastMessage(front, tabs)
+        row.lastMessage = tabAt(fact.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
         // What an agent needs the person to do in a tab says why the row is marked; it comes
         // before the newest notification's text (tab-attention-v1).
-        if showsUnread { row.notificationText = Self.attentionReason(tabs) ?? newestUnread(tabs).flatMap(notificationText) }
-        row.reported = Self.reported(workspace.status, asset: iconAsset)
+        if showsUnread {
+            row.notificationText = switch fact.notice {
+            case 1: tabAt(fact.notice_tab)?.attention?.reason
+            case 2: tabAt(fact.notice_tab).flatMap(notificationText)
+            default: nil
+            }
+        }
+        row.reported = Self.reported(workspace.status, kept: facts.keptEntries, asset: iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.checklist = workspace.checklist.map(Self.checklistItem)
-        row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
-                            notification: row.notificationText)
+        row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agent, front: front,
+                            process: facts.text(fact.process), notification: row.notificationText)
         return row
     }
 
@@ -284,32 +303,18 @@ public struct SidebarMapping {
         return SidebarChecklistItem(id: item.id, text: item.text, state: state, attachmentCount: item.attachments.count)
     }
 
-    /// The tab the row stands for: the selected tab of the workspace's most
-    /// recently focused pane; nil for a workspace with no tabs.
+    /// The tab the row stands for: the selected tab of the workspace's most recently focused pane;
+    /// nil for a workspace with no tabs (the face rules, `SidebarFaceFFI`).
     public func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
-        guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
-        return selected(pane, selectedTab: selectedTab)
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .front, pick: \.front)
     }
 
-    /// The tab a browser front tab yields its row's name to (a PR opened in
-    /// a split, https://github.com/manaflow-ai/cmux/issues/22249): the
-    /// selected tab of the most recently focused pane that shows a chat or
-    /// terminal, the work the row was named for before the page opened; nil
-    /// while every pane shows a page. A Home, page or app tab gives no name
-    /// (`WorkspaceAutoNameReader.front`), so it is passed over too.
+    /// The tab a browser front tab yields its row's name to (a PR opened in a split,
+    /// https://github.com/manaflow-ai/cmux/issues/22249): the selected tab of the most recently
+    /// focused pane that shows a chat or terminal; nil while every pane shows a page. A Home, page or
+    /// app tab gives no name (`WorkspaceAutoNameReader.front`), so it is passed over too.
     public func workTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        // One pass: the newest eligible pane, the first stored one on a tie (as `frontTab`).
-        var work: (tab: TabModel, focusedAt: UInt64)?
-        for screen in workspace.screens {
-            for pane in screen.panes where !pane.tabs.isEmpty {
-                if let work, pane.focusedAt <= work.focusedAt { continue }
-                let tab = selected(pane, selectedTab: selectedTab)
-                let named = tab.agentSession != nil || (tab.kind != .conversation && tab.page == nil && tab.appTab == nil)
-                if tab.kind != .browser, named { work = (tab, pane.focusedAt) }
-            }
-        }
-        return work?.tab
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .work, pick: \.work)
     }
 
     /// The one tab a workspace's row and window titlebar both read their name and icon from: the
@@ -317,61 +322,53 @@ public struct SidebarMapping {
     /// moving to a page beside a chat leaves both the chat's.
     public func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?,
                         newTabPages: Set<String> = []) -> TabModel? {
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: newTabPages, level: .face, pick: \.face)
+    }
+
+    /// The tab of `workspace` the face rules pick at `pick`. `level` encodes only what that rule reads, so an
+    /// observing caller (the auto-namer, a window's titlebar) is not woken by a tab's progress, notification or
+    /// agent report (O(changed), not every tab event of every workspace).
+    private func faceTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?, newTabPages: Set<String>,
+                         level: SidebarFaceFFI.Level, pick: KeyPath<CmuxSidebarFaceRow, UInt32>) -> TabModel? {
+        guard let facts = rules.face(workspace, level: level, local: true, status: nil, showsUnread: true, newTabPages: newTabPages,
+                                     newTabTitled: false, listTitles: [], selectedTab: selectedTab, branded: { _ in false }),
+              let index = facts.index(facts.row[keyPath: pick]) else { return nil }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        let front = labelTab(frontTab(workspace, selectedTab: selectedTab), tabs, newTabPages: newTabPages)
-        guard front?.kind == .browser else { return front }
-        return workTab(workspace, selectedTab: selectedTab) ?? front
+        return tabs.indices.contains(index) ? tabs[index] : nil
     }
 
-    /// The tab `pane` shows: the window's selection, else the daemon's default tab.
-    private func selected(_ pane: PaneModel, selectedTab: (PaneModel) -> String?) -> TabModel {
-        if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
-        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)]
-    }
-
-    /// What a tab shows: an agent (chat, Home conversation or agent terminal),
-    /// a page, else a terminal.
-    func kind(_ tab: TabModel?) -> SidebarWorkspaceKind {
-        guard let tab else { return .terminal }
-        if tab.kind == .conversation || tab.agent != nil { return .harness }
-        return tab.kind == .browser ? .browser : .terminal
-    }
-
-    /// The brand of the agent running in these tabs (design/agent-icons): the first that
-    /// works or waits, else the first live one.
-    func agentBrand(_ tabs: [TabModel]) -> String? {
-        agentTab(tabs)?.agentBrand
-    }
-
-    /// The reason of the newest "needs you here" mark among `tabs` (tab-attention-v1).
-    static func attentionReason(_ tabs: [TabModel]) -> String? {
-        tabs.compactMap(\.attention).max { $0.atMs < $1.atMs }?.reason
-    }
-
-    /// The tab whose unread notification is the newest (daemon ids grow).
-    func newestUnread(_ tabs: [TabModel]) -> TabModel? {
-        tabs.filter(\.hasUnread).max { ($0.notification?.notification.rawValue ?? 0) < ($1.notification?.notification.rawValue ?? 0) }
-    }
-
-    /// The last message of the row's agent chat (`chatTab`).
-    func lastMessage(_ front: TabModel?, _ tabs: [TabModel]) -> String? {
-        chatTab(front, tabs)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
-    }
-
-    /// The row's agent chat, whose last message the row shows: the front tab's, else the first chat tab's.
-    func chatTab(_ front: TabModel?, _ tabs: [TabModel]) -> TabModel? {
-        front?.agentSession != nil ? front : tabs.first { $0.agentSession != nil }
-    }
-
-    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id).
+    /// The agent chat a workspace's row shows (Copy Agent Identifier on the row copies its id): the label tab's chat,
+    /// so with an idle shell in front, the chat the row is named for.
     public func rowChat(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
-        chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
+        faceTab(workspace, selectedTab: selectedTab, newTabPages: [], level: .face, pick: \.chat)
     }
+
+    /// The face rules' row kind code (0 terminal, 1 browser, 2 harness) as the sidebar draws it.
+    static func kind(_ code: UInt8) -> SidebarWorkspaceKind {
+        switch code {
+        case 2: .harness
+        case 1: .browser
+        default: .terminal
+        }
+    }
+
+    /// The face rules' code for what the tabs are (0 terminal, 1 browser, 2 agent, 3 mixed).
+    static func rowKind(_ code: UInt8) -> WorkspaceRowKind {
+        switch code {
+        case 1: .browser
+        case 2: .agent
+        case 3: .mixed
+        default: .terminal
+        }
+    }
+
+    /// Milliseconds since 1970 as a date; nil for 0.
+    static func date(nonZeroMs ms: UInt64) -> Date? { ms == 0 ? nil : date(ms: ms) }
 
     /// The mark the row draws for its agent tab (`agentTab`): a custom harness's own icon (user
     /// 12922; a mark it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
-    func agentMark(_ tabs: [TabModel], harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
-        guard let tab = agentTab(tabs, harnessIcons: harnessIcons) else { return (nil, nil) }
+    func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+        guard let tab else { return (nil, nil) }
         switch harnessIcons.custom(for: tab.agentSession?.harness) {
         case .brand(let brand)?: return (brand, nil)
         case .symbol(let name)?: return (nil, .symbol(name))
@@ -380,17 +377,14 @@ public struct SidebarMapping {
         }
     }
 
-    /// The tab whose agent the row names: a working or waiting one first. A chat on a custom
-    /// harness with its own icon counts like a branded one.
-    func agentTab(_ tabs: [TabModel], harnessIcons: HarnessIconLookup = .none) -> TabModel? {
-        let branded = tabs.lazy.filter { $0.agentBrand != nil || harnessIcons.custom(for: $0.agentSession?.harness) != nil }
-        return branded.first { $0.agent?.state == .working || $0.agent?.state == .blocked } ?? branded.first
-    }
-
     /// A tab's kind in the tab list: a New Tab page, an agent chat, else its record's kind.
-    private static func listedKind(_ tab: TabModel, newTabPages: Set<String>) -> SidebarTabKind {
-        if newTabPages.contains(tab.id) { return .newTab }
-        return tab.agentSession == nil ? tabKind(tab.kind) : .agentChat
+    /// The face rules' listed kind code (0 the record's kind, 1 new tab, 2 agent chat).
+    private static func listedKind(_ code: UInt8?, _ tab: TabModel) -> SidebarTabKind {
+        switch code {
+        case 1?: .newTab
+        case 2?: .agentChat
+        default: tabKind(tab.kind)
+        }
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
@@ -400,25 +394,6 @@ public struct SidebarMapping {
         case .remoteTerminal: .remoteTerminal
         case .conversation: .conversation
         case let .other(value): .other(value)
-        }
-    }
-
-    /// The workspace's reported progress, else the first terminal progress
-    /// the daemon parsed for one of its tabs (mounted or not).
-    public func progress(_ workspace: WorkspaceModel, tabs: [TabModel]) -> SidebarProgress? {
-        if let reported = workspace.status?.progress { return SidebarProgress(value: reported.value) }
-        guard let terminal = tabs.lazy.compactMap(\.progress).first else { return nil }
-        return Self.progress(terminal)
-    }
-
-    /// A terminal's OSC 9;4 progress as a bar; nil for a paused one with no value.
-    public static func progress(_ report: TerminalProgressReport) -> SidebarProgress? {
-        let value = report.value.map { Double($0) / 100 }
-        switch report.state {
-        case .normal: return SidebarProgress(value: value)
-        case .error: return SidebarProgress(value: value ?? 1, isError: true)
-        case .indeterminate: return SidebarProgress(value: nil)
-        case .paused: return value.map { SidebarProgress(value: $0) }
         }
     }
 
@@ -438,19 +413,15 @@ public struct SidebarMapping {
     public static let portsKey = "ports"
     public static let pullRequestKey = "pr"
 
-    /// The status line: every entry but the ones other elements show.
-    static func statusLine(_ entries: [WorkspaceStatus.Entry]) -> String? {
-        let texts = entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map(\.text).filter { !$0.isEmpty }
-        return texts.isEmpty ? nil : texts.joined(separator: " · ")
-    }
-
     /// The status block: every entry but the ones other elements show, the
     /// newest log line and the progress label; nil when none is reported. `asset` draws an
     /// entry's stored image or SVG icon.
-    static func reported(_ status: WorkspaceStatus?, asset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspaceStatus? {
+    /// `kept` are the indexes of the entries the block lists (the face rules' status entries).
+    static func reported(_ status: WorkspaceStatus?, kept: [Int],
+                         asset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspaceStatus? {
         guard let status else { return nil }
         let block = SidebarWorkspaceStatus(
-            entries: status.entries.filter { $0.key != portsKey && $0.key != pullRequestKey }.map {
+            entries: kept.compactMap { status.entries.indices.contains($0) ? status.entries[$0] : nil }.map {
                 SidebarWorkspaceStatus.Entry(key: $0.key, text: $0.text, icon: $0.icon, tint: SidebarWorkspaceStatus.Tint($0.color), state: $0.state,
                                              image: $0.icon.flatMap(asset))
             },
@@ -461,13 +432,10 @@ public struct SidebarMapping {
         return block.isEmpty ? nil : block
     }
 
-    static func entry(_ key: String, in entries: [WorkspaceStatus.Entry]) -> String? {
-        entries.first { $0.key == key && !$0.text.isEmpty }?.text
-    }
-
-    /// The front terminal's program as the shell or program titles it (OSC
-    /// 0/2); nil for other tabs, an untitled terminal, or a title that only
-    /// repeats the folder.
+    /// A terminal tab's program as the shell or program titles it (OSC 0/2); nil for other tabs, an untitled
+    /// terminal, or a title that only repeats the folder. The row's own program comes from the Rust face
+    /// (`sidebar_face::process`); this copy serves only the hover card's per-tab line (`listedFacts`), which the
+    /// face's C reply does not carry per tab yet (follow-up: a listed-tab program field in the next FFI step A).
     func process(_ tab: TabModel?) -> String? {
         guard let tab, tab.kind == .pty, tab.agent == nil else { return nil }
         let title = tab.titleText.trimmingCharacters(in: .whitespaces)
@@ -524,51 +492,9 @@ public struct SidebarMapping {
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
-    /// The newest agent update or notification of the tabs; nil without one.
-    func lastActivity(_ tabs: [TabModel]) -> Date? {
-        let newest = tabs.map { max($0.agent?.updatedAtMs ?? 0, $0.notification?.createdAtMs ?? 0) }.max() ?? 0
-        return newest == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(newest) / 1000)
-    }
-
-    /// What the tabs are: one kind, or mixed; a workspace without tabs is a terminal one.
-    func rowKind(_ tabs: [TabModel]) -> WorkspaceRowKind {
-        let kinds = Set(tabs.map { tab -> WorkspaceRowKind in
-            switch kind(tab) {
-            case .harness: .agent
-            case .browser: .browser
-            case .terminal: .terminal
-            }
-        })
-        guard kinds.count <= 1 else { return .mixed }
-        return kinds.first ?? .terminal
-    }
-
-    /// A terminal tab titled by its own folder (an untitled shell shows its folder, `TabItemMapping.title`, and some
-    /// shells title it so) reads as its prompt writes it: this Mac's home and another computer's home both as `~`.
-    /// A title naming another path (a program's), a name the person gave the tab and an agent's tab stay as they are.
-    /// Another computer's folder never matched this Mac's home, so a Cloud shell's tab read `/home/cmux` (Leo
-    /// 2026-10-29: "why is there all this weird stuff at the bottom of the sidebar").
-    static func shortenedPath(_ title: String, of tab: TabModel, shorten: (String) -> String) -> String {
-        // A terminal running an agent (`tab.agent`, its hooks' report) is the agent's tab, not a shell's.
-        guard tab.agentSession == nil, tab.agent == nil, tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
-              let cwd = tab.cwd, Self.trimmingSlash(title) == Self.trimmingSlash(cwd) else { return title }
-        return shorten(Self.trimmingSlash(cwd))
-    }
-
-    private static func trimmingSlash(_ path: String) -> String {
-        path.count > 1 && path.hasSuffix("/") ? String(path.dropLast()) : path
-    }
-
-    /// A folder of another computer (SSH, Cloud) as its shell prompt writes it: its account's
-    /// home (`/Users/<name>` or `/home/<name>`) as `~`. The app does not know that machine's home
-    /// otherwise, and this Mac's home says nothing about it (cx-gaq9).
-    public static func abbreviateRemote(_ path: String) -> String {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count >= 3, parts[0].isEmpty, parts[1] == "Users" || parts[1] == "home", !parts[2].isEmpty,
-              parts[2] != "Shared" else { return path }
-        return (["~"] + parts.dropFirst(3)).joined(separator: "/")
-    }
-
+    /// A folder of this Mac with its home folder as `~`, for the tab strip, hover card and screen bar, which map one
+    /// tab per call: it stays in Swift until those callers map a pane's tabs in one batched Rust call (the row map
+    /// already uses the Rust rule, `sidebar_face::abbreviate`, inside the face).
     func abbreviate(_ path: String) -> String {
         if path == home { return "~" }
         if path.hasPrefix(homeFolderPrefix) { return "~" + path.dropFirst(home.count) }

@@ -17,17 +17,12 @@ extension SidebarMapping {
     /// yet, so a key-repeat burst numbers each create once, in press order.
     /// The app sends this name with the create, so the row's title is the
     /// daemon's title from the press.
+    /// The rule runs in Rust (cmux-layout-reducer `sidebar_face::default_workspace_name`).
     public static func defaultWorkspaceName(existing: [String], reserved: [String]) -> String {
-        func number(_ name: String) -> Int? {
-            guard name.hasPrefix(defaultNamePrefix) else { return nil }
-            let digits = name.dropFirst(defaultNamePrefix.count)
-            guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
-            return Int(digits)
-        }
-        // A reserved name the machine lists already is counted once.
-        let unlisted = reserved.filter { !existing.contains($0) }
-        let highest = (existing + unlisted).compactMap(number).max() ?? 0
-        return defaultNamePrefix + String(max(highest, existing.count + unlisted.count) + 1)
+        // The call fails only without a Rust handle (out of memory at launch): a create then still gets a
+        // name, and the daemon renumbers nothing it already listed.
+        SidebarFaceFFI.shared.defaultWorkspaceName(existing: existing, reserved: reserved)
+            ?? defaultNamePrefix + String(existing.count + reserved.count + 1)
     }
 
     /// The prefix of the daemon's default workspace names.

@@ -237,7 +237,9 @@ struct SidebarAgentRowPresentationTests {
     @Test func theFrontChatUsesItsOwnTask() throws {
         let workspace = try fixture(nameSource: .auto, secondAgent: true)
         let tabs = try #require(workspace.screens.first?.panes.first?.tabs)
-        #expect(SidebarMapping.shared.agentTab(tabs)?.id == tabs[1].id)
+        // The working chat is the row's agent (the face rules' agent tab).
+        #expect(SidebarMapping.shared.row(workspace, machine: .local).agentName == tabs[1].agentName)
+        #expect(tabs[1].agentName != tabs[0].agentName)
         #expect(row(workspace, machine: .local, selectedTab: { _ in tabs[0].id },
                                          autoNamesWorkspaces: true).title == "Review the release")
         #expect(row(workspace, machine: .local, selectedTab: { _ in tabs[1].id },

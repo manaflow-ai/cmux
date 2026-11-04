@@ -6,10 +6,10 @@ import Foundation
 /// The hover card's extra facts of a workspace row (`SidebarWorkspaceDetail`, cx-swovq).
 extension SidebarMapping {
     /// `indicator` is the row's merged status; `agentTab` the tab the row names as its agent;
-    /// `front` the tab the row stands for; `notification` the row's unread notification text
+    /// `front` the tab the row stands for; `process` its program (the face rules'); `notification` the row's unread notification text
     /// (nil when the row hides unread state).
     func detail(tabs: [TabModel], indicator: StatusIndicatorState, agentTab: TabModel?, front: TabModel?,
-                notification: String?, turns: AgentTurnStateStore = .shared) -> SidebarWorkspaceDetail {
+                process: String?, notification: String?, turns: AgentTurnStateStore = .shared) -> SidebarWorkspaceDetail {
         var detail = SidebarWorkspaceDetail()
         detail.activitySince = Self.activitySince(tabs: tabs, indicator: indicator, turns: turns)
         let chat = agentTab?.agentSession.flatMap(turns.detail(for:))
@@ -28,7 +28,7 @@ extension SidebarMapping {
             detail.needsInput = blocked ?? notification
         }
         if let front, front.kind == .pty, front.agent == nil, let since = Self.commandStart(front) {
-            detail.command = process(front)
+            detail.command = process
             detail.commandSince = Self.date(ms: since)
         }
         // What every agent chat in the workspace runs below its turn, as acpmux counts it.
