@@ -2636,7 +2636,3 @@ mod message_notice_tests {
 #[cfg(test)]
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
-
-/// Owner-only TLS ingress from the embedded tailnet node.
-#[cfg(all(unix, feature = "tailnet"))]
-pub mod tailnet_ingress;
