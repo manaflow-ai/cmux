@@ -36,6 +36,19 @@ struct SidebarResponsiveScrollTests {
         #expect(scroll.contentView.bounds.origin == origin, "a sideways swipe never scrolls the list")
     }
 
+    /// A first sample that leans a little downward (2, 3) is not a direction yet: the swipe that
+    /// follows still pages (review of #34648).
+    @Test func aSidewaysSwipeThatStartsALittleDownStillPagesTheSpaces() {
+        let scroll = SidebarScrollView(frame: NSRect(x: 0, y: 0, width: 260, height: 400))
+        scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 4_000))
+        var phases: [ProfileSwipeTracker.Phase] = []
+        scroll.onHorizontalScroll = { phase, _, _ in phases.append(phase) }
+        scroll.scrollWheel(with: event(dx: 2, dy: 3, phase: .began))
+        for _ in 0..<3 { scroll.scrollWheel(with: event(dx: -20, dy: 0, phase: .changed)) }
+        scroll.scrollWheel(with: event(dx: 0, dy: 0, phase: .ended))
+        #expect(phases == [.began, .changed, .changed, .ended])
+    }
+
     @Test func aGestureShowsOneDirectionOnceItMoves() {
         var sideways = ProfileSwipeTracker()
         _ = sideways.feed(deltaX: 0, deltaY: 0, phase: .began)

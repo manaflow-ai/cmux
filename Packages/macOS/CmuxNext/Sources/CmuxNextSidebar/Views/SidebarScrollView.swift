@@ -10,9 +10,9 @@ import AppKit
 /// on its first event, which moves the clip off the main thread for the rest of the gesture, so
 /// a busy main thread no longer stalls the scroll (Leo, ask-757eeb7f80: "scrolling thru sidebar
 /// sessions in claude doesn't lag / in cmux-next it does"). Overriding `scrollWheel(with:)` alone
-/// opted the list out, and every scroll frame waited on the main thread. A gesture that starts
-/// sideways is held here, event by event, until it shows its direction: sideways pages the
-/// spaces, otherwise AppKit takes it from there.
+/// opted the list out, and every scroll frame waited on the main thread. A gesture
+/// is held here, event by event, until it shows its direction (unless its first event already
+/// does): sideways pages the spaces, otherwise AppKit takes it from there.
 final class SidebarScrollView: NSScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.
     var onHorizontalSwipe: ((Int) -> Void)?
@@ -46,7 +46,7 @@ final class SidebarScrollView: NSScrollView {
         }
         let step = tracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
         switch phase {
-        case .began: deciding = !tracker.isVertical && abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
+        case .began: deciding = !tracker.isVertical
         case .changed: if tracker.isVertical { deciding = false }
         case .ended, .momentum: deciding = false
         }
