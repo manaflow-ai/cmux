@@ -90,6 +90,20 @@ try {
   const health = await call("GET", "/healthz");
   expectStatus("health", health.status, 200, health.body);
 
+  // A run cancelled before its cleanup leaves its VM behind: paused by the run cap and deleted upstream, but its row
+  // still counts against the 2-VM quota until deleted here. The principal sees only its own VMs and the job's
+  // concurrency group runs one smoke at a time, so every VM listed is a leftover; deleting a gone one forgets it.
+  const leftovers = await call("GET", "/v1/vms");
+  expectStatus("list own VMs", leftovers.status, 200, leftovers.body);
+  const listed = field(leftovers.body, "items");
+  for (const item of Array.isArray(listed) ? listed : []) {
+    const leftover = field(item, "id");
+    if (typeof leftover !== "string") continue;
+    const removed = await call("DELETE", `/v1/vms/${leftover}`);
+    if (removed.status !== 204 && removed.status !== 404) throw new Error(`could not delete leftover ${leftover}: ${removed.status} ${JSON.stringify(removed.body)}`);
+    console.log(`ok  deleted leftover ${leftover} (${removed.status})`);
+  }
+
   let image = { id: imageId, revision: imageRevision };
   if (image.id === "") {
     const catalog = await call("GET", "/v1/vm-images");
