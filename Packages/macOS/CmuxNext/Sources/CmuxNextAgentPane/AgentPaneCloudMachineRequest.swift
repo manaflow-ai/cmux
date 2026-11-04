@@ -163,6 +163,12 @@ public final class AgentPaneCloudMachines {
         }
     }
 
+    /// A typing prewarm (``prewarm``) is a hint: it resumes (`resume`, script-originated) only a paused machine of the
+    /// loaded list while the App may call Cloud (`allowed`). True once the resume was accepted.
+    public static func prewarmIfPaused(allowed: Bool, status: CloudMachine.Status?, resume: @MainActor () async throws -> Void) async -> Bool {
+        guard allowed, status == .paused else { return false }
+        return (try? await resume()) != nil
+    }
 
     /// Runs Open Machine on a machine of the loaded list; false when it is not one.
     public var open: (@MainActor (String) -> Bool)?
