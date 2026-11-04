@@ -172,6 +172,13 @@ public struct ToolWording: Sendable {
         return text.prefix(1).uppercased() + text.dropFirst()
     }
 
+    /// A duration worth showing: none under a millisecond, which read "0ms" (a replayed history
+    /// stamps a call's or turn's start and end together, so it has no real duration).
+    public func shown(_ seconds: TimeInterval?) -> TimeInterval? {
+        guard let seconds, seconds >= 0.001 else { return nil }
+        return seconds
+    }
+
     public func duration(_ seconds: TimeInterval) -> String {
         if seconds < 1 { return "\(Int(seconds * 1000))ms" }
         if seconds < 60 { return String(format: "%.1fs", seconds) }

@@ -428,8 +428,7 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
-        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // compact: centered like a row's avatar
-        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
+        return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: SidebarMetrics.pinTopPad, width: d, height: d)
     }
 
     /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
@@ -519,7 +518,7 @@ enum SidebarDraw {
     /// Messages' pinned grid: the dot sits inline before the name ("• Instinct") and the pair is
     /// centred, so the dot never meets the bubble over the avatar's top, its tail or the avatar
     /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
-    /// `nameWidth`: the name bitmap's width in points. Not for the compact list (no names).
+    /// `nameWidth`: the name bitmap's width in points. The compact list's rows and tiles use it too.
     static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
         let ar = tileAvatar(m)
         let y = ar.maxY + SidebarMetrics.pinNameGap
@@ -532,11 +531,12 @@ enum SidebarDraw {
         return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
     }
 
-    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
-    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
-        let d = SidebarMetrics.dotDiameter
+    /// cmux: a compact row's name and unread dot (row coordinates): a one-column tile's label, so
+    /// pinned and unpinned rows line up (Messages' narrow list).
+    static func compactRowLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
         let x0 = m.tileRect(0).minX
-        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
+        let label = tileLabel(m, nameWidth: nw, unread: unread)
+        return (label.name.offsetBy(dx: x0, dy: 0), label.dot?.offsetBy(dx: x0, dy: 0))
     }
 }
 
@@ -702,7 +702,9 @@ final class SidebarTypingLayer: CALayer {
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
     /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
-    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
+    /// cmux (msg 20105): the list's motion is off, so the dots stand still at the first dot's peak.
+    var still = false
+    private var stillPhase: Double? { Self.stillPhase ?? (still || CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
         if let ph = stillPhase {
             // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).

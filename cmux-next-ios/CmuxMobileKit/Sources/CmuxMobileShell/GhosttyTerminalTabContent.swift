@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileRealtime
 import CmuxMobileTerminal
 import CmuxMobileTransport
 import CmuxMobileWorkspaces
@@ -157,6 +158,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live mode: Files and Links previews from the Mac.
     var artifactSourceProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (any ArtifactSource)?)?
     /// Live mode: uploads a terminal attachment to the Mac, returning its path there.
+    /// Voice mode's source for a tab's terminal (its agent's Feed events in, typed prompts out).
+    var voiceSourceProvider: (@MainActor (WorkspaceTab, Workspace, TerminalModel) -> (any AgentVoiceSource)?)?
     var uploaderProvider: (@MainActor (WorkspaceTab, _ macID: String) -> (@MainActor (LinkUpload.Payload, String) async throws -> String)?)?
     /// DEBUG mock mode (Settings → Developer → Mock): tabs with no live
     /// session run the scripted mock. Ignored outside DEBUG builds.
@@ -213,6 +216,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             self?.liveDataChanged()
         }
         model.uploader = live == nil ? nil : uploaderProvider?(tab, workspace.macID)
+        model.voiceSource = voiceSourceProvider?(tab, workspace, model)
         // The page shown already keeps opening links where it did (R1-0 swaps the host in place).
         model.linkOpener = previous?.model.linkOpener
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) } ?? previous.flatMap { $0.model.snapshot ?? $0.model.coldFrame }
@@ -368,6 +372,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
         host(for: tab, in: workspace).model.focusComposer()
+    }
+
+    func draft(_ text: String, for tab: WorkspaceTab, in workspace: Workspace) {
+        let model = host(for: tab, in: workspace).model
+        model.composerText = text
+        model.focusComposer()
     }
 
     /// Each tab's card view, made once per slot: a card body is a lookup.
