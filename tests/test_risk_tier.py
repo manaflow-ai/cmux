@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import subprocess
 import sys
@@ -932,6 +933,57 @@ class DescriptionVerdictTests(unittest.TestCase):
         self.assertIn("ready=false", out)
         self.assertIn("could not be read", summary)
         self.assertNotIn("Warning:", summary)
+
+
+class EventPayloadTests(unittest.TestCase):
+    """pr_mode reads the pull request from the event payload, so a run makes no GET pulls/N call."""
+
+    def run_pr(self, event, attempt="1"):
+        calls = []
+        saved_attempt = os.environ.get("GITHUB_RUN_ATTEMPT")
+        os.environ["GITHUB_RUN_ATTEMPT"] = attempt
+        self.addCleanup(lambda: os.environ.pop("GITHUB_RUN_ATTEMPT", None) if saved_attempt is None
+                        else os.environ.__setitem__("GITHUB_RUN_ATTEMPT", saved_attempt))
+
+        def fake_json(*args):
+            calls.append(args[1])
+            return {"head": {"sha": HEAD}, "base": {"sha": "c" * 40}, "body": "from the API"}
+
+        saved = risk.gh_json, risk.gh_items
+        risk.gh_json, risk.gh_items = fake_json, lambda endpoint: [{"filename": "docs/a.md", "patch": ""}]
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                out, payload = Path(tmp) / "out", Path(tmp) / "event.json"
+                args = ["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out)]
+                if event is not None:
+                    payload.write_text(event)
+                    args += ["--event", str(payload)]
+                with contextlib.redirect_stdout(io.StringIO()):
+                    risk.main(args)
+                return calls, out.read_text()
+        finally:
+            risk.gh_json, risk.gh_items = saved
+
+    def test_the_event_s_pull_request_replaces_the_pulls_call(self):
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40},
+                                             "body": "", "labels": [], "user": {"login": "a"}}})
+        calls, out = self.run_pr(event)
+        self.assertEqual(calls, [])
+        self.assertIn("tier=low", out)
+
+    def test_a_re_run_reads_the_pull_request_live(self):
+        """A re-run gets the first attempt's frozen payload: it must grade today's pull request."""
+        event = json.dumps({"pull_request": {"number": 7, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        calls, _ = self.run_pr(event, attempt="2")
+        self.assertEqual(calls, ["repos/o/r/pulls/7"])
+
+    def test_no_payload_another_pull_request_or_a_broken_file_reads_the_api(self):
+        other = json.dumps({"pull_request": {"number": 8, "head": {"sha": HEAD}, "base": {"sha": "c" * 40}}})
+        no_head = json.dumps({"pull_request": {"number": 7, "base": {"sha": "c" * 40}}})
+        for event in (None, other, no_head, "not json", json.dumps({"issue": {}})):
+            calls, out = self.run_pr(event)
+            self.assertEqual(calls, ["repos/o/r/pulls/7"], event)
+            self.assertIn("tier=low", out)
 
 
 if __name__ == "__main__":
