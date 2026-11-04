@@ -252,6 +252,11 @@ struct Order {
     read_segments: BTreeSet<PathBuf>,
     /// The open found the freeze marker: its repair writes every replayed chat's lines again.
     rewrite_all: bool,
+    /// An upper bound of the LSN of each chat's newest log record in this process (an append, or
+    /// the open's replay and repair). A chat without one has no log record past the checkpoint
+    /// the open started from: a retention rewrite of a chat at or below the checkpoint needs no
+    /// checkpoint of its own (`Store::commit_compaction`).
+    log_lsn: HashMap<String, Lsn>,
 }
 
 impl Order {
@@ -522,6 +527,13 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
         }
         order.applied = lsn;
+        // A chat's first line in this process allocates its entry; every later one reuses it.
+        match order.log_lsn.get_mut(id) {
+            Some(newest) => *newest = lsn,
+            None => {
+                order.log_lsn.insert(id.to_owned(), lsn);
+            }
+        }
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
         drop(order);
@@ -646,11 +658,22 @@ impl Store for JournalStore {
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
         Store::stage_compaction(&self.inner.local, id, mode)
     }
-    /// A checkpoint first, so no journal record of the chat is past it: a replay never writes
-    /// the lines a retention rewrite cut back into its log. A frozen or failed checkpoint stops
-    /// the rewrite.
+    /// No journal record of the chat may be past the checkpoint: a replay must never write the
+    /// lines a retention rewrite cut back into its log. A chat whose newest log record is at or
+    /// below it (`Order::log_lsn`; retention takes chats untouched for days) needs no checkpoint;
+    /// any other runs one first, and a frozen or failed checkpoint stops the rewrite. The caller
+    /// holds the chat's append lock (no record of it lands meanwhile), so a checkpoint in flight
+    /// (the one after a restart's replay takes seconds with many chats) never holds that lock for
+    /// an old chat.
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
-        self.inner.checkpoint()?;
+        let covered = {
+            let order = self.inner.order.lock_or_recover();
+            !order.frozen
+                && order.log_lsn.get(id).is_none_or(|newest| *newest <= order.checkpointed)
+        };
+        if !covered {
+            self.inner.checkpoint()?;
+        }
         Store::commit_compaction(&self.inner.local, id, staged)
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a

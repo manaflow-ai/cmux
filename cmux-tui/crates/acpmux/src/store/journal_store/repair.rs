@@ -77,6 +77,11 @@ impl Inner {
     /// fails it.
     pub(super) fn apply(&self, replay: Replay) -> Result<()> {
         let Replay { chats, metas } = replay;
+        let replayed: Vec<String> = chats
+            .iter()
+            .filter(|(_, lines)| !lines.is_empty())
+            .map(|(chat, _)| chat.clone())
+            .collect();
         // The metadata, then the logs. Neither makes a folder that is gone (`meta.rs`).
         self.apply_metas(metas)?;
         for (chat, journaled) in chats {
@@ -106,6 +111,12 @@ impl Inner {
         }
         let mut order = self.order.lock_or_recover();
         order.applied = self.journal.last_lsn();
+        // Every replayed chat has records past the checkpoint (the replay's, and the lines its
+        // repair journaled again): an upper bound for each.
+        let newest = order.applied;
+        for chat in replayed {
+            order.log_lsn.insert(chat, newest);
+        }
         Ok(())
     }
 
