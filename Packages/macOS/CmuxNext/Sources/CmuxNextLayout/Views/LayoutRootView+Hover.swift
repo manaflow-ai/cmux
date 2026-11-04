@@ -38,6 +38,14 @@ extension LayoutRootView {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG (`debug.mouse` `divider`): the center of the divider hit area named `name`, in window coordinates.
+    public func debugDividerCenter(named name: String) -> NSPoint? {
+        let areas = dividerMouseAreas.sorted { ($0.rect.minY, $0.rect.minX) < ($1.rect.minY, $1.rect.minX) }
+        guard let area = name == "first" ? areas.first : areas.first(where: { $0.id == name }) ?? areas.first(where: { $0.id.hasPrefix(name) })
+        else { return nil }
+        return convert(NSPoint(x: area.rect.midX, y: area.rect.midY), to: nil)
+    }
+
     /// DEBUG (`debug.cursor`, control build): the cursor shown, the hover pointer, the topmost window and hover.
     public static func debugCursorReport() -> [String: String] {
         var report = ["app": NSCursor.current.debugName, "system": NSCursor.currentSystem?.debugName ?? "none"]
