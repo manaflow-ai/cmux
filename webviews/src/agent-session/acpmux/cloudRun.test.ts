@@ -61,6 +61,27 @@ test("sign-in recovery can be reused after its card resets", async () => {
   expect(starts).toBe(2);
 });
 
+test("a reset while a sign-in is out leaves the next card its own retry", async () => {
+  const pending: ((answer: { ok: true }) => void)[] = [];
+  const retry = makeCloudSignInRetry(
+    () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  );
+  const stale = retry();
+  retry.reset();
+  const fresh = retry();
+  expect(fresh).not.toBe(stale);
+  expect(pending).toHaveLength(2);
+  // The old card's sign-in comes back first: it counts for nothing and leaves the new one out.
+  pending[0]!({ ok: true });
+  await expect(stale).resolves.toBe(false);
+  expect(retry()).toBe(fresh);
+  pending[1]!({ ok: true });
+  await expect(fresh).resolves.toBe(true);
+});
+
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
   const answer = await startCloudChat(

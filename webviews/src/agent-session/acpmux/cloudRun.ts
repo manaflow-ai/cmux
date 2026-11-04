@@ -126,24 +126,30 @@ export type CloudSignInRetry = (() => Promise<boolean>) & { reset: () => void };
 export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): CloudSignInRetry {
   let inFlight: Promise<boolean> | undefined;
   let resumed = false;
+  // A reset (another card) makes an older retry's late answer count for nothing.
+  let epoch = 0;
   const retry = (() => {
     if (resumed) return Promise.resolve(false);
     if (inFlight) return inFlight;
     const started = resume();
     if (!started) return Promise.resolve(false);
-    inFlight = started
+    const mine = epoch;
+    const attempt = started
       .then((answer) => {
-        if (!answer.ok || resumed) return false;
+        if (mine !== epoch || !answer.ok || resumed) return false;
         resumed = true;
         return true;
       })
       .catch(() => false)
       .finally(() => {
-        inFlight = undefined;
+        if (inFlight === attempt) inFlight = undefined;
       });
-    return inFlight;
+    inFlight = attempt;
+    return attempt;
   }) as CloudSignInRetry;
   retry.reset = () => {
+    epoch += 1;
+    inFlight = undefined;
     resumed = false;
   };
   return retry;

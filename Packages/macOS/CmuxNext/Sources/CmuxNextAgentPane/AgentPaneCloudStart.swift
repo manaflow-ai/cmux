@@ -243,9 +243,20 @@ struct AgentPaneHandOff {
             // than a gesture lives; this hold authorizes only this already-validated request.
             if signingIn {
                 let generation = model.cloudSignInGeneration
-                guard let signIn = model.onCloudSignIn, await signIn() else {
+                guard let signIn = model.onCloudSignIn else {
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
+                }
+                // `cloud.signInCancel` ends this wait at once (nil), not when the browser returns:
+                // the hold goes with it, so the person's new pick can start right away.
+                switch await model.waitForCloudSignIn(signIn) {
+                case true?: break
+                case false?:
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
+                case nil:
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
                 }
                 // Browser auth can take minutes. Another send may have adopted this pane while
                 // it was open; never start Cloud over that chat or consume its preserved prompt.
@@ -397,5 +408,30 @@ extension AgentPaneCloudStart {
         let push = JSONValue.object(value)
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
+    }
+}
+
+extension AgentPaneModel {
+    /// Runs the browser sign-in for a held `cloud.signIn`: its answer, or nil once
+    /// `cloud.signInCancel` withdrew the send (``endCloudSignInWait(_:)``), whichever comes first.
+    /// A sign-in that finishes after a cancel still stands; only its send is gone.
+    func waitForCloudSignIn(_ signIn: @escaping @MainActor () async -> Bool) async -> Bool? {
+        endCloudSignInWait(nil)
+        let generation = cloudSignInGeneration
+        return await withCheckedContinuation { done in
+            cloudSignInWait = (generation, done)
+            Task { @MainActor in
+                let signedIn = await signIn()
+                guard cloudSignInWait?.generation == generation else { return }
+                endCloudSignInWait(signedIn)
+            }
+        }
+    }
+
+    /// Ends the sign-in wait, if one is out, with `answer` (nil: withdrawn).
+    func endCloudSignInWait(_ answer: Bool?) {
+        guard let wait = cloudSignInWait else { return }
+        cloudSignInWait = nil
+        wait.done.resume(returning: answer)
     }
 }

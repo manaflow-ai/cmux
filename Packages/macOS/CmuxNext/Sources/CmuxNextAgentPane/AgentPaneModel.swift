@@ -104,6 +104,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onCloudSignIn: (@MainActor () async -> Bool)?
     /// Bumped by `cloud.signInCancel`: a `cloud.signIn` that began under an older value sends nothing.
     @ObservationIgnored var cloudSignInGeneration = 0
+    /// The `cloud.signIn` waiting on the browser (``AgentPaneModel/waitForCloudSignIn(_:)``), so
+    /// `cloud.signInCancel` ends that wait, and the send's hold, at once.
+    @ObservationIgnored var cloudSignInWait: (generation: Int, done: CheckedContinuation<Bool?, Never>)?
     /// Reads this Mac's local repository catalog through its cmux daemon frame connection.
     @ObservationIgnored public var onCloudRepositoryLocal: (@MainActor () async throws -> Data)?
     /// For a Cloud chat, forwards machine actions through its tab host even while the page's
@@ -565,6 +568,7 @@ public final class AgentPaneModel {
         // Starts nothing and needs no gesture: it only withdraws a pending sign-in's send.
         case .cloudSignInCancel:
             cloudSignInGeneration += 1
+            endCloudSignInWait(nil)
             return AgentPaneReply.success()
         case .cloudStartChat(let start): return await AgentPaneHandOff(model: self).cloud(start)
         // Only a chat on another machine, on the person's own pick (one gesture).

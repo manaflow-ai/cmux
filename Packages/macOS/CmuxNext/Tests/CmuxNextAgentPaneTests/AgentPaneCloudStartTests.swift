@@ -123,6 +123,36 @@ struct AgentPaneCloudStartTests {
         #expect(model.transport.replacements.beginSandbox())
     }
 
+    /// Leaving Cloud while the browser is still open ends the send at once: its hold goes before
+    /// auth returns, so the person's new pick can start, and a sign-in that finishes later sends nothing.
+    @Test func leavingCloudReleasesTheHoldBeforeTheBrowserReturns() async {
+        let starts = Starts()
+        let model = Self.pane(starts)
+        let opened = AsyncStream<Void>.makeStream()
+        let browser = AsyncStream<Bool>.makeStream()
+        model.onCloudSignIn = {
+            opened.continuation.yield()
+            for await signedIn in browser.stream { return signedIn }
+            return false
+        }
+        model.transport.gestures.record()
+        let request = AgentPaneRequest(body: ["method": "cloud.signIn", "params": [
+            "task": "preserved prompt", "key": UUID().uuidString, "home": true,
+        ]])
+        let send = Task { await model.respond(to: request) }
+        for await _ in opened.stream { break }
+        #expect(await model.respond(to: AgentPaneRequest(body: ["method": "cloud.signInCancel"]))["ok"] as? Bool == true)
+        let reply = await send.value
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "cloud_sign_in_cancelled")
+        // The browser is still open, and the hold is already gone.
+        #expect(model.transport.replacements.beginSandbox())
+        model.transport.replacements.endSandbox()
+        browser.continuation.yield(true)
+        browser.continuation.finish()
+        await Task.yield()
+        #expect(starts.seen.isEmpty)
+    }
+
     /// A chat adopted this pane while the browser was open: Cloud never starts over it.
     @Test func aChatOpenedDuringInlineSignInKeepsThePromptOffCloud() async {
         let starts = Starts()
