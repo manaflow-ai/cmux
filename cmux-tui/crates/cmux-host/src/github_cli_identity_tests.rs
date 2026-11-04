@@ -216,6 +216,8 @@ fn the_persons_own_auth_or_an_own_login_probe_keeps_gh() {
     assert!(applies(Some("# no hosts\n")));
     assert!(applies(Some("---\n")));
     assert!(applies(Some("{}\n")));
+    // Only comments, blank lines and document markers, indented or not, are no login.
+    assert!(applies(Some("\n  # a comment\n\t\n# another\n  ---\n")));
     // Any host login in any form gh reads: github.com, Enterprise, a comment or inline mapping.
     for hosts in [
         "github.com:\n    user: me\n",
@@ -223,6 +225,9 @@ fn the_persons_own_auth_or_an_own_login_probe_keeps_gh() {
         "github.com: # personal account\n    user: me\n",
         "github.com: {user: me, oauth_token: x}\n",
         "---\n\"github.com\":\n  user: me\n",
+        // An indented root mapping is still valid YAML that gh reads.
+        "  github.com:\n      user: me\n",
+        "\tghe.example.com: {user: me}\n",
     ] {
         assert!(!applies(Some(hosts)), "{hosts}");
     }
