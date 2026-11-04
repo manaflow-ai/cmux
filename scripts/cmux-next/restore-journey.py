@@ -581,6 +581,28 @@ def acpmux_socket_of(home):
     return f"/tmp/acpmux-{os.getuid()}/{h:016x}.sock"
 
 
+def acpmux_missing():
+    """Why no acpmux home answered (once): the homes looked at, every build home with a socket, and the acpmux
+    processes running, so a seed that found none says where the app's daemon went."""
+    if ACPMUX_MISSING:
+        return
+    ACPMUX_MISSING.append(True)
+    say(f"  acpmux: none of these homes has a socket: {acpmux_home.tried}")
+    for base in {os.path.expanduser("~"), APP.env.get("HOME", "")} - {""}:
+        builds = os.path.join(base, ".acpmux", "builds")
+        found = sorted(name for name in (os.listdir(builds) if os.path.isdir(builds) else [])
+                       if os.path.exists(acpmux_socket_of(os.path.join(builds, name))))
+        say(f"  acpmux: build homes with a socket under {builds}: {found}; app env ACPMUX_HOME={APP.env.get('ACPMUX_HOME')!r}")
+    try:
+        procs = subprocess.run(["pgrep", "-fl", "acpmux"], capture_output=True, text=True, timeout=10).stdout.splitlines()
+    except (OSError, subprocess.SubprocessError) as error:
+        procs = [repr(error)]
+    say(f"  acpmux: processes: {[line[:200] for line in procs[:8]]}")
+
+
+ACPMUX_MISSING = []
+
+
 def acpmux_home():
     """The app's acpmux home: <the app's HOME>/.acpmux/builds/<build key> (a slot's home on a capture
     slot), else <account home>/.acpmux/builds/<build key> (build_names.py has the app's rule), or, for a build from before per-build
@@ -599,6 +621,7 @@ def acpmux_home():
     for base in {os.path.expanduser("~"), APP.env.get("HOME", "")}:
         if base:
             homes.append(os.path.join(base, ".acpmux", "builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug).strip(".")))
+    acpmux_home.tried = [(home, acpmux_socket_of(home)) for home in homes]
     return next((home for home in homes if os.path.exists(acpmux_socket_of(home))), None)
 
 
@@ -1072,6 +1095,7 @@ def acpmux_client():
     if not ACPMUX:
         home = wait(acpmux_home, 60)
         if not home:
+            acpmux_missing()
             return None
         ACPMUX.update(home=home, client=configure_fake(home))
     elif "client" not in ACPMUX:
