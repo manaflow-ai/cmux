@@ -13,7 +13,7 @@ import Testing
 /// `recordCorpus` writes the file (from the Swift rules) when `ShownResizeRangeCorpusTests.record` is true; it is
 /// false in a committed tree.
 struct ShownResizeRangeCorpusTests {
-    static let record = true
+    nonisolated static let record = true
 
     static var fixture: URL {
         URL(fileURLWithPath: #filePath)
