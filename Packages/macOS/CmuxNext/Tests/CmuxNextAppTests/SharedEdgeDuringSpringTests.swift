@@ -59,6 +59,11 @@ struct SharedEdgeDuringSpringTests {
         /// A Shift release of the split springs onto a snap; a click on the divider while it springs (a press and a
         /// release, no move) changes nothing: the release's value stays and the spring goes on.
         case clickDuringReleaseSpring
+        /// A wide column B whose split equalizes on a spring (b1 grows by far more than a pane's minimum); while b1
+        /// grows, B's edge is dragged in to B's minimum. No pane may show a negative width (a move keeps b1's leftover
+        /// of its own spring): this press takes the drag from before S2B, which shows none. Green on feat too: a guard
+        /// for the rule.
+        case shrinkColumnDuringInnerSpring
     }
 
     final class Panes: LayoutPaneContentProvider {
@@ -84,12 +89,12 @@ struct SharedEdgeDuringSpringTests {
         /// The split divider frame's left edge less b1's frame's right edge at rest (their springs, not rounded).
         var dividerRest: CGFloat?
 
-        init() {
+        init(widths: (a: Double, b: Double, c: Double) = (0.3, 0.4, 0.2), ratio: Double = 0.3) {
             _ = NSApplication.shared
             let columns = [
-                LayoutColumn(id: "A", width: 0.3, root: .leaf("a")),
-                LayoutColumn(id: "B", width: 0.4, root: .split("x", axis: .horizontal, ratio: 0.3, a: .leaf("b1"), b: .leaf("b2"))),
-                LayoutColumn(id: "C", width: 0.2, root: .leaf("c")),
+                LayoutColumn(id: "A", width: widths.a, root: .leaf("a")),
+                LayoutColumn(id: "B", width: widths.b, root: .split("x", axis: .horizontal, ratio: ratio, a: .leaf("b1"), b: .leaf("b2"))),
+                LayoutColumn(id: "C", width: widths.c, root: .leaf("c")),
             ]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s",
                                 focusedPane: "a")
@@ -303,7 +308,7 @@ struct SharedEdgeDuringSpringTests {
         // The rule under test is on by default (`motion.frameOwner.sharedEdges`); a run with it turned off tests nothing
         // here. Read by its key: the red run of this file is on a base without the switch.
         try #require(TunableStore.shared.override("motion.frameOwner.sharedEdges") != .bool(false), "motion.frameOwner.sharedEdges is off")
-        let rig = Rig()
+        let rig = overlap == .shrinkColumnDuringInnerSpring ? Rig(widths: (0.15, 0.7, 0.15), ratio: 0.15) : Rig()
         defer { rig.window.closeAfterTest() }
         let edges = try rig.sharedEdges()
         // a|b1 and b2|c (column gaps) and b1|b2 (the split's divider gap).
@@ -357,6 +362,20 @@ struct SharedEdgeDuringSpringTests {
             try #require(a.targetRect.width - a.rect.width > 150, "A is nearly grown: \(a.rect.width) -> \(a.targetRect.width)")
             let minimum = rig.root.context.style.minimumPaneSize.width
             try rig.drag(.columnEdge("A"), dragged: "a", anchor: "a", moves: 16, step: -40, floor: minimum, edges: edges)
+            rig.land(edges, "landing")
+        case .shrinkColumnDuringInnerSpring:
+            // Equalize the split (an explicit equalize springs): b1 grows from its minimum to half of B.
+            rig.model.equalizeSplit("x")
+            rig.root.syncWithModel()
+            for tick in 1...2 { rig.frame(edges, "equalize frame \(tick)") }
+            let b1 = try #require(try rig.screen.paneFrames["b1"])
+            let minimum = rig.root.context.style.minimumPaneSize.width
+            try #require(b1.targetRect.width - b1.rect.width > minimum + 20,
+                         "b1 is nearly grown: \(b1.rect.width) -> \(b1.targetRect.width)")
+            let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
+            // B's right edge in to B's minimum width and on: b2's right edge from b1's left edge (B's left edge).
+            try rig.drag(.columnEdge("B"), dragged: "b2", moves: 18, step: -50, floor: column.minimumSize(style: rig.root.context.style).width,
+                         edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
             let room = try #require(try rig.screen.geometry.dividers.first { $0.id == "x" }).container.width
