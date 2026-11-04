@@ -50,5 +50,7 @@ import Testing
         window.contentView?.layoutSubtreeIfNeeded()
         let tops = dialog.buttonViews.map { $0.convert($0.bounds, to: nil).maxY }
         #expect(tops == tops.sorted(by: >), "first button on top")
+        let widths = Set(dialog.buttonViews.map { $0.frame.width.rounded() })
+        #expect(widths.count == 1, "one width: the answers line up as one list")
     }
 }

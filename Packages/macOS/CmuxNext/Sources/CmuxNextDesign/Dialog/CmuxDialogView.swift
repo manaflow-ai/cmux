@@ -210,6 +210,10 @@ public final class CmuxDialogView: NSView {
         row.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(row)
         row.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        if spec.buttonLayout == .column {
+            // Full width, so the answers line up as one list rather than ragged by title length.
+            for view in buttonViews { view.widthAnchor.constraint(equalTo: row.widthAnchor).isActive = true }
+        }
         focusables += buttonViews
         chainKeyViews()
 

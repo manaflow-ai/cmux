@@ -250,9 +250,6 @@ final class ComputerUseApprovalCardPanel: NSPanel {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.isReleasedWhenClosed = false
-        // The card is in no cmux window: without this its dialog keeps the ink it was built with
-        // (another theme's text on a grey slab, cx-ujp), as the permission panel does.
-        ThemeScope.app.store.adopt(panel)
         return panel
     }
 }
@@ -291,6 +288,10 @@ final class ComputerUseApprovalCardHost: CmuxDialogHosting {
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         container.addSubview(dialog)
         panel.contentView = container
+        // The card is in no cmux window: its content takes the app theme once it is the panel's
+        // content (as the permission panel does), else the dialog keeps another theme's ink on a
+        // grey slab (cx-ujp; seen on a capture of the fleet build).
+        ThemeScope.app.store.adopt(panel)
         panel.setContentSize(size)
         placed()
     }
