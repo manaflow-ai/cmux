@@ -190,6 +190,9 @@ impl Mux {
         for surface in surfaces {
             terminal_gaps.extend(surface.finish_terminal_reader(terminal_reader_deadline));
         }
+        // The readers stopped: the publications they queued commit now, in
+        // the same grace, as when the readers made them inline.
+        self.finish_terminal_publications(terminal_reader_deadline);
         if self.journal_ingress.is_current_writer_thread() {
             // The readers stopped: the store's last write is safe here too.
             self.output_store.shutdown(self);

@@ -306,6 +306,15 @@ impl ProgramStatusRecords {
         changed
     }
 
+    /// Whether a terminal publication would take something now: a visible
+    /// change (`take_change`), a new shown value (`take_shown_change`) or an
+    /// alert (`take_alerts`). Marks nothing.
+    pub(crate) fn has_publication_change(&self, running: bool) -> bool {
+        self.revision != self.published
+            || self.shown(running) != self.shown_published
+            || !self.alerts.is_empty()
+    }
+
     /// The records a terminal host hands to the daemon that attaches.
     pub(crate) fn snapshot(&self) -> ProgramStatusSnapshot {
         ProgramStatusSnapshot {

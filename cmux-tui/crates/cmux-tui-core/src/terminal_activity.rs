@@ -219,19 +219,25 @@ impl ShellActivity {
     /// a whole interval past the one published, since the last call (marks
     /// it taken).
     pub(crate) fn take_change(&mut self) -> bool {
-        let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
+        let changed = self.has_change();
+        if changed {
+            self.published = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
+            self.published_output_ms = self.last_output_ms;
+        }
+        changed
+    }
+
+    /// Whether `take_change` would report a change now; marks nothing. The
+    /// output reader asks this, and the terminal publisher takes the change.
+    pub(crate) fn has_change(&self) -> bool {
         let output_moved = match (self.last_output_ms, self.published_output_ms) {
             (Some(last), Some(published)) => {
                 last < published || last - published >= OUTPUT_PUBLISH_INTERVAL_MS
             }
             (last, published) => last != published,
         };
-        let changed = current != self.published || output_moved;
-        if changed {
-            self.published = current;
-            self.published_output_ms = self.last_output_ms;
-        }
-        changed
+        (self.busy_since_ms, self.interactive, self.prompt_since_ms) != self.published
+            || output_moved
     }
 }
 
