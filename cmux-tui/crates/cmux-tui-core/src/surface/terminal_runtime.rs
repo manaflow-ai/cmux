@@ -83,6 +83,8 @@ impl PtyTerminalRuntime {
     /// terminal): input that waits out a lost connection fails now, as the old path's write failed then.
     pub(super) fn reader_gave_up(&self) {
         self.stream_progress.notify();
+        // The input port's writer waits on its own route epoch, not on the stream (#35082 review 2).
+        self.input_port.reconnect_ended();
     }
 
     /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a

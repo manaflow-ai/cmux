@@ -181,7 +181,8 @@ struct PortState {
     /// The writer waits for a reconnect: a barrier does not wait then; the connection it would write to is gone, and
     /// the install it waits for may need the runtime lock that barrier's caller holds.
     reconnecting: bool,
-    /// Moves each time the terminal publishes a route ([`InputPort::route_changed`]): ends the writer's reconnect wait.
+    /// Moves each time the terminal publishes a route ([`InputPort::route_changed`]) or will install none
+    /// ([`InputPort::reconnect_ended`]): ends the writer's reconnect wait.
     route_epoch: u64,
     /// Tests: the writer waits here before it writes each frame.
     #[cfg(test)]
@@ -307,6 +308,17 @@ impl InputPort {
     /// holds the runtime lock): a writer waiting for a reconnect tries the new route at once, and a frame of another
     /// writer waits for the port again, whose next write goes to the new connection ahead of it.
     pub(crate) fn route_changed(&self) {
+        let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.route_epoch = state.route_epoch.wrapping_add(1);
+        state.reconnecting = false;
+        drop(state);
+        self.shared.changed.notify_all();
+    }
+
+    /// The terminal will install no host connection for now (its reader ended or gave the host up, or its owner
+    /// detaches it): a writer waiting for a reconnect checks again at once and fails its frame, as the old path's
+    /// write failed then (#35082 review 2).
+    pub(crate) fn reconnect_ended(&self) {
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.route_epoch = state.route_epoch.wrapping_add(1);
         state.reconnecting = false;
@@ -517,8 +529,9 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
     }
 }
 
-/// Waits until the terminal publishes a route after the one seen at epoch `observed` ([`InputPort::route_changed`]),
-/// until the port closes or until `deadline`; true when a new route came. Marks the writer waiting for a reconnect
+/// Waits until the terminal publishes a route after the one seen at epoch `observed` ([`InputPort::route_changed`])
+/// or ends its reconnect ([`InputPort::reconnect_ended`]), until the port closes or until `deadline`; true when the
+/// epoch moved (the caller checks the route and the terminal's state again). Marks the writer waiting for a reconnect
 /// meanwhile, so barriers do not wait for it (a new route clears the mark at once).
 fn wait_for_route(shared: &PortShared, observed: u64, deadline: Instant) -> bool {
     let mut state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
