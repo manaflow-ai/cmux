@@ -103,6 +103,10 @@ def in_bundle(cmd: str, bundle: str) -> str | None:
     for root in (bundle, bundle.removeprefix("/private")):
         if cmd.startswith(root + "/"):
             return cmd[len(root):]
+    # Probe (hq#6338): the app runs its acpmux from a copy outside the bundle.
+    copied = re.match(r"\S*/acpmux-bin/[^/ ]+/acpmux(?= |$)", cmd)
+    if copied:
+        return "/Contents/Resources/bin/acpmux" + cmd[copied.end():]
     return None
 
 
@@ -292,7 +296,7 @@ class FakeChats:
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
             for pid, _, cmd in process_table():
-                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                if "/bin/acpmux daemon run" in (in_bundle(cmd, bundle) or ""):
                     listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
                                             capture_output=True, text=True, timeout=30).stdout
                     # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.

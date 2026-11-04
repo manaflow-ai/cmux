@@ -140,7 +140,7 @@ def quit_app(sock: str, bundle: str):
 
 def daemon_pids(bundle: str) -> set[int]:
     return {pid for pid, _, cmd in bm.process_table()
-            if bm.in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd}
+            if "/bin/acpmux daemon run" in (bm.in_bundle(cmd, bundle) or "")}
 
 
 def replace_bundle(bundle: str):
@@ -276,7 +276,7 @@ def main(argv: list[str] | None = None):
             except OSError:
                 pass
         if scratch:
-            for path in glob.glob(os.path.join(scratch, "tmp", "acpmux-bin", "*", "*")):
+            for path in sorted(set(glob.glob(os.path.join(scratch, "tmp", "acpmux-bin", "*", "*")) + glob.glob("/var/folders/*/*/T/acpmux-bin/*/*") + glob.glob(os.path.join(os.environ.get("TMPDIR", "/tmp"), "acpmux-bin", "*", "*")))):
                 print(f"--- probe copy: {path}", file=sys.stderr)
                 for check in ([path, "--version"], ["/usr/bin/codesign", "-v", "-vv", path],
                               ["/usr/bin/xattr", "-l", path], ["/usr/bin/otool", "-L", path], ["/bin/ls", "-l", path]):
