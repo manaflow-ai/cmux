@@ -506,6 +506,31 @@ class ReadRuleTests(unittest.TestCase):
             x += w
         self.assertEqual(self.scan(frame), [])
 
+    # A marker whose START and data show is reported, never dropped: frame_marker_lacks fails on an unreadable marker,
+    # and holds on a frame where none is reported (review 5 of #34071, finding 1: each rule below could be removed with
+    # all 32 tests passing, and then the negative held on a frame that shows T).
+    def test_a_marker_cut_by_the_frames_right_edge_is_unreadable(self):
+        frame = Frame(8 + 20 * 8, 40, (30, 30, 30))  # the frame ends on the boundary after cell 20
+        draw_marker(frame, "ok-234567-42", 8, 10, 8, 17)
+        got = self.scan(frame)
+        self.assertEqual([(m["ok"], m["digest"]) for m in got], [(False, None)], got)
+        self.assertIn("the line ends", got[0]["why"])
+
+    def test_a_wrong_end_cell_is_unreadable(self):
+        frame = Frame(400, 40, (30, 30, 30))
+        cells = list(M.marker_cells("ok-234567-42"))
+        i = len(M.START) + M.DATA_DIGITS + 1  # the second END cell, in another marker color unlike its neighbours
+        cells[i] = next(c for c in M.SAFE_COLORS.values() if c not in (cells[i - 1], cells[i], cells[i + 1]))
+        draw_marker(frame, "ok-234567-42", 8, 10, 8, 17, cells=cells)
+        got = self.scan(frame)
+        self.assertEqual([(m["ok"], m["digest"]) for m in got], [(False, None)], got)
+        self.assertIn("no END", got[0]["why"])
+
+    def test_a_marker_on_the_frames_last_rows_reads(self):
+        frame = Frame(400, 27, (30, 30, 30))  # the band, rows 10-26, ends on the frame's last row
+        draw_marker(frame, "ok-234567-42", 8, 10, 8, 17)
+        self.assertEqual([m["digest"] for m in self.scan(frame) if m["ok"]], [M.token_digest("ok-234567-42")])
+
 
 class ConditionTests(unittest.TestCase):
     """frame_marker and frame_marker_lacks decide on readable snapshots (review 2 of #34071, finding 1: no test failed
@@ -636,6 +661,20 @@ class NegativeFrameTests(unittest.TestCase):
 
     def test_a_frame_with_an_unreadable_marker_is_tried_again(self):
         result, shots = self.run_journey(show=lambda n: "WU" if n == 1 else "W")
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertTrue(check["pass"], check)
+        self.assertEqual(shots, 2)
+
+    # Both halves of the seen rule beside an unreadable marker (review 5 of #34071, finding 1).
+    def test_the_token_with_the_proof_fails_at_once_even_beside_an_unreadable_marker(self):
+        result, shots = self.run_journey(show=lambda n: "WXU" if n == 1 else "W")
+        check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
+        self.assertFalse(check["pass"], check)
+        self.assertTrue(check["detail"]["seen"], check)
+        self.assertEqual(shots, 1)
+
+    def test_the_token_beside_an_unreadable_marker_without_the_proof_is_tried_again(self):
+        result, shots = self.run_journey(show=lambda n: "XU" if n == 1 else "W")
         check = next(e for e in result["evidence"] if e["check"] == "frame_marker_lacks")
         self.assertTrue(check["pass"], check)
         self.assertEqual(shots, 2)
