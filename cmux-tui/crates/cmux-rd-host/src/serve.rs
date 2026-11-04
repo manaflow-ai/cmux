@@ -27,8 +27,8 @@ use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
+use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
-use serde_json::json;
 use std::io::{self, BufRead, Read, Write};
 use std::net::SocketAddr;
 use std::os::fd::RawFd;
@@ -54,12 +54,18 @@ struct Setup {
     scope: String,
     #[serde(default)]
     stun: Vec<String>,
+    /// The hub's TURN relays, for a relayed path when no direct one works.
+    #[serde(default)]
+    turn: Vec<crate::carrier::TurnSetup>,
     #[serde(default)]
     display: Option<String>,
     #[serde(default)]
     max_fps: Option<u32>,
     #[serde(default)]
     max_width: Option<u32>,
+    /// This side reaches the viewer through TURN alone.
+    #[serde(default)]
+    relay_only: bool,
 }
 
 #[derive(Deserialize)]
@@ -70,9 +76,10 @@ struct Later {
     stop: bool,
 }
 
-fn say(line: serde_json::Value) {
+/// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
+fn say(line: AppLine) {
     let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{line}");
+    let _ = writeln!(out, "{}", line.to_json());
     let _ = out.flush();
 }
 
@@ -142,10 +149,13 @@ impl ServeCarrier {
     fn report_paths(&mut self) {
         for event in self.link.paths.drain(..) {
             if let EndpointEvent::PathChanged { kind, rtt_us, .. } = event {
-                say(json!({"path": {
-                    "kind": kind.map(|k| k.wire_name()),
-                    "rtt_ms": rtt_us.map(|us| us as f64 / 1000.0),
-                }}));
+                say(AppLine {
+                    path: Some(LinePath {
+                        kind: kind.map(|k| k.wire_name().to_owned()),
+                        rtt_ms: rtt_us.map(|us| us as f64 / 1000.0),
+                    }),
+                    ..AppLine::default()
+                });
             }
         }
     }
@@ -189,8 +199,21 @@ pub fn run(opts: &Opts) -> Res<()> {
         .iter()
         .filter_map(|s| std::net::ToSocketAddrs::to_socket_addrs(s).ok()?.find(SocketAddr::is_ipv4))
         .collect();
+    // The displays first, so the viewer can offer a display picker; then the session key.
+    #[cfg(target_os = "macos")]
+    match crate::mac::capture::displays() {
+        Ok((sizes, current)) => {
+            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
+        }
+        Err(e) => say(AppLine {
+            displays: Some(Vec::new()),
+            current: Some(0),
+            error: Some(e.to_string()),
+            ..AppLine::default()
+        }),
+    }
     let keys = KeyPair::generate()?;
-    say(json!({"key": hex(&keys.public)}));
+    say(AppLine { key: Some(hex(&keys.public)), ..AppLine::default() });
     let net = Net::start(NetConfig {
         role: Role::Responder,
         session: setup.session.as_bytes().to_vec(),
@@ -198,7 +221,8 @@ pub fn run(opts: &Opts) -> Res<()> {
         expected_remote: peer_key,
         stun,
         bind: "0.0.0.0:0".parse()?,
-        turn: Vec::new(),
+        turn: crate::carrier::turn_servers(&setup.turn),
+        relay_only: setup.relay_only,
     })?;
     // SAFETY: fcntl on our own stdin, after the blocking setup read.
     unsafe {
@@ -209,7 +233,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         );
     }
     let mut carrier = ServeCarrier {
-        link: LinkCarrier { net, paths: Vec::new() },
+        link: LinkCarrier { net, paths: Vec::new(), rtt_us: None },
         app: AppLines { buf: Vec::new() },
     };
     let reason = match serve_session(opts, &setup, view_only, &mut carrier) {
@@ -217,7 +241,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         Err(e) => format!("failed: {e}"),
     };
     let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
-    say(json!({"ended": reason}));
+    say(AppLine { ended: Some(reason), ..AppLine::default() });
     // Dropping the carrier closes the link (the viewer sees the close at once).
     drop(carrier);
     Ok(())
@@ -233,6 +257,9 @@ fn serve_session(
     let started = Instant::now();
     let mut hello = None;
     let mut start = None;
+    // Lines that came in the same read as the setup sit in stdin's buffer, where a wait on the
+    // descriptor never sees them.
+    carrier.pump_app()?;
     while hello.is_none() || start.is_none() {
         let left = CONNECT_TIMEOUT.saturating_sub(started.elapsed());
         if left.is_zero() {
@@ -242,10 +269,14 @@ fn serve_session(
         carrier.pump_app().map_err(|e| e.to_string())?;
         for event in carrier.link.net.events() {
             match event {
-                NetEvent::Candidate(c) => say(json!({"candidate": c.to_wire()})),
-                NetEvent::CandidatesDone => say(json!({"candidates_done": true})),
+                NetEvent::Candidate(c) => {
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                }
+                NetEvent::CandidatesDone => {
+                    say(AppLine { candidates_done: true, ..AppLine::default() })
+                }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
-                    say(json!({"connected": true}))
+                    say(AppLine { connected: true, ..AppLine::default() })
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     match serde_json::from_slice::<Control>(&record) {
@@ -257,7 +288,11 @@ fn serve_session(
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Closed)) => {
                     return Ok("viewer closed the link".into())
                 }
-                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { .. }) => {
+                NetEvent::Endpoint(path @ EndpointEvent::PathChanged { rtt_us, .. }) => {
+                    // The round trip sizes the frames in flight when the stream starts.
+                    if rtt_us.is_some() {
+                        carrier.link.rtt_us = rtt_us;
+                    }
                     carrier.link.paths.push(path)
                 }
                 NetEvent::Failed(reason) => return Ok(format!("link failed: {reason}")),
@@ -327,6 +362,13 @@ fn serve_session(
         upstream_record: None,
         upstream_record_max_bytes: 0,
         max_width: setup.max_width,
+        // Enough frames in flight to cover the path's round trip, at least two: the next
+        // frame encodes while the last one waits for its acknowledgement.
+        frames_in_flight: carrier
+            .link
+            .rtt_us
+            .map_or(2, |rtt| cmux_rd_engine::frames_in_flight_for(rtt, setup.max_fps.unwrap_or(60)))
+            .max(2),
     };
     let mut media = MediaSession::open(&cfg, MAX_DATAGRAM, &negotiated.caps, sink)?;
     let (width, height) = media.size();

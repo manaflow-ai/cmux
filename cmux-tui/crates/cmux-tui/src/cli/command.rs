@@ -1331,6 +1331,17 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
         }
         ["clear"] => {
             let mut params = Map::new();
+            // One row by its id (the notifications panel's Clear on a row);
+            // the daemon takes one of notification, terminal or workspace.
+            if let Some(notification) = flags.take("notification") {
+                if flags.values.contains_key("terminal") || flags.values.contains_key("workspace") {
+                    return Err(UsageError::new(
+                        "give one of --notification, --terminal or --workspace",
+                    ));
+                }
+                validate_prefixed_id("notification", "notification", &notification)?;
+                params.insert("notification_id".into(), Value::String(notification));
+            }
             notification_scope(&mut params, flags)?;
             request(ResourceOperation::NotificationClear, &selectors, flags, params)
         }
@@ -3101,6 +3112,14 @@ mod tests {
     }
 
     #[test]
+    fn confirm_takes_no_value() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--confirm", "--name", "v"]))
+            .expect("--confirm must tokenize as a switch");
+        assert_eq!(tokens.flags.values.get("confirm"), Some(&None));
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("v".to_string())));
+    }
+
+    #[test]
     fn non_boolean_flags_still_consume_the_next_token() {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
@@ -3483,6 +3502,25 @@ mod tests {
                 parse(&strings(both), super::super::Surface::CmuxTui).is_err(),
                 "{both:?}: a workspace and a terminal scope together"
             );
+        }
+    }
+
+    /// `notification clear --notification <id>` clears that one row (the
+    /// notifications panel's Clear on a row); it is one scope, never two.
+    #[test]
+    fn notification_clear_takes_one_notification_id() {
+        const NOTIFICATION: &str = "notification_00000000000000000000000000000041";
+        const WS: &str = "ws_00000000000000000000000000000042";
+        let clear = protocol(&["notification", "clear", "--notification", NOTIFICATION]);
+        assert_eq!(clear.operation.name().unwrap(), "notification.clear");
+        assert_eq!(clear.params["notification_id"], NOTIFICATION);
+        assert!(clear.params.get("terminal_id").is_none());
+        assert!(clear.params.get("workspace_id").is_none());
+        for bad in [
+            &["notification", "clear", "--notification", NOTIFICATION, "--workspace", WS][..],
+            &["notification", "clear", "--notification", "ws_00000000000000000000000000000042"],
+        ] {
+            assert!(parse(&strings(bad), super::super::Surface::CmuxTui).is_err(), "{bad:?}");
         }
     }
 

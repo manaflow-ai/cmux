@@ -31,6 +31,10 @@ import { AlertCircle, ChevronRight, Envelope } from "./icons";
 import { AgentMessageBody } from "./AgentMessageBody";
 import { AgentTag } from "./AgentTag";
 import { SentActions } from "./MessageActions";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { messageRunSummary } from "./messageRuns";
+import { AgentNamesContext, recipientName, shortId } from "./agentNames";
+import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
@@ -242,15 +246,9 @@ export function SentMessageLine({
             </>
           )}
         </span>
-        {/* Copy takes the message's text, shown while the row is pointed at, as a SendMessage
-            row's is (MessageCard.tsx); its click never toggles the row. Stacked, it sits with Raw
-            under the opened message instead, never beside the chevron. */}
-        {text && !stacked && (
-          // oxlint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span className="cv-sent__actions" onClick={(event) => event.stopPropagation()}>
-            <SentActions text={text} />
-          </span>
-        )}
+        {/* No Copy on the row: a message line is no code or reply to copy (Leo, 2026-11-04: "why is
+            there even a copy button on the right here? ... let's remove copy button"). Stacked, the
+            opened message keeps its quiet Copy beside Raw. */}
         {detail && " "}
         {detail && (
           <span className="cv-tool__trail">
@@ -259,11 +257,7 @@ export function SentMessageLine({
             </span>
           </span>
         )}
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </div>
       {below && (
         // The first line, on its own line at the text column, cut there; it toggles as the row does.
@@ -331,7 +325,7 @@ export function RawToggle({
     >
       {icon}
       {t("subsession.raw")}
-      <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+      <ChevronRight size={12} className={`cv-rotor${open ? " is-open" : ""}`} />
     </button>
   );
   return (
@@ -359,7 +353,16 @@ export function sendKey(id: string, index?: number): string {
 /// acpmux MCP send's batch (acpmuxMcpSends.ts), as the sent-message row; Raw holds the call as it
 /// was made: its Shell card, the whole command line for every message of a batch, or the MCP
 /// request and response.
-export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCallPart }) {
+export function AcpmuxSendLine({
+  tool,
+  send,
+  grouped = false,
+}: {
+  tool: Tool;
+  send: AcpmuxSendCallPart;
+  /// Inside a group of sends (`SentMessageGroup`): the group's line says what else the call ran.
+  grouped?: boolean;
+}) {
   const t = useT();
   // `--no-wait` prints how the daemon took the message; a send that waits prints the reply. A
   // batch's message reads its own line of the output (`delivery`).
@@ -386,7 +389,7 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
       file={send.file}
       detail={detail}
       disclosureKey={`send:${sendKey(tool.id, send.index)}`}
-      others={send.others}
+      others={grouped ? 0 : send.others}
       rawOpen={send.state === "failed"}
       raw={(reveal) => <SendRaw tool={tool} reveal={reveal} live={send.state === "sending"} />}
     />
@@ -412,5 +415,80 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
     );
   return (
     <ShellBlock command={tool.command} output={tool.output} exitCode={tool.exitCode} live={live} reveal={reveal} />
+  );
+}
+
+/// Two or more sent messages in a row (toolGroups.ts `sendGroup`: a shell loop of `acpmux send`, a
+/// batch, adjacent sends of any kind) as one closed line, as a group of received messages is
+/// (MessageGroupHead.tsx): "Sent 8 messages", the recipients muted after it, and once "· and 1
+/// more command" for what else those calls ran, never on every message. It opens to each message's
+/// own row (`children`; Leo, 2026-11-04: "why arent these collapsed/collapsible"; each message still
+/// opens on its own, cmux#29800). The open state lasts across the virtualized transcript.
+export function SentMessageGroup({
+  entries,
+  disclosureKey,
+  children,
+}: {
+  entries: readonly SentEntry[];
+  disclosureKey: string;
+  /// Each message's row, drawn while the group is open.
+  children: ReactNode;
+}) {
+  const t = useT();
+  const names = useContext(AgentNamesContext);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  const bodyId = useId();
+  const tools = useMemo(() => [...new Set(entries.map(({ item }) => item))], [entries]);
+  // Find in Chat opens the group when its match is in one of its messages.
+  useFindReveal(tools, () => setOpen(true));
+  const running = entries.some((entry) =>
+    entry.type === "send"
+      ? entry.send.state === "sending"
+      : entry.type === "subsession"
+        ? entry.call.running
+        : isRunning(entry.item.tool!),
+  );
+  const failed = entries.filter((entry) =>
+    entry.type === "send" ? entry.send.state === "failed" : entry.type === "message" && isFailed(entry.item.tool!),
+  ).length;
+  // Each call's other commands once: a batch's messages all carry its count.
+  const others = [
+    ...new Map(entries.map((entry) => [entry.item, entry.type === "send" ? (entry.send.others ?? 0) : 0])).values(),
+  ].reduce((sum, n) => sum + n, 0);
+  const summary = messageRunSummary(t, { sent: entries.length, received: 0, work: [], failed, running, rows: [] });
+  const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
+  const failedText = failed > 0 ? ` (${t("tools.failedCount", { n: failed })})` : "";
+  const count = `${summary}${failedText}${more ? ` · ${more}` : ""}`;
+  const recipients = [
+    ...new Set(
+      entries.map((entry) =>
+        entry.type === "send"
+          ? entry.send.target
+          : entry.type === "subsession"
+            ? shortId(entry.call.sessionId)
+            : entry.message.to
+              ? (recipientName(entry.message.to, names) ?? shortId(entry.message.to))
+              : t("message.unknown"),
+      ),
+    ),
+  ].join(", ");
+  return (
+    <div className="cv-sent-group" data-open={open || undefined} data-live={running || undefined}>
+      <MessageGroupHead
+        count={count}
+        senders={recipients}
+        open={open}
+        bodyId={bodyId}
+        onToggle={() => setOpen((value) => !value)}
+        className={`cv-sent-group__head${running ? " is-live" : ""}`}
+        ariaLabel={[count, recipients].join(". ")}
+        mark={failed ? <AlertCircle /> : <Envelope />}
+      />
+      {open && (
+        <div className="cv-sent-group__body" id={bodyId}>
+          {children}
+        </div>
+      )}
+    </div>
   );
 }

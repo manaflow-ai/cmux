@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87'
+IR_SHA256 = '6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea'
 
 
 @dataclass(frozen=True)
@@ -3154,6 +3154,18 @@ COMMANDS = {
         None,
         {
             'policy': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-layout-sizes': CommandMetadata(
+        'set-layout-sizes',
+        'control',
+        12,
+        'layout-sizes-batch-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'transaction': CommandFieldMetadata(None, None),
+            'values': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(

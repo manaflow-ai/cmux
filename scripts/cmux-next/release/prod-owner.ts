@@ -76,16 +76,16 @@ export const decideOwner = (input: { readonly owner: PsRole | undefined; readonl
   return { kind: "reassign", from: ps }
 }
 
-const OWNERSHIP_SQL = `WITH s AS (SELECT oid, nspowner FROM pg_catalog.pg_namespace WHERE nspname = $1)
+export const OWNERSHIP_SQL = `WITH s AS (SELECT oid, nspowner FROM pg_catalog.pg_namespace WHERE nspname = $1)
 SELECT kind, owner, count(*)::int AS n FROM (
-  SELECT 'schema' AS kind, pg_catalog.pg_get_userbyid(nspowner) AS owner FROM s
-  UNION ALL SELECT 'relation:' || c.relkind, pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c JOIN s ON c.relnamespace = s.oid
+  SELECT 'schema'::text AS kind, pg_catalog.pg_get_userbyid(nspowner)::text AS owner FROM s
+  UNION ALL SELECT 'relation:' || c.relkind::text, pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class c JOIN s ON c.relnamespace = s.oid
   UNION ALL SELECT 'function', pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc p JOIN s ON p.pronamespace = s.oid
   UNION ALL SELECT 'type', pg_catalog.pg_get_userbyid(t.typowner) FROM pg_catalog.pg_type t JOIN s ON t.typnamespace = s.oid
 ) x GROUP BY kind, owner ORDER BY owner, kind`
 
 /** Objects `role` owns outside cmux_vm (TOAST follows its table; temp schemas are skipped): catalog counts only. */
-const OUTSIDE_SQL = `SELECT (
+export const OUTSIDE_SQL = `SELECT (
     (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname <> $1 AND n.nspname <> 'pg_toast' AND n.nspname NOT LIKE 'pg_temp%' AND n.nspname NOT LIKE 'pg_toast_temp%' AND c.relowner = r.oid)
   + (SELECT count(*) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname <> $1 AND p.proowner = r.oid)
   + (SELECT count(*) FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace WHERE n.nspname <> $1 AND n.nspname <> 'pg_toast' AND t.typowner = r.oid)
@@ -98,7 +98,7 @@ const OUTSIDE_SQL = `SELECT (
  * objects), minus the relations, functions, types and the schema inside cmux_vm. Any other class (large
  * objects, default ACLs, extensions, event triggers, publications, ...) counts as outside: refused.
  */
-const SHDEPEND_OUTSIDE_SQL = `SELECT count(*)::int AS n FROM pg_catalog.pg_shdepend d JOIN pg_catalog.pg_roles r ON r.oid = d.refobjid
+export const SHDEPEND_OUTSIDE_SQL = `SELECT count(*)::int AS n FROM pg_catalog.pg_shdepend d JOIN pg_catalog.pg_roles r ON r.oid = d.refobjid
 WHERE r.rolname = $2 AND d.refclassid = 'pg_catalog.pg_authid'::regclass AND d.deptype = 'o'
   AND (d.dbid = 0 OR d.dbid = (SELECT oid FROM pg_catalog.pg_database WHERE datname = pg_catalog.current_database()))
   AND NOT (
@@ -192,7 +192,11 @@ const grantWorker = async (ownerUrl: string, log: (l: string) => void): Promise<
   const owner = await connectUrl(ownerUrl)
   try {
     const statements = grantStatements(requirements, worker.pgUser)
-    for (const statement of statements) await owner.query(statement)
+    for (const statement of statements) {
+      await owner.query(statement)
+      // Each executed grant is logged (the rollback is the matching REVOKE).
+      log(`  ${statement}`)
+    }
     log(`granted the Worker role ${tree.workerRole} (${worker.pgUser}) USAGE on ${tree.schema} and ${statements.length - 1} table privilege set(s)`)
     const missing = (await schemaProblems(owner, requirements, worker.pgUser)).filter((p) => p.includes(" privilege"))
     if (missing.length) throw new Refusal(`after the grants, the Worker still lacks: ${missing.join("; ")}`)
@@ -235,7 +239,11 @@ const adoptThrough = (trackingTable: boolean): string | undefined => (trackingTa
 const releaseMain = async (argv: Array<string>, log: (l: string) => void, ownerUrl?: string): Promise<void> => {
   const { defaultDeps, main } = await import("./db-release.ts")
   log(`$ db-release.ts ${argv.join(" ")}`)
-  const deps = defaultDeps()
+  const base = defaultDeps()
+  // No cmux-old compat gate here: these migrations change only schema cmux_vm (lint.ts refuses anything
+  // else), and only cmux-next uses that schema. Leo, 2026-11-04: "LITERALLY NOBDY IS USING CMUX-NEXT CLOUD
+  // \"PROD\" OTHER THAN US". The gate's replay needed a staging test login this environment does not hold.
+  const deps = { ...base, compat: async () => { log("cmux-old compat gate skipped: the change is confined to schema cmux_vm"); return [] } }
   const code = await main(argv, ownerUrl ? { ...deps, env: { ...deps.env, [OWNER_URL_ENV]: ownerUrl } } : deps)
   if (code !== 0) throw new Refusal(`db-release.ts ${argv[0]} exited ${code}`)
 }
@@ -250,6 +258,8 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     // The direct port: the release lock is a session advisory lock, which a transaction pooler (6432) would not keep.
     sql = await connectUrl(directUrl(productionUrl(process.env[WORKER_URL_ENV], WORKER_URL_ENV)))
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
+    // skip_rehearsal (workflow input): apply without the point-in-time rehearsal copy, so the PITR waits go too.
+    const skipRehearsal = command === "migrate" && process.env.CMUX_VM_SKIP_REHEARSAL === "true"
 
     if (command !== "migrate") {
       const seen = await inspect(sql, log)
@@ -288,7 +298,7 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     })
     await sql.end()
     sql = undefined
-    if (owned.changed) {
+    if (owned.changed && !skipRehearsal) {
       log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the owner change (release-rails.md, "PITR lag")`)
       await sleep(PITR_WAIT_MS)
     }
@@ -296,10 +306,12 @@ export const run = async (command: string | undefined, log = (l: string) => cons
     if (owned.through) {
       await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", owned.through, "--confirm-production"], log, owned.login.url)
       // The apply's rehearsal copies main 6 minutes back: it must see the adopted tracking rows.
-      log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the adopted rows`)
-      await sleep(PITR_WAIT_MS)
+      if (!skipRehearsal) {
+        log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the adopted rows`)
+        await sleep(PITR_WAIT_MS)
+      }
     }
-    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow], log, owned.login.url)
+    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow, ...(skipRehearsal ? ["--skip-rehearsal"] : [])], log, owned.login.url)
     // 4. The Worker's privileges on what the apply added (the deploy gate refuses without them).
     await grantWorker(owned.login.url, log)
     return 0

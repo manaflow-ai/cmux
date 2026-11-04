@@ -110,6 +110,8 @@ impl ScopeTable {
         ) && (params.get("argv").is_some() || params.get("shell").is_some());
         let scope = if launches { "workspace:execute" } else { scope.as_str() };
         let granted = match scope {
+            // Local, non-network ops every app may call (`toast.show`): no grant to hold.
+            "none" => true,
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
             "integration:<provider>" => match params.get("provider").and_then(Value::as_str) {
                 Some(provider) => {
@@ -338,6 +340,20 @@ mod tests {
                 Decision::ScopeMissing(_),
             ));
         }
+    }
+
+    #[test]
+    fn a_toast_needs_no_grant_but_not_a_preview_or_a_stopping_app() {
+        let table = ScopeTable::get();
+        let params = json!({"title": "Saved"});
+        assert_eq!(
+            table.check("toast.show", &params, &grant(&[])),
+            Decision::Allow(OpClass::Mutation)
+        );
+        let preview = Grant { preview: true, ..grant(&[]) };
+        assert!(matches!(table.check("toast.show", &params, &preview), Decision::ScopeMissing(_)));
+        let revoked = Grant { revoked: true, ..grant(&[]) };
+        assert!(matches!(table.check("toast.show", &params, &revoked), Decision::ScopeMissing(_)));
     }
 
     #[test]

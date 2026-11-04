@@ -1241,6 +1241,7 @@ impl Hub {
                         .turn_line
                         .clone()
                         .unwrap_or_else(|| super::prompt_line::prompt_line(&prompt, &client, None));
+                    self.resume_before_turn();
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         trigger: work.turn_trigger,
                         started_at,
@@ -1257,6 +1258,7 @@ impl Hub {
                         notice: false,
                         // As logged (`turn_started` `persons`); an older record's takes notices.
                         persons: work.turn_persons,
+                        from_agents: false,
                     });
                     if work.turn_trigger {
                         self.restore_trigger_background(session, &turn_id);

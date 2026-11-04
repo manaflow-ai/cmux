@@ -392,7 +392,15 @@ def flow_icon_clear_name(j):
     # Setup on the Mac (own workspace): a display name over the workspace's own name.
     daemon({"cmd": "set-workspace-metadata", "id": "p2ws", "key": w["key"], "title": shown})
     wait_mac(lambda: mac_workspace(shown), f"display name {shown}")
-    row_action(j, shown, "Appearance", "Set Icon…", "hammer")
+    # Set Icon… opens the picker (every symbol, searchable): search, then the symbol's cell.
+    row_action(j, shown, "Appearance", "Set Icon…")
+    search = j.sim.wait(label="Search symbols", timeout=8)
+    check(search, "no icon picker search field")
+    j.sim.tap_el(search)
+    pq.type_text("hammer")
+    cell = j.sim.wait(ident="iconPicker.symbol.hammer", timeout=8)
+    check(cell, "no hammer in the icon picker")
+    j.sim.tap_el(cell)
     wait_mac(lambda: (_ws_raw(w["key"]) or {}).get("icon") == "hammer", "icon hammer")
     check(j.sim.wait(ident="workspace.icon", timeout=8), "no icon on the row")
     row_action(j, shown, "Appearance", "Remove Icon")

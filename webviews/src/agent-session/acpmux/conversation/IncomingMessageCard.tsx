@@ -69,6 +69,7 @@ import type { AgentNotice } from "./agentNotice";
 import { NoticeMark, SEVERITY_LABEL } from "./NoticeMark";
 import { noticeMarkdown } from "./agentNotice";
 import { useNoticeLook, type NoticeLook } from "./noticeLook";
+import { openSessionAttributes } from "./menuParts";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -202,6 +203,7 @@ export function SenderName({
           className="cv-received__from cv-received__from--open"
           title={openTitle}
           ariaLabel={open}
+          attributes={openSessionAttributes(sessionId, true)}
           onClick={() => onOpen(sessionId)}
         />
       ) : (
@@ -520,7 +522,7 @@ export function IncomingMessageLine({
             }}
           >
             {t("message.details")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
+            <ChevronRight size={12} className={`cv-rotor${details ? " is-open" : ""}`} />
           </button>
           {envelope.present && (
             <div id={rawId} {...envelope.bodyProps}>

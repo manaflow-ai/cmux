@@ -89,14 +89,14 @@ public final class CmuxToastButton: ClickableButton {
             switch style {
             case .action:
                 // Open, it is a quiet link (secondary text, lit to primary under the pointer).
-                let color = !isOn || hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
+                let color = Palette.toastText(!isOn || hover.state.hovering || hover.state.pressed ? .primary : .secondary)
                 attributedTitle = NSAttributedString(string: plainTitle, attributes: [
                     .font: Typography.bodyEmphasized,
                     .foregroundColor: color,
                 ])
                 contentTintColor = color
             case .close:
-                contentTintColor = hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary
+                contentTintColor = Palette.toastText(hover.state.hovering || hover.state.pressed ? .primary : .secondary)
             }
         }
     }
