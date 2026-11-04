@@ -1,59 +1,71 @@
 import Foundation
 @testable import CmuxNextCloud
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
+import Observation
 import Testing
 
 /// A Cloud start's wait for its machine (`CloudMachineSession.linkUp`, hq#7060): an ended link is dialed again
 /// with a capped backoff until the start's deadline, never past it and never without a delay.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudWaitRedialTests {
-    /// A machine's link whose receiver answers only from `upAt` on: a dial before then ends the link.
-    @MainActor
+    /// A machine's link whose receiver answers only from `upAt` on the test's clock: a dial before then ends the link.
+    @MainActor @Observable
     private final class LateReceiver {
-        let upAt: ContinuousClock.Instant
+        let clock: ManualClock
+        let upAt: Duration
         var dials = 0
         var connected = false
-        init(upAfter delay: Duration) { upAt = ContinuousClock.now.advanced(by: delay) }
+        init(clock: ManualClock, upAfter delay: Duration) {
+            self.clock = clock
+            upAt = delay
+        }
         func dial() {
             dials += 1
-            if ContinuousClock.now >= upAt { connected = true }
+            if clock.now.offset >= upAt { connected = true }
         }
     }
 
     private static let fast = Backoff(initial: .milliseconds(20), maximum: .milliseconds(80), jitter: 0)
 
-    @Test func redialsUntilAReceiverThatComesUpLateAnswers() async {
-        let receiver = LateReceiver(upAfter: .milliseconds(250))
-        let started = ContinuousClock.now
-        let up = await CloudWait.holds(within: .seconds(5), redialing: Self.fast, redial: { receiver.dial() }, until: { receiver.connected })
-        #expect(up)
-        #expect(started.duration(to: .now) < .seconds(2), "the wait did not end soon after the receiver came up")
-        // 20 + 40 + 80 + 80 + ... ms: about six dials reach 250 ms; a spin would make hundreds.
-        #expect((2...12).contains(receiver.dials), "dials: \(receiver.dials)")
+    /// Moves `clock` to the earliest deadline asleep on it, once one is.
+    private static func advanceToNextSleeper(_ clock: ManualClock) async throws {
+        try await clock.waitForSleeper()
+        let next = try #require(clock.sleeperDeadlines.min())
+        clock.advance(by: clock.now.duration(to: next))
     }
 
-    @Test func endsAtTheDeadlineWithBoundedDialsAndNoneAfter() async {
-        let receiver = LateReceiver(upAfter: .seconds(3600))
-        let started = ContinuousClock.now
-        let up = await CloudWait.holds(within: .milliseconds(400), redialing: Self.fast, redial: { receiver.dial() }, until: { receiver.connected })
-        let elapsed = started.duration(to: .now)
-        #expect(!up)
-        #expect(elapsed >= .milliseconds(400) && elapsed < .seconds(2), "elapsed: \(elapsed)")
-        #expect((3...10).contains(receiver.dials), "dials: \(receiver.dials)")
-        let dials = receiver.dials
-        try? await Task.sleep(for: .milliseconds(200))
-        #expect(receiver.dials == dials, "a dial after the deadline")
+    @Test func redialsUntilAReceiverThatComesUpLateAnswers() async throws {
+        let clock = ManualClock()
+        let receiver = LateReceiver(clock: clock, upAfter: .milliseconds(250))
+        let wait = Task { await CloudWait.holds(within: .seconds(5), redialing: Self.fast, clock: clock, redial: { receiver.dial() }, until: { receiver.connected }) }
+        // Dials at 0, 20, 60, 140 and 220 ms find the receiver down; the one at 300 ms (80 ms capped) answers.
+        for _ in 0..<5 { try await Self.advanceToNextSleeper(clock) }
+        #expect(await wait.value)
+        #expect(receiver.dials == 6)
+        #expect(clock.now.offset == .milliseconds(300))
     }
 
-    @Test func aCancelledWaitStopsDialing() async {
-        let receiver = LateReceiver(upAfter: .seconds(3600))
-        let wait = Task { await CloudWait.holds(within: .seconds(30), redialing: Self.fast, redial: { receiver.dial() }, until: { receiver.connected }) }
-        try? await Task.sleep(for: .milliseconds(100))
+    @Test func endsAtTheDeadlineWithBoundedDialsAndNoneAfter() async throws {
+        let clock = ManualClock()
+        let receiver = LateReceiver(clock: clock, upAfter: .seconds(3600))
+        let wait = Task { await CloudWait.holds(within: .milliseconds(400), redialing: Self.fast, clock: clock, redial: { receiver.dial() }, until: { receiver.connected }) }
+        // Dials at 0, 20, 60, 140, 220, 300 and 380 ms; the last wait is cut to the 20 ms left, then none at 400 ms.
+        for _ in 0..<7 { try await Self.advanceToNextSleeper(clock) }
+        #expect(await wait.value == false)
+        #expect(receiver.dials == 7)
+        #expect(clock.now.offset == .milliseconds(400))
+        #expect(clock.sleeperCount == 0, "nothing is left to dial after the deadline")
+    }
+
+    @Test func aCancelledWaitStopsDialing() async throws {
+        let clock = ManualClock()
+        let receiver = LateReceiver(clock: clock, upAfter: .seconds(3600))
+        let wait = Task { await CloudWait.holds(within: .seconds(30), redialing: Self.fast, clock: clock, redial: { receiver.dial() }, until: { receiver.connected }) }
+        try await clock.waitForSleeper()
         wait.cancel()
         #expect(await wait.value == false)
-        let dials = receiver.dials
-        try? await Task.sleep(for: .milliseconds(200))
-        #expect(receiver.dials == dials)
+        #expect(receiver.dials == 1, "a cancelled wait dialed again")
     }
 
     @Test func onlyADownOrRevokedLinkIsADrop() {
