@@ -233,10 +233,17 @@ impl Inner {
                 self.idle.store(false, AtomicOrdering::SeqCst);
             }
             if !timer.wanted {
-                // One period after the first change: a burst shares one checkpoint.
+                // One period after the first change: a burst shares one checkpoint. Each wait here
+                // ends only on the state its waker sets before it notifies under the timer lock
+                // (`idle` for the wait above; `wanted` and `stop` for this one), never on a bare
+                // notify: a `touched` that took the idle flag before the second look above gets
+                // the timer lock, and notifies, only once this thread waits here, and a spurious
+                // wakeup is no reason either.
                 timer = self
                     .wake
-                    .wait_timeout(timer, self.checkpoint_every())
+                    .wait_timeout_while(timer, self.checkpoint_every(), |timer| {
+                        !timer.stop && !timer.wanted
+                    })
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .0;
                 if timer.stop {
