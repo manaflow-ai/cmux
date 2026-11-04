@@ -3999,19 +3999,22 @@ export function VirtualTranscript({
   /// during a fold at the very bottom: the view is where the code put it. The fold lands there, as for
   /// the reader's own input (`cancelProgrammatic`), and the view stops following, or the stack's next
   /// pass (one per frame of the fold) or the follow pass after it pinned it back to the end (#34780).
-  /// The stack's own pins and a closing body's clamp land at the end, so they never count.
+  /// The stack's own pins and a closing body's clamp land at the end, so they never count, nor does
+  /// the clamp to 0 when a close leaves the transcript shorter than the view (nothing left to scroll).
   const releaseBottomStackFold = (node: HTMLElement): boolean => {
     const stack = bottomStackFold.current;
     if (
       !stack ||
       Math.abs(node.scrollTop - stack.pinned) <= FOLLOW_BOTTOM_DEADBAND_PX ||
+      node.scrollHeight - node.clientHeight <= FOLLOW_BOTTOM_DEADBAND_PX ||
       atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)
     )
       return false;
     stopBottomStackFold();
-    landForReader(stack.row);
+    // Before the landing: it can lay out again in its own pass (placeRowNow), which must not follow.
     if (followingRef.current) follow(false);
     scrolledTo.current = { top: node.scrollTop, atLatest: false };
+    landForReader(stack.row);
     return true;
   };
   const trimFoldRoom = useCallback((node: HTMLElement) => {
