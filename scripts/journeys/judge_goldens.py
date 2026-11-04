@@ -334,16 +334,17 @@ def copy_reflink(src, dst):
 
 
 def plan_folder(source, folder, recorded, names):
-    """(the files to take {name: [size, sha256]}, problems) of one gallery FOLDER, decided before anything is copied.
-    RECORDED is the files table's entry for the folder ({} for a new folder), NAMES the films found in it now. A
-    recorded file must be byte-identical (the store is immutable: a changed film needs a new folder name). In a
-    recorded folder a new file is taken only when it belongs to a new film (<new film>.*); a new file of a recorded
-    film or of the folder (display.json, diag-tiers.json: inputs of every film there) is refused, since it would change
-    what a blessed film is."""
+    """(the files to take {name: [size, sha256]}, the stored files to record, problems) of one gallery FOLDER, decided
+    before anything is copied. RECORDED is what the store holds in the folder (every manifest's files: this manifest's
+    table entry and the store's own files; {} for a new folder), NAMES the films found in it now. A stored file must be
+    byte-identical (the store is immutable: a changed film needs a new folder name), and is recorded with no copy. In a
+    stored folder a new file is taken only when it belongs to a new film (<new film>.*); a new file of a stored film or
+    of the folder (display.json, diag-tiers.json: inputs of every film there) is refused, whatever manifest stored it,
+    since it would change what a blessed film is (review 7 of #33930, finding B)."""
     src_dir = Path(source) / folder
     recorded_films = {n for n in names if any(f.startswith(n + ".") for f in recorded)}
     new_films = [n for n in names if n not in recorded_films]
-    take, problems = {}, []
+    take, keep, problems = {}, {}, []
     for path in sorted(src_dir.iterdir()):
         if not path.is_file() or not path.name.endswith(KEEP_SUFFIXES):
             continue
@@ -352,13 +353,15 @@ def plan_folder(source, folder, recorded, names):
             if list(recorded[path.name]) != entry:
                 problems.append(f"{folder}/{path.name}: differs from the stored copy; the store is immutable (a changed "
                                 "film needs a new folder name)")
+            else:
+                keep[path.name] = entry
             continue
         if recorded and not any(path.name.startswith(n + ".") for n in new_films):
             problems.append(f"{folder}/{path.name}: a new input of the folder's recorded films; the store is immutable "
                             "(a changed film needs a new folder name)")
             continue
         take[path.name] = entry
-    return take, problems
+    return take, keep, problems
 
 
 def copy_folder(source, store, folder, take):
@@ -370,10 +373,10 @@ def copy_folder(source, store, folder, take):
     for d in chain:
         d.mkdir(exist_ok=True)
         os.chmod(d, 0o755)
-    problems, done = [], []
+    problems, done, linked = [], [], []
     try:
         for name, (size, sha) in sorted(take.items()):
-            src, tmp = Path(source) / folder / name, dst_dir / f".{name}.part"
+            src, tmp = Path(source) / folder / name, dst_dir / f".{name}.{os.getpid()}.{time.monotonic_ns()}.part"
             copy_reflink(src, tmp)
             if sha256_file(tmp) != sha or sha256_file(src) != sha:
                 os.remove(tmp)
@@ -385,12 +388,37 @@ def copy_folder(source, store, folder, take):
             for tmp, _ in done:
                 os.remove(tmp)
             return problems
-        for tmp, dst in done:
-            os.replace(tmp, dst)
-        return []
+        # A link never replaces a file: another snapshot that wrote the same name meanwhile keeps its file; the same
+        # bytes are this folder's file too, other bytes refuse the folder (and remove what this call linked).
+        for (tmp, dst), (name, (size, sha)) in zip(done, sorted(take.items())):
+            try:
+                os.link(tmp, dst)
+                linked.append(dst)
+            except FileExistsError:
+                if sha256_file(dst) != sha:
+                    problems.append(f"{folder}/{name}: another snapshot stored other bytes under this name meanwhile; "
+                                    "a stored file is never replaced")
+        if problems:
+            for dst in linked:
+                os.remove(dst)
+        return problems
     finally:
+        for tmp, _ in done:
+            if tmp.exists():
+                os.remove(tmp)
         for d in reversed(chain):
             os.chmod(d, 0o555)
+
+
+def stored_folder(store, folder, recorded):
+    """What the store holds in FOLDER, whatever manifest stored it: RECORDED (this manifest's table entry) and each other
+    file of the store's folder with its size and sha256 (one store serves every manifest)."""
+    held = dict(recorded or {})
+    folder_dir = Path(store) / "films" / folder
+    for path in sorted(folder_dir.iterdir()) if folder_dir.is_dir() else []:
+        if path.is_file() and not path.name.startswith(".") and path.name not in held:
+            held[path.name] = [path.stat().st_size, sha256_file(path)]
+    return held
 
 
 def cmd_snapshot(opts):
@@ -418,28 +446,20 @@ def cmd_snapshot(opts):
         found.pop(f)
     problems = []
     with concurrent.futures.ThreadPoolExecutor(max(1, opts.jobs)) as pool:
-        plans = {folder: pool.submit(plan_folder, opts.source, folder, table.get(folder) or {}, names)
-                 for folder, names in found.items()}
+        plans = {folder: pool.submit(plan_folder, opts.source, folder, stored_folder(store, folder, table.get(folder)),
+                                     names) for folder, names in found.items()}
         plans = {folder: job.result() for folder, job in plans.items()}
     for folder, names in found.items():
-        take, issues = plans[folder]
-        # A file already in the store is never replaced, whatever this manifest records (one store serves every
-        # manifest): the same bytes are recorded with no copy; other bytes refuse the folder.
-        stored = {n: e for n, e in take.items() if (store / "films" / folder / n).exists()}
-        for n, entry in sorted(stored.items()):
-            have = store / "films" / folder / n
-            if [have.stat().st_size, sha256_file(have)] != list(entry):
-                issues.append(f"{folder}/{n}: the store holds other bytes under this name (another manifest's film); "
-                              "a stored file is never replaced (a changed film needs a new folder name)")
-        copy = {n: e for n, e in take.items() if n not in stored}
-        if not issues and copy:
-            issues = copy_folder(opts.source, store, folder, copy)
+        take, keep, issues = plans[folder]
+        if not issues and take:
+            issues = copy_folder(opts.source, store, folder, take)
         problems += issues
         if issues:
             continue  # nothing of a refused folder is kept or recorded
         # A folder may gain new films later (a new round published into it); a recorded file never changes and is never
         # dropped.
         merged = dict(table.get(folder) or {})
+        merged.update(keep)
         merged.update(take)
         table[folder] = dict(sorted(merged.items()))
         for name in names:
@@ -662,8 +682,9 @@ def verify_file(path, size, sha):
 
 def store_extras(store, films_doc):
     """(folders, files) in the store's films/ that the files table films.json pins does not name: other manifests'
-    films (one store serves every manifest: a branch adds films before it lands). No judge sees them (sealed views),
-    so they change no result; run and bless count them in a note."""
+    films (one store serves every manifest: a branch adds films before it lands). No result reads them: the judges see
+    only pinned files (sealed views), the ruler and the drag need read only pinned files, and snapshot never adds an input
+    to a stored film; run and bless count them in a note."""
     try:
         table = files_table(store, films_doc)
     except (OSError, ValueError):
@@ -683,7 +704,7 @@ def store_extras(store, films_doc):
 def extras_note(store, films_doc):
     folders, files = store_extras(store, films_doc)
     return (f"; the store also holds {folders} folder(s) and {files} file(s) this manifest does not pin (other "
-            "manifests' films; no judge sees them)") if folders or files else ""
+            "manifests' films; no result reads them)") if folders or files else ""
 
 
 def verify_store(store, films_doc, films, jobs):
@@ -1115,15 +1136,18 @@ NEEDS = {
              lambda r, film: film["hid_drag"] and (r.get("hid_clock") or {}).get("offset_s") is not None),
     "input": ("video_judge's result does not show the input this check starts from (it writes no count of inputs)",
               lambda r, film: False),
+    "moved": ("video_judge's result does not show a tracked divider that moved (check_steps judges only dividers that "
+              "moved more than 2 px; tracked_dividers counts every track)", lambda r, film: False),
     "judged": ("judge_trace judged no motion of this film", lambda r, film: r.get("motion") is not None),
-    "travelled": ("judge_trace judged no edge that travelled (each motion's travel is empty: it checks reverse, lurch "
-                  "and end-jump only on edges whose net travel is over 1 device px)",
-                  lambda r, film: any(isinstance(m, dict) and m.get("travel") for m in r.get("motions") or [])),
+    "travelled": ("judge_trace judged no edge that travelled in a motion of 2 or more frames (it checks reverse, lurch and "
+                  "end-jump only on edges whose net travel is over 1 device px, and one step shows none of them)",
+                  lambda r, film: any(isinstance(m, dict) and m.get("travel")
+                                      and ((m.get("motion") or {}).get("frames") or 0) >= 2 for m in r.get("motions") or [])),
     "neighbours": ("judge_trace judged no motion with 2 or more panes at rest (it checks gap and overlap only between "
                    "neighbours at rest)", lambda r, film: _panes_at_rest(r) >= 2),
 }
 # Needs that no result shows: an absence of a name with one can never be checked (truth_problems refuses the fact).
-NEVER_SHOWN = frozenset({"input"})
+NEVER_SHOWN = frozenset({"input", "moved"})
 # Every name each judge reports, as its source writes it (a test pins the names and video_judge's severities to the
 # source): (the severity its judge writes it with, what its check needs; see NEEDS). video_judge writes each name at
 # one severity: 14 are defects, 5 notes, 4 recorder findings. Every video_judge check but the model grid reads complete
@@ -1142,9 +1166,9 @@ NAMES = {
         # dividers: the dividers tracked along the scan lines in each motion window
         "gap or overlap": ("defect", ("frames", "motion", "tracked")),
         "divider not shown": ("defect", ("frames", "motion", "trace", "tracked")),
-        "jump": ("defect", ("frames", "motion", "tracked")),
-        "jump back": ("defect", ("frames", "motion", "tracked", "drag")),
-        "jump back (animation)": ("note", ("frames", "motion", "tracked")),
+        "jump": ("defect", ("frames", "motion", "tracked", "moved")),
+        "jump back": ("defect", ("frames", "motion", "tracked", "moved", "drag")),
+        "jump back (animation)": ("note", ("frames", "motion", "tracked", "moved")),
         # model: the tracked dividers' frames against the trace's dividers
         "shown geometry not in the model": ("defect", ("frames", "motion", "trace", "tracked", "model")),
         # content size: the trace's content sizes in each motion window
@@ -1205,6 +1229,9 @@ def truth_problems(truth, films_doc):
             problems.append(f"{fid}: its film {fact.get('film')!r} is not in films.json")
         film_judges_listed = set((films.get(fact.get("film")) or {}).get("judges") or [])
         ruler, expects = fact.get("ruler"), fact.get("expect") or []
+        if ruler and not isinstance(ruler, dict):
+            problems.append(f"{fid}: a ruler is an object of {', '.join(sorted(RULER_KEYS))}, not {json.dumps(ruler)[:80]}")
+            continue
         if not ruler and not expects:
             problems.append(f"{fid}: no ruler fact and no expectation: it checks nothing")
         if ruler:
@@ -1259,12 +1286,23 @@ def truth_problems(truth, films_doc):
 
 
 def _has_hid_drag(path):
-    """Whether a film's pinned events.json has a HID drag (an entry of kind "drag", as video_judge reads them)."""
+    """Whether the events.json at PATH has a HID drag: an entry of kind "drag" with numeric t_sent and t_returned (as
+    video_judge's _drag_direction reads them; an entry with no times is never active)."""
     try:
         hid = (read_json(path, {}) or {}).get("hid") or []
     except (OSError, ValueError, AttributeError):
         return False
-    return any(isinstance(h, dict) and h.get("kind") == "drag" for h in hid)
+    return any(isinstance(h, dict) and h.get("kind") == "drag" and all(type(h.get(k)) in (int, float)
+                                                                       for k in ("t_sent", "t_returned")) for h in hid)
+
+
+def _film_hid_drag(store, films_doc, film, table=None):
+    """Whether FILM's events.json, read only when the files table pins it, has a HID drag."""
+    table = files_table(store, films_doc) if table is None else table
+    folder, _, name = str(film).rpartition("/")
+    if f"{name}.events.json" not in (table.get(folder) or {}):
+        return False
+    return _has_hid_drag(Path(store) / "films" / folder / f"{name}.events.json")
 
 
 def check_truth(store, truth, films_doc, results, films=None):
@@ -1280,13 +1318,17 @@ def check_truth(store, truth, films_doc, results, films=None):
         if films is not None and film not in films:
             continue
         folder, _, name = str(film).rpartition("/")
-        movie = f"{name}.mov" in (table.get(folder) or {})
-        hid_drag = _has_hid_drag(Path(store) / "films" / folder / f"{name}.events.json") \
-            if f"{name}.events.json" in (table.get(folder) or {}) else False
+        pinned = table.get(folder) or {}
+        movie = f"{name}.mov" in pinned
+        hid_drag = _film_hid_drag(store, films_doc, film, table)
         base = str(Path(store) / "films" / film)
         if fact.get("ruler"):
             total += 1
+            # The ruler reads the store by name, outside a sealed view: only the film's pinned scan and frames.
+            unpinned = [f"{name}.{kind}" for kind in ("mov.scan", "mov.frames.json") if f"{name}.{kind}" not in pinned]
             try:
+                if unpinned:
+                    raise ValueError(f"the ruler reads only pinned files: {', '.join(unpinned)} is not pinned")
                 got = ruler_check(base, fact["ruler"])
             except (OSError, ValueError, KeyError, TypeError) as error:
                 got = {"holds": False, "error": f"{type(error).__name__}: {error}"}

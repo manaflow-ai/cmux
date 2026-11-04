@@ -313,9 +313,10 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
   tracked divider, a divider compared with the trace, the film's movie in the store, a HID drag in the film's pinned
   `events.json` that the judge placed (for `jump back`); for judge_trace a judged motion, an edge that travelled for
   `reverse`, `lurch` and `end-jump`, and 2 or more panes at rest for `gap`, `overlap` and `overlap-fading`); else it is
-  NO VERDICT. Two video_judge checks start from an input that its result does not count (`main thread missed
-  refreshes before the first frame`, `frame gap during slow input`): a fact of an absence of them is refused before
-  any film is judged, until the judge writes that count. A check (must report) needs no coverage: a judge that did
+  NO VERDICT. Five video_judge names need an input that its result does not show: the two input-started checks
+  (`main thread missed refreshes before the first frame`, `frame gap during slow input`) and the three step checks
+  (`jump`, `jump back`, `jump back (animation)`: check_steps judges only dividers that moved more than 2 px): a fact
+  of an absence of them is refused before any film is judged, until the judge writes that count. A check (must report) needs no coverage: a judge that did
   not look, and so missed it, fails. A ruler fact also needs the film's
   scan records to be its complete frames, one each, in order (the judge's frame numbers).
 
@@ -355,7 +356,12 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   It copies with reflink, so it needs no space.
 - One store serves every manifest: a branch that adds films (S1b, a judge PR's new film) snapshots them into the same
   store before it lands. `run` and `bless` check only the files their own table pins, and count the others in a note
-  ("the store also holds N folder(s) and M file(s) this manifest does not pin"); no judge sees them (sealed views).
+  ("the store also holds N folder(s) and M file(s) this manifest does not pin"). No unpinned file decides a result:
+  each judge reads only its film's pinned files (sealed views), the TRUTH ruler reads only a pinned scan and
+  frames.json, and the drag need only a pinned events.json; `snapshot` plans each folder against everything the store
+  holds, whatever manifest stored it, so it never adds an input to a stored film. Two snapshots at the same time never
+  replace each other's files (a link, never a replace). The judges' unit tests read the store by name
+  (`JUDGE_GOLDENS_STORE`): a test reads only the pinned files of the film it names.
 
 ## Gate a dogfood build
 
