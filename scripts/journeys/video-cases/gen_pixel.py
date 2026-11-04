@@ -107,8 +107,12 @@ SPEEDS_S2B = (("s025", 0.25),)
 # 2-3 pt left (ab-s2b-sw-3fbd40a). x0.125 is the slowest speed every spring takes (the tunables clamp a response to 2 s;
 # settle's 0.22 s at x0.1 is 2.2 s: ab-s2bt-sw-3fbd40a); about 30 % of the edge's travel is left at the mouse-down.
 SPEEDS_S2BT = (("s0125", 0.125),)
+# The low-prompt case (S4 F2): x1, and x0.25 so each frame of the grow-down spring shows where the prompt row is.
+SPEEDS_LOWPROMPT = (("s1", 1.0), ("s025", 0.25))
+# The bar over the low prompt (a color no fixture uses): lowprompt_rows.py finds it on the scan column through the pane.
+LOW_PROMPT_BAR = "#FF8000"
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
-EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
+EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5, "shell": 4}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
 MARGIN, BUDGET_MIN = 1.2, 40
 H, J, K, L = (("h", ["control", "shift"]), ("j", ["control", "shift"]), ("k", ["control", "shift"]),
@@ -176,6 +180,21 @@ def start_tui(name, fill, label=None):
              "timeout": 8, "all": [{"daemon_lacks": "J> "}]}]
 
 
+def start_low_prompt(name):
+    """A shell (normal screen) in NAME with its prompt on the last row: 120 numbered lines, then a full-width #FF8000 bar
+    ($COLUMNS spaces on that background), so the prompt row is the row under the bar. S4 F2 (#35470 review): a pane a key
+    grows down with the cursor in its lower half keeps the surface at its final size on the bottom edge (motionAnchor
+    .bottom), with motion.frameOwner.terminals OFF (S3's hold) and ON; the border fixture's alternate screen never does."""
+    mark = f"low-{name}"
+    r, g, b = (int(LOW_PROMPT_BAR[i:i + 2], 16) for i in (1, 3, 5))
+    text = (f"clear; for i in $(seq 1 120); do echo \"line $i\"; done; "
+            f"printf '\\033[48;2;{r};{g};{b}m%*s\\033[0m\\n' $COLUMNS ''")
+    return [{"do": "type", "text": text, "enter": True, "mark": mark,
+             "title": f"set-up: {name} fills its screen, an orange bar, then the prompt on the last row"},
+            {"do": "expect", "title": f"set-up: {name}'s prompt is back on its last row, under the bar", "since": mark,
+             "timeout": 8, "all": [{"daemon_line": "line 120"}, {"daemon_prompt": True}]}]
+
+
 def new_pane(name, action):
     """A new terminal pane by the app's action (splitRight, splitDown, newColumn, newRow) on the focused pane."""
     return [{"do": "action", "action": action, "title": f"set-up: {action} ({name})"},
@@ -196,6 +215,8 @@ def make_kind(name, kind, fill):
     """Turns the new terminal pane NAME into its fixture."""
     if kind == "tui":
         return start_tui(name, fill)
+    if kind == "shell":
+        return start_low_prompt(name)
     if kind == "page":
         return [{"do": "px_page", "pane": name, "bg": fill, "label": name, "title": f"set-up: page.html in a browser tab of {name} ({fill})"}]
     if kind == "agent":
@@ -285,6 +306,10 @@ T3S = Layout("3", "p0 T | p1 T | p2 P (splits)",
 T3T =Layout("3t", "p0 T | p1 T | p2 P (splits, p1 nested with p0)",
              [("p0", "tui", YELLOW, None), ("p2", "page", YELLOW, ("splitRight", None)), ("p1", "tui", GREEN, ("splitRight", "p0"))])
 C2 = Layout("c2", "columns p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None))])
+# T3K with a shell in p1 whose prompt is on its last row (S4 F2). The judge reads tui and page panes only: p1 is
+# lowprompt_rows.py's (the bar and the pane's bottom edge on the scan column through p1, per frame).
+T3KP = Layout("3kp", "p0 T | (p1 S / p2 P), p1 a shell with its prompt on the last row",
+              [("p0", "tui", YELLOW, None), ("p1", "shell", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitDown", None))])
 # Stage S2b, the layouts of SharedEdgeDuringSpringTests (A | B | C, B split): strip columns, each a third of the viewport, a
 # full-width window. 3 columns: the key on p0 springs every edge right of it (p0|p1, p1|p2). 2 columns: column 2 holds p1
 # over p2 (splitDown), and the strip fits its viewport after the key.
@@ -388,6 +413,11 @@ def keys_play(speed):
     return steps
 
 
+def low_prompt_play(speed):
+    """Ctrl-Shift-J on p1 (its bottom edge springs down: p1 grows down), then Ctrl-Shift-K (back up)."""
+    return [press(J, "grow"), rest(land(speed)), press(K, "shrink"), rest(land(speed))]
+
+
 def held_play(speed):
     return [{"do": "rk_hold", "key": "l", "modifiers": ["control", "shift"], "seconds": 1.5, "mark": "hold",
              "title": "Ctrl-Shift-L held 1.5 s (debug.key auto-repeat)"}, rest(land(speed)),
@@ -470,6 +500,11 @@ def cases():
     for layout, under in ((T3K, "p1"), (T6, "p1")):
         out.append(Case(f"px-keys-single-{layout.key}", f"Ctrl-Shift-L, H, J, K on {under} ({layout.text})", layout, keys_play, "move",
                         "keys", before=[focus(under)], play_seconds=lambda s: 4 * (0.1 + land(s))))
+    # S4 F2 (frame-owner-s4 30eccfc5903): the low prompt rides the bottom of a pane a key grows down. The cases above never
+    # show it (their terminals run the border fixture on the alternate screen, where motionAnchor answers .top).
+    out.append(Case(f"px-keys-lowprompt-{T3KP.key}", f"Ctrl-Shift-J, then K, on p1, a shell with its prompt on the last row "
+                    f"under an orange bar ({T3KP.text})", T3KP, low_prompt_play, "move", "keys", before=[focus("p1")],
+                    play_seconds=lambda s: 2 * (0.1 + land(s)), speeds=SPEEDS_LOWPROMPT))
     out.append(Case(f"px-keys-held-{T2.key}", f"Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 ({T2.text})", T2,
                     held_play, None, "held keys", before=held_start(), play_seconds=lambda s: 2.6 + 2 * land(s)))
     # Stage S1B 1b (frame-owner-s1b): a tab closes while the held key resizes its pane; every tab outlined, so the judge can
