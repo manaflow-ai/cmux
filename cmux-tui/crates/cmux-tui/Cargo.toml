@@ -77,6 +77,7 @@ anyhow.workspace = true
 bytes.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+unicode-normalization.workspace = true
 serde.workspace = true
 # raw_value: `cmux mcp serve` indexes the embedded v2 catalog without parsing it into one
 # tree that each agent's server would hold for its whole life (cli/mcp/v2_tools.rs).

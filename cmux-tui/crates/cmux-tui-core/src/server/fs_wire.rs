@@ -33,7 +33,7 @@ use crate::mux::Mux;
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The remote gate of the link entry: it admits a frame only when its `cmd`
-/// is one of the seven `fs-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
+/// is one of the seven `fs-v1` ops, the two `fs-symlink-v1` ops, the two `git-seed-v1` ops, or a `cloud.repo.*`
 /// op other than `cloud.repo.local` and `cloud.repo.remember`, exactly;
 /// every other frame is denied as before (`remote_denied`, no detail),
 /// except the explicit agent carrier admitted separately for authenticated
