@@ -29,6 +29,7 @@ mod cloud_repo_tools;
 mod code_mode;
 mod computer_use_gate;
 mod config;
+mod connections;
 mod keybinding_tools;
 mod messages;
 mod open_tool;
@@ -457,6 +458,9 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 /// `cmux [global options] mcp <command>`.
 fn run(global: GlobalArgs, args: &[String]) -> i32 {
     let usage = messages::messages().usage;
+    if let Some(parsed) = connections::parse(args) {
+        return run_connections(&global, parsed);
+    }
     match args {
         [flag] if matches!(flag.as_str(), "-h" | "--help" | "help") => {
             println!("{usage}");
@@ -469,6 +473,33 @@ fn run(global: GlobalArgs, args: &[String]) -> i32 {
             eprintln!("cmux: {usage}");
             2
         }
+    }
+}
+
+/// `cmux mcp ls|tools NAME|audit|rm|auth|key|policy` (`connections`): one app control request
+/// or two, printed as the CLI prints a local result.
+fn run_connections(global: &GlobalArgs, parsed: Result<connections::Command, String>) -> i32 {
+    let output = global.output;
+    let command = match parsed {
+        Ok(command) => command,
+        Err(message) => {
+            eprintln!("cmux: {message}");
+            return 2;
+        }
+    };
+    let mut call = |method: &str, params: Value| {
+        transport::app_method(global, method, params, connections::TIMEOUT, None, false)
+            .map_err(|failure| failure.error)
+    };
+    match connections::execute(&command, &mut call) {
+        Ok(outcome) => match output {
+            OutputMode::Human => {
+                print!("{}", outcome.human);
+                0
+            }
+            _ => super::wire::print_local_success(&outcome.json, output),
+        },
+        Err(error) => super::wire::print_local_error(&error, output, 1),
     }
 }
 

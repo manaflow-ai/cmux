@@ -86,8 +86,8 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
-    private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
+    /// Agent panes' git reads, one link per machine (CmuxNextDaemonService AgentPaneGitLinks).
+    private(set) lazy var agentGit = AgentPaneGitLinks(local: machines.local) { [machines] in machines.remoteDaemons }
     let machines: MachineRegistry
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
     let autoNameHold = WorkspaceAutoNameHold()
@@ -311,6 +311,8 @@ final class AppServices {
     private(set) lazy var sidebarCustomization = SidebarCustomizationService(client: apps.client) { [weak self] in self?.apps.presence.isPresented($0) == true }
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
+    /// Settings > MCP Servers and the `cmux mcp` relay (plans/cmux-next/mcp-connect-DESIGN.md row 3c).
+    private(set) lazy var mcpServers = McpServersCoordinator(host: self, dialogs: .shared)
     /// Phone tabs: iOS simulators, Android emulators and real phones, recordings, feedback to Chief
     /// (plans/cmux-next/phone.md, simulators-DESIGN.md).
     private(set) lazy var phones: PhoneService = {

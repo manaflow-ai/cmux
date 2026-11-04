@@ -268,7 +268,7 @@ final class AgentTabStore {
         defer { onCollectingPages?(false) }
         return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
     }
-    /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
+    /// The git link of tab `key`: the session host of the tab's own machine (``AgentPaneGitLinks``),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?

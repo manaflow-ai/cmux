@@ -111,7 +111,16 @@ impl Connection {
             .collect()
     }
 
-    /// The row Settings and `mcp_list` show: no secret, no tool text.
+    /// The tools listed now whose pin is missing or differs (new or changed after a key or a
+    /// sign-in): held from the agent until the person approves them (`mcp_approve_tools`).
+    pub(crate) fn held_tools(&self) -> Vec<String> {
+        let diff =
+            cmux_mcp_connect::pin::ToolPin { tools: self.tool_pin.clone() }.diff(&self.tools);
+        diff.added.into_iter().chain(diff.changed).collect()
+    }
+
+    /// The row Settings and `mcp_list` show: no secret, no tool text. `held` names the tools that
+    /// wait for the person's approval (`held_tools`).
     pub(crate) fn row(&self) -> Value {
         json!({
             "id": self.id, "name": self.name, "title": self.title, "publisher": self.publisher,
@@ -124,6 +133,7 @@ impl Connection {
                     "policy": self.tool_policy.get(name).map(String::as_str).unwrap_or("ask"),
                 })
             }).collect::<Vec<_>>(),
+            "held": self.held_tools(),
         })
     }
 }
@@ -496,6 +506,27 @@ mod tests {
         cut.remove(1);
         assert!(!audit_chain_ok(&cut));
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn mcp_connect_row_lists_new_and_changed_tools_as_held() {
+        let tool = |name: &str, description: &str| json!({"name": name, "description": description, "inputSchema": {"type": "object"}});
+        let mut c = conn("https://a/mcp", "chat", "s1");
+        c.tools = vec![tool("get_doc", "Reads a doc"), tool("list_docs", "Lists docs")];
+        c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&c.tools).tools;
+        assert_eq!(c.row().get("held"), Some(&json!([])), "pinned tools are not held");
+        c.tools = vec![
+            tool("get_doc", "Reads a doc and sends it elsewhere"),
+            tool("list_docs", "Lists docs"),
+            tool("delete_doc", "Deletes a doc"),
+        ];
+        assert_eq!(
+            c.row().get("held"),
+            Some(&json!(["delete_doc", "get_doc"])),
+            "added, then changed"
+        );
+        c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&c.tools).tools;
+        assert_eq!(c.row().get("held"), Some(&json!([])), "approving pins the current text");
     }
 
     #[test]
