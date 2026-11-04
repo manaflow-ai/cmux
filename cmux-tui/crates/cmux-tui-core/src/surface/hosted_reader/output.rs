@@ -122,8 +122,9 @@ impl HostedReader {
             pty.record_output(journal_target, &journal_output, history);
         }
         drop(journal_update.take());
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        // Durable publications commit on the mux's terminal publisher: the
+        // next frame (a key's echo) must not wait for the registry (#35413).
+        surface.queue_pending_publications();
         pty.stream_progress.notify();
         // Published by the frame lane, once per frame (FrameRequests).
         if let Some((offset, at_bottom)) = scroll_changed {
@@ -138,7 +139,7 @@ impl HostedReader {
         if !terminal_notifications.is_empty()
             && let Some(mux) = mux.upgrade()
         {
-            mux.post_terminal_notifications(surface.id, terminal_notifications);
+            mux.queue_terminal_notifications(surface.id, terminal_notifications);
         }
         if !finished_commands.is_empty()
             && let Some(mux) = mux.upgrade()
