@@ -10,7 +10,9 @@ GitHub cache entry is readable only from its own ref and the base.
 Any run can upload an artifact, a fork pull request's run included, so a pass
 counts only when its run came from this repository: the run's repository and
 head repository are both GITHUB_REPOSITORY_ID. The workflow uploads a pass only
-from same-repository runs, and a fork's own upload is never taken here.
+from same-repository runs, and a fork's own upload is never taken here. The
+planner's enforcement path can additionally require a named branch and event;
+that path accepts only green producers from the trusted feat-cmux-next push.
 
 `lookup --key K` prints `hit=true`, `run_url=` and `sha=` for $GITHUB_OUTPUT,
 or `hit=false`. Every failure (no token, no repository id, an API error, a key
@@ -36,14 +38,19 @@ class Miss(Exception):
     """No pass can be trusted."""
 
 
-def pick(artifacts: list[dict], key: str, repository_id: str) -> dict | None:
-    """The newest unexpired artifact named `key` whose run came from this repository."""
+def pick(artifacts: list[dict], key: str, repository_id: str,
+         trusted_branch: str | None = None, trusted_event: str | None = None) -> dict | None:
+    """The newest unexpired artifact from a trusted producer run."""
     trusted = []
     for item in artifacts:
         run = item.get("workflow_run") or {}
         if item.get("name") != key or item.get("expired"):
             continue
         if str(run.get("repository_id")) != repository_id or str(run.get("head_repository_id")) != repository_id:
+            continue
+        if trusted_branch is not None and run.get("head_branch") != trusted_branch:
+            continue
+        if trusted_event is not None and run.get("event") != trusted_event:
             continue
         trusted.append(item)
     return max(trusted, key=lambda item: item.get("created_at") or "", default=None)
@@ -99,13 +106,14 @@ def listing(key: str, path: str | None) -> list[dict]:
     return artifacts
 
 
-def lookup(key: str, path: str | None) -> dict[str, str]:
+def lookup(key: str, path: str | None, trusted_branch: str | None = None,
+           trusted_event: str | None = None) -> dict[str, str]:
     if not KEY.match(key):
         raise Miss(f"{key!r} is not a pass key")
     repository_id = os.environ.get("GITHUB_REPOSITORY_ID", "").strip()
     if not repository_id:
         raise Miss("GITHUB_REPOSITORY_ID is not set, so no pass can be checked")
-    found = pick(listing(key, path), key, repository_id)
+    found = pick(listing(key, path), key, repository_id, trusted_branch, trusted_event)
     if found is None:
         return {"hit": "false"}
     run = found["workflow_run"]
@@ -120,9 +128,11 @@ def main(argv: list[str] | None = None) -> int:
     find = sub.add_parser("lookup", help="print hit=true|false and the run that passed")
     find.add_argument("--key", required=True)
     find.add_argument("--artifacts-json", help="read the artifact listing from this file")
+    find.add_argument("--trusted-branch", help="require the producer run's head branch")
+    find.add_argument("--trusted-event", help="require the producer run's event")
     args = parser.parse_args(argv)
     try:
-        outputs = lookup(args.key, args.artifacts_json)
+        outputs = lookup(args.key, args.artifacts_json, args.trusted_branch, args.trusted_event)
     except Miss as why:
         print(f"::notice title=No reused pass::{why}", file=sys.stderr)
         outputs = {"hit": "false"}

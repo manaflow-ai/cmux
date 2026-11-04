@@ -1675,6 +1675,20 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
                 # No actions/cache store: a cache entry of one pull request is unreadable from the others.
                 self.assertFalse([s for s in steps if JOB_PASS_DIR in json.dumps(s)])
 
+    def test_cargo_planner_reuse_requires_the_promoted_mode_and_trusted_push(self):
+        steps = self.steps("fast-tier-cargo")
+        lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
+        self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])
+        self.assertIn("--trusted-branch feat-cmux-next --trusted-event push", lookup["run"])
+        self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
+        self.assertIs(lookup.get("continue-on-error"), True)
+        trusted = steps[index_of(steps, lambda s: s.get("name") == "Reuse the trusted planner pass")]
+        self.assertIn("planner-reuse.outputs.hit", trusted["if"])
+        for step in steps:
+            text = json.dumps(step)
+            if any(marker in text for marker in ("fast-tier.py", "rust-cache", "ghostty-zig-packages")):
+                self.assertIn("steps.planner-reuse.outputs.hit != 'true'", text, step.get("name"))
+
     def test_the_lookup_reads_the_artifact_list(self):
         for job in self.JOBS:
             with self.subTest(job=job):

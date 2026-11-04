@@ -28,10 +28,11 @@ KEY = "job-pass-swift-test-" + "a" * 40
 
 
 def artifact(run_id: int, *, name: str = KEY, head_repo: int = REPO_ID, repo: int = REPO_ID,
-             expired: bool = False, created: str = "2026-10-21T10:00:00Z", sha: str = "b" * 40) -> dict:
+             expired: bool = False, created: str = "2026-10-21T10:00:00Z", sha: str = "b" * 40,
+             branch: str = "topic", event: str = "pull_request") -> dict:
     return {"id": run_id * 10, "name": name, "expired": expired, "created_at": created,
             "workflow_run": {"id": run_id, "repository_id": repo, "head_repository_id": head_repo,
-                             "head_branch": "topic", "head_sha": sha}}
+                             "head_branch": branch, "event": event, "head_sha": sha}}
 
 
 def lookup(artifacts: list[dict] | str, key: str = KEY, **env: str) -> tuple[dict, str, int]:
@@ -99,6 +100,22 @@ class Lookup(unittest.TestCase):
 
     def test_a_key_that_is_not_a_pass_key_is_refused(self):
         outputs, _, code = lookup([artifact(87, name="job-pass-x")], key="job-pass-x/../y")
+        self.assertEqual((code, outputs["hit"]), (0, "false"))
+
+    def test_planner_lookup_accepts_only_trusted_branch_pushes(self):
+        artifacts = [
+            artifact(88, branch="topic", event="pull_request", created="2026-10-21T12:00:00Z"),
+            artifact(89, branch="feat-cmux-next", event="pull_request", created="2026-10-21T13:00:00Z"),
+            artifact(90, branch="feat-cmux-next", event="push", created="2026-10-21T11:00:00Z"),
+        ]
+        outputs, _, code = lookup(artifacts, trusted_branch="feat-cmux-next", trusted_event="push")
+        self.assertEqual(code, 0)
+        self.assertEqual(outputs["hit"], "true")
+        self.assertTrue(outputs["run_url"].endswith("/runs/90"))
+
+    def test_planner_lookup_misses_without_event_metadata(self):
+        outputs, _, code = lookup([artifact(91, branch="feat-cmux-next", event="")],
+                                  trusted_branch="feat-cmux-next", trusted_event="push")
         self.assertEqual((code, outputs["hit"]), (0, "false"))
 
 
