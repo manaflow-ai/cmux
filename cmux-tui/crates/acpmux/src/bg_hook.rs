@@ -396,6 +396,9 @@ mod tests {
             "echo 'watch this'",
             "echo watch this # tail -f x",
             "ls 2>&1 | tee log",
+            "cat <<'EOF'\n$(swift build)\nEOF",
+            "bash; cat <<EOF\nswift build\nEOF",
+            "cat <<DATA; bash <<CODE\nswift build\nDATA\nls\nCODE",
             // ssh's remote command is not read (the policy before this change).
             "ssh host swift build",
         ] {
@@ -414,6 +417,8 @@ mod tests {
             "cat <<EOF | sh\nswift build\nEOF",
             "cat <<EOF\nnotes\nEOF\nswift build",
             "( cd app && swift build )",
+            "cat <<EOF\n$(\nswift build\n)\nEOF",
+            r#"echo "${X:-$(swift build)}""#,
             "if true; then watch ls; fi",
             "tail --follow app.log",
             // Unreadable input falls back to the loose read, which names more.

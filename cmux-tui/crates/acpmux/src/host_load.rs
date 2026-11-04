@@ -236,7 +236,7 @@ fn commands_at(script: &str, each: &mut dyn FnMut(&[&str]), depth: usize) {
         match (shell_script(&argv), argv.first()) {
             (Some(Some(inner)), _) => commands_at(inner, each, depth + 1),
             (Some(None), _) => {
-                bare_shells.push(command.line);
+                bare_shells.push(command.pipeline);
                 each(&argv);
             }
             (None, Some(&"eval")) => {
@@ -246,9 +246,10 @@ fn commands_at(script: &str, each: &mut dyn FnMut(&[&str]), depth: usize) {
             (None, None) => {}
         }
     }
-    // `bash <<EOF` and `cat <<EOF | sh` run the body; a heredoc into anything else is data.
-    for (line, body) in &lexed.heredocs {
-        if bare_shells.contains(line) {
+    // `bash <<EOF` and `cat <<EOF | sh` run the body (a shell in the heredoc's pipeline); a
+    // heredoc into anything else is data, though an unquoted one's substitutions run (`subs`).
+    for (pipeline, body) in &lexed.heredocs {
+        if bare_shells.contains(pipeline) {
             commands_at(body, each, depth + 1);
         }
     }
