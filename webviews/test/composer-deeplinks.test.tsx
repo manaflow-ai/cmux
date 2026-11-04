@@ -147,7 +147,9 @@ test("a deeplink in the draft draws as a link and sends exactly as typed", async
   const { field, sent } = await composer(typed);
   expect(linked()).toEqual([WORKSPACE, AGENT]);
   await act(async () => {
-    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }));
+    field.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "Enter", keyCode: 13, bubbles: true, cancelable: true }),
+    );
   });
   expect(sent).toEqual([typed]);
 });
