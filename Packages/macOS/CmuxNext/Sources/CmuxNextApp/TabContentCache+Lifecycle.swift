@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextDesign
 
 /// Presentation, warm set and the content lifecycle of `TabContentCache`
 /// (plans/cmux-next/tab-lifecycle.md).
@@ -185,6 +186,7 @@ extension TabContentCache {
             if shownPages.remove(key) != nil, !pagePictureIsCurrent(entry, key: key) {
                 capturePagePreview(entry, key: key, token: token)
             }
+            entry.tab.contentView.handKeyboardToWindow() // before it hides: no AppKit key-view loop walk (TERMINAL CREATE COST)
             entry.tab.setContentVisible(false)
         }
         hibernation?.tabDidHide(key)
