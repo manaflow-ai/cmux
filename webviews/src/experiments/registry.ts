@@ -40,6 +40,7 @@ import { chatSwitchMotion } from "../agent-session/acpmux/chatSwitch.experiment"
 import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
 import { emojiShortcodeLook } from "../agent-session/acpmux/emojiShortcodeLook.experiment";
 import { fileKindIcon } from "../agent-session/acpmux/chips/fileKindIcon.experiment";
 import type { Experiment } from "./experiment";
@@ -88,6 +89,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   liveBackground,
   composerPlusCommands,
   promptSuggestionLook,
+  planUsageLook,
   emojiShortcodeLook,
 ];
 

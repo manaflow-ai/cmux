@@ -96,7 +96,7 @@ import {
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { useComposerChrome } from "./composerChrome";
+import { UsageRingMenu, useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
@@ -654,7 +654,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
   // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
@@ -2643,17 +2643,28 @@ export function Composer({
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage).
+        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
+        // the context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
           showContextUsage && (
-            <ContextRing
+            <UsageRingMenu>
+              <ContextRing
               used={usage?.used}
               size={usage?.size}
               setup={usage?.setup}
               cacheExpiresAt={usage?.cacheExpiresAt}
               breakdown={snapshot.summary?.contextBreakdown}
               onOpenDetails={onOpenContext}
+              {...(composerRing === "planUsage"
+                ? {
+                    plan: {
+                      limits: typeof snapshot.summary?.usageLimits === "object" ? snapshot.summary.usageLimits : undefined,
+                      family: snapshot.summary?.family ?? snapshot.summary?.harness,
+                    },
+                  }
+                : {})}
             />
+            </UsageRingMenu>
           )
         }
         actionsLead={quietActions ? sendControl : undefined}

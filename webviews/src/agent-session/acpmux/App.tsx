@@ -345,7 +345,12 @@ import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsConte
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerAttachmentViewHost, registerComposerHost, useComposerSettings } from "./composerSettings";
+import {
+  registerAttachmentViewHost,
+  registerComposerHost,
+  registerComposerRingHost,
+  useComposerSettings,
+} from "./composerSettings";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -1307,6 +1312,7 @@ if (typeof window !== "undefined")
     if (typeof tab === "string" && tab) setSessionInfoTab(tab);
   });
 registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
+registerComposerRingHost((ring) => callNative("pane.setComposerRing", { ring }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
