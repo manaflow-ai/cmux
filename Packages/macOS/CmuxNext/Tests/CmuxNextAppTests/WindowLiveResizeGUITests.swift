@@ -57,16 +57,18 @@ struct WindowLiveResizeGUITests {
 
     static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
 
-    /// A mouse event at `point` (screen points) for `window`, as the window server addresses one: its location is
-    /// global, so AppKit reads it right while the window's origin moves under the drag.
-    static func mouse(_ type: CGEventType, at point: CGPoint, window: NSWindow) throws -> NSEvent {
+    /// A mouse event at `point` (screen points) for `window`, built as `debug.mouse` builds the films' events (an
+    /// NSEvent addressed to the window, its point in the window's coordinates as the window is now) and then given
+    /// the global location, so AppKit reads it right while the window's origin moves under the drag.
+    static func mouse(_ type: NSEvent.EventType, at point: CGPoint, window: NSWindow) throws -> NSEvent {
+        let local = window.convertPoint(fromScreen: point)
+        let event = try #require(NSEvent.mouseEvent(with: type, location: local, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                                    pressure: type == .leftMouseUp ? 0 : 1))
         let primary = try #require(NSScreen.screens.first).frame.maxY
-        let cg = try #require(CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: CGPoint(x: point.x, y: primary - point.y),
-                                      mouseButton: .left))
-        cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
-        cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
-        cg.setIntegerValueField(.mouseEventClickState, value: 1)
-        return try #require(NSEvent(cgEvent: cg))
+        guard let cg = event.cgEvent?.copy() else { return event }
+        cg.location = CGPoint(x: point.x, y: primary - point.y)
+        return NSEvent(cgEvent: cg) ?? event
     }
 
     /// Dispatches what waits in the application's event queue, as its run loop does, in this one turn.
@@ -79,7 +81,9 @@ struct WindowLiveResizeGUITests {
     @Test(.enabled("AppKit's live resize needs a window on a screen") { await Self.hasDisplay() }, arguments: Edge.allCases, [false, true])
     func aBurstOfLiveResizeDragsLaysTheWindowOutOncePerFrameAndEndsAtThePointer(_ edge: Edge, _ on: Bool) throws {
         try WindowLiveResizeFrameTickTests.withSwitch(on) {
-            _ = NSApplication.shared
+            // AppKit's window resize gesture runs in a launched application (the films' app is one).
+            if !NSApp.isRunning { NSApp.finishLaunching() }
+            NSApp.activate()
             let layout = ScreenLayout.splits(.split("v", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))
             let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             model.followsDesignMetrics = false
