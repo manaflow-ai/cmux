@@ -273,10 +273,20 @@ impl HostedReader {
                 replacement_snapshot.kitty_state.limits,
             ) {
                 replacement_control_responses.fail_all();
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap()
-                    && host.identity() == identity
                 {
-                    host.disconnect();
+                    let runtime = pty.runtime.lock().unwrap();
+                    if let PtyRuntime::Hosted(host) = &*runtime
+                        && host.identity() == identity
+                    {
+                        host.disconnect();
+                        // A `failed` link stays failed (below): the input port refuses until the next install, as a
+                        // write to the shut replacement fails now (#34544 review 4).
+                        if pty.host_connection_state.load(Ordering::Acquire)
+                            == TerminalHostConnectionState::Failed as u8
+                        {
+                            pty.input_route_failed(&runtime);
+                        }
+                    }
                 }
                 // A `failed` link being retried stays failed until it connects.
                 let was = pty
