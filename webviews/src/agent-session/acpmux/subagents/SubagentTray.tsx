@@ -360,9 +360,10 @@ export const SubagentTray = memo(function SubagentTray({
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
   const counts = headCounts;
-  // A narrow tray keeps room for its counts: one mark, in the lines' icon column. A family the drawn
-  // marks already show is not drawn again after the counts; one they leave out still is.
-  const drawnMarks = headMarks.slice(0, narrow ? 1 : STACK_MARKS);
+  // A measured narrow tray keeps room for its counts: one mark, in the lines' icon column (an
+  // unmeasured one, 0px, keeps them all, as `oneName` keeps two names). A family the drawn marks
+  // already show is not drawn again after the counts; one they leave out still is.
+  const drawnMarks = headMarks.slice(0, oneName ? 1 : STACK_MARKS);
   const stacked = new Set(drawnMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
   const trailingMarks = counts.marks.filter((harness) => !stacked.has(harnessFamily(harness)));
   const title = counts.text;
