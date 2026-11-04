@@ -312,6 +312,10 @@ mod imp {
 mod imp {
     use super::HarnessState;
 
+    pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
+        false
+    }
+
     /// The one process record's fields after the parenthesized command name.
     /// The command may contain spaces, so split only after its final `)`.
     fn stat(pid: u32) -> Option<Vec<String>> {
@@ -338,7 +342,7 @@ mod imp {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     use super::HarnessState;
 
