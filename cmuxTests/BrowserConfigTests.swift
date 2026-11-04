@@ -2833,18 +2833,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line,
         predicate: () -> Bool
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if predicate() {
-                return
-            }
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
-
-        // Abort via continueAfterFailure instead of throwing: a thrown error is
-        // tallied as an "unexpected" failure and fails the whole CI shard, while
-        // the recorded XCTFail keeps this timeout visible as a normal failure.
+    ) async {
+        if await AppKitTestEventPump().waitUntil(timeout: .seconds(timeout), predicate) { return }
         continueAfterFailure = false
         XCTFail("Timed out waiting for \(description)", file: file, line: line)
     }
@@ -2855,26 +2845,17 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            // Check the web view's own URL, not the omnibar string. The panel
-            // publishes the destination URL as soon as a navigation is requested
-            // and only raises `isLoading` once WebKit reports the provisional
-            // navigation, so the omnibar already reads as the target while
-            // `isLoading` is still false — a window in which this would return
-            // before the page had loaded at all. Require both WebKit's committed
-            // history item and the panel's debounced loading mirror to settle.
-            if panel.webView.url?.absoluteString == url.absoluteString,
-               !panel.webView.isLoading,
-               panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString,
-               !panel.isLoading {
-                return
-            }
+    ) async {
+        // Both the committed history item and the loading mirror must settle.
+        // Yield the main actor so asynchronous navigation policy can complete.
+        let loaded = await AppKitTestEventPump().waitUntil(timeout: .seconds(timeout)) {
+            panel.webView.url?.absoluteString == url.absoluteString
+                && !panel.webView.isLoading
+                && panel.webView.backForwardList.currentItem?.url.absoluteString == url.absoluteString
+                && !panel.isLoading
         }
-
-        XCTFail(
+        XCTAssertTrue(
+            loaded,
             "Timed out waiting for browser panel to load \(url.absoluteString). "
                 + "Live=\(panel.webView.url?.absoluteString ?? "nil") "
                 + "Committed=\(panel.webView.backForwardList.currentItem?.url.absoluteString ?? "nil") "
@@ -2950,7 +2931,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         XCTAssertTrue(panel.canGoForward)
     }
 
-    func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() throws {
+    func testGoBackPrefersLiveWKWebViewHistoryBeforeRestoredFallback() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-history-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -2968,7 +2949,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             initialURL: pageB
         )
         defer { panel.close() }
-        waitForBrowserPanel(panel, url: pageB)
+        await waitForBrowserPanel(panel, url: pageB)
 
         panel.restoreSessionNavigationHistory(
             backHistoryURLStrings: [pageA.absoluteString],
@@ -2977,7 +2958,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
 
         _ = browserLoadRequest(URLRequest(url: pageC), in: panel.webView)
-        waitForBrowserPanel(panel, url: pageC)
+        await waitForBrowserPanel(panel, url: pageC)
 
         let snapshot = panel.sessionNavigationHistorySnapshot()
         XCTAssertEqual(
@@ -2986,13 +2967,13 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         )
 
         panel.goBack()
-        waitForBrowserPanel(panel, url: pageB)
+        await waitForBrowserPanel(panel, url: pageB)
 
         panel.goBack()
-        waitForBrowserPanel(panel, url: pageA)
+        await waitForBrowserPanel(panel, url: pageA)
     }
 
-    func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() throws {
+    func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() async throws {
         let server = try ProvisionalNavigationRaceServer()
         defer { server.stop() }
 
@@ -3006,18 +2987,18 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: pagePrevious)
         defer { panel.close() }
 
-        waitForBrowserPanel(panel, url: pagePrevious)
+        await waitForBrowserPanel(panel, url: pagePrevious)
         panel.navigate(to: pageA)
-        waitForBrowserPanel(panel, url: pageA)
+        await waitForBrowserPanel(panel, url: pageA)
         // The published title arrives one main-actor hop after the load
         // finishes, so wait for it rather than reading it immediately.
-        waitUntil("page A title to publish") { panel.pageTitle == "Race A" }
+        await waitUntil("page A title to publish") { panel.pageTitle == "Race A" }
 
         panel.navigate(to: pageB)
-        waitUntil("server to receive provisional page B request") {
+        await waitUntil("server to receive provisional page B request") {
             server.didReceiveBRequest
         }
-        waitUntil("browser back availability during provisional page B navigation") {
+        await waitUntil("browser back availability during provisional page B navigation") {
             panel.canGoBack && panel.webView.isLoading
         }
         XCTAssertFalse(panel.canGoForward, "held page B must not enter history")
@@ -3026,7 +3007,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
         // Back cancels the held page B navigation and returns to the page behind
         // page A. Page A, the page the user left, becomes the forward entry, and
         // the published URL has to match the page WebKit actually committed.
-        waitUntil("back to cancel page B and settle on the previous page") {
+        await waitUntil("back to cancel page B and settle on the previous page") {
             panel.currentURL?.path == pagePrevious.path
                 && panel.webView.backForwardList.currentItem?.url.path == pagePrevious.path
                 && !panel.webView.isLoading
@@ -3035,7 +3016,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
         let releasedBResponseCount = server.releaseHeldBResponses()
         XCTAssertGreaterThan(releasedBResponseCount, 0)
-        waitUntil("released page B response to stay out of the pane") {
+        await waitUntil("released page B response to stay out of the pane") {
             !panel.webView.isLoading &&
                 panel.pageTitle == "Race A" &&
                 panel.currentURL?.path == pagePrevious.path

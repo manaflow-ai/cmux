@@ -15,8 +15,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func manualDisconnectPreservesPersistentSlotUntilFinalCleanup() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(Self.configuration(), autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
@@ -40,8 +39,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func manualReconnectWaitsForControllerBeforeReattachingPersistentPanel() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(Self.configuration(), autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
@@ -89,8 +87,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func replacementStartsOnlyAfterPriorTransportCleanupFinishes() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configuration = Self.configuration()
         workspace.configureRemoteConnection(configuration, autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
@@ -111,8 +108,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func supersededDifferentIdentityTransitionCannotDestroyLatestPersistentSession() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
         let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
@@ -146,8 +142,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func completedPersistentCleanupIsReconciledAfterTransitionIsSuperseded() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
         let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
@@ -185,8 +180,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedSameIdentityTransportCleanupPreventsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configuration = Self.configuration()
         workspace.configureRemoteConnection(configuration, autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
@@ -206,8 +200,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedDifferentIdentityCleanupOnSameRelayPreventsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
         let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_007)
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
@@ -232,8 +225,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedDifferentIdentityCleanupOnIndependentRelayAllowsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configurationA = Self.configuration(slot: "ssh-lifecycle-a", relayPort: 64_007)
         let configurationB = Self.configuration(slot: "ssh-lifecycle-b", relayPort: 64_008)
         workspace.configureRemoteConnection(configurationA, autoConnect: true)
@@ -259,8 +251,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func nonpersistentDisconnectDoesNotRetainStoppedController() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(
             Self.configuration(preserveAfterTerminalExit: false),
             autoConnect: true
@@ -277,8 +268,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedNonpersistentDisconnectRetainsOwnerForLaterCleanupRetry() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(
             Self.configuration(preserveAfterTerminalExit: false),
             autoConnect: true
@@ -303,8 +293,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func retainedOwnerMatchesStablePersistentIdentityAcrossConfigurationChanges() async throws {
         let runner = CleanupLifecycleRecordingRunner()
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(Self.configuration(), autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
@@ -333,8 +322,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedFinalCleanupSurvivesReplacementAndRetries() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0, 0])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         workspace.configureRemoteConnection(Self.configuration(slot: "ssh-lifecycle-a"), autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
 
@@ -371,8 +359,7 @@ struct RemoteSessionCleanupLifecycleTests {
     @Test
     func failedFinalCleanupTransfersRetryOwnershipToSameIdentityReplacement() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0])
-        let workspace = Workspace()
-        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        let workspace = Self.makeWorkspace(runner: runner)
         let configuration = Self.configuration(slot: "ssh-lifecycle-a")
         workspace.configureRemoteConnection(configuration, autoConnect: true)
         _ = try #require(await Self.nextBootstrapRequest(runner))
@@ -402,6 +389,16 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(replacementPersistentCleanup.contains("serve --persistent-stop --slot"))
         #expect(replacementPersistentCleanup.contains("'ssh-lifecycle-a'"))
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
+    }
+
+    private static func makeWorkspace(runner: CleanupLifecycleRecordingRunner) -> Workspace {
+        // This suite observes coordinator relay/slot cleanup via its runner.
+        // The broker also owns last-lease cleanup: keep it from launching real
+        // ssh -O exit and holding host-wide control-master locks between tests.
+        let broker = NativeSSHConnectionBroker(cleanupLauncher: { _ in })
+        let workspace = Workspace(nativeSSHConnectionBroker: broker)
+        workspace.remoteSessionProcessRunnerOverrideForTesting = runner
+        return workspace
     }
 
     private static func configuration(

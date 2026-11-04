@@ -370,6 +370,253 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         ))
     }
 
+    @Test("Claude's current hook session supersedes its launch selector", arguments: ["--session-id", "--resume", "-r"])
+    func claudeInProcessSwitchKeepsCurrentSessionLive(selector: String) throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            launchSessionArguments: [selector, "11111111-2222-3333-4444-555555555555"],
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        let owner = try #require(fixture.index.liveSessionOwner(
+            kind: "claude",
+            sessionID: fixture.sessionID,
+            revalidateProcessEvidence: false
+        ))
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness == .running)
+        #expect(owner.processID == fixture.processID)
+        #expect(owner.sessionID == fixture.sessionID)
+        #expect(fixture.index.liveSessionOwner(
+            kind: "claude",
+            sessionID: "11111111-2222-3333-4444-555555555555",
+            revalidateProcessEvidence: false
+        ) == nil)
+    }
+
+    @Test("Claude /clear or a same-session restart preserves saved resume state", arguments: [false, true])
+    func claudeClearPreservesSavedResumeState(restartSameSession: Bool) throws {
+        let workspace = Workspace(restorableAgentIndexProvider: { .empty })
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let oldSessionID = "11111111-2222-3333-4444-555555555555"
+        let originalFixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            launchSessionArguments: ["--resume", oldSessionID],
+            scopedProcess: true,
+            ownerWorkspaceID: workspace.id,
+            ownerSurfaceID: panelID
+        )
+        defer { originalFixture.cleanup() }
+        var binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume \(oldSessionID)",
+            cwd: originalFixture.agent.workingDirectory,
+            checkpointId: oldSessionID,
+            source: "agent-hook",
+            launchCommand: originalFixture.agent.launchCommand,
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        #expect(workspace.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        #expect(workspace.restoredAgentResumeStatesByPanelId[panelID] == .completedAgentExit)
+
+        // The same-session variant starts its new PID after SessionEnd, without
+        // relying on a later hook timestamp to authorize the old process.
+        let restartedFixture = restartSameSession ? try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            scopedProcess: true,
+            ownerWorkspaceID: workspace.id,
+            ownerSurfaceID: panelID,
+            requestedSessionID: oldSessionID
+        ) : nil
+        defer { restartedFixture?.cleanup() }
+        let fixture = restartedFixture ?? originalFixture
+        // SessionStart changes the conversation but not the process or its argv.
+        binding.checkpointId = fixture.sessionID
+        binding.command = "claude --resume \(fixture.sessionID)"
+        binding.cwd = fixture.agent.workingDirectory
+        binding.launchCommand = fixture.agent.launchCommand
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        let saved = workspace.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: fixture.index,
+            surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+        )
+        let terminal = try #require(saved.panels.first { $0.id == panelID }?.terminal)
+        #expect(terminal.agent?.sessionId == fixture.sessionID)
+        #expect(terminal.wasAgentRunning == true)
+        #expect(terminal.resumeBinding?.autoResume == true)
+        #expect(terminal.resumeBinding?.checkpointId == fixture.sessionID)
+    }
+
+    @Test("Current Claude hooks supersede fork and inherited launch identities")
+    func claudeCurrentHookSupersedesForkLaunchIdentity() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "current-session",
+            workingDirectory: nil
+        )
+        let process = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude", "--fork-session", "--session-id", "old-child"],
+            environment: ["CMUX_AGENT_SESSION_ID": "old-child"]
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+        #expect(validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .currentHookRecord))
+        #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
+    }
+
+    @Test("Claude resume titles defer to the current hook identity")
+    func claudeResumeTitleDefersToCurrentHookIdentity() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "current-session",
+            workingDirectory: nil
+        )
+        let process = CmuxTopProcessArguments(
+            arguments: ["/usr/local/bin/claude", "--resume", "validate ubn fix"],
+            environment: ["CMUX_AGENT_SESSION_ID": "old-session"]
+        )
+        let validator = CachedAgentProcessIdentityValidator()
+        #expect(validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .currentHookRecord))
+        #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
+    }
+
+    @Test("A fresh hook keeps a title-resumed Claude session live", arguments: ["--resume", "-r"])
+    func claudeResumeTitleKeepsFreshHookSessionLive(selector: String) throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            launchSessionArguments: [selector, "validate ubn fix"],
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        let entry = try #require(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        ))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.snapshot.sessionId == fixture.sessionID)
+    }
+
+    @Test("A cached hook cannot authenticate a changed or ambiguous Claude session", arguments: [
+        ["--session-id", "11111111-2222-3333-4444-555555555555"],
+        ["--resume", "validate ubn fix"],
+    ])
+    func cachedClaudeHookRequiresCurrentSessionIdentity(currentArguments: [String]) throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness == .running)
+        let identity = try #require(AgentPIDProcessIdentity(pid: pid_t(fixture.processID)))
+        let revalidated = fixture.index.revalidatingCachedProcesses(
+            against: CmuxTopProcessSnapshot(
+                processes: [],
+                sampledAt: Date(),
+                includesProcessDetails: true
+            ),
+            processArgumentsProvider: { processID in
+                guard processID == fixture.processID else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: [fixture.executable] + currentArguments,
+                    environment: [
+                        "CMUX_WORKSPACE_ID": fixture.ownerWorkspaceID.uuidString,
+                        "CMUX_SURFACE_ID": fixture.ownerSurfaceID.uuidString,
+                    ]
+                )
+            },
+            processIdentityProvider: { processID in
+                processID == fixture.processID ? identity : nil
+            }
+        )
+        #expect(
+            revalidated.entryForStablePanel(
+                workspaceId: fixture.ownerWorkspaceID,
+                panelId: fixture.ownerSurfaceID,
+                revalidateProcessEvidence: false
+            )?.processLiveness == .exited
+        )
+    }
+
+    @Test("Claude session switching does not authorize a reused PID")
+    func claudeInProcessSwitchRejectsReusedProcess() throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .staleGeneration,
+            launchSessionArguments: ["--resume", "11111111-2222-3333-4444-555555555555"],
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        #expect(fixture.index.liveSessionOwner(
+            kind: "claude",
+            sessionID: fixture.sessionID,
+            revalidateProcessEvidence: false
+        ) == nil)
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness != .running)
+    }
+
+    @Test("A replacement Claude hook session clears only the old completion", arguments: [false, true], [false, true])
+    func replacementClaudeHookSessionClearsCompletion(useDock: Bool, snapshotless: Bool) throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let dockPanel = TerminalPanel(workspaceId: dock.workspaceId)
+        dock.panels[dockPanel.id] = dockPanel
+        let workspacePanelID = try #require(workspace.focusedPanelId)
+        let panelID = useDock ? dockPanel.id : workspacePanelID
+        let lifecycle = useDock ? dock.restoredAgentLifecycle : workspace.restoredAgentLifecycle
+        var binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "claude --resume old-session",
+            checkpointId: "old-session",
+            source: "agent-hook",
+            autoResume: true
+        )
+        func publish() -> Bool {
+            useDock ? dock.setSurfaceResumeBinding(binding, panelId: panelID)
+                : workspace.setSurfaceResumeBinding(binding, panelId: panelID)
+        }
+        #expect(publish())
+        if useDock {
+            #expect(dock.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        } else {
+            #expect(workspace.clearSurfaceResumeBinding(panelId: panelID, agentSessionEnded: true))
+        }
+        #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+        #expect(publish())
+        #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+        if snapshotless {
+            lifecycle.setSnapshot(nil, panelId: panelID)
+            #expect(publish())
+            #expect(lifecycle.resumeStatesByPanelId[panelID] == .completedAgentExit)
+            lifecycle.setSnapshot(nil, panelId: panelID)
+        }
+        binding.checkpointId = "new-session"
+        #expect(publish())
+        #expect(lifecycle.resumeStatesByPanelId[panelID] != .completedAgentExit)
+        #expect(lifecycle.completedGeneration(panelId: panelID) == nil)
+        #expect(lifecycle.snapshotsByPanelId[panelID]?.sessionId == "new-session")
+    }
+
     @Test("A reused Claude PID with another session id is not an owner")
     func claudeSessionArgumentMustMatch() {
         let expectedSessionID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"

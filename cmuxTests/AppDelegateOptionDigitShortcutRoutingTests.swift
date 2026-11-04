@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -718,6 +719,11 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
 
     private func withIsolatedShortcutRoutingState(_ body: () async throws -> Void) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
+            let chiefEnabledKey = ChiefCatalogSection().enabled.userDefaultsKey
+            let originalChiefEnabled = UserDefaults.standard.object(forKey: chiefEnabledKey)
+            // Index zero and the numbered rows must refer to the fixture's
+            // terminal workspaces, without the optional persistent Home anchor.
+            ChiefSettings.setEnabled(false)
             let actionsWithPersistedShortcut = Set(
                 KeyboardShortcutSettings.Action.allCases.filter {
                     UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -749,6 +755,11 @@ struct AppDelegateOptionDigitShortcutRoutingTests {
                     }
                 }
                 AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+                if let originalChiefEnabled {
+                    UserDefaults.standard.set(originalChiefEnabled, forKey: chiefEnabledKey)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: chiefEnabledKey)
+                }
             }
 
             try await body()

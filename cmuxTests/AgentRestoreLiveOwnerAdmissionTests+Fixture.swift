@@ -77,6 +77,11 @@ extension AgentRestoreLiveOwnerAdmissionTests {
         kind: RestorableAgentKind = .grok,
         ownerState: OwnerState,
         launchOptions: [String] = [],
+        launchSessionArguments: [String]? = nil,
+        scopedProcess: Bool = false,
+        ownerWorkspaceID: UUID = UUID(),
+        ownerSurfaceID: UUID = UUID(),
+        requestedSessionID: String? = nil,
         corruptStoreKinds: Set<RestorableAgentKind> = []
     ) throws -> Fixture {
         let root = FileManager.default.temporaryDirectory
@@ -113,11 +118,11 @@ extension AgentRestoreLiveOwnerAdmissionTests {
             sessionID = "T-" + UUID().uuidString.lowercased()
             sessionArguments = []
         default:
-            sessionID = UUID().uuidString.lowercased()
+            sessionID = requestedSessionID ?? UUID().uuidString.lowercased()
             sessionArguments = ["--session-id", sessionID]
         }
         let executable = "/usr/local/bin/\(kind.rawValue)"
-        let launchArguments = [executable] + launchOptions + sessionArguments
+        let launchArguments = [executable] + launchOptions + (launchSessionArguments ?? sessionArguments)
         let ownerProcess: Process?
         let processID: Int
         if ownerState == .live || ownerState == .staleGeneration {
@@ -147,8 +152,6 @@ extension AgentRestoreLiveOwnerAdmissionTests {
                 source: "test"
             )
         )
-        let ownerWorkspaceID = UUID()
-        let ownerSurfaceID = UUID()
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
         let hookEnvironment = ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         try FileManager.default.createDirectory(at: hookStateDirectory, withIntermediateDirectories: true)
@@ -208,7 +211,10 @@ extension AgentRestoreLiveOwnerAdmissionTests {
                     // the nohup/setsid/daemonized shape from #11043.
                     return CmuxTopProcessArguments(
                         arguments: launchArguments,
-                        environment: [:]
+                        environment: scopedProcess ? [
+                            "CMUX_WORKSPACE_ID": ownerWorkspaceID.uuidString,
+                            "CMUX_SURFACE_ID": ownerSurfaceID.uuidString,
+                        ] : [:]
                     )
                 },
                 processPresenceProvider: { candidatePID in
@@ -255,6 +261,11 @@ extension AgentRestoreLiveOwnerAdmissionTests {
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
+        let transcriptPath = URL(fileURLWithPath: workingDirectory)
+            .appendingPathComponent("\(sessionID).jsonl").path
+        if kind == .claude {
+            try Data("{\"type\":\"user\"}\n".utf8).write(to: URL(fileURLWithPath: transcriptPath))
+        }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -267,6 +278,7 @@ extension AgentRestoreLiveOwnerAdmissionTests {
                     "pidStartMicroseconds": processIdentity.startMicroseconds,
                     "cwd": workingDirectory,
                     "isRestorable": true,
+                    "transcriptPath": transcriptPath,
                     "updatedAt": 1_800_110_043,
                     "launchCommand": [
                         "launcher": kind.rawValue,
