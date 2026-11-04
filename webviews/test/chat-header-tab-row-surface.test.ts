@@ -79,7 +79,8 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
       "focus-visible",
       "disabled",
     ] as const) {
-      // Nothing behind an icon at rest, focused or disabled; the hover pill only under the pointer; the filled
+      // Nothing behind an icon at rest or disabled; the hover pill under the pointer and on keyboard focus, never a
+      // ring (#34473: a fill highlight like ChatGPT's toolbar); the filled
       // rounded square only while its panel or menu is open (Leo, 2026-11-02: "FOR THE FUCKING STUPID BACKGROUND
       // ON THE FUCKING TOP RIGHT ICONS TO BE REMOVED"; his reference fills only the toggled-on button). Pressed
       // (its panel open), the glyph also takes the lit ink, as the App's pane toolbar toggles do (Leo, 2026-10-29:
@@ -133,7 +134,6 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
               image: style.backgroundImage,
               color: style.color,
               outline: style.outlineStyle,
-              outlineWidth: style.outlineWidth,
               shadow: style.boxShadow,
               glyph: getComputedStyle(node.firstElementChild!).color,
             };
@@ -149,21 +149,17 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
           const background =
             state === "pressed" || state === "pressed-hover" || state === "popup-open"
               ? "rgb(4, 5, 6)"
-              : state === "hover"
+              : state === "hover" || state === "focus-visible"
                 ? "rgb(1, 2, 3)"
                 : "rgba(0, 0, 0, 0)";
           expect(computed).toMatchObject({
             background,
             image: "none",
             color,
-            outline: state === "focus-visible" ? "solid" : "none",
+            outline: "none",
             shadow: "none",
             glyph: color,
           });
-          if (state === "focus-visible") {
-            expect(parseFloat(computed.outlineWidth)).toBeGreaterThan(0);
-            expect(parseFloat(computed.outlineWidth)).toBeLessThanOrEqual(1.5);
-          }
         } finally {
           await page.close();
         }

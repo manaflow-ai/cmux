@@ -19,7 +19,8 @@ const NO_FILL = /^(none|transparent)$/;
 // The pressed toggle's ink: the App's lit glyph (`--agent-lit-glyph`, Palette.litGlyph).
 const LIT_INK = /^var\(--agent-lit-glyph[,)]/;
 // A state that may draw the pill: the pointer on it, its panel open (pressed), or its menu open.
-const LIT_STATE = /:hover|\[aria-pressed=true\]|\[data-popup-open\]/;
+// Keyboard focus is a lit state too: it shows the hover pill (#34473).
+const LIT_STATE = /:hover|:focus-visible|\[aria-pressed=true\]|\[data-popup-open\]/;
 // A selector list's parts, split at its top-level commas only (not inside `:is(…)` or `:not(…)`).
 function parts(selector: string): string[] {
   const out: string[] = [];
@@ -86,20 +87,23 @@ test("no header tool draws a fill at rest, nor a border or shadow in any state",
   expect(boxed).toEqual([]);
 });
 
-test("the header tools' focus rule clears the shared focus gradient without drawing a fill", () => {
+test("the header tools' focus rule is the hover pill, never a ring", () => {
   // shared/styles.css paints an important gradient on a focused button; the header tool's own
-  // focus rule answers with an important `background-image:none`, and draws no fill of its own.
+  // focus rule answers with an important `background-image:none` and fills with the hover pill
+  // (#34473: a fill highlight like ChatGPT's toolbar, no bordered ring).
   const focus = rules().find(
     ({ file, selector }) =>
       file === "header/header.css" &&
       parts(selector).includes(".acpmux-header-tools .acpmux-header-tool:focus-visible"),
   );
   expect(focus?.body.get("background-image")).toBe("none");
-  for (const [property, value] of focus?.body ?? []) expect(isFill(property, value)).toBe(false);
-  expect(focus?.body.get("outline")).toMatch(/solid/);
+  expect(focus?.body.get("background-color")).toBe(
+    "var(--acpmux-header-tool-hover,color-mix(in srgb,var(--agent-text) 8%,transparent))",
+  );
+  expect(focus?.body.get("outline")).toMatch(/^none/);
 });
 
-test("an open panel's toggle reads as on by the filled rounded square and its lit ink, and focus keeps its ring", () => {
+test("an open panel's toggle reads as on by the filled rounded square and its lit ink, and focus draws no ring", () => {
   const all = rules().filter(({ file }) => file === "header/header.css");
   const rule = (selector: string) => all.find((candidate) => candidate.selector === selector)?.body;
   const rest = rule(".acpmux-header-tools .acpmux-header-tool");
@@ -151,5 +155,5 @@ test("an open panel's toggle reads as on by the filled rounded square and its li
     );
   expect(hoverFills.filter((fill) => !pressedWins(fill)).map(({ part }) => part)).toEqual([]);
   const focus = all.find(({ selector }) => selector === ".acpmux-header-tool:focus-visible")?.body.get("outline");
-  expect(focus).toMatch(/solid/);
+  expect(focus).toBe("none");
 });
