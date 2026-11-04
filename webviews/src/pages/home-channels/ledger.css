@@ -11,6 +11,9 @@
   --lg-solid: var(--cmux-surface-solid, Canvas);
   --lg-pad: var(--ds-space-4);
   --lg-mark: var(--ds-control-icon);
+  /* A thread or run status mark (.lg-status) and the thread row's border around it. */
+  --lg-status-dot: 10px;
+  --lg-thread-border: 1px;
   --lg-list: clamp(232px, 27vw, 296px);
   --lg-header: 44px;
   /* The thread and run sheet's widest; a wide pane keeps the conversation beside it. */
@@ -536,7 +539,7 @@
   width: 100%;
   height: var(--ds-control-primary);
   padding: 0 var(--ds-space-3) 0 0;
-  border: 1px solid var(--lg-line);
+  border: var(--lg-thread-border) solid var(--lg-line);
   border-radius: var(--ds-radius-control);
   background: var(--lg-fill);
   color: var(--page-text);
@@ -570,7 +573,7 @@
   font-weight: var(--weight-emphasis);
   /* To the messages' text column: the rest of the mark column after the row's 1 px border, the
      status mark's inset and its 10 px dot. */
-  padding-inline-start: calc(var(--lg-mark) - 10px - var(--ds-space-1) - 1px);
+  padding-inline-start: calc(var(--lg-mark) - var(--lg-status-dot) - var(--ds-space-1) - var(--lg-thread-border));
 }
 .lg-thread-row[data-status="resolved"] .lg-thread-title {
   color: var(--page-text-3);
@@ -624,8 +627,8 @@
 .lg-status {
   display: inline-block;
   flex: none;
-  width: 10px;
-  height: 10px;
+  width: var(--lg-status-dot);
+  height: var(--lg-status-dot);
   border-radius: 50%;
   box-sizing: border-box;
 }
