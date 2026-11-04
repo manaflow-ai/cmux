@@ -118,8 +118,24 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
-    bridge.receive(structuredClone(snapshot));
+    const query = new URLSearchParams(location.search);
+    const script = query.get("script");
+    const slot = query.get("slot");
+    if (!script && !slot) {
+      bridge.receive(structuredClone(snapshot));
+      return;
+    }
+    // `slot=` (an extension's renderer) and `script=` (the chat on a loop): scripts.ts, through the
+    // same `receive`.
+    void import("./scripts").then(({ applySlot, playScript }) => {
+      const base = applySlot(slot, snapshot);
+      window.cmuxAcpmuxBridge?.receive(structuredClone(base));
+      if (!script || scriptStarted) return;
+      scriptStarted = true;
+      playScript(script, base, (next) => window.cmuxAcpmuxBridge?.receive(next), { loop: query.get("loop") !== "0" });
+    });
   };
+  let scriptStarted = false;
   const next = (method: string | undefined) => {
     const after =
       method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
