@@ -29,7 +29,7 @@ final class CloudMachineSession {
     /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
     @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
     /// This Mac's own daemon identity: an app link socket that leads back to
-    /// it is refused after the handshake (`CloudAppLinks.checkNotLocal`).
+    /// it is refused after the handshake (`DaemonIdentity.checkNotLocal(local:)`, CmuxNextCloud).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
@@ -326,7 +326,7 @@ final class CloudMachineSession {
             }
         }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
-                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+                try identity.checkNotLocal(local: localIdentity())
             } catch {
                 self?.endAppLink(error, ticket: ticket.id)
                 throw error

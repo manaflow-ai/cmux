@@ -683,10 +683,13 @@ fn read_watch(
     unlisted: &mut HashMap<String, Chat>,
 ) -> std::io::Result<Option<Instant>> {
     let mut writer = stream.try_clone()?;
+    // `observer`: this connection only watches, so it keeps no acpmux daemon whose app has quit
+    // (acpmux `daemon/unused_exit.rs`); this daemon outlives the app while it holds shells.
     let initialize = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": 1,
         "clientInfo": {"name": "cmux-tui-agent-chat-notices", "version": "1"},
         "clientCapabilities": {},
+        "_meta": {"acpmux": {"observer": true}},
     }});
     let watch = json!({"jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch",
         "params": {"enabled": true, "limit": PAGE_SESSIONS}});
@@ -1295,6 +1298,20 @@ mod tests {
         let followed = follow(&Arc::downgrade(&mux), client, &mut chats);
         serve.join().expect("the fake acpmux");
         assert!(followed.is_err());
+    }
+
+    /// R-LIFECYCLE ORPHANS: the notices connection only watches, so it says so in its
+    /// `initialize`: once the app that started acpmux has quit, it keeps no acpmux daemon (this
+    /// daemon stays after a Keep Sessions quit with live shells, and so did acpmux and its router).
+    #[test]
+    fn the_notices_connection_says_it_only_observes() {
+        let mux = test_mux("notices-observer");
+        let mut chats = HashMap::new();
+        let (client, serve) = fake_acpmux(vec![list_reply(2, &[local("chat-1")], None)]);
+        let _ = follow(&Arc::downgrade(&mux), client, &mut chats);
+        let requests = serve.join().expect("the fake acpmux");
+        assert_eq!(requests[0]["method"], "initialize");
+        assert_eq!(requests[0]["params"]["_meta"]["acpmux"]["observer"], true, "{}", requests[0]);
     }
 
     #[test]
