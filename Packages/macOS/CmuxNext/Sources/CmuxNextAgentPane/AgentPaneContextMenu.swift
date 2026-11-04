@@ -102,6 +102,10 @@ enum AgentPaneContextMenu {
         var linkItems: ((URL) -> [NSMenuItem])? = nil
         /// A path part's rows after Open (``LinkMenu``); nil (or a nil answer): Copy Path.
         var pathItems: ((String) -> [NSMenuItem]?)? = nil
+        /// A chat part's Open on Right: the click's `chat.offer.open` (``AgentPaneOfferOpen``).
+        var openSession: ((String, Bool) -> Void)?
+        /// A chat part's Go to Chat, nil when no tab shows the chat (``AgentPaneOfferOpen/goTo(_:sender:in:)``).
+        var goToSession: ((String, Bool) -> (@MainActor () -> Void)?)?
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
@@ -246,7 +250,8 @@ enum AgentPaneContextMenu {
             image.append(copyImage)
         }
         let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open,
-                                       linkItems: actions.linkItems, pathItems: actions.pathItems) ?? []
+                                       linkItems: actions.linkItems, pathItems: actions.pathItems,
+                                       openSession: actions.openSession, goToSession: actions.goToSession) ?? []
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -435,5 +440,13 @@ enum AgentPaneMenuStrings {
 
     static var openInSideChat: String {
         String(localized: "agentPane.menu.openInSideChat", defaultValue: "Open in Side Chat", bundle: .module)
+    }
+
+    static var openOnRight: String {
+        String(localized: "agentPane.menu.openOnRight", defaultValue: "Open on Right", bundle: .module)
+    }
+
+    static var goToChat: String {
+        String(localized: "agentPane.menu.goToChat", defaultValue: "Go to Chat", bundle: .module)
     }
 }

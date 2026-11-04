@@ -843,7 +843,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
-            // cmux: an agent-message fold or notes row opens or closes (HomeStore.toggleAgentMessages).
+            // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
             if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
             // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
             if let url = intents?.feedRowURL(hit.row.ref.messageId) {
