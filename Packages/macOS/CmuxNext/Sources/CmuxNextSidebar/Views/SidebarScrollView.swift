@@ -105,14 +105,15 @@ final class SidebarScrollView: NSScrollView {
         }
     }
 
-    /// Scrolls the list by the withheld vertical movement (positive deltas show earlier rows).
+    /// Scrolls the list by the withheld vertical movement (positive deltas show earlier rows), within
+    /// the clip's own scroll range: its content insets count, as a scroll's do (the Needs You tray's).
     private func replayWithheld() {
         defer { withheldDeltaY = 0 }
-        guard withheldDeltaY != 0, let document = documentView else { return }
+        guard withheldDeltaY != 0, documentView != nil else { return }
         let clip = contentView
-        let range = max(0, document.frame.height - clip.bounds.height)
-        let step = clip.isFlipped ? -withheldDeltaY : withheldDeltaY
-        let y = min(max(clip.bounds.minY + step, 0), range)
+        var proposed = clip.bounds
+        proposed.origin.y += clip.isFlipped ? -withheldDeltaY : withheldDeltaY
+        let y = clip.constrainBoundsRect(proposed).minY
         guard y != clip.bounds.minY else { return }
         clip.scroll(to: NSPoint(x: clip.bounds.minX, y: y))
         reflectScrolledClipView(clip)
