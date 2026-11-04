@@ -111,8 +111,8 @@ struct AgentSessionOpenPlacementTests {
         try await Self.openTwice(stall: .milliseconds(1))
     }
 
-    /// The incident: the first run misses its 2 s deadline, then its retry comes with the same key.
+    /// The incident: the daemon answers past the old ten-second budget, and the retry comes with the same key.
     @Test func aCliOpenOnALateDaemonMakesTheSessionsOwnNamedWorkspace() async throws {
-        try await Self.openTwice(stall: .seconds(4))
+        try await Self.openTwice(stall: .seconds(12))
     }
 }
