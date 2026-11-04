@@ -2560,6 +2560,10 @@ path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_sign_yield.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_next_identity_probe.py"
 lane = "linux-guard"
 
