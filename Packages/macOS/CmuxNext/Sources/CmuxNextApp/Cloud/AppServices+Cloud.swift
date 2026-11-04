@@ -98,6 +98,15 @@ extension AppServices {
     /// `cloud.agentsStartWithoutAsking` off (``CloudAgentStartSetting``, on by default).
     var agentsAskBeforeUsingCloud: Bool { !CloudAgentStartSetting().delegated(in: settings?.snapshot.root ?? .object([:])) }
 
+    /// Whether a managed preference (docs/mdm) sets `cloud.agentsStartWithoutAsking`: the card then offers no Don't Ask Again.
+    var agentsAskingIsManaged: Bool { settings?.managedKeys[CloudAgentStartSetting.key] != nil }
+
+    /// The create card's Don't Ask Again, or nil (no switch) while a managed preference sets the key.
+    var stopAskingAgents: (@MainActor () async -> Void)? {
+        guard !agentsAskingIsManaged else { return nil }
+        return { [weak self] in await self?.letAgentsUseCloudWithoutAsking() }
+    }
+
     /// The create card's Don't Ask Again switch: the person's own click turns `cloud.agentsStartWithoutAsking` back on.
     func letAgentsUseCloudWithoutAsking() async {
         try? await settings?.setSetting(at: CloudAgentStartSetting.path, to: .bool(true), by: .user)
@@ -107,7 +116,7 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil },
-                                                                     stopAsking: { [weak self] in await self?.letAgentsUseCloudWithoutAsking() }) }
+                                                                     stopAsking: self?.stopAskingAgents) }
         // Agents create Cloud machines without asking unless the person turned asking on (Leo, 2026-11-04).
         cloud.agentsAskFirst = { [weak self] in self?.agentsAskBeforeUsingCloud ?? false }
         // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.

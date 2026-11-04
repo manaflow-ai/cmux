@@ -9,7 +9,6 @@ import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
-import CmuxNextSettings
 import Foundation
 import Observation
 import os
@@ -118,7 +117,7 @@ final class CloudService {
     @ObservationIgnored var confirmCreate: (@MainActor (CloudMachineCreateFlow.Prompt) async -> Bool)?
     /// Whether a create no person started asks first (set by AppServices: `cloud.agentsStartWithoutAsking` off,
     /// ``CloudAgentStartSetting``). Unset, nothing asks: agents use Cloud without asking by default.
-    @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { !CloudAgentStartSetting.defaultValue }
+    @ObservationIgnored var agentsAskFirst: @MainActor () -> Bool = { false }
     /// At the plan's cap: the card's pick for a person's create (nil: Not now), and the notice naming the machine paused to make room.
     @ObservationIgnored var chooseAtCap: (@MainActor (CloudMachineCap) async -> CloudMachineCap.Choice?)?
     @ObservationIgnored var madeRoom: (@MainActor (String) -> Void)?

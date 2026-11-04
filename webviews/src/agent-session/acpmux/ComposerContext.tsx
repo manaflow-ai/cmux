@@ -678,7 +678,7 @@ export function ComposerContext({
     cloudPicked && cloudWorksOn
       ? cloudWorksOn
       : cloudPicked || sandboxPicked
-        ? t(sandboxPicked ? "composer.sandboxed" : "composer.cloud")
+        ? t(cloudPicked ? "composer.cloud" : "composer.newMachine")
         : layout === "where-machine" && localMachine
           ? t(CONTEXT_LABELS.chooseMachine)
           : localMachine

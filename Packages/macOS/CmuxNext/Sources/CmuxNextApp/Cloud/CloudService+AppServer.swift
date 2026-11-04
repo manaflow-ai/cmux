@@ -178,9 +178,10 @@ extension CloudPresenter {
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
     /// The card asks only while the person turned asking on, so it carries a Don't Ask Again switch (Leo, 2026-11-04: "a
     /// cute toggle or checkmark"): flipping it is Create, and `stopAsking` lets agents create without asking from then on.
+    /// No `stopAsking` (a managed preference sets it) shows no switch.
     @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?,
                                          chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
-                                         stopAsking: @MainActor () async -> Void = {}) async -> Bool {
+                                         stopAsking: (@MainActor () async -> Void)? = nil) async -> Bool {
         let intro: String, machine: CloudMachineCreateFlow.Machine
         switch prompt {
         case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
@@ -189,9 +190,9 @@ extension CloudPresenter {
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks {
             guard window != nil else { return false }
-            switch await asks.choose(requestCard(intro: intro, lines: lines), asker: machine.askedBy, present: chatOpen) {
+            switch await asks.choose(requestCard(intro: intro, lines: lines, stopAsking: stopAsking != nil), asker: machine.askedBy, present: chatOpen) {
             case requestCreate?: return true
-            case requestStopAsking?: await stopAsking(); return true
+            case requestStopAsking?: await stopAsking?(); return true
             default: return false
             }
         }
@@ -206,10 +207,10 @@ extension CloudPresenter {
     static let requestCreate = "yes", requestStopAsking = "stopAsking"
 
     /// The sidebar card of a create no person started: Create (the yes), Cancel, and the Don't Ask Again switch.
-    static func requestCard(intro: String, lines: [String]) -> SidebarNoticeCard {
+    static func requestCard(intro: String, lines: [String], stopAsking: Bool) -> SidebarNoticeCard {
         let actions = [SidebarNoticeCard.Action(id: requestCreate, title: CloudStrings.createConfirmButton, prominent: true),
-                       SidebarNoticeCard.Action(id: "no", title: CloudStrings.cancel),
-                       SidebarNoticeCard.Action(id: requestStopAsking, title: CloudStrings.createStopAsking, isSwitch: true)]
+                       SidebarNoticeCard.Action(id: "no", title: CloudStrings.cancel)]
+            + (stopAsking ? [SidebarNoticeCard.Action(id: requestStopAsking, title: CloudStrings.createStopAsking, isSwitch: true)] : [])
         return SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: "cloud", title: CloudStrings.createConfirmTitle, detail: intro, lines: lines,
                                  actions: actions, dismissLabel: CloudStrings.cancel)
     }

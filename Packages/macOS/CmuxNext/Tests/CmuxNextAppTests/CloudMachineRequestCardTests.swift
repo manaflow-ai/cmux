@@ -25,7 +25,7 @@ import Testing
     }
 
     /// Starts the agent's request and returns it once its card is up; `stopAsking` is the card's Don't Ask Again.
-    func ask(_ services: AppServices, in window: NSWindow?, stopAsking: @escaping @MainActor () async -> Void = {}) async throws -> (Task<Bool, Never>, SidebarNoticeCard) {
+    func ask(_ services: AppServices, in window: NSWindow?, stopAsking: (@MainActor () async -> Void)? = {}) async throws -> (Task<Bool, Never>, SidebarNoticeCard) {
         let asks = services.machineAsks
         let answer = Task { await CloudPresenter.confirmCreate(.agentRequest(Self.machine), in: window, asks: asks, stopAsking: stopAsking) }
         let deadline = ContinuousClock.now + .seconds(5)
@@ -70,6 +70,15 @@ import Testing
         #expect(await answer.value, "Don't Ask Again did not create the machine")
         #expect(stopped.count == 1, "Don't Ask Again left asking on")
         #expect(services.machineAsks.card == nil)
+    }
+
+    /// A managed preference that sets the key leaves the card without the switch: Create and Cancel only.
+    @Test func aManagedSettingShowsNoSwitch() async throws {
+        let (services, window) = make()
+        defer { window.close() }
+        let (answer, card) = try await ask(services, in: window, stopAsking: nil)
+        defer { answer.cancel() }
+        #expect(card.actions.map(\.title) == [CloudStrings.createConfirmButton, CloudStrings.cancel])
     }
 
     /// The person's Don't Ask Again writes `cloud.agentsStartWithoutAsking` on, so the next create asks nobody.

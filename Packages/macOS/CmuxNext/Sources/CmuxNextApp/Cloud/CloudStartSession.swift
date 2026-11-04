@@ -69,19 +69,23 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation))
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account, byPerson: Self.startsAsPerson(invocation, delegated: delegated),
+                                               capCard: CloudHandlers.origin(of: invocation) == .user)
                 }
             }
         }
     }
 
     /// Whether a run that is not an agent chat's (a terminal's or a script's `cmux cloud start-session`,
-    /// and `cmux cloud start-chat` through it) is the person's own: only their gesture. Any other run's
-    /// machine is still created with no "Create a Cloud machine?" card while the person lets agents use
-    /// Cloud without asking (`cloud.agentsStartWithoutAsking`, on by default; ``CloudService/agentsAskFirst``),
-    /// and a refusal at the plan's cap answers the run instead of opening the cap card nobody watches.
-    static func startsAsPerson(_ invocation: ActionInvocation) -> Bool {
-        CloudHandlers.origin(of: invocation) == .user
+    /// and `cmux cloud start-chat` through it) starts as the person's Start would: their gesture, or any
+    /// run while they let agents use Cloud without asking (`cloud.agentsStartWithoutAsking`, on by default),
+    /// since an agent in a terminal looks like the person there. Then its machine is created with no
+    /// "Create a Cloud machine?" card and a paused one resumes, as an agent chat's run already does
+    /// (``agentAsk``). Only the person's own run opens the cap card (`capCard`): any other run's refusal at
+    /// the plan's cap answers the run instead of a card nobody watches.
+    static func startsAsPerson(_ invocation: ActionInvocation, delegated: Bool) -> Bool {
+        CloudHandlers.origin(of: invocation) == .user || !CloudStartCore().agentAsksFirst(delegated: delegated)
     }
 
     /// Whether the run is an agent's: a cmux MCP run (by its outermost caller, ``ActionRunScope``),
@@ -114,7 +118,8 @@ struct CloudStartSession {
             let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
             return CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
-                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: invocation.callerAgentSession, revealing: false)
+                    // Nobody clicked: a refusal at the plan's cap answers the agent's run, not a cap card.
+                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: false, askedBy: invocation.callerAgentSession, revealing: false)
                 }
             }
         }
@@ -223,11 +228,12 @@ struct CloudStartSession {
     /// nothing in the account signed in now.
     /// `byPerson`: the person's own gesture (a palette or menu run, or Start on an agent's card);
     /// it decides how the machine is created and connected.
-    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, askedBy: String? = nil,
+    /// `capCard`: a refusal at the plan's cap opens the cap card (the person is there); false answers the run with it.
+    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        let session = try await machine(request, invocation, account: account, byPerson: byPerson, askedBy: askedBy)
+        let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
@@ -363,7 +369,7 @@ struct CloudStartSession {
     static let listFresh: Duration = .seconds(15)
 
     /// The machine named by id, else by name, else a new one with that name.
-    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, askedBy: String?) async throws -> CloudMachineSession {
+    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
@@ -388,7 +394,7 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return try await cloud.createMachine(name: name, startedByPerson: byPerson, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
             }
         } catch is CancellationError {
             throw CancellationError()
