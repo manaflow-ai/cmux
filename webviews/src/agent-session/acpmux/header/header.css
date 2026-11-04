@@ -10,6 +10,9 @@
 .acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
 .acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step));min-width:0}
 .acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
+/* HeaderIcon's glyph, SF Symbol mask or pack svg alike: the compact icon box (16px at the default interface size), so
+   it scales with the interface as the tool square does. */
+.acpmux-header-glyph{width:var(--grid-icon-box,16px);height:var(--grid-icon-box,16px)}
 /* Every tool is one square from the layout grid (Leo 2026-11-04: "at least give our button square padding. so all those
    things are proportional"): the compact highlight's side (--grid-pill, 24px at the default interface size), its
    HEADER_GLYPH icon centred with equal padding on every side, the hover pill that same square with the controls'
