@@ -209,6 +209,7 @@ public final class AgentPaneView: NSView {
             else { return nil }
             self.page = page
             pageEvents = provider
+            model.mediaOrigin = AgentPaneMediaGrants.pageOrigin
             webView = page.webKitView
             inputReadiness = page.inputReadiness
             dictation = AgentPaneDictation(send: { [weak provider] update in
