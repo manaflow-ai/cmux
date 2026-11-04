@@ -1,5 +1,6 @@
 import { componentEntry } from "../../gallery/format";
 import { OpenAppCard } from "./OpenAppCard";
+import { translate } from "./i18n";
 
 function OpenAppCardGallery() {
   return (
@@ -11,7 +12,7 @@ function OpenAppCardGallery() {
 
 export default componentEntry({
   id: "agent-pane.cloud-open-app-card",
-  title: "Cloud Open app card",
+  title: translate("cloudPreview.openApp"),
   area: "Agent pane",
   pane: true,
   covers: ["agent-session/acpmux/OpenAppCard.tsx#OpenAppCard"],
