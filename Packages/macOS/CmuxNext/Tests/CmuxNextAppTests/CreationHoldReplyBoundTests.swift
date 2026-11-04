@@ -55,8 +55,10 @@ struct CreationHoldReplyBoundTests {
             // Within the bound and a margin, the hold ends and every key went on, in order, to the focused terminal.
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) && replayed.count >= 10 }, within: .seconds(4),
                                                       report: { "after the bound: holding \(coordinator.isHolding(in: window)), replayed \(replayed.map(\.text))" })
-            #expect(replayed.map(\.text).joined() == "echo held\r", "the held keys went on out of order or not all: \(replayed.map(\.text))")
-            #expect(replayed.allSatisfy(\.terminalHadKeyboard), "a held key went on while no terminal had the keyboard")
+            let wentOn = replayed.map(\.text)
+            #expect(wentOn.joined() == "echo held\r", "the held keys went on out of order or not all: \(wentOn)")
+            let withoutTerminal = replayed.filter { !$0.terminalHadKeyboard }.map(\.text)
+            #expect(withoutTerminal.isEmpty, "held keys went on while no terminal had the keyboard: \(withoutTerminal)")
             if let last = replayed.last { #expect(last.at - typed < .seconds(3), "the keys waited \(last.at - typed), past the bound") }
             #expect(kill(pid, SIGCONT) == 0)
             resumed = true
@@ -104,7 +106,8 @@ struct CreationHoldReplyBoundTests {
             }
             try await PasswordManagerRouteTests.until({ !coordinator.isHolding(in: window) && replayed.count >= 4 }, within: .seconds(4),
                                                       report: { "after the bound: holding \(coordinator.isHolding(in: window)), replayed \(replayed.map(\.text))" })
-            #expect(replayed.map(\.text).joined() == "news", "the held keys went on out of order or not all: \(replayed.map(\.text))")
+            let wentOn = replayed.map(\.text)
+            #expect(wentOn.joined() == "news", "the held keys went on out of order or not all: \(wentOn)")
             if let last = replayed.last { #expect(last.at - typed < .seconds(3), "the keys waited \(last.at - typed), past the bound") }
             coordinator.resolve(ticket, landed: false, in: window)
         }
