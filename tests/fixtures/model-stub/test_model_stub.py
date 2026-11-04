@@ -148,9 +148,37 @@ class StubTest(unittest.TestCase):
         final = events[-1][1]["response"]
         self.assertEqual(final["status"], "completed")
         self.assertEqual(final["output"][0]["content"][0]["text"], deltas)
-        _, plain = self.responses(items, False, [])
+        _, plain = self.responses(items, False, [{"type": "function", "name": "shell"}])
         self.assertEqual(json.loads(plain)["output"][0]["content"][0]["text"], deltas)
         self.assertEqual(self.rows()[-1]["protocol"], "openai")
+
+    def test_tool_inputs_keep_quotes_newlines_and_regex_escapes(self) -> None:
+        script = {"version": 1, "steps": [{"shell": "x"}, {"tool": {"name": "Fetch", "input": {"a": "{{result.0}}", "b": ["{{result.0~ (\\d+)}}"], "n": 3}}}]}
+        server, _ = model_stub.serve(script, "n")
+        try:
+            msgs = [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "a", "content": 'say "hi"\nline2 42\\'}]}]
+            _, text = post(f"http://127.0.0.1:{server.server_address[1]}/v1/messages", {"messages": msgs, "tools": [{"name": "Fetch"}]})
+            self.assertEqual(json.loads(text)["content"][0]["input"], {"a": 'say "hi"\nline2 42\\', "b": ["42"], "n": 3})
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_side_requests_with_no_tools_get_text_and_never_a_step(self) -> None:
+        _, text = post(self.base + "/v1/messages", {"messages": [{"role": "user", "content": "title?"}]})
+        self.assertEqual(json.loads(text)["content"][0]["type"], "text")
+        self.assertEqual((self.rows()[-1]["step"], self.rows()[-1]["side"]), (-1, True))
+
+    def test_a_step_that_does_not_fit_is_a_500_with_a_reason(self) -> None:
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            self.responses([], False, [{"type": "function", "name": "apply_patch"}])
+        self.assertEqual(e.exception.code, 500)
+        self.assertIn("no shell tool", json.loads(e.exception.read())["error"]["message"])
+        self.assertIn("error", self.rows()[-1])
+
+    def test_responses_shell_command_tool(self) -> None:
+        _, text = self.responses([], False, [{"type": "function", "name": "shell_command"}])
+        item = json.loads(text)["output"][0]
+        self.assertEqual((item["name"], json.loads(item["arguments"])), ("shell_command", {"command": "printenv NONCE_VAR"}))
 
     def test_unknown_path_is_404_and_logged(self) -> None:
         with self.assertRaises(urllib.error.HTTPError) as e:
@@ -167,6 +195,16 @@ class ScriptAndCliTest(unittest.TestCase):
                 model_stub.load_script(f.name)
         finally:
             os.unlink(f.name)
+
+    def test_load_script_refuses_a_bad_regex_and_a_nameless_tool(self) -> None:
+        for steps in ([{"text": "{{result.0~(}}"}], [{"tool": {"input": {}}}], [{"text": 3}]):
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+                json.dump({"version": 1, "steps": steps}, f)
+            try:
+                with self.assertRaises(ValueError, msg=steps):
+                    model_stub.load_script(f.name)
+            finally:
+                os.unlink(f.name)
 
     def test_shipped_scripts_load(self) -> None:
         for name in sorted(os.listdir(HERE)):

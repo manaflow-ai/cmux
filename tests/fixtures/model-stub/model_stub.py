@@ -19,7 +19,10 @@ the same answer. Past the last step the last step repeats. A step is one of:
                                      for "input").
 Text and commands are templates: {{nonce}} is --nonce, {{result.N}} is the text of the conversation's Nth tool
 result (from 0, trimmed), and {{result.N~REGEX}} is the first group of REGEX (case-insensitive, dot matches
-newline) in that text, or "" when it does not match. Without --script the stub replies "Stub reply {{nonce}}.".
+newline) in that text, or "" when it does not match (a REGEX cannot end in "}"). In a tool step's input every
+string is filled in on its own. Without --script the stub replies "Stub reply {{nonce}}.". A request that offers no
+tools (Claude Code's title and topic side requests) always gets a short text reply and is logged with "side": true,
+so it never takes a script step.
 
 Every request is one JSON line in --log: the protocol, path, model, whether it streamed, the step it got, the tool
 names offered and the SHA-256 of the credential it carried (Authorization bearer or x-api-key, never the value), so
@@ -36,6 +39,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 import threading
@@ -64,6 +68,16 @@ def load_script(path: str | None) -> dict[str, Any]:
     for i, step in enumerate(script["steps"]):
         if not isinstance(step, dict) or len({"text", "shell", "tool"} & step.keys()) != 1:
             raise ValueError(f"{path}: step {i} must have exactly one of text, shell or tool")
+        if "tool" in step and not (isinstance(step["tool"], dict) and isinstance(step["tool"].get("name"), str)):
+            raise ValueError(f"{path}: step {i}: a tool step is {{\"tool\": {{\"name\": ..., \"input\": {{...}}}}}}")
+        if ("text" in step and not isinstance(step["text"], str)) or ("shell" in step and not isinstance(step["shell"], str)):
+            raise ValueError(f"{path}: step {i}: text and shell are strings")
+        for m in _TEMPLATE.finditer(json.dumps(step)):
+            if m.group(3) is not None:
+                try:
+                    re.compile(json.loads(f'"{m.group(3)}"'))
+                except (re.error, ValueError) as e:
+                    raise ValueError(f"{path}: step {i}: bad template regex {m.group(3)!r}: {e}") from None
     return script
 
 
@@ -79,6 +93,17 @@ def render(template: str, nonce: str, results: list[str]) -> str:
         return (found.group(1) if found and found.groups() else found.group(0) if found else "").strip()
 
     return _TEMPLATE.sub(sub, template)
+
+
+def render_value(value: Any, nonce: str, results: list[str]) -> Any:
+    """A tool input with every string filled in on its own (so a result's quotes and newlines stay data)."""
+    if isinstance(value, str):
+        return render(value, nonce, results)
+    if isinstance(value, list):
+        return [render_value(v, nonce, results) for v in value]
+    if isinstance(value, dict):
+        return {k: render_value(v, nonce, results) for k, v in value.items()}
+    return value
 
 
 def _text_of(content: Any) -> str:
@@ -139,7 +164,7 @@ def credential_sha256(headers: Any) -> str:
 def anthropic_tool_call(step: dict[str, Any], offered: list[str], nonce: str, results: list[str]) -> dict[str, Any]:
     if "tool" in step:
         t = step["tool"]
-        return {"name": t["name"], "input": json.loads(render(json.dumps(t.get("input", t.get("arguments", {}))), nonce, results))}
+        return {"name": t["name"], "input": render_value(t.get("input", t.get("arguments", {})), nonce, results)}
     return {"name": "Bash", "input": {"command": render(step["shell"], nonce, results), "description": "model stub step"}}
 
 
@@ -147,14 +172,18 @@ def openai_tool_call(step: dict[str, Any], offered: list[str], nonce: str, resul
     """{"kind": "function_call", "name", "arguments": str} or {"kind": "local_shell_call", "command": [...]}."""
     if "tool" in step:
         t = step["tool"]
-        args = json.loads(render(json.dumps(t.get("arguments", t.get("input", {}))), nonce, results))
+        args = render_value(t.get("arguments", t.get("input", {})), nonce, results)
         return {"kind": "function_call", "name": t["name"], "arguments": json.dumps(args)}
     cmd = render(step["shell"], nonce, results)
     if "exec_command" in offered:
         return {"kind": "function_call", "name": "exec_command", "arguments": json.dumps({"cmd": cmd})}
-    if "shell" in offered or "local_shell" not in offered:
+    if "shell_command" in offered:
+        return {"kind": "function_call", "name": "shell_command", "arguments": json.dumps({"command": cmd})}
+    if "shell" in offered:
         return {"kind": "function_call", "name": "shell", "arguments": json.dumps({"command": ["bash", "-lc", cmd]})}
-    return {"kind": "local_shell_call", "command": ["bash", "-lc", cmd]}
+    if "local_shell" in offered:
+        return {"kind": "local_shell_call", "command": ["bash", "-lc", cmd]}
+    raise ValueError(f"a shell step, but the client offered no shell tool (offered: {', '.join(offered) or 'none'})")
 
 
 class Stub:
@@ -163,7 +192,9 @@ class Stub:
         self.rows: list[dict[str, Any]] = []
         self.lock = threading.Lock()
 
-    def step(self, results: list[str]) -> tuple[int, dict[str, Any]]:
+    def step(self, results: list[str], offered: list[str]) -> tuple[int, dict[str, Any]]:
+        if not offered:
+            return -1, {"text": "Stub side reply."}
         steps = self.script["steps"]
         i = min(len(results), len(steps) - 1)
         return i, steps[i]
@@ -223,6 +254,9 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             return self._json(200, {})
 
         def do_POST(self) -> None:
+            if self.headers.get("transfer-encoding") and not self.headers.get("content-length"):
+                self.close_connection = True
+                return self._json(411, {"error": {"type": "invalid_request_error", "message": "the model stub needs a content-length"}})
             n = int(self.headers.get("content-length") or 0)
             raw = self.rfile.read(n) if n else b""
             try:
@@ -237,25 +271,24 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             if path.endswith("/messages/count_tokens"):
                 stub.log({"protocol": "anthropic", **row})
                 return self._json(200, {"input_tokens": 10})
-            if path.endswith("/messages"):
-                return self.anthropic(body, row)
-            if path.endswith("/responses"):
-                return self.openai(body, row)
+            try:
+                if path.endswith("/messages"):
+                    return self.anthropic(body, row)
+                if path.endswith("/responses"):
+                    return self.openai(body, row)
+            except Exception as e:  # a script that does not fit the request: say so, never drop the connection
+                stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "error": str(e)})
+                kind = {"type": "error", "error": {"type": "api_error", "message": f"model stub: {e}"}} if path.endswith("/messages") else {"error": {"type": "server_error", "message": f"model stub: {e}"}}
+                return self._json(500, kind)
             stub.log({"protocol": "-", **row})
             return self._json(404, {"error": {"type": "not_found_error", "message": f"the model stub does not serve {path}"}})
 
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             results = anthropic_results(body)
-            i, step = stub.step(results)
-            stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i})
+            i, step = stub.step(results, row["tools"])
+            content, stop = self.anthropic_content(i, step, row["tools"], results)
+            stub.log({"protocol": "anthropic", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {})})
             model = body.get("model") or "stub-model"
-            if "text" in step:
-                content = [{"type": "text", "text": render(step["text"], stub.nonce, results)}]
-                stop = "end_turn"
-            else:
-                call = anthropic_tool_call(step, row["tools"], stub.nonce, results)
-                content = [{"type": "tool_use", "id": f"toolu_stub{i:02d}{uuid.uuid4().hex[:8]}", **call}]
-                stop = "tool_use"
             usage = {"input_tokens": 10, "output_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
             msg = {"id": f"msg_stub_{uuid.uuid4().hex[:12]}", "type": "message", "role": "assistant", "model": model}
             if not body.get("stream"):
@@ -273,24 +306,31 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
             self._sse("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": None}, "usage": {"output_tokens": 5}})
             self._sse("message_stop", {"type": "message_stop"})
 
-        def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
-            results = openai_results(body)
-            i, step = stub.step(results)
-            stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i})
-            rid = f"resp_stub_{uuid.uuid4().hex[:12]}"
+        def anthropic_content(self, i: int, step: dict[str, Any], offered: list[str], results: list[str]) -> tuple[list[dict[str, Any]], str]:
+            if "text" in step:
+                return [{"type": "text", "text": render(step["text"], stub.nonce, results)}], "end_turn"
+            call = anthropic_tool_call(step, offered, stub.nonce, results)
+            return [{"type": "tool_use", "id": f"toolu_stub{i:02d}{uuid.uuid4().hex[:8]}", **call}], "tool_use"
+
+        def openai_item(self, i: int, step: dict[str, Any], offered: list[str], results: list[str]) -> dict[str, Any]:
             if "text" in step:
                 text = render(step["text"], stub.nonce, results)
-                item = {"type": "message", "id": f"msg_stub_{uuid.uuid4().hex[:8]}", "role": "assistant", "status": "completed",
+                return {"type": "message", "id": f"msg_stub_{uuid.uuid4().hex[:8]}", "role": "assistant", "status": "completed",
                         "content": [{"type": "output_text", "text": text, "annotations": []}]}
-            else:
-                call = openai_tool_call(step, row["tools"], stub.nonce, results)
-                call_id = f"call_stub{i:02d}{uuid.uuid4().hex[:8]}"
-                if call["kind"] == "function_call":
-                    item = {"type": "function_call", "id": f"fc_stub_{uuid.uuid4().hex[:8]}", "call_id": call_id, "name": call["name"],
-                            "arguments": call["arguments"], "status": "completed"}
-                else:
-                    item = {"type": "local_shell_call", "id": f"lsh_stub_{uuid.uuid4().hex[:8]}", "call_id": call_id, "status": "completed",
-                            "action": {"type": "exec", "command": call["command"], "env": {}}}
+            call = openai_tool_call(step, offered, stub.nonce, results)
+            call_id = f"call_stub{i:02d}{uuid.uuid4().hex[:8]}"
+            if call["kind"] == "function_call":
+                return {"type": "function_call", "id": f"fc_stub_{uuid.uuid4().hex[:8]}", "call_id": call_id, "name": call["name"],
+                        "arguments": call["arguments"], "status": "completed"}
+            return {"type": "local_shell_call", "id": f"lsh_stub_{uuid.uuid4().hex[:8]}", "call_id": call_id, "status": "completed",
+                    "action": {"type": "exec", "command": call["command"], "env": {}}}
+
+        def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
+            results = openai_results(body)
+            i, step = stub.step(results, row["tools"])
+            item = self.openai_item(i, step, row["tools"], results)
+            stub.log({"protocol": "openai", **row, "tool_results": len(results), "step": i, **({"side": True} if i < 0 else {})})
+            rid = f"resp_stub_{uuid.uuid4().hex[:12]}"
             usage = {"input_tokens": 10, "input_tokens_details": {"cached_tokens": 0}, "output_tokens": 5,
                      "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 15}
             response = {"id": rid, "object": "response", "created_at": int(time.time()), "model": body.get("model") or "stub-model",
@@ -348,9 +388,11 @@ def main(argv: list[str]) -> int:
     server = ThreadingHTTPServer((a.host, a.port), make_handler(stub))
     server.daemon_threads = True
     ready = json.dumps({"port": server.server_address[1], "url": f"http://{a.host}:{server.server_address[1]}", "version": STUB_VERSION, "nonce": nonce})
-    if a.ready_file:
-        with open(a.ready_file, "w", encoding="utf-8") as f:
+    if a.ready_file:  # whole or absent: a poller never reads half a line
+        tmp = f"{a.ready_file}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
             f.write(ready + "\n")
+        os.replace(tmp, a.ready_file)
     print(ready, flush=True)
     try:
         server.serve_forever()
