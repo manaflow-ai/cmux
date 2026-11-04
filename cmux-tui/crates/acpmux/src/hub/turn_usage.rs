@@ -22,7 +22,7 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     if let Some(model) = current_model(&meta) {
         fields.insert("model".into(), json!(model));
     }
-    let mut turn = if let Some(claude) = result.pointer("/_meta/claude") {
+    let turn = if let Some(claude) = result.pointer("/_meta/claude") {
         let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
         let mut turn = TurnUsage {
             cost_usd: None,
