@@ -1642,7 +1642,6 @@ export function Picker({
   sections,
   align,
   warnUnrestricted = false,
-  returnFocus = true,
   heading,
   tooltip,
   overBackdrop = false,
@@ -1654,7 +1653,6 @@ export function Picker({
   sections: Section[];
   align: "start" | "end";
   warnUnrestricted?: boolean;
-  returnFocus?: boolean;
   heading?: string;
   tooltip?: string;
   /** Kept for callers that opened above the backdrop; MenuPopup owns the shared portal now. */
@@ -1693,7 +1691,10 @@ export function Picker({
           label={heading ?? label}
           side="top"
           align={align}
-          finalFocus={returnFocus ? undefined : false}
+          // Pointer closes return to the opener (the prompt). If an action deliberately focuses a
+          // different field, Menu's focusAfterClose detects that and leaves it there; keeping the
+          // shared policy here also preserves prompt focus when a native capture is cancelled.
+          finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className, overBackdrop && "acpmux-menu-over-backdrop")}
         >
           {heading && (
