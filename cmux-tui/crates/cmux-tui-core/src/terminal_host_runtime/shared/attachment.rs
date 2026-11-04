@@ -13,6 +13,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+/// The longest a frame other than the input port's own waits for the port's earlier keys (S1.6b): as long as one
+/// frame write may block on a host socket.
+const INPUT_ORDER_WAIT: Duration = Duration::from_secs(2);
+
 pub(crate) use super::super::sys::SpawnedHostProcess;
 use super::super::sys::{HostStream, PtyCustody, connect_with_retry};
 use super::super::*;
@@ -131,6 +135,9 @@ pub struct HostAttachment {
     pub(crate) launch_activation_pending: bool,
     /// The owner's copy of this host's PTY master (`pty_custody.rs`).
     pub(crate) pty_custody: Option<PtyCustody>,
+    /// The terminal's input port order (R-DAEMON-STATE S1.6b): every other frame this attachment writes waits until
+    /// the port wrote the keys it took before, so no frame passes a key. Set by the terminal that owns the attachment.
+    pub(crate) input_order: Option<crate::surface::input_port::PortOrder>,
 }
 
 impl std::fmt::Debug for HostAttachment {
@@ -189,7 +196,27 @@ impl HostAttachment {
     }
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        self.wait_input_order();
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The terminal's input port order for this attachment's frames (S1.6b).
+    pub(crate) fn set_input_order(&mut self, order: crate::surface::input_port::PortOrder) {
+        self.input_order = Some(order);
+    }
+
+    /// Before a frame other than the port's own: the keys the port took before are written first (S1.6b).
+    pub(crate) fn wait_input_order(&self) {
+        if let Some(order) = &self.input_order {
+            order
+                .barrier(Instant::now().checked_add(INPUT_ORDER_WAIT).unwrap_or_else(Instant::now));
+        }
+    }
+
+    /// The writer for a frame other than the port's own, after the port's earlier keys (S1.6b).
+    fn direct_writer(&self) -> std::sync::MutexGuard<'_, HostStream> {
+        self.wait_input_order();
+        self.writer.lock().recover_poison()
     }
 
     /// The route the terminal's input port writes this connection's interactive input on.
@@ -255,7 +282,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
             if result.is_err() {
                 let _ = writer.shutdown(std::net::Shutdown::Both);
@@ -329,7 +356,7 @@ impl HostAttachment {
         let mut frame = Frame::new(MessageKind::ViewerSize, payload);
         frame.version = self.protocol_version;
         frame.request_id = request_id;
-        let written = write_frame(&mut *self.writer.lock().recover_poison(), &frame).is_ok();
+        let written = write_frame(&mut *self.direct_writer(), &frame).is_ok();
         drop(viewer_size);
         if !written {
             self.control_responses.waiters.lock().recover_poison().remove(&request_id);
@@ -401,7 +428,7 @@ impl HostAttachment {
         frame.version = self.protocol_version;
         frame.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             write_frame(&mut *writer, &frame).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {
@@ -481,7 +508,7 @@ impl HostAttachment {
         request.version = self.protocol_version;
         request.request_id = request_id;
         let write_result = {
-            let mut writer = self.writer.lock().recover_poison();
+            let mut writer = self.direct_writer();
             write_frame(&mut *writer, &request).map_err(protocol_io_error)
         };
         if let Err(error) = write_result {

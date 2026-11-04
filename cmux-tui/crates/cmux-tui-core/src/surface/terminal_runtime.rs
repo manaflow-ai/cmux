@@ -69,6 +69,10 @@ impl PtyTerminalRuntime {
     #[cfg(any(unix, windows))]
     pub(super) fn replace_runtime(&self, runtime: &mut PtyRuntime, next: PtyRuntime) {
         *runtime = next;
+        // The new connection's other frames go after the keys the port took (S1.6b).
+        if let PtyRuntime::Hosted(host) = runtime {
+            host.set_input_order(self.input_port.order());
+        }
         self.input_route.store(Self::input_route_of(runtime));
     }
 
