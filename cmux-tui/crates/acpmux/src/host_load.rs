@@ -5,7 +5,7 @@
 //!
 //! Every field but `at` is left out when it cannot be read: off Linux most are,
 //! and the command still prints `at` and exits 0. Reads only: it never starts a
-//! daemon, and a daemon that does not answer quickly leaves `busy`,
+//! daemon, and a daemon that does not answer within `DAEMON_WAIT` leaves `busy`,
 //! `localTurns` and `heavy` out.
 //!
 //! `heavy` is the heaviest known build or test the daemon's agents run now: the
@@ -21,7 +21,7 @@ use std::time::Duration;
 #[cfg(target_os = "linux")]
 const CPU_WINDOW: Duration = Duration::from_secs(1);
 /// How long the daemon has to say whether a turn runs.
-const DAEMON_WAIT: Duration = Duration::from_millis(1500);
+const DAEMON_WAIT: Duration = crate::rpc::ANSWER_WAIT;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
