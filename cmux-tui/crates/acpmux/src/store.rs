@@ -838,6 +838,14 @@ pub trait Store: Send + Sync {
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// Waits up to `timeout` until every record appended so far is durable; false when the time
+    /// ran out. For tests and tools: a request never blocks on the disk. The Local and Memory
+    /// stores do not sync an append, so they return true at once (their appends are as durable
+    /// as they will be until `flush`).
+    fn wait_durable(&self, timeout: std::time::Duration) -> Result<bool> {
+        let _ = timeout;
+        Ok(true)
+    }
     /// The daemon's shutdown is done: from now on every write is refused. It lets go of
     /// `daemon.lock` before its process exits, so the next daemon may already read this store;
     /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
@@ -979,6 +987,19 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
         StoreMode::Memory => Box::new(MemoryStore::default()),
         StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),
     })
+}
+
+/// [`open`] with the journal on `storage` (a simulated file system in the crash tests) and its
+/// own limits, for `store.journal` (R-DURABILITY S2).
+#[cfg(test)]
+pub(crate) fn open_with_journal(
+    config: &StoreConfig,
+    root: &Path,
+    storage: std::sync::Arc<dyn cmux_journal::Storage>,
+    journal: cmux_journal::Config,
+) -> Result<Box<dyn Store>> {
+    let _ = (storage, journal);
+    open(config, root)
 }
 
 mod memory;
@@ -1996,6 +2017,9 @@ fn is_zero(v: &u64) -> bool {
 
 #[cfg(test)]
 mod head_tests;
+
+#[cfg(all(test, unix))]
+mod journal_store_tests;
 
 impl LocalStore {
     /// `Store::scan`, and with `strict` `Store::scan_strict`.
