@@ -46,7 +46,7 @@ test("every tool is one square from the grid tokens, the ⋯ included, with a to
   expect(tool.get("border-radius")).toBe("var(--ds-radius-md,6px)");
   // No rule gives the ⋯ its own box or margin.
   expect(css).not.toMatch(/\.acpmux-header-more\s*\{/);
-  const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step,2px))";
+  const gap = "var(--acpmux-header-tool-gap,var(--grid-half-step))";
   expect(declarations(".acpmux-header-tools").get("gap")).toBe(gap);
   expect(declarations(".acpmux-header-tool-group").get("gap")).toBe(gap);
 });

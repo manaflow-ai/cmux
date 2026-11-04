@@ -7,8 +7,8 @@
    open (or a button whose menu is open) shows the filled rounded square, as in his reference; the 24px square is the
    hit target. test/chat-header-tab-row-surface.test.ts keeps it so. The "..." menu (src/ui Menu) sits on the menu
    surface. */
-.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step,2px))}
-.acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step,2px));min-width:0}
+.acpmux-header-tools{flex:none;display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step))}
+.acpmux-header-tool-group{display:flex;align-items:center;gap:var(--acpmux-header-tool-gap,var(--grid-half-step));min-width:0}
 .acpmux-header-symbol{display:inline-block;flex:none;background:currentColor;pointer-events:none}
 /* Every tool is one square from the layout grid (Leo 2026-11-04: "at least give our button square padding. so all those
    things are proportional"): the compact highlight's side (--grid-pill, 24px at the default interface size), its
