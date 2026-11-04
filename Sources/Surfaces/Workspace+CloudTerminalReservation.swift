@@ -243,6 +243,32 @@ extension Workspace {
         )
     }
 
+    /// A restored pane's machine answered 404 to every read. The pane keeps its
+    /// reservation and saved link; Reconnect reads the machine again.
+    func failRestoredCloudTerminalPane(
+        panelID: UUID,
+        detail: String,
+        retry: @escaping @MainActor () -> Void
+    ) {
+        guard let reservation = cloudPendingCreations[panelID],
+              !reservation.isShowingRestoredMachineNotFound else { return }
+        reservation.isShowingRestoredMachineNotFound = true
+        reservation.retry = { [weak self, weak reservation] in
+            guard let self, let reservation else { return }
+            self.clearRestoredMachineNotFound(reservation)
+            retry()
+        }
+        setCloudMaterializationFailure(surfaceID: panelID, detail: detail, reference: nil)
+    }
+
+    /// The machine is being read again or attaching: the 404 card no longer applies.
+    func clearRestoredMachineNotFound(_ reservation: CloudTerminalPaneReservation) {
+        guard reservation.isShowingRestoredMachineNotFound else { return }
+        reservation.isShowingRestoredMachineNotFound = false
+        reservation.retry = nil
+        clearCloudMaterializationFailure(surfaceID: reservation.panelID)
+    }
+
     /// A retry started: the pane is pending again.
     func restartReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }

@@ -61,8 +61,11 @@ struct CloudStaleInventoryMaterializationTests {
     // https://github.com/manaflow-ai/cmux/issues/21820: when every status read
     // answered 404 the pane stayed reserved with no card, so a machine that
     // never connected looked like a blank terminal that swallowed input.
-    @Test("a restored terminal whose machine answers 404 explains itself, keeps its link, and recovers")
-    func restoredMachineNotFoundShowsCard() async throws {
+    @Test(
+        "a restored terminal whose machine answers 404 explains itself, keeps its link, and recovers",
+        arguments: [nil, "team-saved"] as [String?]
+    )
+    func restoredMachineNotFoundShowsCard(savedTeam: String?) async throws {
         let app = try #require(AppDelegate.shared)
         let manager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
         let workspace = Workspace()
@@ -102,8 +105,8 @@ struct CloudStaleInventoryMaterializationTests {
             },
             refreshProvider: { _, _ in true }
         )
+        registry.adoptOwnerTeam(savedTeam, forMachineID: machineID)
         registry.start(catalog: catalog)
-        defer { Task { await registry.accessDidEnd() } }
 
         // Both reads failed: the pane says so, and its saved link is untouched.
         #expect(await registry.refresh(force: true))
@@ -142,5 +145,6 @@ struct CloudStaleInventoryMaterializationTests {
             remoteTabID: nil
         )
         #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+        await registry.accessDidEnd()
     }
 }

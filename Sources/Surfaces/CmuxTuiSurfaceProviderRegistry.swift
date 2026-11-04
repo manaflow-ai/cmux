@@ -834,8 +834,8 @@ final class CmuxTuiSurfaceProviderRegistry {
     ///
     /// A `404 vm_not_found` is no proof: the server answers it for a deleted
     /// machine and for a read made with a team that does not own the machine,
-    /// or with an incomplete team list. Those panes stay restoring and are
-    /// read again on the next refresh
+    /// or with an incomplete team list. Those panes keep their links, show a card
+    /// with Reconnect, and are read again on the next refresh
     /// (https://github.com/manaflow-ai/cmux/issues/21820).
     nonisolated static func endsRestoredMachine(_ loss: CloudMachineAccessLoss) -> Bool {
         loss.isMachineScoped && loss != .notFound
@@ -846,6 +846,24 @@ final class CmuxTuiSurfaceProviderRegistry {
     private func endRestoredMachine(_ machineID: String) {
         adoptedOwnerTeams[machineID] = nil
         unregisterMachine(machineID)
+    }
+
+    /// Every read answered 404, so nothing will attach these terminals until the
+    /// machine is found. Each pane says so and offers Reconnect instead of staying
+    /// a blank terminal that queues input; the saved link stays, so a later read
+    /// that finds the machine still reconnects it.
+    private func showRestoredMachineNotFound(_ machineID: String) {
+        guard let catalog else { return }
+        let detail = CloudTuiManualMirrorStopReason(accessLoss: .notFound).endedPresentation?.detail ?? ""
+        for projection in catalog.pendingRestoredProjections.projections
+        where projection.resource.machine.cloudMachineID == machineID {
+            Workspace.liveWorkspace(id: projection.workspaceID)?.failRestoredCloudTerminalPane(
+                panelID: projection.panelID,
+                detail: detail
+            ) { [weak self] in
+                Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
+            }
+        }
     }
 
     private func registerPendingRestoredMachines(pageTeamID: String?, generation: UInt64) async {
@@ -863,7 +881,10 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard !isRetired, generation == refreshGeneration else { return }
                 // The saved team may be a guess: a legacy pane adopts the
                 // selected team. The selected team's read can still find it.
-                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else { continue }
+                guard let pageTeamID, !pageTeamID.isEmpty, pageTeamID != ownerTeamID else {
+                    showRestoredMachineNotFound(machineID)
+                    continue
+                }
                 do {
                     let summary = try await loadMachineStatus(machineID, pageTeamID)
                     guard !isRetired, generation == refreshGeneration else { return }
@@ -874,8 +895,11 @@ final class CmuxTuiSurfaceProviderRegistry {
                     guard !isRetired, generation == refreshGeneration else { return }
                     // The same rule as the saved team's read: only a definite
                     // loss ends the panes; another 404 keeps them restoring.
-                    if CloudMachineAccessLoss(error: error).map(Self.endsRestoredMachine) == true {
+                    let loss = CloudMachineAccessLoss(error: error)
+                    if loss.map(Self.endsRestoredMachine) == true {
                         endRestoredMachine(machineID)
+                    } else if loss == .notFound {
+                        showRestoredMachineNotFound(machineID)
                     }
                     continue
                 }

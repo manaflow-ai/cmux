@@ -341,6 +341,7 @@ extension CmuxTuiSurfaceProvider {
         remoteTabID: String?
     ) {
         let panelID = reservation.panelID
+        Workspace.liveWorkspace(id: reservation.workspaceID)?.clearRestoredMachineNotFound(reservation)
         materializedPanels.insert(panelID)
         restoredAttachTasks[panelID]?.cancel()
         let generation = lifecycleGeneration
