@@ -7671,7 +7671,7 @@ class OpenHeadPlacementRerun(unittest.TestCase):
 
 
 class OpenHeadPortablePlacementRerun(unittest.TestCase):
-    """Later portable-placement attempts move paid light jobs after a fresh placement."""
+    """Portable placement moves paid light jobs on any current attempt."""
 
     PLACEMENT_ID = 77
 
@@ -7734,15 +7734,30 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
         plan = rescue.failover_plan(api, target, self.jobs(started_at=-10), clock.sleep, lambda _: None)
         self.assertIsNone(plan)
 
-    def test_full_rerun_and_first_attempt_never_use_later_attempt_plan(self):
-        for full_rerun, attempt in ((True, 2), (False, 1)):
+    def test_first_and_later_attempts_can_refresh_current_placement(self):
+        for full_rerun, attempt in ((False, 1), (True, 2), (False, 3), (True, 4)):
             with self.subTest(full_rerun=full_rerun, attempt=attempt):
                 clock, api, target = self.world(started_at=10, full_rerun=full_rerun)
                 target = dataclasses.replace(target, attempt=attempt)
-                self.assertIsNone(rescue.failover_plan(api, target, self.jobs(started_at=10),
-                                                       clock.sleep, lambda _: None))
+                plan = rescue.failover_plan(api, target, self.jobs(started_at=10),
+                                            clock.sleep, lambda _: None)
+                self.assertIsNotNone(plan)
 
-    def test_sweeper_ignores_first_attempt_until_a_paid_retry_exists(self):
+    def test_a_mixed_fixed_route_is_not_mistaken_for_a_refreshable_paid_job(self):
+        clock, api, target = self.world(started_at=10)
+        old_route = "${{ needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.mini_runner || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        api.workflow = PORTABLE_PLACEMENT_FIXTURE.replace(old_route, "blacksmith-4vcpu-ubuntu-2404", 1)
+        self.assertIsNone(rescue.failover_plan(api, target, self.jobs(started_at=10),
+                                               clock.sleep, lambda _: None))
+        self.assertFalse(rescue.open_head_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                   log=lambda _: None))
+
+    def test_carried_placement_cannot_fall_back_to_a_full_run_cancel(self):
+        clock, api, target = self.world(started_at=-10)
+        self.assertFalse(rescue.open_head_failover(api, target, now=clock.now, sleep=clock.sleep,
+                                                   log=lambda _: None))
+
+    def test_sweeper_adopts_first_attempt_for_paid_placement_failover(self):
         run = {
             "id": RUN_ID,
             "path": ".github/workflows/pr-checks.yml",
@@ -7752,7 +7767,32 @@ class OpenHeadPortablePlacementRerun(unittest.TestCase):
             "head_repository": {"full_name": "manaflow-ai/cmux"},
             "pull_requests": [{"number": 27800}],
         }
-        self.assertIn("attempt 1", rescue.sweep_target(run, "manaflow-ai/cmux", late=False))
+        target = rescue.sweep_target(run, "manaflow-ai/cmux", late=False)
+        self.assertIsInstance(target, rescue.Target)
+        self.assertEqual(target.attempt, 1)
+
+    def test_sweeper_keeps_following_portable_bot_attempts_past_attempt_two(self):
+        for attempt in (2, 3, 4):
+            run = {"path": ".github/workflows/pr-checks.yml", "event": "pull_request",
+                   "run_attempt": attempt, "triggering_actor": {"login": CMUX_BOT}}
+            self.assertTrue(rescue.owned_rerun(run))
+
+    def test_portable_listing_includes_first_attempts_and_later_pages(self):
+        api = rescue.GitHub("bot", "o/r")
+        def run(run_id, **extra):
+            return {"id": run_id, "path": ".github/workflows/pr-checks.yml", "run_attempt": 1,
+                    "event": "pull_request", "created_at": stamp(0), **extra}
+        answers = [
+            {"workflow_runs": [run(1)]},
+            {"workflow_runs": [run(2, run_attempt=4), run(3, event="push"),
+                               run(4, path=rescue.CI_WORKFLOW_PATH)]},
+            {"workflow_runs": []},
+            {"workflow_runs": [run(2, run_attempt=4)]},
+            {"workflow_runs": []},
+        ]
+        with unittest.mock.patch.object(api, "request", side_effect=answers) as request:
+            self.assertEqual(api.portable_runs(100, START, pages=3), [(1, 1), (2, 4)])
+        self.assertEqual(request.call_count, 5)
 
 
 class Budget(unittest.TestCase):

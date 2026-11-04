@@ -712,6 +712,13 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
         # second attempt is still watched so a second long queue can overflow
         # on attempt three; bot attempt three is watched for refusals only.
         return actor not in RESCUE_ACTORS or attempt <= REFUSAL_RESCUE_ATTEMPT
+    if run.get("path") in PORTABLE_LIGHT_WORKFLOW_PATHS:
+        # Hosted-light rescue and a person's re-run both leave portable jobs
+        # on their paid fallback labels after attempt 1.  Keep following those
+        # attempts so the open-head failover can refresh their placement.
+        # The plan's current-attempt timestamp and graph proof, rather than
+        # the macOS picker's attempt limit, decide whether a rescue is safe.
+        return run.get("event") == "pull_request"
     return run.get("path") == CI_WORKFLOW_PATH and (attempt <= LAST_OWNED_ATTEMPT or (
         run.get("event") == "pull_request" and actor != CI_RESCUE_ACTOR))
 # The runner's own steps, which run before glaeda's hook decides.
@@ -2003,6 +2010,33 @@ class GitHub:
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
                 found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
                           if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        return found
+
+    def portable_runs(self, count: int, oldest: dt.datetime, pages: int = 1) -> list[tuple[int, int]]:
+        """In-flight pull-request runs of the portable light workflows.
+
+        These workflows do not upload the owned-pool marker.  The hosted-light
+        worker owns the first hosted-ubuntu rescue, but a first attempt that
+        already fell through to a paid label still needs the same open-head
+        failover.  Keep this listing separate from ``queued_side_runs`` so its
+        existing delivery-run and non-PR protections remain unchanged.
+        """
+        created = created_floor(oldest).strftime("%Y-%m-%dT%H:%M:%SZ")
+        found: list[tuple[int, int]] = []
+        for status in ("queued", "in_progress"):
+            for page in range(1, pages + 1):
+                data = self.request("GET", f"/actions/runs?status={status}&event=pull_request&per_page={count}"
+                                    f"&page={page}&created=%3E%3D{created}")
+                runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
+                for run in runs:
+                    entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
+                    if (entry[0] and entry not in found and run.get("path") in PORTABLE_LIGHT_WORKFLOW_PATHS
+                            and run.get("event") == "pull_request" and not created_before(run, oldest)):
+                        found.append(entry)
+                # A short page can precede a later page on status-filtered
+                # listings; only an empty page proves the listing is done.
+                if not runs:
+                    break
         return found
 
     def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
@@ -3814,13 +3848,16 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
         # the placement script's current-attempt live census supplies the
         # dynamic half when the job is re-run.
         output_ref = re.compile(rf"needs\.{re.escape(placement_key)}\.outputs\.(?:linux|mini)_(?:runner|jobs)")
-        output_jobs = [spec[key] for key in below if isinstance(spec.get(key), Mapping)
-                       and output_ref.search(str(spec[key].get("runs-on") or ""))]
         paid = [job for job in jobs if str(job.get("status") or "") != "completed"
-                and portable_route(job) and job.get("name") != placement_job
-                and any(key in below for key, pattern in patterns if pattern.fullmatch(str(job.get("name") or "")))]
-        if not output_jobs or not paid:
+                and portable_route(job) and job.get("name") != placement_job]
+        if not paid:
             return None, "the portable placement graph has no paid fallback with a placement output"
+        for job in paid:
+            keys = {key for key, pattern in patterns if pattern.fullmatch(str(job.get("name") or ""))}
+            if not keys or not keys <= below or any(
+                    not output_ref.search(str(spec[key].get("runs-on") or "")) for key in keys):
+                return None, (f"{job.get('name') or job.get('id')} has no unambiguous portable placement "
+                              "output route")
         route_proof = (f"{len(paid)} paid fallback job(s) consume {placement_job} outputs; "
                        "the current-attempt placement rerun refreshes the live route")
         return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns,
@@ -3857,15 +3894,15 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
     """The placement-only rerun for a supported workflow, or ``None``.
 
     cmux-next keeps its original first-attempt plan. Portable light workflows
-    are deliberately narrower: only a same-repository pull-request later
-    attempt that is not a full rerun may use the plan, and its placement job
-    must be proven current before the run can be cancelled.
+    use the same placement-only shape on any current pull-request attempt.
+    The placement job must be proven current
+    before the run can be cancelled; an older workflow without that graph
+    fails closed.
     """
     portable = target.path in PORTABLE_LIGHT_WORKFLOW_PATHS
     cmux_next = target.path == CMUX_NEXT_WORKFLOW_PATH
     if portable:
-        if not target.pr_number or target.event not in ("", "pull_request") or target.attempt <= 1 \
-                or target.full_rerun:
+        if not target.pr_number or target.event not in ("", "pull_request"):
             return None
         key, name = PORTABLE_PLACEMENT_KEY, PORTABLE_PLACEMENT_JOB
     elif cmux_next:
@@ -4067,6 +4104,11 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
         # The workflow file only now, once a label runs nothing (one read per look at most).
         if not planned:
             plan, planned = failover_plan(api, target, jobs, sleep, log), True
+        if target.path in PORTABLE_LIGHT_WORKFLOW_PATHS and plan is None:
+            # A legacy fixed-label workflow has no route to refresh.  Neither
+            # a full rerun nor the settled-sibling path can move it, so retain
+            # the run rather than cancel it back onto the same paid label.
+            return NO_FAILOVER
         settled = any(failover_loses(job, plan) for job in jobs)
         if settled and any(job_running(job) for job in jobs):
             return NO_FAILOVER
@@ -5086,20 +5128,18 @@ SWEEP_FINISHED_SECONDS = 30 * 60
 
 def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_rerun: bool = False,
                  since: dt.datetime | None = None) -> Target | str:
-    """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most).
+    """The target for a marked or portable run, resuming its current attempt.
 
     A finished run is only worth a look when it failed or was cancelled after `since`: a refusal nobody
     re-ran yet, or a rescue's cancel whose re-run never came (watch() re-runs it only when GitHub's
     the rescue logged its cancel and never settled it, rerun_intended()). `full_rerun` says the re-run ran the picker
     again (a stuck run's re-run, or a person's full one), so its own markers
     decide, the picker's and then late-placement's.
+    Portable light workflows are also listed directly because their first
+    attempt has no marker.  Their placement-only failover proves the current
+    placement job and paid dependent route before it cancels anything.
     """
     attempt = int(run.get("run_attempt") or 0)
-    if run.get("path") in PORTABLE_LIGHT_WORKFLOW_PATHS and attempt <= 1:
-        # Attempt 1 is handled by the portable workflow's own placement and
-        # hosted-light rescue. This sweeper only owns later paid fallback
-        # attempts, where placement can be refreshed safely.
-        return "portable placement attempt 1 is not a sweeper target"
     if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
@@ -5263,7 +5303,12 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                 rerun_seen.discard((run_id, int(run.get("run_attempt") or 0)))
                 log(f"[run {run_id}] could not read attempt {run['run_attempt']} ({error})")
                 return False
-            picker = E2E_PICKER_JOB if run.get("path") in DISPATCH_WORKFLOW_PATHS else PICKER_JOB
+            if run.get("path") in DISPATCH_WORKFLOW_PATHS:
+                picker = E2E_PICKER_JOB
+            elif run.get("path") in PORTABLE_LIGHT_WORKFLOW_PATHS:
+                picker = PORTABLE_PLACEMENT_JOB
+            else:
+                picker = PICKER_JOB
             attempt_started = parse_time(run.get("run_started_at") or run.get("created_at"))
             full_rerun = any(job.get("name") == picker and int(job.get("run_attempt") or 0) > 1
                              and not carried(job, attempt_started) for job in jobs)
@@ -5369,6 +5414,25 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
                         continue
                     if adopt(run_id, False, refusals_known=refusals_listed):
                         queued_seen.add((run_id, attempt))  # not before: a read that failed is tried again
+            # Portable light workflows have pull-request runs, so the
+            # exclude_pull_requests side listing above cannot discover them.
+            # Visit their bounded in-flight listing on the same slow side
+            # cadence; this covers a first attempt that already fell through
+            # to a paid label as well as later hosted-light retries.
+            if hasattr(client, "portable_runs"):
+                try:
+                    portable = client.portable_runs(SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES)
+                except READ_ERRORS as error:
+                    log(f"could not list portable light runs ({error}); a later tick")
+                    portable = []
+                for run_id, attempt in portable:
+                    ended = run_id in watching and not watching[run_id].is_alive()
+                    followed = (run_id, attempt) in queued_seen or (run_id, attempt) in rerun_seen \
+                        or attempt <= 1 and run_id in seen
+                    if followed and not ended:
+                        continue
+                    if adopt(run_id, False, refusals_known=refusals_listed):
+                        queued_seen.add((run_id, attempt))
         ticks += 1
         for run_id, attempt in failed:
             # A marked run's own watch (or the re-run listing) already follows it. One whose watch has
