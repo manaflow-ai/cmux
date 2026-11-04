@@ -11,7 +11,6 @@ struct CommandPaletteSheet: View {
     let source: WorkspaceTabsSource
     let scope: PaletteScope
     @State private var query = ""
-    @State private var actions: [PaletteCommand] = []
     @FocusState private var searching: Bool
 
     var body: some View {
@@ -52,10 +51,9 @@ struct CommandPaletteSheet: View {
                 }
             }
         }
-        .onAppear {
-            if scope == .actions { actions = source.paletteActions() }
-            searching = true
-        }
+        // Search is the sheet's purpose (HIG Search fields): the field takes focus once the
+        // sheet is up. Set from onAppear alone it was sometimes dropped (rig run).
+        .task { searching = true }
         .accessibilityIdentifier("palette")
     }
 
@@ -63,7 +61,7 @@ struct CommandPaletteSheet: View {
     /// Tabs; matches only once something is typed in the full palette). Return runs the first.
     private var visibleRows: [PaletteCommand] {
         let text = scope == .actions ? source.paletteText(query) : []
-        let matched = actions.filter { $0.matches(query) }
+        let matched = source.paletteActionRows.filter { $0.matches(query) }
         let tabs = scope == .tabs || !query.trimmingCharacters(in: .whitespaces).isEmpty
             ? source.paletteTabs(matching: query.trimmingCharacters(in: .whitespaces), limit: scope == .tabs ? 200 : 30) : []
         return matched + text + tabs

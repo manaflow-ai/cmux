@@ -31,6 +31,11 @@ public struct PaletteCommand: Identifiable {
     public var section: Section
     public var isEnabled = true
     public var isDestructive = false
+    /// The row goes somewhere else (a tab of another workspace, a jump, a link): it runs in the
+    /// tap, with the sheet closing, as the address bar's rows do. Run after the sheet was gone, a
+    /// move to another workspace's page was dropped (rig run of pq_palette.py searchtabs). Rows
+    /// that present something (a dialog, a sheet, a page) wait for the sheet to go instead.
+    public var navigates = false
     let run: @MainActor () -> Void
 
     /// Case- and diacritic-insensitive: every word of `query` is in the title or subtitle.
@@ -52,12 +57,22 @@ extension WorkspaceTabsSource {
     public func openPalette(_ scope: PaletteScope = .actions) {
         guard palette == nil else { return }
         pendingPaletteRun = nil
+        // The rows for the tab on screen, taken once as the palette opens: the sheet never
+        // rebuilds them while it is up (a Mac publish mid-search left it empty, rig run).
+        paletteActionRows = scope == .actions ? paletteActions() : []
         palette = scope
     }
 
-    /// A row was picked: the sheet closes, then the row runs (`paletteDismissed`).
+    /// A row was picked: the sheet closes; a navigation runs now, any other row once the sheet
+    /// is gone (`paletteDismissed`).
     public func pick(_ command: PaletteCommand) {
         guard command.isEnabled else { return }
+        if command.navigates {
+            pendingPaletteRun = nil
+            palette = nil
+            command.run()
+            return
+        }
         pendingPaletteRun = command.run
         palette = nil
     }
@@ -106,9 +121,9 @@ extension WorkspaceTabsSource {
                                   section: .actions) { [weak self] in self?.openPalette(.tabs) })
         if attentionBackend != nil {
             out.append(PaletteCommand(id: "jumpToUnread", title: TabJump.unread.title, systemImage: "bell.badge",
-                                      section: .actions) { [weak self] in self?.jump(.unread) })
+                                      section: .actions, navigates: true) { [weak self] in self?.jump(.unread) })
             out.append(PaletteCommand(id: "jumpToLastPrompt", title: TabJump.lastPrompt.title,
-                                      systemImage: "arrow.uturn.backward.circle", section: .actions) { [weak self] in
+                                      systemImage: "arrow.uturn.backward.circle", section: .actions, navigates: true) { [weak self] in
                 self?.jump(.lastPrompt)
             })
         }
@@ -131,7 +146,7 @@ extension WorkspaceTabsSource {
                 let detail = [tab.kind == .browser ? tab.url?.host() : tab.subtitle, place].compactMap(\.self)
                     .filter { !$0.isEmpty && $0 != title }.joined(separator: " · ")
                 let command = PaletteCommand(id: "tab.\(workspace.id).\(tab.id)", title: title, subtitle: detail,
-                                             systemImage: Self.symbol(tab), section: .tabs) { [weak self] in
+                                             systemImage: Self.symbol(tab), section: .tabs, navigates: true) { [weak self] in
                     self?.go(toTab: tab.id, in: workspace.id)
                 }
                 guard command.matches(query) || (tab.url?.absoluteString.localizedCaseInsensitiveContains(query) ?? false) else { continue }
@@ -204,7 +219,8 @@ extension WorkspaceTabsSource {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return [] }
         if let url = URL(string: text), CmuxLink(url: url) != nil {
-            return [PaletteCommand(id: "link.open", title: "Open Link", subtitle: text, systemImage: "link", section: .text) {
+            return [PaletteCommand(id: "link.open", title: "Open Link", subtitle: text, systemImage: "link", section: .text,
+                                   navigates: true) {
                 CmuxLinkOpener.shared.open(url)
             }]
         }

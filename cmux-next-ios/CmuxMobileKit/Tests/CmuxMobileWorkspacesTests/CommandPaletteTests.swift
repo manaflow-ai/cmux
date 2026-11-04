@@ -48,6 +48,25 @@ import CmuxTabsKit
         #expect(source.renamingTab == nil)
     }
 
+    /// A row that goes to another workspace runs in the tap, with the sheet closing (a page push
+    /// made after the sheet was gone was dropped on the rig); the opened rows are the ones taken
+    /// when the palette opened.
+    @Test func aNavigationRowRunsInTheTap() throws {
+        let (_, source) = make()
+        var opened: Workspace?
+        source.openWorkspace = { opened = $0 }
+        source.openPalette()
+        #expect(source.paletteActionRows.contains { $0.title == "Rename Tab…" })
+        let hit = try #require(source.paletteTabs(matching: "bun dev").first)
+        #expect(hit.navigates)
+        source.pick(hit)
+        #expect(source.palette == nil)
+        #expect(opened?.id == "ws-web")
+        opened = nil
+        source.paletteDismissed()
+        #expect(opened == nil)
+    }
+
     /// Search Tabs reaches every workspace, this one's first; a tab elsewhere opens its own
     /// workspace on that tab.
     @Test func searchTabsCoversEveryWorkspace() throws {

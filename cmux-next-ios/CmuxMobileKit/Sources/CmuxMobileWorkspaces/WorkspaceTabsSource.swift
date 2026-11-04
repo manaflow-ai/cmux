@@ -1596,6 +1596,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The palette row picked: it runs once the sheet is gone (its content's `onDisappear`), so a row
     /// that pushes a page or opens a dialog never races the sheet's dismissal.
     @ObservationIgnored var pendingPaletteRun: (@MainActor () -> Void)?
+    /// The palette's action rows, taken when it opened (`openPalette`).
+    @ObservationIgnored public internal(set) var paletteActionRows: [PaletteCommand] = []
 
     /// Opens another workspace (the Chats list's Open in New Workspace); set by the screen.
     @ObservationIgnored public var openWorkspace: (@MainActor (Workspace) -> Void)?
