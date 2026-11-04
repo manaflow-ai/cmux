@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1288,
+    "entries": 1291,
     "shortcuts": 189
   },
   "sections": [
@@ -1514,6 +1514,12 @@
           "title": "Set Workspace Group Icon…",
           "shortcut": null,
           "command": "cmux workspace-group set-icon"
+        },
+        {
+          "id": "workspaceGroup.setSort",
+          "title": "Set Workspace Group Sort Order…",
+          "shortcut": null,
+          "command": "cmux workspace-group set-sort"
         },
         {
           "id": "workspace.setIcon",
@@ -6784,6 +6790,12 @@
           "command": "cmux cloud api-key-revoke"
         },
         {
+          "id": "cloudPreviewRevoke",
+          "title": "Revoke Machine Preview Link…",
+          "shortcut": null,
+          "command": "cmux cloud preview-revoke"
+        },
+        {
           "id": "cloudTunnelRotateKey",
           "title": "Rotate Cloud Tunnel Key",
           "shortcut": null,
@@ -6800,6 +6812,12 @@
           "title": "Set Up GitHub on This Machine",
           "shortcut": null,
           "command": "cmux cloud setup-github"
+        },
+        {
+          "id": "cloudPreviewShare",
+          "title": "Share Machine Preview…",
+          "shortcut": null,
+          "command": "cmux cloud preview-share"
         },
         {
           "id": "cloudShareMachine",
