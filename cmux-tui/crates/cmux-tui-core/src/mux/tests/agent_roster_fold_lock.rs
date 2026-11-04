@@ -396,3 +396,62 @@ fn only_the_roster_owner_reads_the_journal_or_saves_the_roster_for_a_close_or_a_
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Review 2 of #35334 (never merge): the roster's owner folds a hook recorded while it ran a pass on
+/// its own, with no later request. The F1 test above ends with `settle_agent_roster_for_test`, which
+/// asks for a pass of its own and so folds the hook whether or not the owner looked at its requests
+/// again after the paused pass; this one only waits for the owner to go idle.
+#[test]
+fn review2_the_owner_folds_a_hook_recorded_during_its_pass_with_no_later_request() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-roster-owner-idle-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = open_persistent_test_mux("roster-owner-idle", &root);
+    mux.stop_journal_maintenance();
+    let agent = mux.new_workspace(None, None).unwrap();
+    let agent_terminal = agent.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &agent_terminal, "SessionStart", Some("agent-owner-idle"));
+    mux.catch_up_agent_roster();
+    assert!(mux.settle_agent_roster_for_test(), "the roster owner settles");
+    let no_agent = TerminalPublicId::parse(format!("term_{:032x}", 9)).unwrap();
+
+    let hook_sequence = std::thread::scope(|scope| {
+        let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
+        let (release, release_receiver) = std::sync::mpsc::sync_channel::<()>(0);
+        mux.pause_agent_roster_fold_after_head_for_test(entered_sender, release_receiver);
+        // A close with no agent: the owner's pass takes it, reads the head and pauses.
+        mux.retire_roster_terminal(&no_agent);
+        entered
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the owner's pass reads the journal head");
+        // A hook while that pass runs: it records its fold and returns.
+        let (mux_ref, agent_ref) = (&mux, &agent_terminal);
+        let hook = scope
+            .spawn(move || append_hook(mux_ref, agent_ref, "UserPromptSubmit", "agent-owner-idle"));
+        let sequence = hook.join().unwrap();
+        drop(release);
+        sequence
+    });
+    // No settle here: it would ask the owner for a pass of its own.
+    assert!(
+        mux.wait_for_idle_agent_roster_for_test(Duration::from_secs(30)),
+        "the roster owner goes idle"
+    );
+    let cursor = roster_cursor(&mux);
+    let state = mux
+        .agent_roster
+        .lock()
+        .unwrap()
+        .roster
+        .entries
+        .get(agent_terminal.as_str())
+        .map(|entry| entry.state.clone());
+    assert!(
+        cursor >= hook_sequence,
+        "the owner left a hook recorded during its pass behind: hook at {hook_sequence}, roster \
+         cursor {cursor}, state {state:?}"
+    );
+    assert_eq!(state.as_deref(), Some("working"), "the hook's prompt makes the agent working");
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

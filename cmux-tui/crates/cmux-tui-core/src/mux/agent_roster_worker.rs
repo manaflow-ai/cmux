@@ -55,6 +55,17 @@ struct RosterRequests {
     stopping: bool,
     /// The owner's thread runs; once it ended, nobody waits for it.
     running: bool,
+    /// The owner runs a pass (test seam: a test waits for the owner to go idle without asking
+    /// for a pass of its own).
+    #[cfg(test)]
+    busy: bool,
+}
+
+#[cfg(test)]
+impl RosterRequests {
+    fn set_busy_for_test(&mut self, busy: bool) {
+        self.busy = busy;
+    }
 }
 
 /// What one pass of the owner took from the requests.
@@ -195,6 +206,8 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
                 return;
             }
             requests.pending = false;
+            #[cfg(test)]
+            requests.set_busy_for_test(true);
             let pass = RosterPass {
                 wanted: requests.wanted,
                 head: std::mem::take(&mut requests.head),
@@ -215,6 +228,8 @@ fn run_owner(control: &RosterControl, mux: &Weak<Mux>) {
         drop(session);
         let mut requests = control.lock();
         requests.done = requests.done.max(ticket);
+        #[cfg(test)]
+        requests.set_busy_for_test(false);
         // A retirement whose journal head could not be read or reached waits
         // for the next pass, ahead of later ones.
         if !left.is_empty() {
@@ -309,5 +324,27 @@ impl Mux {
     pub(crate) fn settle_agent_roster_for_test(&self) -> bool {
         let control = &self.agent_roster_worker.control;
         control.pass_and_wait(false, Some(Duration::from_secs(60))) || !control.lock().running
+    }
+
+    /// Waits until the owner has no recorded work and runs no pass, without asking for a pass
+    /// (review 2 of #35334: `settle_agent_roster_for_test` asks for a pass of its own, which folds
+    /// what the owner left behind, so a test that settles cannot see the owner leave work behind).
+    #[cfg(test)]
+    pub(crate) fn wait_for_idle_agent_roster_for_test(&self, limit: Duration) -> bool {
+        let control = &self.agent_roster_worker.control;
+        let started = Instant::now();
+        let mut requests = control.lock();
+        while requests.pending || requests.busy {
+            let left = limit.saturating_sub(started.elapsed());
+            if left.is_zero() {
+                return false;
+            }
+            requests = control
+                .settled
+                .wait_timeout(requests, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        true
     }
 }
