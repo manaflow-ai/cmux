@@ -427,3 +427,46 @@ test("bench: client time for 30 running chats changing 20 times (600 changes)", 
     client.close();
   }
 });
+
+// Each frame from acpmux is parsed once (HOT PATH AUDIT area F, row W2,
+// handoff/hot-path-audit/stream/AUDIT.md): the wire log and the client read one parse. Before, a
+// streamed chunk's frame was parsed twice, once for the log and once for the client.
+test("a streamed chunk's frame is parsed once", async () => {
+  const { socket, client } = await openPane();
+  const parse = JSON.parse;
+  let parses = 0;
+  const frames = 50;
+  try {
+    const lines = Array.from({ length: frames }, (_, n) =>
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: {
+          sessionId: SELECTED,
+          seq: 1000 + n,
+          at: 1000 + n,
+          dir: "in",
+          kind: "agent_message_chunk",
+          msg: {
+            method: "session/update",
+            params: {
+              sessionId: SELECTED,
+              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `word${n} ` } },
+            },
+          },
+        },
+      }),
+    );
+    JSON.parse = ((text: string, reviver?: (this: unknown, key: string, value: unknown) => unknown) => {
+      parses += 1;
+      return parse(text, reviver);
+    }) as typeof JSON.parse;
+    for (const data of lines) socket.onmessage?.({ data });
+    JSON.parse = parse;
+    flushFrames();
+    expect(parses).toBe(frames);
+  } finally {
+    JSON.parse = parse;
+    client.close();
+  }
+});

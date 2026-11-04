@@ -93,6 +93,14 @@ public struct DaemonTree: Sendable {
     public struct NotificationMarker: Hashable, Sendable {
         public var notification: Int
         public var unread: Bool
+        /// When the Mac posted it (`created_at_ms`), when it says.
+        public var createdAt: Date?
+
+        public init(notification: Int, unread: Bool, createdAt: Date? = nil) {
+            self.notification = notification
+            self.unread = unread
+            self.createdAt = createdAt
+        }
     }
 
     /// The workspace kind of the Mac's home workspace (`workspace-kind-v1`).
@@ -192,7 +200,8 @@ public struct DaemonTree: Sendable {
                                                         resourceID: tab["terminal_resource_id"] as? String)
                         }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
-                            markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
+                            markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true,
+                                                                 createdAt: AgentState.date(marker["created_at_ms"]))
                         }
                         if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
                         // An ended shell runs no agent: a stale report must not mark the
@@ -205,9 +214,11 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        mapped.hasCustomName = (tab["name"] as? String).map { !$0.isEmpty } ?? false
                         mapped.linkIDs = WorkspaceTab.LinkIDs(
                             tab: tab["tab_resource_id"] as? String, pane: pane["resource_id"] as? String,
-                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
+                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession,
+                            agentSession: agentTabs[id]?.session)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                         screenTabs.append(id)

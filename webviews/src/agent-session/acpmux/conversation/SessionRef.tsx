@@ -25,6 +25,7 @@ import {
   type AgentRef,
   type SessionRefTarget,
 } from "./sessionRefs";
+import { openSessionAttributes } from "./menuParts";
 
 const noStore = () => () => {};
 const NO_PROPS: Partial<ReturnType<typeof agentLinkProps>> = {};
@@ -81,6 +82,8 @@ export function SessionRefCode({
         title={title}
         aria-label={title}
         data-session-ref=""
+        // The click opens it as a sender (`openSender`) where the page has one; the menu asks the same way.
+        {...openSessionAttributes(target.sessionId, subsessions?.openSender !== undefined)}
         onClick={() => open(target.sessionId)}
       >
         <code className="cv-code">

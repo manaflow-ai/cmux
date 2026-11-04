@@ -2,6 +2,7 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
+import { useScrollEdges } from "../../ui/scrollEdges";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
 import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
@@ -153,7 +154,22 @@ export type NewTabHost = {
   allChats?: false;
   /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
   suggestionOrder?: SuggestionOrder;
+  /// Where the page's new chat starts as the app already knows it (AgentPaneNewTabStart): drawn on
+  /// the first frame; the handshake's answer from the store replaces it only when it differs.
+  start?: NewTabStart;
 };
+
+/// A new chat's start before the store's answer: its folder, or none with Choose Folder… offered.
+export type NewTabStart = { cwd?: string; chooseFolder: boolean };
+
+function readNewTabStart(value: unknown): NewTabStart | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { cwd, chooseFolder } = value as { cwd?: unknown; chooseFolder?: unknown };
+  return {
+    ...(typeof cwd === "string" && cwd.startsWith("/") ? { cwd } : {}),
+    chooseFolder: chooseFolder === true,
+  };
+}
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewTabHost | undefined {
@@ -179,6 +195,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const pageWidgets = parsePageWidgets(object.pageWidgets);
   const weather = parseWeather(object.weather);
   const order = suggestionOrder(object.suggestionOrder);
+  const start = readNewTabStart(object.start);
   return {
     hotkeys,
     initialKind,
@@ -212,6 +229,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
+    ...(start ? { start } : {}),
   };
 }
 
@@ -494,13 +512,15 @@ export function NewTabPage({
   // With no room under the field for every row, the rows go past the window's edge (cx-6k6cg).
   // A dismiss there (another app, a resize) hides the rows until the query changes; the text stays.
   const [dismissed, setDismissed] = useState<string>();
+  const listEdges = useScrollEdges();
   const escape = useEscapingList("bottom", 10, () => setDismissed(queryRef.current));
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       escape?.(node);
     },
-    [escape],
+    [escape, listEdges],
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
@@ -938,7 +958,7 @@ export function NewTabPage({
         {rows.length > 0 && (
           <div
             ref={attachList}
-            className="acpmux-omni ui-popup ui-glass"
+            className="acpmux-omni ui-popup ui-glass ui-scroll-edge-fade"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"

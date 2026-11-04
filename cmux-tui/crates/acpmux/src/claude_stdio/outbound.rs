@@ -13,11 +13,13 @@ impl Translator {
                 match m.as_str() {
                     method::INITIALIZE => {
                         self.pending.lock().await.insert(id.to_string(), Pending::Initialize);
+                        let suggestions = prompt_suggestions::enabled_in_settings();
                         let mut lines = vec![json!({
                             "type": "control_request",
                             "request_id": format!("init-{}", id),
-                            "request": initialize_request()
+                            "request": initialize_request(suggestions)
                         })];
+                        lines.extend(self.suggestion_init(id, suggestions));
                         // Ultracode and fast mode survive a respawn on the live channel
                         // (no CLI flag); the answer ("boot-*") needs no reply.
                         let effort = self.effort.lock().await.clone();
@@ -216,6 +218,7 @@ impl Translator {
                                     json!({"type": "control_request", "request_id": format!("ctl-{}", id), "request": {"subtype": "apply_flag_settings", "settings": settings}}),
                                 ])
                             }
+                            prompt_suggestions::OPTION => self.set_suggestions(id, &val).await,
                             ULTRACODE_OPTION => {
                                 // On runs Ultracode (xhigh plus the setting); Off keeps xhigh.
                                 let effort = match val.as_str() {
@@ -552,11 +555,24 @@ fn resource_text(b: &Value) -> String {
 /// stopped by the user so it is never resumed. With it the interrupt stops only the turn, as Esc
 /// does in the CLI, and background work runs on and reports when it ends (Leo, 2026-10-31:
 /// "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING").
-pub(super) fn initialize_request() -> Value {
-    json!({
+///
+/// `promptSuggestions` asks for a predicted next prompt after each turn (`prompt_suggestions.rs`).
+pub(super) fn initialize_request(suggestions: bool) -> Value {
+    let mut request = json!({
         "subtype": "initialize",
         "hooks": {},
         "supportedDialogKinds": ["ask_user_question", "exit_plan_mode", "permission"],
         "perTaskStopAffordance": true,
-    })
+    });
+    #[cfg(unix)]
+    request.set(
+        "hooks",
+        json!({"PreToolUse": [{
+            "matcher": "*", "hookCallbackIds": [super::hook_callback::SYNC_CALLBACK], "timeout": 90
+        }]}),
+    );
+    if suggestions {
+        request.set("promptSuggestions", json!(true));
+    }
+    request
 }

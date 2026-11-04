@@ -16,7 +16,6 @@ public nonisolated enum FeedOrder {
 
     /// `items` in ``newest(_:_:)`` order. Sorts small keys and gathers once: a feed item is a large
     /// value, and moving 1,500 of them through a sort cost a live Feed about 10 ms per event.
-    // perf-hot: 2ms feed-live-event
     public static func sortedNewest<S: Sequence>(_ items: S) -> [FeedItem] where S.Element == FeedItem {
         let items = Array(items)
         let keys = items.map { (date: $0.createdAt, id: $0.id) }

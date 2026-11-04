@@ -21,6 +21,9 @@
 //! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
 //! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
 //! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
+//! An invite and `-list` answer `invite_url`, the link the owner hands out (`<room origin>/i/<share_id>`,
+//! no secret in it; null without a room). `-invite-chat {surface, account, role}` invites on the
+//! chat's invite share and makes that share in the same step when the chat has none (`open.rs`).
 //!
 //! With a hosted room configured (`agent_session_share_room.rs`), create provisions the share in
 //! the room first (`provisioning` until it answers) and answers the guest link; a revoke or kick
@@ -44,6 +47,8 @@ use crate::apps::timer::{TimerId, Timers};
 use crate::mux::Mux;
 use crate::server::agent_transfer::state_file::{read_trusted, save};
 
+#[path = "agent_session_share_open.rs"]
+mod open;
 #[path = "agent_session_share_room.rs"]
 pub(in crate::server) mod room;
 
@@ -107,13 +112,18 @@ const MAX_SAVED_BYTES: usize = 62 * 1024;
 /// Whether `shares` stays readable after a restart whatever later happens to it without a new
 /// record: a change that adds records (a share, an invitee, a guest) is refused unless the
 /// registry still fits once every share is ended, every guest kicked and every invitee removed,
-/// with each kick and each room `DELETE` queued (kicks, revokes and expiry are never refused, so
-/// they must always fit).
+/// with each kick and each room `DELETE` queued, and every share without a room given the largest
+/// one a room's answer may write (`room::adopt`, `room::retire`). Kicks, revokes, expiry, closes
+/// and the room's answers are never refused, so they must always fit.
 fn fits(shares: &[LinkShare]) -> bool {
     let mut worst = shares.to_vec();
     for share in &mut worst {
         // `provisioning` is the longest state; an end writes a shorter one.
         share.state = ShareState::Provisioning;
+        if share.room.is_none() {
+            share.room = Some(json!({"url": "u".repeat(room::MAX_ROOM_URL_BYTES),
+                "host_token": "t".repeat(room::MAX_HOST_TOKEN_BYTES)}));
+        }
         for guest in share.guests.iter_mut().filter(|g| g.state == GuestState::Active) {
             guest.state = GuestState::Kicked;
             share.pending_room_ops.push(json!({"op": "kick", "guest_id": guest.guest_id}));
@@ -126,6 +136,26 @@ fn fits(shares: &[LinkShare]) -> bool {
         }
     }
     serde_json::to_vec(&worst).is_ok_and(|bytes| bytes.len() <= MAX_SAVED_BYTES)
+}
+
+/// Whether `shares` [`fits`], once the ended shares that may go are gone if it did not.
+fn fits_or_prune(shares: &mut Vec<LinkShare>) -> bool {
+    if fits(shares) {
+        return true;
+    }
+    prune(shares);
+    fits(shares)
+}
+
+/// Drops the ended shares, but one whose room still has to hear of it (a kick of an ended share
+/// is moot: its room ends with it). The record that goes is only history: no guest reaches an
+/// ended share, and its id answers `share.unknown` from then on.
+fn prune(shares: &mut Vec<LinkShare>) {
+    shares.retain(|s| {
+        s.live().is_ok()
+            || s.state == ShareState::Provisioning
+            || s.pending_room_ops.iter().any(|o| op_of(o) != Some("kick"))
+    });
 }
 
 /// Accounts invited to one share at once.
@@ -227,6 +257,13 @@ impl LinkShare {
         self.room.as_ref()?.get(field)?.as_str()
     }
 
+    /// The link an invitee opens: the room's origin, then `/i/<share_id>` (no secret in it, the
+    /// room signs the account in). Null while the share has no room.
+    fn invite_url(&self) -> Value {
+        self.room_str("url")
+            .map_or(Value::Null, |origin| json!(format!("{origin}/i/{}", self.share_id)))
+    }
+
     /// The room's `DELETE` is already queued.
     fn delete_queued(&self) -> bool {
         self.pending_room_ops.iter().any(|op| op_of(op) == Some("delete"))
@@ -260,7 +297,7 @@ impl LinkShare {
             "uses_left": self.uses_left, "state": self.state, "url": null,
             "create_id": self.create_id,
             "room": self.room.as_ref().map(|room| room.get("url").cloned().unwrap_or(Value::Null)),
-            "guests": guests, "invitees": invitees})
+            "invite_url": self.invite_url(), "guests": guests, "invitees": invitees})
     }
 }
 
@@ -286,14 +323,56 @@ pub(in crate::server) struct LinkShares {
     /// Runs once between a guest bind's check and its registration (tests).
     #[cfg(test)]
     pub(super) bind_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// The shares file could not be read back and is not yet moved aside (`set_aside`): no write
+    /// goes over it until it is.
+    unreadable: std::sync::atomic::AtomicBool,
     /// Every write fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_writes: std::sync::atomic::AtomicBool,
+    /// Moving an unreadable file aside fails while set (tests).
+    #[cfg(test)]
+    pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkShares {
     fn drop(&mut self) {
         self.timers.stop();
+    }
+}
+
+/// Moves `directory`'s shares file to the first free name of `.unreadable`,
+/// `.unreadable-<ms>`, `.unreadable-<ms>-1`, … A hard link never replaces what is at its
+/// name (a `rename` would: two moves in one millisecond, or a clock that went back, pick the
+/// same name), so a taken name moves on to the next; the original is removed once linked. A
+/// filesystem without hard links falls back to `rename`, and only onto a name nothing is at.
+fn set_aside_unreplaced(directory: &Path, ms: u64) -> std::io::Result<()> {
+    use std::io::ErrorKind;
+    let path = directory.join(FILE);
+    let mut attempt = 0u64;
+    loop {
+        let aside = directory.join(match attempt {
+            0 => format!("{FILE}.unreadable"),
+            1 => format!("{FILE}.unreadable-{ms}"),
+            n => format!("{FILE}.unreadable-{ms}-{}", n - 1),
+        });
+        attempt += 1;
+        match std::fs::hard_link(&path, &aside) {
+            Ok(()) => {
+                return match std::fs::remove_file(&path) {
+                    Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
+                    _ => Ok(()),
+                };
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(_) if std::fs::symlink_metadata(&aside).is_ok() => {}
+            Err(_) => {
+                return match std::fs::rename(&path, &aside) {
+                    Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+                    moved => moved,
+                };
+            }
+        }
     }
 }
 
@@ -355,19 +434,13 @@ fn find<'a>(
     shares.iter_mut().find(|s| s.share_id == share_id).ok_or("share.unknown")
 }
 
-fn load(directory: Option<&Path>) -> Vec<LinkShare> {
-    directory
-        .and_then(|directory| read_trusted(&directory.join(FILE)))
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-/// The author a guest binds as; an invitee's also names its account and role.
+/// The author a guest binds as; an invitee's also names its role. The author is stamped on what
+/// the guest sends (`_meta.acpmux.author`), which every participant of the chat sees, so it never
+/// names the invitee's account (often an email): that stays in the owner's own `-list`.
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
         "name": guest.name, "approval": "owner"});
-    if let Some(account) = &guest.account {
-        author["account"] = json!(account);
+    if guest.account.is_some() {
         author["role"] = json!(guest.role.unwrap_or(Role::View));
     }
     author
@@ -375,7 +448,7 @@ fn author_of(share: &LinkShare, guest: &Guest) -> Value {
 
 /// Whether a bound guest's author may only watch (an invitee with the `view` role).
 pub(super) fn view_only(author: &Value) -> bool {
-    author["account"].is_string() && author["role"] != json!(Role::Talk)
+    author["role"].is_string() && author["role"] != json!(Role::Talk)
 }
 
 #[derive(Deserialize)]
@@ -464,7 +537,7 @@ impl LinkShares {
     ) -> Result<T, &'static str> {
         let now = self.now();
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
-        let shares = slot.get_or_insert_with(|| load(directory));
+        let shares = slot.get_or_insert_with(|| self.load(directory));
         let start = shares.clone();
         // Expiry ends a share that is not yet active too: a late room answer never opens it.
         for share in shares.iter_mut() {
@@ -494,12 +567,58 @@ impl LinkShares {
         answer
     }
 
+    /// The shares in `directory`'s file (none without one). A file that is there but does not
+    /// read back (past the state file's bound, not this user's, not JSON) is moved aside to
+    /// `agent-session-shares.json.unreadable` ([`Self::set_aside`]), so the next write does not
+    /// destroy it; until it is
+    /// moved, every write is refused ([`Self::save`]).
+    fn load(&self, directory: Option<&Path>) -> Vec<LinkShare> {
+        let Some(directory) = directory else { return Vec::new() };
+        let path = directory.join(FILE);
+        if std::fs::symlink_metadata(&path).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+        {
+            return Vec::new();
+        }
+        let read = read_trusted(&path).and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        if let Some(shares) = read {
+            return shares;
+        }
+        match self.set_aside(directory) {
+            Ok(()) => eprintln!("cmux-tui: unreadable link shares kept aside as {FILE}.unreadable"),
+            Err(error) => {
+                eprintln!("cmux-tui: unreadable link shares not moved aside, not written: {error}");
+                self.unreadable.store(true, Ordering::Relaxed);
+            }
+        }
+        Vec::new()
+    }
+
+    /// Moves an unreadable shares file to `agent-session-shares.json.unreadable` (or, when one
+    /// from before is there, `….unreadable-<unix ms>`, then `….unreadable-<unix ms>-<n>`), so no
+    /// write replaces it and no earlier copy is lost. Ok when there is nothing at the path any
+    /// more.
+    fn set_aside(&self, directory: &Path) -> std::io::Result<()> {
+        #[cfg(test)]
+        if self.refuse_set_aside.load(Ordering::Relaxed) {
+            return Err(std::io::Error::other("set aside refused (test)"));
+        }
+        set_aside_unreplaced(directory, wall_ms())
+    }
+
     fn save(&self, directory: Option<&Path>, shares: &[LinkShare]) -> Option<std::io::Result<()>> {
         #[cfg(test)]
         if self.refuse_writes.load(Ordering::Relaxed) {
             return Some(Err(std::io::Error::other("writes refused (test)")));
         }
-        directory.map(|d| save(d, FILE, &shares))
+        let directory = directory?;
+        if self.unreadable.load(Ordering::Relaxed) {
+            if let Err(error) = self.set_aside(directory) {
+                return Some(Err(error));
+            }
+            eprintln!("cmux-tui: unreadable link shares kept aside as {FILE}.unreadable");
+            self.unreadable.store(false, Ordering::Relaxed);
+        }
+        Some(save(directory, FILE, &shares))
     }
 
     pub(super) fn claim_room_delete(&self, share_id: &str) -> bool {
@@ -576,45 +695,9 @@ impl LinkShares {
         terms: ShareTerms,
         provisioning: bool,
     ) -> Result<Value, &'static str> {
-        let ShareTerms { ttl_secs, uses, create_id } = terms;
-        let (share_id, secret, provision_key) = (token::<16>()?, token::<16>()?, token::<16>()?);
+        let ids = open::NewIds::draw()?;
         self.with(directory, |shares, now| {
-            if shares.len() >= MAX_SHARES || !fits(shares) {
-                // An ended share goes, unless its room still has to hear of it.
-                // A kick of an ended share is moot: its room ends with it.
-                shares.retain(|s| {
-                    s.live().is_ok()
-                        || s.state == ShareState::Provisioning
-                        || s.pending_room_ops.iter().any(|o| op_of(o) != Some("kick"))
-                });
-            }
-            if shares.len() >= MAX_SHARES {
-                return Err("share.limit");
-            }
-            let expires_at = now.saturating_add(ttl_secs.saturating_mul(1000));
-            shares.push(LinkShare {
-                share_id: share_id.clone(),
-                session: session.clone(),
-                surface,
-                created_at: now,
-                expires_at,
-                uses_left: uses,
-                state: if provisioning { ShareState::Provisioning } else { ShareState::Active },
-                secret_sha256: hex(&digest(&[&secret])),
-                provision_key: Some(provision_key),
-                create_id,
-                room: None,
-                pending_room_ops: Vec::new(),
-                guests: Vec::new(),
-                invitees: Vec::new(),
-            });
-            let reply = json!({"share_id": share_id, "secret": secret, "url": null,
-                "expires_at": expires_at, "session": session, "surface": surface,
-                "uses_left": uses});
-            if !fits(shares) {
-                return Err("share.limit");
-            }
-            Ok((reply, true))
+            open::push(shares, now, ids, session, surface, terms, provisioning).map(|v| (v, true))
         })
     }
 
@@ -636,30 +719,45 @@ impl LinkShares {
         let attempt = hex(&digest(&[&p.attempt_id]));
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
-            let role = match &account {
-                None if !same(&hex(&digest(&[&p.secret])), &share.secret_sha256) => {
-                    return Err("share.secret");
-                }
-                None => None,
+            let secret_matches =
+                || !p.secret.is_empty() && same(&hex(&digest(&[&p.secret])), &share.secret_sha256);
+            let (account, role) = match account {
+                None if !secret_matches() => return Err("share.secret"),
+                None => (None, None),
                 Some(account) => {
+                    // An ended share says how it ended, to any account.
+                    share.live()?;
                     // A retry of a removed account's earlier join says it was removed.
-                    let earlier = share.guests.iter().find(|g| {
-                        g.account.as_ref() == Some(account) && same(&g.attempt_id_sha256, &attempt)
+                    let earlier = share.guests.iter().any(|g| {
+                        g.account.as_ref() == Some(&account) && same(&g.attempt_id_sha256, &attempt)
                     });
                     let invitee = share
                         .invitees
                         .iter()
-                        .find(|i| i.account == *account && i.state == InviteState::Invited);
+                        .find(|i| i.account == account && i.state == InviteState::Invited);
                     match (invitee, earlier) {
-                        (Some(invitee), _) => Some(invitee.role),
-                        (None, Some(_)) => return Err("share.kicked"),
-                        (None, None) => return Err("share.not_invited"),
+                        (Some(invitee), _) => {
+                            let role = invitee.role;
+                            (Some(account), Some(role))
+                        }
+                        (None, true) => return Err("share.kicked"),
+                        // An account that is not invited but holds the link's secret joins by
+                        // the link, as a link guest (a use spent, no account kept).
+                        (None, false) if secret_matches() => (None, None),
+                        (None, false) => return Err("share.not_invited"),
                     }
                 }
             };
             share.live()?;
-            let reply =
-                |g: &Guest| json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
+            let reply = |g: &Guest| {
+                let mut answer =
+                    json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
+                // An invitee's role (a link guest has none): the room hands it to the page.
+                if let Some(role) = g.role {
+                    answer["role"] = json!(role);
+                }
+                answer
+            };
             if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
                 // An attempt is one account's: another account (or a link guest) never gets it.
@@ -708,7 +806,7 @@ impl LinkShares {
             };
             let answer = reply(&guest);
             share.guests.push(guest);
-            if !fits(shares) {
+            if !fits_or_prune(shares) {
                 return Err("share.limit");
             }
             Ok((answer, true))
@@ -726,42 +824,7 @@ impl LinkShares {
     ) -> Result<Value, &'static str> {
         let account = normal_account(&p.account)?;
         let role = p.role.unwrap_or(Role::Talk);
-        self.with(directory, |shares, now| {
-            let share = find(shares, &p.share_id)?;
-            if share.state != ShareState::Provisioning {
-                share.live()?;
-            }
-            let answer = json!({"share_id": share.share_id, "account": account, "role": role,
-                "state": InviteState::Invited});
-            if let Some(invitee) = share.invitees.iter_mut().find(|i| i.account == account) {
-                if invitee.state == InviteState::Invited {
-                    return if invitee.role == role {
-                        Ok((answer, false))
-                    } else {
-                        Err("share.invited")
-                    };
-                }
-                *invitee = Invitee { account, role, invited_at: now, state: InviteState::Invited };
-                return Ok((answer, true));
-            }
-            if share.invitees.len() >= MAX_INVITEES {
-                // A removed account goes first, when room is needed.
-                share.invitees.retain(|i| i.state == InviteState::Invited);
-            }
-            if share.invitees.len() >= MAX_INVITEES {
-                return Err("share.limit");
-            }
-            share.invitees.push(Invitee {
-                account,
-                role,
-                invited_at: now,
-                state: InviteState::Invited,
-            });
-            if !fits(shares) {
-                return Err("share.limit");
-            }
-            Ok((answer, true))
-        })
+        self.with(directory, |shares, now| open::invite_in(shares, &p.share_id, account, role, now))
     }
 
     /// Removes an invited account: it joins no more, and every guest it joined as is kicked (its
@@ -896,7 +959,7 @@ impl LinkShares {
         end: impl Fn(&mut LinkShare),
     ) {
         let mut slot = self.shares.lock().unwrap_or_else(|e| e.into_inner());
-        let shares = slot.get_or_insert_with(|| load(directory));
+        let shares = slot.get_or_insert_with(|| self.load(directory));
         let start = shares.clone();
         let mut changed = false;
         for share in shares.iter_mut().filter(|s| which(s)) {
@@ -1031,7 +1094,7 @@ pub(crate) fn open_chat_shares(mux: &Mux) -> HashSet<String> {
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
     let mut slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
-    let open = slot.get_or_insert_with(|| load(directory.as_deref())).iter();
+    let open = slot.get_or_insert_with(|| shares.load(directory.as_deref())).iter();
     open.filter(|s| matches!(s.state, ShareState::Active | ShareState::Provisioning))
         .map(|s| s.share_id.clone())
         .collect()
@@ -1099,37 +1162,9 @@ pub(super) fn handle(
     let directory = directory.as_deref();
     let params = Value::Object(object);
     let answer = match cmd {
-        "agent-session-share-create" => parse(params).and_then(|p: Create| {
-            let ttl = p.ttl_secs.unwrap_or(DEFAULT_TTL_SECS);
-            let uses = p.uses.unwrap_or(1);
-            if !(MIN_TTL_SECS..=MAX_TTL_SECS).contains(&ttl) || !(1..=MAX_USES).contains(&uses) {
-                return Err("share.bad_request");
-            }
-            if p.create_id
-                .as_ref()
-                .is_some_and(|id| id.is_empty() || id.len() > MAX_CREATE_ID_BYTES)
-            {
-                return Err("share.bad_request");
-            }
-            let terms = ShareTerms { ttl_secs: ttl, uses, create_id: p.create_id };
-            let session = tab_session(mux, p.surface).ok_or("share.not_a_chat")?;
-            if p.session.as_ref().is_some_and(|named| *named != session) {
-                return Err("share.chat_moved");
-            }
-            if shares.bridge.invalid() {
-                return Err("share.room_unreachable");
-            }
-            match shares.bridge.room() {
-                None => shares.insert(directory, session, p.surface, terms, false),
-                Some(room) => {
-                    let token = p.owner_token.map(zeroize::Zeroizing::new);
-                    let token = token.filter(|t| !t.is_empty() && t.len() <= 8192);
-                    let token = token.ok_or("share.needs_sign_in")?;
-                    let created = shares.insert(directory, session, p.surface, terms, true)?;
-                    room::provision(mux, created, room, token)
-                }
-            }
-        }),
+        "agent-session-share-create" => {
+            parse(params).and_then(|p: Create| open::create(mux, shares, directory, p))
+        }
         "agent-session-share-list" => parse(params).and_then(|p: List| {
             let session = match p.surface {
                 Some(surface) => Some(tab_session(mux, surface).ok_or("share.not_a_chat")?),
@@ -1159,6 +1194,8 @@ pub(super) fn handle(
         "agent-session-share-invite" => {
             parse(params).and_then(|p: Invite| shares.invite(directory, &p))
         }
+        "agent-session-share-invite-chat" => parse(params)
+            .and_then(|p: open::InviteChat| open::invite_chat(mux, shares, directory, p)),
         "agent-session-share-uninvite" => {
             parse(params).and_then(|p: Uninvite| shares.uninvite(directory, &p))
         }
@@ -1304,6 +1341,9 @@ pub(super) fn check_guest(
     Ok(Teammate { author, pinned: Some(session) })
 }
 
+#[cfg(test)]
+#[path = "agent_session_share_invite_chat_tests.rs"]
+mod invite_chat_tests;
 #[cfg(test)]
 #[path = "agent_session_shares_tests.rs"]
 mod tests;

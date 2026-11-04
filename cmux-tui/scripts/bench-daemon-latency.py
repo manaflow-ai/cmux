@@ -61,6 +61,56 @@ A settle miss, a stream end (`detached`, `overflow`) or a refused resize
 fails the run. `--resize-rounds` (default 4, so 20 bursts per case)
 repeats the 5 bursts.
 
+Scenario "journal-step" (not in the default list; cmux-ad m11 2) is #34628's 5-8 s maintenance
+stall: agents (the "agents" scenario's hook helpers, --agents of them) fill the journal with
+records the maintenance tick's roster catch-up then reads, while an "app" connection sends what
+the app sends (window_record-like put-frontend-projection, list-workspaces, identify) and a churn
+connection creates and closes terminals. The load runs through --journal-ticks whole maintenance
+ticks: a tick starts 30 s (a release build's interval) after the previous one ended, so the
+window is 30 s per tick plus --journal-tick-seconds (default 10, over #34628's 5-8 s ticks) for
+each tick and for the one that may be running when the window opens. A longer tick can leave the
+window short of --journal-ticks whole ticks; its slow-maintenance line shows its length. A tick
+under 500 ms logs no line, so an empty slow-maintenance list does not show that a tick ran.
+It reports each request kind's latency (p50/p95/p99/max), the daemon's slow-maintenance lines,
+and, over the requests that start no process (put-frontend-projection, list-workspaces, identify,
+close-surface), "all" and the requests over 30 ms (the typing budget's daemon share is 4 ms;
+30 ms is a stall a person sees). create-terminal is reported apart and kept out of "all" and
+over-30ms: a create waits for its terminal host to launch, and "create-terminal-idle" (20 of the
+same creates before the agents start) shows what a create costs with no load.
+
+Scenario "head-of-line" (not in the default list; cmux-ad m11 2, data for PL-daemon's open
+question on per-request dispatch) is a request queued on a connection behind a slow request of
+the same connection. The daemon's reader for a connection answers `ping` and a plain `identify`
+itself and queues the connection's other legacy requests for its one dispatch thread, which takes
+them in order and runs each there, except a terminal create (handed to the terminal pool) and a
+waiting `wait-for` or a `clear-history` (handed to a worker). Of the churn's requests,
+`close-surface` runs on that thread (its commit waits for the workspace registry lock, which a
+maintenance tick's steps hold); a create leaves it at once. So, with the "journal-step" agents
+and window, one connection creates a terminal and, once it is made, sends `close-surface`, then
+at once `list-workspaces` (queued behind the close) and `identify` (the control: answered on the
+reader, it waits for no queue). A second connection sends the same `list-workspaces` and
+`identify` at the same moment. Each connection keeps its requests in flight together: one reader
+thread per connection matches each reply to its request by id, and each request is timed from
+its send to its reply. "list-workspaces-behind-close" minus "list-workspaces-own-connection" is
+the wait in the connection's queue; "identify-behind-close" should match "identify-own-connection".
+
+"agents", "journal-step" and "head-of-line" each end their agents (a stop file that each agent
+reads once a turn, then their tabs closed) before the next scenario: two scenarios' agents at
+once take every connection the daemon gives terminal processes, and it then refuses the bench's
+own ("refused: server.busy"). In "journal-step" and "head-of-line" a failure (a refused
+connection, an error reply, no reply in 600 s) stops the scenario and fails the run after its
+numbers are printed; nothing is retried.
+
+The daemon starts as the app starts it, with `--terminal-reap-grace-seconds 30`
+(--reap-grace-seconds; a negative value leaves the flag out): a closed terminal ends after the
+grace, and at most 16 closed terminals wait it out with their PTY. Without the flag a close leaves
+the terminal running unplaced, so a scenario that creates and closes a few hundred terminals runs
+the Mac out of PTYs (511 on macOS); "journal-step" then "head-of-line" did, on two Macs. The grace
+changes the default scenarios' `new-tab` numbers: the bench closes each new tab, and once more
+than 16 closed tabs wait, each close makes the reaper end the longest-closed terminal at once,
+while the next `new-tab` is timed. A step in the `new-tab` series at this change comes from the
+bench, not from the daemon.
+
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
 """
@@ -111,8 +161,126 @@ class Conn:
         self.sock.sendall((json.dumps({"id": rid, "cmd": cmd, **params}) + "\n").encode())
         while True:
             msg = self.read_line()
+            if msg.get("type") == "refused":
+                # The daemon refuses a connection past its connection limit with one line.
+                raise ConnectionError(f"refused: {msg.get('code')}: {msg.get('message')}")
             if msg.get("id") == rid and "ok" in msg:
                 return msg
+
+
+class Pending:
+    """One request in flight on a PipelinedConn: its send time, and its reply with the time the
+    reply arrived (stamped by the connection's reader thread)."""
+
+    def __init__(self, cmd):
+        self.cmd = cmd
+        self.sent = None
+        self.arrived = None
+        self.reply = None
+        self.error = None
+        self.done = threading.Event()
+
+    def wait(self, timeout=600):
+        if not self.done.wait(timeout):
+            raise TimeoutError(f"{self.cmd}: no reply in {timeout} s")
+        if self.error is not None:
+            raise ConnectionError(f"{self.cmd}: {self.error}")
+        return self.reply
+
+    def ms(self):
+        """Milliseconds from the request's send to its reply."""
+        return (self.arrived - self.sent) * 1000
+
+
+class PipelinedConn:
+    """A JSON-lines connection with several requests in flight, as the app's daemon client keeps
+    them: `send` writes a request at once (a lock covers only the write), and one reader thread
+    matches each reply to its request by id and stamps when it arrived. A refusal, the socket's
+    end or a read error fails every request in flight and every later send."""
+
+    def __init__(self, path, timeout=60):
+        self.sock = socket.socket(socket.AF_UNIX)
+        self.sock.settimeout(timeout)
+        self.sock.connect(path)
+        # The reader waits for the next reply as long as it takes; each request has its own timeout.
+        self.sock.settimeout(None)
+        self.write_lock = threading.Lock()
+        self.lock = threading.Lock()
+        self.next_id = 1
+        self.pending = {}
+        self.failure = None
+        self.reader = threading.Thread(target=self._read, name="bench-pipelined-reader", daemon=True)
+        self.reader.start()
+
+    def send(self, cmd, **params):
+        pending = Pending(cmd)
+        with self.write_lock:
+            with self.lock:
+                if self.failure is not None:
+                    raise ConnectionError(f"{cmd}: {self.failure}")
+                rid = self.next_id
+                self.next_id += 1
+                self.pending[rid] = pending
+            line = (json.dumps({"id": rid, "cmd": cmd, **params}) + "\n").encode()
+            pending.sent = time.perf_counter()
+            try:
+                self.sock.sendall(line)
+            except OSError as e:
+                with self.lock:
+                    self.pending.pop(rid, None)
+                raise ConnectionError(f"{cmd}: send failed: {e!r}") from e
+        return pending
+
+    def call(self, cmd, **params):
+        return self.send(cmd, **params).wait()
+
+    def _read(self):
+        buf = b""
+        try:
+            while True:
+                chunk = self.sock.recv(1 << 20)
+                arrived = time.perf_counter()
+                if not chunk:
+                    raise ConnectionError("control socket closed")
+                lines = (buf + chunk).split(b"\n")
+                buf = lines.pop()
+                for line in lines:
+                    msg = json.loads(line)
+                    if msg.get("type") == "refused":
+                        # The daemon refuses a connection past its connection limit with one line.
+                        raise ConnectionError(f"refused: {msg.get('code')}: {msg.get('message')}")
+                    rid = msg.get("id")
+                    if "ok" not in msg or not isinstance(rid, int):
+                        continue  # not a reply (an event line)
+                    with self.lock:
+                        pending = self.pending.pop(rid, None)
+                    if pending is not None:
+                        pending.reply, pending.arrived = msg, arrived
+                        pending.done.set()
+        except Exception as e:  # noqa: BLE001
+            with self.lock:
+                if self.failure is None:
+                    self.failure = repr(e)
+                failed, self.pending = self.pending, {}
+            for pending in failed.values():
+                pending.error = self.failure
+                pending.done.set()
+
+    def close(self):
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.reader.join(timeout=10)
+        try:
+            self.sock.close()
+        except OSError:
+            pass
+
+
+# A release build's maintenance interval: a tick starts this long after the previous one ended
+# (`JOURNAL_MAINTENANCE_INTERVAL`, cmux-tui-core/src/mux/journal_maintenance.rs).
+MAINTENANCE_INTERVAL_S = 30.0
 
 
 def must(resp, what):
@@ -164,6 +332,9 @@ class Bench:
         self.env = env
         argv = [self.args.bin, "--headless", "--session", self.session, "--socket", self.sock_path,
                 "--state", os.path.join(self.root, "state")]
+        if self.args.reap_grace_seconds >= 0:
+            # As the app starts its daemon (DaemonLauncher): closed terminals end after the grace.
+            argv += ["--terminal-reap-grace-seconds", str(self.args.reap_grace_seconds)]
         self.daemon_log = open(os.path.join(self.root, "daemon.log"), "a")
         self.daemon = subprocess.Popen(argv, stdout=self.daemon_log, stderr=subprocess.STDOUT, env=env,
                                        start_new_session=True)
@@ -366,8 +537,9 @@ class Bench:
 
     # -- the "agents" scenario
 
-    def agent_argv(self, index):
-        """A fake agent: the real hook helper for each turn event, and one CLI call per turn."""
+    def agent_argv(self, index, stop):
+        """A fake agent: the real hook helper for each turn event, and one CLI call per turn. It ends
+        after the turn in which the file `stop` (a path) appears."""
         bin_q = "'" + self.args.bin.replace("'", "'\\''") + "'"
         events = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "PreToolUse", "PostToolUse", "Stop"]
         loop = "; ".join(
@@ -377,8 +549,30 @@ class Bench:
             for event in events
         )
         cli = f"; {bin_q} workspace list >/dev/null 2>&1" if self.args.agent_cli else ""
-        script = f"while :; do {loop}{cli}; done"
-        return ["/bin/sh", "-c", script]
+        stop_q = "'" + stop.replace("'", "'\\''") + "'"
+        return ["/bin/sh", "-c", f"while [ ! -e {stop_q} ]; do {loop}{cli}; done"]
+
+    def start_agents(self, c, ws_ids, stop):
+        """`--agents` fake agents that end once `stop` exists; returns their surfaces."""
+        surfaces = []
+        for i in range(self.args.agents):
+            d = must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i, stop),
+                            cols=80, rows=24), "create-terminal")
+            if d.get("surface") is not None:
+                surfaces.append(d["surface"])
+        return surfaces
+
+    def end_agents(self, c, surfaces, stop):
+        """Ends a scenario's agents (each after its turn) and closes their surfaces, so the next
+        scenario starts with none of them (two scenarios' agents at once take every connection the
+        daemon gives terminal processes, and it refuses the bench's own)."""
+        with open(stop, "w"):
+            pass
+        time.sleep(3.0)
+        for surface in surfaces:
+            # Not checked: the tab of an agent that already ended is gone, and its close answers
+            # "unknown surface".
+            c.call("close-surface", surface=surface)
 
     def server_stats(self, c):
         r = c.call("server-stats", include=["locks", "write_path"])
@@ -391,9 +585,8 @@ class Bench:
             must(c.call("new-workspace", name=f"a{i}", cols=80, rows=24), "new-workspace")
         tree = must(c.call("list-workspaces"), "list-workspaces")
         ws_ids = [w["id"] for w in tree["workspaces"]]
-        for i in range(self.args.agents):
-            must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=self.agent_argv(i),
-                        cols=80, rows=24), "create-terminal")
+        stop_agents = os.path.join(self.root, f"stop-{name}")
+        agent_surfaces = self.start_agents(c, ws_ids, stop_agents)
         time.sleep(self.args.settle)
         before = self.server_stats(c)
         stop = threading.Event()
@@ -465,6 +658,7 @@ class Bench:
         for t in threads:
             t.join()
         after = self.server_stats(c)
+        self.end_agents(c, agent_surfaces, stop_agents)
         c.close()
         res = {k: stats(v) for k, v in lat.items()}
         app_all = [v for k in ("put-frontend-projection", "list-workspaces", "session.snapshot", "identify")
@@ -866,6 +1060,230 @@ class Bench:
             # The numbers above are printed for diagnosis; the run fails.
             raise RuntimeError(f"{name}: {failed}")
 
+    # -- the "journal-step" and "head-of-line" scenarios (cmux-ad m11 2)
+
+    def journal_window(self):
+        """Seconds of load that hold --journal-ticks whole maintenance ticks. A tick starts
+        MAINTENANCE_INTERVAL_S after the previous one ended, so k ticks of at most d seconds end
+        within k intervals and k + 1 tick lengths of any moment (the k ticks, and the one that may
+        be running at that moment)."""
+        k, d = self.args.journal_ticks, self.args.journal_tick_seconds
+        return MAINTENANCE_INTERVAL_S * k + (k + 1) * d
+
+    def slow_maintenance(self, log_start):
+        """The daemon's slow-maintenance lines since `log_start` (a daemon.log offset)."""
+        with open(os.path.join(self.root, "daemon.log"), errors="replace") as f:
+            f.seek(log_start)
+            return [line.strip() for line in f if "slow journal maintenance" in line]
+
+    @staticmethod
+    def created_surface(created):
+        """The tab of a create-terminal reply's placed terminal; a reply without one fails the run."""
+        surface = created.get("surface")
+        if surface is None:
+            raise RuntimeError(f"create-terminal placed no tab: {created!r}")
+        return surface
+
+    @staticmethod
+    def print_scenario(name, res):
+        for metric, s in res.items():
+            if isinstance(s, dict) and "n" in s:
+                print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
+                      f"p99={s.get('p99_ms')} max={s.get('max_ms')}", flush=True)
+
+    def journal_step(self, name="journal-step"):
+        window = self.journal_window()
+        log("scenario", name, self.args.agents, "agents", self.args.journal_ticks, "ticks", window, "s")
+        c = Conn(self.sock_path, timeout=300)
+        for i in range(10):
+            must(c.call("new-workspace", name=f"j{i}", cols=80, rows=24), "new-workspace")
+        tree = must(c.call("list-workspaces"), "list-workspaces")
+        ws_ids = [w["id"] for w in tree["workspaces"]]
+        # The churn's create before the agents start: what a create costs with no load.
+        idle = []
+        for i in range(20):
+            t = time.perf_counter()
+            d = must(c.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=["/bin/sh"],
+                            cols=80, rows=24), "create-terminal")
+            idle.append((time.perf_counter() - t) * 1000)
+            must(c.call("close-surface", surface=self.created_surface(d)), "close-surface")
+        stop_agents = os.path.join(self.root, f"stop-{name}")
+        agents = self.start_agents(c, ws_ids, stop_agents)
+        log_start = os.path.getsize(os.path.join(self.root, "daemon.log"))
+        stop = threading.Event()
+        # The requests that start no process: "all" and over-30ms cover these. create-terminal
+        # waits for its terminal host's launch and is reported apart.
+        quick = ("put-frontend-projection", "list-workspaces", "identify", "close-surface")
+        lat = {k: [] for k in quick + ("create-terminal",)}
+        errors = []
+        lock = threading.Lock()
+
+        def record(kind, ms):
+            with lock:
+                lat[kind].append(ms)
+
+        def failing(fn):
+            # A worker that fails (its connection refused, an error reply) stops the scenario and
+            # fails the run; nothing is retried.
+            def run():
+                try:
+                    fn()
+                except Exception as e:  # noqa: BLE001
+                    with lock:
+                        errors.append(f"{fn.__name__}: {e!r}")
+                    stop.set()
+            run.__name__ = fn.__name__
+            return run
+
+        def app():
+            conn = Conn(self.sock_path, timeout=600)
+            try:
+                k = 0
+                while not stop.is_set():
+                    k += 1
+                    for kind, fn in (
+                        ("put-frontend-projection", lambda: conn.call(
+                            "put-frontend-projection", frontend="cmux-next", scope="personal",
+                            subject_key="windows", schema_version=1, origin="bench-app",
+                            mutation_id=f"jstep-{os.getpid()}-{k}",
+                            projection={"windows": [{"id": "w1", "frame": [0, 0, 1200 + k % 7, 800],
+                                                     "workspace_keys": []}]})),
+                        ("list-workspaces", lambda: conn.call("list-workspaces")),
+                        ("identify", lambda: conn.call("identify")),
+                    ):
+                        t = time.perf_counter()
+                        must(fn(), kind)
+                        record(kind, (time.perf_counter() - t) * 1000)
+                    stop.wait(0.02)
+            finally:
+                conn.close()
+
+        def churn():
+            conn = Conn(self.sock_path, timeout=600)
+            try:
+                i = 0
+                while not stop.is_set():
+                    i += 1
+                    t = time.perf_counter()
+                    d = must(conn.call("create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=["/bin/sh"],
+                                       cols=80, rows=24), "create-terminal")
+                    record("create-terminal", (time.perf_counter() - t) * 1000)
+                    surface = self.created_surface(d)
+                    t = time.perf_counter()
+                    must(conn.call("close-surface", surface=surface), "close-surface")
+                    record("close-surface", (time.perf_counter() - t) * 1000)
+                    stop.wait(0.2)
+            finally:
+                conn.close()
+
+        threads = [threading.Thread(target=failing(f)) for f in (app, churn)]
+        for t in threads:
+            t.start()
+        stop.wait(window)
+        stop.set()
+        for t in threads:
+            t.join()
+        try:
+            self.end_agents(c, agents, stop_agents)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"end_agents: {e!r}")
+        c.close()
+        slow = self.slow_maintenance(log_start)
+        res = {k: stats(v) for k, v in lat.items()}
+        res["create-terminal-idle"] = stats(idle)
+        res["all"] = stats([v for k in quick for v in lat[k]])
+        over = {k: sum(1 for v in lat[k] if v > 30.0) for k in quick}
+        res["over_30ms"] = over
+        res["window_s"] = window
+        res["slow_maintenance"] = slow[:20]
+        res["errors"] = errors
+        self.result["scenarios"][name] = res
+        self.print_scenario(name, res)
+        print(f"PERF-DAEMON {name} over-30ms {json.dumps(over, sort_keys=True)}", flush=True)
+        for line in slow[:20]:
+            print(f"PERF-DAEMON {name} slow-maintenance {line}", flush=True)
+        if errors:
+            print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+            # The numbers above are printed for diagnosis; the run fails.
+            raise RuntimeError(f"{name}: {errors}")
+
+    def head_of_line(self, name="head-of-line"):
+        """A request queued behind a slow request of its connection, against the same request on a
+        connection of its own, with `journal-step`'s agents and window (see the module docstring).
+        One connection creates a terminal; once it is made, the connection sends `close-surface`
+        (run on the connection's dispatch thread), then at once `list-workspaces` (queued behind
+        it) and `identify` (answered on the daemon's reader, the control). A second connection
+        sends the same two at the same moment."""
+        window = self.journal_window()
+        log("scenario", name, self.args.agents, "agents", self.args.journal_ticks, "ticks", window, "s")
+        c = Conn(self.sock_path, timeout=300)
+        for i in range(10):
+            must(c.call("new-workspace", name=f"h{i}", cols=80, rows=24), "new-workspace")
+        tree = must(c.call("list-workspaces"), "list-workspaces")
+        ws_ids = [w["id"] for w in tree["workspaces"]]
+        stop_agents = os.path.join(self.root, f"stop-{name}")
+        agents = self.start_agents(c, ws_ids, stop_agents)
+        log_start = os.path.getsize(os.path.join(self.root, "daemon.log"))
+        kinds = ("create-terminal", "close-surface", "list-workspaces-behind-close", "list-workspaces-own-connection",
+                 "identify-behind-close", "identify-own-connection")
+        lat = {k: [] for k in kinds}
+        errors = []
+
+        def settle(batch):
+            # Each request's reply, checked; each request timed from its send to its reply.
+            data = {}
+            for kind, pending in batch:
+                data[kind] = must(pending.wait(), kind)
+                lat[kind].append(pending.ms())
+            return data
+
+        shared = own = None
+        try:
+            shared = PipelinedConn(self.sock_path)
+            own = PipelinedConn(self.sock_path)
+            for conn in (shared, own):
+                # Starts each connection's dispatch thread before the timed requests.
+                must(conn.call("list-workspaces"), "list-workspaces")
+            deadline = time.monotonic() + window
+            i = 0
+            while time.monotonic() < deadline:
+                i += 1
+                created = settle([("create-terminal", shared.send(
+                    "create-terminal", workspace=ws_ids[i % len(ws_ids)], argv=["/bin/sh"], cols=80, rows=24))])
+                surface = self.created_surface(created["create-terminal"])
+                settle([
+                    ("close-surface", shared.send("close-surface", surface=surface)),
+                    ("list-workspaces-behind-close", shared.send("list-workspaces")),
+                    ("identify-behind-close", shared.send("identify")),
+                    ("list-workspaces-own-connection", own.send("list-workspaces")),
+                    ("identify-own-connection", own.send("identify")),
+                ])
+                time.sleep(0.05)
+        except Exception as e:  # noqa: BLE001
+            # The first failure stops the scenario and fails the run; nothing is retried.
+            errors.append(repr(e))
+        finally:
+            for conn in (shared, own):
+                if conn is not None:
+                    conn.close()
+        try:
+            self.end_agents(c, agents, stop_agents)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"end_agents: {e!r}")
+        c.close()
+        slow = self.slow_maintenance(log_start)
+        res = {k: stats(v) for k, v in lat.items()}
+        res["window_s"] = window
+        res["slow_maintenance"] = slow[:20]
+        res["errors"] = errors
+        self.result["scenarios"][name] = res
+        self.print_scenario(name, res)
+        for line in slow[:20]:
+            print(f"PERF-DAEMON {name} slow-maintenance {line}", flush=True)
+        if errors:
+            print(f"PERF-DAEMON {name} errors {errors}", flush=True)
+            raise RuntimeError(f"{name}: {errors}")
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
         self.grow(workspaces, terminals, busy)
@@ -901,6 +1319,14 @@ def main():
                     help="cli-storm: calls a second asked of the 8 CLI workers in total")
     ap.add_argument("--resize-rounds", type=int, default=4,
                     help="resize-mirror: how many times to run its 5 bursts per case")
+    ap.add_argument("--journal-ticks", type=int, default=3,
+                    help="journal-step, head-of-line: whole maintenance ticks the load runs through (a tick "
+                         "starts 30 s after the previous one ended)")
+    ap.add_argument("--journal-tick-seconds", type=float, default=10.0,
+                    help="journal-step, head-of-line: the longest maintenance tick the window allows for, for "
+                         "each tick and for the one running when the window opens")
+    ap.add_argument("--reap-grace-seconds", type=int, default=30,
+                    help="the daemon's --terminal-reap-grace-seconds, as the app passes it; negative: leave it out")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
@@ -917,6 +1343,10 @@ def main():
             b.resize_mirror()
         if "cli-storm" in wanted:
             b.cli_storm()
+        if "journal-step" in wanted:
+            b.journal_step()
+        if "head-of-line" in wanted:
+            b.head_of_line()
         if "agents-hooks" in wanted:
             # The hooks only: no shipped agent hook calls the CLI per turn.
             args.agent_cli = 0

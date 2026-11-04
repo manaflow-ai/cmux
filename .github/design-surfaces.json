@@ -2,6 +2,50 @@
   "about": "Which source paths make up each UI surface, and the design spec that surface follows (one spec per surface, in leo-workspace design/<surface>.md). scripts/ci/pr_design_spec_check.py warns, never fails, when a pull request changes a surface's paths and its description does not cite the spec. leo-workspace tools/prior_art.py reads this map to list a surface's open and recently merged PRs before work starts. A path is a file or a directory (everything under it). Tests and gallery files are left out: changing them changes no design. Keep paths current when files move; the check warns about a mapped path that no longer exists.",
   "version": 1,
   "surfaces": {
+    "tooltips": {
+      "spec": "leo-workspace design/overlay-surfaces.md",
+      "aliases": ["tooltip", "hover preview", "tooltip hierarchy"],
+      "paths": [
+        "webviews/src/ui/Tooltip.tsx",
+        "webviews/src/ui/titleTooltips.ts",
+        "webviews/src/ui/tooltipTokens.ts"
+      ]
+    },
+    "onboarding": {
+      "spec": "leo-workspace design/onboarding.md",
+      "aliases": ["onboarding", "bring your history", "memory import"],
+      "paths": [
+        "webviews/src/pages/import-history/ImportHistory.tsx",
+        "webviews/src/pages/import-history/styles.css",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Model/OnboardingModel.swift"
+      ]
+    },
+    "whats-new": {
+      "spec": "leo-workspace design/whats-new.md",
+      "aliases": ["what's new", "changelog", "release notes"],
+      "paths": [
+        "webviews/src/pages/changelog/"
+      ]
+    },
+    "chief-work": {
+      "spec": "leo-workspace design/chief-work.md",
+      "aliases": ["Chief background tasks", "Chief subagents", "Chief work"],
+      "paths": [
+        "webviews/src/pages/home-channels/ChiefWorkPanel.tsx",
+        "webviews/src/pages/home-channels/chiefWork.css",
+        "webviews/src/pages/home-channels/ChiefWorkPane.tsx",
+        "webviews/src/pages/home-channels/ChiefWorkStore.ts"
+      ]
+    },
+    "chief-pages": {
+      "spec": "leo-workspace design/chief-pages.md",
+      "aliases": ["Chief Usage", "Chief views", "Chief inspector"],
+      "paths": [
+        "webviews/src/pages/chief-usage/",
+        "webviews/src/pages/chief-views/",
+        "webviews/src/pages/chief-inspector/"
+      ]
+    },
     "chief-web": {
       "spec": "leo-workspace design/chief-web.md",
       "aliases": ["Chief mobile web", "Chief web address"],
@@ -63,6 +107,11 @@
         "webviews/src/agent-session/acpmux/bottomStack.css"
       ]
     },
+    "background-tasks": {
+      "spec": "leo-workspace design/background-tasks.md",
+      "aliases": ["background tasks", "background commands", "subagent transcript"],
+      "paths": ["webviews/src/agent-session/acpmux/backgroundTasks/"]
+    },
     "running-tray": {
       "spec": "leo-workspace design/running-tray.md",
       "aliases": ["running tray", "subagent tray", "running in background"],
@@ -75,7 +124,8 @@
       "spec": "leo-workspace design/session-rail.md",
       "aliases": ["session rail", "prompt rail", "thread minimap", "rail ticks"],
       "paths": [
-        "webviews/src/agent-session/acpmux/threadMinimap/"
+        "webviews/src/agent-session/acpmux/threadMinimap/",
+        "webviews/src/agent-session/acpmux/chatMinimap/"
       ]
     },
     "feature-tips": {
@@ -103,7 +153,8 @@
       "spec": "leo-workspace design/sidebar.md",
       "aliases": ["sidebar"],
       "paths": [
-        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/"
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/",
+        "webviews/src/sidebar/"
       ]
     },
     "chat-transcript": {
@@ -143,7 +194,7 @@
     },
     "menus": {
       "spec": "leo-workspace design/menus.md",
-      "aliases": ["menu", "menus", "context menu", "right-click menu", "dropdown", "checkmark", "menu glass"],
+      "aliases": ["menu", "menus", "context menu", "right-click menu", "dropdown", "checkmark", "menu glass", "composer menus", "context menus"],
       "paths": [
         "webviews/src/ui/Menu.tsx",
         "webviews/src/ui/ContextMenu.tsx",
@@ -172,7 +223,39 @@
         "session panel"
       ],
       "paths": [
-        "webviews/src/agent-session/acpmux/session-info"
+        "webviews/src/agent-session/acpmux/session-info",
+        "webviews/src/agent-session/acpmux/summary"
+      ]
+    },
+    "home": {
+      "spec": "leo-workspace design/home-inbox.md",
+      "aliases": ["Home", "home channels", "home inbox"],
+      "paths": [
+        "webviews/src/pages/home-channels/"
+      ]
+    },
+    "diff-viewer": {
+      "spec": "leo-workspace design/diff-viewer.md",
+      "aliases": ["diff viewer", "changes viewer", "file diff"],
+      "paths": [
+        "webviews/src/diff-viewer/",
+        "webviews/src/pages/diff/"
+      ]
+    },
+    "chief-pages": {
+      "spec": "leo-workspace design/chief-pages.md",
+      "aliases": ["Chief pages", "Chief inspector", "Chief usage", "Chief views"],
+      "paths": [
+        "webviews/src/pages/chief-inspector/",
+        "webviews/src/pages/chief-usage/",
+        "webviews/src/pages/chief-views/"
+      ]
+    },
+    "ui": {
+      "spec": "leo-workspace design/system.md",
+      "aliases": ["ui components", "design system", "controls", "token sheet"],
+      "paths": [
+        "webviews/src/ui/"
       ]
     },
     "artifacts": {
@@ -188,6 +271,17 @@
         "webviews/src/agent-session/acpmux/conversation/artifactVersions.ts",
         "webviews/src/agent-session/acpmux/conversation/RenderCard.tsx",
         "webviews/src/agent-session/acpmux/conversation/renderCall.ts"
+      ]
+    },
+    "chat-multiplayer": {
+      "spec": "leo-workspace design/chat-multiplayer.md",
+      "aliases": ["share sheet", "invite people", "share with guest", "guest link", "chat invites"],
+      "paths": [
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteSheet.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
+        "webviews/src/agent-session/guest/"
       ]
     }
   }

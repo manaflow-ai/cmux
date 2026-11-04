@@ -28,7 +28,9 @@ let cachedValidator: SchemaValidator | undefined
 const validator = () => (cachedValidator ??= new SchemaValidator(JSON.parse(readFileSync(schemaPath, "utf8"))))
 
 /** Scope names the host knows: every scope in generated/scopes.json plus the special scopes. */
-export const knownScope = (scope: string, generated: ReadonlySet<string>) => generated.has(scope) || SPECIAL_SCOPES.some((r) => r.test(scope))
+/** `none` marks ops every app may call (toast.show); a manifest cannot ask for it. */
+export const knownScope = (scope: string, generated: ReadonlySet<string>) =>
+  scope !== "none" && (generated.has(scope) || SPECIAL_SCOPES.some((r) => r.test(scope)))
 
 const loadGeneratedOps = (): Set<string> => {
   if (!existsSync(scopesPath)) return new Set()

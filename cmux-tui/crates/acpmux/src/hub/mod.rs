@@ -22,9 +22,12 @@ mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
 pub(crate) mod auto_resume;
+mod bg_notify;
 mod bg_tasks;
 mod bounded;
 mod btw;
+mod workflow_activity;
+pub(crate) mod workflow_ci;
 mod workflow_runs;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
@@ -72,12 +75,17 @@ mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
+mod held_asks;
 pub(super) mod idle;
 mod idle_census;
+mod person_prompt_at;
+pub(crate) use idle::SessionAtWork;
+mod tool_start;
 pub(crate) use idle_census::LaunchServers;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
 pub use idle_census::{Sidecar, StoredLaunch};
+pub use tool_start::{ToolStart, tool_start};
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -101,6 +109,7 @@ mod hosts;
 mod lifecycle;
 mod log_deferral;
 mod log_load;
+mod repo_sync;
 mod retention;
 pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
@@ -117,6 +126,7 @@ mod personal_stats;
 mod policy_mode;
 mod policy_source;
 mod pool;
+pub(crate) use pool::SESSION_NEW_BUDGET;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
@@ -134,6 +144,7 @@ pub use queue::{Approver, QueuedPrompt, Withdrawn, supersede::key as supersede_k
 mod profile_respawn;
 mod resolve;
 mod route_switch;
+mod stale_host_respawn;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
@@ -143,9 +154,13 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+mod loop_goal;
+mod mcp_connect;
+pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
+mod resume;
 mod secrets;
 mod seen;
 mod session;
@@ -173,8 +188,10 @@ mod tailnet_controller;
 mod tap;
 mod titles;
 mod tool_paths;
+mod tool_shell;
 mod tools;
 pub(crate) mod turn_cap;
+mod turn_retry;
 mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
@@ -244,6 +261,8 @@ mod usage_view;
 pub(crate) use usage_view::READ_WAIT as USAGE_READ_WAIT;
 mod background_cause;
 pub mod background_turn;
+#[cfg(feature = "sim")]
+mod sim_startup;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod turns;
@@ -260,6 +279,7 @@ mod web_control;
 mod web_token;
 mod work_below;
 pub(crate) mod worktree_care;
+mod wrap_up_offer;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
@@ -309,6 +329,11 @@ pub struct HubEvent {
     pub session_id: String,
     pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
+    /// The record's `session/update` line as attached connections that read it raw get it (every
+    /// origin but a peer daemon's), built by the first connection that sends it and shared by the
+    /// rest (`server::deliver`). HOT PATH AUDIT area F, row A4: a streamed token is copied and
+    /// encoded once, not once per attached connection.
+    pub update_line: Arc<std::sync::OnceLock<Option<Arc<str>>>>,
 }
 
 /// One `_acpmux/message` copy in a journal: its message id, plus for a sender's copy the chat
@@ -384,6 +409,10 @@ pub struct TurnInfo {
     /// Whether the person's own prompt started it (`inbox.rs` [`inbox::persons_prompt`]): no
     /// inbox notice and no other agent's steer goes into it.
     pub persons: bool,
+    /// Whether another agent's message, or acpmux's notice or digest of them, started it: the
+    /// person's own prompt queues behind it as a turn of its own instead of steering into it,
+    /// where the turn's reply would answer only the agent (`turns.rs`).
+    pub from_agents: bool,
 }
 
 /// Options for `Hub::prompt_with`.
@@ -430,6 +459,8 @@ pub struct PromptOptions {
     /// ended before the agent took it still goes next, but a turn that began meanwhile (another
     /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a
     /// queued message").
+    /// With `steer_only`, also fences a steer to this exact turn; a completed target
+    /// never redirects a workflow nudge into a person's next prompt.
     pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
@@ -514,6 +545,9 @@ pub struct Hub {
     /// Serialized summaries for closed sessions. Metadata commits replace the row before the
     /// next full list, so full callers do not rebuild closed-session projections.
     pub(super) closed_summary_cache: StdMutex<HashMap<String, ClosedSummaryCacheEntry>>,
+    /// Closed rows built anew because their cached bytes were missing or stale (tests).
+    #[cfg(test)]
+    pub(super) closed_summary_builds: AtomicU64,
     /// Projection-only message repairs in flight, keyed by destination and delivery id. These
     /// retries never resend a prompt and are bounded in `message_events.rs`.
     pub(super) message_repairs: StdMutex<std::collections::HashSet<(String, String)>>,
@@ -637,6 +671,11 @@ pub struct Hub {
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
+    /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
+    pub(super) resume_watch: Arc<resume::ResumeState>,
+    pub(super) resumes: tokio::sync::watch::Sender<u64>,
+    /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
+    pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
@@ -746,12 +785,20 @@ pub struct Hub {
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
     /// as `_acpmux/status` `openWaits`.
     pub(crate) open_waits: std::sync::atomic::AtomicUsize,
+    /// `session/update` lines built for attached connections since start (`server::deliver`): each
+    /// copies, merges and encodes the record's params. HOT PATH AUDIT area F, row A4: once per record,
+    /// not once per connection.
+    pub(crate) session_update_encodes: std::sync::atomic::AtomicU64,
+    /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
+    /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
+    pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
     /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
     pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    pub(super) mcp_connects: mcp_connect::McpConnects,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
@@ -762,6 +809,8 @@ pub struct Hub {
     pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
+    /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
+    pub(crate) held_peer_asks: held_asks::HeldAsks,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -848,6 +897,8 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(HashMap::new()),
+            #[cfg(test)]
+            closed_summary_builds: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
             #[cfg(test)]
             message_projection_failures: StdMutex::new(std::collections::HashSet::new()),
@@ -903,6 +954,9 @@ impl Hub {
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
+            resume_watch: resume::new_watch(),
+            resumes: tokio::sync::watch::channel(0).0,
+            person_prompts: tokio::sync::watch::channel(0).0,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
@@ -962,14 +1016,18 @@ impl Hub {
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
+            session_update_encodes: Default::default(),
+            wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
             mesh: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
+            held_peer_asks: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
@@ -993,8 +1051,8 @@ impl Hub {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             if !loading {
-                hub.watch_transfers();
                 hub.watch_orphans();
+                hub.bg_notify_resume();
             }
             hub.watch_titles();
             hub.watch_recaps();
@@ -1277,6 +1335,8 @@ impl Hub {
             team_information: Default::default(),
             queue_moved: Notify::new(),
             moving: StdMutex::new(moving),
+            ownership_epoch: AtomicU64::new(0),
+            ownership_epoch_valid: AtomicBool::new(true),
             transfer_authority: StdMutex::new(Some((0, false))),
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
@@ -1428,6 +1488,8 @@ impl Hub {
             self.session_list_summary(session)
         };
         if session.status() == SessionStatus::Closed {
+            #[cfg(test)]
+            self.closed_summary_builds.fetch_add(1, Ordering::SeqCst);
             let mut cache = self.closed_summary_cache.lock().unwrap_or_else(|e| e.into_inner());
             // A summary may have been built while purge was unregistering the session. Recheck
             // the tombstone while holding the cache lock so a late reader cannot recreate it.
@@ -1971,11 +2033,22 @@ impl Hub {
             session.state_seq.fetch_add(1, Ordering::SeqCst);
         }
         if notify {
-            let _ = self.events.send(HubEvent {
+            let event = HubEvent {
                 session_id: session.id.clone(),
                 record: Arc::new(record.clone()),
                 remote: None,
-            });
+                update_line: Default::default(),
+            };
+            // A live chat's streamed text changes only its own row, which is never cached, so the
+            // closed rows keep their bytes while agents stream. Read after the metadata update
+            // above: a close that follows appends its own `status` record, which marks them stale.
+            let _ = if list_guard::streamed_chunk(&record.dir, &record.kind)
+                && session.status() != SessionStatus::Closed
+            {
+                self.events.send_live_stream(event)
+            } else {
+                self.events.send(event)
+            };
         }
         (record, stored)
     }
@@ -2018,6 +2091,16 @@ impl Hub {
         // Answered only once the draft is in `session.json`: "the one durable shared draft".
         self.save_meta_answered(session)?;
         Ok(draft)
+    }
+
+    /// `_acpmux/session_search`: the session's messages that match `query`, newest first.
+    pub fn session_search(
+        &self,
+        id: &str,
+        query: &crate::session_search::Query,
+    ) -> Result<Value, RpcError> {
+        crate::session_search::search(self.store.as_ref(), id, query)
+            .map_err(|e| RpcError::internal(format!("the session's log could not be read: {e}")))
     }
 
     /// Turn-by-turn summary from the event log.

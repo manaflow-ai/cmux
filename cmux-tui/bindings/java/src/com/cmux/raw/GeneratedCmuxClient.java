@@ -118,6 +118,11 @@ public abstract class GeneratedCmuxClient {
         return ChiefInspectResult.fromWire(result);
     }
 
+    public final ChiefWorkResult chiefWork(ChiefWorkRequest request) throws CmuxException {
+        Object result = execute(Commands.CHIEF_WORK, request.toWire());
+        return ChiefWorkResult.fromWire(result);
+    }
+
     public final EmptyResult clearHistory(ClearHistoryRequest request) throws CmuxException {
         Object result = execute(Commands.CLEAR_HISTORY, request.toWire());
         return EmptyResult.fromWire(result);
@@ -1170,6 +1175,11 @@ public abstract class GeneratedCmuxClient {
     public final SetHostSizePolicyResult setHostSizePolicy(SetHostSizePolicyRequest request) throws CmuxException {
         Object result = execute(Commands.SET_HOST_SIZE_POLICY, request.toWire());
         return SetHostSizePolicyResult.fromWire(result);
+    }
+
+    public final EmptyResult setLayoutSizes(SetLayoutSizesRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_LAYOUT_SIZES, request.toWire());
+        return EmptyResult.fromWire(result);
     }
 
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {

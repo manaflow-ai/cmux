@@ -1060,3 +1060,187 @@ fn a_cloud_model_the_account_may_not_run_stops_the_move_before_any_copy() {
         && c.1.contains("/brain")
         && c.2["model"] == "@cf/meta/llama-4-scout"));
 }
+
+/// A stand-in for the acpmux CLI of the Chief's daemon: one local subagent working, one idle,
+/// one on a cloud peer; `FAKE_PEERS` is its machine list; every call is logged with its
+/// `ACPMUX_HOME`.
+fn fake_acpmux(dir: &Path) -> (PathBuf, PathBuf) {
+    let log = dir.join("acpmux.log");
+    let path = dir.join("fake-acpmux");
+    std::fs::write(
+        &path,
+        format!(
+            r#"#!/bin/sh
+printf '%s|%s\n' "$ACPMUX_HOME" "$*" >> '{log}'
+case "$*" in
+  "ls --json") echo '{{"sessions":[{{"sessionId":"s-work","qualifiedSessionId":"local/s-work","status":"running","queued":0,"turn":null}},{{"sessionId":"s-idle","qualifiedSessionId":"local/s-idle","status":"idle","queued":0,"turn":null}},{{"sessionId":"s-vm","qualifiedSessionId":"vm-1/s-vm","status":"running","queued":0,"turn":null}}]}}' ;;
+  "machine ls --json") echo "{{\"peers\":[$FAKE_PEERS]}}" ;;
+  "session move "*) echo '{{"moves":[{{"sessionId":"s-work","name":"worker","moved":true,"error":null}}],"failed":0}}' ;;
+  *) exit 2 ;;
+esac
+"#,
+            log = log.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (path, log)
+}
+
+#[test]
+fn a_chief_moving_to_a_mini_takes_its_working_subagents_and_rollback_brings_them_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "default");
+    // The Chief's records of its subagents (host/spawns): the working one and an idle one.
+    chief_home(&src)
+        .execute(
+            "INSERT INTO state VALUES ('host/spawns', ?1)",
+            [r#"{"sp1":{"subs":[{"id":"a1","session_id":"s-work","title":"worker"},{"id":"a2","session_id":"s-idle"}]}}"#],
+        )
+        .unwrap();
+    let remote = dir.path().join("remote-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    let ssh = fake_ssh(dir.path(), &remote);
+    let (acpmux, log) = fake_acpmux(dir.path());
+    // The Chief's daemon runs (its socket is there).
+    write(&src.join("acpmux/acpmux.sock"), "");
+    let peers = r#"{"name":"mini-peer","url":"ssh://agent@mini"}"#;
+    let run_move = |args: &[&str]| {
+        Command::new(BIN)
+            .args(args)
+            .env("OPTCHAT_MOVE_SSH", &ssh)
+            .env("OPTCHAT_MOVE_ACPMUX", &acpmux)
+            .env("FAKE_PEERS", peers)
+            .output()
+            .unwrap()
+    };
+    let home = src.to_str().unwrap();
+    let report = ok_json(&run_move(&[
+        "move",
+        "--to",
+        "ssh:mini",
+        "--remote-bin",
+        BIN,
+        "--home",
+        home,
+    ]));
+    assert_eq!(report["moved"], true, "{report}");
+    let step = report["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["step"] == "subagents")
+        .cloned()
+        .unwrap_or_else(|| panic!("no subagents step: {report}"));
+    assert_eq!(step["ok"], true, "{step}");
+    let calls = std::fs::read_to_string(&log).unwrap();
+    let chief_acpmux = format!("{}|", src.join("acpmux").display());
+    assert!(
+        calls.lines().all(|l| l.starts_with(&chief_acpmux)),
+        "every call goes to the Chief's own daemon: {calls}"
+    );
+    assert!(
+        calls.contains("|session move s-work --machine mini-peer --interrupt --json"),
+        "only the working local subagent moves, to the host's machine: {calls}"
+    );
+    assert!(
+        !calls.contains("s-idle") && !calls.contains("s-vm"),
+        "{calls}"
+    );
+    assert!(src.join("state/subagents-moved.json").is_file());
+    assert!(
+        !remote
+            .join(".cmux/chief/default/state/subagents-moved.json")
+            .exists(),
+        "the record stays with the Mac that handed them over"
+    );
+    // The moved Chief knows where its subagent runs now: the same session, the new place
+    // and a higher epoch, in one write (home-agent-pills-DESIGN.md "Identity").
+    let sub = |home: &Path, id: &str| -> Value {
+        let spawns: Value = serde_json::from_str(
+            &state_value(&home.join("optchat/memory.sqlite3"), "host/spawns").unwrap(),
+        )
+        .unwrap();
+        spawns["sp1"]["subs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["id"] == id)
+            .cloned()
+            .unwrap()
+    };
+    let moved_home = remote.join(".cmux/chief/default");
+    let a1 = sub(&moved_home, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert_eq!(a1["place"], "mini-peer", "{a1}");
+    assert_eq!(a1["epoch"], 1, "{a1}");
+    let a2 = sub(&moved_home, "a2");
+    assert!(
+        a2["place"].is_null() && a2["epoch"].is_null(),
+        "an idle subagent stays: {a2}"
+    );
+
+    let back = run_move(&["move", "rollback", "--remote-bin", BIN, "--home", home]);
+    assert!(
+        back.status.success(),
+        "{}",
+        String::from_utf8_lossy(&back.stderr)
+    );
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(
+        calls.contains("|session move s-work --from mini-peer --machine local --interrupt --json"),
+        "{calls}"
+    );
+    assert!(!src.join("state/subagents-moved.json").exists());
+    let a1 = sub(&src, "a1");
+    assert_eq!(a1["session_id"], "s-work", "{a1}");
+    assert!(
+        a1["place"].is_null(),
+        "back on the Chief's own machine: {a1}"
+    );
+    assert_eq!(a1["epoch"], 2, "every move raises the epoch: {a1}");
+}
+
+#[test]
+fn a_mini_the_chiefs_daemon_does_not_know_stops_the_move_before_the_checkpoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = new_home(dir.path(), "default");
+    drop(chief_home(&src));
+    let remote = dir.path().join("remote-user");
+    std::fs::create_dir_all(&remote).unwrap();
+    let remote = std::fs::canonicalize(remote).unwrap();
+    let ssh = fake_ssh(dir.path(), &remote);
+    let (acpmux, log) = fake_acpmux(dir.path());
+    write(&src.join("acpmux/acpmux.sock"), "");
+    let out = Command::new(BIN)
+        .args([
+            "move",
+            "--to",
+            "ssh:mini",
+            "--remote-bin",
+            BIN,
+            "--home",
+            src.to_str().unwrap(),
+        ])
+        .env("OPTCHAT_MOVE_SSH", &ssh)
+        .env("OPTCHAT_MOVE_ACPMUX", &acpmux)
+        .env("FAKE_PEERS", "")
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("acpmux machine add mini"), "{text}");
+    assert!(!src.join("state/moved.json").exists());
+    assert!(
+        !src.join("state/shutdown").exists(),
+        "the source answers again"
+    );
+    assert!(
+        !remote.join(".cmux/chief/default").exists(),
+        "nothing was sent"
+    );
+    let calls = std::fs::read_to_string(&log).unwrap();
+    assert!(!calls.contains("session move"), "{calls}");
+}

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR dbb6d5bcff30c1db703c0ff175acb28f75d2bfe02a82ba6de26191fc52ec0976.
+// cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -326,6 +326,22 @@ pub struct ChiefInspectResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub error: Optional<String>,
     pub status: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkRequest {
+    pub chief: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChiefWorkResult {
+    pub agents: Vec<T::ChiefWorkAgent>,
+    #[serde(rename = "taskSources")]
+    pub task_sources: Vec<String>,
+    pub tasks: Vec<T::ChiefWorkTask>,
+    pub truncated: bool,
 }
 
 #[rustfmt::skip]
@@ -3415,6 +3431,16 @@ pub struct SetHostSizePolicyRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetLayoutSizesRequest {
+    pub transaction: u64,
+    pub values: Vec<T::LayoutSizeValue>,
+}
+
+#[rustfmt::skip]
+pub type SetLayoutSizesResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -4271,6 +4297,10 @@ impl CmuxClient {
 
     pub fn chief_inspect(&mut self, request: ChiefInspectRequest) -> Result<ChiefInspectResult> {
         self.execute(&CHIEF_INSPECT_METADATA, &request)
+    }
+
+    pub fn chief_work(&mut self, request: ChiefWorkRequest) -> Result<ChiefWorkResult> {
+        self.execute(&CHIEF_WORK_METADATA, &request)
     }
 
     pub fn clear_history(&mut self, request: ClearHistoryRequest) -> Result<ClearHistoryResult> {
@@ -5498,6 +5528,10 @@ impl CmuxClient {
 
     pub fn set_host_size_policy(&mut self, request: SetHostSizePolicyRequest) -> Result<T::SetHostSizePolicyResult> {
         self.execute(&SET_HOST_SIZE_POLICY_METADATA, &request)
+    }
+
+    pub fn set_layout_sizes(&mut self, request: SetLayoutSizesRequest) -> Result<SetLayoutSizesResult> {
+        self.execute(&SET_LAYOUT_SIZES_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
