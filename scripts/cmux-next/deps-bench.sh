@@ -10,8 +10,10 @@
 #
 # For Cargo (cmux-tui) and bun (webviews), from empty caches each time:
 #   cold  the plain install (`cargo fetch --locked`, `bun install --frozen-lockfile`)
-#   seed  `acpmux machine deps warm`: a restore, or (on a miss) the install and an upload
-#   warm  `acpmux machine deps warm` again: the restore the seed guarantees, then the install
+#   seed  `acpmux machine deps warm`: a restore, or (on a miss) the install; the upload runs in
+#         the background (timed apart, by `machine deps wait`)
+#   warm  `acpmux machine deps warm` again: a restore, or a cold install when this machine's
+#         measurements say that is faster
 # The last line is one JSON object of numbers and plain strings, the bench's evidence.
 set -euo pipefail
 
@@ -68,7 +70,7 @@ warm() {
   t1="$(now)"
   put "${prefix}S" "$(secs "$t0" "$t1")"
   local field
-  for field in restore upload fetchMs unpackMs installMs packMs uploadMs archiveBytes installOk error; do
+  for field in restore upload fetchMs unpackMs installMs packMs uploadMs archiveBytes installOk expectedMs coldMs error; do
     local v
     v="$(jq -r --arg eco "$eco" --arg f "$field" '[.projects[] | select(.ecosystem == $eco)][0][$f] // empty' -- "$json" 2>/dev/null || true)"
     if [ -n "$v" ]; then put "${prefix}${field^}" "$v"; fi
@@ -87,16 +89,24 @@ for eco in cargo bun; do
 
   wipe "$eco"
   warm "${eco}Seed" "$eco" "$dir"
-  echo "$eco seed: ${out[${eco}SeedS]}s (${out[${eco}SeedRestore]:-?}, upload ${out[${eco}SeedUpload]:-none})"
+  t0="$(now)"
+  logged "${eco}SeedWait" "$acpmux" machine deps wait --json
+  t1="$(now)"
+  put "${eco}SeedUploadWaitS" "$(secs "$t0" "$t1")"
+  echo "$eco seed: ${out[${eco}SeedS]}s (${out[${eco}SeedRestore]:-?}, upload ${out[${eco}SeedUpload]:-none}, then ${out[${eco}SeedUploadWaitS]}s more in the background)"
 
   wipe "$eco"
   warm "${eco}Warm" "$eco" "$dir"
   echo "$eco warm: ${out[${eco}WarmS]}s (${out[${eco}WarmRestore]:-?})"
-  # The CLI exits 0 when the cache is off or a restore fails; a warm number that was not a restore is no number.
-  if [ "${out[${eco}WarmRestore]:-}" != restored ]; then
-    echo "$eco warm did not restore from the cache (${out[${eco}WarmRestore]:-no report}): $(tail -n 5 -- "$bench/logs/${eco}Warm.log" | tr -cd 'A-Za-z0-9 ._:/-' | cut -c1-300)"
-    exit 1
-  fi
+  # The CLI exits 0 when the cache is off or a restore fails: a warm that neither restored nor chose
+  # a cold install from its measurements says nothing about the cache.
+  case "${out[${eco}WarmRestore]:-}" in
+    restored | cold_faster | abandoned) ;;
+    *)
+      echo "$eco warm neither restored nor chose: ${out[${eco}WarmRestore]:-no report}: $(tail -n 5 -- "$bench/logs/${eco}Warm.log" | tr -cd 'A-Za-z0-9 ._:/-' | cut -c1-300)"
+      exit 1
+      ;;
+  esac
 done
 
 # Numbers stay numbers; everything else is a string.
