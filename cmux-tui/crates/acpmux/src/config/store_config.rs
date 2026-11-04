@@ -25,6 +25,12 @@ pub struct StoreConfig {
     /// Default 14; 0 keeps every log whole.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub closed_log_days: Option<u32>,
+    /// Every event-log line goes through one append-only journal with group commit
+    /// (R-DURABILITY S2, `store/journal_store.rs`): a line is durable within one sync, and a
+    /// restart after a crash writes again every line the journal holds past its checkpoint.
+    /// Default off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub journal: bool,
 }
 
 impl StoreConfig {
@@ -47,6 +53,7 @@ impl Default for StoreConfig {
             mode: StoreMode::Local,
             segment_bytes: default_segment_bytes(),
             closed_log_days: None,
+            journal: false,
         }
     }
 }
