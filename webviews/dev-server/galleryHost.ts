@@ -314,7 +314,8 @@ export function galleryModules(): Plugin {
       this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
     },
     resolveId(source) {
-      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID, ENTRY_INDEX_ID].includes(source)) return `\0${source}`;
+      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID, ENTRY_INDEX_ID].includes(source))
+        return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },

@@ -73,14 +73,28 @@ function tools(base: AcpmuxSnapshot): Beat[] {
   const beats: Beat[] = [{ ms: 500, snapshot: withRows(base, [prompt], true) }];
   const items: NonNullable<AcpmuxRow["items"]> = [];
   TOOLS.forEach(([title, kind], index) => {
-    const tool = (status: string) => ({ kind: "tool", text: title, tool: { id: `script-tool-${index}`, title, kind, status } });
+    const tool = (status: string) => ({
+      kind: "tool",
+      text: title,
+      tool: { id: `script-tool-${index}`, title, kind, status },
+    });
     for (const status of ["in_progress", "completed"]) {
       items[index] = tool(status);
-      const activity = row("activity", { id: `script-activity-${serial}`, items: [...items], toolCount: items.length, version: beats.length });
+      const activity = row("activity", {
+        id: `script-activity-${serial}`,
+        items: [...items],
+        toolCount: items.length,
+        version: beats.length,
+      });
       beats.push({ ms: status === "in_progress" ? 700 : 250, snapshot: withRows(base, [prompt, activity], true) });
     }
   });
-  const activity = row("activity", { id: `script-activity-${serial}`, items: [...items], toolCount: items.length, version: beats.length });
+  const activity = row("activity", {
+    id: `script-activity-${serial}`,
+    items: [...items],
+    toolCount: items.length,
+    version: beats.length,
+  });
   const reply = row("assistant", { text: "Done: three tries with exponential backoff, and both new tests pass." });
   const end = row("turnSummary", { durationMs: 41_000, toolCount: items.length });
   beats.push({ ms: 2500, snapshot: withRows(base, [prompt, activity, reply, end], false) });
@@ -177,7 +191,9 @@ export function simulateCpuContention(factor: number): () => void {
 }
 
 type Registry = { register(kind: string, renderer: (props: { row: AcpmuxRow }) => unknown): void };
-type ReactLike = { createElement(type: string, props: Record<string, unknown> | null, ...children: unknown[]): unknown };
+type ReactLike = {
+  createElement(type: string, props: Record<string, unknown> | null, ...children: unknown[]): unknown;
+};
 
 /** A custom element, as an extension's registry.js would define one: shadow DOM, its own style. */
 function defineExampleCard(): void {
@@ -205,7 +221,10 @@ function defineExampleCard(): void {
  * registry (`window.cmuxAcpmuxRegistry`, what a user's registry.js calls) with rows of its kind.
  * Add one here; the URL then names it.
  */
-export const SLOTS: Record<string, { title: string; kind: string; install(registry: Registry, react: ReactLike): void; rows: () => AcpmuxRow[] }> = {
+export const SLOTS: Record<
+  string,
+  { title: string; kind: string; install(registry: Registry, react: ReactLike): void; rows: () => AcpmuxRow[] }
+> = {
   "custom-element": {
     title: "A registry.js row renderer that draws a custom element",
     kind: "example.card",

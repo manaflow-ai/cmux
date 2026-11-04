@@ -31,7 +31,8 @@ const env = readEnv(params);
 const root = document.documentElement;
 const host = document.getElementById("app")!;
 
-const theme = themes.find((candidate) => candidate.name === env.theme) ?? themes.find((t) => t.name === DEFAULT_DARK_THEME)!;
+const theme =
+  themes.find((candidate) => candidate.name === env.theme) ?? themes.find((t) => t.name === DEFAULT_DARK_THEME)!;
 const tokens = themeTokens(theme, env.accent);
 
 /** The chrome's colors from the theme's tokens, as the native window derives them. */
@@ -57,7 +58,13 @@ function applyTokens(target: HTMLElement, t: ThemeTokens): void {
 }
 applyTokens(root, tokens);
 if (appAxis(params, "chrome") !== "native")
-  document.body.style.background = css(mixed(tokens.windowBackground, tokens.isDark ? { red: 0, green: 0, blue: 0, alpha: 1 } : { red: 1, green: 1, blue: 1, alpha: 1 }, 0.5));
+  document.body.style.background = css(
+    mixed(
+      tokens.windowBackground,
+      tokens.isDark ? { red: 0, green: 0, blue: 0, alpha: 1 } : { red: 1, green: 1, blue: 1, alpha: 1 },
+      0.5,
+    ),
+  );
 
 type PaneData = { title: string; sessions: AcpmuxSessionEntry[]; selected?: string };
 
@@ -80,7 +87,12 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 };
 const place = (node: HTMLElement, rect: { x: number; y: number; width: number; height: number }) => {
-  Object.assign(node.style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+  Object.assign(node.style, {
+    left: `${rect.x}px`,
+    top: `${rect.y}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  });
 };
 
 const folderName = (cwd?: string) => (cwd ? cwd.split("/").filter(Boolean).pop() : undefined) ?? "Chats";
@@ -128,14 +140,18 @@ if (nativeChrome) root.dataset.chrome = "native";
 
 /** One cmux window: chrome now, panes' frames now (they load in parallel), sidebar text when read.
  * `layout(size)` places everything again for a new window size without reloading a pane. */
-function drawWindow(spec: WindowSpec, onReady: () => void): { node: HTMLElement; layout(size: { width: number; height: number }): void } {
+function drawWindow(
+  spec: WindowSpec,
+  onReady: () => void,
+): { node: HTMLElement; layout(size: { width: number; height: number }): void } {
   const sidebarShown = appAxis(params, "sidebar") !== "hidden";
   const frame = el("div", "app-window");
   frame.dataset.density = env.density;
   if (overPicture(env)) frame.dataset.glass = "";
   const sidebar = el("aside", "app-sidebar");
   const lights = el("div", "app-lights");
-  if (!nativeChrome) for (const color of ["close", "minimize", "zoom"]) lights.append(el("span", `app-light app-light-${color}`));
+  if (!nativeChrome)
+    for (const color of ["close", "minimize", "zoom"]) lights.append(el("span", `app-light app-light-${color}`));
   sidebar.append(lights);
   if (sidebarShown) frame.append(sidebar);
 
@@ -176,7 +192,11 @@ function drawWindow(spec: WindowSpec, onReady: () => void): { node: HTMLElement;
 
   const layout = (size: { width: number; height: number }) => {
     const geometry: WindowGeometry = windowGeometry(size, spec.layout, env.density, metrics);
-    Object.assign(frame.style, { width: `${geometry.width}px`, height: `${geometry.height}px`, "--app-radius": `${geometry.radius}px` });
+    Object.assign(frame.style, {
+      width: `${geometry.width}px`,
+      height: `${geometry.height}px`,
+      "--app-radius": `${geometry.radius}px`,
+    });
     place(sidebar, geometry.sidebar);
     lights.style.height = `${geometry.titlebarHeight}px`;
     // With no sidebar the panes start at the window's edge gap (the content area's top inset).
@@ -219,8 +239,9 @@ const markReady = () => {
     root.dataset.mockAppReady = "1";
     parent.postMessage({ type: "cmux-mock-app", status: "ready" }, "*");
     // The native view shell (Prototypes/ViewShell) times its windows and captures them from this.
-    (window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }).webkit
-      ?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
+    (
+      window as { webkit?: { messageHandlers?: Record<string, { postMessage(body: unknown): void }> } }
+    ).webkit?.messageHandlers?.cmuxPreview?.postMessage({ status: "ready", at: performance.now() });
   }
 };
 
@@ -268,7 +289,10 @@ if (nativeChrome) {
 function fit(): void {
   const many = stages.length > 1;
   for (const { stage, size } of stages) {
-    const available = { width: window.innerWidth - 32, height: (many ? window.innerHeight * 0.8 : window.innerHeight) - 48 };
+    const available = {
+      width: window.innerWidth - 32,
+      height: (many ? window.innerHeight * 0.8 : window.innerHeight) - 48,
+    };
     const scale = zoomValue === "fit" ? fitScale(size, available) : Number(zoomValue) || 1;
     stage.style.setProperty("--app-scale", String(scale));
     stage.style.width = `${Math.round(size.width * scale)}px`;

@@ -236,20 +236,20 @@ the window. Adding an axis the stage already reads is one row in `AXES`; a new s
 slot is one entry in `SCRIPTS` or `SLOTS` (`src/gallery/frame/scripts.ts`), and the URL then names
 it. `script=` also works on a plain `frame.html` stage.
 
-| Key | Applies to | What it sets |
-|---|---|---|
-| `fixture`, `fixture2` | app | the main and second pane: `<entry id>/<variant>` of any agent-pane entry (default `app.window/chat-session-info`, `app.window/new-tab`) |
-| `window`, `windows` | app | the window size (a `WINDOW_PRESETS` name or `<w>x<h>`); `windows=` lists several, each the whole app, side by side (offscreen ones mount as they scroll in) |
-| `layout` | app | `one`, `two` or `agent-right` |
-| `sidebar` | app | `hidden` hides the sidebar |
-| `zoom` | app | `fit` (default) scales each window with one transform; a number is a fixed scale |
-| `chrome` | app | `web` (default) draws the window frame in the page; `native` lets a native host window (the view shell, `cmux preview open`) draw the frame and glass, and the page fills it |
-| `density`, `scale`, `interfaceScale`, `fontFamily`, `fontSize` | frame | density and size, as in the gallery |
-| `theme`, `colorScheme`, `accent`, `background`, `locale`, `reducedMotion`, `highContrast` | frame | theme and customization, as in the gallery; the chrome takes the same theme |
-| `script`, `loop` | frame | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once) |
-| `cpu` | frame | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP) |
-| `slot` | frame | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind |
-| `exp`, `arm` | frame | an experiment's arm |
+| Key                                                                                       | Applies to | What it sets                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fixture`, `fixture2`                                                                     | app        | the main and second pane: `<entry id>/<variant>` of any agent-pane entry (default `app.window/chat-session-info`, `app.window/new-tab`)                                      |
+| `window`, `windows`                                                                       | app        | the window size (a `WINDOW_PRESETS` name or `<w>x<h>`); `windows=` lists several, each the whole app, side by side (offscreen ones mount as they scroll in)                  |
+| `layout`                                                                                  | app        | `one`, `two` or `agent-right`                                                                                                                                                |
+| `sidebar`                                                                                 | app        | `hidden` hides the sidebar                                                                                                                                                   |
+| `zoom`                                                                                    | app        | `fit` (default) scales each window with one transform; a number is a fixed scale                                                                                             |
+| `chrome`                                                                                  | app        | `web` (default) draws the window frame in the page; `native` lets a native host window (the view shell, `cmux preview open`) draw the frame and glass, and the page fills it |
+| `density`, `scale`, `interfaceScale`, `fontFamily`, `fontSize`                            | frame      | density and size, as in the gallery                                                                                                                                          |
+| `theme`, `colorScheme`, `accent`, `background`, `locale`, `reducedMotion`, `highContrast` | frame      | theme and customization, as in the gallery; the chrome takes the same theme                                                                                                  |
+| `script`, `loop`                                                                          | frame      | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once)                                                      |
+| `cpu`                                                                                     | frame      | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP)                                                                    |
+| `slot`                                                                                    | frame      | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind                                                        |
+| `exp`, `arm`                                                                              | frame      | an experiment's arm                                                                                                                                                          |
 
 The page sets `data-mock-app-ready="1"` on its root and posts `{type: "cmux-mock-app", status:
 "ready"}` to its parent when the first window's panes are ready. It runs no timer or animation
