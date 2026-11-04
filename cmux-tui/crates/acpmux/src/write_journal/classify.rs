@@ -139,7 +139,11 @@ fn stage_reads(words: &[String]) -> bool {
     match cmd.as_str() {
         // `-f`/`-F` never end; `sort -o` writes a file; `rg --pre` runs a program per file.
         "tail" => !any_option(args, &["-f", "-F", "--follow", "--retry"]),
-        "sort" => !any_option(args, &["-o", "--output", "--compress-program"]),
+        // `-T` spills temporary files into a folder it names.
+        "sort" => !any_option(
+            args,
+            &["-o", "--output", "--compress-program", "-T", "--temporary-directory"],
+        ),
         "rg" => !any_option(
             args,
             &["--pre", "--pre-glob", "--search-zip", "-z", "--hostname-bin", "--hyperlink-format"],

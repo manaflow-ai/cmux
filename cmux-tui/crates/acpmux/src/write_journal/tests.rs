@@ -615,6 +615,7 @@ fn anything_that_could_run_or_write_is_an_exec() {
         "tail -f log",
         "tail -nf 10 log",
         "sort -ofile a",
+        "sort -T /tmp big.txt",
         "sort --outp=file a",
         "git diff --outp=f",
         "git grep -nO x",

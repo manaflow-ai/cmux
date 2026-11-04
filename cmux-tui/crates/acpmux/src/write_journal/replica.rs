@@ -78,25 +78,44 @@ impl ReplicaSource for DirReplica {
         self.fresh.load(Ordering::SeqCst)
     }
 
+    /// No link is followed anywhere on the path, the folder itself included: a link may point
+    /// outside the snapshot.
+    #[cfg(unix)]
     fn read(&self, path: &str) -> io::Result<ReplicaRead> {
-        super::check_root(&self.root)?;
-        let full = self.root.join(path);
-        // Walk every component without following a link: a link may point outside the snapshot.
-        let mut at = self.root.clone();
-        for part in path.split('/') {
-            at.push(part);
-            match std::fs::symlink_metadata(&at) {
-                Ok(m) if m.file_type().is_symlink() => return Ok(ReplicaRead::MachineOnly),
-                Ok(_) => {}
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(ReplicaRead::Absent),
+        use super::nofollow::{Dir, is_not_plain};
+        use std::io::Read;
+        let mut parts: Vec<&str> = path.split('/').collect();
+        let Some(name) = parts.pop() else { return Ok(ReplicaRead::Absent) };
+        let mut dir = Dir::open_root(&self.root)?;
+        for part in parts {
+            dir = match dir.child(part, false) {
+                Ok(Some(d)) => d,
+                Ok(None) => return Ok(ReplicaRead::Absent),
+                Err(e) if is_not_plain(&e) => return Ok(ReplicaRead::MachineOnly),
                 Err(e) => return Err(e),
-            }
+            };
         }
-        let meta = std::fs::symlink_metadata(&full)?;
+        let file = match dir.open_file(name) {
+            Ok(Some(f)) => f,
+            Ok(None) => return Ok(ReplicaRead::Absent),
+            Err(e) if is_not_plain(&e) => return Ok(ReplicaRead::MachineOnly),
+            Err(e) => return Err(e),
+        };
+        let meta = file.metadata()?;
         if !meta.is_file() || meta.len() > self.max_file_bytes {
             return Ok(ReplicaRead::MachineOnly);
         }
-        Ok(ReplicaRead::Present(std::fs::read(&full)?))
+        let mut bytes = Vec::new();
+        file.take(self.max_file_bytes.saturating_add(1)).read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > self.max_file_bytes {
+            return Ok(ReplicaRead::MachineOnly);
+        }
+        Ok(ReplicaRead::Present(bytes))
+    }
+
+    #[cfg(not(unix))]
+    fn read(&self, _: &str) -> io::Result<ReplicaRead> {
+        Ok(ReplicaRead::MachineOnly)
     }
 }
 

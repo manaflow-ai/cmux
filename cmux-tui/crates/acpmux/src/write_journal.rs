@@ -22,6 +22,8 @@
 
 pub mod classify;
 pub mod flush;
+#[cfg(unix)]
+mod nofollow;
 pub mod replica;
 mod store;
 
@@ -115,19 +117,6 @@ pub fn rel_path(raw: &str) -> Result<String, PathError> {
         return Err(PathError::Empty);
     }
     Ok(parts.join("/"))
-}
-
-/// Refuses a folder root that is a link or not a folder: every path below it is checked for
-/// links, so the root must be checked too, or the whole folder could point anywhere.
-pub(crate) fn check_root(root: &std::path::Path) -> io::Result<()> {
-    let m = std::fs::symlink_metadata(root)?;
-    if m.file_type().is_symlink() || !m.is_dir() {
-        return Err(io::Error::other(format!(
-            "{}: the folder root is a link or not a folder",
-            root.display()
-        )));
-    }
-    Ok(())
 }
 
 /// The open journal of one machine.

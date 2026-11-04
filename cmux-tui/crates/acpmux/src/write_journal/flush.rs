@@ -11,19 +11,14 @@
 //!
 //! The check in step 2 is repeated by the mutation itself ([`MachineFs::write`] and
 //! [`MachineFs::remove`] take the expected version), so a process that resumes and saves the
-//! file between the flush's read and its write is a conflict, not an overwrite. Creating a new
-//! file is fully atomic (a no-clobber link). Replacing or removing an existing one re-checks
-//! the file just before the rename or unlink: the window left is that one step, not the whole
-//! read-compare-write. A platform that needs no window at all stops the machine's writers
-//! during the flush (the flush is a barrier before exec, so it usually runs before the guest's
-//! own processes do anything).
+//! file between the flush's read and its write is a conflict, not an overwrite.
 //!
 //! An I/O error stops the flush at that entry; it and everything after it stay in the journal
 //! for the next try. Everything before it is cleared.
 
 use super::{Entry, Op, Version, WriteJournal};
 use std::collections::BTreeMap;
-use std::io::{self, Write};
+use std::io;
 use std::path::PathBuf;
 
 /// The machine's files, as the flush sees them. Paths are journal paths.
@@ -49,6 +44,12 @@ pub enum Mutation {
 }
 
 /// [`MachineFs`] over a local folder: what runs on the machine itself, and the test double.
+///
+/// No call follows a link anywhere on a path, the folder itself included. A replace is an
+/// atomic swap and a remove an atomic rename aside, each checked afterwards and undone when
+/// what came out was not the expected version, so a save made at any moment before the swap is
+/// kept. Only a process writing in place through a handle it opened before the swap can still
+/// lose that write, as with any editor that saves by replacing the file. Unix only.
 pub struct DirMachineFs {
     root: PathBuf,
 }
@@ -57,114 +58,164 @@ impl DirMachineFs {
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self { root: root.into() }
     }
+}
 
-    /// The file for `path`, refusing any link on the way, so a journal path never writes
-    /// outside the folder.
-    fn resolve(&self, path: &str) -> io::Result<PathBuf> {
-        super::check_root(&self.root)?;
-        let mut at = self.root.clone();
-        for part in path.split('/') {
-            at.push(part);
-            if let Ok(m) = std::fs::symlink_metadata(&at)
-                && m.file_type().is_symlink()
+#[cfg(unix)]
+mod dir_impl {
+    use super::super::nofollow::{Dir, fresh_name};
+    use super::{DirMachineFs, MachineFs, Mutation, Version};
+    use std::io::{self, Write};
+
+    impl DirMachineFs {
+        /// The open folders from the root to `path`'s folder (the root first), and the file's
+        /// name; `None` when a folder on the way is missing and `create` is off.
+        fn walk(&self, path: &str, create: bool) -> io::Result<Option<(Vec<Dir>, String)>> {
+            let mut parts: Vec<&str> = path.split('/').collect();
+            let Some(name) = parts.pop() else {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, "an empty path"));
+            };
+            let mut chain = vec![Dir::open_root(&self.root)?];
+            for part in parts {
+                let Some(at) = chain.last() else { break };
+                match at.child(part, create)? {
+                    Some(d) => chain.push(d),
+                    None => return Ok(None),
+                }
+            }
+            Ok(Some((chain, name.to_owned())))
+        }
+
+        fn folder(&self, path: &str, create: bool) -> io::Result<Option<(Dir, String)>> {
+            Ok(self.walk(path, create)?.and_then(|(mut c, n)| c.pop().map(|d| (d, n))))
+        }
+    }
+
+    fn is(dir: &Dir, name: &str, expected: &Version) -> bool {
+        // A link, a folder or an unreadable file there is never the expected version.
+        matches!(dir.read(name), Ok(b) if Version::of(b.as_deref()) == *expected)
+    }
+
+    impl MachineFs for DirMachineFs {
+        fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>> {
+            match self.folder(path, false)? {
+                None => Ok(None),
+                Some((dir, name)) => dir.read(&name),
+            }
+        }
+
+        fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation> {
+            let Some((dir, name)) = self.folder(path, true)? else {
+                return Err(io::Error::other(format!("{path}: its folder could not be made")));
+            };
+            let (tmp, mut file) = dir.temp()?;
+            let staged = file.write_all(bytes).and_then(|()| file.sync_data());
+            if let Err(e) = staged {
+                let _ = dir.unlink(&tmp);
+                return Err(e);
+            }
+            if *expected == Version::Absent {
+                // A second name for the new file, never over one created in the meantime.
+                let linked = dir.link_noclobber(&tmp, &name);
+                let _ = dir.unlink(&tmp);
+                return match linked {
+                    Ok(()) => dir.sync().map(|()| Mutation::Applied),
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(Mutation::Changed),
+                    Err(e) => Err(e),
+                };
+            }
+            // Keep the old file's permissions (an executable script stays executable).
+            if let Ok(Some(mode)) = dir.mode(&name) {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
+            }
+            match dir.exchange(&tmp, &name) {
+                Ok(()) => {}
+                Err(e) => {
+                    let _ = dir.unlink(&tmp);
+                    return if e.kind() == io::ErrorKind::NotFound {
+                        Ok(Mutation::Changed)
+                    } else {
+                        Err(e)
+                    };
+                }
+            }
+            // `tmp` now names what was there. Anything but the expected version goes back.
+            if !is(&dir, &tmp, expected) {
+                dir.exchange(&tmp, &name).map_err(|e| {
+                    io::Error::new(
+                        e.kind(),
+                        format!("{path} changed during the flush; its copy is kept as {tmp}: {e}"),
+                    )
+                })?;
+                let _ = dir.unlink(&tmp);
+                return Ok(Mutation::Changed);
+            }
+            dir.unlink(&tmp)?;
+            // The entry is cleared from the journal after this returns: the swap must survive a
+            // power loss first.
+            dir.sync()?;
+            Ok(Mutation::Applied)
+        }
+
+        fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation> {
+            let absent = if *expected == Version::Absent {
+                Mutation::Applied
+            } else {
+                Mutation::Changed
+            };
+            let Some((dir, name)) = self.folder(path, false)? else { return Ok(absent) };
+            let aside = fresh_name()?;
+            match dir.rename(&name, &aside) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(absent),
+                Err(e) => return Err(e),
+            }
+            if !is(&dir, &aside, expected) {
+                dir.rename_noreplace(&aside, &name).map_err(|e| {
+                    io::Error::new(
+                        e.kind(),
+                        format!("{path} changed during the flush; its copy is kept as {aside}: {e}"),
+                    )
+                })?;
+                return Ok(Mutation::Changed);
+            }
+            dir.unlink(&aside)?;
+            dir.sync()?;
+            Ok(Mutation::Applied)
+        }
+
+        fn make_durable(&self, path: &str) -> io::Result<()> {
+            // Every folder on the way: an earlier flush may have died before syncing one it made.
+            let Some((chain, name)) = self.walk(path, false)? else { return Ok(()) };
+            if let Some(dir) = chain.last()
+                && let Some(f) = dir.open_file(&name)?
             {
-                return Err(io::Error::other(format!("{path}: a symlink is on the way")));
+                f.sync_all()?;
             }
+            chain.iter().rev().try_for_each(Dir::sync)
         }
-        Ok(at)
-    }
-
-    /// Whether the file at `full` is `expected` now.
-    fn still(&self, full: &std::path::Path, expected: &Version) -> io::Result<bool> {
-        let now = match std::fs::read(full) {
-            Ok(b) => Some(b),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-            Err(e) => return Err(e),
-        };
-        Ok(Version::of(now.as_deref()) == *expected)
-    }
-
-    /// Syncs every folder from `full`'s parent up to the root, so each link on the way (a folder
-    /// just created, a rename, a remove) is durable.
-    fn sync_parents(&self, full: &std::path::Path) -> io::Result<()> {
-        let mut dir = full.parent();
-        while let Some(d) = dir {
-            if std::fs::symlink_metadata(d).is_ok() {
-                super::store::sync_dir(d)?;
-            }
-            if d == self.root.as_path() || !d.starts_with(&self.root) {
-                break;
-            }
-            dir = d.parent();
-        }
-        Ok(())
     }
 }
 
+#[cfg(not(unix))]
 impl MachineFs for DirMachineFs {
-    fn read(&self, path: &str) -> io::Result<Option<Vec<u8>>> {
-        match std::fs::read(self.resolve(path)?) {
-            Ok(b) => Ok(Some(b)),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(e),
-        }
+    fn read(&self, _: &str) -> io::Result<Option<Vec<u8>>> {
+        Err(unsupported())
     }
+    fn write(&self, _: &str, _: &[u8], _: &Version) -> io::Result<Mutation> {
+        Err(unsupported())
+    }
+    fn remove(&self, _: &str, _: &Version) -> io::Result<Mutation> {
+        Err(unsupported())
+    }
+    fn make_durable(&self, _: &str) -> io::Result<()> {
+        Err(unsupported())
+    }
+}
 
-    fn write(&self, path: &str, bytes: &[u8], expected: &Version) -> io::Result<Mutation> {
-        let full = self.resolve(path)?;
-        let dir = full.parent().map(PathBuf::from).unwrap_or_else(|| self.root.clone());
-        std::fs::create_dir_all(&dir)?;
-        let mut tmp = tempfile::NamedTempFile::new_in(&dir)?;
-        tmp.write_all(bytes)?;
-        tmp.as_file().sync_data()?;
-        if *expected == Version::Absent {
-            // A no-clobber link: a file created in the meantime is never replaced.
-            match tmp.persist_noclobber(&full) {
-                Ok(_) => {}
-                Err(e) if e.error.kind() == io::ErrorKind::AlreadyExists => {
-                    return Ok(Mutation::Changed);
-                }
-                Err(e) => return Err(e.error),
-            }
-        } else {
-            // Re-checked after the slow part (the temp file and its sync), right before the
-            // rename.
-            if !self.still(&full, expected)? {
-                return Ok(Mutation::Changed);
-            }
-            // Keep the old file's permissions (an executable script stays executable).
-            if let Ok(m) = std::fs::metadata(&full) {
-                let _ = std::fs::set_permissions(tmp.path(), m.permissions());
-            }
-            tmp.persist(&full).map_err(|e| e.error)?;
-        }
-        // The entry is cleared from the journal after this returns, so the rename, and any
-        // folder just created for it, must survive a power loss first.
-        self.sync_parents(&full)?;
-        Ok(Mutation::Applied)
-    }
-
-    fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation> {
-        let full = self.resolve(path)?;
-        if !self.still(&full, expected)? {
-            return Ok(Mutation::Changed);
-        }
-        match std::fs::remove_file(&full) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Mutation::Applied),
-            Err(e) => Err(e),
-            Ok(()) => self.sync_parents(&full).map(|()| Mutation::Applied),
-        }
-    }
-
-    fn make_durable(&self, path: &str) -> io::Result<()> {
-        let full = self.resolve(path)?;
-        match std::fs::File::open(&full) {
-            Ok(f) => f.sync_all()?,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e),
-        }
-        self.sync_parents(&full)
-    }
+#[cfg(not(unix))]
+fn unsupported() -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, "the write journal's folder access is unix only")
 }
 
 /// Why one entry did not apply.
