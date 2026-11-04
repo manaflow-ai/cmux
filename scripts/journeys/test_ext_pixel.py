@@ -1522,7 +1522,7 @@ def spring_fraction(t, response):
 
 
 class SpringApp(FakeApp):
-    """Three strip columns at rest (vertical dividers at x 641.5 and 1075.5, a split divider in column 2 at y 428.5), the
+    """Three strip columns at rest (vertical dividers at x 641.5 and 1075.5, a split divider in column 2 at y 300), the
     trace (debug.motion trace_read with path, the host clock) and the input journal of one key spring and one drag. The
     key-down reaches the app `key_ms` after the key is sent and starts the move spring (`response`) of every edge right of
     p0 by S = 5% of the 1304 pt viewport. The drag's mouse-down reaches it `latency_s` after its call starts; it grabs the
@@ -1549,7 +1549,7 @@ class SpringApp(FakeApp):
     def dividers(self, t):
         d0 = self.edge(641.5, t)
         d1 = self.edge(1075.5, t)
-        split_y = 428.5
+        split_y = 300.0  # not the vertical dividers' middle (428.5): a column press that misses is no split press
         if self.mouse_down is not None and t >= self.mouse_down:
             share = min(1.0, (t - self.mouse_down) / (self.drag_ms / 1000.0))
             if self.grabbed == "column":
@@ -1681,7 +1681,7 @@ class KeyThenDragTests(unittest.TestCase):
         j, out = self.run_step(app, {"row_divider": 0}, [0, 120])
         point = j.log[1][2]["target"]["window_point"]
         self.assertEqual(app.grabbed, "split")
-        self.assertAlmostEqual(point[1], 428.5, places=3)
+        self.assertAlmostEqual(point[1], 300.0, places=3)
         self.assertEqual(j.video["notes"]["pixel"]["key_then_drag"]["verdict"], "overlap")
 
     def test_a_spring_that_landed_before_the_mouse_down_is_no_overlap(self):
@@ -1777,7 +1777,7 @@ class SharedEdgeCaseTests(unittest.TestCase):
         place = next(st for st in spec["steps"] if st["do"] == "window_place")
         self.assertEqual(place["fraction"], [0.0, 0.05, 1.0, 0.9])
         fixture = [st for st in spec["steps"] if st["do"] == "px_tunable" and st["key"] == HIT_WIDTH]
-        self.assertEqual(len(fixture), 1 + len(films) if hit_width else 0)
+        self.assertEqual(len(fixture), 1 if hit_width else 0)  # the set-up's; each film sets it again (check)
         self.assertEqual(HIT_WIDTH in [st.get("key") for st in spec["finally"]], hit_width)
         return spec
 

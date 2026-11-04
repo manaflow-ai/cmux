@@ -62,6 +62,10 @@ Cases (layouts: T terminal fixture, P page fixture, A agent pane; | a vertical d
   px-close-pane-*    Cmd-W on the middle split pane; it comes back before the next speed            T|T|P
   px-close-column-*  Cmd-W on the middle column's only pane; it comes back before the next speed    columns T|T|A
   px-window-resize-* the window's bottom-right corner 300 x 150 pt in and back in 0.6 s each       T|P|(A/T)
+  px-keys-then-drag-3, px-keys-then-split-drag-2s  stage S2b: Ctrl-Shift-L on p0, then 60 ms after its key-down a real
+                     drag of the p1|p2 column edge 150 pt right (divider hit width 24 pt) or of the p1/p2 split 120 pt
+                     down, in 400 ms, during the key's spring; x0.25 only (one journey, and the switch variants at it)
+                     columns T|P|T and columns T|(T/P)
 The key of New Column will be Ctrl-Cmd-X after #29866; the cases run the action, as a menu item does.
 """
 import argparse
@@ -90,6 +94,9 @@ STRIP = "#000000"
 # The movie's HEVC bit rate (the recorder's default is 300): flat fixture colors, and the judge reads the exact scan.
 MOVIE_MBPS = 60
 SPEEDS_S1R = (("s1", 1.0), ("reduce", None))
+# Stage S2b (a drag during a key spring): a HID drag's mouse-down reaches the app 260-400 ms after its call starts (cmux22),
+# when the key's spring at x1 (about 0.18 s) or under Reduce Motion (one frame) has landed. At x0.25 it still runs.
+SPEEDS_S2B = (("s025", 0.25),)
 # Seconds, from the first rounds (cmux22, 2026-11-03: a pane's set-up took 1-3 s); MARGIN on top.
 EST_BASE, EST_PANE, EST_FOCUS, EST_FILM, EST_REBUILD, EST_AFTER = 12, {"tui": 4, "page": 12, "agent": 5}, 1, 9, 7, 8
 EST_TAB = 5  # one more terminal tab with its fixture (px_tab_new, the neutral prompt, the TUI)
@@ -102,6 +109,9 @@ BUDGET_MAX = 250  # run.py refuses over 260 (one lease: 540 s less the set-up re
 # so a film finds each tab's two edges on the strip row. It is a `springs` section tunable: the Reduce Motion film's reset of
 # that section turns it off, so a case sets it again in each film (after the speed).
 TAB_OUTLINE = "motion.frameOwner.tabOutline"
+# The divider drag area's width (metrics.dividerHitWidth, 1 to 24 pt, default 7; only the hit bands use it, no pane frame):
+# a HID press on a column edge the key's spring still moves lands within a few points of it.
+HIT_WIDTH = "metrics.dividerHitWidth"
 # A journey id is its case id, or the case id and one of these: -a.. (a sweep in parts), -s1r, -sw-<short>[-a..].
 JOURNEY_SUFFIX = re.compile(r"(-[a-h]|-s1r|-sw-[a-z0-9]+(-[a-c])?)?")
 
@@ -259,6 +269,15 @@ T6 = Layout("6", "columns (p0 T / p3 T) | (p1 P / p4 A) | (p2 T / p5 P)",
 T3S = Layout("3", "p0 T | p1 T | p2 P (splits)",
              [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("splitRight", None)), ("p2", "page", YELLOW, ("splitRight", None))])
 C2 = Layout("c2", "columns p0 T | p1 P", [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None))])
+# Stage S2b, the layouts of SharedEdgeDuringSpringTests (A | B | C, B split): strip columns, each a third of the viewport, a
+# full-width window. 3 columns: the key on p0 springs every edge right of it (p0|p1, p1|p2). 2 columns: column 2 holds p1
+# over p2 (splitDown), and the strip fits its viewport after the key.
+C3P = Layout("3", "columns p0 T | p1 P | p2 T",
+             [("p0", "tui", YELLOW, None), ("p1", "page", GREEN, ("newColumn", None)), ("p2", "tui", YELLOW, ("newColumn", None))],
+             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
+C2S = Layout("2s", "columns p0 T | (p1 T / p2 P)",
+             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "page", YELLOW, ("splitDown", None))],
+             window=[0.0, 0.05, 1.0, 0.9], widths="column.widthOneThird")
 C3 = Layout("c3", "columns p0 T | p1 T | p2 A",
             [("p0", "tui", YELLOW, None), ("p1", "tui", GREEN, ("newColumn", None)), ("p2", "agent", AGENT_FILL, ("newColumn", None))])
 
@@ -287,10 +306,12 @@ class Case:
     drives it, so no curve is declared), and its rebuild after the recording (a close)."""
 
     def __init__(self, cid, title, layout, play, spring, input_kind, before=None, rebuild=None, play_seconds=None,
-                 fixture_tunables=()):
+                 fixture_tunables=(), speeds=None):
         self.cid, self.title, self.layout, self.play, self.spring = cid, title, layout, play, spring
         self.input, self.before, self.rebuild = input_kind, before or [], rebuild or []
         self.play_seconds = play_seconds
+        # The case's only speeds (one journey <case>, and its switch variants at them); None: the six speeds and -s1r.
+        self.speeds = tuple(speeds) if speeds else None
         # [(key, value)]: Debug tunables the case films with (the tab outline). Required (a build that does not take one
         # is not run), set at the set-up and again in each film after its speed, back to the default in finally.
         self.fixture_tunables = list(fixture_tunables)
@@ -359,6 +380,25 @@ def held_close_play(speed):
     return [hold] + steps[1:]
 
 
+def key_then_drag_play(target, by, what):
+    """Stage S2b: Ctrl-Shift-L on p0 (its column edge springs), then a real HID drag of TARGET by BY in 400 ms, its call
+    60 ms after the key-down (ext_pixel px_key_then_drag: the press where the spring will have the edge)."""
+    def play(speed):
+        return [{"do": "px_key_then_drag", "key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                 "drag": {"target": target, "by": list(by), "duration_ms": 400},
+                 "spring_default": {"response": RESPONSE["move"], "damping": DAMPING["move"]}, "mark": "kd",
+                 "title": f"Ctrl-Shift-L on p0, then 60 ms after its key-down a real drag of {what} by {list(by)} pt in 400 ms"},
+                rest(land(speed), "the key's spring and the drag land and rest")]
+    return play, (lambda speed: 1.0 + land(speed))
+
+
+def key_then_drag_rebuild(target, by):
+    """The layout back for the next film: the dragged edge back by -BY (at rest now), then Ctrl-Shift-H on p0."""
+    return [G.kit_drag(target, [-v for v in by], 400, "back", f"the dragged edge back by {[-v for v in by]} pt"),
+            rest(0.6, "the edge rests at the pointer"), focus("p0"), press(H, "unkey"),
+            rest(land(SPEEDS_S2B[0][1]), "p0's column back (its key spring lands)")]
+
+
 def new_and_close_play(action, what):
     def play(speed):
         return [{"do": "action", "action": action, "mark": "new", "title": f"{what} (action {action}, as its menu item)"},
@@ -420,6 +460,15 @@ def cases():
                     play_seconds=lambda s: 0.2 + land(s, "split")))
     out.append(Case(f"px-window-resize-{T4.key}", f"the window corner 300 x 150 pt in and back out ({T4.text})", T4, window_play, None,
                     "window resize (window_drag)", play_seconds=lambda s: 2.6))
+    # Stage S2b (frame-owner-s2): a drag during a key spring. The shared edges keep their rest gaps, the dragged edge follows
+    # the pointer; at x0.25 only (SPEEDS_S2B), a film whose spring had landed at the mouse-down is "not run".
+    for layout, target, by, what, name, hit in ((C3P, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True),
+                                                (C2S, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False)):
+        play, secs = key_then_drag_play(target, by, what)
+        out.append(Case(f"px-keys-then-{name}-{layout.key}", f"Ctrl-Shift-L on p0, then {what} dragged {list(by)} pt during its "
+                        f"spring ({layout.text})", layout, play, "move", "key then drag", before=[focus("p0")],
+                        rebuild=key_then_drag_rebuild(target, by), play_seconds=secs,
+                        fixture_tunables=[(HIT_WIDTH, 24)] if hit else [], speeds=SPEEDS_S2B))
     return out
 
 
@@ -486,7 +535,8 @@ def switch_short(key):
 def switch_variants(case, key):
     """CASE filmed with KEY OFF then ON, at x1 and under Reduce Motion: off-s1, on-s1, off-reduce, on-reduce, in as few
     journeys <case>-sw-<short>[-a|-b] as fit one lease each."""
-    films = [(f"{state}-{label}", speed, (key, state == "on")) for label, speed in SPEEDS_S1R for state in ("off", "on")]
+    films = [(f"{state}-{label}", speed, (key, state == "on")) for label, speed in (case.speeds or SPEEDS_S1R)
+             for state in ("off", "on")]
     base = f"{case.cid}-sw-{switch_short(key)}"
     groups = [films]
     while True:
@@ -501,8 +551,12 @@ def switch_variants(case, key):
 def journeys(switch=None):
     out = []
     for case in cases():
-        out += sweep(case)
-        out.append(journey(case, f"{case.cid}-s1r", list(SPEEDS_S1R), " (x1 and Reduce Motion: any bench build)"))
+        if case.speeds:
+            labels = ", ".join(("Reduce Motion" if sp is None else f"x{sp:g}") for _, sp in case.speeds)
+            out.append(journey(case, case.cid, list(case.speeds), f" ({labels} only)"))
+        else:
+            out += sweep(case)
+            out.append(journey(case, f"{case.cid}-s1r", list(SPEEDS_S1R), " (x1 and Reduce Motion: any bench build)"))
         if switch:
             out += switch_variants(case, switch)
     return out

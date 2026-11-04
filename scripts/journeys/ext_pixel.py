@@ -103,8 +103,23 @@ Steps (`do`):
                and after, the first key-down, the planned and the real delay, and the close's send and return times on
                the host clock (CLOCK_UPTIME_RAW: the trace's t0_s and the scan's frame times), so the judge finds the
                first frame after the close; events.json gets it as kind tab_close.
+  px_key_then_drag {key, modifiers?, after_ms?: 60, drag: {target: {divider | row_divider: N}, by, duration_ms},
+                    spring_default?, mark?}
+               Stage S2b (a drag during a key spring). One real HID key (rk_press), then a real HID drag (ext_video
+               hid_drag, hold 0) whose call starts AFTER_MS after the key-down: one CuaDriver session serves one call at a
+               time. Its mouse-down reaches the app DRAG_DOWN_S (260-400 ms, cmux22) after the call, and the app hit-tests
+               a divider at its shown frame, so the press goes where the edge will be then: its rest place plus the key's
+               step (KEY_STEP of the viewport, debug.pane_chrome main_pane) times the move spring's progress (this film's
+               response). A split divider spans its column: the same shift lands in its middle. After the drag: the
+               journal's key-down and mouse-down, and the trace. The film is "not run" (px_film: recorded and rebuilt, never
+               judged) when vertical divider 0 (the column edge right of p0, which the key springs) did not move in the 3
+               refreshes before the mouse-down (no overlap), or the dragged divider did not follow the pointer (the press
+               missed it). The film's pixel note gets `key_then_drag`: the plan (rest, press, step, spring), the key's and
+               the drag's send times, the journal's key-down and mouse-down, the spring edge at the mouse-down and what it
+               had left, the dragged edge's travel and the verdict, on the host clock.
 """
 import json
+import math
 import os
 import threading
 import time
@@ -578,6 +593,7 @@ def step_px_film(j, step):
             st["films"].append(line)
             return line
     done = []
+    st.pop("film_not_run", None)  # a film step's own verdict (px_key_then_drag): this film's only
     for sub in list(step.get("steps") or []) + list(step.get("after") or []):
         handler = getattr(j, "step_" + str(sub.get("do")), None)
         if handler is None:
@@ -592,9 +608,14 @@ def step_px_film(j, step):
         done.append({"do": sub["do"], "title": sub.get("title", ""), "seconds": round(D.now() - t, 3), "result": _short(out)})
     line = {"film": name, "status": "recorded", "speed": None if reduce else st["speed"], "reduce": reduce,
             "springs_source": st["springs_source"], "speed_facts": facts, "bytes": film_bytes(j, name), "steps": done}
+    verdict = st.pop("film_not_run", None)
+    if verdict:
+        # Recorded and rebuilt, but not a film of what the case films (no overlap, a missed press): never judged a pass.
+        line.update(status="not run", reason=verdict)
     if switch:
         line["switch"] = switch
-    st["films"].append({k: line[k] for k in ("film", "status", "speed", "reduce", "springs_source", "bytes", "switch") if k in line})
+    st["films"].append({k: line[k] for k in ("film", "status", "reason", "speed", "reduce", "springs_source", "bytes", "switch")
+                        if k in line})
     return line
 
 
@@ -847,6 +868,191 @@ def step_px_hold_tab_close(j, step):
     return {"hold": held, "tab_close": info}
 
 
+KEY_STEP = 0.05  # PaneResize.step: a key resize moves a column's width by 5% of the viewport
+KEY_DOWN_S = 0.025  # a CuaDriver key reaches the app 20-28 ms after its call starts (cmux22 sweeps)
+DRAG_DOWN_S = 0.33  # a CuaDriver drag's mouse-down reaches the app 260-400 ms after its call starts (12 drags, cmux22)
+MOVING_PT = 0.25  # an edge moved this far in the 3 refreshes before the mouse-down is still moving (half a device px at 2x)
+GRAB_SHARE = 0.5  # the dragged edge followed the pointer: it moved at least this share of the drag
+
+
+def spring_fraction(t, response, damping=1.0):
+    """The share of its travel a spring of RESPONSE s has made t s after it starts (omega0 = 2 pi / response; critically
+    damped, as the structural move token is: its damping is never under 1)."""
+    if t <= 0:
+        return 0.0
+    if response <= 0:
+        return 1.0
+    w = 2 * math.pi / response
+    return 1 - (1 + w * t) * math.exp(-w * t)
+
+
+def _trace_now(j):
+    """The trace so far (debug.motion trace_read with path: the app writes it off its main thread): {t0_s, samples}."""
+    path = V._vdir(j) / ".trace-now.json"
+    if path.exists():
+        path.unlink()
+    reply = V._motion(j, "trace_read", path=str(path))
+    if isinstance(reply.get("samples"), list):
+        return reply
+    end = D.now() + 10
+    while D.now() < end and not path.exists():
+        time.sleep(0.02)  # orchestration wait for the app's file
+    doc = json.loads(path.read_text()) if path.exists() else {"samples": []}
+    if path.exists():
+        path.unlink()
+    return doc
+
+
+def _dividers(sample):
+    """{id: (center x, center y, w, h)} of one trace sample's divider rows (window points from the top-left)."""
+    out = {}
+    for d in sample.get("dividers") or []:
+        if isinstance(d, list) and len(d) >= 5:
+            out[str(d[0])] = (float(d[1]) + float(d[3]) / 2, float(d[2]) + float(d[4]) / 2, float(d[3]), float(d[4]))
+    return out
+
+
+def _ordered(dividers, window_w, vertical=True):
+    """The ids of the shown vertical (sorted by x) or horizontal (sorted by y) dividers, as ext_video's targets count them."""
+    rows = [(i, d) for i, d in dividers.items() if (d[3] > d[2]) == vertical and 8 <= d[0] <= window_w - 8]
+    return [i for i, _ in sorted(rows, key=lambda r: r[1][0] if vertical else r[1][1])]
+
+
+def _at(samples, t0, t):
+    """The last sample shown at host time T (or the first)."""
+    k = 0
+    for n, smp in enumerate(samples):
+        if t0 + float(smp.get("t", 0)) / 1000.0 <= t:
+            k = n
+        else:
+            break
+    return samples[k] if samples else {}
+
+
+def _journal_times(j, since):
+    """(the first key-down, the first left mouse-down) host times in the app's input journal at or after SINCE (s)."""
+    key = mouse = None
+    for e in _journal(j):
+        t = float(e.get("uptimeNanos") or 0) / 1e9
+        if t < since:
+            continue
+        kind = e.get("kind") or {}
+        k = (kind.get("key") or {}).get("_0") if isinstance(kind.get("key"), dict) else None
+        m = (kind.get("mouse") or {}).get("_0") if isinstance(kind.get("mouse"), dict) else None
+        if key is None and isinstance(k, dict) and k.get("phase") == "down" and k.get("keyClass") != "modifier":
+            key = t
+        if mouse is None and isinstance(m, dict) and m.get("phase") == "down" and int(m.get("button") or 0) == 0:
+            mouse = t
+    return key, mouse
+
+
+def _journal(j, last=200):
+    """The app's input journal's last LAST entries, in their order (a key press writes about 6, a 400 ms drag a few)."""
+    reply = j.app.rpc("debug.journal", {"last": last}) or {}
+    return sorted((e for e in reply.get("entries") or [] if isinstance(e, dict)), key=lambda e: int(e.get("seq") or 0))
+
+
+def step_px_key_then_drag(j, step):
+    """One real HID key, then a real HID drag whose call starts AFTER_MS after the key-down (see the module doc)."""
+    st = _state(j)
+    drag = dict(step["drag"])
+    target, by = dict(drag["target"]), [float(v) for v in drag["by"]]
+    after = float(step.get("after_ms", 60)) / 1000.0
+    spring = (st.get("springs") or {}).get("move") or step.get("spring_default") or {"response": 0.15, "damping": 1.0}
+    response = 0.0 if st.get("reduce") else float(spring["response"])
+    offset = V._host_offset_s()
+    # Before the key: where the dividers rest, and the viewport the key's step is a share of.
+    trace = _trace_now(j)
+    samples, t0 = trace.get("samples") or [], float(trace.get("t0_s") or 0)
+    rest = _dividers(samples[-1]) if samples else {}
+    window_w = float(((samples[-1] if samples else {}).get("window") or [1e9])[0])
+    vertical = _ordered(rest, window_w, True)
+    horizontal = _ordered(rest, window_w, False)
+    chrome = j.app.rpc("debug.pane_chrome") or {}
+    main = next((w.get("main_pane") for w in chrome.get("windows") or [] if w.get("main_pane")), None)
+    step_pt = round(KEY_STEP * float(main[2]) * 2) / 2 if main else 0.0
+    if not vertical:
+        raise D.StepError(f"px_key_then_drag: the trace shows no vertical divider: {sorted(rest)}")
+    spring_edge = vertical[0]  # the column edge right of p0: the key's spring moves it and every edge right of it
+    if "divider" in target:
+        ids, axis = vertical, "x"
+    elif "row_divider" in target:
+        ids, axis = horizontal, "y"
+    else:
+        raise D.StepError(f"px_key_then_drag: target {target}: divider or row_divider")
+    index = int(target.get("divider", target.get("row_divider", 0)))
+    if index >= len(ids):
+        raise D.StepError(f"px_key_then_drag: no {'vertical' if axis == 'x' else 'horizontal'} divider {index}: {sorted(rest)}")
+    dragged = ids[index]
+    cx, cy, w, h = rest[dragged]
+    # Where the drag's mouse-down will find the edge: the key's spring moves every divider right of p0 by its step.
+    expect = after + DRAG_DOWN_S
+    moved = step_pt * spring_fraction(expect, response) if response else step_pt
+    press = [cx + moved, cy]  # a column edge and a split divider right of p0 both shift right by the key's step
+    info = {"key": {"key": step["key"], "modifiers": list(step.get("modifiers", []))},
+            "drag": {"target": target, "by": by, "duration_ms": int(drag["duration_ms"]), "divider": dragged,
+                     "rest": [cx, cy], "press": press},
+            "spring_edge": spring_edge, "spring_edge_rest": rest[spring_edge][0], "key_step_pt": step_pt,
+            "spring": {"response": response, "damping": float(spring.get("damping", 1.0))},
+            "planned": {"after_ms": round(after * 1000, 3), "mouse_down_after_key_ms": round(expect * 1000, 3),
+                        "moved_pt": round(moved, 3)},
+            "clock": "host seconds (CLOCK_UPTIME_RAW): the trace's t0_s, the scan's frame times and the journal's uptimeNanos"}
+    video = getattr(j, "video", None)
+    if video is not None:
+        video["notes"].setdefault("pixel", {})["key_then_drag"] = info
+    key_sent = D.now()
+    j.step_rk_press({"key": step["key"], "modifiers": list(step.get("modifiers", [])), "count": 1, "gap_ms": 0,
+                     "mark": step.get("mark", "kd") + "-key"})
+    # One CuaDriver session serves one call at a time: the drag starts once the key's call returned, AFTER after the key-down.
+    wait = key_sent + KEY_DOWN_S + after - D.now()
+    if wait > 0:
+        time.sleep(wait)
+    drag_sent = D.now()
+    info.update(key_sent_host=key_sent + offset, drag_sent_host=drag_sent + offset)
+    j.step_hid_drag({"target": {"window_point": press}, "by": by, "duration_ms": int(drag["duration_ms"]), "hold_ms": 0,
+                     "mark": step.get("mark", "kd") + "-drag"})
+    info["drag_returned_host"] = D.now() + offset
+    # The verdict: the journal's key-down and mouse-down, and the trace around them.
+    key_down, mouse_down = _journal_times(j, key_sent + offset - 0.05)
+    info.update(key_down_host=key_down, mouse_down_host=mouse_down)
+    trace = _trace_now(j)
+    samples, t0 = trace.get("samples") or [], float(trace.get("t0_s") or 0)
+    period = float(trace.get("refresh_ms") or 8.333) / 1000.0
+    verdict = None
+    if key_down is None or mouse_down is None:
+        verdict = f"no {'key-down' if key_down is None else 'mouse-down'} of this step in the app's input journal"
+    else:
+        info["mouse_down_after_key_ms"] = round((mouse_down - key_down) * 1000, 3)
+        at = _dividers(_at(samples, t0, mouse_down))
+        before = _dividers(_at(samples, t0, mouse_down - 3 * period))
+        edge_at, edge_before = (at.get(spring_edge) or (None,))[0], (before.get(spring_edge) or (None,))[0]
+        landing = info["spring_edge_rest"] + step_pt
+        info["spring_edge_at_down"] = edge_at
+        info["spring_left_pt"] = None if edge_at is None else round(landing - edge_at, 3)
+        info["edge_moving_at_down"] = edge_at is not None and edge_before is not None and abs(edge_at - edge_before) >= MOVING_PT
+        shown = at.get(dragged)
+        info["dragged_at_down"] = list(shown[:2]) if shown else None
+        end = _dividers(samples[-1]) if samples else {}
+        travel = None
+        if shown and dragged in end:
+            k = 0 if axis == "x" else 1
+            travel = end[dragged][k] - shown[k]
+        want = by[0] if axis == "x" else by[1]
+        info["dragged_travel_pt"] = None if travel is None else round(travel, 3)
+        info["grabbed"] = travel is not None and want != 0 and travel / want >= GRAB_SHARE
+        if not info["grabbed"]:
+            verdict = (f"the press missed the edge: {dragged} moved {travel} pt of the drag's {want} pt (pressed at {press}, "
+                       f"the edge at the mouse-down {info['dragged_at_down']})")
+        elif not info["edge_moving_at_down"]:
+            verdict = (f"no overlap: the key's spring edge {spring_edge} was not moving at the drag's mouse-down "
+                       f"({info['mouse_down_after_key_ms']} ms after the key-down)")
+    info["verdict"] = "overlap" if verdict is None else ("no overlap" if verdict.startswith("no overlap") else "not run")
+    if verdict:
+        info["reason"] = verdict
+        st["film_not_run"] = f"not run: {verdict}"
+    return {"key_then_drag": info}
+
+
 def step_px_window_frame(j, step):
     ms = float(step.get("ms", 600))
     events = max(2, int(round(ms / 1000.0 * 120)))
@@ -862,7 +1068,8 @@ def step_px_window_frame(j, step):
 
 STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start, "px_tab_new": step_px_tab_new,
-         "px_hold_tab_close": step_px_hold_tab_close}
+         "px_hold_tab_close": step_px_hold_tab_close,
+         "px_key_then_drag": step_px_key_then_drag}
 CONDITIONS = {}
 
 
