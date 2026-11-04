@@ -1358,12 +1358,16 @@ button.cv-subagent > :last-child {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* A line with its latest line is taller than one row: five such lines still fit before the list
+   scrolls (SubagentTrayKinds.gallery.ts `columns`, "no scrollbar under five lines"). */
+.acpmux-running-tray__list:has(.acpmux-agent-line__latest),
+.acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list:has(.acpmux-agent-line__latest) {
+  max-height: calc(var(--acpmux-tray-lines) * (var(--ui-row-height, 28px) + var(--ds-space-4)) + 2px);
+}
 .acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) > .acpmux-agent-line__button {
   height: auto;
   align-items: start;
   padding-block: var(--ds-space-1);
-}
-.acpmux-running-tray .acpmux-agent-line:has(.acpmux-agent-line__latest) .acpmux-agent-line__button > .acpmux-lineage__icon {
 }
 
 /* Counts and warnings remain readable even when the name or action needs truncation. */
