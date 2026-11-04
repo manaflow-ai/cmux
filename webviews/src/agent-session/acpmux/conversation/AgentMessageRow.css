@@ -258,16 +258,16 @@ button.cv-agentmsg__name:focus-visible {
    directly in the same line. likewise, idk why everything is grey other than the recieving message
    bubble. and idk why names are ellipses'd so early plus the weird chevron spacing thing".
    - The other agent's name takes its whole width: no percentage cap (#27312's 40%, AgentTag.css's
-     40%, a received sender's 45%). The preview gives way first: flex shrinks each item by its factor
-     times its width, so at 1000 the name keeps its room until the preview is gone, and only a name
-     wider than the line is cut.
+     40%, a received sender's 45%). It never shrinks (flex shrink is weighted by width, so even a
+     shrink of 1 against the preview's 1000 shaved a pixel off the name and drew its ellipsis); it is
+     capped only at the line itself, so only a name wider than the line is cut. The preview gives way.
    - The verb, the name and the count read in the transcript's text tone, as a received message's
      text does; the preview is the one muted span, a step down, never the dim activity grey (#27074).
    - The chevron comes right after the words (conversation.css "chevron right after its words"): the
      sentence and its preview take their words' width, never the line's free width.
    design/chat-transcript.md "Message rows: one line". */
 .cv-agentmsg__sentence > .cv-agentmsg__name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   max-width: 100%;
 }
 .acpmux-row .cv-agentmsg__line .cv-agentmsg__sentence > .cv-agentmsg__toggle,
