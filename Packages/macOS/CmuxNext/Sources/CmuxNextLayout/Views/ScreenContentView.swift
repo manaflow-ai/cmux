@@ -23,6 +23,8 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
+    private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.split`), and the dock columns that change added.
     var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
@@ -363,7 +365,6 @@ final class ScreenContentView: NSView {
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
-                view.onPointerChange = { [weak self] in self?.context.invalidateHoverTopmost(); self?.refreshDividerHover() }
                 addSubview(view)
                 dividerViews[kind] = view
             }
@@ -441,8 +442,9 @@ final class ScreenContentView: NSView {
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
-        // Nothing moves: no frame will land the motion, so what it retired goes now.
-        if !moving { releaseClosing() }
+        // Nothing moves: no frame will land the motion, so what it retired goes now (once the camera is set, when panes
+        // this change began closing wait for it: `settleClosing`).
+        if !moving, !closingPanes.hasAwaiting { releaseClosing() }
         return moving
     }
 

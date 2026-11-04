@@ -367,15 +367,17 @@ final class CEFHostView: NSView {
 
 /// A CEF tab's `contentView`. All tabs of a pane share one Chromium window,
 /// so the container only borrows the pane's `CEFHostView` while it is in a
-/// window, and shows a snapshot while the tab is occluded.
+/// window.
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
-    private let snapshotView = NSImageView()
     /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
     /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
     /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
     var pageMotionHold: PaneMotionHold?
+    /// The key resize's hold keeps the page on the page area's top-left corner, as a drag does
+    /// (`BrowserResizeTunables.keyResizeTopLeft`, latched when the hold begins: a flip applies from the next hold).
+    var pageHoldTopLeft = false
     /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
     /// page is by then; empty otherwise.
     private(set) var syncedDragHostings: [CEFLayerHosting] = []
@@ -383,9 +385,6 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        snapshotView.imageScaling = .scaleAxesIndependently
-        snapshotView.autoresizingMask = [.width, .height]
-        snapshotView.isHidden = true
     }
 
     @available(*, unavailable)
@@ -487,9 +486,13 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
-                // A resize drag: the page keeps its size at the page frame's top-left corner (a key hold: on its
-                // edges), and the pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
-                frame = (pageMotionHold ?? PaneMotionHold(trailing: false, bottom: false)).producerFrame(held, in: frames.page)
+                // A resize drag, or a key hold (the interim browser contract, `pageHoldTopLeft`): the page keeps its size
+                // at the page frame's top-left corner, so it moves with the pane's leading and top edges (S3's key hold
+                // without it: on the pane edges that do not move). The pane clips it (`CEFClipShape` and the fork's
+                // visible rect read the held host), and the fork re-places its window with the host each motion frame
+                // (`CEFHostView.pagesNeedUpdate`).
+                let topLeft = PaneMotionHold(trailing: false, bottom: false)
+                frame = (pageHoldTopLeft ? topLeft : pageMotionHold ?? topLeft).producerFrame(held, in: frames.page)
             } else {
                 frame = fitPage ?? frames.page
             }
