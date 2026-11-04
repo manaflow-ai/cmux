@@ -42,7 +42,8 @@ struct AgentPanePeerEnrollRetryTests {
         let id = try await peerChat(server, inbox, transport) { enrolled.append($0); return nil }
 
         transport.gestures.record(click: true)
-        let ticket = try #require(transport.reserveGesture(try #require(Relayed.intent(option: "yes"))))
+        let intent = try #require(Relayed.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(intent))
         #expect(await transport.send(connection: id, frames: [Relayed.allow(ticket: ticket)]) == nil)
         let first = try await Relayed.relayID(server, "permission_respond", after: 0)
         let firstFrame = try #require(server.peers.first?.frames.last { $0.contains("permission_respond") })
@@ -76,7 +77,8 @@ struct AgentPanePeerEnrollRetryTests {
         let id = try await peerChat(server, inbox, transport) { _ in "ssh: far: no route" }
 
         transport.gestures.record(click: true)
-        let ticket = try #require(transport.reserveGesture(try #require(Relayed.intent(option: "yes"))))
+        let intent = try #require(Relayed.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(intent))
         #expect(await transport.send(connection: id, frames: [Relayed.allow(ticket: ticket)]) == nil)
         let first = try await Relayed.relayID(server, "permission_respond", after: 0)
         server.push(Relayed.refusal(first, peer: "far"), to: 0)
@@ -99,7 +101,8 @@ struct AgentPanePeerEnrollRetryTests {
         let id = try await peerChat(server, inbox, transport) { _ in enrolled += 1; return nil }
 
         transport.gestures.record(click: true)
-        let ticket = try #require(transport.reserveGesture(try #require(Relayed.intent(option: "yes"))))
+        let intent = try #require(Relayed.intent(option: "yes"))
+        let ticket = try #require(transport.reserveGesture(intent))
         #expect(await transport.send(connection: id, frames: [Relayed.allow(ticket: ticket)]) == nil)
         server.push(Relayed.refusal(try await Relayed.relayID(server, "permission_respond", after: 0), peer: "far"), to: 0)
         server.push(Relayed.refusal(try await Relayed.relayID(server, "permission_respond", after: 1), peer: "far"), to: 0)
