@@ -77,7 +77,7 @@ function LoopStrip({ goal, now }: { goal: TaskGoal; now: () => number }) {
           title={t("goal.label")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <Expand size={15} />
+          <Expand size={16} />
         </button>
       )}
       {expanded && (
@@ -208,7 +208,7 @@ function GoalStrip({
           title={t("goal.label")}
           onClick={() => setExpanded((value) => !value)}
         >
-          <Expand size={15} />
+          <Expand size={16} />
         </button>
       )}
       {expanded && (

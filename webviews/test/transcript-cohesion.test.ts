@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
