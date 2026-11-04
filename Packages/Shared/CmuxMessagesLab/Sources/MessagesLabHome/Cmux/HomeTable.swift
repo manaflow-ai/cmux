@@ -14,6 +14,10 @@ struct HomeTable: Codable, Hashable, Sendable {
     var alignments: [Alignment]
     /// Body rows, each padded or cut to the header's column count.
     var rows: [[String]]
+    /// The pictures its cells name (`![alt](source)`), each source as the local file Home draws
+    /// (an attachment of the message: `cmux-attachment:<hash>`, or a file in Home's media folder);
+    /// nil before the mapping resolves them. A source with no file draws its alt text instead.
+    var pictures: [String: String]?
 
     var columns: Int { header.count }
 }
@@ -132,12 +136,21 @@ struct HomeTableSplitter {
 /// A table cell's Markdown as the card shows it: the text without emphasis and code marks, its
 /// links' titles in place, and the links it carries.
 struct HomeTableCell: Hashable, Sendable {
+    /// A picture a cell names: `![alt](source)`.
+    struct Image: Hashable, Sendable {
+        var alt: String
+        var source: String
+    }
+
     var text: String
     /// Ranges (in `text`, UTF-16) that were `**bold**`.
     var bold: [NSRange]
     var links: [URL]
+    /// The pictures, in the cell's order (their syntax is not in `text`).
+    var images: [Image]
 
     init(markdown: String) {
+        var images: [Image] = []
         var text = ""
         var bold: [NSRange] = []
         var links: [URL] = []
@@ -160,6 +173,16 @@ struct HomeTableCell: Hashable, Sendable {
                 i += 1
                 continue
             }
+            // ![alt](source): a picture (``HomeTableGrid`` draws it as a thumbnail); not text.
+            if ch == "!", chars[checked: i + 1] == "[", let close = chars.dropFirst(i + 2).firstIndex(of: "]"),
+               chars[checked: close + 1] == "(", let end = chars.dropFirst(close + 2).firstIndex(of: ")") {
+                let alt = String(chars.dropFirst(i + 2).prefix(close - i - 2))
+                let source = String(chars.dropFirst(close + 2).prefix(end - close - 2))
+                    .trimmingCharacters(in: CharacterSet(charactersIn: " <>"))
+                images.append(Image(alt: alt, source: source))
+                i = end + 1
+                continue
+            }
             // [title](url)
             if ch == "[", let close = chars.dropFirst(i + 1).firstIndex(of: "]"), chars[checked: close + 1] == "(",
                let end = chars.dropFirst(close + 2).firstIndex(of: ")") {
@@ -180,9 +203,10 @@ struct HomeTableCell: Hashable, Sendable {
             let w = word.trimmingCharacters(in: CharacterSet(charactersIn: "()<>."))
             if w.hasPrefix("https://"), let url = URL(string: w), !links.contains(url) { links.append(url) }
         }
-        self.text = text
+        self.text = text.trimmingCharacters(in: .whitespaces)
         self.bold = bold
         self.links = links
+        self.images = images
     }
 }
 

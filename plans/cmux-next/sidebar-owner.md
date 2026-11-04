@@ -17,6 +17,12 @@
   item sections hidden and the footer separate. Existing band caps, scrolling and scene mounts apply. A header
   drag forwards the document move within bottom or between top and bottom. Regression: `SidebarAppBottomBandTests`.
 
+- 2026-11-03: a group header's status mark draws at its rows' size. Leo, verbatim: "symbol size discrepancy groups vs
+  workspaces". The header's roll-up (`GroupHeaderRowView.activity`) drew every state in the 10 pt indicator box, scaled
+  by the indicator scale setting, while workspace rows draw the red warning and needs-you marks in 14 pt and the spinner
+  at the status glyph size, at a fixed scale (#30236, #31416, #33120 changed only `RowBadgeView`). Both row kinds now
+  read one token per state, `SidebarStyle.statusMarkSide(for:)`, centered on the one trailing column, and the header's
+  mark ignores the scale setting. Regression: `SidebarStatusGlyphParityTests`.
 - 2026-11-03: a row's working spinner draws at the row's status glyph size, not the warning's. Leo, verbatim: "i think
   the spinners are maybe a bit too big in this situation" (the compact sidebar). Since #30236's follow-up (Leo
   2026-11-01, "every icon is still f***ing small") every non-dot row badge drew in a 14 pt box, so at compact the
@@ -24,6 +30,13 @@
   takes `RowBadgeView.spinnerSide` (`SidebarStyle.statusGlyphSize`: 10 pt compact, 12 comfortable) on the same cell
   center; the red warning and needs-you marks keep 14 pt. Regression: `RowBadgeSpinnerDensityTests` (every density and
   minimal mode), `RowBadgeMarkSizeTests.theSpinnerIsSmallerThanTheWarning`.
+- 2026-11-04: a download the person asked for (Download, Update) shows its progress on the notice card again until it
+  is staged; a background download stays quiet (replaces half of the 2026-11-03 entry below, #33176; last good commit
+  before it 1d7eb3fd486). Leo, verbatim: "the weird thing is that there's no more updating downloading progress bar for
+  some reason? after i download... it got removed for some reason". The Restart to Update button ignores pointer
+  presses for 1 s after the card takes the slot (`SidebarUpdateButton.appearGuard`), after "i only clicked the
+  "download" button and it allegedly "updated" but i didnt restart the app/get a prompt to?". Regression:
+  `UpdateOneStepTests.aDownloadThePersonAskedForShowsItsProgress`, `theRestartButtonIgnoresAClickRightAfterTheCardAppears`.
 - 2026-11-03: a download shows no sidebar card; the staged update is the one Restart to Update card. Leo, verbatim, on
   the Downloading Update card: "also idk chatgpt's seems to be just like a one step "ok it's already downloaded you click
   this button to accept the button and restart" idk if we wanna follow that too". `UpdateFlow.card` returns nil while
@@ -470,6 +483,8 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Working spinner | The original 3/4 arc (e2e596e~1): a bare arc of `status.indicator.arcLength` (0.72) of the circle at the indicator's 1.5 pt stroke, no track, one clockwise turn per 0.9 s on the shared clock, in the muted spinner grey; the same mark on sidebar rows, group headers, the tab bar, hover cards, Home and the transcript. Changing it needs Lawrence's ask. `OriginalWorkingSpinnerTests` pins the drawn arc. | Lawrence msg 19638 ("i think someone changed sidebar spinning indicator? we need it to be reverted back to original state"); takes back #29903, #31409, #31455, #32730 (and #32893) |
 | Pinned rows: no hover close | A pinned row (a Pinned block's workspace, a band item such as "cmux Performance Lead", a pinned workspace drawn as a list row) and a pinned tab in a pane's tab strip show no x on hover. Close is in the right-click menu (Close Workspace, Close Tab); Cmd-W is unchanged. The row's ⋮ stays and takes the x's place, the end-most control on the trailing column, so the dot or spinner it hides sat on the same column and nothing moves. A pinned tab keeps its centered icon on hover (takes back HQ #4743's icon-to-x swap). Middle-click is unchanged: nothing on a band row, it closes a pinned tab. Unpinned rows and tabs keep their hover x. | Lawrence msg 19392 ("hover on pinned tab should not have close button, should only be able to close in right click") |
 | Favicons: legible on light and dark (mono favicons tinted) | A page favicon (workspace rows, band items, the hover card's tab rows) draws from its highest-resolution source, downsampled once to the drawn pixel size with high-quality interpolation, its frame on the pixel grid in the shared icon column (row layout unchanged). A monochrome favicon (low saturation, mostly one luminance) with less than 3:1 contrast on the sidebar draws as a template in the label colour; colourful and readable favicons draw as is. Measured once per image (`SidebarFaviconInk`), nothing per frame. Debug `sidebar.faviconStyle` ("Favicon style") keeps the other looks for comparison: current, invert dark mono in dark mode, rounded plate, circular plate, every icon in the label colour, hi-res untreated. | Lawrence msg 19869 ("also see if we can make these favicons look better": the GitHub favicon drew as a dark, muddy circle on the dark sidebar) |
+
+| Pinned group header: hover Unpin | A hovered, keyboard-focused or editing pinned group header shows an Unpin button (the `statePinned` glyph in the bar's ink, label Unpin Group) left of its + (of its ⋮ when it has no +), fading with them; it runs the editor's `workspaceGroup.togglePin`. The bar's leading pin stays a mark, and a click elsewhere on the bar still only folds. An unpinned header shows no pin, at rest or on hover; Pin Group stays in its menu and editor, as for workspace rows (Leo 2026-10-21, "no empty pin symbol by default"). | Austin 2026-11-02 ("answer to the group headers thing SHOULD be YES", on https://github.com/manaflow-ai/cmux/issues/27700: pinned groups could only be unpinned from the menu or the editor; repeated header clicks folded the group); recommendation posted on https://github.com/manaflow-ai/cmux/issues/13742 |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -1262,3 +1277,6 @@ The following Priority pointer behavior commits were reviewed as Sidebar-Look: n
 0075119003a, 19aed8cb69b, 876f8cdf5fc, 0137a6a9787, fda89c002c8, d8104ae97a6, 5218136c15f, db179b9bc0f.
 
 Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-Look: no visual change; their remaining sidebar hunks were removed in the recut fix.
+
+- 2026-11-02: pinned group headers show a hover Unpin button (https://github.com/manaflow-ai/cmux/issues/27700), the
+  "Pinned group header: hover Unpin" row above. Unpinned headers draw no pin. Regression: GroupHeaderUnpinButtonTests.
