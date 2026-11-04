@@ -90,13 +90,16 @@ class RoutingTableTests(unittest.TestCase):
             policy.write_text(json.dumps({
                 "job_classes": {"portable-checks": {"needs": "any"}},
                 "portable_light_jobs": {key: {"class": "portable-checks", "reason": "placement"}}}))
-            route = ("${{ vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || "
-                     "github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}")
+            route = ("${{ github.run_attempt == 1 && 'ubuntu-24.04' || "
+                     "fromJSON(vars.RUNNER_POOLS).linux_2 }}")
             job = {"runs-on": route, "permissions": {"contents": "read"},
                    "steps": [{"run": "python3 scripts/ci/portable_job_placement.py"}]}
             for changed, accepted in (({}, True), ({"permissions": {"contents": "write"}}, False),
                                       ({"environment": "release"}, False),
-                                      ({"runs-on": route.replace("vars.CI_LIGHT_LANE_RUNNER", "vars.ARBITRARY")}, False)):
+                                      ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_LIGHT_LANE_RUNNER || github.run_attempt == 1")}, False),
+                                      ({"runs-on": route.replace("github.run_attempt == 1", "vars.CI_SIDE_LANE_RUNNER || github.run_attempt == 1")}, False),
+                                      ({"runs-on": route.replace("github.run_attempt == 1 && 'ubuntu-24.04' || ", "")}, False),
+                                      ({"runs-on": route.replace(" || fromJSON(vars.RUNNER_POOLS).linux_2", "")}, False)):
                 with self.subTest(changed=changed):
                     (workflows / "controls.yml").write_text(table.yaml.safe_dump({
                         "jobs": {"portable-placement": {**job, **changed}}}, width=10000))

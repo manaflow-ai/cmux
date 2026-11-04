@@ -629,8 +629,8 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 problems.append(f"hosted_light_jobs[{key!r}] contains an undeclared retry runner")
                 continue
             if bootstrap:
-                if alternatives[:position] != ["vars.CI_LIGHT_LANE_RUNNER", "vars.CI_SIDE_LANE_RUNNER"]:
-                    problems.append(f"portable_light_jobs[{key!r}] must retain its declared owned bootstrap route")
+                if alternatives[:position]:
+                    problems.append(f"portable_light_jobs[{key!r}] must start with hosted Ubuntu; fixed labels cannot bootstrap placement")
                     continue
             elif any(not _picker_value_term(value) for part in alternatives[:position] for value in value_terms(part)):
                 problems.append(f"hosted_light_jobs[{key!r}] has an unverified label before hosted overflow")
@@ -683,7 +683,7 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
             problems.append(f"{job.key}: unknown job class {entry['class']!r}")
             continue
         # A bootstrap cannot depend on its own placement output. Its narrow
-        # secretless owned/hosted/overflow route is checked above instead.
+        # secretless hosted/overflow route is checked above instead.
         if job.key in bootstraps:
             continue
         bypass = bypasses_placement(job.runs_on)

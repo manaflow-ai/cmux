@@ -59,8 +59,8 @@ jobs:
   # fails open to the existing hosted/Blacksmith route when state is stale.
   portable-placement:
     name: portable light placement
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    if: ${{ vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || github.run_attempt == 1 && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_2 }}
     timeout-minutes: 4
     permissions:
       contents: read
@@ -80,7 +80,6 @@ jobs:
           persist-credentials: false
       - name: Place the portable light jobs
         id: place
-        if: vars.CI_PORTABLE_LIGHT_JOBS_OFF != '1'
         continue-on-error: true
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
@@ -96,7 +95,7 @@ jobs:
     name: resolve head and base
     needs: portable-placement
     # A draft is gated when it is marked ready; a dispatch always runs.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ always() && !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     # Fork pull requests use the same ephemeral Blacksmith lane as other
     # Linux work; this job has read-only contents permission and no secrets.
     # The reconciled pool admits fleet first, records a three-minute no-start
@@ -368,7 +367,7 @@ jobs:
   post:
     name: post cmux-next/fast-gates
     needs: [resolve, fast-gates, panic-ratchet, portable-placement]
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
+    if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
     # A declared light job (.github/runners.json hosted_light_jobs): hosted Ubuntu on attempt 1, the
     # reconciled Linux pool on a re-run (it holds no secret). On 2026-11-02 this queued on RUNNER_POOLS.linux's
     # saturated blacksmith-4vcpu-ubuntu-2404 (hundreds of jobs deep) for a few seconds of work.
