@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+@testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextFocus
@@ -105,5 +105,11 @@ struct FirstRunPageAppShortcutsTests {
             }
             #expect(controller.shownTopPage == .page(.importHistory))
         }
+    }
+
+    /// Every action the rule names exists in the catalog and carries the flag (a rename must not drop one silently).
+    @Test func everyContentOpenerIsACatalogAction() {
+        let flagged = Set(ActionCatalog.all.filter(\.opensWorkspaceContent).map(\.id))
+        #expect(flagged == ActionCatalog.workspaceContentActionIDs, "missing: \(ActionCatalog.workspaceContentActionIDs.subtracting(flagged))")
     }
 }
