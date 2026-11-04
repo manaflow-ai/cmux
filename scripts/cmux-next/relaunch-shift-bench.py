@@ -100,14 +100,14 @@ def main():
     except (OSError, ValueError):
         pass
     report = {"app": args.app, "rounds": rounds, "median": median, "journey_exit": code,
-              "journey": [r for r in rows if r.get("area") in ("launch frames", "layout") or "long chat" in str(r.get("item"))]}
+              "journey": [r for r in rows if r.get("area") in ("launch frames", "layout") or "long chat" in str(r.get("item")) or (r.get("area") == "seed" and not r.get("ok"))]}
     with open(os.path.join(out, "report.json"), "w") as f:
         json.dump(report, f, indent=1, default=str)
     text = markdown(rounds, median)
     # The long chat's own rows (made, shown, the tab shown at each quit): whether the chat numbers measured a chat.
-    longs = [r for r in report["journey"] if "long chat" in str(r.get("item"))]
+    longs = [r for r in report["journey"] if "long chat" in str(r.get("item")) or r.get("area") == "seed"]
     if longs:
-        text += "\n\nLong chat rows:\n" + "\n".join(f"- {'PASS' if r.get('ok') else 'FAIL'} {r.get('item')}: {r.get('detail', '')}" for r in longs)
+        text += "\n\nLong chat and failed seed rows:\n" + "\n".join(f"- {'PASS' if r.get('ok') else 'FAIL'} {r.get('item')}: {r.get('detail', '')}" for r in longs)
     with open(os.path.join(out, "report.md"), "w") as f:
         f.write(text + "\n")
     print(text)

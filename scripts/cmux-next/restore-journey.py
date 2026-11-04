@@ -1126,14 +1126,21 @@ def seed_chats():
                                                   "_meta": {"acpmux": {"promptId": f"rj-{RUN}-{label}-{turn}"}}}, timeout=60)
             client.request("_acpmux/draft_set", {"sessionId": sid, "text": f"rj draft {label} {RUN}"})
             CHATS.append(chat)
-    if opts.record_launch:
-        # Its own chat, not a seeded one: its long transcript would push a seeded chat's turns out of the page's last
-        # rows (show_long_chat). Not in CHATS, so it adds no chat rows; it is the tab shown at the quit.
-        made = make_chat(client, "long", next(iter(CHAT_PROFILES)))
-        LONG_CHAT.update(made or {})
-        # Loud: without it the relaunch measures no chat, and nothing else would say so.
-        RESULTS.append(("seed agents: the long chat (--record-launch) is made", bool(made),
-                        made["session"] if made else "make_chat failed (see the seed log)", "seed"))
+
+
+def seed_long_chat():
+    """--record-launch: its own chat, not a seeded one (its long transcript would push a seeded chat's turns out of the
+    page's last rows, show_long_chat). Not in CHATS, so it adds no chat rows; it is the tab shown at the quit. Its own
+    seed part, so a failure in the seeded chats does not skip it."""
+    if not opts.record_launch:
+        return
+    client = acpmux_client()
+    made = make_chat(client, "long", next(iter(CHAT_PROFILES))) if client and workspace_named("rj-chats") else None
+    LONG_CHAT.update(made or {})
+    # Loud: without it the relaunch measures no chat, and nothing else would say so.
+    RESULTS.append(("seed agents: the long chat (--record-launch) is made", bool(made),
+                    made["session"] if made else ("no acpmux client" if not client else "no rj-chats workspace" if not workspace_named("rj-chats")
+                                                  else "make_chat failed (see the seed log)"), "seed"))
 
 
 def make_chat(client, label, harness):
@@ -1489,12 +1496,13 @@ def seed(base):
     cleanup_earlier()
     for part, run in (("term", seed_term), ("split", seed_split), ("web", lambda: seed_web(base)),
                       ("agent", seed_agent), ("w2", lambda: seed_w2(base)), ("w3", seed_w3), ("cloud", seed_cloud),
-                      ("agents", seed_chats), ("agents", seed_tagents)):
+                      ("agents", seed_chats), ("agents", seed_long_chat), ("agents", seed_tagents)):
         if part not in SKIP:
             try:
                 run()
             except Exception as error:  # one part failing still leaves the others to check
                 say(f"  seed {part} failed: {error!r}")
+                RESULTS.append((f"seed {part}: {getattr(run, '__name__', part)} ran", False, repr(error)[:300], "seed"))
     term = workspace_named("rj-term")
     first = term and next((w for w in (topology() or {}).get("windows", []) if term["id"] in w.get("workspaces", [])), None)
     if term:
