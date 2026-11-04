@@ -726,6 +726,7 @@ extension CmuxMobileModel.TransportKind {
 private struct LiveCallHost: ViewModifier {
     let shell: ShellModel
     private let call = ChiefLiveCall.shared
+    private let voice = AgentVoiceMode.shared
 
     func body(content: Content) -> some View {
         content
@@ -734,9 +735,15 @@ private struct LiveCallHost: ViewModifier {
                     LiveCallPill(call: call, session: session)
                         .padding(.top, 2)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let session = voice.session {
+                    // Voice mode on an agent session: captions, mute and end, over every screen.
+                    AgentVoiceBar(mode: voice, session: session)
+                        .padding(.top, 2)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
             .animation(theme.motion.snappy.animation, value: call.isMinimized)
+            .animation(theme.motion.snappy.animation, value: voice.session?.id)
             .fullScreenCover(isPresented: Binding(
                 get: { call.showsScreen },
                 set: { if !$0 { call.isMinimized = true } }
@@ -750,11 +757,16 @@ private struct LiveCallHost: ViewModifier {
                 call.configure(store: shell.store, accountID: user?.id,
                                userName: user?.name.split(separator: " ").first.map(String.init))
                 ChiefCallLauncher.shared.handler = { [shell] in shell.callChief() }
+                voice.install(accountID: user?.id)
+                voice.openKeySettings = { [shell] in shell.openChiefCallSettings() }
+                // One audio line at a time: voice mode ends a Chief call, a Chief call ends voice mode.
+                voice.endOtherAudio = { [call] in call.close() }
                 AgentChatLauncher.shared.handler = { [shell] prompt in shell.startAgentChat(prompt: prompt) }
                 ChiefMessenger.shared.compose = { [weak shell] subject in shell?.messagingChief = subject }
             }
             .onDisappear {
                 ChiefCallLauncher.shared.handler = nil
+                voice.install(accountID: nil)
                 AgentChatLauncher.shared.handler = nil
                 ChiefMessenger.shared.compose = nil
             }

@@ -43,6 +43,8 @@
 #           KEY=VALUE words are the app's environment, e.g.
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
+#           A leading VIDEO=N word records the scene for N seconds (max 60) as
+#           screens/NAME.mp4, with a still every 3 s, instead of the two looks.
 #           Run it at the base and at the head for a PR's before and after.
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
@@ -681,9 +683,28 @@ if [[ "$mode" == shots ]]; then
     IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
+    video_secs=0
     for w in ${words[@]+"${words[@]}"}; do
+      # VIDEO=N (first words): record N seconds (at most 60) in light, with a still every 3 s.
+      if [[ ${#args[@]} -eq 0 && "$w" =~ ^VIDEO=([0-9]+)$ ]]; then video_secs=$(( BASH_REMATCH[1] > 60 ? 60 : BASH_REMATCH[1] )); continue; fi
       if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
     done
+    if (( video_secs > 0 )); then
+      simctl ui "$udid" appearance light >/dev/null 2>&1 || true
+      simctl io "$udid" recordVideo --codec h264 --force "$out/screens/$name.mp4" >/dev/null 2>&1 &
+      recorder=$!
+      env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
+      for (( i = 1; i * 3 <= video_secs; i++ )); do
+        # The scene plays on its own (a demo driver); stills at a fixed pace, bounded by VIDEO.
+        sleep 3
+        simctl io "$udid" screenshot "$out/screens/$name-$(printf '%02d' "$i").png" >/dev/null
+      done
+      kill -INT "$recorder" 2>/dev/null || true
+      wait "$recorder" 2>/dev/null || true
+      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+      note "- $name: screens/$name.mp4 and $((video_secs / 3)) stills"
+      continue
+    fi
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null

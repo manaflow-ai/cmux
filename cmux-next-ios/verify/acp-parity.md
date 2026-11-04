@@ -105,4 +105,4 @@ Branch `feat-cnx-ios-acp`, 2026-10-13. Modules: the new `CmuxMobileArtifacts`, `
   are not in the protocol.
 - iOS 27's `swipeActionsContainer()` would replace the custom swipe once the deployment
   target is 27.
-- Dictation is the keyboard's mic (no composer mic).
+- Dictation is the keyboard's mic; the composer's waveform starts voice mode (agent replies read aloud, speech sent as prompts).

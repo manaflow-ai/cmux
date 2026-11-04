@@ -7,6 +7,7 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
+import CmuxMobileRealtime
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import QuartzCore
@@ -26,7 +27,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -164,6 +165,33 @@ struct DemoDriver {
             }
         case "kbd-feed":
             shell.tab = .feed
+        // Voice mode (with CMUX_MOBILE_VOICE_MODE_DEMO=1, the scripted Realtime link): a chat
+        // with history, voice mode on; the scripted user prompt goes to the mock agent, and
+        // its reply is read aloud without its code and diffs.
+        case "voice-chat":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return MockAgentSession(summary: summary, richFirstTurn: true, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+            await pause(1.5)
+            guard let ws = shell.store.workspace(id: "ws-cmux"), let tab = ws.tabs.first(where: { $0.id == "t-claude" }) else { return }
+            let store = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: "Demo Mac")
+            AgentVoiceLauncher.shared.toggle(AgentChatVoiceSource(store: store))
+        case "voice-terminal":
+            // A terminal with voice mode on: the dictation mic is gone, the waveform is lit.
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.toggleKeyboard()
+            await pause(0.5)
+            if let source = model.voiceSource { AgentVoiceLauncher.shared.toggle(source) }
         default: break
         }
     }
