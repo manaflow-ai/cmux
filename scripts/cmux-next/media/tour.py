@@ -17,7 +17,11 @@ A tour is a JSON file with a `title` and `steps`, and optionally `settings`:
 the cmux-next.json the app launches with (`CMUX_NEXT_CONFIG_FILE`), a private
 file in the tour's work directory, so a tour can show a setting (background
 art, a theme) and `cmux settings set` writes there, never to the runner's own
-settings. A step has a `title` and optionally:
+settings. `customize: true` gives the launch its own empty customize folder
+(`CMUX_CUSTOMIZE_DIR`, `local/customize`'s folder, in the tour's work directory,
+which every terminal of the app has too), so a step can write a customize app
+there and the daemon installs and reloads it. `{repo}` in a step's `cmux`
+words is this checkout. A step has a `title` and optionally:
 
     cmux      argv after `cmux`; app scopes get --app-socket, see `daemon`
     rpc       {"method": ..., "params": {...}}: one app control-socket request
@@ -88,7 +92,7 @@ MAX_OTHER_WINDOWS = 4
 MIN_OTHER_WINDOW = (40, 24)
 # All of a step's other-window shots share this many seconds.
 OTHER_WINDOWS_BUDGET = 20.0
-TOUR_KEYS = {"title", "steps", "settings", "env"}
+TOUR_KEYS = {"title", "steps", "settings", "env", "customize"}
 # A directional focus right after a pane close (focus_after_close).
 DIRECTIONAL_FOCUS = {"focusLeft", "focusRight", "focusUp", "focusDown"}
 # Focus moves that open no pane, so they never undo a close (ActionCatalog+Focus.swift).
@@ -163,6 +167,8 @@ def load_tour(path: Path) -> dict[str, Any]:
     if (not isinstance(env, dict) or not all(isinstance(key, str) and key.startswith("CMUX_NEXT_") and isinstance(value, str)
                                              for key, value in env.items())):
         raise TourError(f"{path}: `env` maps CMUX_NEXT_* names to strings ({{repo}} is the checkout)")
+    if "customize" in data and not isinstance(data["customize"], bool):
+        raise TourError(f"{path}: `customize` must be true or false")
     if len(steps) > MAX_STEPS:
         raise TourError(f"{path}: {len(steps)} steps; split tours past {MAX_STEPS}")
     for number, step in enumerate(steps, 1):
@@ -217,8 +223,11 @@ def load_tour(path: Path) -> dict[str, Any]:
     # Launch environment for fixture seams (a fixture browser-import home); {repo} is this checkout.
     repo = str(Path(__file__).resolve().parents[3])
     launch_env = {key: value.replace("{repo}", repo) for key, value in env.items()}
+    for step in steps:
+        if step.get("cmux"):
+            step["cmux"] = [word.replace("{repo}", repo) for word in step["cmux"]]
     return {"name": slug(path.stem), "title": data["title"].strip(), "steps": steps, "settings": data.get("settings"),
-            "env": launch_env}
+            "env": launch_env, "customize": data.get("customize", False)}
 
 
 def _action(step: dict[str, Any]) -> str | None:
@@ -1075,8 +1084,12 @@ def run_tour(app_path: Path, tour: dict[str, Any], out: Path, session: Session, 
     shots = session.shareable(directory / "shots")
     frames = session.shareable(directory / "frames")
     workdir = Path(tempfile.mkdtemp(prefix="cmux-tour.", dir="/tmp"))
+    launch_env = dict(tour.get("env") or {})
+    if tour.get("customize"):
+        # The daemon reads CMUX_* from the app's environment (TerminalEnvironment), never a CMUX_NEXT_* knob.
+        launch_env["CMUX_CUSTOMIZE_DIR"] = str(session.shareable(workdir / "customize"))
     app = App(app_path, session, workdir, fresh_state=fresh_state, settings=tour.get("settings"),
-              launch_env=tour.get("env"))
+              launch_env=launch_env)
     screen = Screen(session, session.shareable(workdir / "raw"), app)
     recorder = Recorder(screen, frames)
     video = WindowVideo(session, None, session.shareable(directory), screen.scratch)

@@ -1,0 +1,191 @@
+{
+  "title": "Customize app templates",
+  "customize": true,
+  "settings": {
+    "actions": {
+      "tests": {
+        "type": "command",
+        "command": "echo running tests",
+        "title": "Run tests",
+        "target": "newTabInCurrentPane"
+      },
+      "dev-server": {
+        "type": "command",
+        "command": "echo starting the dev server",
+        "title": "Start dev server",
+        "target": "newTabInCurrentPane"
+      },
+      "git-status": {
+        "type": "command",
+        "command": "echo git status",
+        "title": "Git status",
+        "target": "currentTerminal"
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "New workspace",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Tour"
+      ],
+      "shot": false
+    },
+    {
+      "title": "Show the Tour workspace",
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "focus"
+      ],
+      "shot": false
+    },
+    {
+      "title": "starter: saving the folder installs the app; its section appears in the band under the workspaces",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cp {repo}/skills/cmux-customization/templates/starter/cmux-app.json {repo}/skills/cmux-customization/templates/starter/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved starter\r"
+      ],
+      "wait": 6
+    },
+    {
+      "title": "sidebar-section: the focused workspace's tabs, the focused one selected",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cp {repo}/skills/cmux-customization/templates/sidebar-section/cmux-app.json {repo}/skills/cmux-customization/templates/sidebar-section/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved sidebar-section\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "A new tab redraws the section",
+      "cmux": [
+        "action",
+        "run",
+        "newSurface"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Back to the first tab",
+      "cmux": [
+        "action",
+        "run",
+        "prevSurface"
+      ],
+      "shot": false
+    },
+    {
+      "title": "command-button: buttons for the actions in cmux-next.json",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cp {repo}/skills/cmux-customization/templates/command-button/cmux-app.json {repo}/skills/cmux-customization/templates/command-button/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved command-button\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "The same action from the CLI: cmux action run cmuxConfig.git-status",
+      "cmux": [
+        "action",
+        "run",
+        "cmuxConfig.git-status"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "Save-to-pixels: twelve saves of main.js, each timed to the first changed window pixels",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; python3 {repo}/scripts/cmux-next/media/fixtures/customize-reload-latency.py\r"
+      ],
+      "wait": 30
+    },
+    {
+      "title": "Save-to-pixels: the result",
+      "wait": 20
+    },
+    {
+      "title": "pane: the folder now has a pane and a sidebar row that opens it",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Tour",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cp {repo}/skills/cmux-customization/templates/pane/cmux-app.json {repo}/skills/cmux-customization/templates/pane/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved pane\r"
+      ],
+      "wait": 5
+    },
+    {
+      "title": "Open the pane: cmux app open local/customize",
+      "cmux": [
+        "app",
+        "open",
+        "local/customize"
+      ],
+      "wait": 4
+    }
+  ]
+}
