@@ -129,9 +129,9 @@ test("words after a code span, a parenthesis or a line break still fade in", () 
   // Leo, 2026-11-03: "hey even u have that text fading in! i want that..." Any Markdown character in
   // the newest text used to skip its fade.
   for (const [before, after, fades] of [
-    ["Run `bun test` and", "Run `bun test` and then check the output", "then check the output"],
-    ["It works (mostly", "It works (mostly and quickly now", "and quickly now"],
-    ["First line.\nSecond", "First line.\nSecond line goes here", "line goes here"],
+    ["Run `bun test` and", "Run `bun test` and then check the output", "and then check the output"],
+    ["It works (mostly", "It works (mostly and quickly now", "mostly and quickly now"],
+    ["First line.\nSecond", "First line.\nSecond line goes here", "Second line goes here"],
   ] as const) {
     root = createRoot(container);
     render("", true);
@@ -141,12 +141,13 @@ test("words after a code span, a parenthesis or a line break still fade in", () 
     frames(30 * 16, 8);
     const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "").join("");
     expect(fresh.length).toBeGreaterThan(0);
-    expect(fades.includes(fresh.trim().split(/\s+/)[0]!)).toBe(true);
+    // The word held back while the first text waited (StreamReveal.stallMs) fades in first.
+    expect(fades.startsWith(fresh.trim())).toBe(true);
     act(() => root?.unmount());
   }
 });
 
-test("text inside an unclosed emphasis draws without a fade, never split out of it", () => {
+test("text inside an unclosed emphasis draws without a fade (the open run is closed for now, safeTail.ts)", () => {
   root = createRoot(container);
   render("", true);
   render("This is **very", true);

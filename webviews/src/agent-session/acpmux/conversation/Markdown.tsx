@@ -1255,7 +1255,11 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
     let last = fresh.length - 1;
     while (last >= 0 && !FRESH_SYNTAX.test(fresh[last]!)) last -= 1;
     fresh = fresh.slice(last + 1);
-    if (!fresh.trim() || !closedInline(text.slice(0, text.length - fresh.length))) return renderInline(text, opts);
+    const prefix = text.slice(0, text.length - fresh.length);
+    if (!fresh.trim() || !closedInline(prefix)) return renderInline(text, opts);
+    // A closer at the prefix's end that a following word character (or `:`) would cancel (italic
+    // `_x_`/`*x*`, inline math `$x$`, a footnote `[^1]`) would draw for the fade and then flip.
+    if (/[*_$\]]$/.test(prefix) && /^[\w:]/.test(fresh)) return renderInline(text, opts);
   }
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
