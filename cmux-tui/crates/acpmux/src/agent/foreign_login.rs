@@ -317,9 +317,20 @@ mod tests {
         assert_eq!(classify_command(&argv(&["claude", "auth", "status"]), "mine"), agent("claude"));
         assert_eq!(classify_command(&argv(&["/opt/x", "auth"]), "opencode-v2"), agent("opencode"));
         assert_eq!(classify_command(&argv(&["cmux", "chief", "acp"]), "codex"), Runs::Host);
+        // uniichat is a network agent, no host: it keeps no other harness's sign-in.
         assert_eq!(
             classify_command(&argv(&["/App/bin/cmux", "acp", "uniichat-agent"]), "unii"),
-            Runs::Host
+            Runs::Unknown
+        );
+        assert_eq!(classify_command(&argv(&["cmux-helper", "chief", "acp"]), "x"), Runs::Unknown);
+        // An assignment's value or an option's value is no program.
+        assert_eq!(
+            classify_command(&argv(&["env", "FOO=/tmp/codex-acp", "/bin/tool"]), "x"),
+            Runs::Unknown
+        );
+        assert_eq!(
+            classify_command(&argv(&["node", "--require", "/x/codex-acp", "/bin/tool"]), "x"),
+            Runs::Unknown
         );
         // The host words after another program are no host.
         assert_eq!(
