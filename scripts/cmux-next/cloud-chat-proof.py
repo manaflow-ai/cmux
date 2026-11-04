@@ -468,24 +468,6 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
     return value
 
 
-if args.cleanup_machine:
-    machine = args.cleanup_machine
-    evidence["cleanup_machine"] = machine
-    _, _, _, machines = listed()
-    row = next((r for r in machines.get("machines") or []
-                if isinstance(r, dict) and r.get("machine_id") == machine), None)
-    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
-           loaded=machines.get("loaded"),
-           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
-              if row else {}))
-    status_code, status_summary, status_detail = machine_status(machine)
-    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
-    killed = kill_machine(machine, cleanup=True)
-    after_code, after_summary, after_detail = machine_status(machine)
-    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
-    finish("pass" if killed else "fail: kill-machine failed twice")
-
-
 # 1. The launch flag must change the actual running app, rather than only a CLI selection. The
 # workflow builds once and invokes this script once per backend; the socket and app bundle are the
 # same, while the persisted credentials file is replaced between launches.
@@ -511,6 +493,24 @@ record("launch app", 0, "", "", launch_flag=args.cloud_backend)
 identity = wait_for("launched app ready", ("app", "identify", "--json"),
                     lambda value: bool(value.get("pid")) and value.get("app_bundle_path") == app_path)
 owned_app = True
+
+if args.cleanup_machine:
+    machine = args.cleanup_machine
+    evidence["cleanup_machine"] = machine
+    _, _, _, machines = listed()
+    row = next((r for r in machines.get("machines") or []
+                if isinstance(r, dict) and r.get("machine_id") == machine), None)
+    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
+           loaded=machines.get("loaded"),
+           **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
+              if row else {}))
+    status_code, status_summary, status_detail = machine_status(machine)
+    record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
+    killed = kill_machine(machine, cleanup=True)
+    after_code, after_summary, after_detail = machine_status(machine)
+    record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
+    finish("pass" if killed else "fail: kill-machine failed twice")
+
 actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
                   lambda value: value.get("cloud_environment") == args.cloud_backend
                   and value.get("backend", "").rstrip("/") == args.expected_api_origin.rstrip("/")

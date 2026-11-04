@@ -315,9 +315,15 @@ jobs:
       - name: Summarize the evidence
         id: evidence
         if: always()
+        env:
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
         run: |
           set -euo pipefail
-          files=("$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json" "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json" "$RUNNER_TEMP/cloud-chat-proof/evidence.json")
+          if [ -n "${CLEANUP_MACHINE:-}" ]; then
+            files=("$RUNNER_TEMP/cloud-chat-proof/evidence.json")
+          else
+            files=("$RUNNER_TEMP/cloud-chat-proof/staging-evidence.json" "$RUNNER_TEMP/cloud-chat-proof/prod-evidence.json")
+          fi
           for file in "${files[@]}"; do
             [ -s "$file" ] || { echo "::warning::no evidence was written: $file"; exit 0; }
             if grep -Eiq '(cmvm|cmk|crt|crk|cmm|cmj)_[A-Za-z0-9_-]{8,}|sk-(ant-)?[A-Za-z0-9_-]{10,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|bearer[[:space:]]+[A-Za-z0-9._~+/=-]+|((api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|token|password|secret|credential)[[:space:]]*[:=])' "$file"; then
@@ -330,8 +336,7 @@ jobs:
             echo '## Cloud chat proof (staging and production)'
             echo
             echo '```json'
-            cat "${files[0]}"
-            cat "${files[1]}"
+            for file in "${files[@]}"; do cat "$file"; done
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
