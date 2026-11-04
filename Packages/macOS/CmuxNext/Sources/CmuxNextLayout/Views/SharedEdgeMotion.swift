@@ -34,7 +34,7 @@ import CoreGraphics
 /// shrinks it to its minimum would then show it with a negative size). A release's fling seeds only the edges it moved.
 enum SharedEdgeMotion {
     /// One axis of a frame as its two edges: where each shows, how fast it moves, and where it goes.
-    private struct Edges {
+    struct Edges {
         var low: CGFloat, lowSpeed: CGFloat, lowTarget: CGFloat
         var high: CGFloat, highSpeed: CGFloat, highTarget: CGFloat
 
@@ -280,11 +280,23 @@ extension SharedEdgeMotion {
             (self.caught, self.probe, self.axis, lineMove) = (caught, probe, axis, move)
         }
 
+        /// How far a frame's low and high edges move along the axis for each point the line moves (its targets in the
+        /// caught layout `from` and the probe layout `to`); 1 for an edge that moves as the line does.
+        func fractions(from: CGRect?, to: CGRect?) -> (low: CGFloat, high: CGFloat)? {
+            guard let from, let to else { return nil }
+            let horizontal = axis == .horizontal
+            return ((horizontal ? to.minX - from.minX : to.minY - from.minY) / lineMove,
+                    (horizontal ? to.maxX - from.maxX : to.maxY - from.maxY) / lineMove)
+        }
+
         /// How fast `pane`'s size along the axis changes for each point per second of the line's change of speed.
         func sizeShare(_ pane: PaneID) -> CGFloat {
             guard let from = caught.panes[pane], let to = probe.panes[pane] else { return 0 }
             return (axis == .horizontal ? to.width - from.width : to.height - from.height) / lineMove
         }
+
+        /// A fraction of 1: the edge moves as the line does.
+        static func rigid(_ fraction: CGFloat) -> Bool { abs(fraction - 1) < 0.000_001 }
 
         static func target(_ kind: DividerHandleView.Kind, in geometry: ScreenGeometry) -> CGRect? {
             switch kind {
@@ -299,15 +311,12 @@ extension SharedEdgeMotion {
         /// does: an edge that moves with the line stops with it, on its pixel; an edge the value does not move keeps its
         /// spring.
         func apply(_ speedChange: CGFloat, placeChange: CGFloat, to frame: inout AnimatedFrame, from: CGRect?, to: CGRect?) {
-            guard let from, let to else { return }
+            guard let (low, high) = fractions(from: from, to: to), low != 0 || high != 0 else { return }
             let horizontal = axis == .horizontal
-            let low = (horizontal ? to.minX - from.minX : to.minY - from.minY) / lineMove
-            let high = (horizontal ? to.maxX - from.maxX : to.maxY - from.maxY) / lineMove
-            guard low != 0 || high != 0 else { return }
             // The place change (under a pixel) goes only to the edges that move with the line as one (fraction 1): it puts
             // them on the line's drawn pixel. An edge a split shares out keeps its place: a part of a pixel could round
             // it onto the next pixel, and the press must move nothing on screen.
-            func rigid(_ fraction: CGFloat) -> CGFloat { abs(fraction - 1) < 0.000_001 ? 1 : 0 }
+            func rigid(_ fraction: CGFloat) -> CGFloat { Self.rigid(fraction) ? 1 : 0 }
             func change(_ edges: inout Edges) {
                 (edges.lowSpeed, edges.highSpeed) = (edges.lowSpeed + speedChange * low, edges.highSpeed + speedChange * high)
                 (edges.low, edges.high) = (edges.low + placeChange * rigid(low), edges.high + placeChange * rigid(high))
