@@ -274,17 +274,17 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             const box = node.getBoundingClientRect();
             return { left: box.left, right: box.right, width: box.width };
           };
-          // cmux#31492: the state word and the time end the line beside its next control, Stop on a
-          // line that has one, else the chevron; never a Stop track and a status track's slack away.
-          // The state comes first, then the time ("Done · 36s", Leo 2026-11-02).
+          // cmux#31492: the state word and the time end the line beside Stop's track, never a status
+          // track's slack away; on a line with no Stop the track stays empty, so every time ends on one
+          // x (Leo, 2026-11-03: "let's align the right"). The state comes first, then the time ("Done ·
+          // 36s", Leo 2026-11-02).
           const trail = (row: HTMLElement) => {
             const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
             const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
             const range = document.createRange();
             range.selectNodeContents(time);
             const digits = [...range.getClientRects()].at(0);
-            const stop = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-            const next = stop ?? row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")!;
+            const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
             const end = digits ? time.getBoundingClientRect() : state;
             return {
               stateToNext: next.getBoundingClientRect().left - end.right,
@@ -388,13 +388,11 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                     : null,
                   stop: rect(".acpmux-agent-line__stop-slot", row),
                   hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
-                  // How far the cluster (the state word, then the time) ends from the line's next
-                  // control (Stop, else the chevron).
+                  // How far the cluster (the state word, then the time) ends from Stop's track,
+                  // empty or not (Leo, 2026-11-03: "let's align the right").
                   stateToNext: (() => {
                     const end = time.getBoundingClientRect();
-                    const next =
-                      row.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button") ??
-                      row.querySelector<HTMLElement>(".acpmux-agent-line__chevron")!;
+                    const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
                     return next.getBoundingClientRect().left - end.right;
                   })(),
                 };
