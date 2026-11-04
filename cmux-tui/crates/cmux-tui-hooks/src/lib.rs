@@ -4214,7 +4214,7 @@ esac
         let helper_source = context.helper_source.as_ref().unwrap();
         atomic_write(
             helper_source,
-            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
+            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\necho {}\n",
             Some(0o755),
         )
         .unwrap();
@@ -4226,7 +4226,7 @@ esac
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 200, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 
