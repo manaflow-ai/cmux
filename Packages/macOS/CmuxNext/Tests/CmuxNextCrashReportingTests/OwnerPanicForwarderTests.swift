@@ -388,7 +388,7 @@ import Testing
             OwnerPanicForwarder(logs: acpmuxLogs, stateFile: acpmuxState, sends: true, capture: { recorder.capture($0) })
         }
         forwarders.setHangEntries { recorder.hang($0, $1) }
-        forwarders.run()
+        forwarders.start()
         await recorder.waitUntil(sent: 1, hangs: 1)
         #expect(recorder.hangEntries == [Recorder.Entry(thread: "acpmux-request", source: .acpmux)])
         #expect(forwarders.acpmuxPanics != nil)

@@ -1071,6 +1071,10 @@ holds the three forwarders; `CrashForwarders.post(on:)` posts their first pass a
 Finding acpmux (`AcpmuxEnvironment.resolve`: executable checks and the signature check) moves into that post too.
 `Startup/Startup+Platform.swift` does not exist on this branch; the wiring is the one `AppServices.init` line.
 Off, the forwarders start at once as before. Sentry's handlers, the invariant sink and LayoutPassGuard install at launch.
+Deleted 2026-10-29 (principled audit, row p08-06): the deferral dropped the pass on a quit or crash before
+completion (a crash loop never forwarded) to save a directory listing that `start()` already does off main.
+`crashForwardersAfterStartup`, `CrashForwarders.post(on:)`, `run()` and the forwarders' `forwardAndWatch()` are gone;
+the forwarders start at launch, each on its own queue.
 
 **079 Q2 remainder.** Files: `Startup/Startup+{Control,Terminal,Settings,Platform,Core}.swift`. Change: priorities for
 hangReports.start, settings.start, keybindingsFile.start, mouseSideButtons, DaemonPrompts, TerminalHooks, themes.start and
