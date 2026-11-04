@@ -82,11 +82,20 @@ jobs:
       # The freshness guard and the changed paths need the true merge base: the
       # history of the merge commit alone (its parents are the base and the
       # head), commits and trees but no blobs, instead of every branch's.
-      # Blobs arrive on demand. A failure here leaves the history shallow:
-      # Changed paths falls back to the files API, and the guard refuses, as it
-      # does on any unreadable merge.
+      # Blobs arrive on demand. Like the fetch-depth 0 checkout it replaces, a
+      # fetch that still fails after actions/checkout's three tries fails the
+      # job: the guard and the base's scripts need this history.
       - name: History of the merge commit
-        run: git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA"
+        run: |
+          set -euo pipefail
+          for try in 1 2 3; do
+            # A try that completed the history before failing needs no other.
+            [ "$(git rev-parse --is-shallow-repository)" = false ] && exit 0
+            git fetch --no-tags --quiet --filter=blob:none --unshallow origin "$GITHUB_SHA" && exit 0
+            echo "::warning::history fetch failed (try $try of 3)"
+            sleep $((try * 10))
+          done
+          exit 1
 
       # The pull request's changed paths from the commit graph this job already
       # fetched, instead of the files API (a call per 100 files, on every push):
