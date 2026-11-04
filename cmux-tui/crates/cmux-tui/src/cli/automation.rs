@@ -90,12 +90,15 @@ pub(super) fn run_json(
     }
 }
 
+/// A captured answer: the verb's value, or its error and whether it is retryable.
+type Captured = Option<Result<Value, (Value, bool)>>;
+
 /// Where a verb's answer goes: printed (the CLI), or kept for
 /// [`run_json`] (MCP). A capturing sink is JSON mode, so no verb prints
 /// human text into the MCP server's stdout.
 pub(super) struct Out {
     pub(super) mode: OutputMode,
-    captured: Option<std::cell::RefCell<Option<Result<Value, (Value, bool)>>>>,
+    captured: Option<std::cell::RefCell<Captured>>,
 }
 
 impl Out {
