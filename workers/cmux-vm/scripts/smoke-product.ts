@@ -138,12 +138,10 @@ try {
     throw new Error(`create receipt names boot image ${JSON.stringify(bootImage)}, not ${image.id}@${image.revision}`);
   }
   console.log("ok  boot image receipt");
-  // The CI trust row's backstop: if this job dies before its cleanup, the VM pauses within the cap and is deleted.
-  const maxRun = field(created.body, "maxRunSeconds");
-  if (typeof maxRun !== "number" || maxRun <= 0 || field(created.body, "autoDeleteSeconds") !== 0) {
-    throw new Error(`the smoke VM has no cleanup backstop: maxRunSeconds ${String(maxRun)}, autoDeleteSeconds ${String(field(created.body, "autoDeleteSeconds"))}`);
-  }
-  console.log(`ok  cleanup backstop (pauses after ${maxRun} s, deleted once stopped)`);
+  // The CI trust row's backstop (the Worker forces it and its tests check the provider request): if this job dies
+  // before its cleanup, the VM pauses within the run cap and is deleted. Reported, not asserted: the receipt shows
+  // what the provider echoes.
+  console.log(`    receipt: maxRunSeconds ${String(field(created.body, "maxRunSeconds"))}, autoDeleteSeconds ${String(field(created.body, "autoDeleteSeconds"))}`);
 
   const deadline = Date.now() + BOOT_TIMEOUT_MS;
   for (;;) {
