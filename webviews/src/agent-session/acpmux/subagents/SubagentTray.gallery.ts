@@ -659,7 +659,7 @@ export default agentPaneEntry({
       }),
     },
     "command-words-preset": {
-      note: 'With cmux-next.json\'s agentPane.display.commandLabels set to ["cmux-fleet", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person\'s own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.',
+      note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the CI wait and cmux-ci lines (Waiting on cmux checks, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
       height: 480,
       display: {
         "agentPane.display.commandLabels": [

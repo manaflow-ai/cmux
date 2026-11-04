@@ -260,11 +260,7 @@ export function flag(words: readonly string[], ...names: string[]): string | und
 
 /// The arguments that are not flags, after the program and `skip` subcommand words. A flag in
 /// `valued` takes the next word as its value.
-export function positionals(
-  words: readonly string[],
-  skip: number,
-  valued: ReadonlySet<string> = new Set(),
-): string[] {
+export function positionals(words: readonly string[], skip: number, valued: ReadonlySet<string> = new Set()): string[] {
   const out: string[] = [];
   for (let index = 1 + skip; index < words.length; index += 1) {
     const word = words[index]!;
@@ -339,7 +335,8 @@ const installing = (target: string | undefined): RuleRead =>
   target ? { key: "commandRules.installing", values: { target } } : { key: "commandRules.installingDeps" };
 
 /// A URL's host: `https://api.example.com/x` is `api.example.com`.
-const hostOf = (url: string | undefined) => (url ? /^(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]*@)?([^/:?#]+)/i.exec(url)?.[1] : undefined);
+const hostOf = (url: string | undefined) =>
+  url ? /^(?:[a-z][\w+.-]*:\/\/)?(?:[^@/]*@)?([^/:?#]+)/i.exec(url)?.[1] : undefined;
 
 // ---- The rules -----------------------------------------------------------------------------------
 
@@ -409,7 +406,7 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     id: "git",
     program: "git",
     icon: "git.branch",
-    read: (words) => {
+    read: (words): RuleRead | undefined => {
       // `git -C DIR push`.
       const at = words[1] === "-C" ? 3 : 1;
       const sub = words[at];
@@ -582,8 +579,27 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     program: ["docker", "podman", "docker-compose"],
     icon: "package",
     read: (words) => {
-      const valued = new Set(["-t", "--tag", "-f", "--file", "-e", "--env", "-v", "--volume", "-p", "--publish",
-        "--name", "-w", "--workdir", "--network", "--platform", "--entrypoint", "-u", "--user", "--build-arg"]);
+      const valued = new Set([
+        "-t",
+        "--tag",
+        "-f",
+        "--file",
+        "-e",
+        "--env",
+        "-v",
+        "--volume",
+        "-p",
+        "--publish",
+        "--name",
+        "-w",
+        "--workdir",
+        "--network",
+        "--platform",
+        "--entrypoint",
+        "-u",
+        "--user",
+        "--build-arg",
+      ]);
       if (words[1] === "build" || (words[1] === "buildx" && words[2] === "build")) {
         const tag = flag(words, "-t", "--tag");
         return testOrBuild(false, tag ? tag.split(":")[0] : undefined);
@@ -604,14 +620,38 @@ export const COMMAND_RULES: readonly CommandRule[] = [
     program: ["ssh", "mosh"],
     icon: "machine.remote",
     read: (words) => {
-      const valued = new Set(["-p", "-i", "-o", "-l", "-F", "-J", "-L", "-R", "-D", "-W", "-E", "-b", "-c", "-m", "-S",
-        "-O", "-Q", "-w", "-e", "-I", "-B"]);
+      const valued = new Set([
+        "-p",
+        "-i",
+        "-o",
+        "-l",
+        "-F",
+        "-J",
+        "-L",
+        "-R",
+        "-D",
+        "-W",
+        "-E",
+        "-b",
+        "-c",
+        "-m",
+        "-S",
+        "-O",
+        "-Q",
+        "-w",
+        "-e",
+        "-I",
+        "-B",
+      ]);
       let index = 1;
       while (index < words.length && words[index]!.startsWith("-")) index += valued.has(words[index]!) ? 2 : 1;
       const target = words[index];
       if (!target) return undefined;
       const host = target.replace(/^[^@]*@/, "");
-      const inner = words.slice(index + 1).join(" ").trim();
+      const inner = words
+        .slice(index + 1)
+        .join(" ")
+        .trim();
       return inner
         ? { key: "commandRules.onHost", values: { host }, inner }
         : { key: "commandRules.connecting", values: { host } };

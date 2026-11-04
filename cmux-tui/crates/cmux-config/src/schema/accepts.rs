@@ -266,7 +266,8 @@ fn is_command_label(value: &Value) -> bool {
         None => non_blank(program),
     });
     let match_ok = members.get("match").is_none_or(non_blank);
-    let strings_ok = ["link", "icon"].iter().all(|key| members.get(*key).is_none_or(Value::is_string));
+    let strings_ok =
+        ["link", "icon"].iter().all(|key| members.get(*key).is_none_or(Value::is_string));
     program_ok
         && match_ok
         && strings_ok

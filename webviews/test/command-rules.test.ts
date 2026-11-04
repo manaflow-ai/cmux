@@ -47,7 +47,7 @@ describe("built-in rules: command shapes anyone runs", () => {
     ['python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 1', "Waiting 9m 20s", "python-sleep"],
     // Without the preset, our own tools read by program and main argument.
     ["glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5", "glaeda-gh wait"],
-    ['cd ~/x && cmux-ci test --setup playwright --timeout 2400 -- "$(cat s.sh)"', "cmux-ci test"],
+    ["cd ~/x && cmux-ci test --setup playwright --timeout 2400 -- bun test", "cmux-ci test"],
     ["sessions new -n 'Session Info drag handles' --brief b.md", "sessions new"],
     // Waits.
     ["sleep 690; date -u", "Waiting 11m 30s", "sleep"],
@@ -244,7 +244,11 @@ describe("the cmux-fleet preset", () => {
         "glaeda-wait",
         "https://github.com/manaflow-ai/cmux/pull/34769",
       ],
-      ['S=/tmp/s; cd ~/w && cmux-ci test -- bash -c "$(cat $S/web-ci.sh)" > $S/ci5w.log 2>&1', "Fleet tests", "cmux-ci"],
+      [
+        'S=/tmp/s; cd ~/w && cmux-ci test -- bash -c "$(cat $S/web-ci.sh)" > $S/ci5w.log 2>&1',
+        "Fleet tests",
+        "cmux-ci",
+      ],
       [
         "cmux-ci test -- cargo test -p acpmux --lib -- peer_forward 2>&1 | tail -30",
         "Fleet tests · cargo test acpmux",
@@ -256,7 +260,11 @@ describe("the cmux-fleet preset", () => {
         "git rev-parse HEAD · Fleet run",
         "cmux-ci",
       ],
-      ["sessions new -n 'Session Info drag handles' --brief b.md", "Starting Session Info drag handles", "sessions-new"],
+      [
+        "sessions new -n 'Session Info drag handles' --brief b.md",
+        "Starting Session Info drag handles",
+        "sessions-new",
+      ],
       ["lane-place --brief b.md", "Starting a session", "sessions-new"],
       ["sessions ls", "sessions ls"],
       ["glaeda-gh status run manaflow-ai/cmux/1", "glaeda-gh status"],
@@ -283,7 +291,12 @@ describe("rules from cmux-next.json", () => {
 
   run(
     [
-      ["cd ~/app && deploy staging --wait 2>&1 | tee log", "Deploying staging", "configured-0", "https://deploys.example.com/staging"],
+      [
+        "cd ~/app && deploy staging --wait 2>&1 | tee log",
+        "Deploying staging",
+        "configured-0",
+        "https://deploys.example.com/staging",
+      ],
       // A rule of one's own goes before the built-in ones.
       ["make release", "make: release", "configured-1"],
       ["just lint", "Running a task", "configured-2"],
@@ -323,7 +336,14 @@ describe("rules from cmux-next.json", () => {
       { program: ["a", "b"], label: "A" },
     ])
       expect(isCommandLabel(item)).toBe(true);
-    for (const item of [" ", { label: "x" }, { program: "x" }, { program: [], label: "x" }, { program: "x", label: "x", icon: 1 }, 1])
+    for (const item of [
+      " ",
+      { label: "x" },
+      { program: "x" },
+      { program: [], label: "x" },
+      { program: "x", label: "x", icon: 1 },
+      1,
+    ])
       expect(isCommandLabel(item)).toBe(false);
   });
 });

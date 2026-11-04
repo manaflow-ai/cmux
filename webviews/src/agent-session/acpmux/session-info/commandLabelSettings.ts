@@ -31,8 +31,7 @@ export { COMMAND_LABELS_KEY };
 /// cannot stall the tray on a huge line.
 const MATCH_MAX = 2000;
 
-const text = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() ? value : undefined;
+const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value : undefined);
 
 /// `template` with `{0}`, `{1}` and `{name}` filled from `match`; a missing group is empty.
 const fill = (template: string, match: RegExpExecArray) =>
