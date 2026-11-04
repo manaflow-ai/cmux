@@ -76,6 +76,20 @@ struct UpdatedCardFirstFrameTests {
         #expect(relaunched.scrollView.frame.minY == listBottom, "the list moved when the page drew")
     }
 
+    /// Review of #35624 (F2): a page with nothing to show reports 0, and the card hides, even with a
+    /// remembered height (no blank glass card).
+    @Test func aPageThatReportsNothingHidesTheRememberedCard() throws {
+        UserDefaults.standard.set(77.0, forKey: Self.key)
+        defer { UserDefaults.standard.removeObject(forKey: Self.key) }
+        let surfaces = FakeSurfaces()
+        let sidebar = Self.launch(surfaces)
+        #expect(sidebar.updatedCardView.height == 77)
+        try #require(surfaces.islands.first).report(0)
+        sidebar.layoutSubtreeIfNeeded()
+        #expect(sidebar.updatedCardView.height == 0, "a page that drew nothing kept a blank card")
+        #expect(sidebar.updatedCardView.isHidden || sidebar.updatedCardView.frame.height == 0)
+    }
+
     @Test func thePagesFirstHeightLandsWithoutTheSpring() throws {
         UserDefaults.standard.removeObject(forKey: Self.key)
         defer { UserDefaults.standard.removeObject(forKey: Self.key) }

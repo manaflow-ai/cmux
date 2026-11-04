@@ -66,8 +66,6 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   }
   const react = createRoot(root);
   const spans = kind === "updated" && client ? new SpanNotes(client, () => render(latest)) : null;
-  // Notes that never answer leave the card showing the host's items after a while.
-  if (spans) setTimeout(() => spans.settle(), SPAN_SETTLE_MS);
   let latest: UpdateHighlights | null = null;
   const render = (data: UpdateHighlights | null) => {
     latest = data;
@@ -161,8 +159,14 @@ export class SpanNotes {
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
     this.loaded = undefined;
+    // A new span's words are not final until its own notes answer.
+    this.settled = false;
     const store = new ChangelogStore(this.client);
     this.store = store;
+    // Notes that never answer leave the card showing the host's items after a while.
+    setTimeout(() => {
+      if (this.store === store) this.settle();
+    }, SPAN_SETTLE_MS);
     void store
       .start(span)
       .then(() => store.firstScreen())

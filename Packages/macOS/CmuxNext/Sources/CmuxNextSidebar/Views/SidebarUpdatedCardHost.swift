@@ -77,9 +77,9 @@ final class SidebarUpdatedCardHost: NSView {
     func landed() { landsAtOnce = false }
 
     private func pageDidReportHeight() {
-        if let height = island?.contentHeight, height > 0 {
-            if !pageReported { (pageReported, landsAtOnce) = (true, true) }
-            if height != Self.rememberedHeight { UserDefaults.standard.set(Double(height), forKey: Self.rememberedHeightKey) }
+        if !pageReported { (pageReported, landsAtOnce) = (true, true) }
+        if let height = island?.contentHeight, height > 0, height != Self.rememberedHeight {
+            UserDefaults.standard.set(Double(height), forKey: Self.rememberedHeightKey)
         }
         onHeightChange?()
     }
@@ -141,12 +141,13 @@ final class SidebarUpdatedCardHost: NSView {
         isHidden = card == nil || island == nil
     }
 
-    /// The card's height: the page's content height, and until the page has drawn the height it
-    /// last reported (``rememberedHeight``; 0 when it never drew), so the room is there from the
-    /// first frame and the words fill in where they stay.
+    /// The card's height: the page's content height once it has reported one (0 for a page with
+    /// nothing to show, which hides the card), and until then the height it last reported
+    /// (``rememberedHeight``; 0 when it never drew), so the room is there from the first frame and
+    /// the words fill in where they stay.
     var height: CGFloat {
         guard card != nil, let island else { return 0 }
-        return island.contentHeight > 0 ? island.contentHeight : Self.rememberedHeight
+        return pageReported ? island.contentHeight : Self.rememberedHeight
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce Motion).
