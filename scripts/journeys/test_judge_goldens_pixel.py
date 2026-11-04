@@ -41,17 +41,19 @@ def judge(base, all_frames=False):
     row = {"what": "pane", "pane": "pane_x", "label": "p1", "kind": "page", "line": "row@10", "side": "hi",
            "off_frames": count, "off_ranges": off, "frames": 9, "max_gap_px": 0.0, "shell_in_frames": 0,
            "shell_in_ranges": ""}
+    findings = [{"check": c, "where": "p1 (page) hi on row@10", "detail": "x"} for c in note.get("findings", [])]
     return {"case": Path(str(base)).name, "base": str(base), "frames": 9, "summary": {"p1:pane_x:row@10:hi": row},
-            "findings": [], "info": [], "notes": []}
+            "findings": findings, "info": [], "notes": []}
 '''
 
 
-def fixture_workspace(off="3-6"):
+def fixture_workspace(off="3-6", findings=()):
     """The runner tests' workspace plus one fixture film (meta notes carry `pixel`) and the judge_pixel stand-in."""
     w = base.Workspace()
     folder = w.gallery / "build-p-120x2"
     base.write_film(folder, "px-col-drag", frames=9)
-    (folder / "px-col-drag.meta.json").write_text(json.dumps({"start": {"scale": 2}, "notes": {"pixel": {"off": off}}}))
+    (folder / "px-col-drag.meta.json").write_text(json.dumps(
+        {"start": {"scale": 2}, "notes": {"pixel": {"off": off, "findings": list(findings)}}}))
     (w.judges / "video-cases" / "judge_pixel.py").write_text(STUB_PIXEL)
     return w
 
@@ -237,6 +239,67 @@ class NewJudgeTests(unittest.TestCase):
             self.assertIn("other calls", out)
         finally:
             w.close()
+
+
+
+class AbsentFindingTests(unittest.TestCase):
+    """A must-not-report fact for judge_pixel (the FRAME OWNER's known false positives, S1b fixes 3a-3c): one summary
+    row that the judge must judge, and a finding check it must not report for that row. The finding's `where` is
+    the row's own text (label, kind, side, line), so the fact cannot drift to another row; a row the judge does not
+    judge is NO VERDICT (an absence there would hold for nothing)."""
+
+    def blessed(self, expect, findings=()):
+        w = fixture_workspace(findings=findings)
+        write_pixel_fact(w, expect)
+        self.assertEqual(w.snapshot()[0], 0)
+        return w
+
+    def test_a_finding_the_fact_forbids_fails_and_cannot_be_blessed(self):
+        w = self.blessed({"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": "gap"}, findings=["gap"])
+        try:
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("TRUTH", out)
+            self.assertIn("gap", out)
+        finally:
+            w.close()
+
+    def test_no_such_finding_meets_the_fact(self):
+        w = self.blessed({"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": "gap"}, findings=["lag"])
+        try:
+            self.assertEqual(w.bless()[0], 0)
+            code, out = w.run()
+            self.assertEqual(code, 0, out)
+            self.assertIn("truth: 1 of 1", out)
+        finally:
+            w.close()
+
+    def test_a_row_the_judge_does_not_judge_is_no_verdict_for_an_absence(self):
+        w = self.blessed({"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": "gap"})
+        try:
+            self.assertEqual(w.bless()[0], 0)
+            write_pixel_fact(w, {"judge": "judge_pixel", "pixel_row": dict(ROW, line="row@99"), "absent_finding": "gap"})
+            code, out = w.run()
+            self.assertEqual(code, 2, out)
+            self.assertIn("row@99", out)
+        finally:
+            w.close()
+
+    def test_an_absent_finding_needs_its_row_and_its_judge(self):
+        for name, expect in (("no row", {"judge": "judge_pixel", "absent_finding": "gap"}),
+                             ("another judge", {"judge": "video_judge", "pixel_row": ROW, "absent_finding": "gap"}),
+                             ("with off_frames too", {"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": "gap",
+                                                      "off_frames": []}),
+                             ("an empty check", {"judge": "judge_pixel", "pixel_row": ROW, "absent_finding": ""})):
+            with self.subTest(case=name):
+                w = self.blessed(expect)
+                try:
+                    code, out = w.cli("bless", "--judges", str(w.judges), "--reason", "t", "--jobs", "2",
+                                      "--no-git-check")
+                    self.assertEqual(code, 2, out)
+                    self.assertIn("px-off", out)
+                finally:
+                    w.close()
 
 
 if __name__ == "__main__":
