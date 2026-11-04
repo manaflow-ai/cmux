@@ -4,7 +4,8 @@
 //! After every push and around every pull that changes something here,
 //! this Mac keeps a snapshot of the folder's synced paths: a small manifest
 //! of each file's SHA-256 and permissions, each symlink's text and, in git,
-//! the branch, HEAD commit and staged tree. The newest [`KEEP`] are kept per
+//! the branch, HEAD commit and staged changes (the index file, kept as a
+//! blob). The newest [`KEEP`] are kept per
 //! local folder and machine folder in
 //! `<state>/link-sync/history/<key>/<seq>.json` (the key is the one the base
 //! record uses, [`super::base`]).
@@ -21,8 +22,9 @@
 //!
 //! Inside git only the working tree is snapshotted: the repository's own
 //! files have git's history. Restoring moves the branch back only while it
-//! is still where the newest snapshot left it, and the staged tree only
-//! while it is still the newest snapshot's.
+//! is still where the newest snapshot left it, and the index only while
+//! what is staged is still the newest snapshot's. Nothing is written into
+//! the repository: a snapshot never changes what the next push sends.
 //!
 //! A restore changes only paths whose state differs between the snapshot
 //! and the newest one, and only when each of those is here still as the
@@ -68,9 +70,20 @@ pub(super) struct GitAt {
     pub head_ref: Option<String>,
     #[serde(default)]
     pub head: Option<String>,
-    /// The staged tree (`git write-tree`); None when it has unmerged paths.
+    /// SHA-256 of `git ls-files --stage -z`: what is staged.
     #[serde(default)]
-    pub tree: Option<String>,
+    pub staged: String,
+    /// The blob of the index file, which a restore puts back.
+    #[serde(default)]
+    pub index: Option<String>,
+}
+
+impl GitAt {
+    /// The same branch, commit and staged changes (the index file's bytes
+    /// also change with git's own stat refreshes).
+    fn same(&self, other: &Self) -> bool {
+        self.head_ref == other.head_ref && self.head == other.head && self.staged == other.staged
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,7 +105,11 @@ pub(super) struct Snapshot {
 impl Snapshot {
     /// Whether `other` is the same folder state.
     fn same_state(&self, other: &Self) -> bool {
-        self.paths == other.paths && self.git == other.git
+        self.paths == other.paths
+            && match (&self.git, &other.git) {
+                (Some(this), Some(that)) => this.same(that),
+                (this, that) => this.is_none() && that.is_none(),
+            }
     }
 }
 
@@ -184,6 +201,46 @@ fn keep_blob_inner(root: &Dir, relative: &str, sha256: &str) -> anyhow::Result<b
     Ok(true)
 }
 
+/// Keeps the file at `path` (not a symlink) as a blob; its SHA-256.
+fn keep_file(path: &Path) -> Option<String> {
+    let mut source =
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path).ok()?;
+    let blobs = link_sync_dir().ok()?.join("blobs");
+    make_dir(&blobs).ok()?;
+    let part = blobs.join(format!(".file.{}.part", std::process::id()));
+    let _ = std::fs::remove_file(&part);
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&part)
+        .ok()?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    let copied = (|| -> std::io::Result<()> {
+        loop {
+            let read = std::io::Read::read(&mut source, &mut buffer)?;
+            if read == 0 {
+                return out.sync_all();
+            }
+            hasher.update(&buffer[..read]);
+            out.write_all(&buffer[..read])?;
+        }
+    })();
+    let sha256 = hex(&hasher.finalize());
+    let placed = copied.is_ok()
+        && blob_path(&sha256)
+            .ok()
+            .and_then(|path| {
+                make_dir(path.parent()?).ok()?;
+                std::fs::rename(&part, path).ok()
+            })
+            .is_some();
+    let _ = std::fs::remove_file(&part);
+    placed.then_some(sha256)
+}
+
 /// A working-tree path of a record (nothing in the top repository folder,
 /// not the record itself).
 pub(super) fn is_worktree_path(relative: &str) -> bool {
@@ -221,9 +278,10 @@ pub(super) fn git_now(local: &Path) -> Option<GitAt> {
     if !matches!(GitDirs::of(local), Ok(Some(_))) {
         return None;
     }
+    let dirs = GitDirs::of(local).ok().flatten()?;
     let base = git_back::base_of(local).ok()?;
-    let tree = super::local::git(local, &["write-tree"]).ok().map(|tree| tree.trim().to_string());
-    Some(GitAt { head_ref: base.head_ref, head: base.head, tree })
+    let index = keep_file(&dirs.own.join("index"));
+    Some(GitAt { head_ref: base.head_ref, head: base.head, staged: base.staged, index })
 }
 
 /// Every snapshot kept for `local` synced to `remote_root`, oldest first.
@@ -316,6 +374,9 @@ fn sweep_blobs() {
                 if let Held::File { sha256, .. } = held {
                     named.insert(sha256.clone());
                 }
+            }
+            if let Some(index) = snapshot.git.and_then(|git| git.index) {
+                named.insert(index);
             }
         }
     }
@@ -483,42 +544,7 @@ pub(super) fn restore(local: &Path, remote_root: &str, which: &Which) -> anyhow:
     let git = GitDirs::of(&local)?;
     let staging = super::pull::Staging::make(git.as_ref().map_or(&local, |dirs| &dirs.own))?;
     let mut transaction = Transaction::new(&local, &staging.0)?;
-    let applied = (|| -> anyhow::Result<(u64, u64)> {
-        let (mut written, mut deleted) = (0u64, 0u64);
-        for relative in &changing {
-            let now = newest.paths.get(relative);
-            let then = target.paths.get(relative);
-            // What is here goes first, unless a file is replaced by a file.
-            match (now, then) {
-                (Some(Held::Link { text }), _) => transaction.remove_link(relative, text)?,
-                (Some(Held::File { sha256, permissions }), None | Some(Held::Link { .. })) => {
-                    let expected = Expected { sha256: sha256.clone(), permissions: *permissions };
-                    transaction.delete(relative, &expected)?;
-                }
-                _ => {}
-            }
-            match then {
-                Some(Held::File { sha256, permissions }) => {
-                    let blob = blob(sha256).with_context(|| format!("{relative} is gone"))?;
-                    let staged = staging.copy_in(&blob, sha256, *permissions)?;
-                    let expected = match now {
-                        Some(Held::File { sha256, permissions }) => {
-                            Some(Expected { sha256: sha256.clone(), permissions: *permissions })
-                        }
-                        _ => None,
-                    };
-                    transaction.write(relative, &staged, expected.as_ref())?;
-                    written += 1;
-                }
-                Some(Held::Link { text }) => {
-                    transaction.link(relative, text)?;
-                    written += 1;
-                }
-                None => deleted += 1,
-            }
-        }
-        Ok((written, deleted))
-    })();
+    let applied = apply(&mut transaction, &staging, &changing, &newest, &target);
     let (written, deleted) = match applied {
         Ok(counts) => counts,
         Err(error) => return Err(rolled_back(transaction, &staging, error)),
@@ -544,6 +570,51 @@ pub(super) fn restore(local: &Path, remote_root: &str, which: &Which) -> anyhow:
         "git_moved": git_moved,
         "snapshot": recorded,
     }))
+}
+
+/// Changes each of `changing` from `newest`'s state to `target`'s through
+/// `transaction`: written and deleted.
+fn apply(
+    transaction: &mut Transaction,
+    staging: &super::pull::Staging,
+    changing: &[String],
+    newest: &Snapshot,
+    target: &Snapshot,
+) -> anyhow::Result<(u64, u64)> {
+    let (mut written, mut deleted) = (0u64, 0u64);
+    for relative in changing {
+        let now = newest.paths.get(relative);
+        let then = target.paths.get(relative);
+        // What is here goes first, unless a file is replaced by a file.
+        match (now, then) {
+            (Some(Held::Link { text }), _) => transaction.remove_link(relative, text)?,
+            (Some(Held::File { sha256, permissions }), None | Some(Held::Link { .. })) => {
+                let expected = Expected { sha256: sha256.clone(), permissions: *permissions };
+                transaction.delete(relative, &expected)?;
+            }
+            _ => {}
+        }
+        match then {
+            Some(Held::File { sha256, permissions }) => {
+                let blob = blob(sha256).with_context(|| format!("{relative} is gone"))?;
+                let staged = staging.copy_in(&blob, sha256, *permissions)?;
+                let expected = match now {
+                    Some(Held::File { sha256, permissions }) => {
+                        Some(Expected { sha256: sha256.clone(), permissions: *permissions })
+                    }
+                    _ => None,
+                };
+                transaction.write(relative, &staged, expected.as_ref())?;
+                written += 1;
+            }
+            Some(Held::Link { text }) => {
+                transaction.link(relative, text)?;
+                written += 1;
+            }
+            None => deleted += 1,
+        }
+    }
+    Ok((written, deleted))
 }
 
 /// Puts back what `transaction` changed after `error`.
@@ -574,7 +645,7 @@ fn rolled_back(
 /// while git is still at `now`. Whether anything moved.
 fn restore_git(local: &Path, now: Option<&GitAt>, then: Option<&GitAt>) -> anyhow::Result<bool> {
     let (Some(now), Some(then)) = (now, then) else { return Ok(false) };
-    if now == then {
+    if now.same(then) {
         return Ok(false);
     }
     let here = git_back::base_of(local)?;
@@ -597,16 +668,26 @@ fn restore_git(local: &Path, now: Option<&GitAt>, then: Option<&GitAt>) -> anyho
         }
         moved = true;
     }
-    let tree_here =
-        super::local::git(local, &["write-tree"]).ok().map(|tree| tree.trim().to_string());
-    if now.tree != then.tree
-        && tree_here == now.tree
-        && let Some(tree) = &then.tree
+    // The staged changes: the index file as it was, while what is staged
+    // is still the newest snapshot's (git's own lock name keeps git out).
+    if now.staged != then.staged
+        && here.staged == now.staged
+        && let Some(index) = then.index.as_deref().and_then(blob)
+        && let Some(dirs) = GitDirs::of(local)?
     {
-        let status =
-            git_back::local(local).args(["read-tree", tree]).status().context("cannot run git")?;
-        if !status.success() {
-            bail!("cannot put the staged changes back");
+        let lock = dirs.own.join("index.lock");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&lock)
+            .context("git's index is locked")?;
+        let written = std::io::copy(&mut std::fs::File::open(&index)?, &mut file)
+            .and_then(|_| file.sync_all());
+        if let Err(error) = written.and_then(|()| std::fs::rename(&lock, dirs.own.join("index"))) {
+            let _ = std::fs::remove_file(&lock);
+            return Err(error).context("cannot put the staged changes back");
         }
         moved = true;
     }
