@@ -156,6 +156,8 @@ public final class DesignSettings {
     public var verticalTabs = false
     /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
     public var verticalTabsExpandOnHover = true
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
+    public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.

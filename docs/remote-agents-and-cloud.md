@@ -154,9 +154,14 @@ how the chat reaches the host:
   and only as Allow once: never an always-allow, Allow for this chat, a plan
   or a mode change. A tool batch's card offers only Allow once and Deny; a
   single prompt's card may still offer an always-allow, which this Mac does
-  not sign, and the card says only a one-time Allow works. Until
-  the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
-  and its Enroll this Mac button runs the same command. `acpmux machine approvals
+  not sign, and the card says only a one-time Allow works. The same one-time
+  Allow answers a sub-session's "Do you trust this folder?" card there: Trust
+  folder records trust for that one folder and changes no permission rule. When
+  the host has not enrolled this Mac yet, the click you made enrolls it (the
+  same command, over your ssh) and then sends that answer, with the card waiting
+  and the notice saying "Enrolling this Mac on NAME" meanwhile. Only when the
+  enroll fails does the notice say why, with an Enroll this Mac button that runs
+  the same command; choose Allow once again after it. `acpmux machine approvals
   unenroll NAME` from the Mac, or `acpmux machine approvals rm ID` on the host,
   stops this Mac's Allows there at once. A DEV build without a Team ID makes a
   new key each launch, so enroll again after a relaunch.
@@ -398,6 +403,7 @@ not a complete copy of its transcript.
 | Daemon missing | On its host, `acpmux daemon status`, then `acpmux daemon start` for a standalone daemon. For a service-managed daemon, inspect that service and its configured home/listener. |
 | Another service owns the socket | Use the CLI from the running app and record its socket/holder error. Do not delete a live socket or terminate an unknown process. |
 | Harness fails to start | `acpmux daemon harnesses`; verify that host's harness installation/login. `acpmux harness doctor codex` performs a handshake and a real prompt, which can consume usage. |
+| `remote chain refused: bwrap unavailable` on a Linux machine | Sessions started there from another machine run only inside the bubblewrap sandbox. `acpmux machine doctor my-linux` warns at the daemon step; `--fix` installs `bubblewrap` when sudo needs no password, else run `sudo apt-get install -y bubblewrap` there. The sandbox lets Claude reach its own `ANTHROPIC_BASE_URL` port on another host (a tailnet router such as `:4016`), plus 80 and 443. |
 | Stuck or stale chat | `acpmux session info my-linux/api-work` and `acpmux session tail my-linux/api-work`. Restore connectivity before interpreting stale state; cancel/stop only the intended session. |
 | Cloud action unavailable | Inspect `cmux action describe cloudPauseMachine --json`, account/team access and the explicit machine target. A command being listed does not mean its current context is eligible. |
 

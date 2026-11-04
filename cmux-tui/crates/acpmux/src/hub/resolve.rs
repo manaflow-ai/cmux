@@ -80,8 +80,8 @@ impl Hub {
                 model: p.model.clone(),
                 effort: p.effort.clone(),
                 policy: p.policy,
-                prefer: vec![],
                 env: p.env.clone(),
+                ..Default::default()
             });
         }
         if remote {
@@ -310,6 +310,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         created_at: now,
         updated_at: now,
         last_seq: 0,
+        transcript_seq: 0,
         parent_id: None,
         fork_seq: None,
         fork_before: None,
@@ -337,6 +338,9 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         turn_count: 0,
         usage: None,
         context_breakdown: None,
+        cmux_context: None,
+        cmux_preset_prompt: None,
+        cmux_context_delivered: false,
         usage_limits: None,
         available_commands: None,
         goal: None,

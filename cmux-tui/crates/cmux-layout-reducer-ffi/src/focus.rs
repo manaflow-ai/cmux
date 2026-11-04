@@ -15,14 +15,13 @@
 //! the pane a Close Tab press is aimed at after a close emptied a pane
 //! (`PaneCloseAim`, `cmux_focus_pane_moved` and its siblings).
 
-use cmux_focus_core::close_aim::{PaneCloseAim, Press};
+use cmux_focus_core::close_aim::Press;
 use cmux_focus_core::event::{DragOutcome, FocusEffect, FocusEvent, Responder, Source};
-use cmux_focus_core::omnibar_memory::OmnibarFocusMemory;
-use cmux_focus_core::reducer;
 use cmux_focus_core::state::{
     CloseFocusPolicy, Context, ExpectationKey, FocusState, Overlay, Resolved, Target,
 };
 use cmux_focus_core::topology::{Column, Kind, Pane, Tab, Topology};
+use cmux_focus_core::window::WindowFocus;
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -205,11 +204,10 @@ impl Summary {
     }
 }
 
-/// One window's focus machine and the reply it last wrote.
+/// One window's focus machine ([`WindowFocus`], the type the input router
+/// holds per window too) and the reply it last wrote.
 pub struct Focus {
-    state: FocusState,
-    omnibar: OmnibarFocusMemory,
-    close_aim: PaneCloseAim,
+    window: WindowFocus,
     effects: Vec<FocusEffect>,
     summary: Summary,
     strings: Vec<u8>,
@@ -234,9 +232,7 @@ const fn empty_resolved() -> CmuxFocusResolved {
 impl Focus {
     pub fn new() -> Focus {
         let mut focus = Focus {
-            state: FocusState::default(),
-            omnibar: OmnibarFocusMemory::new(),
-            close_aim: PaneCloseAim::new(),
+            window: WindowFocus::new(),
             effects: Vec::new(),
             summary: Summary::default(),
             strings: Vec::new(),
@@ -285,37 +281,30 @@ impl Focus {
                 bytes_len: 0,
             },
         };
-        focus.state.derive();
-        focus.summary = Summary::of(&focus.state);
+        focus.summary = Summary::of(focus.window.state());
         focus.write_reply(true);
         focus
     }
 
     pub fn state(&self) -> &FocusState {
-        &self.state
+        self.window.state()
     }
 
     /// Reduces `event`; the reply says whether the focus changed, and what
     /// the address bar memory asks for.
     pub fn send(&mut self, event: &FocusEvent) -> &CmuxFocusReply {
-        let returns = self.omnibar.take_return(event);
-        let before = self.state.derived.resolved.clone();
-        let ran = reducer::reduce(&mut self.state, event, &mut self.effects);
-        self.finish(ran);
-        let queue = self.omnibar.note(event, &before, &self.state.derived.resolved);
-        self.reply.omnibar_return = u8::from(queue);
-        self.reply.returns_to_omnibar = u8::from(returns);
+        let reduction = self.window.send(event, &mut self.effects);
+        self.finish(reduction.ran);
+        self.reply.omnibar_return = u8::from(reduction.omnibar_return);
+        self.reply.returns_to_omnibar = u8::from(reduction.returns_to_omnibar);
         &self.reply
     }
 
     /// A topology report; an equal topology returns at once.
     pub fn set_topology(&mut self, topology: Topology) -> &CmuxFocusReply {
-        let before = self.state.derived.resolved.clone();
-        let ran = reducer::set_topology(&mut self.state, topology, &mut self.effects);
-        self.finish(ran);
-        // A topology change is a way back to a tab (a workspace switch).
-        let queue = self.omnibar.note_reduction(true, &before, &self.state.derived.resolved);
-        self.reply.omnibar_return = u8::from(queue);
+        let reduction = self.window.set_topology(topology, &mut self.effects);
+        self.finish(reduction.ran);
+        self.reply.omnibar_return = u8::from(reduction.omnibar_return);
         self.reply.returns_to_omnibar = 0;
         &self.reply
     }
@@ -323,50 +312,45 @@ impl Focus {
     /// The focused pane moved from `from` to the pane the state focuses now.
     /// Returns the move's serial, for [`Focus::frame_presented`].
     pub fn pane_moved(&mut self, from: Option<&str>) -> u64 {
-        let to = self.state.pane.clone();
-        self.close_aim.pane_moved(from, to.as_deref())
+        self.window.pane_moved(from)
     }
 
     /// The frame that shows move `serial` was presented at `time` (seconds
     /// of system uptime).
     pub fn frame_presented(&mut self, serial: u64, time: f64) {
-        self.close_aim.presented(serial, time);
+        self.window.frame_presented(serial, time);
     }
 
     /// `press` closed the last tab of `pane`.
     pub fn pane_emptied(&mut self, pane: &str, press: Press) {
-        self.close_aim.pane_emptied(pane, press);
+        self.window.pane_emptied(pane, press);
     }
 
     /// Whether `press` is aimed at a pane a close emptied, not at the
     /// focused pane: it closes nothing, and the app shows why.
     pub fn aims_at_emptied_pane(&mut self, press: Press) -> bool {
-        let focused = self.state.pane.clone();
-        self.close_aim.aims_at_emptied_pane(press, focused.as_deref())
+        self.window.aims_at_emptied_pane(press)
     }
 
     pub fn set_close_focus(&mut self, policy: CloseFocusPolicy) {
-        self.state.close_focus = policy;
+        self.window.set_close_focus(policy);
     }
 
     /// Replaces the state with a journal checkpoint.
     pub fn import(&mut self, json: &[u8]) -> bool {
-        match FocusState::import(json) {
-            Ok(state) => {
-                self.state = state;
-                self.effects.clear();
-                self.summary = Summary::of(&self.state);
-                self.write_reply(true);
-                true
-            }
-            Err(_) => false,
+        if !self.window.import(json) {
+            return false;
         }
+        self.effects.clear();
+        self.summary = Summary::of(self.window.state());
+        self.write_reply(true);
+        true
     }
 
     /// The current reply (no event): after `import`, or on creation.
     pub fn current(&mut self) -> &CmuxFocusReply {
         self.effects.clear();
-        self.summary = Summary::of(&self.state);
+        self.summary = Summary::of(self.window.state());
         self.write_reply(true);
         self.reply.omnibar_return = 0;
         self.reply.returns_to_omnibar = 0;
@@ -377,7 +361,7 @@ impl Focus {
     /// it (the fast paths read `derived`) and report it as it is now, with
     /// `ok` 0 and no effects.
     fn recover(&mut self) -> &CmuxFocusReply {
-        self.state.derive();
+        self.window.rederive();
         self.current();
         self.reply.ok = 0;
         self.reply.omnibar_return = 0;
@@ -402,7 +386,7 @@ impl Focus {
             self.reply.effect_count = 0;
             return &self.reply;
         }
-        let summary = Summary::of(&self.state);
+        let summary = Summary::of(self.window.state());
         let changed = summary != self.summary;
         if changed || !self.effects.is_empty() {
             self.summary = summary;
@@ -419,7 +403,7 @@ impl Focus {
         self.strings.clear();
         self.overlays.clear();
         self.c_effects.clear();
-        let state = &self.state;
+        let state = self.window.state();
         let strings = &mut self.strings;
         let mut put = |text: Option<&str>| -> CmuxFocusStr {
             match text {
@@ -522,7 +506,7 @@ impl Focus {
     pub fn recent_panes(&mut self, workspace: Option<&str>) -> &CmuxFocusStrings {
         self.list.clear();
         self.list_bytes.clear();
-        let state = &self.state;
+        let state = self.window.state();
         let recent = match workspace {
             Some(workspace) => state.history.get(workspace).map_or(&[][..], Vec::as_slice),
             None => state.recent_panes(),
@@ -538,7 +522,7 @@ impl Focus {
     pub fn remembered(&mut self) -> &CmuxFocusStrings {
         self.list.clear();
         self.list_bytes.clear();
-        for (workspace, pane) in &self.state.remembered {
+        for (workspace, pane) in &self.window.state().remembered {
             push(&mut self.list, &mut self.list_bytes, workspace);
             push(&mut self.list, &mut self.list_bytes, pane);
         }
@@ -815,6 +799,8 @@ unsafe fn decode_topology(topology: &CmuxFocusTopology, strings: &[u8]) -> Resul
                 id: s.required(tab.id)?,
                 surface: s.get(tab.surface)?,
                 kind: kind_of(tab.kind).ok_or(())?,
+                // The C topology carries no terminal id yet (R-INPUT stage S3 adds it).
+                terminal: None,
             });
         }
         out_panes.push(Pane {

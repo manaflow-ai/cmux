@@ -52,6 +52,11 @@ mod handshake_tests;
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
+/// Instances created before this point cannot repopulate a signed-out account's snapshots.
+pub(crate) fn generation_boundary() -> u64 {
+    NEXT_GENERATION.load(Ordering::SeqCst)
+}
+
 /// A peer watch includes the hub's remote sessions as well as its local ones.
 /// A bidirectional pair must not import those already-mirrored rows, or each
 /// reconnect/update would prefix the name with another peer hop.
@@ -552,7 +557,8 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self
+            .ssh_command()
             .args(tunnel_argv(&host, remote_port))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -577,7 +583,8 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = tokio::process::Command::new("ssh")
+        let mut child = self
+            .ssh_command()
             .args(read_config_argv(&host))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
@@ -952,6 +959,11 @@ impl Peer {
         }
     }
 
+    /// This link's deadlines (`peer_link.rs`).
+    pub fn timings(&self) -> LinkTimings {
+        self.timings
+    }
+
     /// How many requests wait for the peer's answer now.
     pub async fn pending_requests(&self) -> usize {
         self.pending.lock().await.len()
@@ -1006,7 +1018,20 @@ impl Peer {
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
         let started = tokio::time::Instant::now();
-        let deadline = started + self.timings.request;
+        let turn_wait = waits_on_turn(m)
+            || (m == method::MUX_DISPATCH
+                && params.get("durable").and_then(Value::as_bool) == Some(true)
+                && params.get("wait").and_then(Value::as_bool) == Some(true));
+        // A forwarded session/new gets its dedicated start hazard envelope as
+        // well as the generic request budget. Keep the larger one so a caller
+        // cannot reintroduce the old short start cutoff through
+        // `ACPMUX_PEER_REQUEST_SECS`.
+        let budget = self.timings.request.max(if m == method::SESSION_NEW {
+            self.timings.start
+        } else {
+            Duration::ZERO
+        });
+        let deadline = started + budget;
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         let key = Value::from(id).to_string();
@@ -1067,11 +1092,8 @@ impl Peer {
         // A prompt or a wait answers when the peer's turn ends, however long that is; the
         // keepalive drops a link that stops answering. Accepted prompts retain their caller
         // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
-        let answer = if waits_on_turn(m) {
-            Ok(rx.await)
-        } else {
-            tokio::time::timeout_at(deadline, rx).await
-        };
+        let answer =
+            if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
@@ -2256,13 +2278,13 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux host ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
         waited.as_secs()
     ))
     .with_data(json!({
         "reason": "peer_unreachable",
         "retryable": true,
-        "try": "acpmux host ls",
+        "try": "acpmux machine ls",
         "detail": "the request was not sent",
         "peer": name,
         "queuedMs": u64::try_from(waited.as_millis()).unwrap_or(u64::MAX),

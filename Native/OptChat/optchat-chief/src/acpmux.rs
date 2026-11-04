@@ -269,6 +269,23 @@ pub trait AgentPort: Send + Sync {
         Err("this acpmux port reports no harness catalog".into())
     }
 
+    /// Read-only catalogs on the selected machine; no credential transfer.
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        if peer.is_some() {
+            return Err("peer harness catalog is unavailable".into());
+        }
+        self.harness_catalog()
+    }
+
+    fn harness_health_on(&self, _peer: Option<&str>) -> Result<Value, String> {
+        Ok(json!({"harnesses": []}))
+    }
+
+    /// Cached paired-machine health plus this host's current health.
+    fn machine_status(&self) -> Result<Value, String> {
+        Ok(json!({"here": {"os": std::env::consts::OS, "pressure": {"ok": true}}, "peers": []}))
+    }
+
     /// Answers a pending permission request of `session`
     /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
     fn respond_permission(
@@ -410,6 +427,9 @@ pub struct Acpmux {
     builtins: std::sync::atomic::AtomicBool,
     /// When `refresh_preset` last ran, by preset.
     refreshed: Mutex<HashMap<String, std::time::Instant>>,
+    /// Whether the link may start a daemon on the socket when none answers
+    /// (false: [`Acpmux::joining`]).
+    starts: bool,
 }
 
 /// The shortest time between two `refresh_preset` runs for one preset.
@@ -417,7 +437,16 @@ const PRESET_REFRESH: Duration = Duration::from_secs(30);
 
 impl Acpmux {
     pub fn new(socket: PathBuf, preset: Option<Preset>, required: Vec<Preset>) -> Arc<Acpmux> {
-        Arc::new(Acpmux {
+        Arc::new(Acpmux::build(socket, preset, required, true))
+    }
+
+    fn build(
+        socket: PathBuf,
+        preset: Option<Preset>,
+        required: Vec<Preset>,
+        starts: bool,
+    ) -> Acpmux {
+        Acpmux {
             socket,
             client: Mutex::new(None),
             turns: Arc::new(Mutex::new(HashMap::new())),
@@ -428,7 +457,15 @@ impl Acpmux {
             with_prompt: Mutex::new(HashSet::new()),
             builtins: std::sync::atomic::AtomicBool::new(false),
             refreshed: Mutex::new(HashMap::new()),
-        })
+            starts,
+        }
+    }
+
+    /// A port on a daemon someone else runs (this machine's default daemon,
+    /// which a moved Chief's handed-over subagents run on: placed_agents.rs):
+    /// no presets, and its link never starts a daemon there.
+    pub fn joining(socket: PathBuf) -> Arc<Acpmux> {
+        Arc::new(Acpmux::build(socket, None, Vec::new(), false))
     }
 
     /// Installs (or refreshes) every preset; acpmux saves them in its config.
@@ -611,7 +648,7 @@ impl Acpmux {
                 let mut last_error = String::new();
                 loop {
                     let started = std::time::Instant::now();
-                    match this.connect_once(&sink, &*log, !linked) {
+                    match this.connect_once(&sink, &*log, !linked && this.starts) {
                         Ok(closed) => {
                             linked = true;
                             last_error.clear();
@@ -637,7 +674,9 @@ impl Acpmux {
                         let _ = turn.tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
-                    if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                    // A joining link (Acpmux::joining) owns no sessions: a
+                    // daemon that went away may come back, so it retries.
+                    if linked && this.starts && !crate::acpmux_daemon::reachable(&this.socket) {
                         // A handoff, not an end (cx-ebm.54): the next daemon,
                         // started by the client that handed this one off,
                         // adopted the sessions. Join it; never start one.
@@ -1135,7 +1174,7 @@ pub fn new_session(
     let request = |meta: &Value| {
         client.request_within(
             "session/new",
-            json!({"cwd": spec.cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+            json!({"cwd": if spec.peer.is_some() && spec.cwd.as_os_str().is_empty() { None } else { Some(&spec.cwd) }, "mcpServers": [], "_meta": {"acpmux": meta}}),
             SESSION_NEW_DEADLINE,
         )
     };
@@ -1392,6 +1431,45 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn harness_catalog_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harnesses",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harnesses: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's harnesses".into());
+        }
+        Ok(answer)
+    }
+
+    fn harness_health_on(&self, peer: Option<&str>) -> Result<Value, String> {
+        let answer = self
+            .client()?
+            .request(
+                "_acpmux/harness/health",
+                peer.map_or_else(|| json!({}), |p| json!({"_meta": {"acpmux": {"peer": p}}})),
+            )
+            .map_err(|e| format!("harness health: {e}"))?;
+        if peer.is_some_and(|name| answer["peer"] != name) {
+            return Err("daemon does not support reading the selected peer's logins".into());
+        }
+        Ok(answer)
+    }
+
+    fn machine_status(&self) -> Result<Value, String> {
+        let client = self.client()?;
+        let peers = client
+            .request("_acpmux/peers", json!({}))
+            .map_err(|e| format!("machines: {e}"))?;
+        let here = client
+            .request("_acpmux/host_health", json!({}))
+            .map_err(|e| format!("machine health: {e}"))?;
+        Ok(json!({"here": here, "peers": peers["peers"]}))
     }
 
     fn trust_folder(&self, cwd: &std::path::Path) -> Result<(), String> {

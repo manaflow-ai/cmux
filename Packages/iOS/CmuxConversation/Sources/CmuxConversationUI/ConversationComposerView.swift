@@ -465,7 +465,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     }
 
     /// The field's text and placeholder follow Dynamic Type; the field grows with them.
-    private func applyScaledFonts() {
+    func applyScaledFonts() {
         textView.font = ConversationTheme.bodyFont
         textView.typingAttributes = [
             .font: ConversationTheme.bodyFont,

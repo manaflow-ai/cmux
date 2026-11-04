@@ -127,13 +127,14 @@ extension TabHandlers {
             guard case .browser(let entry) = content else {
                 return ctx.refuse(RefusalStrings.terminalCannotReload)
             }
-            entry.chrome.perform(.reload)
+            if let chrome = entry.chrome { chrome.perform(.reload) } else { entry.tab.reload() }
         })
         // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).
         registry.bind("palette.toggleFullWidthTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.toggleFullWidthTab(showing: id)
         })
+        ActionTargetTitles.setPaletteState("palette.toggleFullWidthTab", in: registry) { ctx.services.windows.active?.focusedPane.map { ctx.services.paneFullWidthTabs.contains($0.paneKey) } ?? false }
         bindAudio(registry, ctx)
     }
 

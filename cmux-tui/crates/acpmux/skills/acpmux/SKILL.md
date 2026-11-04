@@ -154,6 +154,14 @@ it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME -d
 ```
 
+Name a session after its task: a short readable title in 2-5 words
+(`-n session-info-drag-handles`), never an id or a
+counter (`cloud-item-14`, `optchat-sub-6b68ac4a-a26`). People read it in the cmux
+sidebar and in `acpmux ls`. Keep ids, item numbers and bead ids in a tag
+(`--tag item=14`). `new` and `ensure` print a one-line hint for a name that reads
+as an id; it is never refused and still works as an address. A `Title: ...`
+first line in the prompt titles the chat.
+
 `--group "GROUP"` is optional person-facing app state. It runs `cmux agent
 open`, creates a workspace and places it in the named cmux sidebar group (and
 may create that group); it does not move focus. Use a human label only, never a
@@ -273,6 +281,10 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
   pushed and checked out there as a fresh worktree; uncommitted changes refuse the move unless
   `--leave-dirty`. A running turn refuses it unless `--interrupt`. `--dry-run` says where each
   would go. The copy left here never runs again and `resolve` points at the new one.
+  `--from MACHINE` moves chats that are on another machine, driven from here over ssh to both
+  ends (they need not reach each other), and `--machine local` brings them here. The agent's own
+  transcript goes with the chat (Claude Code, Codex, pi files; OpenCode as its export), so it
+  resumes with its full context; other agents resume from the chat's history.
   `acpmux session export MACHINE/NAME` fetches a bundle to `~/.acpmux/bundles/`, and
   `acpmux session import DIR` restores a copy on this machine.
 - **What the machine allows.** Some machines are not for builds or long jobs. When the task or the

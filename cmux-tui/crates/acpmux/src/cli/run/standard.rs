@@ -14,6 +14,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
+            | Command::SessionSearch(..)
             | Command::TagCmd { .. }
             | Command::RulesCmd { .. }
             | Command::Compare { .. }
@@ -99,6 +100,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::History { session, limit } => {
             orchestrate::history(connect(true).await?, &session, limit, json_out).await
         }
+        Command::SessionSearch(args) => {
+            crate::cli::session_search::run(connect(true).await?, args, json_out).await
+        }
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
@@ -169,6 +173,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Last { session, count } => {
             let client = connect(true).await?;
+            // The daemon connection is the liveness boundary: a live peer may
+            // take as long as it needs to page a large transcript, while EOF
+            // still fails the request promptly.
             let id = resolve_id(&client, &session).await?;
             let replies = last_replies(&client, &id, count).await?;
             if json_out {
@@ -260,6 +267,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     "acpmux new without a prompt needs a terminal; pass a prompt or -d",
                 )
                 .into());
+            }
+            // A name that reads as an id gets a one-line hint; it is never refused.
+            if let Some(hint) = launch.name.as_deref().and_then(crate::session_name::naming_hint) {
+                eprintln!("{hint}");
             }
             let setup_name = launch.name.as_deref().unwrap_or("new");
             let client = before_deadline(deadline, setup_name, connect(true)).await?;
