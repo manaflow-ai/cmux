@@ -6,7 +6,7 @@ import { freestyleIdleSeconds } from "../auto-pause.ts"
 import type { Env } from "../env.ts"
 import { execAs, grant, LINUX_USERS, revokeGrant, revokeIdentity } from "./sandbox-access.ts"
 import { fileVerb, snapshotVerb, snapsOf, takeSnapshot } from "./sandbox-files.ts"
-import { computerOf, computerUsedAt, computerVerb, forgetComputer, ownerShot, SCREEN } from "./sandbox-computer.ts"
+import { computerActing, computerOf, computerUsedAt, computerVerb, forgetComputer, ownerShot, SCREEN } from "./sandbox-computer.ts"
 import { costOf, GROW_FS, GUEST_SIZE, guestOf, hasSize, planOf, resourcesOf, sizeOf, toFreestyle, type Guest, type Resources, type Size } from "./sandbox-size.ts"
 
 /**
@@ -450,7 +450,7 @@ export const ccSandboxPurge = async (b: ChiefBrainDO): Promise<{ deleted: number
  * Chief ever set one up (`used`: its profile shows the Computer section from then on), and the one it has now with
  * its state, or null. Reads Freestyle's state; never starts or changes the VM.
  */
-export const ccComputerStatus = async (b: ChiefBrainDO, agent: string): Promise<{ used: boolean; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN }> => {
+export const ccComputerStatus = async (b: ChiefBrainDO, agent: string): Promise<{ used: boolean; acting?: boolean; computer: { id: string; state: string; name: string | null } | null; screen: typeof SCREEN }> => {
   const used = computerUsedAt(b) !== null
   const c = computerOf(b)
   if (!c) return { used, computer: null, screen: SCREEN }
@@ -460,7 +460,7 @@ export const ccComputerStatus = async (b: ChiefBrainDO, agent: string): Promise<
     if (o.status === 404) forgetComputer(b, c.id)
     return { used, computer: o.status === 404 ? null : { id: c.id, state: "unknown", name: null }, screen: SCREEN }
   }
-  return { used, computer: { id: c.id, state: o.vm.state, name: o.vm.display_name }, screen: SCREEN }
+  return { used, acting: o.vm.state === "running" && computerActing(b), computer: { id: c.id, state: o.vm.state, name: o.vm.display_name }, screen: SCREEN }
 }
 
 /**

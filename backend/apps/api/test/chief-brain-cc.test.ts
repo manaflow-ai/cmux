@@ -550,7 +550,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Only its own sandboxes can become its computer.
     expect(seen.foreign.status).toBe(404)
     // The owner sees it and its screen; anyone else gets the same answer as for no Chief at all.
-    expect((await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value).toMatchObject({ used: true, computer: { id, state: "running" } })
+    expect((await http("GET", `/v1/chiefs/${chief.id}/computer`, token)).json.value).toMatchObject({ used: true, acting: true, computer: { id, state: "running" } })
     const screen = await worker.fetch(`https://api.test/v1/chiefs/${chief.id}/computer/screen`, { headers: { authorization: `Bearer ${token}` } })
     expect(screen.status).toBe(200)
     expect(screen.headers.get("content-type")).toBe("image/jpeg")

@@ -30,7 +30,7 @@ import { type AppendBody, type AppendResult, type ImportBody, type ImportFail, t
  *   GET  /v1/chiefs/<agent>/runs/<run>?conversation=<id>&after_seq=<n>   a member: {run, steps, has_more}
  *        (a subagent's run `sub_<n>` is read from its own object, brain-spawn.ts)
  *   GET  /v1/chiefs/<agent>/machine-login/<run>?conversation=<id>   the owner's human session: pending provider sign-in status
- *   GET  /v1/chiefs/<agent>/computer        the owner: {used, computer: {id, state, name} | null, screen: {width, height}}, the
+ *   GET  /v1/chiefs/<agent>/computer        the owner: {used, acting?, computer: {id, state, name} | null, screen: {width, height}}, the
  *        Chief's computer (chief-brain-cc/sandbox-computer.ts) for its profile's Computer section; never wakes it
  *   GET  /v1/chiefs/<agent>/computer/screen the owner: the computer's screen as image/jpeg while it runs; 409 while it
  *        sleeps (not woken for a look), 404 with no computer

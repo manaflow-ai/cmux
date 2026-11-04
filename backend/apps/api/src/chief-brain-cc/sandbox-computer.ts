@@ -31,6 +31,8 @@ const DISPLAY = ":1"
 const SHOT_REUSE_MS = 700
 /** No Chief action for this long: the owner's view stops asking the VM for frames. */
 const IDLE_MS = 10 * 60_000
+/** The Chief is using the computer now while its last action is this recent: each step is a click, a look, then the next (the chat's popup). */
+const ACTING_MS = 45_000
 const TEXT_MAX = 2000
 const URL_MAX = 2000
 
@@ -55,6 +57,12 @@ export const computerOf = (b: ChiefBrainDO): Computer | null => {
 export const computerUsedAt = (b: ChiefBrainDO): number | null => {
   const n = Number(configValue(b, COMPUTER_USED_KEY))
   return Number.isFinite(n) && n > 0 ? n : null
+}
+
+/** Whether the Chief acted on its computer moments ago. */
+export const computerActing = (b: ChiefBrainDO, now = Date.now()): boolean => {
+  const n = Number(readConfig(b.sql, [COMPUTER_ACTIVE_KEY])[COMPUTER_ACTIVE_KEY])
+  return Number.isFinite(n) && now - n < ACTING_MS
 }
 
 /** The sandbox `id` is gone: when it was the computer, the Chief has none until the next setup. */

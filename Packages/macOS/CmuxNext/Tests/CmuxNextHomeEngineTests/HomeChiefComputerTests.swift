@@ -4,7 +4,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The Chief Settings card's Computer section (cmux issue 31488): the Chief's own computer, shown
+/// The Chief profile card's Computer tab (cmux issue 31488): the Chief's own computer, shown
 /// only with a paid plan once the Chief has set one up; while it runs its screen refreshes for as
 /// long as the card is open, and asleep it is never read.
 @MainActor @Suite(.serialized) struct HomeChiefComputerTests {
@@ -14,7 +14,7 @@ import Testing
         #expect(HomeChiefComputer(status: .init(used: false, computer: nil), paid: true, chief: "Ada") == nil)
         #expect(HomeChiefComputer(status: nil, paid: true, chief: "Ada") == nil)
         #expect(HomeChiefComputer(status: running, paid: true, chief: "Ada")
-            == HomeChiefComputer(machineID: "vm-1", title: "Ada’s Computer", state: .live))
+            == HomeChiefComputer(machineID: "vm-1", title: "Ada’s screen", state: .live))
         // Used once, gone now: the section stays, unavailable.
         #expect(HomeChiefComputer(status: .init(used: true, computer: nil), paid: true, chief: "Ada")?.state == .unavailable)
     }
@@ -43,7 +43,7 @@ import Testing
         try await rig.tick(HomeChiefComputerSection.frameInterval)
         await until { rig.section.frames >= 3 }
         #expect(!rig.section.isHidden)
-        #expect(rig.section.shown?.title == "Ada’s Computer")
+        #expect(rig.section.shown?.title == "Ada’s screen")
         #expect(rig.section.screen.layer?.contents != nil)
         rig.section.close()
         let shots = rig.feed.screens

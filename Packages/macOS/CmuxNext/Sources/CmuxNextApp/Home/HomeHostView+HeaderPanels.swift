@@ -5,7 +5,8 @@ extension HomeHostView {
     /// What this Home's header toggles read and act on: its window and its conversation's Chief.
     var headerPanelContext: HomeHeaderPanelContext {
         HomeHeaderPanelContext(services: control.services, window: window.flatMap { control.services.windows.owner(of: $0) },
-                               isChief: isChief, chief: control.named, server: control.server?.machineID)
+                               isChief: isChief, chief: control.named, server: control.server?.machineID,
+                               conversation: control.conversation.rawValue)
     }
 
     /// The header's top-right toggles (``HomeHeaderPanels``) follow their panels while this Home
