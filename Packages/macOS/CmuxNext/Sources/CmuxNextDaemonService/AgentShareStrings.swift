@@ -237,4 +237,13 @@ public extension AgentShareInviteSheetModel {
     var closeTitle: String {
         String(localized: "agentShare.sheet.close", defaultValue: "Close", table: "AgentShare", bundle: .module)
     }
+
+    var copyLinkTitle: String {
+        String(localized: "agentShare.sheet.copyLink", defaultValue: "Copy Invite Link", table: "AgentShare", bundle: .module)
+    }
+
+    /// Copy Invite Link's title for a moment after a press.
+    var copiedTitle: String {
+        String(localized: "agentShare.sheet.copied", defaultValue: "Copied", table: "AgentShare", bundle: .module)
+    }
 }

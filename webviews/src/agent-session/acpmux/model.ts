@@ -485,6 +485,10 @@ export type AcpmuxRow = {
   /// A turn footer's whole turn for its Copy (conversation/turnCopy.ts): the agent's replies and each
   /// run of tool calls between them, in order; undefined when the agent said nothing.
   turnCopy?: TurnCopyPart[];
+  /// A footer turns.ts `supersededFooters` added where the person came in on a stretch of a turn (a
+  /// steer that landed in it, or a new prompt over a turn with no summary): the stretch counts as
+  /// ended, and the footer offers its Copy.
+  superseded?: boolean;
   retryAttachments?: ComposerAttachment[];
   status?: string;
   error?: string;
@@ -563,7 +567,7 @@ export type AcpmuxRow = {
   /// With the line reading "Thinking" past the first step: how long the turn's thoughts streamed,
   /// summed (conversation/turns.ts `thoughtTime`), the time it shows beside the word.
   thoughtMs?: number;
-  /// The live line's clock is the turn's whole time, past its first step: it reads "4m total", so
+  /// The live line's clock is the turn's whole time, past its first step: it reads "4m" beside the label, or "2s · 4m" after a step's own time, so
   /// the time never reads as what the line names (conversation/Thinking.tsx).
   turnTotal?: boolean;
   /// The call in flight sends another agent a message (conversation/turns.ts `sendingTo`: a shell
@@ -1282,7 +1286,7 @@ const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
 /// MARK_STEP).
 const isStepRow = (row: AcpmuxRow) =>
-  row.kind === "activity" || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
+  row.kind === "activity" || row.kind === WORKED || (row.kind === ACTIVITY_LINE && !row.below) || isLineRow(row);
 /// The running turn's live line, drawn as its last row (`below`, conversation/turns.ts).
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
@@ -1854,7 +1858,10 @@ function fallbackRowHeight(
   // The running turn's line as its last row is the footer's slot (footerRow(), conversation.css
   // `.cv-worked.is-below`; transcriptGrid.ts MARK_FOOTER_SLOT), so the end-of-turn swap keeps its place.
   if ((row.kind === WORKING || row.kind === THINKING) && row.below) return finish(footerRow());
-  if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
+  // A finished work disclosure is one activity line, including when opened. Its estimate and
+  // MARK_STEP use the same 22px rhythm as the calls it reveals (transcript-spacing.md rule 3).
+  if (row.kind === WORKED) return finish(toolRowHeight());
+  if (row.kind === WORKING || row.kind === THINKING) return finish(metaRow());
   // The activity line under a plan is the live footer. It reserves the finished footer's 24px
   // line and turn gap so swapping in `turnSummary` never changes the transcript geometry.
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());

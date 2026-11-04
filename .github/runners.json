@@ -242,6 +242,14 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
+    "pr-red-checks-comment.yml#comment": "portable-checks",
+    "ci-guards.yml#guard-status": "portable-checks",
+    "pr-checks.yml#size": "portable-checks",
+    "pr-checks.yml#ui-review": "portable-checks",
+    "pr-checks.yml#split": "portable-checks",
+    "cmux-next-fast-gates.yml#resolve": "portable-checks",
+    "cmux-next-fast-gates.yml#post": "portable-checks",
+    "web-validation.yml#web-validation": "portable-checks",
     "agent-brands.yml#swift-test": {
       "class": "apple-swift-tests",
       "placement_followup": "runs-on reads vars.CI_SIDE_LANE_RUNNER directly; take the label from a placement job"
@@ -578,10 +586,22 @@
     "ci-guards.yml#guard-status": {"class": "portable-checks", "reason": "report step: rolls up the guard job results, 2 s of work (runs 41393826242, 41393801145)"},
     "pr-checks.yml#size": {"class": "portable-checks", "reason": "report step: one GraphQL read and a size warning, 4 s of work (runs 41394557472, 41394554327)"},
     "pr-checks.yml#ui-review": {"class": "portable-checks", "reason": "report step: one file-list read and an advisory warning, 4 s of work (run 41394554327)"},
+    "web-validation.yml#web-validation": {"class": "portable-checks", "reason": "status rollup: accepts selected web results"},
     "cmux-next.yml#path_route": {"class": "portable-checks", "reason": "router: classifies the PR's paths and probes the published tree, 32-51 s of work (runs 41394344151, 41393817927)"},
     "ci-web.yml#web-subarea-scope": {"class": "portable-checks", "reason": "router: classifies the webview subareas and hands the shards their duration manifest, 29 s of work (run 41762274751)"},
     "ci-web.yml#webviews-test-durations": {"class": "portable-checks", "reason": "bookkeeping: merges and saves the shard duration manifest beside web-subarea-scope's restore, 5 s of work (run 41761413284)"},
     "resolve-runners.yml#resolve": {"class": "portable-checks", "reason": "resolver: prints the runner capability map, 5 s of work (run 41762274751)"}
+  },
+  "portable_light_jobs": {
+    "$comment": [
+      "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
+      "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
+    ],
+    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
+    "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
   },
   "linux_sizes": {
     "$comment": [

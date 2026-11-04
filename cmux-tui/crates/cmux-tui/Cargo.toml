@@ -165,3 +165,7 @@ serde_json.workspace = true
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 rusqlite.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Mac Screen on cmux.rd/1 (`cmux rd serve|connect`): capture, encode, input and the secure link.
+cmux-rd-host = { path = "../cmux-rd-host", default-features = false, features = ["link"] }
