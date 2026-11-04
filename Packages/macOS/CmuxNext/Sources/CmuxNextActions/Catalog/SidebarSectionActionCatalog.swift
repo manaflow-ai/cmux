@@ -313,6 +313,14 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             // (Leo 2026-10-21: view toggles should not need the palette to find). The app density
             // (`appearance.density`, DensityActionCatalog) owns the palette's density rows.
             ActionDescriptor(
+                id: "sidebar.density.ultraCompact", title: t("action.sidebar.density.ultraCompact", "Sidebar Density: Ultra-Compact"),
+                keywords: ["sidebar", "density", "ultra", "compact", "rows", "one line", "dense", "smallest"], category: .sidebar,
+                symbol: "list.dash", surfaces: [.keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly),
+                                  menus: [p(.sidebarBackground, .view, 130, folder: .options, label: ObjectMenuLabels.densityUltraCompact)],
+                                  palette: .exempt(.familyMember))
+            ),
+            ActionDescriptor(
                 id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
                 keywords: ["sidebar", "density", "compact", "rows", "one line", "dense"], category: .sidebar, symbol: "list.dash",
                 // Not in the palette: "Density: Compact" (appearance.density.compact) is the one

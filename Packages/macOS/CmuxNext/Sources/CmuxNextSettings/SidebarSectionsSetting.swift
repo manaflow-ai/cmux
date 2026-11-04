@@ -130,6 +130,7 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Normal rows match the Codex app's sidebar. Compact rows are smaller and closer together. Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
                           kind: .choice(SidebarDensity.allCases.map { density in
                               switch density {
+                              case .ultraCompact: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.ultraCompact", "Ultra-compact"))
                               case .compact: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.compact", "Compact"))
                               case .normal: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.normal", "Normal"))
                               case .comfortable: SettingChoice(density.rawValue, SettingsText.keyed("settings.choice.comfortable", "Comfortable"))

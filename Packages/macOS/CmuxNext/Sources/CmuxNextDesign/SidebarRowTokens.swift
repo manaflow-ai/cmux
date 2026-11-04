@@ -7,11 +7,10 @@ public import CoreGraphics
 /// corner and text size. Pure, so a test lays out every density.
 ///
 /// Normal, the default, is the Codex desktop sidebar (https://github.com/manaflow-ai/cmux/issues/28793):
-/// 13 pt titles at weight 430, 12 pt details, a 28 pt row on a 30 pt pitch, an 8 pt inset. Compact is the
-/// sidebar from before it, kept exactly: the app's row, `Typography.body` and caption, a 6 pt inset.
-/// Comfortable is Normal with more room (`space2` taller rows, the wider icon box, bigger section gaps) on
-/// the grid's same 8 pt inset (leo-workspace design/grid.md). Expanded keeps Normal's
-/// one-line tokens. A custom size (`sidebar.titleSize`, `detailSize`, `rowHeight`, `rowPadding`) wins.
+/// 13 pt titles at weight 430, 12 pt details, a 28 pt row on a 30 pt pitch, an 8 pt inset. Every other
+/// density is Normal at its ``SidebarDensity/scale``, whole points for lengths and half points for text.
+/// Expanded keeps Normal's one-line tokens. A custom size (`sidebar.titleSize`, `detailSize`, `rowHeight`,
+/// `rowPadding`) wins.
 public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     /// The app density's tokens the sidebar builds on.
     public struct Base: Equatable, Sendable {
@@ -70,37 +69,47 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
         self.base = base
     }
 
-    public var isComfortable: Bool { density == .comfortable }
-    /// Compact: the sidebar from before Normal, on the app's row and type.
-    public var isCompact: Bool { density == .compact }
+    /// This density's size against Normal.
+    public var scale: CGFloat { CGFloat(density.scale) }
+    /// A length at this density, in whole points. Normal returns `value` exactly.
+    public func scaled(_ value: CGFloat) -> CGFloat { Self.length(value, density: density) }
+    /// A length at `density`, in whole points.
+    public static func length(_ value: CGFloat, density: SidebarDensity) -> CGFloat {
+        (value * CGFloat(density.scale)).rounded()
+    }
+    /// A text size at `density`, in half points.
+    public static func text(_ value: CGFloat, density: SidebarDensity) -> CGFloat {
+        (value * CGFloat(density.scale) * 2).rounded() / 2
+    }
     /// The text size's steps over this density's sizes.
-    public var textSteps: SidebarTextSize.Steps { textSize.steps(compact: isCompact) }
-    /// A comfortable row's extra height, plus the text size's.
-    public var extraHeight: CGFloat { (isComfortable ? base.space2 : 0) + textSteps.row }
+    public var textSteps: SidebarTextSize.Steps { textSize.steps }
+    /// The text size's extra height on a row or header.
+    public var extraHeight: CGFloat { textSteps.row }
     /// A one-line workspace row, group header or band row: `sidebar.rowHeight` when set.
     public var rowHeight: CGFloat {
         if let custom = base.customRowHeight { return custom }
-        return (isCompact ? base.rowHeight : base.listRowHeight) + extraHeight
+        return scaled(base.listRowHeight) + extraHeight
     }
     /// Rows inset from the sidebar edge, and their content from the row edge: `sidebar.rowPadding` when set;
-    /// else Codex's 8 pt `--padding-row-x` (the grid's comfortable inset too), 6 pt at Compact.
+    /// else Codex's 8 pt `--padding-row-x` at this density's scale.
     public var horizontalInset: CGFloat {
         if let custom = base.customRowPadding { return custom }
-        return isCompact ? base.space3 : base.space4
+        return scaled(base.space4)
     }
     /// A row title's and a detail line's text size: `sidebar.titleSize` / `sidebar.detailSize` when set.
-    public var titleSize: CGFloat { base.customTitle ?? ((isCompact ? base.body : base.rowTitle) + textSteps.text) }
-    public var captionSize: CGFloat { base.customDetail ?? ((isCompact ? base.caption : base.rowDetail) + textSteps.text) }
+    public var titleSize: CGFloat { base.customTitle ?? (Self.text(base.rowTitle, density: density) + textSteps.text) }
+    public var captionSize: CGFloat { base.customDetail ?? (Self.text(base.rowDetail, density: density) + textSteps.text) }
 
     /// The sidebar's cards at this density: the rows' inset and text, a title line's room above and
     /// below it as a row gives its text, a button one row tall less the rows' gap, the rows' corner
     /// on the button and that corner plus the padding on the card (nested radii).
     public var card: SidebarCardMetrics {
-        let paddingY = isComfortable ? base.space3 : base.space2
+        let paddingY = scaled(base.space2)
+        let corner = scaled(base.cornerRadius)
         return SidebarCardMetrics(
-            paddingX: horizontalInset, paddingY: paddingY, gap: isComfortable ? base.space2 : base.space1,
-            cornerRadius: base.cornerRadius + paddingY, titleSize: titleSize, noteSize: captionSize,
-            buttonHeight: rowHeight - 2 * base.space1, buttonPaddingX: horizontalInset, buttonRadius: base.cornerRadius,
+            paddingX: horizontalInset, paddingY: paddingY, gap: scaled(base.space1),
+            cornerRadius: corner + paddingY, titleSize: titleSize, noteSize: captionSize,
+            buttonHeight: rowHeight - 2 * base.space1, buttonPaddingX: horizontalInset, buttonRadius: corner,
             closeSide: rowHeight - 2 * base.space2)
     }
 
