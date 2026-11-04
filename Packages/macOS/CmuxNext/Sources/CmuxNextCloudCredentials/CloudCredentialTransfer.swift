@@ -64,11 +64,12 @@ public import Foundation
         try await backoff.wait(owner: "cloud-credential-transfer.guest-bind")
     }
 
-    /// `operation` if it starts before `deadline`; nil once the deadline is reached.
+    /// `operation`, cancelled at `deadline`: nil once the deadline is reached, before or while it runs.
     nonisolated static func before<T: Sendable>(_ deadline: ContinuousClock.Instant,
                                                 _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
-        guard deadline > .now else { return nil }
-        return try await operation()
+        let left = deadline - .now
+        guard left > .zero else { return nil }
+        do { return try await withDeadline(left, label: "cloud guest bind", operation) } catch is DeadlineExceeded { return nil }
     }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
