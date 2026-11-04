@@ -149,6 +149,12 @@ mod github_owner;
 mod lane_report_reads;
 mod lane_report_text;
 mod lane_reports;
+<<<<<<< HEAD
+=======
+mod loop_goal;
+#[cfg(test)]
+mod loop_goal_tests;
+>>>>>>> 919c0b8a0d1 (fix: a loop goal ends with its agent at a forced Stop restart; a past countdown drops on any render)
 mod mcp_connect;
 pub(crate) mod mcp_probe;
 mod meta_save;
