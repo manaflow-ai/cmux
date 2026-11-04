@@ -6301,6 +6301,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  const reconnectingRef = useRef(false);
   /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
   /// first frame (its rows, title and modes) is in, or the open's hold has passed.
   const [awaitsChat, setAwaitsChat] = useState(false);
@@ -10897,11 +10898,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
-      // Keep the existing Cloud route alive for wake-and-send recovery while reconnecting. The
-      // handshaken gate below blocks typing hints until the new handshake installs its identity,
-      // so the stale machine can never receive a fresh prewarm request.
-      setHandshaken(false);
-      handshakenRef.current = false;
+      // Keep the existing Cloud route and destination picker alive for wake-and-send recovery
+      // while reconnecting. This separate gate blocks typing hints until the new handshake installs
+      // its identity, without unmounting ComposerContext and losing a pending machine selection.
+      reconnectingRef.current = true;
       cloudDraftMachineID.current = undefined;
       cloudTypingPrewarm.reset();
       try {
@@ -10991,6 +10991,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // An app that doesn't answer `sandbox.state` says nothing of it: nothing is read.
         if (host.sandboxState === true) void sandbox.read();
         handshakenRef.current = true;
+        reconnectingRef.current = false;
         // Submits made on the New Tab page before acpmux answered go now, in order.
         for (const run of pendingSubmits.current.splice(0)) run();
         if (
@@ -13374,7 +13375,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // typing presence event. A Cloud identity may temporarily be missing its session during
       // recovery, but its authenticated machine is still safe to wake.
       if (sessionId) postTyping(text, sessionId);
-      if (!handshaken) return;
+      if (!handshaken || reconnectingRef.current) return;
       // An explicit picker choice belongs to this draft and wins over any identity carried by a
       // previous Cloud chat until the selected machine's own handshake arrives.
       const machineID = cloudDraftMachineID.current ?? cloudChatIdentity?.id;
