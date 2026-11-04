@@ -128,11 +128,13 @@ def measure(app_pid: int, bundle: str, windows: int, window: float) -> list[dict
                         "switches_per_s": round((c1 - c0) / window, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
-        mid = lambda key: sorted(w[key] for w in per if w[key] is not None)[len(per) // 2] if per else None
+        def mid(key):
+            values = sorted(w[key] for w in per if w[key] is not None)
+            return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
-    rows.sort(key=lambda row: -row["cpu_pct"])
+    rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
 
 
