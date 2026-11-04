@@ -53,6 +53,15 @@ enum KeyboardShortcutSettings {
         action != .openChief || isChiefAvailable
     }
 
+    /// Tells the Settings package which shortcuts the build doesn't offer.
+    /// Runs before the Settings search index is built, so its text leaves
+    /// them out too.
+    static func installSettingsAvailabilityProvider() {
+        ShortcutAction.setHostUnavailableActionsProvider {
+            unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable)
+        }
+    }
+
     /// The Settings package's view of ``isOffered(_:isChiefAvailable:)``.
     static func unavailableSettingsActions(isChiefAvailable: Bool) -> Set<ShortcutAction> {
         isChiefAvailable ? [] : [.openChief]

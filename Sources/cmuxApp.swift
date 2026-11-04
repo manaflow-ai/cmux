@@ -202,6 +202,10 @@ struct cmuxApp: App {
                 )
             }
         )
+        // Load flag overrides, then hide unavailable shortcuts before the
+        // Settings search index reads their names.
+        _ = CmuxFeatureFlags.shared
+        KeyboardShortcutSettings.installSettingsAvailabilityProvider()
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: devices.defaultsStore,

@@ -62,7 +62,7 @@ extension CMUXCLI {
         ) else {
             throw CLIError(message: String(
                 localized: "cli.chief.dispatch.error.chiefUnavailable",
-                defaultValue: "Chief isn't available in this cmux build."
+                defaultValue: "Chief isn't available."
             ))
         }
         let rawPrompt: String

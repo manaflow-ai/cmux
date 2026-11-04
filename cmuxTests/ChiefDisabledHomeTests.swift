@@ -287,6 +287,10 @@ struct ChiefDisabledHomeTests {
         #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: false) == [.openChief])
         #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: true).isEmpty)
 
+        // The app installs the Settings package's provider at launch.
+        #expect(ShortcutAction.hostUnavailableActions
+            == KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable))
+
         KeyboardShortcutSettings.resetShortcut(for: .openChief)
         defer { KeyboardShortcutSettings.resetShortcut(for: .openChief) }
         let chiefShortcut = KeyboardShortcutSettings.shortcut(for: .openChief)

@@ -88,7 +88,14 @@ extension TerminalController {
     }
 
     func dockUnsupportedSurfaceTypeMessage() -> String {
-        String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports terminal, browser, and Chief surfaces")
+        // Name Chief only while it's on.
+        guard ChiefSettings.isEnabled else {
+            return String(
+                localized: "dock.error.unsupportedSurfaceType.terminalBrowser",
+                defaultValue: "Dock placement supports terminal and browser surfaces"
+            )
+        }
+        return String(localized: "dock.error.unsupportedSurfaceType", defaultValue: "Dock placement supports terminal, browser, and Chief surfaces")
     }
 
     func dockUnavailableMessage() -> String {

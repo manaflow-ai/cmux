@@ -237,6 +237,131 @@
         }
       }
     },
+    "dock.error.unsupportedSurfaceType.terminalBrowser": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يدعم وضع Dock أسطح terminal وbrowser فقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock raspored podržava samo terminal i browser površine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-placering understøtter kun terminal- og browser-flader"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Dock-Platzierung unterstützt nur Terminal- und Browser-Oberflächen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock placement supports terminal and browser surfaces"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación en Dock solo admite superficies terminal y browser"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le placement dans le Dock prend en charge uniquement les surfaces terminal et browser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il posizionamento nel Dock supporta solo superfici terminal e browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock配置ではterminalとbrowserサーフェスのみをサポートします"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការដាក់ក្នុង Dock គាំទ្រតែផ្ទៃ terminal និង browser ប៉ុណ្ណោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 배치는 터미널 및 브라우저 표면만 지원합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock-plassering støtter bare terminal- og browser-flater"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umieszczanie w Dock obsługuje tylko powierzchnie terminal i browser"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O posicionamento no Dock só oferece suporte a superfícies terminal e browser"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Размещение в Dock поддерживает только поверхности terminal и browser"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การวางใน Dock รองรับเฉพาะพื้นผิว terminal และ browser เท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock yerleşimi yalnızca terminal ve browser yüzeylerini destekler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розміщення в Dock підтримує лише поверхні terminal і browser"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 放置仅支持 terminal 和 browser 表面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 放置僅支援 terminal 和 browser 表面"
+          }
+        }
+      }
+    },
     "projectPanel.reload": {
       "extractionState": "manual",
       "localizations": {
@@ -666373,55 +666498,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief isn't available in this cmux build."
+            "value": "Chief isn't available."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief ist in diesem cmux-Build nicht verfügbar."
+            "value": "Chief ist nicht verfügbar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief n'est pas disponible dans cette version de cmux."
+            "value": "Chief n'est pas disponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief غير متاح في إصدار cmux هذا."
+            "value": "Chief غير متاح."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief no está disponible en esta compilación de cmux."
+            "value": "Chief no está disponible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 cmux 版本無法使用 Chief。"
+            "value": "Chief 無法使用。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 cmux 版本不提供 Chief。"
+            "value": "Chief 不可用。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 cmux 빌드에서는 Chief를 사용할 수 없습니다."
+            "value": "Chief를 사용할 수 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この cmux ビルドでは Chief を利用できません。"
+            "value": "Chief は利用できません。"
           }
         }
       }

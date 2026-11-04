@@ -1931,10 +1931,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // `DisableTelemetry` (MDM) also stops the remote feature-flag fetch: it
         // carries the same anonymous install id, and flags then use their
         // built-in defaults.
-        // Settings lists and conflict checks skip shortcuts whose feature is off.
-        ShortcutAction.setHostUnavailableActionsProvider {
-            KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable)
-        }
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
         } else if !isRunningUnderXCTest {
