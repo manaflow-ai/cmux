@@ -4,7 +4,8 @@ import Foundation
 
 /// The sidebar's "Create a Cloud machine?" card for a create no person started, shown only while the person
 /// turned asking on: Create, Cancel and a Don't Ask Again switch (Leo, 2026-11-04: "a cute toggle or checkmark").
-public enum CloudCreateRequestAsk {
+public struct CloudCreateRequestAsk {
+    public init() {}
     static let create = "yes", stopAsking = "stopAsking"
 
     /// True for Create or the switch; the switch also runs `stopAsking`, and no `stopAsking` (a managed preference) shows no switch.
