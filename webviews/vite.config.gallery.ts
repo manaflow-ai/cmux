@@ -36,6 +36,7 @@ export default {
       input: {
         gallery: "src/gallery/index.html",
         "gallery-frame": "src/gallery/frame.html",
+        "gallery-app": "src/gallery/app.html",
         "diff-worker": "src/diff-worker.ts",
       },
     },
