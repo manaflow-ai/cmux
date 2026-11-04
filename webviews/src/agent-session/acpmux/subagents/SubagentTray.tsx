@@ -87,7 +87,8 @@ import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } 
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
@@ -352,6 +353,10 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const headMarks = useMemo(
+    () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
+    [t, head, items, finished, chatHarness],
+  );
   const headCounts = useMemo(
     () =>
       trayHead(t, {
@@ -370,6 +375,12 @@ export const SubagentTray = memo(function SubagentTray({
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
   const counts = headCounts;
+  // A measured narrow tray keeps room for its counts: one mark, in the lines' icon column (an
+  // unmeasured one, 0px, keeps them all, as `oneName` keeps two names). A family the drawn marks
+  // already show is not drawn again after the counts; one they leave out still is.
+  const drawnMarks = headMarks.slice(0, oneName ? 1 : STACK_MARKS);
+  const stacked = new Set(drawnMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
+  const trailingMarks = counts.marks.filter((harness) => !stacked.has(harnessFamily(harness)));
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
   const commands = items.filter((item) => item.kind === "command").length;
@@ -486,16 +497,34 @@ export const SubagentTray = memo(function SubagentTray({
             rememberTrayOpen(chat, !open);
           }}
         >
-          {/* No mark by default (trayHead.experiment.ts): the slot stays, blank, so the counts keep the
-              lines' text column (desktop.css --grid-tray-text) instead of jumping to the inset. */}
-          <span
-            className="acpmux-lineage__icon"
-            data-state={runs ? "running" : "done"}
-            data-blank={head === "bare" || undefined}
-            aria-hidden="true"
-          >
-            <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
-          </span>
+          {head === "stack" && drawnMarks.length > 0 ? (
+            // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
+            // as the sidebar's status row stacks them before "8 done".
+            <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
+              {drawnMarks.map((mark) => (
+                <AgentIdentity
+                  key={mark.key}
+                  className="acpmux-running-tray__stack-mark"
+                  harness={mark.harness}
+                  tone={mark.tone}
+                  size={ROW_ICON}
+                  fallback={mark.icon}
+                />
+              ))}
+            </span>
+          ) : (
+            // The `bare` arm: the slot stays, blank, so the counts keep the lines' text column
+            // (desktop.css --grid-tray-text) instead of jumping to the inset.
+            <span
+              className="acpmux-lineage__icon"
+              data-state={runs ? "running" : "done"}
+              // An empty stack (a plan with nothing running) keeps the slot blank, never the ring.
+              data-blank={head === "bare" || head === "stack" || undefined}
+              aria-hidden="true"
+            >
+              <Icon name={head === "session" ? "agent.session" : HEAD_ICON} size={ROW_ICON} row />
+            </span>
+          )}
           <Tick className="acpmux-summary-text acpmux-running-tray__title" text={headText} steadyCounts />
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
@@ -505,9 +534,10 @@ export const SubagentTray = memo(function SubagentTray({
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
-          {!named && counts.marks.length > 0 && (
+          {/* A family the stacked marks already draw is not drawn again here. */}
+          {!named && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
-              {counts.marks.map((harness) => (
+              {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
               ))}
             </span>
@@ -613,7 +643,7 @@ export const SubagentTray = memo(function SubagentTray({
           progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
           progressAgent={item.agent}
           icon={SUBAGENT_FALLBACK}
-          mark={item.agent.harness ?? chatHarness}
+          mark={foreignHarness(item.agent.harness, chatHarness)}
           tone={agentTone(item.agent.id)}
           status={subagentStatus(item.agent, waiting)}
           working={subagentStatus(item.agent, waiting) === "running"}
@@ -790,6 +820,44 @@ function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[
           ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
           : item.session.title,
     );
+}
+
+type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
+const NO_MARKS: readonly HeadMark[] = [];
+/// How many lines' marks the header stacks; the counts after them say the rest.
+const STACK_MARKS = 4;
+
+/// The marks the header stacks (the `stack` arm): the first lines' own glyphs, what runs first, then
+/// what ended. A subagent draws its subagent mark in its tone, or another family's harness mark; a
+/// chat its harness's; a command its command icon. Computed when the lists change, never per tick.
+function stackMarks(
+  t: Translate,
+  items: readonly TrayItem[],
+  finished: readonly TrayItem[],
+  chatHarness: string | undefined,
+): readonly HeadMark[] {
+  const marks: HeadMark[] = [];
+  for (const item of [...items.slice(0, STACK_MARKS), ...finished.slice(0, STACK_MARKS)]) {
+    if (marks.length === STACK_MARKS) break;
+    marks.push(
+      item.kind === "agent"
+        ? {
+            key: itemKey(item),
+            harness: foreignHarness(item.agent.harness, chatHarness),
+            tone: agentTone(item.agent.id),
+            icon: SUBAGENT_FALLBACK,
+          }
+        : item.kind === "command"
+          ? { key: itemKey(item), icon: commandRead(t, item.command).icon }
+          : {
+              key: itemKey(item),
+              harness: item.session.harness,
+              tone: agentTone(item.session.sessionId),
+              icon: "agent.chat",
+            },
+    );
+  }
+  return marks;
 }
 
 /// The header's fixed mark for background work (trayHead.experiment.ts): a running ring, never the
