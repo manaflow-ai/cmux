@@ -86,8 +86,10 @@ scripts/cmux-next/try-pr.sh <PR> --stop     # quit and remove its side instance
 
 reads the PR's diff with git and takes the cheapest path, in a side instance by default: a copy
 of your cmux NEXT named "cmux PR #N" with its own bundle id, data, settings and web overlay
-(`scripts/cmux-next/side-instance.sh`), so your app and its sessions are never touched. The copy
+(`scripts/cmux-next/side-instance.sh`), so your app's data, sessions and settings stay apart. The copy
 starts signed out with fresh settings and never updates itself; cmux links still open your app.
+Like every cmux build on the Mac, it shares two folders with your app: `agent-home` (the folder a
+chat with no folder runs in, so its Home chats see your Home chats' files) and `Chat Uploads`.
 `try-pr.sh <PR> --stop` quits it with its terminal daemon and deletes it and the data it kept.
 
 - A web-only PR is patched in: the side instance opens and `web-overlay.sh follow` serves the PR's

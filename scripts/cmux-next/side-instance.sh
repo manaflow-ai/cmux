@@ -25,7 +25,9 @@
 #                   with its unrestricted entitlements (no Keychain group)
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment)
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
-# A side instance starts signed out with fresh settings; the original's data is never read.
+# A side instance starts signed out with fresh settings. Like every cmux build on the Mac, it shares
+# two folders with the others: ~/Library/Application Support/cmux/agent-home (the folder a chat
+# with no folder runs in) and its Chat Uploads; everything else it keeps under its own bundle id.
 set -euo pipefail
 
 usage() { awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit "${1:-0}"; }
@@ -196,7 +198,8 @@ sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
     for path in "$HOME/Library/Application Support/cmux/builds/$bundle" "$HOME/.acpmux/builds/$bundle" \
       "$HOME/.cmux/chief/$bundle" "$HOME/.cmux/chief/$bundle@"* "$HOME/Library/Preferences/$bundle.plist" \
       "$HOME/Library/Caches/$bundle" "$HOME/Library/HTTPStorages/$bundle" "$HOME/Library/WebKit/$bundle" \
-      "$HOME/Library/Saved Application State/$bundle.savedState"; do
+      "$HOME/Library/Saved Application State/$bundle.savedState" "$HOME/Library/Application Support/$bundle" \
+      "$HOME/Library/Application Support/cmux-next/$bundle"; do
       if [[ -e "$path" ]]; then rm -rf "$path"; fi
     done
     rm -rf "$dir"

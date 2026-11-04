@@ -14,13 +14,16 @@
 #   try-pr.sh PR --stop             quit and remove the PR's side instance and its dev server
 #
 # By default the PR opens in a side instance, "cmux PR #N" (side-instance.sh pr-N): a copy of APP
-# (default /Applications/cmux NEXT.app; a nightly or a DEV build) with its own data, settings and
-# web overlay, so your app and its sessions are never touched. A rebuild opens the PR's own build
+# (default /Applications/cmux NEXT.app; a nightly or a DEV build) with its own data, socket,
+# daemon, settings and web overlay, so your app and its sessions are not touched. Like every cmux
+# build on the Mac, it shares two folders: agent-home (the folder a chat with no folder runs in)
+# and Chat Uploads. A rebuild opens the PR's own build
 # there instead of the copy. --here patches the running app instead (the web overlay of your
 # cmux-next.json), and for a rebuild only prints where the build is. --no-build stops at the
 # verdict when the PR needs a build. --front opens the side instance in front. --dry-run prints the
 # verdict and the commands it would run. --port and --fork go to web-overlay.sh follow; a side
-# instance's dev server takes port 20000 + N % 10000 unless --port names one. The Swift verdict is
+# instance's dev server takes the first free port from 20000 + N % 10000 (and keeps it) unless --port
+# names one. The Swift verdict is
 # a hint: live Swift patches exist only in the view shell today (Prototypes/ViewShell, "Live
 # code"), so the app still takes a dev build for them.
 set -euo pipefail
@@ -113,7 +116,15 @@ case "$verdict" in
       [[ -n "$dry" || -d "$from" ]] || { echo "no app at $from to copy (--from APP names another)" >&2; exit 1; }
       open_side "$from"
       side_env
-      port="${port:-$((20000 + pr % 10000))}"
+      # The side instance keeps the port it was given; a new one takes the first free port from
+      # 20000 + N % 10000, so two PRs never share a dev server.
+      saved="$side_root/$name/port"
+      if [[ -z "$port" && -f "$saved" ]]; then port="$(cat "$saved")"; fi
+      if [[ -z "$port" ]]; then
+        port=$((20000 + pr % 10000))
+        while nc -z 127.0.0.1 "$port" 2>/dev/null; do port=$((port + 1)); done
+      fi
+      if [[ -z "$dry" ]]; then echo "$port" >"$saved"; fi
     fi
     run "$ROOT/scripts/cmux-next/web-overlay.sh" follow "$pr" ${port:+--port "$port"} ${follow[@]+"${follow[@]}"}
     ;;
