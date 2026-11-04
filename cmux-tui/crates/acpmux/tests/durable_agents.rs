@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/adopt_replay_ceiling.rs"]
+mod adopt_replay_ceiling;
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
 #[path = "durable_agents/bg_caller_restart.rs"]
