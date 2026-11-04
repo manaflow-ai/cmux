@@ -1289,8 +1289,12 @@ def chat_items(label, items, raw):
                 current = shown.get("current") if isinstance(shown, dict) else None
                 ok = not pick.get("model") or current == pick["model"]
                 items[f"{c}.page.picked"] = True if ok else f"chips {json.dumps(chips)[:100]}, model {current!r}; picked {json.dumps(pick)}"
-                items[f"{c}.page.transcript"] = [r.get("text") for r in state.get("transcript") or [] if "rj chat turn" in str(r.get("text"))
-                                                  or str(r.get("text")).startswith("echo: rj chat turn")]
+                # The seeded turns, by first line; for the long chat (--record-launch) its last long turns, which stay in the
+                # page's last rows (the seeded ones scroll out of them) while each round's live turns add two rows.
+                lines = [str(r.get("text")).split("\n")[0] for r in state.get("transcript") or []]
+                seeded_rows = [t for t in lines if "rj chat turn" in t or t.startswith("echo: rj chat turn")]
+                long_rows = [t for t in lines if t.startswith(("rj long turn", "echo: rj long turn"))]
+                items[f"{c}.page.transcript"] = seeded_rows + long_rows[-6:]
                 # Live: a new turn is answered by the agent and shows on the page. Sent through acpmux, so
                 # the composer's draft stays as seeded.
                 text = f"rj live {chat['label']} {label} {RUN}"
@@ -1637,6 +1641,7 @@ def snapshot(label):
     with LOCK:
         raw["page_loads"] = list(PAGE_LOADS)
     items = {}
+    shown_terminal = {}  # pane id -> its selected terminal tab's row prefix (its view rows when its workspace is shown)
     ws_by_id = {w.get("id"): w for w in topo.get("workspaces", [])}
     rj = lambda name: (name or "").startswith("rj-")
     # Windows that hold rj-* workspaces, in topology order.
@@ -1717,6 +1722,8 @@ def snapshot(label):
                         items[f"{tp}.url"] = tab.get("url")
                     elif kind == "conversation":
                         items[f"{tp}.agent_session"] = tab.get("agent_session")
+                    if kind == "terminal" and tab.get("id") == pane.get("selected_tab"):
+                        shown_terminal[pane.get("id")] = tp
                     if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
@@ -1876,8 +1883,20 @@ def snapshot(label):
                 report, now = wait(lambda: (lambda r: r if rj_rows.report_error(r[0]) is None else None)(view_panes()), 60, 2) \
                     or view_panes()
             raw[f"debug.surfaces.{name}"] = report
+            if name == "rj-term" and items.get("counter.tick_in_view") is None:
+                shown_text = "\n".join(v.get("text") or "" for v in now.values())
+                shown_ticks = [int(t) for t in re.findall(r"rj-tick-(\d+)", shown_text)]
+                items["counter.tick_in_view"] = max(shown_ticks) if shown_ticks else None
+                if not items.get("view.scrollback_tail"):
+                    items["view.scrollback_tail"] = [line.strip() for line in shown_text.splitlines() if "rj-line-" in line][-3:]
             for pp, pid_ in pane_ids[name]:
                 v = now.get(pid_) or {}
+                # A terminal workspace not shown at the snapshot's start (--record-launch shows the long chat in the same
+                # window) gets its view rows here, where it is shown.
+                tp = shown_terminal.get(pid_)
+                if tp and items.get(f"{tp}.view.attach") is None and pid_ not in views:
+                    items[f"{tp}.view.attach"] = v.get("attach")
+                    items[f"{tp}.view.font_scale"] = v.get("font_scale")
                 items[f"{pp}.view.size"] = v.get("content_size")
                 items[f"{pp}.view.grid"] = (v.get("surface") or {}).get("grid")
                 RESULTS.append(grid_fits_view(label, pp, v, report))
