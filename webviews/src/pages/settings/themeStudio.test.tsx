@@ -358,3 +358,37 @@ test("with an App Theme set, a space or workspace theme says it replaces the App
   await run(() => page!.store.reset("appearance.appTheme"));
   expect(theme(page).querySelector('[data-override="workspace"]')?.textContent).not.toContain("App Theme included");
 });
+
+// Leo, 2026-11-04: "theme previews, like for not just the terminal, but the app itself". With an
+// App Theme of its own, the app shows terminal theme previews only on the terminals; Preview on the
+// Whole App previews and picks the terminal theme with the App Theme matching it.
+test("Preview on the Whole App previews a terminal theme on the chrome too, and a pick makes the app match", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.theme": "Nord", "appearance.appTheme": "Rose Pine" } },
+  });
+  const row = () => theme(page!).querySelector<HTMLElement>('[data-theme-row="whole-app"]');
+  expect(row()).not.toBeNull();
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  // Off: a terminal theme preview is the terminal's alone.
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({ key: "appearance.theme", value: "Dracula" });
+  await fire(document.querySelector<HTMLElement>(".theme-search")!, "keydown", { key: "Escape" });
+  // On: the same preview carries the App Theme matching the terminal, and the hero draws it.
+  await click(row()!.querySelector<HTMLElement>("[role=switch]")!);
+  await click(theme(page).querySelector('[data-theme-row="single"] [data-theme-picker]')!);
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({
+    key: "appearance.theme",
+    value: "Dracula",
+    also: [{ key: "appearance.appTheme", value: null }],
+  });
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  // A pick writes the terminal theme and puts the App Theme back to matching it.
+  await fire(option("Dracula"), "mousedown");
+  await until(() => ops(page!.provider, "cmux.settings.reset").length > 0, "the App Theme reset");
+  expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "Dracula" });
+  expect(ops(page.provider, "cmux.settings.reset")).toEqual([{ key: "appearance.appTheme" }]);
+});
