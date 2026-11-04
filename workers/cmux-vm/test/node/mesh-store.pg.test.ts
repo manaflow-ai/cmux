@@ -398,18 +398,17 @@ describe("batched reads and writes of an ACL apply", () => {
       Effect.gen(function* () {
         const store = yield* MeshStore;
         yield* store.recordRules(A, [rule(meshId, 22), rule(meshId, 4100), rule(meshId, 4101), rule(otherMesh, 22)]);
-        yield* store.recordRules(B, [rule(meshId, 22)]);
+        // Another tenant naming this mesh's keys marks nothing.
+        yield* store.markRulesDeleted(B, meshId, [`${deviceId}>${vmId}:tcp:4101`], at);
         yield* store.markRulesDeleted(A, meshId, [`${deviceId}>${vmId}:tcp:22`, `${deviceId}>${vmId}:tcp:4100`, "no-such-key"], at);
         yield* store.markRulesDeleted(A, meshId, [], at);
         return {
           mine: yield* store.listRules(A, meshId),
           otherMesh: yield* store.listRules(A, otherMesh),
-          otherTenant: yield* store.listRules(B, meshId),
         };
       }),
     );
     expect(result.mine.map((row) => row.key)).toEqual([`${deviceId}>${vmId}:tcp:4101`]);
     expect(result.otherMesh).toHaveLength(1);
-    expect(result.otherTenant).toHaveLength(1);
   });
 });
