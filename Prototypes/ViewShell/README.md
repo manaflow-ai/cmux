@@ -63,8 +63,9 @@ view whose `body` is `AnyView(content)` (`PreviewBadge`) may also change what it
 modifiers and their types. What needs a rebuild: a new or changed stored property, a changed
 function signature, a new type used from another file, `main.swift` and `LiveCode.swift`
 themselves, resources and the package manifest. A patch whose types change
-size (a stored property added, removed or retyped) is refused before anything is repointed: the
-shell compares each type's size and stride, or a class's instance size, with this build's and
-prints `refused: stored properties changed`. `--live-render DIR` draws the badge offscreen
+size (a stored property added or removed, or retyped to another size) is refused before anything
+is repointed: the shell compares each type's size and stride, or a class's instance size, with
+this build's and prints `refused: stored properties changed`. A reorder or a same-size retype is
+not seen; that still needs the rebuild the classifier asks for. `--live-render DIR` draws the badge offscreen
 after each patch (`generation-N.png`), and `--headless` runs the loop with no windows, so a host
 without a screen can measure it (`scripts/measure/live-code-shell.sh`).

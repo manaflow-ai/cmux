@@ -121,7 +121,7 @@ enum Interposer {
 
     @MainActor
     static func apply(dylib path: String) throws -> Int {
-        guard dlopen(path, RTLD_NOW | RTLD_LOCAL) != nil else {
+        guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             throw LiveCodeError.open(String(cString: dlerror()))
         }
         guard let index = (0..<_dyld_image_count()).last(where: { String(cString: _dyld_get_image_name($0)) == path
@@ -133,7 +133,7 @@ enum Interposer {
         let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
         let slide = _dyld_get_image_vmaddr_slide(index)
-        let changed = layoutChanges(header: header, slide: slide, mainOnly: mainOnly)
+        let changed = layoutChanges(header: header, slide: slide, patch: handle, mainOnly: mainOnly)
         guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
@@ -154,32 +154,37 @@ enum Interposer {
         return replaced.count
     }
 
-    /// The types the patch defines with another layout than this build's: a struct or enum whose
-    /// value size or stride differs, or a class whose instance size differs. Read from the type
-    /// metadata both images emit for a non-generic type (`$s…VN`, `…ON`, `…CN`); a type whose
-    /// metadata is filled in at run time (size 0 here) is not compared.
-    static func layoutChanges(header: UnsafePointer<mach_header>, slide: Int, mainOnly: UnsafeMutableRawPointer?) -> [String] {
+    private typealias MetadataAccessor = @convention(c) (Int) -> UnsafeRawPointer?
+
+    /// The types the patch defines with another size than this build's: a struct or enum whose
+    /// value size or stride differs, or a class whose instance size differs (an added or removed
+    /// stored property, or one retyped to another size; a reorder or a same-size retype is not seen).
+    /// Each non-generic type the patch and this build both define (`$s…VN`, `…ON`, `…CN`) is read
+    /// through its metadata accessor (`…Ma`, request 0: complete), so a layout the runtime fills in
+    /// (a field of a resilient type, such as SwiftUI's `State` or Foundation's `Date`) is compared too.
+    static func layoutChanges(header: UnsafePointer<mach_header>, slide: Int, patch: UnsafeMutableRawPointer,
+                              mainOnly: UnsafeMutableRawPointer?) -> [String] {
         var changed: [String] = []
-        for (name, patch) in symbols(header: header, slide: slide, code: false) {
+        for (name, _) in symbols(header: header, slide: slide, code: false) {
             let kind = name.suffix(2)
-            guard name.hasPrefix("_$s"), kind == "VN" || kind == "ON" || kind == "CN",
-                  let found = dlsym(mainOnly, String(name.dropFirst())) else { continue }
-            let old = UnsafeRawPointer(found)
-            guard old != patch else { continue }
+            guard name.hasPrefix("_$s"), kind == "VN" || kind == "ON" || kind == "CN" else { continue }
+            let accessor = String(name.dropFirst().dropLast()) + "Ma"
+            guard let ours = dlsym(mainOnly, accessor), let theirs = dlsym(patch, accessor), ours != theirs,
+                  let old = unsafeBitCast(ours, to: MetadataAccessor.self)(0),
+                  let new = unsafeBitCast(theirs, to: MetadataAccessor.self)(0) else { continue }
             if kind == "CN" {
                 // Class metadata: the instance size is the UInt32 at offset 48 from the address point.
-                let before = old.load(fromByteOffset: 48, as: UInt32.self)
-                let after = patch.load(fromByteOffset: 48, as: UInt32.self)
-                if before != 0, after != 0, before != after { changed.append(String(name.dropFirst())) }
+                if old.load(fromByteOffset: 48, as: UInt32.self) != new.load(fromByteOffset: 48, as: UInt32.self) {
+                    changed.append(String(name.dropFirst()))
+                }
             } else {
                 // Value metadata: its value witness table is the word before the address point;
                 // size and stride follow the table's eight functions.
-                let layout = { (metadata: UnsafeRawPointer) -> (Int, Int) in
-                    guard let table = metadata.load(fromByteOffset: -8, as: UnsafeRawPointer?.self) else { return (0, 0) }
-                    return (table.load(fromByteOffset: 64, as: Int.self), table.load(fromByteOffset: 72, as: Int.self))
+                let layout = { (metadata: UnsafeRawPointer) -> [Int] in
+                    guard let table = metadata.load(fromByteOffset: -8, as: UnsafeRawPointer?.self) else { return [] }
+                    return [table.load(fromByteOffset: 64, as: Int.self), table.load(fromByteOffset: 72, as: Int.self)]
                 }
-                let (before, after) = (layout(old), layout(patch))
-                if before.1 != 0, after.1 != 0, before != after { changed.append(String(name.dropFirst())) }
+                if layout(old) != layout(new) { changed.append(String(name.dropFirst())) }
             }
         }
         return changed
