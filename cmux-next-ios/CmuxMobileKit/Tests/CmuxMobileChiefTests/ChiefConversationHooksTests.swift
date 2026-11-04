@@ -110,7 +110,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func replyWithSelectionHandsTheHostTheSelectedWordsAndOpensTheReply() async throws {
         let source = Self.message("m1", "Deploy the build, then run the tests.", seq: 1)
         let (controller, window) = try await loaded([source])
-        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         var replies: [ConversationSelectionReply] = []
         controller.onReplyWithSelection = { [weak controller] reply in
             replies.append(reply)
@@ -139,7 +139,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func withoutTheHookTheSelectionMenuIsTheSystemsAlone() async throws {
         let source = Self.message("m1", "Only the system menu here.", seq: 1)
         let (controller, window) = try await loaded([source])
-        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         controller.beginTextSelection(rowID: source.rowID)
         let selection = try #require(controller.textSelection)
         let editMenus = selection.interactions.compactMap { $0 as? UIEditMenuInteraction }
@@ -155,7 +155,7 @@ struct ChiefConversationHooksTests {
         let (controller, window) = try await loaded([Self.message("m1", "Some text", seq: 1)])
         defer {
             controller.textSize = nil
-            ConversationTextSizeOwners.disappeared(controller)
+            ConversationThemeOwners.disappeared(controller)
             controller.store.stop(); window.isHidden = true
         }
         let system = ConversationTheme.bubbleFont.pointSize
@@ -176,7 +176,7 @@ struct ChiefConversationHooksTests {
 
     @Test(.timeLimit(.minutes(1))) func headerMenuOpensFromTheTrailingButtonOnlyInTheNormalState() async throws {
         let (controller, window) = try await loaded([])
-        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         let button = controller.header.trailingButton
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
         let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
@@ -194,7 +194,7 @@ struct ChiefConversationHooksTests {
     @Test(.timeLimit(.minutes(1))) func editModeKeepsTheTrailingTapForEndingTheEdit() async throws {
         let source = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine to edit")
         let (controller, window) = try await loaded([source])
-        defer { ConversationTextSizeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
         let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
         controller.headerActionMenu = menu
         controller.enterEditMode(for: source)
@@ -211,7 +211,7 @@ struct ChiefConversationHooksTests {
         let (zoomed, window) = try await loaded([Self.message("m1", "Zoomed", seq: 1)])
         defer {
             zoomed.textSize = nil
-            ConversationTextSizeOwners.disappeared(zoomed)
+            ConversationThemeOwners.disappeared(zoomed)
             zoomed.store.stop(); window.isHidden = true
         }
         zoomed.textSize = .accessibilityLarge
@@ -219,9 +219,9 @@ struct ChiefConversationHooksTests {
         let sheet = ConversationViewController(store: ConversationStore(backend: HooksBackend(messages: [])), options: .chief)
         defer { sheet.store.stop() }
         sheet.loadViewIfNeeded()
-        ConversationTextSizeOwners.appeared(sheet)
+        ConversationThemeOwners.appeared(sheet)
         #expect(ConversationTheme.textSizeTraits == nil)
-        ConversationTextSizeOwners.disappeared(sheet)
+        ConversationThemeOwners.disappeared(sheet)
         #expect(ConversationTheme.textSizeTraits?.preferredContentSizeCategory == .accessibilityLarge)
         #expect(ConversationTheme.bubbleFont.pointSize == 33)
     }
@@ -247,7 +247,39 @@ struct ChiefConversationHooksTests {
         host.view.layoutIfNeeded()
         #expect(container.systemTextSize == .extraExtraLarge)
         #expect(conversation.textSize == .extraExtraExtraLarge)
-        ConversationTextSizeOwners.disappeared(conversation)
+        ConversationThemeOwners.disappeared(conversation)
+    }
+
+    /// Chat Colors: this conversation's bubbles in the host's colours; nil draws Messages' own.
+    @Test(.timeLimit(.minutes(1))) func bubbleColorsDrawThisConversationsBubblesAndNilKeepsMessages() async throws {
+        let mine = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine")
+        let theirs = Self.message("m2", "Theirs", seq: 2)
+        let (controller, window) = try await loaded([mine, theirs])
+        defer { controller.bubbleColors = nil; ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
+        func cell(_ message: ConversationMessage) throws -> MessageCell {
+            controller.view.layoutIfNeeded()
+            controller.collectionView.layoutIfNeeded()
+            let path = try #require(controller.indexPath(for: message.rowID))
+            return try #require(controller.collectionView.cellForItem(at: path) as? MessageCell)
+        }
+        let traits = controller.traitCollection
+        #expect(try cell(mine).bubble.screenGradient != nil)
+        #expect(try cell(mine).bubble.fillColor == ConversationTheme.outgoingBubble)
+        #expect(try cell(theirs).bubble.fillColor == ConversationTheme.incomingBubble)
+        let green = try #require(ConversationColor(hex: "#34C759"))
+        let navy = try #require(ConversationColor(hex: "#1C2A4A"))
+        controller.bubbleColors = ConversationBubbleColors(sent: green, received: navy)
+        let sent = try cell(mine)
+        #expect(sent.bubble.screenGradient == nil)
+        #expect(sent.bubble.fillColor.resolvedColor(with: traits) == UIColor(conversation: green))
+        #expect(sent.textLabel.attributedText?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor == UIColor(conversation: .black))
+        let received = try cell(theirs)
+        #expect(received.bubble.fillColor.resolvedColor(with: traits) == UIColor(conversation: navy))
+        #expect(received.textLabel.attributedText?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor == UIColor(conversation: .white))
+        controller.bubbleColors = nil
+        #expect(ConversationTheme.bubbleColors == nil)
+        #expect(try cell(mine).bubble.screenGradient != nil)
+        #expect(try cell(theirs).bubble.fillColor == ConversationTheme.incomingBubble)
     }
 
     @Test(.timeLimit(.minutes(1))) func chiefScreenPutsInviteAndTheZoomInItsPageMenu() throws {
@@ -259,6 +291,9 @@ struct ChiefConversationHooksTests {
         let menu = try #require(conversation.headerActionMenu)
         #expect((menu.children.first as? UIAction)?.title == "Invite to cmux")
         #expect(menu.children.count == 2 && menu.children.last is UIDeferredMenuElement)
+        // Chat Colors… waits until the chat is known (this one never connects).
+        #expect(container.chatColorsAction().title == "Chat Colors…")
+        #expect(container.chatColorsAction().attributes.contains(.disabled))
         #expect(conversation.options.trailingSymbol == ChiefPageMenu.symbol)
         ChiefTextZoom.shared.actualSize()
         let zoomMenu = container.zoomMenu()
@@ -291,3 +326,26 @@ private final class HooksBackend: ConversationBackend, Sendable {
     func close() {}
 }
 #endif
+
+/// Chat Colors kept on the phone, per chat.
+@MainActor
+@Suite final class ChiefChatColorsTests {
+    private let name = "chief-colors-\(UUID().uuidString)"
+    deinit { UserDefaults().removePersistentDomain(forName: name) }
+
+    @Test func eachChatKeepsItsOwnColoursAndResetForgetsThem() throws {
+        let defaults = try #require(UserDefaults(suiteName: name))
+        let store = ChiefChatColors(defaults: defaults)
+        let a = ChiefChatColors.key(macID: "mac-1", conversation: "c1")
+        let b = ChiefChatColors.key(macID: nil, conversation: "c1")
+        #expect(a == "mac-1|c1" && b == "cloud|c1")
+        let green = try #require(ConversationColor(hex: "#34C759"))
+        store.update(a) { $0.sent = green }
+        #expect(store.colors(for: a).sent == green)
+        #expect(store.colors(for: b).isEmpty)
+        #expect(ChiefChatColors(defaults: defaults).colors(for: a).sent == green)
+        store.update(a) { $0.sent = nil }
+        #expect(store.chats[a] == nil)
+        #expect(ChiefChatColors(defaults: defaults).chats.isEmpty)
+    }
+}

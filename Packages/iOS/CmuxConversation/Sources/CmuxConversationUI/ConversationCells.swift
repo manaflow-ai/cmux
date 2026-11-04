@@ -224,10 +224,10 @@ final class MessageCell: UICollectionViewCell {
             bubble.side = model.isOutgoing ? .trailing : .leading
             bubble.hasTail = model.showsTail && !layout.linkCardIsLast
             bubble.fillColor = model.isOutgoing
-                ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.outgoingBubble)
-                : ConversationTheme.incomingBubble
-            bubble.screenGradient = model.isOutgoing ? ConversationTheme.iMessageGradient : nil
-            bubble.adaptsToBackdrop = !model.isOutgoing
+                ? (message.delivery?.isFailed == true ? ConversationTheme.failedBubble : ConversationTheme.sentFill)
+                : ConversationTheme.receivedFill
+            bubble.screenGradient = model.isOutgoing ? ConversationTheme.sentFillGradient : nil
+            bubble.adaptsToBackdrop = !model.isOutgoing && ConversationTheme.receivedFillAdaptsToBackdrop
             bubble.frame = bubbleFrame
             textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
             textLabel.attributedText = text

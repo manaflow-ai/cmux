@@ -214,6 +214,8 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.store.addObserver { [weak self] _ in
             guard let self, self.isViewLoaded else { return }
             self.updateAvailability()
+            // The conversation becomes known on connect: its own colours apply then.
+            if self.conversation.bubbleColors == nil, self.chatColorsKey != nil { self.applyChatColors() }
             guard self.chiefInitials != self.headerAvatar else { return }
             self.headerAvatar = self.chiefInitials
             if self.view.window != nil { self.conversation.setBackUnreadCount(self.backUnreadCount) }

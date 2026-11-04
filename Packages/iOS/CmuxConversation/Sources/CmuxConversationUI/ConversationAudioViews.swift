@@ -204,7 +204,7 @@ final class AudioMessageView: UIView {
         if !sameMessage || waveform.levels != audio?.waveform ?? [] {
             waveform.levels = audio?.waveform ?? []
         }
-        let primary: UIColor = isOutgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
+        let primary: UIColor = isOutgoing ? ConversationTheme.sentTextColor : ConversationTheme.receivedTextColor
         waveform.playedColor = primary
         waveform.unplayedColor = isOutgoing
             ? UIColor.white.withAlphaComponent(0.45)

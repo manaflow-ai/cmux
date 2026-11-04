@@ -307,7 +307,7 @@ extension MessageCellLayout {
         runs: [ConversationTextRun],
         links: [ConversationTextLink]
     ) -> NSAttributedString {
-        let textColor = outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
+        let textColor = outgoing ? ConversationTheme.sentTextColor : ConversationTheme.receivedTextColor
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
             .foregroundColor: textColor,
