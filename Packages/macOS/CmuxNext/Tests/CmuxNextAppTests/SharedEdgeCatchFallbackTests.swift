@@ -19,23 +19,6 @@ import Testing
 struct SharedEdgeCatchFallbackTests {
     typealias Rig = SharedEdgeDuringSpringTests.Rig
 
-    /// Moves split x's line on the springs: b1's right edge, the divider and b2's left edge show `offset` from where
-    /// they show now and move at `speed`, as a spring that carries the line does; then the screen presents it.
-    func moveLine(_ rig: Rig, by offset: CGFloat, speed: CGFloat) throws {
-        let screen = try rig.screen
-        var b1 = try #require(screen.paneFrames["b1"]), b2 = try #require(screen.paneFrames["b2"])
-        var divider = try #require(screen.dividerFrames[.split("x")])
-        (b1.width.value, b1.width.velocity) = (b1.width.value + offset, speed)
-        (divider.x.value, divider.x.velocity) = (divider.x.value + offset, speed)
-        (b2.x.value, b2.x.velocity) = (b2.x.value + offset, speed)
-        (b2.width.value, b2.width.velocity) = (b2.width.value - offset, -speed)
-        screen.paneFrames["b1"] = b1
-        screen.paneFrames["b2"] = b2
-        screen.dividerFrames[.split("x")] = divider
-        screen.applyPresentation(force: true)
-        rig.root.layoutSubtreeIfNeeded()
-    }
-
     @Test func aPressWhileTheStripCameraMovesTakesTheOldDrag() throws {
         // Four half-width columns, so the strip scrolls; focus on the last one puts the camera on a spring.
         let rig = Rig(columns: [
@@ -89,7 +72,7 @@ struct SharedEdgeCatchFallbackTests {
         try #require(dip < -1, "the panes' spring does not move: dip \(dip) pt")
         let speed = -1000 * 320 / abs(dip)
         try #require(320 > minimum && 320 < b1 - 40, "b1 is \(b1) pt wide, its minimum \(minimum) pt")
-        try moveLine(rig, by: -0.5, speed: speed)
+        try rig.moveLine(by: -0.5, speed: speed)
 
         let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
         // B's edge in to B's minimum in one move while b1 still shrinks fast: b2's right edge from b1's left edge.
