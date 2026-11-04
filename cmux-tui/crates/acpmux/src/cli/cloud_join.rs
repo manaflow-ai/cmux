@@ -115,7 +115,7 @@ fn configure_mesh_relay(hub: &str) -> Result<()> {
         url: hub.to_owned(),
         token_command: Vec::new(),
         credential: Some("join".to_owned()),
-        team_messaging: false,
+        team_messaging: true,
         control_from: Vec::new(),
     });
     config.save_with_writer(|path, bytes| recovery::write_durable(path, bytes, true))
@@ -130,6 +130,17 @@ fn mesh_relay_configured() -> bool {
 
 fn load() -> Result<Option<MachineCredential>> {
     load_at(&state_dir())
+}
+
+/// The joined machine credential, for the vault pull (`crate::vault`), which
+/// sends it only as the bearer of its own hub request.
+pub(crate) fn machine_credential() -> Result<Option<MachineCredential>> {
+    load()
+}
+
+/// A stored hub origin, checked as `host join` checks it.
+pub(crate) fn hub_origin(value: &str) -> Result<String> {
+    origin(Some(value.to_owned()))
 }
 
 pub(super) fn load_at(home: &std::path::Path) -> Result<Option<MachineCredential>> {
@@ -377,7 +388,7 @@ pub(crate) fn record_consent_refusal(surface: &str) -> Result<()> {
     authority()?.refused(surface)
 }
 
-fn http_client() -> Result<reqwest::Client> {
+pub(crate) fn http_client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

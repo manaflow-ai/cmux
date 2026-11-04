@@ -12,11 +12,14 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   parts,
   show,
   renderImage,
+  renderFile,
 }: {
   rowId: string;
   parts: readonly PromptContentPart[];
   show(text: string): string;
   renderImage(image: PromptImage): ReactNode;
+  /// A file drawn some other way than its chip (a sent video's tile, UserBubble.tsx), or undefined.
+  renderFile?(part: Exclude<PromptContentPart, { kind: "text" | "image" }>): ReactNode | undefined;
 }) {
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
@@ -68,7 +71,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       return (
         <PasteChip key={`pasted-${index}`} rowId={rowId} index={index} text={body} needle={needle} onOpen={open} />
       );
-    return <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
+    return renderFile?.(part) ?? <PromptFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
   }
 });
 
@@ -79,7 +82,14 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
   return (
     <span className="cv-user__inline-file">
       <FileAttachment
-        file={{ name: part.name, size: part.size, mimeType: part.mimeType, path: attachmentPath(part.uri) }}
+        file={{
+          name: part.name,
+          size: part.size,
+          mimeType: part.mimeType,
+          path: attachmentPath(part.uri),
+          // The app it came from: its icon and tooltip line, as the legacy band's file chip has.
+          source: part.source,
+        }}
       />
     </span>
   );

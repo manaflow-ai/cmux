@@ -119,7 +119,9 @@
     {
       "kind": "request",
       "name": "acp.session.fork",
-      "params": true,
+      "params": {
+        "$ref": "#/types/ForkParams"
+      },
       "result": true
     },
     {
@@ -178,6 +180,18 @@
     {
       "kind": "request",
       "name": "_acpmux/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/context",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/context_override",
       "params": true,
       "result": true
     },
@@ -493,6 +507,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/agent_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/retry",
       "params": {
         "$ref": "#/types/RetryParams"
@@ -636,6 +656,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/detach_parent",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
@@ -729,6 +755,12 @@
     {
       "kind": "request",
       "name": "_acpmux/history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_search",
       "params": true,
       "result": true
     },
@@ -1111,6 +1143,18 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_request",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/mcp_connect_answer",
       "params": true,
       "result": true
     },
@@ -1597,6 +1641,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_snapshots_clear",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -1646,6 +1696,24 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_redeem",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_pull",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_status",
       "params": true,
       "result": true
     },
@@ -2358,6 +2426,47 @@
         "hasMore",
         "lastSeq",
         "pageThrough"
+      ],
+      "type": "object"
+    },
+    "ForkParams": {
+      "description": "`acp.session.fork`: a completed-turn, live, or before-prompt fork.\nBefore-prompt requests require requestId and omit both throughSeq and live.",
+      "properties": {
+        "_meta": true,
+        "beforePromptId": {
+          "description": "Recorded prompt identity, nonempty and at most 512 UTF-8 bytes. Claude/Codex only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "live": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "requestId": {
+          "description": "Persisted retry identity, nonempty and at most 512 UTF-8 bytes; scoped to the source.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "throughSeq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
       ],
       "type": "object"
     },
@@ -4003,6 +4112,13 @@
     "SessionAuthTarget": {
       "description": "The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:\nthis daemon) and the route the picker selected (absent: the harness's default route, as at\nspawn).",
       "properties": {
+        "cwd": {
+          "description": "Absolute project directory on the destination daemon. Absent: project auth is unknown.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "harness": {
           "type": "string"
         },
@@ -4472,6 +4588,13 @@
             "boolean",
             "null"
           ]
+        },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "turn": {
           "anyOf": [
@@ -5012,6 +5135,13 @@
             "null"
           ]
         },
+        "transcriptSeq": {
+          "default": 0,
+          "description": "The seq of its newest transcript record (`hub/paging.rs` `is_transcript`): unlike\n`updatedAt` and `lastSeq`, bookkeeping (an agent start's `agent_start_waiting`, usage,\ngit, process counts) never moves it, so a client that keeps a chat's newest page reads it\nagain only when this passes the value it read at. An upper bound after a hard stop.\nAbsent from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "turn": {
           "anyOf": [
             {
@@ -5150,6 +5280,13 @@
           "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns\n(its name, e.g. `huge-blue`). Empty is no filter.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "pendingOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions with a pending permission\nor question, local and peer, summarized alone and answered without the list's pace.\nTakes no other filter; the reply is never paged (capability `session-list-pending-v1`).",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -5375,6 +5512,23 @@
             "null"
           ]
         },
+        "cacheReadShare24h": {
+          "description": "Of those calls' prompt tokens (input, cache read and cache write), the share the prompt\ncache served (0 to 1); null with no calls or when the day is not read whole.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "calls24h": {
+          "description": "Model calls of the last 24 hours, subagents' included.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "compactions24h": {
           "description": "Compactions in the last 24 hours.",
           "format": "uint64",
@@ -5399,6 +5553,14 @@
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "costPerCallUsd24h": {
+          "description": "`costUsd24h` over the priced calls: what one call costs at list prices, USD.",
+          "format": "double",
+          "type": [
+            "number",
             "null"
           ]
         },
@@ -5463,9 +5625,12 @@
       "required": [
         "autocompact",
         "autocompactCap",
+        "cacheReadShare24h",
+        "calls24h",
         "compactions24h",
         "contextTokens",
         "contextWindow",
+        "costPerCallUsd24h",
         "costUsd24h",
         "launcher",
         "subagents1h",

@@ -241,6 +241,42 @@ struct AgentPaneVideoInfoTests {
         #expect(await AgentPaneVideoInfo.isSelfContained(shown))
     }
 
+    @Test func anAttachedVideoOutsideTheRootsPlaysInlineButNeverAsAReferenceMovie() async throws {
+        // A screen recording on the Desktop plays in the pane (`media.load`), from the same scope its
+        // poster and Quick Look read; a pointer there is refused as Quick Look refuses it.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 320, height: 180, seconds: 1)
+        let clip = desktop.appendingPathComponent("clip.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let pointer = desktop.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
+
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        let videos = folder.appendingPathComponent("videos", isDirectory: true)
+        model.replyLinks.videoFolder = videos
+        let played = await Self.ask(model, "media.load", ["src": clip.path])
+        #expect(Self.errorCode(played) == nil, "\(played)")
+        let src = try #require((played["value"] as? [String: Any])?["src"] as? String)
+        #expect(src.hasPrefix("cmux-agent://pane/__media/") && src.hasSuffix(".mov"))
+        let url = try #require(URL(string: src))
+        // The grant is a private copy, never the path: what the player reads is the clip as it was checked.
+        let granted = try #require(AgentPaneMediaGrants.shared.file(for: url))
+        #expect(granted.path.hasPrefix(videos.path + "/") && granted.lastPathComponent == "clip.mov")
+        let bytes = try Data(contentsOf: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        // Rewritten into a reference movie after the grant, the clip never reaches the player.
+        try Data(contentsOf: pointer).write(to: clip)
+        #expect(try Data(contentsOf: granted) == bytes)
+        #expect(await AgentPaneVideoInfo.isSelfContained(granted))
+        #expect(Self.errorCode(await Self.ask(model, "media.load", ["src": pointer.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+    }
+
     @Test func whatIsReadAndPlayedIsAPrivateCopyTakenFromTheFileAsItWasOpened() async throws {
         // A path is never read again after its check: the copy comes from the file opened once, so
         // one rewritten in place (into a reference movie), replaced, or reached through a folder

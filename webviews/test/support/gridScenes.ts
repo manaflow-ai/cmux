@@ -21,7 +21,6 @@ const selectorRoles: Record<string, string> = {
   ".cv-tool__icon": "icon",
   ".cv-iconbtn svg": "icon",
   ".acpmux-lineage__icon": "lead",
-  ".acpmux-running-tray__head .acpmux-lineage__icon": "lead",
   ".acpmux-location-leading svg": "lead",
   ".acpmux-location-picker:last-child svg": "trail",
   ".acpmux-access-trigger svg": "lead",
@@ -31,7 +30,6 @@ const selectorRoles: Record<string, string> = {
   ".acpmux-permission-card-leading": "icon",
   ".acpmux-session-info-section__icon": "icon",
   ".cv-tool__chevron": "chevron",
-  ".acpmux-running-tray__finished svg": "chevron",
   ".acpmux-running-tray__status": "chevron",
 };
 const point = (selector: string, metric: GridMetric, role?: string): GridPoint => ({
@@ -102,7 +100,7 @@ const draftLines = scene("composer.box", "agent-pane.composer-row", "grid-draft-
   value("mid: trailing control", ".acpmux-mic", "cy", point(plus, "cy")),
 ]);
 const running = composer("grid-running");
-running.textIncludes = { selector: placeholder, text: "↵ steer · ⌘↵ queue" };
+running.textIncludes = { selector: placeholder, text: "Type / for commands" };
 // The capture fixture's prompt shows no placeholder (MarkdownField hides it whenever the field holds
 // markdown), so its text lines are a design absence; the empty prompt's text line is measured in
 // composer.box/claude-auto and grid-running. The box's controls and radius are still measured here.
@@ -275,24 +273,21 @@ export const gridScenes: GridScene[] = [
       ".acpmux-agent-line__stop-slot",
     ),
   ),
+  // The tray's header draws no mark (#31424, trayHead.experiment.ts `bare`: Leo, 2026-11-01, "why
+  // did you guys not remove the 3/4"). Its slot stays, hidden, so the counts keep the lines' text
+  // column; the header's lines are its text, its chevron and its row, centred on the row's mid.
   ...["many-folded", "grid-31"].map((variant) =>
-    stack(
-      "stack.tray",
-      "agent-pane.subagent-tray",
-      variant,
-      ".acpmux-running-tray__head",
-      ".acpmux-lineage__icon",
-      ".acpmux-running-tray__title",
-      ".acpmux-running-tray__status",
-    ),
+    scene("stack.tray", "agent-pane.subagent-tray", variant, ".acpmux-running-tray__head", [
+      left("text", ".acpmux-running-tray__title", "text", token("tray-text")),
+      trail(".acpmux-running-tray__status", token("tray-trail-center")),
+      value("row height", ":scope", "height", token("row")),
+      mid(".acpmux-running-tray__title", ":scope"),
+      value("mid: trail", ".acpmux-running-tray__status", "cy", point(":scope", "cy")),
+    ]),
   ),
   scene("stack.subagents", "agent-pane.subagent-tray", "grid-31", ".acpmux-running-tray", [
-    left("header: lead", ".acpmux-running-tray__head .acpmux-lineage__icon", "cx", token("tray-lead-center")),
     left("header: text", ".acpmux-running-tray__title", "text", token("tray-text")),
-    mid(".acpmux-running-tray__title", ".acpmux-running-tray__head .acpmux-lineage__icon"),
-    left("footer: text", ".acpmux-running-tray__finished .acpmux-summary-text", "text", token("tray-text")),
-    trail(".acpmux-running-tray__finished svg", token("tray-trail-center")),
-    mid(".acpmux-running-tray__finished .acpmux-summary-text", ".acpmux-running-tray__finished svg"),
+    mid(".acpmux-running-tray__title", ".acpmux-running-tray__head"),
   ]),
   stack(
     "stack.queued",
@@ -343,8 +338,8 @@ export const gridScenes: GridScene[] = [
     trail(".cv-tool__chevron", `calc(${token("transcript-icon-box")} - ${token("transcript-icon-box")})`, "right"),
     mid(".cv-tool__text, .cv-command__text", ".cv-tool__icon"),
   ]),
-  // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More, then its
-  // time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
+  // The turn footer's action row (TurnRows.tsx TurnFooter): Copy, Pin, Read aloud and More in Claude's
+  // 28 buttons in ChatGPT's 32 line (design/transcript-spacing.md "Reply footer"), then its time. A reply no longer draws its own row (#29740: model.ts hasReplyActions is false, and the
   // agent-pane.reply-actions gallery entry is gone), so the footer under the first turn, which the
   // `footer` variant points at, is the one action row the transcript draws.
   scene(
@@ -353,7 +348,6 @@ export const gridScenes: GridScene[] = [
     "footer",
     ".acpmux-turnSummary .cv-turn-actions:not(.cv-turn-actions--empty)",
     [
-      trail(".cv-turn-time", token("transcript-action-trail-center")),
       value("action control", ".cv-iconbtn", "width", token("transcript-action-control")),
       ...centered(".cv-iconbtn svg", ".cv-iconbtn"),
       mid(".cv-turn-time", ".cv-iconbtn"),

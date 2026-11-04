@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import Observation
+public import Observation
 
 /// Workspaces whose close the person asked for, until the daemon has closed
 /// them (Lawrence 2026-10-17: "this needs to be instant"). A window's rows

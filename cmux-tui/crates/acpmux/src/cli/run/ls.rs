@@ -73,6 +73,13 @@ pub struct LsArgs {
     /// prompt); the daemon reads each chat's usage first.
     #[arg(long, short)]
     wide: bool,
+    /// Only the leaders: each live session other live sessions report to (their tag
+    /// `lane.reportsTo`), once, with `reports` (those sessions' names), most reports first
+    /// (`ls_leads.rs`). The coordinator, its deputies and the area owners each are one.
+    #[arg(long, conflicts_with_all = [
+        "patterns", "name_patterns", "status", "pending", "tag", "limit", "cursor", "since", "host", "all",
+    ])]
+    leads: bool,
 }
 
 pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
@@ -91,7 +98,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         host,
         all,
         wide,
+        leads,
     } = args;
+    // The leaders need every live row: the sessions that report are read with them.
+    let live = live || leads;
     patterns.extend(name_patterns);
     let named = !patterns.is_empty();
     let since_ms = since.as_deref().map(parse_duration_ms).transpose()?;
@@ -205,7 +215,10 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
             );
         }
     }
-    if selected {
+    if leads {
+        sessions = super::ls_leads::leaders(&sessions);
+    }
+    if selected && !leads {
         sessions.sort_by(|a, b| {
             b.get("updatedAt")
                 .and_then(Value::as_u64)
@@ -250,20 +263,47 @@ pub(super) async fn run(args: LsArgs, json_out: bool) -> Result<()> {
         }
         return Ok(());
     }
-    let peers = match peers {
-        Some(read) => match read.await {
-            Ok(Ok(status)) => status.get("peers").and_then(Value::as_array).cloned(),
-            _ => None,
-        },
+    if leads {
+        print!("{}", super::ls_leads::render(&sessions));
+        return Ok(());
+    }
+    let status = match peers {
+        Some(read) => read.await.ok().and_then(Result::ok),
         None => None,
     };
+    let peers = status.as_ref().and_then(|s| s.get("peers")).and_then(Value::as_array).cloned();
     let view = View { all, wide };
     let now = crate::store::now_ms();
     print!("{}", ls_table::render(&sessions, peers.as_deref(), view, filtered, now));
+    if let Some(line) = status.as_ref().and_then(outbox_line) {
+        println!("{line}");
+    }
     Ok(())
 }
 
-pub(super) fn parse_duration_ms(text: &str) -> Result<u64> {
+/// The line `acpmux ls` ends with while messages wait in this daemon's outbox (`hub/outbox.rs`).
+fn outbox_line(status: &Value) -> Option<String> {
+    let n = status.get("outboxPending").and_then(Value::as_u64).filter(|n| *n > 0)?;
+    let s = if n == 1 { "" } else { "s" };
+    Some(format!("{n} message{s} queued here, not delivered yet (acpmux send --status)"))
+}
+
+#[cfg(test)]
+mod outbox_line_tests {
+    use super::*;
+
+    #[test]
+    fn ls_ends_with_the_messages_still_queued() {
+        assert_eq!(outbox_line(&json!({"outboxPending": 0})), None);
+        assert_eq!(outbox_line(&json!({})), None);
+        assert_eq!(
+            outbox_line(&json!({"outboxPending": 2})).as_deref(),
+            Some("2 messages queued here, not delivered yet (acpmux send --status)")
+        );
+    }
+}
+
+pub(crate) fn parse_duration_ms(text: &str) -> Result<u64> {
     let mut rest = text.trim();
     let mut total = 0u64;
     if rest.is_empty() {

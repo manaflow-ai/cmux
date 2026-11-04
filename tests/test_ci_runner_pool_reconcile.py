@@ -43,12 +43,12 @@ class SecretRouteBoundary(unittest.TestCase):
                 text = (root / ".github/workflows" / name).read_text()
                 block = text.split(f"\n  {job}:\n", 1)[1]
                 route = next(line for line in block.splitlines() if line.startswith("    runs-on:"))
-                self.assertNotIn("RUNNER_POOLS", route)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS)", route)
                 self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
                 match = re.search(r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER", route)
                 self.assertIsNotNone(match)
                 self.assertEqual(set(json.loads(match[1])), {SMALL, LARGE, "blacksmith-8vcpu-ubuntu-2404"})
-                self.assertTrue(route.endswith("|| 'blacksmith-8vcpu-ubuntu-2404' }}"))
+                self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
 
     def test_backend_secret_jobs_use_only_the_ephemeral_linux_mirror(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"
@@ -65,7 +65,7 @@ class SecretRouteBoundary(unittest.TestCase):
                 block = self._job_block(text, job)
                 route = next(line.strip() for line in block.splitlines() if line.strip().startswith("runs-on:"))
                 self.assertIn("secrets.", block)
-                self.assertNotIn("RUNNER_POOLS", route)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS)", route)
                 self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", route)
                 match = re.search(
                     r"contains\(fromJSON\('([^']+)'\), vars.LINUX_RUNNER\) && vars.LINUX_RUNNER",
@@ -73,7 +73,7 @@ class SecretRouteBoundary(unittest.TestCase):
                 )
                 self.assertIsNotNone(match)
                 self.assertEqual(set(json.loads(match[1])), LINUX_EPHEMERAL)
-                self.assertTrue(route.endswith("|| 'blacksmith-8vcpu-ubuntu-2404' }}"))
+                self.assertTrue(route.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_8 }}"))
 
     def test_backend_migration_push_guard_keeps_the_secretless_fleet_route(self):
         path = WORKFLOW_ROOT / ".github/workflows/backend.yml"

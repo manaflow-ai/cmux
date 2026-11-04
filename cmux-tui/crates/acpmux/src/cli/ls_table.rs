@@ -19,6 +19,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
+  acpmux ls --leads               the leaders: each live session others report to, with its reports
   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
@@ -161,7 +162,7 @@ fn stuck(row: &Value, now: u64) -> String {
 /// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, `hub/usage_warnings.rs`),
 /// one word so the default listing stays compact (Leo 2026-10-30: "acpmux ls should probably not
 /// be overly... verbose?"); wide names each rule with its number and the command that answers it
-/// (`ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`). A respawn that waits
+/// (`ctx 412k: acpmux send lane-1 /compact | sessions rotate lane-1`). A respawn that waits
 /// for the turn to end (`respawnPending`, `hub/profile_respawn.rs`) comes first, in full in both:
 /// `respawn pending: profile changed`.
 fn warn(row: &Value, wide: bool) -> String {

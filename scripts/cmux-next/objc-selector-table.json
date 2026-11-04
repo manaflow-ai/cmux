@@ -141,10 +141,6 @@
    "27.0.1": true,
    "27.0": true
   },
-  "NSButton call:resetCursorRects/0": {
-   "27.0": true,
-   "27.0.1": true
-  },
   "NSButton call:resignFirstResponder/0": {
    "26.5.2": true,
    "26.7": true,
@@ -183,6 +179,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSButton call:viewDidMoveToSuperview/0": {
    "27.0.1": true
   },
   "NSButton call:viewDidMoveToWindow/0": {
@@ -228,6 +227,12 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "NSClipView call:setBoundsOrigin/1": {
+   "27.0.1": true
+  },
+  "NSClipView call:setFrameSize/1": {
    "27.0.1": true
   },
   "NSCollectionView call:concludeDragOperation/1": {
@@ -822,16 +827,13 @@
    "27.0": true,
    "27.0.1": true
   },
-  "NSView call:cursorUpdate/1": {
+  "NSView call:didAddSubview/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
   },
-  "NSView call:didAddSubview/1": {
-   "26.5.2": true,
-   "26.7": true,
-   "27.0": true,
+  "NSView call:draw/1": {
    "27.0.1": true
   },
   "NSView call:flagsChanged/1": {
@@ -922,6 +924,12 @@
    "27.0.1": true
   },
   "NSView call:performKeyEquivalent/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true
+  },
+  "NSView call:prepareContent/1": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,

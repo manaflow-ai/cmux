@@ -3,9 +3,9 @@
 // "Running in background · …" header, or open) and the composer, with synthetic data: several
 // subagents in the background and one chat waiting on you.
 // test/agent-pane-bottom-stack-edges.test.ts measures every card's left and right edge and the
-// gaps between them here.
+// gaps between them here, and the recap card's edges in the `recap` variant.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
-import { assistant, chat, row, session, SESSION_ID, user } from "../../gallery/fixtures/acpmux";
+import { assistant, chat, row, session, SESSION_ID, summary, user } from "../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../gallery/clock";
 import type { PlayContext } from "../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -63,6 +63,7 @@ function stack(working: boolean, { tray = true }: { tray?: boolean } = {}) {
             sessionId: "stack-child-waiting",
             title: "Review the resize fix",
             spawnedBy: SESSION_ID,
+            startedBy: SESSION_ID,
             indicator: "input",
             status: "waiting",
             createdAt: minutesAgo(6),
@@ -125,6 +126,19 @@ export default agentPaneEntry({
     ),
     "no-tray": variant("Selected, no subagents: nothing stands over the composer.", false, { tray: false }),
     expanded: variant("Selected, the turn running: the tray open, a line each.", true),
+    recap: {
+      note: "The turn ended on a question (the agent.sessionStatus Debug toggle on): the recap card over the composer, on the card's two edges at every width.",
+      sessionStatus: true,
+      snapshot: chat([
+        user("Fan out on the picker and the composer", 14),
+        assistant("The picker and the composer checks are done.\n\nShould I open a PR for this?", 2),
+        summary(2, { status: "completed", durationMs: 48_000, toolCount: 2 }),
+      ]),
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-recap__card"));
+        await settled(ctx);
+      },
+    },
     cards: variant(
       "Alternative stack look (separate cards): the tray keeps its own rounded card on the composer's two edges, one 4px step apart.",
       false,

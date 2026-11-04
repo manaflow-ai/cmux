@@ -27,10 +27,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
     private let daemonPrestart: DaemonPrestart?
-    /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
-    private let launchSettle = LaunchSettle()
+    /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
+    private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
-    let firstFrame = FirstFrameGate()
+    let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
@@ -80,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
+        let firstFrame = FirstFrameGate()
+        self.firstFrame = firstFrame
+        launchSettle = LaunchSettle(firstFrame: firstFrame)
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
@@ -139,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -199,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             CATransaction.setCompletionBlock { [weak self] in
                 MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
                     DebugTimings.markLaunch("first_window_frame_committed")
+                    TerminalLaunchFrames.closeLaunches() // the terminals that asked by now are this frame's
                     self?.firstFrame.open()
                 }
             }
@@ -326,7 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bundleID: bundleID
             )
         )
-        settings.start(announcingDiagnostics: true)
+        settings.start(announcingDiagnostics: true, rotatingFavoriteThemes: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch, configureAdmission: services.iphone.followPhoneAccess)
@@ -547,8 +551,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settings?.stop()
         services?.mobile.stop()
         services?.iphone.stop()
+        services?.dockMenu.stop()
         services?.daemon.shutdownConnection()
     }
+
+    /// The Dock icon's menu, from rows the controller already holds: it never waits on acpmux or disk.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? { services?.dockMenu.menu() }
 
     /// The app stays running with no windows (standard macOS behavior): a window closes when its
     /// last workspace closes, and the daemon keeps every terminal regardless.
@@ -561,6 +569,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
         // A Dock click in an update relaunch's startup: the user chose cmux.
         services?.input.endRelaunchBehind("dock click", activating: true)
+        // A Dock click or an open of the running app under CMUX_NEXT_NO_ACTIVATE=1: the user chose
+        // cmux, so its activation is not handed back (https://github.com/manaflow-ai/cmux/issues/34575).
+        services?.input.noteReopenRequested()
         guard let services, !hasVisibleWindows || services.background.isBackground else { return true }
         services.windows.reopenOrCreateWindow()
         return false

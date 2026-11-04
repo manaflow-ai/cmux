@@ -16,7 +16,7 @@ import { newApiKeyId, newSnapshotId, newVmId, TenantId, UpstreamId, UserId, type
 import { memoryLimitsLayer, type TenantLimits } from "../../src/limits/service.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { tenantPolicyLayer } from "../../src/policy.ts";
-import { Entitlements } from "../../src/proofs/tenant-may-create.ts";
+import { Entitlements, entitlementsFromPolicyLayer } from "../../src/proofs/tenant-may-create.ts";
 import { UpstreamClient } from "../../src/upstream/client.ts";
 import { makeUpstreamClient } from "../../src/upstream/live.ts";
 import { parseVmImages, VmImages } from "../../src/upstream/live-images.ts";
@@ -24,7 +24,7 @@ import { makeFakeUpstream } from "./fake-upstream.ts";
 import { makeS3aFakes } from "./s3a-fakes.ts";
 import { TeamAdmin } from "../../src/auth/team-admin.ts";
 import { ApiKeyAdminStore } from "../../src/db/api-keys.ts";
-import { ServiceKeys } from "../../src/auth/service-keys.ts";
+import { applyServiceScopeGrants, parseServiceScopeGrants, ServiceKeys } from "../../src/auth/service-keys.ts";
 import { makeMeshFakes, type MeshFakeOptions } from "./mesh-fakes.ts";
 import { AgentStore, type ClientSessionRow } from "../../src/db/agents.ts";
 
@@ -35,6 +35,8 @@ const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
   readonly limits?: Layer.Layer<TenantLimits>;
+  /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
+  readonly serviceScopeGrants?: string;
   /** Operator-approved image configuration, as supplied to the Worker. */
   readonly bootImages?: string;
   readonly httpsProxyOrigins?: ReadonlyArray<string>;
@@ -42,6 +44,11 @@ export interface HarnessOptions {
   readonly environment?: "local" | "staging" | "production";
   /** Tenants treated as dev/test in production. */
   readonly devTestTenants?: ReadonlyArray<string>;
+  /**
+   * Use the Worker's own entitlement rules (entitlementsFromPolicyLayer) instead of the setBilling list, with these
+   * MANAFLOW_TEAM_TENANT_IDS and CMUX_VM_ENTITLED_SERVICE_IDS values.
+   */
+  readonly policyEntitlements?: { readonly manaflowTenantIds?: ReadonlyArray<string>; readonly entitledServiceIds?: ReadonlyArray<string> };
   /** Live VMs per tenant. */
   readonly maxVms?: number;
   /** Live snapshots per tenant. */
@@ -155,6 +162,11 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row))),
       ),
+    findMany: (tenantId, kind, cmuxIds) =>
+      Effect.sync(() => {
+        const wanted = new Set(cmuxIds);
+        return new Map(resources.filter((row) => row.tenantId === tenantId && row.kind === kind && wanted.has(row.cmuxId) && live(row)).map((row) => [row.cmuxId, row] as const));
+      }),
     record: (resource) => Effect.gen(function* () {
       if (resource.kind === "mesh" && meshRecordFault.before > 0) { meshRecordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
       if (resource.kind === "vm" && recordFault.before > 0) { recordFault.before--; return yield* Effect.fail(new StoreError({ operation: "ownership.record", cause: "injected before commit" })); }
@@ -209,11 +221,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
     ...(options.maxSnapshots === undefined ? {} : { maxSnapshots: options.maxSnapshots }),
     ...(options.ratePerMinute === undefined ? {} : { ratePerMinute: options.ratePerMinute }),
     ...(options.maxUploadBytes === undefined ? {} : { maxUploadBytes: options.maxUploadBytes }),
+    ...options.policyEntitlements,
   });
 
-  const entitlements = Layer.succeed(Entitlements, {
-    mayCreate: (tenantId) => Effect.sync(() => billed.has(tenantId)),
-  });
+  const entitlements = options.policyEntitlements === undefined
+    ? Layer.succeed(Entitlements, {
+      mayCreate: (caller) => Effect.sync(() => billed.has(caller.tenantId)),
+    })
+    : entitlementsFromPolicyLayer.pipe(Layer.provide(policy));
 
   const apiKeys = Layer.succeed(ApiKeyStore, {
     findActiveByHash: (hash, now) =>
@@ -245,13 +260,20 @@ export async function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(ServiceKeys, {
       find: (sha256) =>
         Effect.sync(() =>
-          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) => ({
-            id: key.id,
-            sha256: key.sha256,
-            scopes: new Set(key.scopes),
-            labels: key.labels,
-            teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
-          })),
+          Option.map(Option.fromNullable(serviceKeys.find((key) => key.sha256 === sha256)), (key) =>
+            applyServiceScopeGrants(
+              [
+                {
+                  id: key.id,
+                  sha256: key.sha256,
+                  scopes: new Set(key.scopes),
+                  labels: key.labels,
+                  teams: key.teams === null ? null : new Set(key.teams.map((team) => TenantId.make(team))),
+                },
+              ],
+              parseServiceScopeGrants(options.serviceScopeGrants).grants,
+            )[0]!,
+          ),
         ),
     }),
     auditStore,

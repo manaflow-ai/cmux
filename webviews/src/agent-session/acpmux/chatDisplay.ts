@@ -11,6 +11,7 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
 import { isArm } from "../../experiments/experiment";
 import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
 
@@ -26,6 +27,9 @@ export type ChatFontChoice = ChatFontPreset | "markdown";
 export type EnvironmentPlacement = "left" | "right" | "off";
 
 export interface ChatDisplay {
+  /** Null preserves the existing Debug placement until an ordinary preference is saved. */
+  harnessPlacement: HarnessPlacement | null;
+  managedHarnessPlacement: HarnessPlacement | null;
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.
   width: number;
   fullWidth: boolean;
@@ -57,8 +61,8 @@ export interface ChatDisplay {
 }
 
 /// Settings > Agent Chat > Session Info (Swift AgentPaneDisplaySettingsSchema has the same row).
-/// The saved settings key keeps its old `inspector` name, so a saved Push or Overlay choice survives.
-export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// The host sends a value saved under the row's old key under this one (Swift RenamedSettingKeys).
+export const SESSION_INFO_PLACEMENT_KEY = "agentPane.display.sessionInfo.placement";
 export const RAIL_SIDE_KEY = "agentPane.display.rail.side";
 /// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
 export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
@@ -67,11 +71,19 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
+/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
+/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
+/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
+/// Not part of ChatDisplay: switching it measures no transcript row again.
+export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 /// Settings > Updates > Show Feature Tips (featureTips.tsx), on unless set false. The host sends it
 /// with the chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
+/// cmux-next.json only: the command rules and presets the running tray names background commands
+/// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
+export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
 
 /// Settings > Agent Chat > Transcript View (conversation/transcriptView.ts): how much of each turn a
 /// chat without a view of its own shows. Not part of ChatDisplay: a switch measures no row again by
@@ -111,6 +123,8 @@ export const MARKDOWN_FOLLOWED = {
 } as const;
 
 export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
+  harnessPlacement: null,
+  managedHarnessPlacement: null,
   width: CHAT_DISPLAY.width.fallback,
   fullWidth: false,
   font: "system",
@@ -172,6 +186,8 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       ? (values[MARKDOWN_FOLLOWED.font] as ChatFontPreset)
       : "system";
   return {
+    harnessPlacement: harnessPlacement(values[HARNESS_PLACEMENT_KEY]),
+    managedHarnessPlacement: harnessPlacement(values[`${HARNESS_PLACEMENT_KEY}.managed`]),
     width: number(values[CHAT_DISPLAY.width.key], CHAT_DISPLAY.width) ?? DEFAULT_CHAT_DISPLAY.width,
     fullWidth: values[CHAT_DISPLAY.fullWidth.key] === true,
     font,
@@ -250,10 +266,12 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let pinnedPlanOn = false;
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = true;
+let commandLabels = "null";
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -269,23 +287,29 @@ export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   const next = resolveChatDisplay(raw);
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
   const view = isTranscriptView(stored) ? stored : "normal";
   const storedPresentation = raw[PRESENTATION_KEY];
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] !== false;
+  const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const same = JSON.stringify(next) === JSON.stringify(current);
   if (
     same &&
     minimap === minimapOn &&
+    pinnedPlan === pinnedPlanOn &&
     threadMinimap === threadMinimapArm &&
     view === transcriptView &&
     nextPresentation === presentation &&
-    tips === featureTipsOn
+    tips === featureTipsOn &&
+    labels === commandLabels
   )
     return;
+  commandLabels = labels;
   minimapOn = minimap;
+  pinnedPlanOn = pinnedPlan;
   threadMinimapArm = threadMinimap;
   transcriptView = view;
   presentation = nextPresentation;
@@ -360,6 +384,9 @@ export const defaultPresentation = (): Presentation => presentation;
 export const useDefaultPresentation = (): Presentation =>
   useSyncExternalStore(subscribe, presentationSnapshot, presentationSnapshot);
 const featureTipsSnapshot = () => featureTipsOn;
+const pinnedPlanSnapshot = () => pinnedPlanOn;
+/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
+export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.

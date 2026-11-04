@@ -3,8 +3,9 @@
 // thinking not collapsing too hard but also collapsing more bullshit"). A long agent turn, with
 // thoughts, tool calls with output, an edit, render calls, a background task's notification,
 // bookkeeping the person never typed and another agent's message, is drawn collapsed, opened and
-// collapsed again. In each state every mounted row starts where the row above it ends, and no row
-// over 40px tall is mostly empty.
+// collapsed again. In each state every drawn row starts one grid gap under the row above it (the
+// virtual stack places that gap between rows, #27580: design/grid.md 5.5 and transcript-spacing.md),
+// never a band of any other size, and no row over 40px tall is mostly empty.
 //
 // Before: the transcript dropped a measured height of 0 as "not laid out", so a row that draws
 // nothing (a step of only quiet thoughts) kept its estimate, 26px per item, as a blank band under
@@ -19,9 +20,19 @@ import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
+  /// The gaps the stack places between two drawn rows (transcriptGrid.ts transcriptGap): the footer
+  /// gap under a reply, the block gap, the turn gap around a prompt, and the run gap where the grid has it.
+  const gapTokens = ["gap-footer", "gap-block", "gap-turn", "gap-run"].flatMap((name) => {
+    try {
+      return [gridLength(name)];
+    } catch {
+      return [];
+    }
+  });
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
@@ -201,6 +212,8 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
           let top = Number.POSITIVE_INFINITY;
           let bottom = Number.NEGATIVE_INFINITY;
           for (const child of node.querySelectorAll<HTMLElement>("*")) {
+            // The row's selection target over the gap the stack placed under it draws nothing.
+            if (child.closest(".acpmux-row__gap")) continue;
             const rect = child.getBoundingClientRect();
             const style = getComputedStyle(child);
             if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden") continue;
@@ -222,25 +235,30 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
         })
         .sort((a, b) => a.top - b.top),
     );
-  /// The blank bands in the transcript: a row that starts past where the row above it ends, a row
-  /// that draws nothing but takes room, and a row taller than 40px whose content leaves more than
-  /// 40px of it empty.
+  /// The blank bands in the transcript: a drawn row that starts past the row above it by anything
+  /// but one of the grid's gaps, a row that draws nothing but takes room, a row that takes no room but
+  /// draws, and a row taller than 40px whose content leaves more than 40px of it empty.
   const blankSpace = async (page: Page) => {
     const rows = await drawnRows(page);
-    const gaps = rows
-      .slice(1)
-      .map((row, index) => ({
-        after: rows[index]!.id,
-        before: row.id,
-        gap: row.top - rows[index]!.top - rows[index]!.height,
-      }))
-      .filter((each) => Math.abs(each.gap) > 1)
+    // A row of no height takes no room: the gap runs from the drawn row above it to the next one.
+    const drawn = rows.filter((row) => row.height > 1);
+    const spacing = drawn.slice(1).map((row, index) => ({
+      after: drawn[index]!.id,
+      before: row.id,
+      gap: row.top - drawn[index]!.top - drawn[index]!.height,
+    }));
+    const gaps = spacing
+      .filter((each) => Math.abs(each.gap) > 1 && !gapTokens.some((token) => Math.abs(each.gap - token) <= 1))
       .map((each) => `${Math.round(each.gap)}px between ${each.after} and ${each.before}`);
     const empty = rows
       .filter((row) => !row.footer)
-      .filter((row) => (row.content === 0 ? row.height > 1 : row.height > 40 && row.height - row.content > 40))
+      .filter((row) =>
+        row.height <= 1 ? row.content > 1 : row.content === 0 || (row.height > 40 && row.height - row.content > 40),
+      )
       .map((row) => `${row.id} is ${Math.round(row.height)}px with ${Math.round(row.content)}px drawn`);
-    return { ids: rows.map((row) => row.id), blank: [...gaps, ...empty] };
+    const gapBetween = (after: string, before: string) =>
+      spacing.find((each) => each.after === after && each.before === before)?.gap;
+    return { ids: rows.map((row) => row.id), blank: [...gaps, ...empty], gapBetween };
   };
   const open = async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -267,6 +285,11 @@ await requireBrowserLane("transcript-fold-no-blank-space-browser.test.ts", async
     expect(folded.blank).toEqual([]);
     for (const id of ["a1", "n1", "a3", "a4", "a5"]) expect(folded.ids).not.toContain(id);
     expect(folded.ids).toContain("ans1");
+    // The gaps are the spec's: the turn gap over and under the person's prompt (Leo's centring,
+    // settled-spacing turn-gap), the footer gap between a reply and its footer row.
+    expect(folded.gapBetween("date-u1", "u1")).toBeCloseTo(gridLength("gap-turn"), 0);
+    expect(folded.gapBetween("u1", "worked-u1")).toBeCloseTo(gridLength("gap-turn"), 0);
+    for (const n of [2, 3, 4]) expect(folded.gapBetween(`ans${n}`, `s${n}`)).toBeCloseTo(gridLength("gap-footer"), 0);
 
     await toggle(page);
     const opened = await blankSpace(page);

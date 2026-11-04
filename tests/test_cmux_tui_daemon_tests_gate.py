@@ -136,7 +136,8 @@ class DaemonTestsGateTests(unittest.TestCase):
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
         runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
-        self.assertNotIn("vars.", runs_on)
+        self.assertNotIn("vars.MACOS_RUNNER", runs_on)
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", runs_on)
         self.assertNotIn("inputs.", runs_on)
         for daemon in ("", DAEMON_LABEL, PROMOTE_LABEL, LIGHT_LABEL, SIDE_LABEL):
             for context in contexts(CI_NEXT_DAEMON_POOL=daemon):

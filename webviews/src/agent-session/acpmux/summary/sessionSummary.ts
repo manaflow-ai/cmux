@@ -19,8 +19,14 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp";
-export type SummarySource = { url?: string; label: string; kind?: SummarySourceKind };
+export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp" | "image";
+/// `image`: a pasted image's id in its prompt, and its bytes when the prompt carried them.
+export type SummarySource = {
+  url?: string;
+  label: string;
+  kind?: SummarySourceKind;
+  image?: { id: string; src?: string };
+};
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -96,6 +102,7 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => {
   const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  if (source.image) return `image:${source.image.id}`;
   return github
     ? `github:${github[1]!.toLowerCase()}/${github[2]!.toLowerCase()}#${github[3]}`
     : `${source.kind ?? "url"}:${source.url ?? source.label}`;
@@ -134,8 +141,8 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
-/// Read-only PR/issue references, tool sources and settled reply URLs in transcript encounter
-/// order; each appears once.
+/// Read-only PR/issue references, tool sources, settled reply URLs and the images the person
+/// pasted into their prompts, in transcript encounter order; each appears once.
 function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullRequest[]): SummarySource[] {
   const seen = new Map<string, { source: SummarySource; order: number; sequence: number }>();
   let sequence = 0;
@@ -179,6 +186,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     }
   };
   for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind === "user") {
+      // The person's own sent images only: another agent's or the Chief's prompt is not what they
+      // pasted, and a prompt that failed to send gave the agent nothing.
+      if (!row.untyped && !row.from && !row.failed)
+        for (const image of row.images ?? [])
+          add({ label: image.name ?? "", kind: "image", image: { id: image.id, src: image.src } }, rowIndex);
+      continue;
+    }
     if (row.kind === "assistant") {
       if (!row.streaming) addUrls(row.text ?? "", rowIndex);
       continue;

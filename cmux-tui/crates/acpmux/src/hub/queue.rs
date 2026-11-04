@@ -14,6 +14,9 @@ use std::sync::atomic::Ordering;
 // A prompt dequeued for a turn that never started goes back at the head (`restore_queue`).
 #[path = "lost_start.rs"]
 mod lost_start;
+// A direct prompt accepted before its turn started goes back at the head (`restore_queue`).
+#[path = "unstarted_prompt.rs"]
+mod unstarted_prompt;
 // The waiting records and the order a restore reads, indexed (`restore_queue`).
 #[path = "queue_waiting.rs"]
 mod queue_waiting;
@@ -104,6 +107,7 @@ pub(super) struct PromptRun {
     /// records and used only to rebuild the transcript; it never crosses the agent boundary.
     pub(super) display_parts: Option<Value>,
     pub(super) control: Control,
+    pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
     pub(super) provenance: Option<Value>,
@@ -133,6 +137,7 @@ pub(super) struct Slot<'a> {
     pub(super) client: &'a str,
     pub(super) prompt_id: &'a str,
     pub(super) control: Control,
+    pub(super) cloud_mobile: bool,
     pub(super) trust_gate: bool,
     /// A steer the agent cannot take (`_meta.acpmux.interrupt`): it goes to the head of the
     /// queue and the running turn stops.
@@ -406,6 +411,7 @@ impl Hub {
                                 blocks: p.blocks.to_vec(),
                                 display_parts: p.display_parts.cloned(),
                                 control: p.control,
+                                cloud_mobile: p.cloud_mobile,
                                 trust_gate: p.trust_gate,
                                 provenance: p.provenance.cloned(),
                                 agent: p.agent.map(str::to_owned),
@@ -545,6 +551,7 @@ impl Hub {
             prompt_id,
             message_id: run.message_id.clone(),
             control,
+            cloud_mobile: run.cloud_mobile,
             trust_gate,
             // An inbox digest whose turn ended first waits behind the person's prompts
             // (`enqueue`), and stops no turn.
@@ -627,7 +634,7 @@ impl Hub {
         // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
         // run it (`restore_queues`). Made, and its images kept, before the queue's lock: a large
         // image is written without holding up the queue.
-        let mut queued = json!({"text": p.text, "client": p.client, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        let mut queued = json!({"text": p.text, "client": p.client, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate, "cloudMobile": p.cloud_mobile});
         if let Some(agent) = p.agent {
             queued.set("fromAgent", json!(agent));
         }
@@ -723,6 +730,7 @@ impl Hub {
                     blocks: p.blocks.to_vec(),
                     display_parts: p.display_parts.cloned(),
                     control: p.control,
+                    cloud_mobile: p.cloud_mobile,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
@@ -1145,6 +1153,58 @@ impl Hub {
     /// or removed, in queue order, after any dequeued whose turn never started (`lost_start.rs`).
     /// They run once `resume_restored` starts them; a client that resends one meanwhile waits for
     /// that run (the ledger entry made here).
+    /// Logs a `queued` copy, at the head and under the same ids, of each accepted direct prompt
+    /// whose turn never started (`unstarted_prompt.rs`), and returns the copies. None while a turn
+    /// runs (it may be that prompt's, starting its agent), and none for a prompt the ledger still
+    /// waits on, one the log settled meanwhile (a Stop: `logged_prompt`), or one whose blocks
+    /// cannot be rebuilt (hidden context, a document): a client resend of those still runs it.
+    fn requeue_unstarted(
+        &self,
+        session: &Arc<Session>,
+        left: Vec<EventRecord>,
+    ) -> Vec<EventRecord> {
+        if left.is_empty() || session.turn().is_some() {
+            return Vec::new();
+        }
+        let mut copies = Vec::new();
+        for e in left {
+            let field = |k: &str| e.msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+            let (prompt_id, turn_id) = (field("promptId"), field("turnId"));
+            let pending = {
+                let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+                ledger.iter().any(|(id, o)| *id == prompt_id && o.borrow().is_none())
+            };
+            if pending || self.logged_prompt(session, &prompt_id).is_some() {
+                continue;
+            }
+            let Some(blocks) = self.logged_prompt_blocks(session, &e.msg) else {
+                tracing::warn!(session = %session.id, prompt = %prompt_id, "an unstarted prompt cannot be rebuilt; a resend runs it");
+                continue;
+            };
+            let mut queued = json!({
+                "text": field("text"),
+                "client": e.msg.get("client").cloned().unwrap_or(json!("acpmux")),
+                "position": 0,
+                "promptId": prompt_id,
+                "turnId": turn_id,
+                "prompt": blocks,
+                // Checked again: the folder's trust may have changed across the restart.
+                "trustGate": true,
+                "restored": "unstarted",
+            });
+            for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
+                if let Some(v) = e.msg.get(k) {
+                    queued.set(k, v.clone());
+                }
+            }
+            let (record, stored) = self.append_logged(session, "mux", "queued", queued, None);
+            if stored {
+                copies.push(record);
+            }
+        }
+        copies
+    }
+
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {
         self.restore_queue_only(session, None);
     }
@@ -1173,6 +1233,7 @@ impl Hub {
         let mut pair_records: Vec<EventRecord> = Vec::new();
         let mut recorded: std::collections::HashSet<String> = Default::default();
         let mut unstarted = lost_start::Unstarted::default();
+        let mut direct = unstarted_prompt::Unstarted::default();
         let mut digests = queue_waiting::Digests::default();
         let mut branch = session.meta().git_branch;
         let scanned =
@@ -1182,6 +1243,7 @@ impl Hub {
                     order.remove(&prompt_id);
                 }
                 digests.read(&e);
+                direct.read(&e);
                 let turn_id = e.msg.get("turnId");
                 // Queued or run again under another turn id (a daemon that had not restored it
                 // took its id as new): that copy is the prompt's, so this one does not run too.
@@ -1206,6 +1268,13 @@ impl Hub {
                         if super::auto_resume::Cut::queued(
                             e.msg.pointer("/_meta/provenance/reason").and_then(Value::as_str),
                         ) && let Some(id) = e.msg.get("promptId")
+                        {
+                            order.prioritize_restart(id);
+                        }
+                        // An accepted prompt a restart put back (`unstarted_prompt.rs`) stays at
+                        // the head across a second restart before it ran.
+                        if e.msg.get("restored").and_then(Value::as_str) == Some("unstarted")
+                            && let Some(id) = e.msg.get("promptId")
                         {
                             order.prioritize_restart(id);
                         }
@@ -1339,6 +1408,13 @@ impl Hub {
             *session.moving.lock().unwrap_or_else(|e| e.into_inner()) =
                 transfer_out::restored_moving(scanned.is_ok(), moving);
         }
+        // Accepted direct prompts whose turn never started go back first (`unstarted_prompt.rs`).
+        if scanned.is_ok() && only.is_none() {
+            for e in self.requeue_unstarted(session, direct.finish()) {
+                order.prioritize_restart(e.msg.get("promptId").unwrap_or(&Value::Null));
+                waiting.push(e);
+            }
+        }
         // An inbox digest whose turn never started gives its messages back in its place.
         digests.finish(&mut waiting, &mut order, |id, order| {
             unstarted.key(Some(&json!(id)), order).unwrap_or_else(|| order.key(Some(&json!(id))))
@@ -1381,6 +1457,7 @@ impl Hub {
             };
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
+            let cloud_mobile = e.msg.get("cloudMobile").and_then(Value::as_bool).unwrap_or(false);
             let provenance = crate::prompt_provenance::recorded(&e.msg).filter(|p| p.is_object());
             // An inbox notice is never run again: what it carried is new again (`inbox.rs`).
             if super::inbox::is_notice(provenance.as_ref()) {
@@ -1429,6 +1506,7 @@ impl Hub {
                         display_parts,
                         control,
                         trust_gate,
+                        cloud_mobile,
                         provenance,
                         agent,
                         class,
@@ -1502,6 +1580,13 @@ impl Hub {
             if !asked && self.hold_in_protected_folder(session) {
                 continue;
             }
+            // A copy's first start: no restored wait or held message goes in (`clone_boot.rs`).
+            // Its retry wait is settled for good (`restore_auto_resume` writes the skip).
+            if self.clone_of().is_some() {
+                self.restore_auto_resume(session);
+                self.start_restored(session);
+                continue;
+            }
             self.restore_auto_resume(session);
             // What the restored inbox holds new goes in as it may (`inbox.rs`).
             {
@@ -1538,6 +1623,7 @@ impl Hub {
                         prompt_id: Some(q.prompt_id.clone()),
                         message_id: q.run.message_id.clone(),
                         control: q.run.control,
+                        cloud_mobile: q.run.cloud_mobile,
                         trust_gate: q.run.trust_gate,
                         // Who sent it: a queued agent message stays that agent's after a restart.
                         provenance: q.run.provenance.clone(),

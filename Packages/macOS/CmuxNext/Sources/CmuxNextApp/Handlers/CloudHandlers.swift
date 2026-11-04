@@ -61,7 +61,7 @@ enum CloudHandlers {
                     CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat)
                     return nil
                 }
-                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user,
+                let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
                                          askedBy: invocation.callerAgentSession, reveals: invocation.allowsViewChange)
                 guard request.isDefault else {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
@@ -103,9 +103,8 @@ enum CloudHandlers {
     /// Only a person's own gesture in this app may mean "the machine I'm looking at" (the active
     /// window's machine, else the only one). A CLI, MCP, script, page or remote run must name
     /// its machine (`--target machine:<id>`): an agent's `cloud kill-machine --confirm true`
-    /// never kills whatever machine the window happens to show. `fallsBack` keeps the old
-    /// fallback for an action whose miss costs nothing (New Cloud Workspace).
-    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
+    /// never kills whatever machine the window happens to show.
+    static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
             // The Cloud machine id (`cloud diagnostics`, `new-machine`), or the `machine_…`
@@ -116,7 +115,7 @@ enum CloudHandlers {
             }
             return session
         }
-        guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
+        guard origin(of: invocation) == .user else { throw ActionFailure(message: CloudStrings.noMachine) }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
         if machines.cloud.count == 1, let only = machines.cloud.first { return only }
         throw ActionFailure(message: CloudStrings.noMachine)
@@ -165,7 +164,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
+                return ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))
             }
         }
         context.services.registry.track(task)
@@ -349,16 +348,18 @@ enum CloudHandlers {
     /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
     /// waits for its daemon instead of refusing with "not connected". A
     /// legacy machine with no connection reads its record again first, since
-    /// the app's copy may still say running. A machine that is not paused
-    /// returns at once, as before.
+    /// the app's copy may still say running. `waitsForLink` (Open Machine, Leo 2026-11-01: "when i tried to
+    /// click it this happens"): a person's gesture also waits for the link the attach started; else returns.
     static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
-                         within limit: Duration = .seconds(300)) async throws {
+                         within limit: Duration = .seconds(300), waitsForLink: Bool = false) async throws {
         try requireAttachableState(session)
         await session.refreshIfMaybePaused()
         try requireAttachableState(session)
         session.attach(origin: connectOrigin(for: invocation))
-        guard session.resuming else { return }
         let daemon = session.daemon
+        if waitsForLink, origin(of: invocation) == .user, !session.resuming, daemon.connection == nil, let reason = await CloudWait.linkFailure(
+            within: limit, connected: { daemon.connection != nil }, failure: { session.stage.failure }, deadline: CloudStrings.notConnected) { throw ActionFailure(message: reason) }
+        guard session.resuming else { return }
         _ = await CloudWait.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
         if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
         guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
@@ -379,15 +380,12 @@ enum CloudHandlers {
     }
 
     static func requireAttachableState(_ session: CloudMachineSession) throws {
-        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) {
-            throw ActionFailure(message: reason)
-        }
+        if let reason = CloudStrings.machineChanging(session.machine.shownStatus) { throw ActionFailure(message: reason) }
     }
 
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
-        guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
-            throw ActionFailure(message: CloudStrings.commandRequired)
-        }
+        let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !command.isEmpty else { throw ActionFailure(message: CloudStrings.commandRequired) }
         return command
     }
 }

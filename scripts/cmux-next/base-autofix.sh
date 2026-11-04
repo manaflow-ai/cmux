@@ -11,7 +11,10 @@
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
-#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
+#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk),
+#     and the seven SDKs' .cmux-resource-api.json descriptors from
+#     cmux-tui/spec/resource-operations-v2.json
+#     (cmux-tui/bindings/rust/scripts/sync-resource-api.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
 #     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -50,7 +53,12 @@
 # action-surfaces.json, so they run after --generated copied the regenerated
 # exports in. With --unverified-exports (the exports' inputs changed but their
 # Mac job did not regenerate them on this tree) both are left and reported,
-# never rewritten from a possibly stale export. --unverified-exports and
+# never rewritten from a possibly stale export. With --app-host-committed-exports
+# (the base autofix: the committed export is the base's own, and app platform
+# checks the app-host files against it) the app-host files are still rewritten
+# from the committed export and the operation catalogs, so an operation catalog
+# change never waits on the Mac job; the run that lands the regenerated exports
+# rewrites them again. --unverified-exports and
 # --unverified-settings-exports (the settings exports' inputs changed but the
 # Mac job did not regenerate them) also leave the defaults snapshot, which
 # reads both exports.
@@ -58,10 +66,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -71,16 +79,17 @@ while (( $# > 1 )); do
     --capabilities) capabilities=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
+    --app-host-committed-exports) app_host_committed=1; shift ;;
     --unverified-exports) unverified_exports=1; shift ;;
     --unverified-settings-exports) unverified_settings=1; shift ;;
     --ratchets) ratchets=1; shift ;;
     --cloud-clients) cloud_clients=1; shift ;;
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -123,16 +132,28 @@ fi
 # 1c. (Page strings: build output since #21946, never committed. --strings is
 # still accepted, as a no-op, for callers that pass it.)
 
-# 1d. SDK wire layers. A frozen one is put back as it was and reported.
-if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
-  if ! python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --check >/dev/null 2>&1; then
-    python3 -I "$repo/cmux-tui/bindings/codegen/generate.py" --write >/dev/null
+# 1d. SDK wire layers, and the SDKs' resource API descriptors (their
+# catalog_sha256 goes stale on any resource-operations-v2.json change: #23191,
+# #34498). A frozen one is put back as it was and reported.
+if (( sdk )); then
+  codegen="$repo/cmux-tui/bindings/codegen/generate.py"
+  resource_sync="$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
+  sdk_stale=0
+  if [[ -f "$codegen" ]] && ! python3 -I "$codegen" --check >/dev/null 2>&1; then
+    python3 -I "$codegen" --write >/dev/null
+    sdk_stale=1
+  fi
+  if [[ -f "$resource_sync" ]] && ! python3 -I "$resource_sync" --check >/dev/null 2>&1; then
+    python3 -I "$resource_sync" >/dev/null
+    sdk_stale=1
+  fi
+  if (( sdk_stale )); then
     changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- cmux-tui/bindings)"
     while IFS= read -r rel; do
       [[ -n "$rel" ]] || continue
       if frozen "$rel"; then
         git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
-        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write)"
+        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write and python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py)"
       else
         echo "fixed: regenerated $rel"
       fi
@@ -155,8 +176,11 @@ fi
 shortcuts=web/data/cmux-shortcuts.generated.json
 if (( unverified_exports )); then
   (( docs_shortcuts )) && echo "left: $shortcuts (waits for the action exports; their Mac job did not regenerate them)"
-  (( app_host )) && echo "left: cmux-tui/crates/cmux-app-host/generated (waits for the action exports; their Mac job did not regenerate them)"
-  docs_shortcuts=0 app_host=0
+  if (( app_host && !app_host_committed )); then
+    echo "left: cmux-tui/crates/cmux-app-host/generated (waits for the action exports; their Mac job did not regenerate them)"
+    app_host=0
+  fi
+  docs_shortcuts=0
 fi
 if (( docs_shortcuts )) && [[ -f "$repo/web/scripts/export-docs-shortcuts.ts" ]]; then
   before="$(cksum < "$repo/$shortcuts" 2>/dev/null || true)"

@@ -146,19 +146,30 @@ pub(crate) const MODE_FIELDS: &[&str] = &[
     "sandbox_mode",
 ];
 
-/// Config options a Web connection may set to any value: they choose a model
-/// or how hard it thinks, never what runs without asking.
-pub(crate) const FREE_CONFIG_IDS: &[&str] =
-    &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
+/// Config options a Web connection may set to any value: they choose a model,
+/// how hard it thinks or whether the chat shows a recap when the person comes
+/// back (`session-recap`), never what runs without asking.
+pub(crate) const FREE_CONFIG_IDS: &[&str] = &[
+    "model",
+    "effort",
+    "reasoning_effort",
+    "thought_level",
+    "thinking",
+    crate::claude_stdio::RECAP_OPTION,
+];
 
 /// Config options a chat may bring back from another machine with any value
 /// (`transfer_guard.rs` `web_guard_modes`), though the Web may not set them:
 /// Claude's `ultracode` (its top effort; its subagents still ask as the chat's
 /// mode says) and `fast-mode` (its output speed, which only trusted pages and
-/// the CLI toggle, `tests/remote_guard.rs`). Neither decides what runs without
-/// asking.
-pub(crate) const CARRIED_CONFIG_IDS: &[&str] =
-    &[crate::claude_stdio::ULTRACODE_OPTION, "fast-mode"];
+/// the CLI toggle, `tests/remote_guard.rs`), and Claude's `prompt-suggestions` (whether a
+/// next prompt is suggested after a turn, `claude_stdio/prompt_suggestions.rs`). None decides
+/// what runs without asking.
+pub(crate) const CARRIED_CONFIG_IDS: &[&str] = &[
+    crate::claude_stdio::ULTRACODE_OPTION,
+    "fast-mode",
+    crate::claude_stdio::prompt_suggestions::OPTION,
+];
 
 fn non_asking(mode: &str) -> bool {
     NON_ASKING_MODES.iter().any(|(_, modes)| modes.contains(&mode))
@@ -340,7 +351,7 @@ pub(crate) fn any_mode_for_web(
 pub(crate) fn mode_of(m: &SessionMeta) -> Option<String> {
     let from_modes = m.modes.as_ref().and_then(|v| v.get("currentModeId")).and_then(Value::as_str);
     let from_option = || {
-        m.config_options.as_ref().and_then(Value::as_array).and_then(|a| {
+        m.config_options.as_deref().and_then(Value::as_array).and_then(|a| {
             a.iter()
                 .find(|o| o.get("id").and_then(Value::as_str) == Some("mode"))
                 .and_then(|o| o.get("currentValue"))
@@ -379,5 +390,13 @@ mod remote_start_tests {
             remote_start(&table, "claude", &claude),
             Ok(vec!["default".to_string(), "plan".to_string()])
         );
+    }
+
+    /// A new Claude chat carries `prompt-suggestions` in its options (on by default), and a
+    /// chat brought back from another machine keeps it: it never decides what runs unasked.
+    #[test]
+    fn prompt_suggestions_is_carried_with_any_value() {
+        assert!(CARRIED_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
+        assert!(!FREE_CONFIG_IDS.contains(&crate::claude_stdio::prompt_suggestions::OPTION));
     }
 }

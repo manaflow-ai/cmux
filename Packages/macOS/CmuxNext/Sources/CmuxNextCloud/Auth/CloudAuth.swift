@@ -8,8 +8,8 @@ import CmuxNextCompat
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
-/// token store under the existing service name with the file fallback, the
-/// same `cmux.auth.*` defaults keys, `AuthCoordinator` for restore and
+/// token store with the file fallback and `cmux.auth.*` defaults keys (scoped
+/// to the staging project for signed NEXT DEV), `AuthCoordinator` for restore and
 /// tokens, and `HostBrowserSignInFlow` for the hosted browser sign-in.
 /// Tokens are never cached here; every API call asks the coordinator.
 @MainActor @Observable
@@ -34,6 +34,32 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+
+    /// How a launch signs in from the credentials it was given (``DogfoodCredentials``).
+    struct LaunchSignIn: Equatable {
+        /// The debug sign-in surface: the ambient dogfood files and the `42` shortcut.
+        var devAuth: Bool
+        /// Whether the launch resolves credentials and signs in from them.
+        var autoLogin: Bool
+        /// Whether resolved credentials replace a session already stored.
+        var replacesSession: Bool
+    }
+
+    /// ``LaunchSignIn`` for `configuration` launched with `environment`. The signed NEXT DEV build (a Release
+    /// compile on the development Stack project) signs in only from an explicit `CMUX_AUTH_CREDENTIALS_FILE`
+    /// (dev-build-try passes it), never the ambient files, keeps a session already signed in unless told to
+    /// replace it, and gets no debug sign-in surface. Every other Release build never signs in from the launch.
+    nonisolated static func launchSignIn(configuration: CloudConfiguration, environment: [String: String]) -> LaunchSignIn {
+        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
+        if !configuration.isDebugBuild, configuration.bundleID == "com.cmuxterm.app.debug.next", !configuration.isProductionAuth {
+            return LaunchSignIn(devAuth: false, autoLogin: explicitCredentialsFile,
+                                replacesSession: explicitCredentialsFile && environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
+        }
+        let devAuth = configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
+        let replaces = environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
+            || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
+        return LaunchSignIn(devAuth: devAuth, autoLogin: devAuth, replacesSession: devAuth && replaces)
+    }
 
     /// The variables that choose a debug build's sign-in account. main strips
     /// inherited CMUX_* variables before anything reads them (LaunchIdentity),
@@ -112,32 +138,37 @@ public final class CloudAuth {
         // Pointed at production (`CMUX_AUTH_ENVIRONMENT=production`), it does so only from an
         // explicit `CMUX_AUTH_CREDENTIALS_FILE`, never from the ambient secrets files: that is how
         // a hidden rig build signs a production test account in for end-to-end checks
-        // (cmux-next-ios/verify). A release build never reads either.
+        // (cmux-next-ios/verify). A release build never reads either, except the signed NEXT DEV
+        // build, which reads an explicit file (``launchSignIn``).
         // The variable is read from the process environment, so pass it per launch with
         // `open --env`; an exported one would replace a production session signed in by browser.
-        let explicitCredentialsFile = environment["CMUX_AUTH_CREDENTIALS_FILE"].map { !$0.isEmpty } ?? false
-        let devAuth = !useCaptureFixture && configuration.isDebugBuild && (!configuration.isProductionAuth || explicitCredentialsFile)
+        let signIn = useCaptureFixture ? LaunchSignIn(devAuth: false, autoLogin: false, replacesSession: false)
+            : Self.launchSignIn(configuration: configuration, environment: environment)
+        let devAuth = signIn.devAuth
         var launchEnvironment = environment
         var replaceSession = false
         let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
-            devAuth ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
+            signIn.autoLogin ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
         if let refusal = decision.refusal { Self.logRefusal(refusal) }
         if let credentials = decision.credentials {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = credentials.email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = credentials.password
-            replaceSession = environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
-                || environment["CMUX_DEV_AUTH_PROFILE"] != nil || environment["CMUX_AUTH_CREDENTIALS_FILE"] != nil
+            replaceSession = signIn.replacesSession
         }
         let anchor = AuthPresentationContextProvider()
         coordinator = AuthCoordinator(
             client: client,
-            sessionCache: CMUXAuthSessionCache(keyValueStore: authDefaults, key: "cmux.auth.hasTokens"),
-            userCache: CMUXAuthIdentityStore(keyValueStore: authDefaults, key: "cmux.auth.cachedUser"),
-            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: authDefaults, key: "cmux.auth.selectedTeamID"),
+            sessionCache: CMUXAuthSessionCache(keyValueStore: authDefaults, key: configuration.authDefaultsKey("cmux.auth.hasTokens")),
+            userCache: CMUXAuthIdentityStore(keyValueStore: authDefaults, key: configuration.authDefaultsKey("cmux.auth.cachedUser")),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: authDefaults, key: configuration.authDefaultsKey("cmux.auth.selectedTeamID")),
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession),
+                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession,
+                                      // A capture build (CloudConfiguration.isCaptureBuild) signs in from the launch's
+                                      // credentials though it is not compiled DEBUG (``launchSignIn``); the signed NEXT DEV
+                                      // build only from the file's resolved credentials, never raw launch keys.
+                                      allowsEnvironmentAutoLogin: signIn.devAuth || (signIn.autoLogin && decision.credentials != nil)),
             isOnline: { !useCaptureFixture }
         )
         activeTeam = ActiveTeam(source: coordinator)

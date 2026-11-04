@@ -315,14 +315,34 @@ public final class WorkspaceTabsSource: TabsDataSource {
             options.append(Self.option(kind))
             if case .agent = kind { options.append(Self.chooseAgentOption) }
         }
+        // Launch Claude Teams and Launch Codex Teams (the Mac's palette rows): a terminal that
+        // runs the team, while this Mac opens terminals for the phone.
+        if kinds.contains(where: { if case .terminal = $0 { true } else { false } }), chatsBackend != nil {
+            options += AgentTeamsLaunch.allCases.map(Self.teamsOption)
+        }
         for (kind, _) in creator.backend.unavailableTabKinds(on: workspace.macID)
         where !kinds.contains(where: { $0.family == kind.family }) {
             var option = Self.option(kind)
             option.id = Self.unavailablePrefix + option.id
             options.append(option)
         }
+        if offersScreenSharing { options.append(Self.screenSharingOption) }
         return options
     }
+
+    static let teamsPrefix = "teams:"
+
+    static func teamsOption(_ teams: AgentTeamsLaunch) -> TabsKitNewTabOption {
+        TabsKitNewTabOption(id: teamsPrefix + teams.rawValue, title: teams.title, systemImage: teams.systemImage, kind: .terminal)
+    }
+
+    /// Signed in with Screen Sharing set up: + offers the Mac's screen.
+    public var offersScreenSharing = false
+    /// Screen Sharing is up (+ › Screen Sharing): the screen shows the account's Macs as a
+    /// sheet and connects to this workspace's Mac. It is phone-side; the Mac opens no tab.
+    public var showingScreenSharing = false
+    static let screenSharingOption = TabsKitNewTabOption(id: "screen-sharing", title: "Screen Sharing",
+                                                         systemImage: "rectangle.on.rectangle", kind: .web)
 
     static let unavailablePrefix = "unavailable:"
     /// The Mac's wording for an agent chat (`palette.newAgentChat`).
@@ -699,8 +719,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
             choosingAgent = true
             return nil
         }
+        if option.id == Self.screenSharingOption.id {
+            showingScreenSharing = true
+            return nil
+        }
         if option.id.hasPrefix(Self.unavailablePrefix) {
             showUnavailable(option)
+            return nil
+        }
+        if option.id.hasPrefix(Self.teamsPrefix),
+           let teams = AgentTeamsLaunch(rawValue: String(option.id.dropFirst(Self.teamsPrefix.count))) {
+            Task { await launchAgentTeams(teams) }
             return nil
         }
         // One tab at a time; a second request says so instead of doing nothing (full verify D8).
@@ -784,7 +813,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func pageAppeared(_ tabID: String) {
         guard focusOnOpen, tabID == activeTabID, let workspace, let tab = workspaceTab(tabID) else { return }
         switch tab.kind {
-        case .agent: surface(tabID).composerFocused = true
+        case .agent:
+            let surface = surface(tabID)
+            surface.composerFocused = true
+            // New Agent Chat from Shortcuts with a prompt: it waits in this new chat's composer,
+            // once the Mac made the chat (not the placeholder's page).
+            if !store.isPending(workspaceID), surface.text.isEmpty,
+               let draft = sessions.takeNewChatDraft(for: workspaceID, resolve: { [store] in store.resolvedWorkspaceID($0) }) {
+                surface.text = draft
+            }
         case .terminal: terminal.focusInput(for: tab, in: workspace)
         case .browser, .simulator: break
         }
@@ -794,6 +831,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     func surface(_ id: String) -> AgentChatSurface {
         if let surface = surfaces[id] { return surface }
         let surface = AgentChatSurface()
+        // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
+        surface.tabActions = AgentChatTabActions(
+            fork: { [weak self] in await self?.fork(id) },
+            editAndResend: { [weak self] seq, prompt in await self?.editAndResend(id, through: seq, prompt: prompt) ?? false }
+        )
         surfaces[id] = surface
         return surface
     }
@@ -1519,6 +1561,36 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// Edit and Resend of an earlier prompt (the Mac's, cx-ncc.60): a copy of the chat through the
+    /// turn before it opens in a new tab and comes to the front, then gets the edited prompt; the
+    /// chat itself stays as it was. acpmux's refusal (a Claude chat the Mac started) shows in its
+    /// own words. False when no copy was made.
+    public func editAndResend(_ id: TabsKitTab.ID, through seq: Int, prompt: String) async -> Bool {
+        guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return false }
+        guard pendingTabTitle == nil else {
+            show(named("Another tab is opening. Try again in a moment."))
+            return false
+        }
+        pendingTabTitle = "Fork"
+        defer { pendingTabTitle = nil }
+        let copy: WorkspaceTab
+        do {
+            copy = try await creator.backend.forkAgentChat(tab, through: seq, in: workspace)
+        } catch {
+            show(error, doing: "fork", tab.title)
+            return false
+        }
+        if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == copy.id }) != true {
+            store.appendTab(copy, to: workspaceID)
+        }
+        refreshTabs()
+        activate(copy.id)
+        openedTab = copy.id
+        // The copy's own chat sends it, as a prompt typed there would go.
+        chatStore(copy, workspace).send(prompt: prompt)
+        return true
+    }
+
     /// Archive: the chat is archived on the Mac (its sidebar's Archived list) and its tab closes.
     public func archive(_ id: TabsKitTab.ID) async {
         guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return }
@@ -1547,6 +1619,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The Chats list is pushed over the workspace.
     public var showsAgentChats = false
+
+    /// The command palette's sheet, and which list it opened on (nil: closed).
+    public var palette: PaletteScope?
+    /// The palette row picked: it runs once the sheet is gone (its content's `onDisappear`), so a row
+    /// that pushes a page or opens a dialog never races the sheet's dismissal.
+    @ObservationIgnored var pendingPaletteRun: (@MainActor () -> Void)?
+    /// The palette's action rows, taken when it opened (`openPalette`).
+    @ObservationIgnored public internal(set) var paletteActionRows: [PaletteCommand] = []
 
     /// Opens another workspace (the Chats list's Open in New Workspace); set by the screen.
     @ObservationIgnored public var openWorkspace: (@MainActor (Workspace) -> Void)?
@@ -1608,6 +1688,35 @@ public final class WorkspaceTabsSource: TabsDataSource {
             openedTab = terminalTab.id
         } catch {
             show(error, doing: "open a terminal for", tab.title)
+        }
+    }
+
+    /// Launch Claude Teams / Launch Codex Teams: a new terminal beside the tab shown, in its
+    /// folder (the Mac's focused tab's), that runs the team's line.
+    public func launchAgentTeams(_ teams: AgentTeamsLaunch) async {
+        guard let workspace, let chatsBackend, pendingTabTitle == nil else {
+            if let pending = pendingTabTitle { show("Still opening \(pending). Try again once it's open.") }
+            return
+        }
+        let current = selectedTabID.flatMap { workspaceTab($0) }
+        let shown: String? = switch current?.kind {
+        case .terminal: current?.subtitle
+        case .agent: AgentSessionDirectory.shared.existingStore(id: current?.id ?? "", macID: workspace.macID)?.summary.cwd
+        default: nil
+        }
+        // The shown tab's folder when it is one on this Mac, else the workspace's.
+        let folder = [shown, workspace.directory].compactMap { $0 }.first { $0.hasPrefix("/") || $0.hasPrefix("~/") }
+        pendingTabTitle = teams.title
+        defer { pendingTabTitle = nil }
+        do {
+            let terminalTab = try await chatsBackend.launchAgentTeams(teams, beside: current, folder: folder, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == terminalTab.id }) != true {
+                store.appendTab(terminalTab, to: workspaceID)
+            }
+            activate(terminalTab.id)
+            openedTab = terminalTab.id
+        } catch {
+            show(error, doing: "open a terminal for", teams.title)
         }
     }
 
@@ -1787,18 +1896,46 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    /// The Mac's Toggle Prompt Queueing: on, a message sent while the agent works waits for the
+    /// turn; off, it steers the turn now (acpmux `_meta.acpmux.steer`). One choice for every chat,
+    /// as on the Mac (Settings → Composer shows it too).
+    static func queueingItem(_ defaults: UserDefaults = .standard) -> TabsKitMenuItem {
+        let queueing = !CmuxMobilePreferences.steersFollowUps(defaults)
+        return TabsKitMenuItem(id: "chat.toggleQueueing", title: queueing ? "Turn Off Prompt Queueing" : "Turn On Prompt Queueing",
+                               systemImage: queueing ? "tray.full" : "tray") {
+            CmuxMobilePreferences.setQueueing(!queueing, defaults)
+            CmuxMobileTheme.standard.haptics.selection()
+        }
+    }
+
     /// The Mac's titles (`action.closeTabsToLeft`, `action.closeTabsToRight`).
     public static let closeLeftTitle = "Close Tabs to the Left"
     public static let closeRightTitle = "Close Tabs to the Right"
 
+    /// Send Message… for `tab`, while the shell can message the Chief and the Mac named the tab.
+    private func messageItems(_ tab: WorkspaceTab, in workspace: Workspace) -> [TabsKitMenuItem] {
+        guard ChiefMessenger.shared.isAvailable, let subject = ChiefMessageAbout(tab: tab, in: workspace) else { return [] }
+        return [TabsKitMenuItem(id: "tab.messageAbout", title: "Send Message…", systemImage: "paperplane") {
+            ChiefMessenger.shared.messageAbout(subject)
+        }]
+    }
+
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
-        // Panes and Screens: the workspace's layout pages.
-        let layoutPages = panesItems() + screensItems(tab)
+        // Panes and Screens: the workspace's layout pages; Send Message… (the Mac's tab and
+        // chat row action): a message to the Chief with a link to this tab.
+        // Command Palette…: every row of these menus, searchable (Cmd-Shift-P, Cmd-K).
+        let layoutPages = paletteItems + panesItems() + screensItems(tab) + messageItems(tab, in: workspace)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
+        // The Mac's Reveal Workspace in Sidebar: back to the list, this workspace's row shown and flashed.
+        let reveal = TabsKitMenuItem(id: "workspace.reveal", title: "Reveal in Workspaces List", systemImage: "scope") { [weak self] in
+            guard let self else { return }
+            self.store.requestReveal(self.workspaceID)
+            self.exit()
+        }
         switch tab.kind {
         case .agent:
             let store = chatStore(tab, workspace)
@@ -1808,7 +1945,10 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Agent Edits", systemImage: "plus.forwardslash.minus",
                                     isEnabled: AgentChatSurface.hasAgentEdits(store)) { surface.openAllChanges(of: store) },
                     TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
-                    TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
+                    TabsKitMenuItem(id: "chat.sessionInfo", title: "Session Info", systemImage: "info.circle") { surface.parityRoute = .sessionInfo },
+                    // The Mac's Copy rows (Agent Name, Session ID, Harness Session ID, Conversation as
+                    // Markdown, Session Details, Working Directory, Chat Host), one sheet for the menu.
+                    TabsKitMenuItem(id: "chat.copy", title: "Copy…", systemImage: "doc.on.doc") { surface.showCopyChoices = true },
                 ],
                 [
                     TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",
@@ -1817,18 +1957,25 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     ? [TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }]
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
-                ] + chatItems(tab),
+                ] + chatItems(tab) + muteItems(tab),
                 [
                     TabsKitMenuItem(title: "Find in Chat…", systemImage: "magnifyingglass", isEnabled: !store.turns.isEmpty) {
                         surface.openFind()
                     },
+                    TabsKitMenuItem(id: "chat.jumpToTurn", title: "Jump to Turn…", systemImage: "arrow.up.arrow.down", isEnabled: !store.turns.isEmpty) {
+                        surface.openTurnNavigator()
+                    },
+                    TabsKitMenuItem(id: "chat.textAndWidth", title: "Text and Width…", systemImage: "textformat.size") {
+                        surface.showDisplaySettings = true
+                    },
+                    Self.queueingItem(),
                 ] + (canEditTabs && chatsBackend != nil
                     ? [TabsKitMenuItem(title: "Open Chat Folder in Terminal", systemImage: "apple.terminal") { [weak self] in
                         Task { await self?.openChatFolderInTerminal(tab.id) }
                     }] : []) + chatsItems,
                 layoutPages,
                 edit,
-                [leave],
+                [leave, reveal],
                 [
                     TabsKitMenuItem(title: "Stop Agent", systemImage: "stop.circle", isEnabled: store.isRunning, isDestructive: true) { store.cancel() },
                 ] + closes,
@@ -1847,7 +1994,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             // Files and Links, Paste, Find, Clear, Scroll to Bottom | Copy Directory | chats,
             // Panes and Screens, edit rows | the close rows: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], chatsItems, layoutPages, edit, closes].filter { !$0.isEmpty }
+            return [restart, own, [copy], chatsItems, layoutPages, edit, [reveal], closes].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             let streamedPage = model as? StreamedBrowserModel
@@ -1868,7 +2015,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ] + (streamedPage.map { page in
-                    [TabsKitMenuItem(title: "Hard Reload", systemImage: "arrow.clockwise.circle") { page.hardReload() }]
+                    [
+                        TabsKitMenuItem(title: "Hard Reload", systemImage: "arrow.clockwise.circle") { page.hardReload() },
+                        // The Mac's Find… (Cmd-F): the find bar over the page; the Mac's browser finds.
+                        TabsKitMenuItem(id: "browser.find", title: "Find…", systemImage: "magnifyingglass") { page.showFind() },
+                    ]
                 } ?? []) + [
                     TabsKitMenuItem(title: "Open in Safari", systemImage: "safari", isEnabled: web != nil) {
                         if let web { UIApplication.shared.open(web) }
@@ -1878,7 +2029,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 chatsItems,
                 layoutPages,
                 edit,
-                [leave],
+                [leave, reveal],
                 closes,
             ].filter { !$0.isEmpty }
         case .simulator:
@@ -1890,7 +2041,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ],
                 layoutPages,
                 edit,
-                [leave],
+                [leave, reveal],
                 closes,
             ].filter { !$0.isEmpty }
         }

@@ -8,6 +8,7 @@ normal route and may not fall back to one Blacksmith label.
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -32,14 +33,48 @@ TARGETS = {
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_uses_the_live_ephemeral_mirror(self) -> None:
+    def test_secret_bearing_changes_takes_ephemeral_hosted_then_measured_retry(self) -> None:
+        # The router runs before any picker can, so it is a declared hosted light job
+        # (.github/runners.json hosted_light_jobs). Its credentialed body takes a live
+        # verified fleet Linux placement when available, then hosted/paid overflow.
         job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
         runs_on = job["runs-on"]
-        self.assertNotIn(POOL, runs_on)
-        self.assertIn("contains(fromJSON", runs_on)
-        self.assertIn("vars.LINUX_RUNNER) && vars.LINUX_RUNNER", runs_on)
-        self.assertIn("blacksmith-8vcpu-ubuntu-2404", runs_on)
-        self.assertNotIn("cmux-fleet-linux-x64", runs_on)
+        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
+        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
+        self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith(
+            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
+        self.assertEqual(job["needs"], ["portable-placement"])
+        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
+
+    def test_light_report_jobs_take_hosted_ubuntu_first(self) -> None:
+        # Declared light jobs (.github/runners.json hosted_light_jobs): a few seconds of report or
+        # routing work each, which on 2026-11-02 waited up to a minute behind the saturated
+        # blacksmith-4vcpu-ubuntu-2404 queue. Hosted Ubuntu on attempt 1, then a declared retry.
+        import json
+
+        declared = json.loads((ROOT / ".github" / "runners.json").read_text())["hosted_light_jobs"]
+        hosted = "github.run_attempt == 1 && 'ubuntu-24.04'"
+        # The job that holds a pull-requests write token, or runs the checked-out revision's
+        # scripts, retries only on ephemeral Blacksmith; the rest may take the reconciled pool.
+        ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
+        cases = {
+            ("pr-red-checks-comment.yml", "comment"): ephemeral,
+            ("cmux-next.yml", "path_route"): ephemeral,
+            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "size"): f"|| {POOL} }}}}",
+            ("pr-checks.yml", "ui-review"): f"|| {POOL} }}}}",
+        }
+        for (workflow, name), tail in cases.items():
+            with self.subTest(job=f"{workflow}#{name}"):
+                self.assertIn(f"{workflow}#{name}", declared)
+                runs_on = yaml.safe_load((WORKFLOWS / workflow).read_text())["jobs"][name]["runs-on"]
+                # A fork's run keeps the label it had; every other run reads the pool.
+                runs_on = re.sub(r"\(github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name"
+                                 r" != github\.repository && 'blacksmith-\d+vcpu-ubuntu-2404' \|\| (fromJSON\(vars\.RUNNER_POOLS\)\.[a-z0-9_]+)\)", r"\1", runs_on)
+                self.assertIn(hosted, runs_on)
+                self.assertTrue(runs_on.rstrip().endswith(tail), runs_on)
+                self.assertNotIn("cmux-fleet-linux-x64", runs_on)
 
     def test_stalled_paths_use_the_live_linux_pool(self) -> None:
         for workflow, names in TARGETS.items():
@@ -55,6 +90,7 @@ class RunnerSetTests(unittest.TestCase):
                     self.assertNotIn("outputs.map", runs_on)
                     # Past the fork branches, no Blacksmith size is written down.
                     self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
+                    self.assertNotRegex(runs_on, r"RUNNER_POOLS\)\.linux_\d")
 
     def test_fast_checks_keeps_the_broker_overflow_set(self) -> None:
         runs_on = str((yaml.safe_load((WORKFLOWS / "fast-checks.yml").read_text()) or {})["jobs"]["checks"]["runs-on"])

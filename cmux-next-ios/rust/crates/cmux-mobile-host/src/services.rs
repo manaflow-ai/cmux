@@ -1,7 +1,7 @@
 //! Link services (PROTOCOL.md "Services"). Default deny: a service not
 //! listed here is closed with `unknown_service`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,6 +33,7 @@ pub struct Peer {
     /// inside the WireGuard tunnel), if the
     /// phone and this Mac negotiated one.
     pub video: Option<cmux_mobile_link::media::VideoOut>,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 }
 
 /// Serve one incoming channel to completion. With pairing on, only `auth`
@@ -79,13 +80,14 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        "needs-you" => crate::needs_you::serve(&sender, receiver).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
         "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         "localhost" => crate::localhost::serve(&args, &sender, receiver).await,
@@ -131,8 +133,15 @@ pub const LINK_PROTOCOL: u32 = 2;
 /// The `version` service's `capabilities` (PROTOCOL.md "Services").
 /// `localhost-forward-v1`: the `localhost` service (a phone's native browser tab
 /// reaches a port on this Mac's loopback).
-pub const CAPABILITIES: [&str; 5] =
-    ["removal-v1", "file-preview-v1", "localhost-forward-v1", "cloud-directory-v1", "cloud-acpmux-v1"];
+/// `needs-you-v1`: the `needs-you` service (the Mac app's own open Feed requests, `needs_you.rs`).
+pub const CAPABILITIES: [&str; 6] = [
+    "removal-v1",
+    "file-preview-v1",
+    "localhost-forward-v1",
+    "cloud-directory-v1",
+    "cloud-acpmux-v1",
+    "needs-you-v1",
+];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
@@ -141,6 +150,9 @@ pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 /// Added when this Mac streams its phone tabs' simulators (`surface`), with
 /// `video: "track"` as for browser tabs.
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
+/// Added with [`SURFACE_STREAM`]: `surface` also streams the owner's own Cloud
+/// machine desktop, view only (`c~<machine_id>~<team_id>`, `surface.rs`).
+pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -149,8 +161,11 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
         out.push(BROWSER_STREAM);
         out.push(BROWSER_VIDEO_TRACK);
     }
-    if config.surface.available() {
+    if config.surface.streams_simulators() {
         out.push(SURFACE_STREAM);
+    }
+    if config.surface.available() {
+        out.push(CLOUD_DESKTOP);
     }
     out
 }
@@ -170,39 +185,89 @@ async fn version(config: &ServiceConfig, sender: &ChannelSender) -> Result<(), R
     Ok(())
 }
 
+/// Whether `value` is a Cloud machine or team id as the phone may name one
+/// (never `~`, the `surface` Cloud desktop key's separator).
+pub(crate) fn valid_cloud_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 160
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+}
+
 fn cloud_id(value: Option<&Value>, name: &str) -> Result<String, Refusal> {
     let Some(value) = value.and_then(Value::as_str) else {
         return Err(Refusal::new("bad_request", format!("{name} is required")));
     };
     let value = value.trim();
-    if value.is_empty()
-        || value.len() > 160
-        || !value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
-    {
+    if !valid_cloud_id(value) {
         return Err(Refusal::new("bad_request", format!("invalid {name}")));
     }
     Ok(value.to_owned())
 }
 
-/// Return only authenticated Cloud machines. Carrier paths and owner markers
-/// are never exposed to the phone.
+/// The one link the app lists for `machine_id` in `team_id`, when this account
+/// owns it; `forbidden` for none, several, or a machine it does not own.
+pub(crate) fn owned_cloud_link(
+    links: Vec<control::CloudLink>,
+    machine_id: &str,
+    team_id: &str,
+) -> Result<control::CloudLink, Refusal> {
+    let mut matches = links
+        .into_iter()
+        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
+        .collect::<Vec<_>>();
+    match matches.pop() {
+        Some(link) if matches.is_empty() && link.owner => Ok(link),
+        _ => Err(Refusal::new("forbidden", "Cloud machine is not an unambiguous authenticated owner link")),
+    }
+}
+
+/// A machine state as the phone sees it: the app's status word, or `unknown`.
+fn cloud_status(status: &str) -> &str {
+    if !status.is_empty() && status.len() <= 32 && status.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+    {
+        status
+    } else {
+        "unknown"
+    }
+}
+
+/// The `cloud-directory` reply: whether the account pays for Cloud, and its
+/// owned machines that are listed once. Carrier paths and owner markers are
+/// never exposed to the phone.
+pub(crate) fn cloud_directory_reply(snapshot: control::CloudLinks) -> Value {
+    let mut counts = HashMap::<(String, String), usize>::new();
+    for link in &snapshot.links {
+        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
+    }
+    let machines = snapshot
+        .links
+        .into_iter()
+        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
+        .map(|link| {
+            serde_json::json!({
+                "machine_id": link.machine_id,
+                "team_id": link.team_id,
+                "name": link.name,
+                "status": cloud_status(&link.status),
+                "ran": link.ran,
+                // Whether a Cloud chat can open now (the app has the machine's live link). An
+                // asleep machine is listed for the Chief's Computer card, never as a chat.
+                "linked": link.socket.is_some(),
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({"paid": snapshot.paid, "desktops": snapshot.desktops, "machines": machines})
+}
+
+/// Return only authenticated Cloud machines ([`cloud_directory_reply`]).
 async fn cloud_directory(sender: &ChannelSender, args: &Value) -> Result<(), Refusal> {
     if !args.is_object() || args.as_object().is_some_and(|object| !object.is_empty()) {
         return Err(Refusal::new("bad_request", "cloud-directory takes no arguments"));
     }
-    let links =
+    let snapshot =
         control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
-    let mut counts = HashMap::<(String, String), usize>::new();
-    for link in &links {
-        *counts.entry((link.machine_id.clone(), link.team_id.clone())).or_default() += 1;
-    }
-    let machines = links
-        .into_iter()
-        .filter(|link| link.owner && counts.get(&(link.machine_id.clone(), link.team_id.clone())) == Some(&1))
-        .map(|link| serde_json::json!({"machine_id": link.machine_id, "team_id": link.team_id, "name": link.name}))
-        .collect::<Vec<_>>();
     sender
-        .send(Bytes::from(serde_json::json!({"machines": machines}).to_string()))
+        .send(Bytes::from(cloud_directory_reply(snapshot).to_string()))
         .await
         .map_err(|_| Refusal::new("closed", "phone channel closed"))
 }
@@ -223,19 +288,9 @@ async fn cloud_acpmux(
     }
     let machine_id = cloud_id(object.get("machine_id"), "machine_id")?;
     let team_id = cloud_id(object.get("team_id"), "team_id")?;
-    let links =
+    let snapshot =
         control::request_cloud_links().await.map_err(|message| Refusal::new("unavailable", message))?;
-    let mut matches = links
-        .into_iter()
-        .filter(|link| link.machine_id == machine_id && link.team_id == team_id)
-        .collect::<Vec<_>>();
-    if matches.len() != 1 || !matches[0].owner {
-        return Err(Refusal::new(
-            "forbidden",
-            "Cloud machine is not an unambiguous authenticated owner link",
-        ));
-    }
-    let link = matches.pop().expect("one link checked above");
+    let link = owned_cloud_link(snapshot.links, &machine_id, &team_id)?;
     let path =
         link.socket.ok_or_else(|| Refusal::new("unavailable", "Cloud machine link has no carrier socket"))?;
     if !path.is_absolute() {
@@ -468,6 +523,7 @@ async fn daemon(
         config.pairing.as_ref().map(|pairing| std::sync::Arc::clone(&pairing.spent_replies)),
         sender,
         receiver,
+        peer.session_exposure.clone(),
     )
     .await
 }
@@ -493,7 +549,7 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver).await
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None).await
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
@@ -509,6 +565,7 @@ async fn splice(
     spent_replies: Option<std::sync::Arc<crate::mailbox::SpentReplies>>,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
+    exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
@@ -536,6 +593,8 @@ async fn splice(
     // Daemon → phone, whole lines.
     let daemon_lines = lines_tx.clone();
     let reply_policy = policy.clone();
+    let daemon_exposure = exposure.clone();
+    let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
@@ -550,6 +609,7 @@ async fn splice(
                     }
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
+                    let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -623,6 +683,10 @@ async fn splice(
                     let Some(ready) = ready else { return };
                     match ready {
                         Verdict::Rewrite(mut line) => {
+                            if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
+                                if refusals.send(answer).await.is_err() { return; }
+                                continue;
+                            }
                             sized.observe(&line);
                             line.push(b'\n');
                             if daemon_write.write_all(&line).await.is_err() { return; }
@@ -663,6 +727,12 @@ async fn splice(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
+                if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
+                    if refusals.send(answer).await.is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 let (verdict, canonical) = policy.evaluate(&line);
                 if let Some(canonical) = canonical {
                     line = canonical;
@@ -678,6 +748,7 @@ async fn splice(
                         phone,
                         spent_replies.as_deref(),
                         &line,
+                        request_exposure.as_ref(),
                     )
                     .await
                     .into_bytes();
@@ -749,6 +820,7 @@ async fn splice(
         tokio::select! {
             line = lines_rx.recv() => match line {
                 Some(line) => {
+                    let Some(line) = exposed_daemon_line(line, exposure.as_ref()) else { continue };
                     if sender.send(Bytes::from(line)).await.is_err() {
                         // The phone is gone (its close frame, a removed phone). Its
                         // close reaches the phone-to-daemon task, which releases its
@@ -777,13 +849,17 @@ async fn splice(
                 // The phone closed or broke policy; drain what the daemon
                 // already answered, briefly, then end.
                 while let Ok(Some(line)) = tokio::time::timeout(std::time::Duration::from_millis(200), lines_rx.recv()).await {
-                    let _ = sender.send(Bytes::from(line)).await;
+                    if let Some(line) = exposed_daemon_line(line, exposure.as_ref()) {
+                        let _ = sender.send(Bytes::from(line)).await;
+                    }
                 }
                 break;
             }
             _ = &mut from_daemon => {
                 while let Ok(line) = lines_rx.try_recv() {
-                    let _ = sender.send(Bytes::from(line)).await;
+                    if let Some(line) = exposed_daemon_line(line, exposure.as_ref()) {
+                        let _ = sender.send(Bytes::from(line)).await;
+                    }
                 }
                 break;
             }
@@ -793,6 +869,44 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// Check again after the side worker's awaits and when draining queued replies.
+/// A policy sampled at ingress cannot authorize a later write or publication.
+fn daemon_exposure_refusal(
+    line: &[u8],
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    let exposure = exposure?;
+    if !crate::acpmux_policy::daemon_request_blocked(&String::from_utf8_lossy(line), &exposure.borrow()) {
+        return None;
+    }
+    let request = serde_json::from_slice::<Value>(line).ok();
+    let mut answer = crate::policy::error_line(
+        request.as_ref().and_then(|request| request.get("id")),
+        "forbidden",
+        "chat is not exposed",
+    )
+    .into_bytes();
+    answer.push(b'\n');
+    Some(answer)
+}
+
+fn exposed_daemon_line(
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    let Some(exposure) = exposure else { return Some(line) };
+    let state = exposure.borrow().clone();
+    if !state.available {
+        return None;
+    }
+    // Terminal streams also carry non-JSON lines, which have no chat projection.
+    if serde_json::from_slice::<Value>(&line).is_err() {
+        return Some(line);
+    }
+    crate::acpmux_policy::filter_daemon_response(&String::from_utf8_lossy(&line), &state)
+        .map(|filtered| format!("{filtered}\n").into_bytes())
 }
 
 fn is_terminal_wait(line: &[u8]) -> bool {
@@ -935,11 +1049,16 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
 /// the refusal here stay as they were.
 async fn acpmux(
     config: &ServiceConfig,
-    phone: &str,
+    peer: &Peer,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    let credential = control::phone_credential(phone);
+    if let Some(exposure) = &peer.session_exposure
+        && !exposure.borrow().available
+    {
+        return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
+    }
+    let credential = control::phone_credential(&peer.device_id);
     let own = match credential.as_deref() {
         Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
         None => None,
@@ -951,13 +1070,56 @@ async fn acpmux(
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
+    let mut exposure = peer.session_exposure.clone();
+    let mut bound_sessions = HashSet::<String>::new();
+    let mut pending_new = HashSet::<String>::new();
+    let mut server_reply_ids = std::collections::HashMap::<String, String>::new();
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
     loop {
         tokio::select! {
+            changed = async {
+                let Some(exposure) = exposure.as_mut() else { std::future::pending().await };
+                exposure.changed().await
+            }, if exposure.is_some() => {
+                if changed.is_err() { break; }
+                let state = exposure.as_ref().expect("exposure receiver").borrow().clone();
+                if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) {
+                    break;
+                }
+            }
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
+                    let Some((text, dependencies)) = canonicalize_requests(&config.acpmux, &text).await else {
+                        let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
+                        let _ = sender.send(Bytes::from(answer)).await;
+                        continue;
+                    };
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
+                        break;
+                    }
+                    if let Some(answer) = crate::acpmux_policy::exposure_refusal_with_replies(&text, &state, &bound_sessions, &server_reply_ids) {
+                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() { break; }
+                        continue;
+                    }
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
+                        for request in requests {
+                            if request.get("method").and_then(Value::as_str).is_some_and(|method| method == "session/new" || method == "acp.session.new")
+                                && let Some(id) = request.get("id") {
+                                pending_new.insert(id.to_string());
+                            }
+                        }
+                    }
+                    bound_sessions.extend(dependencies);
+                    // Bind every accepted session-targeting request, not only
+                    // prompt/retry methods; info, events and mode changes also
+                    // keep a live channel's exposure alive.
+                    for (_, session) in crate::acpmux_policy::request_targets(&text) {
+                        bound_sessions.insert(session.clone());
+                    }
                     // An agent a phone drives stays in a mode that asks
                     // (`acpmux_policy`): a refused mode set is answered here.
                     let refused = match crate::acpmux_policy::refusal(&text) {
@@ -984,6 +1146,13 @@ async fn acpmux(
                         }
                         continue;
                     }
+                    let latest = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if !latest.available || bound_sessions.iter().any(|session| latest.blocked.contains(session))
+                        || crate::acpmux_policy::exposure_refusal_with_replies(&text, &latest, &bound_sessions, &server_reply_ids).is_some() { break; }
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let methodless = match &value { Value::Array(items) => items.iter().all(|item| item.get("method").is_none()), other => other.get("method").is_none() };
+                        if methodless { for id in crate::acpmux_policy::response_ids(&text) { server_reply_ids.remove(&id); } }
+                    }
                     if ws_sink.send(Message::Text(text.into())).await.is_err() {
                         break;
                     }
@@ -992,11 +1161,30 @@ async fn acpmux(
             },
             message = ws_source.next() => match message {
                 Some(Ok(Message::Text(text))) => {
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if !state.available || bound_sessions.iter().any(|session| state.blocked.contains(session)) { break; }
+                    for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
+                        if pending_new.remove(&id) { bound_sessions.insert(session); }
+                    }
+                    let Some(text) = crate::acpmux_policy::filter_response(&text, &state, &bound_sessions) else { continue };
+                    if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                        let requests = match &value { Value::Array(items) => items.iter().collect::<Vec<_>>(), other => vec![other] };
+                        for request in requests {
+                            if request.get("method").is_some() {
+                                for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
+                                    bound_sessions.insert(session.clone());
+                                    server_reply_ids.insert(id, session);
+                                }
+                            }
+                        }
+                    }
                     if sender.send(Bytes::copy_from_slice(text.as_bytes())).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
+                    let state = exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    if state.configured || !state.available { break; }
                     if sender.send(bytes).await.is_err() {
                         break;
                     }
@@ -1062,6 +1250,104 @@ async fn current_mode(
         *side = None;
     }
     mode
+}
+
+/// Resolve aliases over a fresh trusted side socket. A fresh request id and
+/// socket prevent a timed-out info reply from authorizing another target.
+async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Value) -> Option<Value> {
+    let query = async {
+        let mut socket = connect_acpmux(target).await.ok()?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+        socket.send(Message::Text(request.to_string().into())).await.ok()?;
+        while let Some(Ok(Message::Text(text))) = socket.next().await {
+            let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
+            if reply.get("id").and_then(Value::as_str) != Some(&id) {
+                continue;
+            }
+            return reply.get("result").cloned();
+        }
+        None
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), query).await.ok().flatten()
+}
+
+async fn canonical_session(target: &AcpmuxTarget, session: &str) -> Option<String> {
+    trusted_session_query(target, "_acpmux/info", serde_json::json!({"sessionId":session,"waitLogs":false}))
+        .await?
+        .get("sessionId")?
+        .as_str()
+        .map(str::to_owned)
+}
+
+async fn canonicalize_requests(target: &AcpmuxTarget, text: &str) -> Option<(String, HashSet<String>)> {
+    let mut value = serde_json::from_str::<Value>(text).ok()?;
+    let mut dependencies = HashSet::new();
+    let requests = match &mut value {
+        Value::Array(items) => items.iter_mut().collect::<Vec<_>>(),
+        other => vec![other],
+    };
+    for request in requests {
+        if request.get("method").is_none() || crate::acpmux_policy::global_request(request) {
+            continue;
+        }
+        let indirect = request.get("method").and_then(Value::as_str).is_some_and(|method| {
+            matches!(
+                method,
+                "_acpmux/handoff_get"
+                    | "_acpmux/handoff_draft"
+                    | "_acpmux/handoff_start"
+                    | "_acpmux/handoff_discard"
+            )
+        });
+        let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else { continue };
+        let named = ["sessionId", "session", "name"]
+            .iter()
+            .filter_map(|key| params.get(*key).and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if named.windows(2).any(|pair| pair[0] != pair[1]) {
+            return None;
+        }
+        // A handoff id is an indirect capability: resolve both sides using the
+        // trusted record, never a phone-supplied target. Its source capsule is
+        // protected as well as the target that start/discard can mutate.
+        let handoff_target = if indirect {
+            if let Some(handoff_id) = params.get("handoffId").and_then(Value::as_str) {
+                let handoff = trusted_session_query(
+                    target,
+                    "_acpmux/handoff_get",
+                    serde_json::json!({"handoffId":handoff_id}),
+                )
+                .await?;
+                let source = handoff.pointer("/source/sessionId")?.as_str()?.to_owned();
+                let destination = handoff.pointer("/target/sessionId")?.as_str()?.to_owned();
+                dependencies.insert(source);
+                dependencies.insert(destination.clone());
+                Some(destination)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        let canonical = match (named.first(), handoff_target) {
+            (Some(named), Some(destination)) => {
+                if canonical_session(target, named).await? != destination {
+                    return None;
+                }
+                destination
+            }
+            (None, Some(destination)) => destination,
+            (Some(named), None) => canonical_session(target, named).await?,
+            (None, None) => continue,
+        };
+        for key in ["sessionId", "session", "name"] {
+            params.remove(key);
+        }
+        params.insert("sessionId".into(), Value::String(canonical));
+    }
+    Some((value.to_string(), dependencies))
 }
 
 /// The largest acpmux message a phone may send (a prompt with images).
@@ -1780,7 +2066,8 @@ mod tests {
                 "file-preview-v1",
                 "localhost-forward-v1",
                 "cloud-directory-v1",
-                "cloud-acpmux-v1"
+                "cloud-acpmux-v1",
+                "needs-you-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -1795,10 +2082,102 @@ mod tests {
                 "localhost-forward-v1",
                 "cloud-directory-v1",
                 "cloud-acpmux-v1",
+                "needs-you-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
         );
+    }
+
+    fn cloud_link(machine: &str, team: &str, owner: bool, status: &str, ran: bool) -> control::CloudLink {
+        control::CloudLink {
+            machine_id: machine.into(),
+            team_id: team.into(),
+            name: format!("{machine} box"),
+            socket: Some("/tmp/cloud.sock".into()),
+            owner,
+            status: status.into(),
+            ran,
+        }
+    }
+
+    #[test]
+    fn cloud_directory_says_paid_status_and_ran_and_never_a_socket_or_owner() {
+        let mut asleep = cloud_link("m2", "t", true, "paused", true);
+        asleep.socket = None;
+        let snapshot = control::CloudLinks {
+            paid: true,
+            desktops: true,
+            links: vec![
+                cloud_link("m1", "t", true, "running", true),
+                asleep,
+                // Not owned: never listed.
+                cloud_link("m3", "t", false, "running", true),
+                // Listed twice: ambiguous, never listed.
+                cloud_link("m4", "t", true, "running", true),
+                cloud_link("m4", "t", true, "paused", true),
+                // A status word the phone cannot read becomes unknown.
+                cloud_link("m5", "t", true, "Run ning/../", false),
+            ],
+        };
+        let reply = cloud_directory_reply(snapshot);
+        assert_eq!(
+            reply,
+            serde_json::json!({"paid": true, "desktops": true, "machines": [
+                {"machine_id": "m1", "team_id": "t", "name": "m1 box", "status": "running", "ran": true, "linked": true},
+                {"machine_id": "m2", "team_id": "t", "name": "m2 box", "status": "paused", "ran": true, "linked": false},
+                {"machine_id": "m5", "team_id": "t", "name": "m5 box", "status": "unknown", "ran": false, "linked": true},
+            ]})
+        );
+        let text = reply.to_string();
+        assert!(!text.contains("socket") && !text.contains("cloud.sock") && !text.contains("owner"));
+        // An older app's snapshot: not paid, nothing has run.
+        assert_eq!(
+            cloud_directory_reply(control::CloudLinks::default()),
+            serde_json::json!({"paid": false, "desktops": false, "machines": []})
+        );
+    }
+
+    #[test]
+    fn only_one_owned_link_is_a_cloud_machine_the_phone_may_reach() {
+        let owned = || cloud_link("m", "t", true, "running", true);
+        assert_eq!(owned_cloud_link(vec![owned()], "m", "t").unwrap(), owned());
+        for links in [
+            vec![],
+            vec![cloud_link("m", "t", false, "running", true)],
+            vec![owned(), owned()],
+            vec![cloud_link("m", "other", true, "running", true)],
+        ] {
+            assert_eq!(owned_cloud_link(links, "m", "t").unwrap_err().code, "forbidden");
+        }
+    }
+
+    #[test]
+    fn surface_streams_cloud_desktops_only_with_a_surface_source() {
+        let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
+            Box::pin(async { Err::<crate::browser::RunningHost, _>("none".to_owned()) })
+        });
+        let mut config = crate::config::ServiceConfig {
+            tui_socket_dir: std::path::PathBuf::from("/tmp"),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: Vec::new(),
+            acpmux: crate::config::AcpmuxTarget::Fixed { url: "ws://127.0.0.1:1".into(), token: None },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: std::path::PathBuf::from("/tmp"),
+            chief_socket: None,
+            browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
+        };
+        assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
+        config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);
+        assert!(capabilities(&config).ends_with(&[SURFACE_STREAM, CLOUD_DESKTOP]));
+        // A Mac whose app cannot stream simulators still streams Cloud desktops, and never says
+        // `surface-stream-v1` (its phone would wait on a simulator that never opens).
+        config.surface = config.surface.clone().without_simulators();
+        assert!(!capabilities(&config).contains(&SURFACE_STREAM));
+        assert!(capabilities(&config).ends_with(&[CLOUD_DESKTOP]));
     }
 
     #[test]
@@ -1972,5 +2351,45 @@ mod tests {
         assert_eq!(confine(&roots, &root.path().join("../x")).unwrap_err().code, "not_found");
         assert_eq!(confine(&roots, Path::new("a.txt")).unwrap_err().code, "bad_request");
         assert_eq!(confine(&[], &root.path().join("a.txt")).unwrap_err().code, "forbidden");
+    }
+}
+
+#[cfg(test)]
+mod session_exposure_queue_tests {
+    use super::*;
+
+    const CHAT: &str = "00000000-0000-7000-8000-000000000001";
+
+    #[test]
+    fn queued_daemon_command_and_reply_use_current_policy() {
+        let (tx, rx) = tokio::sync::watch::channel(crate::control::SessionExposure::default());
+        let request = serde_json::json!({"id":"queued","cmd":"new-conversation-tab",
+            "agent_session":{"session":CHAT}})
+        .to_string()
+        .into_bytes();
+        let reply = serde_json::json!({"id":"list","data":{"tabs":[
+            {"id":"hidden","agent_session":{"session":CHAT}}, {"id":"terminal"}
+        ]}})
+        .to_string()
+        .into_bytes();
+        assert!(daemon_exposure_refusal(&request, Some(&rx)).is_none());
+        assert!(
+            String::from_utf8(exposed_daemon_line(reply.clone(), Some(&rx)).unwrap())
+                .unwrap()
+                .contains("hidden")
+        );
+        // The side worker/reply queue was waiting while the person revoked this chat.
+        tx.send_replace(crate::control::SessionExposure {
+            configured: true,
+            blocked: [CHAT.to_owned()].into_iter().collect(),
+            ..crate::control::SessionExposure::default()
+        });
+        let refused: Value =
+            serde_json::from_slice(&daemon_exposure_refusal(&request, Some(&rx)).unwrap()).unwrap();
+        assert_eq!(refused["id"], "queued");
+        let filtered: Value =
+            serde_json::from_slice(&exposed_daemon_line(reply, Some(&rx)).unwrap()).unwrap();
+        assert_eq!(filtered.pointer("/data/tabs").unwrap().as_array().unwrap().len(), 1);
+        assert_eq!(filtered["data"]["tabs"][0]["id"], "terminal");
     }
 }

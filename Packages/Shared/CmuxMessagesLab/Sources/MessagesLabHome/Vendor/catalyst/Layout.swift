@@ -1220,6 +1220,7 @@ enum RowBuilder {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                     || next.cmuxStandsAlone == true || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || (next.cmuxAside == true) != (m.cmuxAside == true)
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
                 // message above): its first bubble gets the sender's name, its last their avatar, and every
@@ -1229,8 +1230,12 @@ enum RowBuilder {
                 let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
                 let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
                     || m.cmuxStandsAlone == true || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || (p.cmuxAside == true) != (m.cmuxAside == true)
                     || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
-                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
+                // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
+                // with the sender's own bubbles, so rows that come, fold and open under them never move the avatar.
+                let aside = m.cmuxAside == true
+                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil, !aside {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
                     if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
                         gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)
@@ -1265,7 +1270,8 @@ enum RowBuilder {
                                       myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
                                       markdownFormat: m.isMarkdown,
-                                      cmuxAvatar: inGroup && lastOfGroup && pi == m.parts.count - 1 && !isCustom(part) ? SenderAvatar(sender?.avatar) : nil,
+                                      cmuxAvatar: inGroup && lastOfGroup && !aside && pi == m.parts.count - 1 && !isCustom(part)
+                                          ? SenderAvatar(sender?.avatar) : nil,
                                       cmuxIndent: inGroup && !isCustom(part) ? SenderAvatar.bubbleInset : 0)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))

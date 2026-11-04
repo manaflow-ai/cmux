@@ -898,6 +898,44 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
+    /// Duplicate Screen, as the Mac's `ScreenCommands.duplicate`: a new screen (`new-screen`) with
+    /// the same name (`rename-screen`), its terminal in the folder of the screen's shown tab
+    /// (`cd '<folder>' && clear` typed, as New Workspace in a folder; the phone sends no `cwd`).
+    /// The Mac also gives the copy the screen's color, icon and place right after it: a phone
+    /// may not set those (`new-screen` takes only the workspace from a phone), so the copy goes
+    /// at the end with the Mac's default look.
+    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
+        guard canManage(on: workspace.macID), let client = sync.daemon, let tree = sync.tree else { throw WorkspaceCreationError("Not connected") }
+        guard let number = tree.workspaceNumbers[workspace.id] else { throw WorkspaceCreationError("The Mac doesn't list this workspace") }
+        let folder = Self.duplicateFolder(of: screen, in: workspace, directories: tree.directories)
+        do {
+            let reply = try await client.request("new-screen", params: ["workspace": number])
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            if let folder, let line = Self.changeDirectoryLine(folder) {
+                _ = try? await client.request("send", params: ["surface": surface, "text": line])
+            }
+            let tab = try await listedTab(surface)
+            let name = screen.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !name.isEmpty, let copy = sync.tree?.workspaces.first(where: { $0.id == workspace.id })?.screen(ofTab: tab.id)?.screen {
+                // The copy stands either way: a refused name leaves the Mac's default.
+                try? await run(client, "rename-screen", ["screen": copy.id, "name": name])
+            }
+            return tab
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// The folder Duplicate Screen opens its terminal in: the shown tab of the screen's active
+    /// pane (else its first tab), as the Mac reads the default pane's tab.
+    nonisolated static func duplicateFolder(of screen: MacScreen, in workspace: Workspace, directories: [String: String]) -> String? {
+        let pane = screen.activePane ?? screen.panes.first
+        let shown = pane.flatMap { pane in workspace.layout?.pane(pane)?.activeTabID } ?? screen.tabIDs.first
+        return shown.flatMap { directories[$0] }
+    }
+
     public func renameScreen(_ screen: MacScreen, in workspace: Workspace, to name: String) async throws {
         guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
         try await run(client, "rename-screen", ["screen": screen.id, "name": name])
@@ -973,6 +1011,17 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// the chat's pane, as the Mac opens a fork in a tab of its own. acpmux refuses a fork of a
     /// Claude chat the Mac started (D13); its reason is shown as the Mac words it.
     public func forkAgentChat(_ tab: WorkspaceTab, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: nil, in: workspace)
+    }
+
+    /// Edit and Resend of an earlier prompt: acpmux `acp.session.fork {sessionId, throughSeq}`
+    /// (the copy holds the chat through that turn; the Mac's pane sends the same), then a tab of
+    /// the copy in the chat's pane, as Fork does.
+    public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await forkChat(tab, through: seq, in: workspace)
+    }
+
+    private func forkChat(_ tab: WorkspaceTab, through seq: Int?, in workspace: Workspace) async throws -> WorkspaceTab {
         let (client, _) = try target(tab, in: workspace)
         guard let acpmux, acpmux.isReady else {
             throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
@@ -983,7 +1032,9 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
         let forked: String
         do {
-            let reply = try await acpmux.request("session/fork", .object(["sessionId": .string(session)]), timeout: .seconds(60))
+            var params: [String: JSONValue] = ["sessionId": .string(session)]
+            if let seq { params["throughSeq"] = .number(Double(seq)) }
+            let reply = try await acpmux.request(seq == nil ? "session/fork" : "acp.session.fork", .object(params), timeout: .seconds(60))
             guard let id = reply["sessionId"]?.stringValue, !id.isEmpty else { throw WorkspaceCreationError("The Mac didn't fork the chat") }
             forked = id
         } catch let error as AcpmuxConnection.RPCError {

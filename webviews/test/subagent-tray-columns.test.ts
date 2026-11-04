@@ -116,7 +116,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
       });
 
-      test(`narrow short dock keeps header and View all reachable at scale ${interfaceScale} (${theme})`, async () => {
+      test(`narrow short dock keeps the header reachable at scale ${interfaceScale} (${theme})`, async () => {
         const port = (server.httpServer!.address() as { port: number }).port;
         const page = await browser.newPage({
           viewport: { width: 300, height: 400 },
@@ -129,7 +129,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           await page.waitForFunction(() => document.querySelector(".acpmux-running-tray[data-narrow]"));
-          // A headed tray starts folded; View all is under its open list.
+          // A headed tray starts folded; open it.
           await openRunningTray(page);
           // Keep the longest format present while measuring: the gallery clock otherwise
           // advances from 12h 59m 59s to the much shorter 13h during a slow capture.
@@ -142,7 +142,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const pinned = await page.evaluate(() => {
             const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
             const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-            const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!;
             const box = tray.getBoundingClientRect();
             const bounds = (node: HTMLElement) => {
               const rect = node.getBoundingClientRect();
@@ -153,16 +152,20 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 hit: node.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)),
               };
             };
-            return { trayTop: box.top, trayBottom: box.bottom, head: bounds(head), more: bounds(more) };
+            return {
+              trayTop: box.top,
+              trayBottom: box.bottom,
+              head: bounds(head),
+              // No View all under the list: every line is in it, and it scrolls (Leo, 2026-11-01).
+              more: tray.querySelector(".acpmux-running-tray__finished") !== null,
+            };
           });
           // One row at every width: the header's time follows its counts, never a second line.
           expect(pinned.head.height).toBeCloseTo(28 * interfaceScale, 1);
-          expect(pinned.more.height).toBeCloseTo(28 * interfaceScale, 1);
-          for (const row of [pinned.head, pinned.more]) {
-            expect(row.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
-            expect(row.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
-            expect(row.hit).toBe(true);
-          }
+          expect(pinned.more).toBe(false);
+          expect(pinned.head.top).toBeGreaterThanOrEqual(pinned.trayTop - 0.5);
+          expect(pinned.head.bottom).toBeLessThanOrEqual(pinned.trayBottom + 0.5);
+          expect(pinned.head.hit).toBe(true);
           const duration = await page
             .locator(".acpmux-running-tray__head .acpmux-running-tray__time")
             .evaluate((node) => {
@@ -196,10 +199,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               clip,
             });
           }
-          const more = page.locator(".acpmux-running-tray__finished");
-          await more.click();
-          expect(await more.getAttribute("aria-expanded")).toBe("true");
-
           // Give the list a row of room again, then exercise the live Stop control inside its
           // scroller. A clipped tray or a footer overlay must not cover the control's hit target.
           await page.evaluate(() => {
@@ -275,6 +274,23 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             const box = node.getBoundingClientRect();
             return { left: box.left, right: box.right, width: box.width };
           };
+          // cmux#31492: the state word and the time end the line beside Stop's track, never a status
+          // track's slack away; on a line with no Stop the track stays empty, so every time ends on one
+          // x (Leo, 2026-11-03: "let's align the right"). The state comes first, then the time ("Done ·
+          // 36s", Leo 2026-11-02).
+          const trail = (row: HTMLElement) => {
+            const state = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")!.getBoundingClientRect();
+            const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+            const range = document.createRange();
+            range.selectNodeContents(time);
+            const digits = [...range.getClientRects()].at(0);
+            const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
+            const end = digits ? time.getBoundingClientRect() : state;
+            return {
+              stateToNext: next.getBoundingClientRect().left - end.right,
+              timeToState: digits ? digits.left - state.right : null,
+            };
+          };
           return {
             rows: rows.map((row) => ({
               time: rect(".acpmux-agent-line__time", row),
@@ -282,6 +298,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
               stop: rect(".acpmux-agent-line__stop-slot", row),
               chevron: rect(".acpmux-agent-line__chevron > svg", row),
               hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
+              trail: trail(row),
             })),
             footer: tray.querySelector(".acpmux-running-tray__finished")
               ? rect(".acpmux-running-tray__finished > svg", tray)
@@ -296,8 +313,17 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(columns.rows.length).toBeGreaterThanOrEqual(3);
         const [first, ...rest] = columns.rows;
         expect(rest.every((row) => row.status.left === first!.status.left)).toBe(true);
-        expect(rest.every((row) => row.time.right === first!.time.right)).toBe(true);
         expect(rest.every((row) => row.stop.left === first!.stop.left)).toBe(true);
+        // The time and the state sit together at the line's end (cmux#31492), with one tray gap
+        // (4px at scale 1) before Stop or the chevron and between the digits and the word.
+        for (const row of columns.rows) {
+          expect(row.trail.stateToNext).toBeGreaterThanOrEqual(-0.5);
+          expect(row.trail.stateToNext).toBeLessThanOrEqual(8);
+          if (row.trail.timeToState !== null) {
+            expect(row.trail.timeToState).toBeGreaterThanOrEqual(-0.5);
+            expect(row.trail.timeToState).toBeLessThanOrEqual(8);
+          }
+        }
         // The header's time is quiet meta right after its counts (one 8px gap), never a column of
         // its own far from them.
         expect(Math.abs(columns.head.time.left - columns.head.title.right - 8)).toBeLessThanOrEqual(1);
@@ -362,6 +388,13 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                     : null,
                   stop: rect(".acpmux-agent-line__stop-slot", row),
                   hasStop: Boolean(row.querySelector(".acpmux-agent-line__stop-slot > button")),
+                  // How far the cluster (the state word, then the time) ends from Stop's track,
+                  // empty or not (Leo, 2026-11-03: "let's align the right").
+                  stateToNext: (() => {
+                    const end = time.getBoundingClientRect();
+                    const next = row.querySelector<HTMLElement>(".acpmux-agent-line__stop-track")!;
+                    return next.getBoundingClientRect().left - end.right;
+                  })(),
                 };
               }),
               head: (() => {
@@ -379,7 +412,6 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.length).toBeGreaterThanOrEqual(3);
         const [initialFirst, ...initialRest] = initial.rows;
         expect(initialRest.every((row) => row.status.left === initialFirst!.status.left)).toBe(true);
-        expect(initialRest.every((row) => row.time.right === initialFirst!.time.right)).toBe(true);
         expect(initialRest.every((row) => row.stop.left === initialFirst!.stop.left)).toBe(true);
         expect(initial.head.time.left).toBeGreaterThanOrEqual(initial.head.title.right - 0.5);
         expect(initial.head.time.left - initial.head.title.right).toBeLessThanOrEqual(8.5);
@@ -390,9 +422,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         expect(initial.rows.some((row) => !row.hasStop)).toBe(true);
         expect(initial.rows.every((row) => row.summary.width >= 60)).toBe(true);
         expect(initial.rows.every((row) => row.summary.right <= row.time.left + 0.5)).toBe(true);
-        expect(initial.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
+        expect(initial.rows.every((row) => !row.hasStop || row.status.left >= row.time.right - 0.5)).toBe(true);
         // Stop's track, then the chevron's, after the time (the state, when it has a word, sits before the time).
-        expect(initial.rows.every((row) => row.stop.left >= row.time.right - 0.5)).toBe(true);
+        expect(initial.rows.every((row) => !row.hasStop || row.stop.left >= row.time.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.left >= row.stop.right - 0.5)).toBe(true);
         expect(initial.rows.every((row) => !row.chevron || row.chevron.right <= initial.tray.right + 0.5)).toBe(true);
         expect(initial.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
@@ -439,12 +471,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         ).toBe(true);
         expect(afterTick.rows.map((row) => row.time.right)).toEqual(initial.rows.map((row) => row.time.right));
         expect(afterTick.rows.map((row) => row.time.textRight)).toEqual(initial.rows.map((row) => row.time.textRight));
-        expect(afterTick.rows.map((row) => row.time.scrollWidth)).toEqual(
-          initial.rows.map((row) => row.time.scrollWidth),
-        );
-        expect(afterTick.rows.map((row) => row.time.clientWidth)).toEqual(
-          initial.rows.map((row) => row.time.clientWidth),
-        );
+        // The time ends the cluster ("Done · 36s") and sizes to its tabular digits: a tick keeps its
+        // right edge and never clips it; only a new digit widens it, toward the state word.
+        expect(afterTick.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
         expect(afterTick.rows.map((row) => row.status.left)).toEqual(initial.rows.map((row) => row.status.left));
         expect(afterTick.rows.map((row) => row.stop.left)).toEqual(initial.rows.map((row) => row.stop.left));
         expect(afterTick.rows.map((row) => row.time.height)).toEqual(initial.rows.map((row) => row.time.height));
@@ -456,8 +485,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           const narrow = await measure();
           const [narrowFirst, ...narrowRest] = narrow.rows;
           expect(narrowRest.every((row) => row.status.left === narrowFirst!.status.left)).toBe(true);
-          expect(narrowRest.every((row) => row.time.right === narrowFirst!.time.right)).toBe(true);
           expect(narrowRest.every((row) => row.stop.left === narrowFirst!.stop.left)).toBe(true);
+          expect(narrow.rows.every((row) => row.stateToNext >= -0.5 && row.stateToNext <= 8)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.width >= 60)).toBe(true);
           expect(narrow.rows.every((row) => row.summary.bottom <= row.time.top + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.time.lineCount <= 1)).toBe(true);
@@ -465,12 +494,12 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             narrow.rows.every((row) => row.time.lineCount === 0 || row.time.textRight! <= row.time.boxRight + 0.5),
           ).toBe(true);
           expect(narrow.rows.every((row) => row.time.scrollWidth <= row.time.clientWidth + 1)).toBe(true);
-          expect(narrow.rows.every((row) => row.stop.left >= row.time.right - 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => !row.hasStop || row.stop.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.left >= row.stop.right - 0.5)).toBe(true);
           expect(narrow.rows.every((row) => !row.chevron || row.chevron.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.stop.right <= narrow.tray.right + 0.5)).toBe(true);
           expect(narrow.rows.every((row) => row.status.right <= narrow.tray.right + 0.5)).toBe(true);
-          expect(narrow.rows.every((row) => row.status.left >= row.time.right - 0.5)).toBe(true);
+          expect(narrow.rows.every((row) => !row.hasStop || row.status.left >= row.time.right - 0.5)).toBe(true);
           expect(narrow.head.time.left).toBeGreaterThanOrEqual(narrow.head.title.right - 0.5);
           expect(narrow.head.time.right).toBeLessThanOrEqual(narrow.head.chevron.left + 0.5);
           expect(
@@ -493,7 +522,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           ).toBe(true);
           expect(
             ticked.rows.every(
-              (row) => row.summary.bottom <= row.time.top + 0.5 && row.status.left >= row.time.right - 0.5,
+              (row) =>
+                row.summary.bottom <= row.time.top + 0.5 && (!row.hasStop || row.status.left >= row.time.right - 0.5),
             ),
           ).toBe(true);
           expect(
@@ -516,12 +546,14 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
         }
         await page.setViewportSize({ width: 300, height: 560 });
 
-        const clickTargets = await page.evaluate(() => {
+        await page.evaluate(() => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const rows = [...tray.querySelectorAll<HTMLElement>(".acpmux-running-tray__list .acpmux-agent-line")];
           const noStop = rows.find((row) => !row.querySelector(".acpmux-agent-line__stop-slot > button"));
           const withStop = rows.find((row) => row.querySelector(".acpmux-agent-line__stop-slot > button"));
           if (!noStop || !withStop) throw new Error("missing stop and no-stop rows");
+          noStop.dataset.testTarget = "no-stop";
+          withStop.dataset.testTarget = "stop";
           const clicks = window as typeof window & { __trayClicks?: string[] };
           clicks.__trayClicks = [];
           noStop
@@ -530,30 +562,44 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
           withStop
             .querySelector(".acpmux-agent-line__stop-slot > button")
             ?.addEventListener("click", () => clicks.__trayClicks?.push("stop"));
-          const center = (node: HTMLElement) => {
+        });
+        // The open list is newest first and scrolls (#33364): the row with no Stop can sit below the
+        // list's fold, so each target is scrolled into the list's view before its point is read.
+        const clickPoint = (target: "no-stop" | "stop") =>
+          page.evaluate((target) => {
+            const row = document.querySelector<HTMLElement>(`[data-test-target="${target}"]`)!;
+            row.scrollIntoView({ block: "nearest" });
+            // The empty slot's own center, where it lies over the row's button: the click must reach the row.
+            const node = row.querySelector<HTMLElement>(
+              target === "stop" ? ".acpmux-agent-line__stop-slot > button" : ".acpmux-agent-line__stop-slot",
+            );
+            if (!node || node.getBoundingClientRect().width === 0)
+              throw new Error(`the ${target} row has no sized stop slot`);
             const box = node.getBoundingClientRect();
             return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
-          };
-          // The empty slot's own center, where it lies over the row's button: the click must reach the row.
-          const slot = noStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot");
-          const stop = withStop.querySelector<HTMLElement>(".acpmux-agent-line__stop-slot > button");
-          if (!slot || slot.getBoundingClientRect().width === 0)
-            throw new Error("the no-stop row has no sized stop slot");
-          return { noStop: center(slot), stop: center(stop!) };
-        });
-        await page.mouse.click(clickTargets.noStop.x, clickTargets.noStop.y);
+          }, target);
+        const noStopPoint = await clickPoint("no-stop");
+        await page.mouse.click(noStopPoint.x, noStopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open"],
         );
-        await page.mouse.click(clickTargets.stop.x, clickTargets.stop.y);
+        const stopPoint = await clickPoint("stop");
+        await page.mouse.click(stopPoint.x, stopPoint.y);
         expect(await page.evaluate(() => (window as typeof window & { __trayClicks?: string[] }).__trayClicks)).toEqual(
           ["open", "stop"],
         );
 
-        // Running lines keep their visible state word in the fixed status track, alongside ended rows.
-        expect(await page.locator(".acpmux-running-tray__list .acpmux-summary-agent__state").count()).toBeGreaterThan(
+        // A running line with its time shows no Running word: its time and Stop say it runs (Leo,
+        // 2026-11-03: "do we really need a running symbol vs just having the time and a square stop
+        // button?"). Screen readers still hear the word.
+        expect(await page.locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed]").count()).toBeGreaterThan(
           0,
         );
+        expect(
+          await page
+            .locator(".acpmux-running-tray__list .acpmux-agent-line[data-timed] .acpmux-summary-agent__state")
+            .count(),
+        ).toBe(0);
       } finally {
         await page.close();
       }
@@ -611,7 +657,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             return {
               token,
               settled: tray.hasAttribute("data-settled"),
-              card: { shadow: style.boxShadow, background: style.backgroundColor },
+              card: { shadow: style.boxShadow, background: style.backgroundColor, image: style.backgroundImage },
               rows: [...tray.querySelectorAll<HTMLElement>(".acpmux-agent-line")].map((row) => {
                 const button = row.querySelector<HTMLElement>(".acpmux-agent-line__button")!;
                 const name = row.querySelector<HTMLElement>(".acpmux-summary-agent__name")!.getBoundingClientRect();
@@ -624,6 +670,7 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                 const slot = button.querySelector<HTMLElement>(".acpmux-lineage__icon")!.getBoundingClientRect();
                 const time = row.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
                 const meta = row.querySelector<HTMLElement>(".acpmux-agent-line__meta")?.getBoundingClientRect();
+                const timeLeft = time.width > 0 ? time.left : undefined;
                 const visibleText = [...button.querySelectorAll<HTMLElement>("span")]
                   .filter((node) => !node.classList.contains("acpmux-agent-line__sr") && node.children.length === 0)
                   .map((node) => node.textContent?.trim() ?? "")
@@ -635,9 +682,10 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
                   words: visibleText,
                   stats: row.querySelector(".acpmux-summary-text > .acpmux-agent-line__stats")?.textContent ?? null,
                   state: row.querySelector(".acpmux-summary-agent__state")?.textContent ?? null,
+                  timed: row.hasAttribute("data-timed"),
                   statsBelow: Boolean(row.querySelector(".acpmux-summary-text > .acpmux-agent-line__progress")),
-                  timeRight: time.right,
-                  metaLeft: meta?.left,
+                  timeLeft,
+                  metaRight: meta?.right,
                 };
               }),
             };
@@ -650,9 +698,15 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(row.subtitle).toBe(false);
             expect(row.words).not.toContain("general-purpose");
             expect(row.words).not.toContain("Explore");
-            expect(row.state).not.toBeNull();
-            expect(row.words).toContain(row.state!);
-            if (row.metaLeft !== undefined) expect(row.timeRight).toBeLessThanOrEqual(row.metaLeft + 0.5);
+            // A running line with its time shows no state word (Leo, 2026-11-03); every other says it.
+            if (row.timed) expect(row.state).toBeNull();
+            else {
+              expect(row.state).not.toBeNull();
+              expect(row.words).toContain(row.state!);
+            }
+            // The state word, then the time ("Done · 36s").
+            if (row.metaRight !== undefined && row.timeLeft !== undefined)
+              expect(row.metaRight).toBeLessThanOrEqual(row.timeLeft + 0.5);
           }
           // Progress remains inline with the title; it cannot shift the fixed status track.
           if (variant === "running-stats") {
@@ -662,10 +716,9 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             expect(anatomy.rows.every((row) => !row.statsBelow)).toBe(true);
           }
           expect(anatomy.settled).toBe(variant === "done-one");
-          if (anatomy.settled) {
-            expect(anatomy.card.shadow).toBe("none");
-            expect(anatomy.card.background).toBe("rgba(0, 0, 0, 0)");
-          }
+          // Settled too, the line sits on a surface the transcript never shows through (Leo,
+          // 2026-11-02: "this running thing now looks mildly awkward").
+          expect(anatomy.card.image === "none" && anatomy.card.background === "rgba(0, 0, 0, 0)").toBe(false);
           if (variant === "mixed") {
             // A long state word stays in its fixed track, cut before Stop.
             const long = await page.evaluate(() => {

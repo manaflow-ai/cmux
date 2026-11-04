@@ -131,7 +131,8 @@ export function QueuedMessageCard({
               ? () => void act.steer(promptId).then((ok) => ok && setSentAt(row.version), fail)
               : undefined
           }
-          dismiss={act ? () => void act.remove(promptId).catch(fail) : undefined}
+          // An inbox notice's message (`inboxDelivery`) has no Dismiss (App.tsx InboxQueueActions).
+          dismiss={act && !row.inboxDelivery ? () => void act.remove(promptId).catch(fail) : undefined}
         />
       </MessageFooterRow>
     </span>
@@ -171,7 +172,8 @@ export function heldFiles(parts: AcpmuxRow["inlineParts"]): FileAttachmentInfo[]
   return [...(recordedFiles(parts) ?? []), ...media];
 }
 
-/// A person's (a guest's) waiting prompt: held with Approve and Decline, or approved and waiting.
+/// A person's (a guest's) waiting prompt: held with Approve and Decline, or approved and waiting
+/// with no note.
 /// The owner changes nothing else of it (acpmux `queue.not_author`).
 function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageActionsValue }) {
   const t = useT();
@@ -270,19 +272,20 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
               </span>
             )}
             {answers && look === "menu" && menu}
-            <span className="cv-received__queued">
-              {t(
-                updating && held
-                  ? "queue.held.updating"
-                  : note === "stale"
-                    ? "queue.held.stale"
-                    : note === "gone"
-                      ? "queue.held.gone"
-                      : held
-                        ? "queue.held.waiting"
-                        : "message.readAfterTurn",
-              )}
-            </span>
+            {/* Approved, it says nothing: no "Read after this turn" (Leo, 2026-10-29; ask-d98e1527c4). */}
+            {(held || note) && (
+              <span className="cv-received__queued">
+                {t(
+                  updating && held
+                    ? "queue.held.updating"
+                    : note === "stale"
+                      ? "queue.held.stale"
+                      : note === "gone"
+                        ? "queue.held.gone"
+                        : "queue.held.waiting",
+                )}
+              </span>
+            )}
           </>
         }
       />
@@ -312,7 +315,7 @@ function DeclinedLine({ row, person }: { row: AcpmuxRow; person?: Participant })
       <button type="button" className="cv-declined__line" aria-expanded={open} onClick={toggle}>
         {person && <Face person={person} size={14} />}
         <span className="cv-declined__text">{t("queue.held.declined", { preview: messagePreview(text) })}</span>
-        <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+        <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
       </button>
       {open && <div className="cv-received__body cv-declined__body selectable">{text}</div>}
     </div>

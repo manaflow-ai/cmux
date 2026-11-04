@@ -105,7 +105,7 @@ export default componentEntry<Props>({
   variants: {
     theme: {
       props: { look: "theme" },
-      note: "Shipped. The theme's text on a 9% wash of it with an 18% hairline ring and the open cue; under the pointer the wash goes to 16% and the ring to 30%. The plain sender below (no chat to open) keeps the grey tag with no cue.",
+      note: "Shipped. The theme's text on a 9% wash of it with an 18% hairline ring and no arrow glyph; under the pointer the wash goes to 16% and the ring to 30%. The plain sender below (no chat to open) keeps the grey tag with no cue.",
     },
     accent: {
       props: { look: "accent" },

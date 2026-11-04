@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
 
@@ -9,15 +10,9 @@ import Foundation
 /// a teammate's or a lane-pool VM, else a new one named for chats; a retry of the same send stays on
 /// the machine its first try took. The App lists its machines for it, makes the machine it asks
 /// for, and connects (Leo, 2026-10-30: "AS MUCH RUST AS POSSIBLE INSTEAD OF SWIFT").
-/// Each send is kept under the account it began in (``accountText(_:)``), and takes a machine only
+/// Each send is kept under the account it began in (``CloudStartCore/accountText(_:)``), and takes a machine only
 /// of the list the server answered for that account (``checkAccount(_:now:listCurrent:)``).
 extension CloudStartChat {
-    /// The account a send began in as cmux-tui keeps its sends: its user and team. A team switch keeps
-    /// the user signed in, so a send of the previous team never names this team's machine.
-    static func accountText(_ account: [String?]) -> String {
-        account.map { $0 ?? "" }.joined(separator: "/")
-    }
-
     /// The plan's request: the send's key, account and Mac workspace, who is signed in, the machines the account's list named (as the pick
     /// reads them), the store's others (`stored`: kept for a pin, never picked), and the chat's folder, environment and token flag (`access`).
     static func planRequest(key: String, account: [String?], workspace: String?, user: String?, machines: [CloudMachineSession],
@@ -28,7 +23,7 @@ extension CloudStartChat {
                 .filter { $0.agentSession != nil }.count : nil
             return session.machine.startChatPlanEntry(connected: connected, chats: chats)
         }
-        var request: [String: Any] = ["key": key, "account": accountText(account), "loaded": true, "machines": listed,
+        var request: [String: Any] = ["key": key, "account": CloudStartCore().accountText(account), "loaded": true, "machines": listed,
                                       "stored": stored, "credential_on_stdin": access]
         for (name, value) in [("user", user), ("workspace", workspace), ("local", local), ("environment", environment)] { request[name] = value }
         let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data("{}".utf8)
@@ -61,9 +56,9 @@ extension CloudStartChat {
     /// the server's answer for the account signed in now (`listCurrent`): after a team switch the
     /// previous team's machines stay in the store until that list lands, and the chat's folder must
     /// never be copied to one of them.
-    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws {
-        guard asked == now else { throw CloudMove.Failure(message: CloudMoveStrings.startChatAccountChanged) }
-        guard listCurrent else { throw CloudMove.Failure(message: CloudMoveStrings.startChatListUnread) }
+    static func checkAccount(_ asked: [String?], now: [String?], listCurrent: Bool) throws { // the rule: cmux-cloud-start-core `start`
+        guard let check = CloudStartCore().checkAccount(asked, now: now, listCurrent: listCurrent) else { return }
+        throw CloudMove.Failure(message: check == .accountChanged ? CloudMoveStrings.startChatAccountChanged : CloudMoveStrings.startChatListUnread)
     }
 
     /// The machine for the send `start`, connected, and the plan's keys. Only a machine of the list
@@ -86,15 +81,27 @@ extension CloudStartChat {
             if !listed.contains(id) { await cloud.refresh() } // the platform's (personal, non-production sign-ins, where workspace machines are served): list it for the attach
             invocation.arguments["machine"] = .string(id)
         } else {
-            let request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: account.last ?? nil)
+            if cloud.configuration.linkSource == .appServer, !plan.createSent {
+                _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
+            }
+            var request = Self.createRequest(key: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
+            request.wasSent = plan.createSent
             try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
             // The account is checked again once the server answered, before the machine joins the list.
-            let created = try await cloud.createMachine(name: plan.newName, startedByPerson: invocation.origin == .user,
-                                                        request: request) {
-                try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+            let created: CloudMachineSession
+            do {
+                created = try await cloud.createMachine(name: plan.newName, startedByPerson: invocation.origin == .user,
+                                                            request: request, onAppServerSent: { team in
+                    _ = try Self.checked(await cli.startChatCreateSent(key: start.key, account: CloudStartCore().accountText(account), team: team, createKey: plan.createKey))
+                }) {
+                    try Self.checkAccount(account, now: cloud.account, listCurrent: true)
+                }
+            } catch let failure as CloudAppOpFailure where cloud.configuration.linkSource == .appServer && !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+                _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
+                throw failure
             }
             // Unpinned, a retry would plan afresh and could open the chat on another machine.
-            _ = try Self.checked(await cli.startChatPin(key: start.key, account: Self.accountText(account), machine: created.machineID, workspace: workspace))
+            _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
         return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)

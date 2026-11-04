@@ -93,6 +93,7 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
         Some(
             "agent_message"
                 | "session_message"
+                | crate::prompt_provenance::NOTICE_KIND
                 | "task_result"
                 | super::subsessions::PROVENANCE_KIND
                 | super::lane_reports::KIND
@@ -244,8 +245,8 @@ impl Hub {
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
-            let delays = hub.config.read().await.auto_resume_delays_ms.clone();
-            let delays = delays
+            let configured = hub.config.read().await.auto_resume_delays_ms.clone();
+            let delays = Some(super::auto_resume::effective_delays(configured))
                 .filter(|d| !d.is_empty())
                 .unwrap_or_else(|| super::auto_resume::DEFAULT_DELAYS_MS.to_vec());
             let delay = delays[retries.min(delays.len() - 1)];
@@ -346,6 +347,7 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate
+                    && q.run.cloud_mobile == head.cloud_mobile
                     && !super::subsession_guard::is_family_prompt(q.run.provenance.as_ref())
                     && !inbox_digest::is_digest(q.run.provenance.as_ref());
                 let size = blocks_bytes(&q.run.blocks);
@@ -435,7 +437,7 @@ impl Hub {
         for q in &taken {
             position += 1;
             let text = prompt_text(&q.run.blocks);
-            let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
+            let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "cloudMobile": q.run.cloud_mobile, "requeued": true});
             if let Some(agent) = &q.run.agent {
                 queued.set("fromAgent", json!(agent));
             }
@@ -560,6 +562,7 @@ mod tests {
             blocks: vec![json!({"type": "text", "text": text})],
             display_parts: None,
             control: Control::default(),
+            cloud_mobile: false,
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
@@ -667,6 +670,7 @@ mod tests {
             ],
             display_parts: Some(display.clone()),
             control: Control::default(),
+            cloud_mobile: false,
             trust_gate: false,
             provenance: None,
             agent: Some("lane-a".into()),

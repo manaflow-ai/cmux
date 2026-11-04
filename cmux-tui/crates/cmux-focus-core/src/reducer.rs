@@ -43,9 +43,21 @@ pub fn reduce(state: &mut FocusState, event: &FocusEvent, effects: &mut Vec<Focu
     match event {
         FocusEvent::Topology { topology } => apply_topology(topology.clone(), next, effects),
         FocusEvent::RestoredPane { pane, workspace } => {
-            if !next.remembered.contains_key(workspace)
-                && Some(workspace) != next.topology.workspace.as_ref()
-            {
+            if Some(workspace) == next.topology.workspace.as_ref() {
+                // The window shows the workspace already (the launch window showed its panes
+                // before it adopted the saved record): the saved pane is the focus, as when the
+                // record comes first, unless the person chose since the window opened (every
+                // user intent bumps the generation). A view that took the keyboard by itself
+                // (Home's message box, AppKit's own pick) is no choice. QA v2.2.2 bug 1.
+                if next.generation == 0
+                    && next.topology.contains_pane(pane)
+                    && (next.pane.as_ref() != Some(pane) || next.target != (Target::Content {}))
+                {
+                    next.pane = Some(pane.clone());
+                    next.target = Target::Content {};
+                    force_responder = true;
+                }
+            } else if !next.remembered.contains_key(workspace) {
                 remember(pane, workspace, next);
             }
         }
@@ -350,7 +362,8 @@ pub fn successor(
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
     let shown_history: Vec<String> =
         history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
-    if let Some(pick) = close_focus::pane(Some(pane), &before, &after, &shown_history, policy)
+    let focused = pane.to_owned();
+    if let Some(pick) = close_focus::pane(Some(&focused), &before, &after, &shown_history, policy)
         && new.contains_pane(&pick)
     {
         return Some(pick);

@@ -59,6 +59,12 @@ PASS, FAIL, USAGE, CANNOT_RUN = 0, 1, 2, 3
 # journey(process, socket_path, env, app, out, report) -> list of failures. It runs once Home has
 # rendered and the app is still up, before the app is stopped; it may quit the app itself.
 AFTER_RENDER = None
+# A caller's preparation of the fresh home before the app starts: prepare(env) (None for the nightly smoke).
+PREPARE_HOME = None
+# A caller whose ready state is not Home (scripts/cmux-next/idle_cpu.py: any visible window) sets this to
+# ready(snapshot) -> bool; it replaces only the Home-tab check, never the first_window_frame_committed mark.
+# None (the nightly smoke): Home's tab selected in a visible window.
+READY = None
 RENDER_MARK = "first_window_frame_committed"
 HOME_PAGE = "home-dock"
 
@@ -431,7 +437,8 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 break
             if rendered_at is None:
                 snap = snapshot(socket_path) or snap
-                if home_tab(snap) and RENDER_MARK in read_marks(marks_path):
+                shown = READY(snap) if READY is not None else home_tab(snap)
+                if shown and RENDER_MARK in read_marks(marks_path):
                     rendered_at = elapsed
                     log(f"ok: Home rendered in a visible window {elapsed:.1f}s after launch")
             if elapsed >= seconds and (rendered_at is not None or elapsed >= startup_timeout):
@@ -463,6 +470,8 @@ def run(args: argparse.Namespace, root: Path, report: dict) -> int:
     with DefaultsAside(bundle_id, root):
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
+        if PREPARE_HOME is not None:
+            PREPARE_HOME(env)
         log(f"==> fresh-home launch of {bundle_id} ({app}), HOME={env['HOME']}, {args.seconds:.0f}s")
         launched_wall = time.time() - 1
         with open(root / "app.log", "wb") as app_log:
