@@ -278,12 +278,44 @@ function directExec(api: Api, machine: string, journey: Journey): Exec {
 }
 
 /** `cmux machine access exec` with the same credential: the journey drives the real CLI. */
-function cliExec(cmux: string, api: Api, machine: string): Exec {
+export function cliExecNeedsDirectFallback(status: number | null, _stdout: string, stderr: string): boolean {
+  if (status === 0) return false;
+  // `--json` puts CLI failures in a structured stderr object; a guest command's
+  // stdout/stderr are fields in its success object, so it cannot manufacture this.
+  try {
+    const error = JSON.parse(stderr);
+    return error?.code === "cloud_client_session.failed"
+      && /^cmux:\s+the cmux API refused the client session:\s*501\s+Not Implemented\s+cloud\.provider\.unsupported\b/i.test(String(error?.message ?? ""));
+  } catch {
+    return false;
+  }
+}
+
+function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exec {
+  const fallback = directExec(api, machine, journey);
+  let useDirect = false;
   return async (command, timeoutMs = 60_000) => {
+    if (useDirect) return fallback(command, timeoutMs);
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
-    const args = ["machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
+    const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", "sh", "-c", command];
     const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
     if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
+    // VM API machines do not expose Freestyle client sessions. The CLI's client-session
+    // path reports this documented provider response; keep exercising the real CLI when
+    // it is supported, but use the same direct machine route as directExec for this case.
+    if (cliExecNeedsDirectFallback(done.status, done.stdout ?? "", done.stderr ?? "")) {
+      useDirect = true;
+      journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
+      return fallback(command, timeoutMs);
+    }
+    try {
+      const result = JSON.parse(done.stdout ?? "");
+      if (Number.isInteger(result?.exit_code)) {
+        return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
+      }
+    } catch {
+      // Preserve the raw CLI answer below when it did not produce its JSON contract.
+    }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
   };
 }
@@ -816,7 +848,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    const exec = cmux ? cliExecWithFallback(cliExec(cmux, api, created.id), directExec(api, created.id, J), J) : directExec(api, created.id, J);
+    const exec = cmux ? cliExec(cmux, api, created.id, J) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
