@@ -1,19 +1,25 @@
 /* One quiet list, using the app's own type and color tokens. Alternate layouts remain gallery choices. */
 .import-history {
-  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: var(--ds-space-6) var(--ds-space-5) var(--ds-space-5);
   user-select: text;
+}
+.import-history > :not(.history-sources) {
+  flex-shrink: 0;
 }
 .import-history h1 {
   margin: 0;
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   letter-spacing: var(--text-title--letter-spacing);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .history-lead {
-  margin: 8px 0 16px;
+  margin: var(--ds-space-2) 0 var(--ds-space-5);
   color: var(--page-text-2);
   line-height: 1.5;
 }
@@ -24,9 +30,16 @@
   margin-bottom: 8px;
 }
 .history-source {
-  border-bottom: 1px solid var(--page-separator);
-  padding: 12px 0;
+  border: 1px solid var(--page-separator);
+  border-radius: var(--ds-radius-lg);
+  background: var(--page-elevated);
+  padding: var(--ds-space-3) var(--ds-space-4);
+  margin-top: var(--ds-space-2);
   min-width: 0;
+}
+.history-source:has(input:checked) {
+  border-color: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 48%, var(--page-separator));
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 7%, var(--page-elevated));
 }
 .history-source-line,
 .history-source-label,
@@ -41,14 +54,35 @@
 }
 .history-source-label {
   min-width: 0;
+  flex: 1;
 }
 .history-source-label input {
   margin: 0;
   flex-shrink: 0;
   accent-color: var(--cmux-accent, currentColor);
 }
+.history-source-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 8px;
+  background: var(--page-hover);
+  color: var(--page-text);
+  font-size: var(--text-control);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+}
 .history-source-action {
   flex-shrink: 0;
+}
+.history-sources {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline-end: var(--ds-space-1);
 }
 .history-muted,
 .history-safety,
@@ -70,10 +104,6 @@
 .history-button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-.history-dot {
-  margin: 12px 0 0;
-  color: var(--page-text-2);
 }
 .history-file,
 .history-report,
@@ -124,8 +154,10 @@
   justify-content: space-between;
   position: sticky;
   bottom: 0;
-  padding: 12px 0;
+  padding: var(--ds-space-4) 0 0;
   background: var(--cmux-surface-solid, Canvas);
+  border-top: 1px solid var(--page-separator);
+  margin-top: 24px;
 }
 .history-button {
   border: 1px solid var(--page-separator);
@@ -148,6 +180,7 @@
 }
 .layout-cards .history-sources {
   display: grid;
+  align-content: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
@@ -155,6 +188,11 @@
   padding: 16px;
   border: 1px solid var(--page-separator);
   border-radius: 8px;
+}
+.layout-cards .history-source-icon {
+  width: var(--ds-control-primary);
+  height: var(--ds-control-primary);
+  flex-basis: var(--ds-control-primary);
 }
 .layout-compact .history-source {
   padding: 8px 0;
@@ -188,4 +226,12 @@
 }
 .history-source-title:disabled {
   cursor: default;
+}
+
+.history-scan-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
 }

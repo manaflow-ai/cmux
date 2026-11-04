@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  agentHomeTrust,
   readFolderTrust,
   readTrust,
   sessionTrust,
@@ -369,13 +370,17 @@ export function useFolderTrustAsk(
     } else {
       // The persisted path cache belongs to this page's initial local authority. Once its route
       // changes, read the new authority instead of projecting a previous host's answer by path.
+      // A no-project chat's agent-home folder on this computer has a known answer: drawn now, read after.
       const trust = cwd && remembers ? knownTrust().get(cwd) : undefined;
+      const seeded = trust ?? (cwd && local ? agentHomeTrust(cwd) : undefined);
       const shown =
-        trust && cwd ? shownTrust(trust, cwd, family, canAnswer) : { ask: undefined, trusted: false, scope: undefined };
+        seeded && cwd
+          ? shownTrust(seeded, cwd, family, canAnswer)
+          : { ask: undefined, trusted: false, scope: undefined };
       setAsk(shown.ask);
       setTrusted(shown.trusted);
       setScope(shown.scope);
-      setReading(Boolean(cwd) && !trust);
+      setReading(Boolean(cwd) && !seeded);
     }
   }
   useEffect(() => {
