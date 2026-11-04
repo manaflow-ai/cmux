@@ -69,8 +69,9 @@ impl GoalProvider {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum GoalStatus {
+    #[default]
     Running,
     Stalled,
     Paused,
@@ -82,12 +83,6 @@ pub enum GoalStatus {
     UsageLimited,
     BudgetLimited,
     Unknown(String),
-}
-
-impl Default for GoalStatus {
-    fn default() -> Self {
-        Self::Running
-    }
 }
 
 impl Serialize for GoalStatus {
@@ -195,6 +190,13 @@ impl GoalState {
             .and_then(Value::as_str)
             .map(GoalStatus::from_name)
             .unwrap_or_default();
+        let status = match status {
+            // Keep legacy spellings on the wire, while exposing one canonical
+            // typed status to Rust and the web projection.
+            GoalStatus::Active => GoalStatus::Running,
+            GoalStatus::Blocked => GoalStatus::Stalled,
+            status => status,
+        };
         let provider = object
             .get("provider")
             .or_else(|| object.get("source"))
