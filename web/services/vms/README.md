@@ -604,12 +604,14 @@ whose metadata still says paid stays kept.
 
 These leave a machine running: a machine on a team with other members (any member may be the paying
 caller), a paid `cmuxPlan` with no subscription row behind it, an unknown owner, a failed or slow
-lookup, and Stripe itself reporting a live subscription on the user's or one of their teams' customers.
+lookup, an Apple subscription set to renew that expired within the last 7 days (a lost renewal
+notification looks the same), and Stripe itself reporting a live subscription on the user's or one of
+their teams' customers.
 
 It is a dry run until `CMUX_VM_PLAN_LAPSE_PAUSE=enforce`: it reports what it would pause and changes
 nothing. Enforced, it pauses at most 50 machines a run through the allowance pause path, so the idle
 cron does not undo the pause, and it re-reads each row first. It pauses nothing and reports a failure
-when more than 10 owners and more than a quarter of all owners look lapsed, unless
+when more than 10 owners and more than a quarter of the owners it could read look lapsed, unless
 `CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN=1`. Nothing is destroyed.
 `scripts/cloud-vm/vm-plan-lapse-report.ts` prints the same list with owner emails for an operator.
 

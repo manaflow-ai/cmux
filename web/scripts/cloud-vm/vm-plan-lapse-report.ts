@@ -4,6 +4,7 @@
  * owner's email, from the same decision the vm-plan-lapse cron uses. It holds
  * personal data: redirect it to a private file and never commit or paste it.
  *
+ * Exit 2 means some owners could not be checked, so the list is incomplete.
  * It never pauses: CMUX_VM_PLAN_LAPSE_PAUSE is ignored and no provider is called.
  *
  * Usage (from web/, with the target's DATABASE_URL, Stack and Stripe env exported):
@@ -35,5 +36,5 @@ for (const vm of lapsed) {
   console.log([emails.get(vm.userId), vm.userId, vm.providerVmId, vm.vmId].join(","));
 }
 console.error(JSON.stringify(summary));
-// The database client holds its connections open.
-process.exit(0);
+// The database client holds its connections open. A partial list must not read as a whole one.
+process.exit(summary.lookupErrors > 0 || summary.outOfTime > 0 ? 2 : 0);

@@ -2,6 +2,7 @@ import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import {
+  appleRenewalMayBeMissing,
   decideVmPlanLapse,
   isLiveStripeSubscription,
   makeStripeSaysStillLive,
@@ -178,6 +179,42 @@ describe("enforceVmPlanLapse", () => {
     expect(paused).toEqual([]);
     expect(result.deferred).toBe(1);
   });
+  test("a lookup that times out and answers late neither decides nor pauses", async () => {
+    const { paused, layer } = harness();
+    const result = await Effect.runPromise(enforceVmPlanLapse({
+      env: enforce, stillPausable, lookupTimeoutMs: 5, listRunning: async () => [vm("a", "slow")],
+      lookup: async () => { await new Promise((resolve) => setTimeout(resolve, 30)); return none; },
+      confirmStillLive: async () => false,
+    }).pipe(Effect.provide(layer)));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(paused).toEqual([]);
+    expect(result.lookupErrors).toBe(1);
+    expect(result.decisions).toEqual({});
+    expect(result.lapsed).toEqual([]);
+  });
+  test("a provider that never answers fails the pause inside its time limit", async () => {
+    const { layer } = harness();
+    const hung = Layer.merge(layer, Layer.succeed(VmProviderGateway, { pause: () => Effect.never } as never));
+    const result = await Effect.runPromise(enforceVmPlanLapse({
+      env: enforce, stillPausable, pauseTimeoutMs: 5, listRunning: async () => [vm("a", "u1")], lookup: async () => none, confirmStillLive: async () => false,
+    }).pipe(Effect.provide(hung)));
+    expect(result.errors).toBe(1);
+    expect(result.paused).toBe(0);
+  });
+  test("the large-run stop divides by owners that answered, not owners that exist", async () => {
+    const { paused, layer } = harness();
+    const lapsedUsers = VM_PLAN_LAPSE_TRIP_MIN_OWNERS + 1;
+    const machines = Array.from({ length: 100 }, (_, index) => vm(`m${index}`, `u${index}`));
+    const result = await Effect.runPromise(enforceVmPlanLapse({
+      env: enforce, stillPausable, listRunning: async () => machines, confirmStillLive: async () => false,
+      lookup: async ({ userId }) => {
+        if (Number(userId.slice(1)) < lapsedUsers) return none;
+        throw new Error("stack unavailable");
+      },
+    }).pipe(Effect.provide(layer)));
+    expect(result.tripped).toBe(true);
+    expect(paused).toEqual([]);
+  });
   test("a failed pause leaves no intent for the minute job to finish", async () => {
     const { paused, patches, layer, failPauses } = harness();
     failPauses();
@@ -186,7 +223,7 @@ describe("enforceVmPlanLapse", () => {
     }).pipe(Effect.provide(layer)));
     expect(paused).toEqual([]);
     expect(result.errors).toBe(1);
-    expect(patches.at(-1)).toEqual({ cmuxGoPauseIntent: null });
+    expect(patches).toEqual([]);
   });
   test("where free machines are allowed nothing has lapsed", async () => {
     const { paused, layer } = harness();
@@ -236,6 +273,19 @@ describe("makeVmOwnerPlanLookup", () => {
   test("an unknown user is null and a failed team list rejects", async () => {
     expect(await makeVmOwnerPlanLookup(sources({ getUser: async () => null }))({ userId: "u1", billingTeamId: null })).toBeNull();
     await expect(makeVmOwnerPlanLookup(sources({ listTeams: async () => { throw new Error("incomplete"); } }))({ userId: "u1", billingTeamId: null })).rejects.toThrow("incomplete");
+  });
+});
+
+describe("appleRenewalMayBeMissing", () => {
+  const now = new Date("2026-11-03T00:00:00Z");
+  const expired = (days: number) => new Date(now.getTime() - days * 86_400_000);
+  test("set to renew and just expired may be a lost notification; anything else is an expiry", () => {
+    expect(appleRenewalMayBeMissing({ status: "expired", expiresAt: expired(1), autoRenewEnabled: true }, now)).toBe(true);
+    expect(appleRenewalMayBeMissing({ status: "expired", expiresAt: expired(1), autoRenewEnabled: null }, now)).toBe(true);
+    expect(appleRenewalMayBeMissing({ status: "expired", expiresAt: expired(8), autoRenewEnabled: true }, now)).toBe(false);
+    expect(appleRenewalMayBeMissing({ status: "expired", expiresAt: expired(1), autoRenewEnabled: false }, now)).toBe(false);
+    expect(appleRenewalMayBeMissing({ status: "revoked", expiresAt: expired(1), autoRenewEnabled: true }, now)).toBe(false);
+    expect(appleRenewalMayBeMissing({ status: "expired", expiresAt: null, autoRenewEnabled: true }, now)).toBe(false);
   });
 });
 

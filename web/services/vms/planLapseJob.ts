@@ -42,6 +42,8 @@ export type VmPlanLapseSummary = {
   /** Owner unknown here, a lookup failed, or the run ran out of time: never paused. */
   readonly unknown: number;
   readonly lookupErrors: number;
+  /** Machines not looked at because the run ran out of time. */
+  readonly outOfTime: number;
   /** Stripe said live while the local table did not. */
   readonly stripeMirrorStale: number;
   readonly lapsed: readonly VmPlanLapseCandidate[];
@@ -61,6 +63,8 @@ type Dependencies = {
   readonly stillPausable?: (vm: CloudVmRow) => Promise<boolean>;
   readonly env?: Record<string, string | undefined>;
   readonly now?: () => number;
+  readonly lookupTimeoutMs?: number;
+  readonly pauseTimeoutMs?: number;
 };
 
 const listRunningFreestyleVms = () => cloudDb().select().from(cloudVms)
@@ -88,7 +92,7 @@ function errorName(error: unknown): string {
 export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
   return Effect.gen(function* () {
     const env = dependencies.env ?? process.env;
-    const empty = { checked: 0, owners: 0, decisions: {}, unknown: 0, lookupErrors: 0, stripeMirrorStale: 0, lapsed: [], tripped: false, paused: 0, deferred: 0, skipped: 0, errors: 0 };
+    const empty = { checked: 0, owners: 0, decisions: {}, unknown: 0, lookupErrors: 0, outOfTime: 0, stripeMirrorStale: 0, lapsed: [], tripped: false, paused: 0, deferred: 0, skipped: 0, errors: 0 };
     // Where free machines are allowed, a free owner has not lapsed from anything.
     if (isVmFreeProvisioningAllowed(env)) return { mode: "off_free_provisioning", ...empty } satisfies VmPlanLapseSummary;
     const enforce = vmPlanLapseEnforced(env);
@@ -113,21 +117,33 @@ export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
     const decisions: Partial<Record<VmPlanLapseDecision, number>> = {};
     let unknown = 0;
     let lookupErrors = 0;
+    let outOfTime = 0;
+    const answeredUsers = new Set<string>();
     let stripeMirrorStale = 0;
     const lapsedRows: CloudVmRow[] = [];
-    yield* Effect.forEach([...byOwner.values()], (group) => Effect.tryPromise(async () => {
+    // Kept owners stay running and spend the budget first every run, so start somewhere new each hour.
+    const groups = [...byOwner.values()];
+    const start = Math.floor(((Math.floor(startedAt / 3_600_000) * 0.618) % 1) * groups.length);
+    const rotated = [...groups.slice(start), ...groups.slice(0, start)];
+    yield* Effect.forEach(rotated, (group) => Effect.tryPromise(async (signal) => {
       if (now() - startedAt > LOOKUP_BUDGET_MS) {
+        outOfTime += group.length;
         unknown += group.length;
         return;
       }
       const { userId, billingTeamId } = group[0]!;
       const facts = await lookup({ userId, billingTeamId });
+      // A timed-out lookup was counted as an error; its late answer must not also decide.
+      if (signal.aborted) return;
       if (!facts) {
         unknown += group.length;
         return;
       }
       const decision = decideVmPlanLapse(facts);
-      if (decision === "lapsed" && await confirmStillLive(userId, facts.teamIds)) {
+      const stillLive = decision === "lapsed" && await confirmStillLive(userId, facts.teamIds);
+      if (signal.aborted) return;
+      answeredUsers.add(userId);
+      if (stillLive) {
         stripeMirrorStale += group.length;
         decisions.keep_stripe = (decisions.keep_stripe ?? 0) + group.length;
         return;
@@ -135,7 +151,7 @@ export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
       decisions[decision] = (decisions[decision] ?? 0) + group.length;
       if (decision === "lapsed") lapsedRows.push(...group);
     }).pipe(
-      Effect.timeoutFail({ duration: OWNER_LOOKUP_TIMEOUT_MS, onTimeout: () => new Error("owner lookup timed out") }),
+      Effect.timeoutFail({ duration: dependencies.lookupTimeoutMs ?? OWNER_LOOKUP_TIMEOUT_MS, onTimeout: () => new Error("owner lookup timed out") }),
       Effect.catchAll((error) => Effect.sync(() => {
         lookupErrors += 1;
         unknown += group.length;
@@ -149,7 +165,7 @@ export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
     const tripped = enforce &&
       env.CMUX_VM_PLAN_LAPSE_ALLOW_LARGE_RUN?.trim() !== "1" &&
       lapsedOwners > VM_PLAN_LAPSE_TRIP_MIN_OWNERS &&
-      lapsedOwners > byOwner.size * VM_PLAN_LAPSE_TRIP_OWNER_SHARE;
+      lapsedOwners > answeredUsers.size * VM_PLAN_LAPSE_TRIP_OWNER_SHARE;
     const toPause = enforce && !tripped ? pausable.slice(0, VM_PLAN_LAPSE_MAX_PAUSES_PER_RUN) : [];
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -160,7 +176,7 @@ export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
         catch: (cause) => new VmDatabaseError({ operation: "plan_lapse_reread", cause }),
       });
       if (!pausableNow) return "skipped" as const;
-      yield* pausePlanLapsedVm(repo, providers, vm, vm.providerVmId!);
+      yield* pausePlanLapsedVm(repo, providers, vm, vm.providerVmId!, dependencies.pauseTimeoutMs);
       return "paused" as const;
     }).pipe(
       Effect.catchAll((error) => Effect.sync(() => {
@@ -177,6 +193,7 @@ export function enforceVmPlanLapse(dependencies: Dependencies = {}) {
       decisions,
       unknown,
       lookupErrors,
+      outOfTime,
       stripeMirrorStale,
       lapsed,
       tripped,

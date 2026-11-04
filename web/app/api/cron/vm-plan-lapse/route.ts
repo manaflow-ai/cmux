@@ -13,10 +13,10 @@ export async function GET(request: Request): Promise<Response> {
       const { lapsed, ...summary } = await runVmWorkflow(enforceVmPlanLapse());
       const result = { ...summary, lapsedMachines: lapsed.length, lapsedOwners: new Set(lapsed.map((vm) => vm.userId)).size };
       console.info("[VM] cron plan lapse", JSON.stringify(result));
-      if (result.errors > 0 || result.lookupErrors > 0 || result.tripped) {
+      if (result.errors > 0 || result.lookupErrors > 0 || result.outOfTime > 0 || result.tripped) {
         reportCronFailure(
           "vm-plan-lapse",
-          new Error(`Plan lapse: ${result.errors} pause failures, ${result.lookupErrors} owner lookup failures, tripped=${result.tripped}`),
+          new Error(`Plan lapse: ${result.errors} pause failures, ${result.lookupErrors} owner lookup failures, ${result.outOfTime} machines out of time, tripped=${result.tripped}`),
           { ...result },
           { stage: "partial", level: "warning" },
         );

@@ -33,7 +33,7 @@ export function pauseBudgetVm(
   });
 }
 
-const VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS = 60_000;
+export const VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS = 60_000;
 
 /** Pause a machine whose owner no longer pays and holds no grant (services/vms/planLapseJob.ts). */
 export function pausePlanLapsedVm(
@@ -41,9 +41,10 @@ export function pausePlanLapsedVm(
   providers: VmProviderGatewayShape,
   vm: CloudVmRow,
   providerVmId: string,
+  timeoutMs: number = VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS,
 ) {
   return pauseForAllowance(repo, providers, vm, providerVmId, {
-    reason: "plan_lapsed", planId: vm.billingPlanId ?? "free", capRuntime: false, ownCronRetries: { timeoutMs: VM_PLAN_LAPSE_PAUSE_TIMEOUT_MS },
+    reason: "plan_lapsed", planId: vm.billingPlanId ?? "free", capRuntime: false, ownCronRetries: { timeoutMs },
   });
 }
 
@@ -58,9 +59,9 @@ function pauseForAllowance(
     readonly capRuntime: boolean;
     readonly usedSeconds?: number;
     /**
-     * The caller's own cron decides again next run, so a failed pause leaves no
-     * intent behind: the minute job would otherwise finish it under its own
-     * allowance reason, whatever the plan is by then.
+     * The caller's own cron decides again next run, so this pause writes no
+     * intent: the minute job would otherwise finish it under its own allowance
+     * reason, whatever the plan is by then.
      */
     readonly ownCronRetries?: { readonly timeoutMs: number };
   },
@@ -72,9 +73,12 @@ function pauseForAllowance(
     }
     const mergeMetadata = repo.mergeProviderMetadata;
     if (!mergeMetadata) return yield* Effect.fail(new VmDatabaseError({ operation: "go_pause_intent", cause: "Durable metadata writes are unavailable" }));
-    yield* mergeMetadata({ id: vm.id, patch: {
-      [GO_PAUSE_INTENT_KEY]: { requestedAt: new Date().toISOString(), reason: options.reason },
-    } });
+    const ownCronRetries = options.ownCronRetries;
+    if (!ownCronRetries) {
+      yield* mergeMetadata({ id: vm.id, patch: {
+        [GO_PAUSE_INTENT_KEY]: { requestedAt: new Date().toISOString(), reason: options.reason },
+      } });
+    }
     // Fence the pause before any provider effect, so no idle recovery undoes it while it is in flight;
     // a provider effect that fails drops it again.
     const intent = repo.recordPauseIntent ? yield* repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "allowance" }) : null;
@@ -85,26 +89,20 @@ function pauseForAllowance(
       // stops machines resumed outside the control plane.
       yield* pause(vm.provider, providerVmId);
     });
-    const ownCronRetries = options.ownCronRetries;
     const bounded = ownCronRetries
       ? providerEffect.pipe(Effect.timeoutFail({
         duration: ownCronRetries.timeoutMs,
         onTimeout: () => new VmDatabaseError({ operation: "plan_lapse_pause_timeout", cause: `No provider answer in ${ownCronRetries.timeoutMs} ms` }),
       }))
       : providerEffect;
-    yield* bounded.pipe(Effect.tapError(() => Effect.all([
-      intent === null || !repo.clearPauseIntent
-        ? Effect.void
-        : repo.clearPauseIntent({ id: vm.id, epoch: intent }).pipe(Effect.catchAll(() => Effect.void)),
-      ownCronRetries
-        ? mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } }).pipe(Effect.catchAll(() => Effect.void))
-        : Effect.void,
-    ], { discard: true })));
+    yield* bounded.pipe(Effect.tapError(() => intent === null || !repo.clearPauseIntent
+      ? Effect.void
+      : repo.clearPauseIntent({ id: vm.id, epoch: intent }).pipe(Effect.catchAll(() => Effect.void))));
     // A stated cause: it settles an idle pause claim and stamps the fence, so the idle cron never
     // undoes this pause as a lost idle pause (services/vms/README.md, idle auto-pause).
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "allowance" });
     if (!recorded) return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
-    yield* mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
+    if (!ownCronRetries) yield* mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
     yield* repo.recordUsageEvent({ userId: vm.userId, billingTeamId: vm.billingTeamId, billingPlanId: options.planId,
       vmId: vm.id, eventType: "vm.paused", provider: vm.provider, imageId: vm.imageId,
       metadata: { source: options.reason, usedSeconds: options.usedSeconds, automated: true },

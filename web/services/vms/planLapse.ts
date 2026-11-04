@@ -2,7 +2,11 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { getStackServerApp } from "../../app/lib/stack";
 import { cloudDb } from "../../db/client";
 import { stripeCustomers, stripeSubscriptions } from "../../db/schema";
-import { activeApplePlanForUser } from "../billing/apple/entitlement";
+import {
+  activeApplePlanForUser,
+  appleSubscriptionRowsForUser,
+  type AppleEntitlementRow,
+} from "../billing/apple/entitlement";
 import { hasCompanyPlanGrant } from "../billing/companyPlan";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
@@ -129,6 +133,22 @@ export function makeVmOwnerPlanLookup(sources: VmPlanSources): VmOwnerPlanLookup
   };
 }
 
+/** Longer than Apple's retries of a renewal notification. */
+const APPLE_RENEWAL_NOTICE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Stripe can be asked before a pause and Apple is not asked here, so a renewal
+ * whose notification was lost looks like an expiry. Set to renew and only just
+ * expired is not evidence of a lapse yet.
+ */
+export function appleRenewalMayBeMissing(
+  row: Pick<AppleEntitlementRow, "status" | "expiresAt" | "autoRenewEnabled">,
+  now: Date = new Date(),
+): boolean {
+  if (row.status === "revoked" || row.autoRenewEnabled === false || !row.expiresAt) return false;
+  return now.getTime() - row.expiresAt.getTime() < APPLE_RENEWAL_NOTICE_WINDOW_MS;
+}
+
 const subscriptionColumns = { status: stripeSubscriptions.status, raw: stripeSubscriptions.raw };
 
 export const lookupVmOwnerPlanFacts: VmOwnerPlanLookup = (owner) => makeVmOwnerPlanLookup({
@@ -145,7 +165,8 @@ export const lookupVmOwnerPlanFacts: VmOwnerPlanLookup = (owner) => makeVmOwnerP
     eq(stripeSubscriptions.scope, "team"),
     eq(stripeSubscriptions.plan, TEAM_PLAN_ID),
   )),
-  hasApplePlan: async (userId) => (await activeApplePlanForUser(userId)) !== null,
+  hasApplePlan: async (userId) => (await activeApplePlanForUser(userId)) !== null ||
+    (await appleSubscriptionRowsForUser(userId)).some((row) => appleRenewalMayBeMissing(row)),
 })(owner);
 
 export type StripeLiveSources = {
