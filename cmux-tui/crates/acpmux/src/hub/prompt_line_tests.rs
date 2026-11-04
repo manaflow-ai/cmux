@@ -80,6 +80,8 @@ async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_
     hub.config.write().await.context_overrides.user = Some("old instruction".into());
     let req = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
     let original = hub.new_session(req()).await.unwrap();
+    // A failed startup can advance the turn count without writing context.
+    original.meta.lock().unwrap().turn_count = 1;
     hub.config.write().await.context_overrides.user = Some("new instruction".into());
     let next = hub.new_session(req()).await.unwrap();
     for session in [&original, &next] {
@@ -92,6 +94,7 @@ async fn context_inventory_overrides_reach_only_the_first_turn_and_new_sessions_
         (&original, "old instruction", "new instruction"),
         (&next, "new instruction", "old instruction"),
     ] {
+        assert!(session.meta().cmux_context_delivered);
         let records = hub.events(&session.id, 0, 1_000).unwrap();
         let replies: String = records.iter()
             .filter(|e| e.kind == "agent_message_chunk")
