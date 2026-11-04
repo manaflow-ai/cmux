@@ -156432,6 +156432,270 @@
         }
       }
     },
+    "settings.agentPane.display.pinnedPlan": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin Task List in Chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت قائمة المهام في الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikači listu zadataka u razgovoru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fastgør opgavelisten i chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabenliste im Chat anheften"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fijar la lista de tareas en el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Épingler la liste des tâches dans le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fissa l'elenco delle attività nella chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクリストをチャットに固定"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្ទាស់បញ្ជីកិច្ចការក្នុងការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅에 작업 목록 고정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fest oppgavelisten i chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przypnij listę zadań w czacie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixar lista de tarefas no chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрепить список задач в чате"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปักหมุดรายการงานในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Görev listesini sohbete sabitle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закріпити список завдань у чаті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghim danh sách việc trong cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中固定任务列表"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天中釘選工作清單"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.pinnedPlan.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While the agent works, its task list stays under the latest message instead of in the bar over the composer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أثناء عمل الوكيل، تبقى قائمة مهامه تحت أحدث رسالة بدلًا من الشريط فوق مربع الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dok agent radi, njegova lista zadataka ostaje ispod posljednje poruke umjesto u traci iznad polja za pisanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens agenten arbejder, bliver dens opgaveliste under den seneste besked i stedet for i bjælken over skrivefeltet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Während der Agent arbeitet, bleibt seine Aufgabenliste unter der neuesten Nachricht statt in der Leiste über dem Eingabefeld."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mientras el agente trabaja, su lista de tareas queda bajo el último mensaje en lugar de en la barra sobre el editor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pendant que l'agent travaille, sa liste des tâches reste sous le dernier message au lieu de la barre au-dessus du champ de saisie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mentre l'agente lavora, il suo elenco delle attività resta sotto l'ultimo messaggio invece che nella barra sopra il campo di scrittura."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントの作業中、タスクリストを入力欄の上のバーではなく最新のメッセージの下に表示します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលភ្នាក់ងារកំពុងធ្វើការ បញ្ជីកិច្ចការរបស់វានៅក្រោមសារចុងក្រោយ ជំនួសឱ្យរបារនៅលើប្រអប់សរសេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 작업하는 동안 작업 목록을 입력창 위의 막대 대신 최신 메시지 아래에 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mens agenten jobber, blir oppgavelisten under den nyeste meldingen i stedet for i linjen over skrivefeltet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdy agent pracuje, jego lista zadań pozostaje pod najnowszą wiadomością zamiast na pasku nad polem pisania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enquanto o agente trabalha, a lista de tarefas fica abaixo da mensagem mais recente em vez de na barra acima do campo de escrita."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока агент работает, его список задач остаётся под последним сообщением, а не в полосе над полем ввода."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขณะที่เอเจนต์ทำงาน รายการงานจะอยู่ใต้ข้อความล่าสุดแทนที่จะอยู่ในแถบเหนือช่องพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan çalışırken görev listesi, yazma alanının üstündeki çubuk yerine en son mesajın altında kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поки агент працює, його список завдань лишається під останнім повідомленням, а не на смузі над полем введення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tác nhân đang làm việc, danh sách việc của nó nằm dưới tin nhắn mới nhất thay vì trên thanh phía trên ô soạn thảo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理工作时，其任务列表显示在最新消息下方，而不是输入框上方的栏中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式工作時，其工作清單顯示在最新訊息下方，而不是輸入框上方的列中。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.fullWidth": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",

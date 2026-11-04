@@ -292,7 +292,12 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
             continue
         try:
             client = pool.GitHub(token, repo, retry_cap=side.SIDE_RETRY_CAP_SECONDS, retries=retries)
-            runners = client.runners(use_state=use_state)
+            # cmux-bot has org runner read, without repository administration.
+            # Do not let the repository endpoint's 403 hide its usable groups.
+            if name == "ROUTE_TOKEN_FALLBACK":
+                runners = client.runners(use_state=use_state, include_repository=False)
+            else:
+                runners = client.runners(use_state=use_state)
             break
         except Exception as error:  # noqa: BLE001 - fail open: every job keeps Blacksmith
             print(f"::warning title=portable placement::could not list runners with {name} ({error})")

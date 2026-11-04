@@ -128,6 +128,28 @@ const described = activity(
   1.4,
 );
 
+/** A running turn with a five-step todo list and three background commands (the tray's hat). */
+function planChat() {
+  return chat(
+    [
+      user("Land the tray change: compile, test and update the spec", 3),
+      row("plan", 2.9, {
+        plan: [
+          { content: "Read the tray and its tests", status: "completed" },
+          { content: "Move the plan into the hat", status: "completed" },
+          { content: "Run the tray tests", status: "in_progress" },
+          { content: "Compile the app on the fleet", status: "pending" },
+          { content: "Update the design spec", status: "pending" },
+        ],
+      }),
+      devServer,
+      described,
+      assistant("The plan is in the hat now. The tests and the compile are running.", 0.5),
+    ],
+    { isWorking: true },
+  );
+}
+
 /** Background shell lines anyone runs, with no description, so each reads by a built-in rule
  * (session-info/commandRules.ts; Leo, 2026-11-03: "we should be able to parse these more... like
  * instead of raw things, we should be able to deterministically/heuristically have stuff"). */
@@ -743,6 +765,45 @@ export default agentPaneEntry({
         });
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "plan-and-commands": {
+      note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
+        if (!title.startsWith("2 of 5 · Run the tray tests")) throw new Error(`unexpected hat: ${title}`);
+        if (ctx.document.querySelector(".cv-plan:not(.acpmux-running-tray .cv-plan)"))
+          throw new Error("the running list is in the hat, not the transcript");
+      },
+      snapshot: planChat(),
+    },
+    "plan-and-commands-open": {
+      note: "The same hat opened: the checklist first, then a line per background command.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 5);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+      },
+      snapshot: planChat(),
+    },
+    "plan-short-dock": {
+      note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
+      play: async (ctx) => {
+        await openTray(ctx);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length === 3);
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
+        const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
+        const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+        const rows = 3 * header.getBoundingClientRect().height;
+        dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height + rows}px`;
+        const shown = (selector: string) => {
+          const tray = ctx.document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
+          const box = ctx.document.querySelector(selector)!.getBoundingClientRect();
+          return Math.min(box.bottom, tray.bottom) - Math.max(box.top, tray.top);
+        };
+        await ctx.waitFor(() => shown(".acpmux-running-tray__plan") > 0 && shown(".acpmux-running-tray__list") > 0);
+      },
+      snapshot: planChat(),
     },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",

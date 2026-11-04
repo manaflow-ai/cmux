@@ -110,6 +110,12 @@
       "title" : "Chat Minimap",
       "type" : "string"
     },
+    "agentPane.display.pinnedPlan" : {
+      "default" : false,
+      "description" : "While the agent works, its task list stays under the latest message instead of in the bar over the composer.",
+      "title" : "Pin Task List in Chat",
+      "type" : "boolean"
+    },
     "agentPane.display.presentation" : {
       "default" : "transcript",
       "description" : "agentPane.display.presentation",
@@ -1947,7 +1953,7 @@
       "type" : "boolean"
     },
     "cloud.agentsStartWithoutAsking" : {
-      "default" : false,
+      "default" : true,
       "description" : "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
       "title" : "Let Agents Start Cloud Sessions Without Asking",
       "type" : "boolean"

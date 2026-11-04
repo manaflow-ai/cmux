@@ -23,6 +23,8 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The running turn's task list pinned in the chat: off, the composer's hat shows it.
+        Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.font.preset", fallback: .string("markdown"),
             accepted: [.string("system"), .string("serif"), .string("mono")], refused: [.string("comic")]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
