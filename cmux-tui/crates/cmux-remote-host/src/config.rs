@@ -12,7 +12,7 @@
 //! error: the worker then refuses every call (fail closed).
 //!
 //! ```toml
-//! mode = "ask"                 # ask | standard | bounded | unrestricted
+//! mode = "standard"            # standard (default) | ask | bounded | unrestricted
 //! manifest = "/etc/cmux/computer-use.manifest.yaml"   # bounded: the owner's manifest
 //! allow_terminals = []         # executables the never-asked list lets through
 //!
@@ -94,7 +94,8 @@ pub struct ComputerUseConfig {
 impl Default for ComputerUseConfig {
     fn default() -> Self {
         Self {
-            mode: Mode::Ask,
+            // Per-app asking is off until the owner turns it on (D24).
+            mode: Mode::Standard,
             manifest: None,
             allow_terminals: Vec::new(),
             device_hub: None,
@@ -220,7 +221,7 @@ pub fn snapshot_of(value: &serde_json::Value) -> Result<ComputerUseConfig, Strin
 pub fn parse(text: &str) -> Result<ComputerUseConfig, String> {
     let raw: RawConfig = toml::from_str(text).map_err(|error| format!("computer-use.toml: {error}"))?;
     let mode = match raw.mode.as_deref() {
-        None => Mode::Ask,
+        None => Mode::Standard,
         Some(text) => Mode::parse(text).ok_or_else(|| format!("unknown mode {text:?}"))?,
     };
     for name in raw.environment.keys() {

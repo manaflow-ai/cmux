@@ -42,7 +42,8 @@ public nonisolated struct ComputerUseSettings: Sendable, Equatable {
     public static let phoneAlwaysAllowPath = ["computerUse", "phoneAlwaysAllow"]
     public var enabled = false
     /// How agents may use apps on this Mac (docs/computer-use-approvals.md, Modes).
-    public var mode: ComputerUseMode = .ask
+    /// Standard by default: per-app asking (`ask`) is off until the person turns it on (D24).
+    public var mode: ComputerUseMode = .standard
     /// The owner's iPhone may answer "Always Allow <App>" (Face ID signed); off, it offers
     /// Allow Once, Allow for This Session and Deny only.
     public var phoneAlwaysAllow = false
@@ -106,7 +107,7 @@ nonisolated enum ComputerUseSettingsSchema {
                 ComputerUseSettings.modePath, section: .general, group: group,
                 title: SettingsText.keyed("settings.computerUse.mode", "Agents Using Apps"),
                 help: SettingsText.keyed("settings.computerUse.mode.help",
-                                         "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine."),
+                                         "Standard (the default) lets agents click and type in your apps without asking; cmux still never lets them use password managers, login or security prompts, System Settings or cmux. Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Unrestricted never asks; use it only on a disposable machine."),
                 summary: SettingsText.keyed("settings.computerUse.mode.summary", "When agents ask before using an app"),
                 kind: .choice([
                     SettingChoice(ComputerUseMode.ask.rawValue, SettingsText.keyed("settings.computerUse.mode.ask", "Ask Before Using Apps")),

@@ -36,8 +36,8 @@ Computer Use worker loads upstream Cua Driver (trycua/cua, MIT,
 
 | `computerUse.mode` | For | Behavior |
 | --- | --- | --- |
-| `ask` (default on a person's Mac or desktop) | Personal machines | Each agent session starts as an upstream `bounded` session whose manifest lists no app. A call on an app outside it asks the person (below); an answer grows that session's manifest, or the client's saved list. |
-| `standard` | Owners who want upstream's default | Upstream `standard`: routine observe and input run without prompts; only residual boundaries ask. |
+| `ask` (turn on in Settings: Agents Using Apps) | Personal machines where the person wants to be asked | Each agent session starts as an upstream `bounded` session whose manifest lists no app. A call on an app outside it asks the person (below); an answer grows that session's manifest, or the client's saved list. |
+| `standard` (default, D24) | Every machine until its owner picks another mode | Upstream `standard`: routine observe and input run without prompts; only residual boundaries ask. |
 | `bounded` | User-owned boxes set up once | Upstream `bounded` with the owner's manifest (`cmux computer-use setup`): in scope runs silently; anything else asks through the device hub, or is refused when nobody can answer. |
 | `unrestricted` | Disposable cmux VMs | Upstream `unrestricted`, which needs both `CUA_DRIVER_PERMISSION_MODE=unrestricted` and `CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS=1` in the host's service configuration, owned by root (Linux), SYSTEM (Windows) or written by the app (macOS). No prompts; hard invariants, the indicator, revocation and audit remain. |
 
