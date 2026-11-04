@@ -13,6 +13,8 @@
 //!
 //! - The writer writes on the route of the terminal's current host connection, which the terminal publishes each
 //!   time the connection changes (`PtyTerminalRuntime::replace_runtime`), so it never takes the runtime lock either.
+//! - Once the writer takes a person's key it runs at user-interactive QoS for its life, as the connection threads
+//!   that carried the key do (server/input_qos.rs); a port only automation writes to keeps the default QoS.
 //! - A lost host connection is retried as `write_bytes` did (cx-6so.49): the writer waits until the terminal
 //!   publishes another route ([`InputPort::route_changed`]) and writes to it, until the frame's own deadline,
 //!   `HOST_INPUT_RECONNECT_WAIT` after the port took it. The old path's deadline started at the write call, so writes
@@ -574,6 +576,14 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
         if frame.waiter.as_ref().is_some_and(|waiter| !waiter.take()) {
             finish_frames(shared, 1);
             continue;
+        }
+        // A frame with no waiter that is not a viewer size is the person's key (`InputPort::enqueue`, only for
+        // `InputReply::Accepted`): from then on this writer runs at user-interactive QoS, as the connection threads
+        // that carried the key do (server/input_qos.rs; DESIGN 2.6.1). Under full CPU a default-QoS writer waited for
+        // a CPU between the key's acceptance and its write to the host. A port only automation writes to keeps the
+        // default QoS. Once per thread; a writer that exits idle starts again at the default.
+        if frame.waiter.is_none() && !frame.control {
+            crate::server::raise_input_thread_qos();
         }
         #[cfg(test)]
         {
