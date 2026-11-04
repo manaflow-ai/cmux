@@ -25,6 +25,9 @@ export type SessionInfoProcess = {
   /// this process (`backgroundCommands`), and its terminal opens by it (processTerminal.ts).
   toolCallId?: string;
   command: string;
+  /// What the call that started it says it does (Claude's Bash `description`), as acpmux kept it:
+  /// a client that never loaded the call still names the command by it. None from Codex.
+  description?: string;
   /// Unix ms.
   startedAt: number;
   endedAt?: number;
@@ -42,6 +45,7 @@ function processOf(value: unknown, sessionId: string): SessionInfoProcess | unde
     id: raw.id,
     ...(typeof raw.toolCallId === "string" && raw.toolCallId ? { toolCallId: raw.toolCallId } : {}),
     command: raw.command,
+    ...(typeof raw.description === "string" && raw.description.trim() ? { description: raw.description.trim() } : {}),
     startedAt: raw.startedAt,
     ...(typeof raw.endedAt === "number" ? { endedAt: raw.endedAt } : {}),
     state: raw.state,
@@ -204,7 +208,9 @@ export function backgroundCommands(
     command: process.command,
     ...(process.toolCallId && described.has(process.toolCallId)
       ? { description: described.get(process.toolCallId) }
-      : {}),
+      : process.description
+        ? { description: process.description }
+        : {}),
     state: PROCESS_STATE[process.state] ?? "stopped",
     processId: process.id,
     startedAt: process.startedAt,

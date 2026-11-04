@@ -316,6 +316,13 @@ class Decide(unittest.TestCase):
         self.assertEqual((placed.linux_runner, placed.linux_jobs), ("", ()))
         self.assertIn("release-notary take Blacksmith", placed.why)
 
+    def test_live_linux_capacity_places_only_one_job_per_idle_runner(self):
+        config = env(JOBS="size ui-review split", FLEET_LINUX="cmux-fleet-linux-x64",
+                     REQUIRE_LIVE_CAPACITY="1")
+        placed = placement.decide(config, [fleet_runner(), *idle(2)], snapshot(), NOW)
+        self.assertEqual(placed.linux_jobs, ("size",))
+        self.assertEqual(placed.mini_jobs, ("ui-review", "split"))
+
     def test_fleet_linux_comes_before_the_minis(self):
         placed = placement.decide(env(FLEET_LINUX="gcp-linux-32"), idle(5), snapshot(), NOW)
         self.assertEqual(placed.linux_runner, "gcp-linux-32")
@@ -667,8 +674,83 @@ class Wiring(unittest.TestCase):
         readers = [name for name, job in nightly.items() if "light_linux_runner" in str(job.get("runs-on", ""))]
         self.assertEqual(readers, ["prepare-nightly-variant-primary"])
 
+    def test_new_light_workflows_place_status_jobs_before_hosted_overflow(self):
+        expected = {
+            "pr-checks.yml": {"jobs": ("size", "ui-review", "split"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "cmux-next-fast-gates.yml": {"jobs": ("resolve", "post"), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+            "web-validation.yml": {"jobs": ("web-validation",), "fallback": "fromJSON(vars.RUNNER_POOLS).linux"},
+        }
+        for workflow, spec in expected.items():
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                place = workflow_jobs["portable-placement"]
+                self.assertEqual(place["steps"][-1]["env"]["JOBS"].split(), list(spec["jobs"]))
+                for name in spec["jobs"]:
+                    job = workflow_jobs[name]
+                    needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+                    self.assertIn("portable-placement", needs)
+                    route = job["runs-on"]
+                    self.assertIn(f"contains(needs.portable-placement.outputs.linux_jobs, ' {name} ')", route)
+                    self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", route)
+                    self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", route)
+                    self.assertIn(spec["fallback"], route)
+
+    def test_portable_bootstraps_are_bounded_and_kill_switch_skips_the_job(self):
+        expected = {
+            "pr-checks.yml": ("size", "ui-review", "split"),
+            "cmux-next-fast-gates.yml": ("resolve", "post"),
+            "web-validation.yml": ("web-validation",),
+        }
+        for workflow, consumers in expected.items():
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                placement_job = workflow_jobs["portable-placement"]
+                placement_if = str(placement_job["if"])
+                self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", placement_if)
+                if workflow == "web-validation.yml":
+                    self.assertIn("github.event_name != 'merge_group'", placement_if)
+                route = placement_job["runs-on"]
+                self.assertIn("github.run_attempt == 1 && 'ubuntu-24.04'", route)
+                self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_2", route)
+                self.assertNotIn("vars.CI_LIGHT_LANE_RUNNER", route)
+                self.assertNotIn("vars.CI_SIDE_LANE_RUNNER", route)
+                # Owned labels remain inputs to capacity validation, never the
+                # bootstrap's assignment before that validation can run.
+                side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
+                self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
+                self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
+                for name in consumers:
+                    condition = str(workflow_jobs[name]["if"])
+                    if name == "web-validation":
+                        self.assertEqual(condition, "always()")
+                    else:
+                        self.assertIn("always()", condition)
+                        self.assertIn("!cancelled()", condition)
+
+    def test_merge_group_skips_placement_but_keeps_web_rollup(self):
+        workflow_jobs = jobs("web-validation.yml")
+        self.assertIn("github.event_name != 'merge_group'", workflow_jobs["portable-placement"]["if"])
+        self.assertEqual(workflow_jobs["web-validation"]["if"], "always()")
+
+    def test_runner_state_bootstrap_does_not_fall_through_to_github_api(self):
+        state = {
+            "schema": "runner-state/v1", "repository": "manaflow-ai/cmux", "complete": True,
+            "generated_at": NOW.isoformat(), "repository_runners": [],
+            "runner_groups": {"glaeda-minis": [dict(runner("cmux1-glaeda"), id=1, os="macOS")]},
+            "scale_sets": {},
+        }
+        raw = base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
+        config = {**env(JOBS="control"), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                  "CI_RUNNER_STATE": raw, "SNAPSHOT_TOKEN": "github-token"}
+        with mock.patch.dict(os.environ, config, clear=True), \
+             mock.patch.object(placement.pool.GitHub, "get_api", side_effect=AssertionError("API read")), \
+             mock.patch.object(placement.pool.GitHub, "download", side_effect=AssertionError("artifact read")):
+            runners, queue = placement.read(config, NOW)
+        self.assertEqual(len(runners), 1)
+        self.assertIsNone(queue)
+
     def test_placement_runs_the_trusted_base_copy(self):
-        for workflow in self.PLACED:
+        for workflow in (*self.PLACED, "pr-checks.yml", "cmux-next-fast-gates.yml", "web-validation.yml"):
             with self.subTest(workflow=workflow):
                 checkout = jobs(workflow)["portable-placement"]["steps"][0]
                 self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha || github.sha }}")

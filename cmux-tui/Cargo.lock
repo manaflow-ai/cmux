@@ -1205,7 +1205,9 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "wait-timeout",
 ]
 
@@ -1735,6 +1737,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-config",
  "cmux-conversation",
+ "cmux-git",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1961,6 +1964,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-link",
+ "cmux-tui-util",
  "getrandom 0.3.4",
 ]
 
@@ -1972,6 +1976,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",

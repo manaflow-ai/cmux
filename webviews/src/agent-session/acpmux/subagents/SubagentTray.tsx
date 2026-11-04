@@ -21,7 +21,7 @@
 // subagent done", its failures in red) and the mark of a subagent of another model family
 // (trayHeadKinds.ts; Leo, 2026-11-03: "the top should be able to split per background task/scheduled
 // wait/subagent/subsession?"). A session the agent started reads as a session. A command is
-// named by what its call says it does (inspector/processes.ts `commandLabel`), a chat by its title
+// named by what its call says it does, else in words (session-info/commandRules.ts `commandRead`), a chat by its title
 // and what its turn does now. A headed tray starts folded to its header, one line, so the tray never
 // takes the transcript's room (https://github.com/manaflow-ai/cmux/issues/28875: two commands and a
 // done subagent stood open over the chat), and the chevron opens it. The person's choice holds for
@@ -79,7 +79,8 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../session-info/processes";
+import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
+import { commandRead } from "../session-info/commandRules";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
@@ -626,16 +627,19 @@ export const SubagentTray = memo(function SubagentTray({
     if (item.kind === "command") {
       const key = itemKey(item);
       const processId = item.command.processId;
+      // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
+      // first line of its tail.
+      // A rule's mark where one reads the command (commandRules.ts), else the mark of the kind the
+      // header counts it under (trayCommandKinds.ts), in place of the word Command.
+      const read = commandRead(t, item.command, COMMAND_KIND_ICON[commandKind(item.command.command)]);
       return (
         <>
           {menu(
             <AgentLine
-              name={sendLabel(t, item.command) ?? commandLabel(item.command)}
+              name={sendLabel(t, item.command) ?? read.label}
               title={item.command.command}
               chevron
-              // The mark of the kind the header counts it under (trayCommandKinds.ts), in place of
-              // the word Command.
-              icon={COMMAND_KIND_ICON[commandKind(item.command.command)]}
+              icon={read.icon}
               working
               status="running"
               state={t("subagents.state.running")}
@@ -679,7 +683,9 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           <BackgroundTaskTail
             command={item.command}
-            open={openCommands.has(key) && canReadTail}
+            open={openCommands.has(key) && (canReadTail || read.link !== undefined)}
+            readOutput={canReadTail}
+            link={read.link}
             onOpenTerminal={
               canOpenTerminal && onOpenCommand && item.command.toolCallId
                 ? () => onOpenCommand(item.command)
@@ -737,7 +743,7 @@ function agentTooltip(t: Translate, agent: Subagent): string | undefined {
 }
 
 /// What each running item is called, newest first: a subagent by its task, a command by its
-/// description or its short command (processes.ts `commandLabel`), a chat by its title. An item with
+/// description or its words (session-info/commandRules.ts `commandRead`), a chat by its title. An item with
 /// no start time sorts after those with one, in its list order.
 /// At most the newest two are named (the default arm names one), so a long list costs a sort of its
 /// start times, never a label per item.
@@ -750,7 +756,7 @@ function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[
       item.kind === "agent"
         ? subagentTaskLabel(t, item.agent)
         : item.kind === "command"
-          ? (sendLabel(t, item.command) ?? commandLabel(item.command))
+          ? (sendLabel(t, item.command) ?? commandRead(t, item.command).label)
           : item.session.title,
     );
 }

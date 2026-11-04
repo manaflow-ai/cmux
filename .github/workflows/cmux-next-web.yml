@@ -130,7 +130,25 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+          # The bisector reads the reconciler's read-only last-known-green ref below.
+          # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false
+
+      - name: Read last-known-green
+        id: lkg
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          auth=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
+          git -c "http.extraheader=AUTHORIZATION: basic $auth" fetch --no-tags origin refs/heads/last-known-green:refs/remotes/origin/last-known-green >/dev/null 2>&1
+          unset auth GITHUB_TOKEN
+          sha=$(git rev-parse refs/remotes/origin/last-known-green 2>/dev/null || true)
+          case "$sha" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) echo "sha=$sha" >> "$GITHUB_OUTPUT" ;;
+            *) echo "sha=" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Download this run's webview results
         id: results
@@ -188,6 +206,7 @@ jobs:
           shopt -s nullglob
           results=("$RUNNER_TEMP"/web-bisect-results/webviews-test-history-shard*/webviews-head-results.json)
           python3 -I "$WEB_BISECT_RUNNER/web_coalesce.py" bisect --base "$BASE" --head "$GITHUB_SHA" \
+            --last-known-green "${{ steps.lkg.outputs.sha }}" \
             --results "${results[@]}" --history "$RUNNER_TEMP/webviews-test-history/history.json" \
             --probe "$WEB_BISECT_RUNNER/web-bisect-probe.sh" --report "$RUNNER_TEMP/web-bisect/report.json"
           git checkout -q --force --detach "$GITHUB_SHA"

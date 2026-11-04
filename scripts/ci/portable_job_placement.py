@@ -176,6 +176,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     linux_only = set((env.get("LINUX_ONLY") or "").split())
     linux = fleet_linux(env.get("FLEET_LINUX", ""))
     problem = pool.snapshot_problem(snapshot, now)
+    linux_free = len(jobs)
     if linux and env.get("REQUIRE_LIVE_CAPACITY") == "1":
         matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
         # A custom label alone is not proof of Linux: never let a shared Mac
@@ -184,9 +185,10 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
             str(runner.get("os", "")).lower() == "linux" for runner in matching)
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
-        if problem or not linux_members or idle <= queued_on(snapshot, linux):
+        linux_free = max(0, idle - queued_on(snapshot, linux))
+        if problem or not linux_members or linux_free == 0:
             linux = ""
-    linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)
+    linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)[:linux_free]
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
@@ -258,6 +260,31 @@ def read(env: Mapping[str, str], now: dt.datetime, *, use_state: bool = True
     reserved = env.get("NIGHTLY") == "1" and bool((env.get("NIGHTLY_ONLY_LABEL") or "").strip())
     if not repo or (eligible(env) and not (reserved and not attempt_refusal(env))):
         return runners, snapshot
+
+    # A fresh runner-state publication contains the complete approved census and
+    # its queue snapshot.  Read it before touching either routing App.  This is
+    # the bootstrap path for lightweight controls: the placement job itself can
+    # start with the repository's ordinary token, and a spent App quota cannot
+    # turn an idle owned mini into an unknown capacity.  The census is validated
+    # again and the embedded queue snapshot is read without an API request.
+    # When it is absent or stale, the existing token path below is
+    # retained for callers that explicitly provide one; an empty-token caller
+    # fails open to its workflow's overflow route.
+    state = pool.runner_state(repo, raw=env.get("CI_RUNNER_STATE", ""), now=now) if use_state else None
+    if state is not None and (pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH) is not None
+                              or not any(env.get(name) for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"))):
+        try:
+            # Read only the validated publication.  Do not instantiate a
+            # client: missing queue data must not fall through to an artifact
+            # API request and spend the installation budget.
+            runners = [*state["repository_runners"],
+                       *(runner for group in state["runner_groups"].values() for runner in group)]
+            snapshot = pool.document_queue_snapshot(state, now=now, branch=pool.SNAPSHOT_BRANCH)
+            return runners, snapshot
+        except Exception as error:  # noqa: BLE001 - fail open to the overflow route
+            print(f"::warning title=portable placement::shared runner state could not be read ({error})")
+            return None, None
+
     retries = pool.RetryBudget(1)
     for name in ("ROUTE_TOKEN", "ROUTE_TOKEN_FALLBACK"):
         token = env.get(name, "")
