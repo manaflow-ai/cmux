@@ -1163,7 +1163,9 @@ pub struct ContextOverrides {
 }
 
 impl ContextOverrides {
-    pub fn is_empty(&self) -> bool { self.user.is_none() && self.projects.is_empty() }
+    pub fn is_empty(&self) -> bool {
+        self.user.is_none() && self.projects.is_empty()
+    }
 
     pub fn for_project(&self, cwd: &Path) -> Option<(&str, &str)> {
         let key = cwd.to_string_lossy().into_owned();
@@ -1173,7 +1175,12 @@ impl ContextOverrides {
             .or_else(|| self.user.as_deref().map(|text| ("user", text)))
     }
 
-    pub fn set(&mut self, scope: &str, cwd: Option<&Path>, text: Option<String>) -> Result<(), String> {
+    pub fn set(
+        &mut self,
+        scope: &str,
+        cwd: Option<&Path>,
+        text: Option<String>,
+    ) -> Result<(), String> {
         match scope {
             "user" => self.user = text,
             "project" => {

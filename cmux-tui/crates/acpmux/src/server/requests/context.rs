@@ -9,7 +9,9 @@ fn project_path(value: Option<&Value>, fallback: &Path) -> Result<std::path::Pat
     }
     let path = std::fs::canonicalize(raw)
         .map_err(|e| RpcError::invalid_params(format!("cwd must be an existing directory: {e}")))?;
-    if !path.is_dir() { return Err(RpcError::invalid_params("cwd must be a directory")); }
+    if !path.is_dir() {
+        return Err(RpcError::invalid_params("cwd must be a directory"));
+    }
     Ok(path)
 }
 
@@ -22,19 +24,21 @@ pub(super) async fn handle(
     let session = hub.resolve_told(super::session_key(params)?, conn.origin == Origin::Local)?;
     if method_name == method::MUX_CONTEXT_OVERRIDE {
         if conn.origin.web_class() {
-            return Err(RpcError::invalid_params("context overrides are available only to local clients"));
+            return Err(RpcError::invalid_params(
+                "context overrides are available only to local clients",
+            ));
         }
         let scope = params.get("scope").and_then(Value::as_str).unwrap_or("user");
         let text = match params.get("text") {
             None | Some(Value::Null) => None,
-            Some(Value::String(text)) => {
-                Some(text.clone())
-            }
+            Some(Value::String(text)) => Some(text.clone()),
             Some(_) => return Err(RpcError::invalid_params("text must be a string or null")),
         };
         let cwd = if scope == "project" {
             Some(project_path(params.get("cwd"), &session.meta().cwd)?)
-        } else { None };
+        } else {
+            None
+        };
         let mut cfg = hub.config.write().await;
         let previous = cfg.context_overrides.clone();
         cfg.context_overrides.set(scope, cwd.as_deref(), text).map_err(RpcError::invalid_params)?;
@@ -49,6 +53,7 @@ pub(super) async fn handle(
     // Remote viewers may inspect harness-reported counts, but never receive cmux-owned
     // prompt text or the saved override contents over a WebSocket/peer link.
     if conn.origin.web_class() {
+        inventory.can_edit_overrides = false;
         for part in &mut inventory.parts {
             part.text = None;
         }

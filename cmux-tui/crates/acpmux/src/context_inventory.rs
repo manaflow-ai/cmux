@@ -41,6 +41,7 @@ pub struct ContextInventory {
     pub cmux_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
+    pub can_edit_overrides: bool,
     pub overrides: ContextOverrideView,
 }
 
@@ -59,22 +60,15 @@ pub fn estimated_tokens(text: &str) -> u64 {
 }
 
 fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
-    for (index, category) in breakdown
-        .get("categories")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .enumerate()
+    for (index, category) in
+        breakdown.get("categories").and_then(Value::as_array).into_iter().flatten().enumerate()
     {
         let id = category
             .get("id")
             .and_then(Value::as_str)
             .or_else(|| category.get("name").and_then(Value::as_str))
             .unwrap_or("category");
-        let label = category
-            .get("name")
-            .and_then(Value::as_str)
-            .unwrap_or(id);
+        let label = category.get("name").and_then(Value::as_str).unwrap_or(id);
         let kind = category.get("kind").and_then(Value::as_str).unwrap_or("used");
         let tokens = category.get("tokens").and_then(Value::as_u64).unwrap_or(0);
         parts.push(ContextPart {
@@ -89,12 +83,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             text: None,
         });
     }
-    for (index, file) in breakdown
-        .get("memoryFiles")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .enumerate()
+    for (index, file) in
+        breakdown.get("memoryFiles").and_then(Value::as_array).into_iter().flatten().enumerate()
     {
         let path = file.get("path").and_then(Value::as_str).unwrap_or("memory file");
         parts.push(ContextPart {
@@ -109,12 +99,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             text: None,
         });
     }
-    for (index, tool) in breakdown
-        .get("mcpTools")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .enumerate()
+    for (index, tool) in
+        breakdown.get("mcpTools").and_then(Value::as_array).into_iter().flatten().enumerate()
     {
         let name = tool.get("name").and_then(Value::as_str).unwrap_or("MCP tool");
         parts.push(ContextPart {
@@ -130,12 +116,7 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
         });
     }
     if let Some(skills) = breakdown.get("skills") {
-        for (index, skill) in skills
-            .as_array()
-            .into_iter()
-            .flatten()
-            .enumerate()
-        {
+        for (index, skill) in skills.as_array().into_iter().flatten().enumerate() {
             let name = skill.get("name").and_then(Value::as_str).unwrap_or("skill");
             parts.push(ContextPart {
                 id: format!("skill-{index}"),
@@ -192,9 +173,14 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         .and_then(|v| v.get("totalTokens").and_then(Value::as_u64))
         .or_else(|| meta.usage.as_ref().and_then(|v| v.get("used")).and_then(Value::as_u64));
     // Category rows and their memory/tool/skill detail rows overlap. Never sum them.
-    let cmux_tokens = parts.iter().filter(|p| p.included && p.source.starts_with("cmux-")).map(|p| p.tokens).sum();
+    let cmux_tokens = parts
+        .iter()
+        .filter(|p| p.included && p.source.starts_with("cmux-"))
+        .map(|p| p.tokens)
+        .sum();
     let total_tokens = provider_total_tokens.unwrap_or(cmux_tokens);
-    let max_tokens = breakdown.and_then(|v| v.get("maxTokens").and_then(Value::as_u64))
+    let max_tokens = breakdown
+        .and_then(|v| v.get("maxTokens").and_then(Value::as_u64))
         .or_else(|| meta.usage.as_ref().and_then(|v| v.get("size")).and_then(Value::as_u64));
     ContextInventory {
         parts,
@@ -202,7 +188,13 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         provider_total_tokens,
         cmux_tokens,
         max_tokens,
-        overrides: ContextOverrideView { user, project, project_key: project_key.clone(), cwd: project_key },
+        can_edit_overrides: true,
+        overrides: ContextOverrideView {
+            user,
+            project,
+            project_key: project_key.clone(),
+            cwd: project_key,
+        },
     }
 }
 
@@ -266,7 +258,9 @@ mod tests {
     #[test]
     fn inventory_preserves_harness_counts_and_marks_cmux_text_editable() {
         let mut meta: SessionMeta = serde_json::from_value(json!({"schema":"acpmux.session.v1","id":"s","name":"s","harness":"claude","cwd":"/repo","status":"idle","createdAt":0,"updatedAt":0})).unwrap();
-        meta.context_breakdown = Some(json!({"categories":[{"id":"system_prompt","name":"System prompt","tokens":20,"kind":"used"}],"totalTokens":20,"maxTokens":100}));
+        meta.context_breakdown = Some(
+            json!({"categories":[{"id":"system_prompt","name":"System prompt","tokens":20,"kind":"used"}],"totalTokens":20,"maxTokens":100}),
+        );
         let mut cfg = Config::default();
         cfg.context_overrides.user = Some("read concurrently".into());
         meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
@@ -285,7 +279,9 @@ mod tests {
         cfg.context_overrides.set("project", Some(&meta.cwd), Some("project text".into())).unwrap();
         meta.cmux_context = Some(snapshot(&cfg, &meta.cwd));
         cfg.context_overrides.set("project", Some(&meta.cwd), Some("future text".into())).unwrap();
-        meta.context_breakdown = Some(json!({"categories":[{"id":"skills","name":"Skills","tokens":10}],"skills":[{"name":"reading","tokens":10}],"totalTokens":10}));
+        meta.context_breakdown = Some(
+            json!({"categories":[{"id":"skills","name":"Skills","tokens":10}],"skills":[{"name":"reading","tokens":10}],"totalTokens":10}),
+        );
         let got = inventory(&meta, &cfg);
         assert_eq!(got.total_tokens, 10);
         assert_eq!(got.provider_total_tokens, Some(10));
@@ -320,7 +316,8 @@ mod tests {
 
     #[test]
     fn overrides_choose_project_over_user_and_clear() {
-        let mut overrides = ContextOverrides { user: Some("u".into()), projects: Default::default() };
+        let mut overrides =
+            ContextOverrides { user: Some("u".into()), projects: Default::default() };
         let cwd = Path::new("/repo");
         overrides.set("project", Some(cwd), Some("p".into())).unwrap();
         assert_eq!(overrides.for_project(cwd), Some(("project", "p")));
