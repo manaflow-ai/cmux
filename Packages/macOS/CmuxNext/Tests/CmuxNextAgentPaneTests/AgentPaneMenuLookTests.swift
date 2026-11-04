@@ -130,7 +130,9 @@ struct AgentPaneMenuLookTests {
         try Self.click(goTo)
         Self.drainRunLoop { jumped > 0 }
         #expect(jumped == 1)
-        let right = try #require(menu(tabShown: true).items.first { $0.title == AgentPaneMenuStrings.openOnRight })
+        // Kept: a row knows its menu only weakly, and choosing it goes through the menu.
+        let again = menu(tabShown: true)
+        let right = try #require(again.items.first { $0.title == AgentPaneMenuStrings.openOnRight })
         try Self.click(right)
         Self.drainRunLoop { !opened.isEmpty }
         #expect(opened == ["child"])
