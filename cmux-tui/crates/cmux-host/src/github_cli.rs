@@ -649,10 +649,62 @@ pub fn first_token(
     Err(last)
 }
 
-/// Whether gh's `hosts.yml` holds a github.com login (a top-level
-/// `github.com:` key), the person's own `gh auth login`.
+/// What gh's `hosts.yml` holds at its root: the host keys of its root
+/// mapping, or `unread` when the file is not YAML this can read or its root
+/// is not a mapping. The one reader behind both own-login checks
+/// (`hosts_has_github` here and `github_cli_identity::hosts_has_any_login`).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GhHosts {
+    pub hosts: Vec<String>,
+    /// The file did not parse, or its root is not a mapping. Fail-safe: this
+    /// counts as the person's own login, so gh keeps its own answer and the
+    /// team's token is never routed when we can't read the person's config.
+    pub unread: bool,
+}
+
+impl GhHosts {
+    /// A login for any host may be there.
+    pub fn any_login(&self) -> bool {
+        self.unread || !self.hosts.is_empty()
+    }
+
+    /// A github.com login may be there.
+    pub fn github_login(&self) -> bool {
+        self.unread || self.hosts.iter().any(|h| h.eq_ignore_ascii_case("github.com"))
+    }
+}
+
+/// Parses gh's `hosts.yml` with a YAML parser and reads its root mapping's
+/// string keys (the hosts). A file of only blank lines, comments and document
+/// markers, or an empty document, holds no host. A file that does not parse,
+/// or whose root is anything but a mapping, is `unread` (see `GhHosts`).
+pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
+    let no_content = hosts_yml.lines().all(|line| {
+        let t = line.trim();
+        t.is_empty() || t.starts_with('#') || t == "---" || t == "..."
+    });
+    if no_content {
+        return GhHosts::default();
+    }
+    let unread = GhHosts { hosts: Vec::new(), unread: true };
+    let Ok(docs) = yaml_rust::YamlLoader::load_from_str(hosts_yml) else { return unread };
+    match docs.into_iter().next() {
+        None | Some(yaml_rust::Yaml::Null) => GhHosts::default(),
+        Some(yaml_rust::Yaml::Hash(root)) => GhHosts {
+            // Trimmed: yaml-rust keeps a tab of indentation in the key.
+            hosts: root.keys().filter_map(|k| k.as_str().map(|h| h.trim().to_owned())).collect(),
+            unread: false,
+        },
+        Some(_) => unread,
+    }
+}
+
+/// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
+/// in its root mapping, in any form YAML writes it), the person's own
+/// `gh auth login`. A file that does not parse counts as one, so an unsure
+/// read keeps the person's own gh rather than the team's token.
 pub fn hosts_has_github(hosts_yml: &str) -> bool {
-    hosts_yml.lines().any(|line| line.trim_end() == "github.com:")
+    parse_gh_hosts(hosts_yml).github_login()
 }
 
 /// gh's `hosts.yml`: `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else
@@ -1481,5 +1533,48 @@ mod tests {
             Some(PathBuf::from("/g/hosts.yml"))
         );
         assert_eq!(gh_hosts_path(None, None, None), None);
+    }
+
+    #[test]
+    fn own_gh_login_reads_an_indented_or_inline_github_com_entry() {
+        // cmux#35095: an indented root mapping, a tab-indented one, or an inline
+        // (flow) mapping is still a github.com login gh reads.
+        for hosts in [
+            "  github.com:\n      oauth_token: gho_x\n      user: me\n",
+            "\tgithub.com:\n\t\tuser: me\n",
+            "{github.com: {user: me, oauth_token: gho_x}}\n",
+            "{\"ghe.example.com\": {user: a}, github.com: {user: b}}\n",
+            "{ # comment\n  github.com: {user: me}\n}\n",
+            "{ghe.example.com: {user: a}, # work\n github.com: {user: b}} # end\n",
+            "github.com: {user: me, oauth_token: gho_x}\n",
+            "github.com: # personal\n    user: me\n",
+            "---\n\"github.com\":\n  user: me\n",
+            "'GitHub.com':\n  user: me\n",
+            // Escaped, tagged and anchored keys are decoded by the YAML parser.
+            "\"\\u0067ithub.com\":\n  user: me\n",
+            "{\"\\u0067ithub.com\": {user: me}}\n",
+            "!!str github.com:\n  user: me\n",
+            "{&a github.com: {user: me}}\n",
+            // Not valid YAML (`,#` is no comment): unread, so the person's own.
+            "{ghe.example.com: {oauth_token: x,# Alice's account\n user: a},\ngithub.com:\n {oauth_token: y, # Bob's account\n user: b}}\n",
+            "{ghe.example.com: {user: it's me}, github.com: {user: b}}\n",
+        ] {
+            assert!(hosts_has_github(hosts), "{hosts:?}");
+        }
+        // A login for another host only, or github.com as a nested key, is not one.
+        for hosts in [
+            "  ghe.example.com:\n      user: a\n",
+            "{ghe.example.com: {user: a, note: github.com}}\n",
+            "{ghe.example.com: {github.com: 1}}\n",
+            "{mygithub.com: {user: a}}\n",
+            "mygithub.com:\n  user: a\n",
+            "# a comment\n  # another\n---\n",
+            "{ghe.example.com: {user: a, note: \"github.com: x\"}}\n",
+            "  x:\n      github.com: 1\n",
+            "{}\n",
+            "# github.com:\n",
+        ] {
+            assert!(!hosts_has_github(hosts), "{hosts:?}");
+        }
     }
 }

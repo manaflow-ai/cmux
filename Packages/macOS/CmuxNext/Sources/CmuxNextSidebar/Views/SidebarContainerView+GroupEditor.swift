@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 // The group editor's App side (cx-rcby): its action rows and what runs them.
 extension SidebarContainerView {
@@ -18,13 +18,20 @@ extension SidebarContainerView {
         set { sidebarView.list.onGroupEditorItem = newValue }
     }
 
+    /// The group editor's Sort menu for a group: the App builds it from the registry (`workspaceGroup.setSort`'s
+    /// choices), so a pick runs the same action as the group menu, the palette and the CLI.
+    public var groupSortMenu: ((GroupID) -> NSMenu?)? {
+        get { sidebarView.list.groupSortMenu }
+        set { sidebarView.list.groupSortMenu = newValue }
+    }
+
     /// The editor row that shows the group's full menu (the sidebar shows it).
     public static var moreActionsItem: String { SidebarGroupEditing.moreActionsItem }
     /// Sent before the editor closes for a picker that still edits the group: keep a new empty group.
     public static var keepGroupItem: String { SidebarGroupEditing.keepGroupItem }
 
     /// The editor's standard rows: New Workspace in Group, Move to New Window, Close All in Group;
-    /// Pin or Unpin Group (as `pinned` says), Move to Top; Ungroup, Delete Group.
+    /// Pin or Unpin Group (as `pinned` says), Move to Top, Sort; Ungroup, Delete Group.
     public static func standardGroupEditorItems(pinned: Bool = false) -> [[SidebarGroupEditorItem]] {
         SidebarGroupEditing.standardItems(pinned: pinned)
     }

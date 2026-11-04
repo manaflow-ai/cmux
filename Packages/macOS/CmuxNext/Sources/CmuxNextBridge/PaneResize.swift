@@ -116,9 +116,10 @@ public nonisolated enum PaneResize {
         } else if case .rowHeights(let column, let heights) = change {
             model.setRowHeights(column, heights: heights, fit: heights.reduce(0) { $0 + $1.height } == 1000)
         }
-        // The spring starts in the key's own turn (as a split's frame does, `LayoutRootView.syncWithModel`): the very
-        // next display frame moves, never one that ran before the layout's observation turn.
-        view.syncWithModel()
+        // The spring gets its targets in the key's own turn, so the very next display frame moves (never one that ran
+        // before the layout's observation turn), and that frame tick is the press's one layout: the key's turn presents
+        // nothing and sizes no content (FRAME OWNER S1B; each terminal's final grid goes in that tick).
+        view.syncWithModelForNextFrame()
         view.keyboardResizeDidChange(screenContaining: pane)
         return sent
     }

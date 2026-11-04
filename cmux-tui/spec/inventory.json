@@ -463,6 +463,7 @@
       "set-default-colors",
       "set-frontend-browser-history",
       "set-host-size-policy",
+      "set-layout-sizes",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",

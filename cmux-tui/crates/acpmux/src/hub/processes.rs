@@ -574,8 +574,13 @@ impl Hub {
     /// A process still runs in the background: the chat is not idle
     /// (`idle.rs`).
     pub(super) fn any_process_running(&self, session: &Session) -> bool {
-        let table = self.process_table(session);
-        !table.running.is_empty()
+        self.running_processes(session) > 0
+    }
+
+    /// How many of the session's background processes run (reading its log once if this
+    /// daemon has not yet).
+    pub(super) fn running_processes(&self, session: &Session) -> usize {
+        self.process_table(session).running.len()
     }
 
     /// How many of the session's background processes run, from a table this

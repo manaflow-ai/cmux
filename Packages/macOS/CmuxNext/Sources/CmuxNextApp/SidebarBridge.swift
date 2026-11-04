@@ -186,7 +186,7 @@ final class SidebarBridge {
             guard let windowState else { return [] }
             return spaceCache.sections(for: key) {
                 Self.sections(machines, doc: services.sidebarDoc, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
-                              hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
+                              hidesHome: layout.document.hidesHome, selection: windowState.selection,
                               newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                               top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace,
                               tabTitle: Self.tabTitle(services), harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
@@ -291,7 +291,7 @@ final class SidebarBridge {
         feed?.beginPass(inputs: [muted, DesignSettings.shared.attention.showsOnSidebar] as [AnyHashable])
         return liveSections(
             machines, doc: services.sidebarDoc, registry: services.windows.registry, window: window, creations: services.cloud.creations,
-            hidesHome: hidesHome(layout.document), rowNewTabPages: services.agentTabs, muted: muted,
+            hidesHome: layout.document.hidesHome, rowNewTabPages: services.agentTabs, muted: muted,
             top: .make(layout, machines: machines, room: window.profileID.rawValue), pageFace: pageFace ?? services.sidebarPageFace,
             tabTitle: tabTitle(services), rows: rows,
             groupConfig: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(),
@@ -367,10 +367,6 @@ final class SidebarBridge {
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
         return { [weak services] workspace, tab in titles.title(tab, incognito: services?.windows.isIncognito(workspace: workspace)) }
-    }
-
-    static func hidesHome(_ layout: SidebarLayoutDocument) -> Bool {
-        layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
     }
 
     /// One section per machine: the local daemon, then each Cloud machine

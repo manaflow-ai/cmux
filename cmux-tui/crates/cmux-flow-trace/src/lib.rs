@@ -278,9 +278,11 @@ pub fn hop_on_traced(name: &'static str, terminal: &str) {
         return;
     }
     let key = terminal_key(terminal);
-    let now = now_ns();
+    // The clock is read only for a slot that holds this terminal: most busy terminals have none.
+    let mut now = None;
     let traced = TRACED.iter().any(|slot| {
-        slot.terminal.load(Ordering::Relaxed) == key && slot.until_ns.load(Ordering::Relaxed) > now
+        slot.terminal.load(Ordering::Relaxed) == key
+            && slot.until_ns.load(Ordering::Relaxed) > *now.get_or_insert_with(now_ns)
     });
     if traced {
         record_hop(sink, name, 0, terminal);

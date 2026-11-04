@@ -154,9 +154,14 @@ how the chat reaches the host:
   and only as Allow once: never an always-allow, Allow for this chat, a plan
   or a mode change. A tool batch's card offers only Allow once and Deny; a
   single prompt's card may still offer an always-allow, which this Mac does
-  not sign, and the card says only a one-time Allow works. Until
-  the host enrolls this Mac, the card's notice says "Enroll this Mac on NAME"
-  and its Enroll this Mac button runs the same command. `acpmux machine approvals
+  not sign, and the card says only a one-time Allow works. The same one-time
+  Allow answers a sub-session's "Do you trust this folder?" card there: Trust
+  folder records trust for that one folder and changes no permission rule. When
+  the host has not enrolled this Mac yet, the click you made enrolls it (the
+  same command, over your ssh) and then sends that answer, with the card waiting
+  and the notice saying "Enrolling this Mac on NAME" meanwhile. Only when the
+  enroll fails does the notice say why, with an Enroll this Mac button that runs
+  the same command; choose Allow once again after it. `acpmux machine approvals
   unenroll NAME` from the Mac, or `acpmux machine approvals rm ID` on the host,
   stops this Mac's Allows there at once. A DEV build without a Team ID makes a
   new key each launch, so enroll again after a relaunch.

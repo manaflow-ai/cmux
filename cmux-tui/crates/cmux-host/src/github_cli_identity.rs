@@ -58,18 +58,13 @@ fn github_host(host: Option<&String>) -> bool {
     host.is_some_and(|h| h.eq_ignore_ascii_case("github.com"))
 }
 
-/// Whether `hosts.yml` holds a login for any host: any top-level YAML key (`HOST:` with or
-/// without a value, a comment or an inline mapping after it), so a GitHub Enterprise login, or
-/// one written in any form gh reads, keeps gh's own answer. Unsure means yes.
+/// Whether `hosts.yml` may hold a login for any host: any string key of its root mapping (a host), or a file the shared
+/// YAML reader (`github_cli::parse_gh_hosts`) cannot parse; blank lines, comments, document
+/// markers (`---`, `...`) and an empty `{}` are none. So a GitHub
+/// Enterprise login, an indented root mapping, or a login in any other form gh reads keeps
+/// gh's own answer. Unsure means yes.
 pub fn hosts_has_any_login(hosts_yml: &str) -> bool {
-    hosts_yml.lines().any(|line| {
-        let t = line.trim_end();
-        !t.is_empty()
-            && !t.starts_with(|c: char| c.is_whitespace() || c == '#')
-            && t != "---"
-            && t != "..."
-            && t != "{}"
-    })
+    crate::github_cli::parse_gh_hosts(hosts_yml).any_login()
 }
 
 /// Whether the shim may answer an identity question from cmux's connection: only when the
@@ -107,7 +102,7 @@ pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {
                         }
                     }
                     a if a.starts_with("--hostname=") => {
-                        if !github_host(Some(&a["--hostname=".len()..].to_owned())) {
+                        if !github_host(Some(&a.strip_prefix("--hostname=")?.to_owned())) {
                             return None;
                         }
                     }
@@ -132,9 +127,9 @@ pub fn identity_ask(args: &[String]) -> Option<IdentityAsk> {
                             return None;
                         }
                     }
-                    a if a.starts_with("--jq=") => jq = Some(a["--jq=".len()..].to_owned()),
+                    a if a.starts_with("--jq=") => jq = Some(a.strip_prefix("--jq=")?.to_owned()),
                     a if a.starts_with("--method=") => {
-                        if !a["--method=".len()..].eq_ignore_ascii_case("GET") {
+                        if !a.strip_prefix("--method=")?.eq_ignore_ascii_case("GET") {
                             return None;
                         }
                     }

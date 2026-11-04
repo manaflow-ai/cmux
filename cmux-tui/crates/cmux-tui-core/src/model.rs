@@ -921,6 +921,10 @@ impl State {
         self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
     }
 
+    pub(crate) fn workspace_index_by_key(&self, key: &str) -> Option<usize> {
+        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_index(*id))
+    }
+
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
         if let Some(screen_id) = self.resource_indexes.pane_screen.get(&pane).copied()

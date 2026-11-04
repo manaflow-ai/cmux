@@ -3,11 +3,13 @@
 import importlib.util
 import copy
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import tarfile
 import tempfile
 import unittest
 from unittest import mock
@@ -174,6 +176,34 @@ class ResumeTests(unittest.TestCase):
                 resume.extract(archive, Path(tmp) / "out")
             self.assertFalse((Path(tmp) / "escape").exists())
 
+    def _app_tarball(self, root, version_name="cmux.app/Contents/Resources/bin/cmux-tui.version"):
+        # A real unsigned app: frameworks carry Versions/Current symlinks
+        # (run 41889001795 refused every resume on them).
+        app = root / "app"
+        app.mkdir(parents=True)
+        body = f"commit={'b' * 40}\n".encode()
+        with tarfile.open(app / "cmux-nightly-unsigned.tar.gz", "w:gz") as archive:
+            link = tarfile.TarInfo("cmux.app/Contents/Frameworks/Sparkle.framework/Versions/Current")
+            link.type, link.linkname = tarfile.SYMTYPE, "B"
+            archive.addfile(link)
+            entry = tarfile.TarInfo(version_name)
+            entry.size = len(body)
+            archive.addfile(entry, io.BytesIO(body))
+        return app
+
+    def test_bundled_client_commit_reads_an_app_with_framework_symlinks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = self._app_tarball(Path(tmp))
+            self.assertEqual(resume.bundled_client_commit(Path(tmp)), "b" * 40)
+            # Nothing is unpacked beside the archive the signers download.
+            self.assertEqual(sorted(p.name for p in app.iterdir()), ["cmux-nightly-unsigned.tar.gz"])
+
+    def test_bundled_client_commit_refuses_a_traversing_version_member(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._app_tarball(Path(tmp), "../cmux.app/Contents/Resources/bin/cmux-tui.version")
+            with self.assertRaises(SystemExit):
+                resume.bundled_client_commit(Path(tmp))
+
 
 class WorkflowRoutingTests(unittest.TestCase):
     @classmethod
@@ -204,8 +234,9 @@ class WorkflowRoutingTests(unittest.TestCase):
         return bool(self.evaluate(step.get("if", "true"), resuming))
 
     def test_only_restore_workloads_take_linux_and_fresh_builds_keep_macos(self):
-        for name, native_runner, resume_runner in (("build-nightly-app", "blacksmith-6vcpu-macos-26", "blacksmith-32vcpu-ubuntu-2404"),
-                                                   ("build-nightly-ghostty-cli-helper", "blacksmith-6vcpu-macos-26", "blacksmith-32vcpu-ubuntu-2404")):
+        # Nightlies never run on Blacksmith: a resume restores on our own nightly Macs, as a fresh build does.
+        for name, native_runner, resume_runner in (("build-nightly-app", "glaeda-nightly-only-m4pro", "glaeda-nightly-only-m4pro"),
+                                                   ("build-nightly-ghostty-cli-helper", "glaeda-nightly-std-xcode-26.6", "glaeda-nightly-std-xcode-26.6")):
             with self.subTest(name=name):
                 self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], True), resume_runner)
                 self.assertEqual(self.evaluate(self.jobs[name]["runs-on"], False), native_runner)

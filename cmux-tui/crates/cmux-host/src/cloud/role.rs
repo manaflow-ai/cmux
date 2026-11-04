@@ -293,7 +293,7 @@ pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false))
+    Ok(info.with_activity(false, false, false))
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).

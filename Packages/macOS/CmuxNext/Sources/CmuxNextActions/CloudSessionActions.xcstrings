@@ -135,6 +135,87 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "工具登录"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工具登入"}}
       }
+    },
+    "action.cloudRelayChat": {
+      "comment": "Command title: sends a prompt to an agent on a Cloud machine over the machine's relay, without a link to the machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Chat on Cloud Machine over the Relay…"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リレー経由で Cloud マシンとチャット…"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Über das Relay mit der Cloud-Maschine chatten…"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Discuter sur la machine Cloud via le relais…"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Chatear en la máquina Cloud mediante el relé…"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الدردشة على جهاز Cloud عبر المرحّل…"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "릴레이를 통해 Cloud 머신에서 채팅…"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "通过中继在 Cloud 机器上聊天…"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "透過中繼在 Cloud 機器上聊天…"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Chat na Cloud mašini preko releja…"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Chat på Cloud-maskinen via relæet…"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chatta sulla macchina Cloud tramite il relay…"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ជជែកលើម៉ាស៊ីន Cloud តាមរយៈ relay…"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Chat på Cloud-maskinen via reléet…"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Czat na maszynie Cloud przez przekaźnik…"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Conversar na Máquina Cloud pelo Relay…"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Чат на машине Cloud через ретранслятор…"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แชทบนเครื่อง Cloud ผ่านรีเลย์…"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Röle Üzerinden Cloud Makinesinde Sohbet Et…"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Чат на машині Cloud через ретранслятор…"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Trò chuyện trên máy Cloud qua relay…"}}
+      }
+    },
+    "argument.cloudRelayChat.prompt": {
+      "comment": "Argument title: the prompt sent to the agent on the Cloud machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Prompt"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロンプト"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Prompt-Text"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Invite"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Texto del prompt"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الموجّه"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "프롬프트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "提示词"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "提示詞"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Upit"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Prompttekst"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Testo del prompt"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប្រអប់បញ្ចូល"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ledetekst"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Polecenie"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Texto do prompt"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Запрос"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "พรอมต์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İstem"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Запит"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Lời nhắc"}}
+      }
+    },
+    "argument.cloudRelayChat.promptID": {
+      "comment": "Argument title: an id for the prompt so that sending it again runs it only once.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Prompt ID"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロンプト ID"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Prompt-ID"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "ID de l'invite"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "ID del prompt"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "معرّف الموجّه"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "프롬프트 ID"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "提示词 ID"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "提示詞 ID"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "ID upita"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Prompt-ID"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "ID prompt"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "លេខសម្គាល់ប្រអប់បញ្ចូល"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Ledetekst-ID"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "ID polecenia"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "ID do Prompt"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "ID запроса"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รหัสพรอมต์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "İstem Kimliği"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "ID запиту"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "ID lời nhắc"}}
+      }
     }
   },
   "version": "1.0"

@@ -51,3 +51,18 @@ import Testing
         #expect(identity.protocolVersion == 1)
     }
 }
+
+@MainActor
+@Suite struct UiLayerHostOptionsTests {
+    @Test func sizesAnimationAndLookFlagsParse() {
+        let options = UiLayerHostOptions.parse(arguments: [
+            "host", "--snapshot", "/tmp/s.json", "--sizes", "1470x956,bogus,100x100", "--animate", "--no-app-look",
+        ])
+        #expect(options.sizes == [CGSize(width: 1_470, height: 956), CGSize(width: 320, height: 240)])
+        #expect(options.animate)
+        #expect(!options.cycleSizes)
+        #expect(!options.followsAppLook)
+        #expect(UiLayerHostOptions.parse(arguments: ["host", "--sizes", "all"]).sizes == UiLayerHostOptions.allSizes)
+        #expect(UiLayerHostOptions.parse(arguments: ["host"]) == UiLayerHostOptions())
+    }
+}

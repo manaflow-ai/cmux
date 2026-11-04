@@ -11,6 +11,9 @@
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask; and
 //! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
 //! kept for an app pinned before `cloud_harness_login` read them itself),
+//! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
+//! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
+//! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -32,8 +35,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
 pub mod close_focus;
+pub mod closing_panes;
+mod cloud_config;
 pub mod focus;
 mod imessage;
+pub mod input;
 pub mod scroll;
 pub mod sidebar_face;
 pub mod sidebar_mirror;
@@ -356,6 +362,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            operation if cloud_config::handles(operation) => {
+                cloud_config::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

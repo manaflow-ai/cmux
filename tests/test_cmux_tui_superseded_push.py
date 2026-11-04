@@ -319,21 +319,28 @@ def check_verdicts():
                 f"{head}:refs/heads/fix/current")
             git(remote, "update-ref", "refs/heads/lane/moved", base)
             over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}"}
+            # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
-                ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", []),
-                ("a current lane/ head with an open pull request runs, asking only the pull request",
-                 "refs/heads/lane/current", {pulls_path: (200, [pull(7, head)])}, "false", [pulls_path]),
+                ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
+                ("a current lane/ head with a pull request runs with no API call",
+                 "refs/heads/lane/current", {}, "false", [], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
-                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
-                ("a deleted lane/ branch still asks its pull requests", "refs/heads/lane/gone",
-                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
-                ("an integration branch at its head runs with no API call", "refs/heads/feat-cmux-next-x-current", {}, "false", []),
-                ("an integration branch that moved is superseded with no API call", "refs/heads/feat-cmux-next-x-moved", {}, "true", []),
+                 {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
+                ("a current lane/ head another pull request's head does not match is superseded",
+                 "refs/heads/lane/current", {dispatch_path: no_dispatch}, "true", [dispatch_path], base),
+                ("a deleted lane/ branch still asks its dispatches", "refs/heads/lane/gone",
+                 {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
+                ("an integration branch at its head runs with no API call", "refs/heads/feat-cmux-next-x-current", {}, "false", [], None),
+                ("an integration branch that moved is superseded with no API call", "refs/heads/feat-cmux-next-x-moved", {}, "true", [], None),
                 ("a current fix/ head no pull request has is superseded", "refs/heads/fix/current",
-                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
-                ("a deleted integration branch keeps its run", "refs/heads/feat-cmux-next-x-gone", {}, "false", []),
+                 {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
+                ("a deleted integration branch keeps its run", "refs/heads/feat-cmux-next-x-gone", {}, "false", [], None),
             ]
-            for why, ref, routes, want, asked in git_cases:
+            for why, ref, routes, want, asked, pull_head in git_cases:
+                if pull_head:
+                    git(remote, "update-ref", "refs/pull/7/head", pull_head)
+                else:
+                    subprocess.run(["git", "-C", remote, "update-ref", "-d", "refs/pull/7/head"], check=False)
                 api.reset(routes)
                 got = run_check(api, repo, script, "push", ref, head, over_git)
                 _check(got == want, f"over git: {why} ({got!r}, want {want!r})")

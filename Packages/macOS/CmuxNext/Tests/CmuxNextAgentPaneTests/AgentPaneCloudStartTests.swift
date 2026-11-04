@@ -229,6 +229,72 @@ struct AgentPaneCloudStartTests {
         #expect(starts.seen.first?.cwd == Self.canonical(folder))
     }
 
+    /// The reply's error code and message.
+    private static func refusal(_ reply: [String: Any]) -> (code: String?, message: String?) {
+        let error = reply["error"] as? [String: Any]
+        return (error?["code"] as? String, error?["userMessage"] as? String)
+    }
+
+    /// cmux#35006: a Cloud start never copies a credential folder under home (~/.ssh, ~/.aws, …), one
+    /// inside it, or a folder that holds one (~/.config holds gcloud's), by any spelling of its case;
+    /// its refusal names the folder. A project folder under the same home still starts.
+    @Test func aCredentialFolderOrOneHoldingItIsNeverCopiedAndTheRefusalNamesIt() async throws {
+        let starts = Starts()
+        let (home, project) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        for folder in [".ssh/keys", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library/Keychains"] {
+            try FileManager.default.createDirectory(atPath: (home as NSString).appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        let cases: [(String, String)] = [(".ssh", "~/.ssh"), (".ssh/keys", "~/.ssh"), (".aws", "~/.aws"), (".gnupg", "~/.gnupg"),
+                                         (".config", "~/.config/gcloud"), (".config/gcloud", "~/.config/gcloud"), (".kube", "~/.kube"),
+                                         (".docker", "~/.docker"), (".secrets", "~/.secrets"), (".azure", "~/.azure"),
+                                         ("Library", "~/Library/Keychains"), ("Library/Keychains", "~/Library/Keychains"), (".SSH", "~/.ssh")]
+        for (relative, named) in cases {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": (home as NSString).appendingPathComponent(relative)]) { $1 }))
+            #expect(reply["ok"] as? Bool != true, "\(relative)")
+            #expect(Self.refusal(reply).code == "cloud_folder_secret", "\(relative): \(reply)")
+            #expect(Self.refusal(reply).message == named, "\(relative): \(reply)")
+            #expect(model.transport.replacements.beginSandbox())
+        }
+        #expect(starts.seen.isEmpty)
+        // A project folder still starts, and so does one in iCloud Drive or a cloud-storage folder
+        // under ~/Library (review of #35019 at 8f03b2c: all of ~/Library refused them).
+        let iCloud = (home as NSString).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/paint")
+        let dropbox = (home as NSString).appendingPathComponent("Library/CloudStorage/Dropbox/paint")
+        for folder in [iCloud, dropbox] { try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+        for cwd in [project, iCloud, dropbox] {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let started = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(started["ok"] as? Bool == true, "\(cwd): \(started)")
+        }
+    }
+
+    /// cmux#35005: a folder that is gone, and home or above it, each get their own code, never the
+    /// "isn't open in this tab" refusal (`transport.path_outside_roots`).
+    @Test func aMissingFolderAndHomeOrAboveEachSayWhy() async throws {
+        let starts = Starts()
+        let (home, project) = try Self.project()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let file = (project as NSString).appendingPathComponent("notes.txt")
+        try "x".write(toFile: file, atomically: true, encoding: .utf8)
+        let cases = [(project + "/missing", "cloud_folder_missing"), (file, "cloud_folder_missing"),
+                     (home, "cloud_folder_home"), ((home as NSString).deletingLastPathComponent, "cloud_folder_home"), ("/", "cloud_folder_home")]
+        for (cwd, code) in cases {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let reply = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(Self.refusal(reply).code == code, "\(cwd): \(reply)")
+            #expect(AgentPaneHandOff.refusedHere(reply) == code)
+        }
+        #expect(starts.seen.isEmpty)
+    }
+
     // The send's create, tab and copy keys are cmux-tui's (`link/start_chat_cli/tests.rs`).
 
     @Test func withoutARunnerTheMethodIsUnsupported() async {
@@ -300,5 +366,78 @@ struct AgentPaneCloudStartTests {
         #expect(AgentPaneHandOff.refusedHere(AgentPaneReply.failure(code: "cloud_start_failed", message: "No machine")) == nil)
         #expect(AgentPaneHandOff.refusedHere(AgentPaneReply.success(["machine": "cloud-1"])) == nil)
         #expect(AgentPaneHandOff.refusedHere([:]) == nil)
+    }
+}
+
+@Suite
+@MainActor
+struct AgentPaneCloudReservationTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @Test func aNewLocalComposeForwardsWarmAndReleaseWithoutConsumingTheSendGesture() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        var requests: [AgentPaneCloudReservationRequest] = []
+        model.onCloudReservation = { request in
+            requests.append(request)
+            return ["ok": true, "machine": "vm-warm"]
+        }
+        let key = UUID().uuidString
+        model.transport.gestures.record()
+        for method in ["cloud.reserve", "cloud.releaseReservation"] {
+            let request = AgentPaneRequest(body: ["method": method, "params": ["composeKey": key]])
+            let answer = await model.respond(to: request)
+            #expect(answer["ok"] as? Bool == true)
+        }
+        #expect(!model.transport.gestures.consume())
+        #expect(requests.map(\.release) == [false, true])
+        #expect(requests.first?.params["composeKey"]?.stringValue == key)
+        model.remoteChat = true
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.reserve", "params": ["composeKey": key]]))
+        #expect(requests.count == 2)
+    }
+
+    @Test func reservationNeedsACloudPickGestureAndStaysSinglePerPane() async throws {
+        let model = AgentPaneModel(host: NoHost())
+        var requests: [AgentPaneCloudReservationRequest] = []
+        model.onCloudReservation = { request in
+            requests.append(request)
+            return ["ok": true]
+        }
+        let first = UUID().uuidString
+        let second = UUID().uuidString
+        let noGesture = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": first],
+        ]))
+        #expect((noGesture["error"] as? [String: Any])?["code"] as? String == "transport.gesture_required")
+
+        model.transport.gestures.record()
+        let reserved = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": first],
+        ]))
+        #expect(reserved["ok"] as? Bool == true)
+        let duplicate = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.reserve", "params": ["composeKey": second],
+        ]))
+        #expect((duplicate["error"] as? [String: Any])?["code"] as? String == "unavailable_now")
+        #expect(requests.map(\.composeKey) == [first])
+
+        let released = await model.respond(to: AgentPaneRequest(body: [
+            "method": "cloud.releaseReservation", "params": ["composeKey": first],
+        ]))
+        #expect(released["ok"] as? Bool == true)
+    }
+
+    @Test func sendForwardsOnlyAValidReservationKey() throws {
+        let reservation = UUID().uuidString
+        let ticket = UUID().uuidString
+        let params: [String: Any] = ["task": "hello", "key": UUID().uuidString, "reservationKey": reservation, "gestureTicket": ticket]
+        #expect(try #require(AgentPaneCloudStart(params: params)).reservationKey == reservation)
+        #expect(try #require(AgentPaneCloudStart(params: params)).gestureTicket == ticket)
+        #expect(AgentPaneCloudStart(params: params.merging(["reservationKey": "invalid"]) { $1 }) == nil)
+        #expect(AgentPaneCloudStart(params: params.merging(["reservationKey": 123]) { $1 }) == nil)
+        #expect(AgentPaneCloudStart(params: params.merging(["gestureTicket": "invalid"]) { $1 }) == nil)
+        #expect(AgentPaneCloudStart(params: params.merging(["gestureTicket": 123]) { $1 }) == nil)
     }
 }

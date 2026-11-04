@@ -356,12 +356,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
-        // The page is transparent; WebKit's opaque backing would hide the window's backdrop.
-        // macOS has no public switch, so this uses `_setDrawsBackground:` through KVC, checked first.
-        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
-            webView.setValue(false, forKey: "drawsBackground")
-        }
-        webView.underPageBackgroundColor = .clear
+        Self.clearBackground(of: webView)
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
@@ -490,6 +485,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
     func performTitleBarDoubleClick() {
         WindowTitlebar.performDoubleClick(in: window)
+    }
+
+    /// Makes `webView` transparent: WebKit's opaque backing would hide the window's backdrop.
+    /// macOS has no public switch, so this uses `_setDrawsBackground:` through KVC, checked first.
+    static func clearBackground(of webView: WKWebView) {
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
+        webView.underPageBackgroundColor = .clear
     }
 
     nonisolated public override var isFlipped: Bool { true }

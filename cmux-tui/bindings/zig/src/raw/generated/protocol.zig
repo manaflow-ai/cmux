@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd";
+pub const ir_sha256 = "6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1313,6 +1313,36 @@ pub const Layout = union(enum) {
             return .{ .stack = try wire.decodeLeaky(LayoutStack, allocator, value) };
         }
         return error.UnknownUnionVariant;
+    }
+};
+
+pub const LayoutSizePaneWidth = struct {
+    pane: Id,
+    width: f32,
+};
+
+pub const LayoutSizeSplitRatio = struct {
+    ratio: f32,
+    split: Id,
+};
+
+pub const LayoutSizeValue = union(enum) {
+    layout_size_split_ratio: LayoutSizeSplitRatio,
+    layout_size_pane_width: LayoutSizePaneWidth,
+
+    pub const cmux_wire_custom_union = true;
+
+    pub fn cmuxEncode(self: @This(), allocator: std.mem.Allocator) !wire.Value {
+        return switch (self) {
+            .layout_size_split_ratio => |payload| try wire.encodeValue(allocator, payload),
+            .layout_size_pane_width => |payload| try wire.encodeValue(allocator, payload),
+        };
+    }
+
+    pub fn cmuxDecode(allocator: std.mem.Allocator, value: wire.Value) !@This() {
+        _ = allocator;
+        _ = value;
+        return error.AmbiguousUnion;
     }
 };
 
@@ -8913,6 +8943,26 @@ pub fn setHostSizePolicy(client: anytype, request: SetHostSizePolicyRequest) !wi
     );
 }
 
+pub const SetLayoutSizesRequest = struct {
+    transaction: u64,
+    values: []const LayoutSizeValue,
+};
+
+pub const SetLayoutSizesResult = EmptyResult;
+
+pub fn setLayoutSizes(client: anytype, request: SetLayoutSizesRequest) !wire.Decoded(SetLayoutSizesResult) {
+    return client.callTyped(
+        SetLayoutSizesResult,
+        .{
+            .name = "set-layout-sizes",
+            .authority = "control",
+            .since = 12,
+            .capability = "layout-sizes-batch-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalTerminalRequest = struct {
     session_id: []const u8,
     terminal_key: []const u8,
@@ -11831,7 +11881,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 289;
+pub const command_count: usize = 290;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12065,6 +12115,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-host-size-policy", .authority = "control", .since = 12, .capability = "host-size-policy-v1", .stream = null },
+    .{ .name = "set-layout-sizes", .authority = "control", .since = 12, .capability = "layout-sizes-batch-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

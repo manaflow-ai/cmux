@@ -614,6 +614,52 @@ class PackScript(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    def test_app_recheck_admits_one_waiter_after_the_primary_read_fails(self):
+        """Nine concurrent candidates survive a failed job-token read; the App recheck keeps one."""
+        step = next((s for s in AUTOFIX["jobs"]["pushed-exports"]["steps"]
+                     if s.get("id") == "carrier"), {})
+        with tempfile.TemporaryDirectory() as tmp:
+            work = Path(tmp)
+            (work / "bin").mkdir()
+            gh = work / "bin/gh"
+            gh.write_text('''#!/usr/bin/env python3
+import json, subprocess, sys, os
+if os.environ.get("GH_TOKEN") != "app-read-token":
+    sys.exit(1)
+path, query = sys.argv[2], sys.argv[sys.argv.index("--jq") + 1]
+if "/jobs?" in path:
+    body = {"jobs": [{"name": "exports from the push's generated files", "status": "in_progress"}]}
+else:
+    body = {"workflow_runs": [{"id": i, "status": "in_progress"} for i in range(9, 0, -1)]}
+sys.exit(subprocess.run(["jq", "-r", query], input=json.dumps(body), text=True).returncode)
+''')
+            gh.chmod(0o755)
+            common = {**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}",
+                      "GITHUB_REPOSITORY": REPO, "GITHUB_REF_NAME": "feat-cmux-next",
+                      "COALESCE": "1"}
+            admitted = 0
+            for run in range(1, 10):
+                primary = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-mac-busy.sh"), str(run)],
+                                         env={**common, "GH_TOKEN": "unavailable-job-token"},
+                                         capture_output=True, text=True)
+                self.assertEqual(primary.stdout, "mac_busy=false\n")
+                out = work / f"output-{run}"
+                done = subprocess.run(["bash", "-c", step.get("run", "")], cwd=ROOT,
+                                      env={**common, "GH_TOKEN": "app-read-token", "GITHUB_RUN_ID": str(run),
+                                           "GITHUB_OUTPUT": str(out)}, capture_output=True, text=True)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                deferred = "mac_busy=true" in (out.read_text() if out.exists() else "")
+                admitted += not deferred
+            print(f"export waiter admissions after failed primary read: {admitted}/9")
+            self.assertEqual(admitted, 1)
+            # The kill switch restores admission even with a positively known older carrier.
+            out = work / "disabled-output"
+            done = subprocess.run(["bash", "-c", step.get("run", "")], cwd=ROOT,
+                                  env={**common, "GH_TOKEN": "app-read-token", "GITHUB_RUN_ID": "9",
+                                       "COALESCE": "0", "GITHUB_OUTPUT": str(out)}, capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(), "mac_busy=false\n")
+
     def pack_step_on(self, event: str, payload: dict) -> str:
         """Run the producer step's dispatch gate with a fake event and a fake pack script."""
         step = next(s for s in NEXT["jobs"]["generated-files"]["steps"] if s.get("id") == "base-exports")
@@ -642,7 +688,12 @@ class Wiring(unittest.TestCase):
         self.assertIn("needs.pushed-exports.outputs.hit != 'true'", mac["if"])
         # Only the run that carries the exports waits for a pack; the others defer and repair the rest at once.
         self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", AUTOFIX["jobs"]["pushed-exports"]["if"])
-        self.assertEqual(AUTOFIX["jobs"]["mac-exports-deferred"]["if"], "needs.action-areas.outputs.mac_busy == 'true'")
+        self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", mac["if"])
+        marker = AUTOFIX["jobs"]["mac-exports-deferred"]
+        self.assertEqual(marker["needs"], ["action-areas", "pushed-exports"])
+        self.assertIn("!cancelled()", marker["if"])
+        self.assertIn("needs.action-areas.outputs.mac_busy == 'true'", marker["if"])
+        self.assertIn("needs.pushed-exports.outputs.deferred == 'true'", marker["if"])
 
     def test_the_consumer_reads_only_and_its_wait_is_bounded(self):
         job = AUTOFIX["jobs"]["pushed-exports"]
@@ -650,6 +701,9 @@ class Wiring(unittest.TestCase):
         step = next(s for s in job["steps"] if s.get("id") == "lookup")
         # It polls, so only through the App's own budget, never github.token's shared one.
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertIn("steps.carrier.outputs.mac_busy != 'true'", step["if"])
+        carrier = next(s for s in job["steps"] if s.get("id") == "carrier")
+        self.assertEqual(carrier["env"]["GH_TOKEN"], step["env"]["GH_TOKEN"])
         mint = next(s for s in job["steps"] if s.get("id") == "read-token")
         self.assertEqual(mint["with"]["permission-actions"], "read")
         self.assertTrue(step["continue-on-error"])

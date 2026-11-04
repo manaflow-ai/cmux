@@ -76,6 +76,14 @@ import { prepareMockTransport } from "./mockTransport";
 // standalone acpmux daemon instead (devHost.ts, scripts/agent-pane/dev-slot.sh).
 const params = new URLSearchParams(location.search);
 const devHost = devHostParams(location.hash);
+if (params.has("mock") && params.has("slowDaemon")) {
+  const fixture = globalThis as {
+    cmuxAcpmuxMockSlowMethod?: string;
+    cmuxAcpmuxMockSlowMs?: number;
+  };
+  fixture.cmuxAcpmuxMockSlowMethod = params.get("slowMethod") ?? "session/new";
+  fixture.cmuxAcpmuxMockSlowMs = Number(params.get("slowMs") ?? 6_000);
+}
 if (devHost) installDevHost(devHost);
 else if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };

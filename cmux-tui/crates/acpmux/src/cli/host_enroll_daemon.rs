@@ -36,7 +36,7 @@ fn port_mismatch(host: &str, name: &str, whose: &str, listening: u16, port: u16)
         Step::Daemon,
         format!("{whose} listens on port {listening}, the peer uses port {port}"),
         format!(
-            "Point the peer at the daemon with `acpmux host add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
+            "Point the peer at the daemon with `acpmux machine add {name} {url}`, then check again; or set websocket.listen to 127.0.0.1:{port} in {}/config.json on {host} and restart that daemon.",
             hosts::REMOTE_HOME
         ),
     )
@@ -134,7 +134,7 @@ pub(super) fn judge_daemon(
                         format!("the daemon runs build {b}, this is {build}"),
                     )
                     .with_fix(format!(
-                        "Run `acpmux host doctor {name} --fix` to restart the daemon on {host}."
+                        "Run `acpmux machine doctor {name} --fix` to restart the daemon on {host}."
                     ))
                     .with_reason("peer_version_skew"),
                     Some(result) => result,
@@ -143,9 +143,9 @@ pub(super) fn judge_daemon(
                         StepState::Warn,
                         format!("the daemon runs build {b}, this is {build}"),
                     )
-                    .with_fix(format!("Run `acpmux host update {name}`."))
+                    .with_fix(format!("Run `acpmux machine update {name}`."))
                     .with_reason("peer_version_skew")
-                    .with_try(format!("acpmux host update {name}")),
+                    .with_try(format!("acpmux machine update {name}")),
                 };
                 Verdict::OtherBuild(result)
             }

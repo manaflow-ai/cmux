@@ -97,6 +97,7 @@ mod effectful_operation;
 mod emptied_workspace;
 mod end_terminals_batch;
 mod layout_ops;
+pub(in crate::mux) use layout_ops::LayoutSizesUnchanged;
 mod layout_projection;
 mod pane_browser;
 mod pane_tab_moves;
@@ -399,3 +400,6 @@ mod structural_tab_move_tests;
 
 #[cfg(test)]
 mod creation_recovery_tests;
+
+#[cfg(all(test, unix))]
+mod launch_activation_tests;

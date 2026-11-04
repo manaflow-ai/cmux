@@ -42,9 +42,9 @@ struct CloudStartSession {
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
             var words = ["cmux cloud start-session"]
-            if let machineID { words.append("--target machine:" + CloudStartSession.shellQuoted(machineID)) } else { words.append("--name " + CloudStartSession.shellQuoted(name ?? "")) }
+            if let machineID { words.append("--target machine:" + CloudStartCore.shellQuoted(machineID)) } else { words.append("--name " + CloudStartCore.shellQuoted(name ?? "")) }
             words.append("--agent " + agent)
-            if let cwd { words.append("--cwd " + CloudStartSession.shellQuoted(cwd)) }
+            if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
@@ -69,7 +69,9 @@ struct CloudStartSession {
             CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: Self.forgotten(request, services)) {
                     // A person's gesture only as the outermost run's origin says (a script's nested run is not one).
-                    try await start.run(request, invocation, context, account: key.account, byPerson: CloudHandlers.origin(of: invocation) == .user)
+                    let delegated = CloudAgentStartSetting().delegated(in: services.settings?.snapshot.root ?? .object([:]))
+                    return try await start.run(request, invocation, context, account: key.account,
+                                               byPerson: CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated), capCard: CloudHandlers.origin(of: invocation) == .user)
                 }
             }
         }
@@ -105,7 +107,7 @@ struct CloudStartSession {
             let key = CloudStartSessionRuns.Key(request, caller: invocation.callerAgentSession, account: services.cloud.account)
             return CloudHandlers.result("start cloud session", context) {
                 try await runs.answer(key, within: Self.answerWithin, pending: Self.pending(request, services), forgotten: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
-                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, askedBy: invocation.callerAgentSession, revealing: false)
+                    try await start.run(request, asPerson, context, account: key.account, byPerson: true, capCard: false, askedBy: invocation.callerAgentSession, revealing: false)
                 }
             }
         }
@@ -213,12 +215,12 @@ struct CloudStartSession {
     /// that changes anything and after each wait, so a team switch or sign-out mid-run starts
     /// nothing in the account signed in now.
     /// `byPerson`: the person's own gesture (a palette or menu run, or Start on an agent's card);
-    /// it decides how the machine is created and connected.
-    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, askedBy: String? = nil,
+    /// it decides how the machine is created and connected. `capCard`: a refusal at the cap opens the cap card, else answers the run.
+    func run(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool = true, askedBy: String? = nil,
              revealing: Bool = true) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         try still(request.name ?? request.machineID ?? "")
-        let session = try await machine(request, invocation, account: account, byPerson: byPerson, askedBy: askedBy)
+        let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
         try await connected(session, request, account: account, byPerson: byPerson)
@@ -336,13 +338,6 @@ struct CloudStartSession {
         return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: Self.reason(reason))
     }
 
-    /// `text` as one shell word: as it is when it is a plain name, else in single quotes.
-    static func shellQuoted(_ text: String) -> String {
-        let plain = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
-        guard text.isEmpty || !text.unicodeScalars.allSatisfy(plain.contains) else { return text }
-        return "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
     /// A refusal sentence inside the run's parentheses: no closing period.
     static func reason(_ text: String) -> String {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -354,7 +349,7 @@ struct CloudStartSession {
     static let listFresh: Duration = .seconds(15)
 
     /// The machine named by id, else by name, else a new one with that name.
-    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, askedBy: String?) async throws -> CloudMachineSession {
+    private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
         let cloud = services.cloud
         if let id = request.machineID {
@@ -379,7 +374,7 @@ struct CloudStartSession {
                 if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
                 try still()
                 // The answer of a create asked in another account never joins this one's list.
-                return try await cloud.createMachine(name: name, startedByPerson: byPerson, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
+                return try await cloud.createMachine(name: name, startedByPerson: byPerson, capCard: capCard, askedBy: askedBy ?? invocation.callerAgentSession, proceed: still)
             }
         } catch is CancellationError {
             throw CancellationError()
@@ -388,7 +383,7 @@ struct CloudStartSession {
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
             try Self.failed(account, now: cloud.account, request.asked(machine: name),
-                            CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
+                            CloudStartSessionStrings.createFailed(name, quoted: CloudStartCore.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
         }
     }
 
@@ -405,15 +400,10 @@ struct CloudStartSession {
             let origin: CloudLinkOrigin = byPerson ? .user : .script
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
-        session.beginLegacyAttempt()
-        let daemon = session.daemon
-        let up = await CloudWait.holds(within: Self.connectWait, until: {
-            session.resumeFailure != nil || session.legacyLinkFailure?.definitive == true
-                || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
-        })
+        let up = await session.linkUp(within: Self.connectWait)
         // A sign-out, team switch or cancellation during the wait is that, not a machine that didn't connect.
         try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
-        guard up, session.resumeFailure == nil, daemon.connection != nil else { throw failure() }
+        guard up, session.resumeFailure == nil, session.daemon.connection != nil else { throw failure() }
     }
 
     /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
@@ -431,5 +421,76 @@ extension CloudStartRunKey {
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
                   caller: caller, account: account, login: request.login.requested?.rawValue)
+    }
+}
+
+/// `cmux cloud relay-chat` (cmuxterm-hq#7086; Leo: "it should take <30 seconds from starting a thing to having a
+/// response on cloud"): sends a prompt to an agent on a Cloud machine over the machine's relay (``CloudRelayChat``),
+/// with no link from this Mac to the machine, and answers when the turn ends with the machine's acpmux session,
+/// the reply and how long the first text took, or within ``CloudHandlers/answerWithin`` with what came so far
+/// (``CloudRelayChat/answer(_:agent:prompt:cwd:promptID:within:)``). `delivered` false means the prompt certainly
+/// never reached the machine. `cmux cloud start-chat` uses it first. A turn still running when this answers keeps
+/// its stream until it ends; quitting the app closes it, which cancels that turn on the machine.
+///
+/// The person's own run only: an agent starts a Cloud chat with `cloud start-session`, which asks the person
+/// first (``CloudStartSession``).
+extension CloudStartSession {
+    static func bindRelayChat(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        // action-wait-allow: the reply comes from the machine over the network; nothing local can stand in for it.
+        CloudHandlers.bind("cloudRelayChat", registry, reason: reason) { invocation in
+            // A refusal here sent nothing: it answers undelivered, so `cloud start-chat` goes the start-session way,
+            // which asks an agent's person and words the same refusals.
+            let machineID: String, started: Request, prompt: String
+            do {
+                guard !isAgent(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.relayAgentRun) }
+                machineID = try CloudHandlers.machine(invocation, context).machineID
+                // The agent and the folder, checked as `cloud start-session` checks them.
+                started = try request(invocation)
+                prompt = invocation["prompt"]?.stringValue ?? ""
+                guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw ActionFailure(message: CloudStartSessionStrings.relayPromptRequired)
+                }
+            } catch let refusal as ActionFailure {
+                // A person's own run (the palette) sees the refusal; a CLI or MCP run gets it as an undelivered answer.
+                if CloudHandlers.origin(of: invocation) == .user { throw refusal }
+                let code = isAgent(invocation) ? "cloud.relay.agent_run" : "cloud.relay.refused"
+                return CloudHandlers.result("cloud relay chat", context) { notSent(code, refusal.message) }
+            }
+            let promptID = (invocation["prompt-id"]?.stringValue?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 }
+            // A person's run waits for the whole turn and shows the reply, or why there is none.
+            guard CloudHandlers.origin(of: invocation) != .user else {
+                return CloudHandlers.runTracked("cloud relay chat", context) {
+                    guard let relay = cloud.relayChat else { throw ActionFailure(message: CloudStartSessionStrings.relayUnavailable) }
+                    let answer = try await relay.chat(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd, promptID: promptID)
+                    let text = answer.errorMessage.map { answer.reply.isEmpty ? $0 : answer.reply + "\n\n" + $0 } ?? answer.reply
+                    CloudPresenter.show(CloudStartSessionStrings.relayReplyTitle, text, copyable: true, in: CloudHandlers.window(context))
+                }
+            }
+            CloudHandlers.result("cloud relay chat", context) {
+                guard let relay = cloud.relayChat else { return notSent("cloud.relay.unavailable", CloudStartSessionStrings.relayUnavailable) }
+                let answer = try await relay.answer(machineID, agent: started.agent, prompt: prompt, cwd: started.cwd,
+                                                    promptID: promptID, within: CloudHandlers.answerWithin)
+                return relayFields(answer, machineID: machineID)
+            }
+        }
+    }
+
+    /// A relay chat refused before anything was sent.
+    static func notSent(_ code: String, _ message: String) -> [String: ActionResultValue] {
+        ["delivered": .bool(false), "ended": .bool(true), "error_code": .string(code), "error_message": .string(message)]
+    }
+
+    /// The answer's fields: what the CLI prints with `--json`.
+    static func relayFields(_ answer: CloudRelayChat.Answer, machineID: String) -> [String: ActionResultValue] {
+        var fields: [String: ActionResultValue] = ["machine_id": .string(machineID), "reply": .string(answer.reply),
+                                                   "queued": .bool(answer.queued), "ended": .bool(answer.ended),
+                                                   "delivered": .bool(answer.delivered)]
+        let texts = ["session_id": answer.session, "prompt_id": answer.promptID, "stop_reason": answer.stopReason,
+                     "error_code": answer.errorCode, "error_message": answer.errorMessage]
+        for case let (key, text?) in texts { fields[key] = .string(text) }
+        if let first = answer.firstText { fields["first_text_ms"] = .int(Int(first / .milliseconds(1))) }
+        if let total = answer.total { fields["total_ms"] = .int(Int(total / .milliseconds(1))) }
+        return fields
     }
 }

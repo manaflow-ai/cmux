@@ -107,4 +107,29 @@ public extension FocusEvent {
         default: false
         }
     }
+
+    /// A focus choice of the person's (``FocusState/personMoveSeq``): a focus or selection move from their own entry (mouse,
+    /// keyboard, palette), or the window's responder report of their click in a view. A responder change inside a key's
+    /// dispatch is none, nor is any move of automation's. (`focusPane`, `selectTab` and `focusTarget`, the other events
+    /// ``isPersonsOwn`` names, always change the view: no FFI call to ask.)
+    var choosesFocusAsPerson: Bool {
+        if case .responder(_, let source) = self { return source == .mouse }
+        return isPersonsOwn
+    }
+}
+
+public extension FocusEvent.Responder {
+    /// Stable name of an AppKit responder for `debug.focus`.
+    var debugName: String {
+        switch self {
+        case .content(let pane): "content:\(pane)"
+        case .addressBar(let pane): "addressBar:\(pane)"
+        case .findBar(let pane): "findBar:\(pane)"
+        case .devTools(let pane): "devTools:\(pane)"
+        case .sidebar: "sidebar"
+        case .sidebarField: "sidebarField"
+        case .textField: "textField"
+        case .windowOrNone: "windowOrNone"
+        }
+    }
 }

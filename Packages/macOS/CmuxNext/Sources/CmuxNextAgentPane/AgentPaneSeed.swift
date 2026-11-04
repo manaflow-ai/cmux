@@ -140,6 +140,11 @@ public final class AgentPaneSeedSource {
         sandboxResult = seed.sandboxResult
     }
 
+    /// The seed's folder when it is already known (no read from another tab still to come).
+    public var knownCwd: String? { read == nil ? value?.cwd : nil }
+    /// A read from another tab is still to come: the seed's folder is not known yet.
+    public var pending: Bool { read != nil }
+
     /// The seed without taking its draft or prompt: where a chat on another machine starts
     /// (its folder and harness) before the page's handshake takes the rest.
     public func peek() async -> AgentPaneSeed? {

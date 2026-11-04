@@ -149,9 +149,13 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
       (document.querySelector(".acpmux-thread") ?? document.body).append(probe);
       const turnGap = probe.getBoundingClientRect().height;
       probe.remove();
-      const thirdRow = holding("The other lanes may have stopped")?.closest<HTMLElement>(".acpmux-row");
+      // The steer ends the reply's stretch on its copy row (turns.ts supersededFooters, #34939), so the
+      // row right over the prompt is that footer, a footer gap under the paragraph.
+      const regroupRow = rowOf("we should regroup");
+      const aboveRegroup = regroupRow ? (rows[rows.indexOf(regroupRow) - 1] ?? null) : null;
       return {
-        "paragraph -> prompt (rows)": gap(rowBox(thirdRow), rowBox(rowOf("we should regroup"))),
+        "paragraph -> prompt (rows)": gap(rowBox(aboveRegroup), rowBox(regroupRow)),
+        "copy row over prompt": aboveRegroup?.dataset.rowId?.startsWith("superseded-") ? 1 : 0,
         "reply -> notice (rows)": gap(
           rowBox(holding("docs half of the release page")?.closest<HTMLElement>(".acpmux-row")),
           rowBox(rowOf("Fixed the stale release cache")),
@@ -243,6 +247,8 @@ await requireBrowserLane("transcript-spacing-reference.test.ts", async () => {
         if (LOG_ONLY) return;
         const want = measured["turn gap"]!;
         expect(want).toBeGreaterThan(0);
+        // The reply's stretch ends on its copy row over the steer (#34939); the prompt is a turn gap under it.
+        expect(measured["copy row over prompt"]).toBe(1);
         expect(measured["paragraph -> prompt (rows)"]).not.toBeNull();
         expect(Math.abs(measured["paragraph -> prompt (rows)"]! - want)).toBeLessThanOrEqual(TOLERANCE);
       } finally {

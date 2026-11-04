@@ -32,10 +32,16 @@ fn swift_min(a: f64, b: f64) -> f64 {
     if b < a { b } else { a }
 }
 
+// Not in cmux_motion_ffi.h (cbindgen copies associated consts as macros, and
+// NULL's `f64::INFINITY` is not C); Swift has CGRect.zero and CGRect.null.
 impl HoverRect {
     /// `CGRect.zero`.
+    ///
+    /// cbindgen:ignore
     pub const ZERO: Self = Self { x: 0., y: 0., width: 0., height: 0. };
     /// `CGRect.null`.
+    ///
+    /// cbindgen:ignore
     pub const NULL: Self = Self { x: f64::INFINITY, y: f64::INFINITY, width: 0., height: 0. };
 
     #[must_use]

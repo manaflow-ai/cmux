@@ -31,9 +31,9 @@ const allowed = (principal: Principal, id: string, labels: Readonly<Record<strin
 
 const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(function* () {
   const key = yield* scopedCreationKey(caller.value, rawKey);
-  const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
+  const record = yield* (yield* TenantLimits).inspect(caller.value.tenantId, key).pipe(Effect.mapError(unavailable));
   const progress = record?.progress;
-  const receipt = yield* (yield* OwnershipStore).findCreation(caller.value.tenantId, key).pipe(Effect.mapError(() => unavailable()));
+  const receipt = yield* (yield* OwnershipStore).findCreation(caller.value.tenantId, key).pipe(Effect.mapError(unavailable));
   // A reused key may already have a new intent while an older SQL receipt still exists.
   if (progress?.phase === "capturing") {
     if (!allowed(caller.value, progress.vmId, progress.receipt.labels, progress.createdBy) || progress.receipt.id !== progress.vmId) return yield* Effect.fail(vmNotFound());
@@ -69,7 +69,7 @@ const lookup = <C>(caller: Named<C, Principal>, rawKey: string) => Effect.gen(fu
       || (caller.value.actor.kind === "service" && actorRef(caller.value.actor) !== generated.createdBy)) return yield* Effect.fail(vmNotFound());
     const snapshotId = parseSnapshotId(progress.snapshotId);
     if (Option.isNone(snapshotId)) return yield* Effect.fail(unavailable());
-    const snapshot = yield* (yield* OwnershipStore).find(caller.value.tenantId, "snapshot", snapshotId.value).pipe(Effect.mapError(() => unavailable()));
+    const snapshot = yield* (yield* OwnershipStore).find(caller.value.tenantId, "snapshot", snapshotId.value).pipe(Effect.mapError(unavailable));
     if (Option.isNone(snapshot) || !carriesRequiredLabels(caller.value, snapshot.value.labels)) return yield* Effect.fail(vmNotFound());
     return { status: stateOf({ state: "unresolved", id: null }), pending: null };
   }

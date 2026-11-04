@@ -39,6 +39,10 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockCapabilities?: string[];
   /** Gallery only: `session/new` refuses with `trust.pending` until `acp.trust.set` trusts a folder. */
   cmuxAcpmuxMockTrustPending?: boolean;
+  /** `?mock&slowDaemon` fixture: keep the socket open while one RPC answers slowly. */
+  cmuxAcpmuxMockSlowMethod?: string;
+  /** Delay for `cmuxAcpmuxMockSlowMethod`; tests use a short delay, the gallery uses six seconds. */
+  cmuxAcpmuxMockSlowMs?: number;
 };
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
@@ -403,6 +407,8 @@ export class MockAcpmuxSocket {
       method: `acpmux ${method}`,
       params,
     });
+    const { cmuxAcpmuxMockSlowMethod: slowMethod, cmuxAcpmuxMockSlowMs: slowMs } = globalThis as MockAuthGlobals;
+    if (slowMethod === method) await this.delay(typeof slowMs === "number" ? slowMs : 6_000);
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.

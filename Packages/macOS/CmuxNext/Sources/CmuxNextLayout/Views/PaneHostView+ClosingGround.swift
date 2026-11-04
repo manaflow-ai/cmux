@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3c (`motion.frameOwner.contentPolicy`, read at the close): a closing pane on its close spring
+/// FRAME OWNER REFACTOR S3c: a closing pane on its close spring
 /// shows only its own ground, read once at the close (its terminal's or page's, else its content area's), on the frame
 /// its screen collapses (`ClosingPanes`). Its content hides at once (a hidden terminal stops drawing, a page window
 /// orders out) and it takes no clicks (`hitTest`); its ring and dim are hidden with the retirement. A close taken back
