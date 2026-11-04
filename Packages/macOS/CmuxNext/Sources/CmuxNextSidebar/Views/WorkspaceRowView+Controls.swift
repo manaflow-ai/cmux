@@ -5,13 +5,6 @@ import CmuxNextDesign
 // (`RowControlSlot`, REOPEN-F7). Each maker reads the row's state for that control, so the row stays its one owner:
 // the press calls the row's callback, the icon and label come from the row's model, the frame from its last layout.
 extension WorkspaceRowView {
-    /// The control, made on this read when it was not (tests; the row's own code uses the slots).
-    var closeButton: SidebarIconButton { closeSlot.control(in: self) }
-    var moreButton: OverflowButton { moreSlot.control(in: self) }
-    var pinButton: SidebarIconButton { pinSlot.control(in: self) }
-    var treeFoldButton: SidebarIconButton { treeFoldSlot.control(in: self) }
-    var audioButton: SidebarIconButton { audioSlot.control(in: self) }
-
     /// Where the row's last layout put the menu button, made or not: the menu anchors there (`SidebarRowMenu`).
     var moreFrame: NSRect { moreSlot.frame }
 
