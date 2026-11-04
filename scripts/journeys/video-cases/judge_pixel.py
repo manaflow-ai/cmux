@@ -39,7 +39,11 @@ A found (or cut) side gives:
   lag        k: the content edge shows the pane edge of k samples before the shown one (the first k of 0..12, -1..-3
              within 1 px)
 and per pane and line, shell inside the pane: exact shell pixels inside the pane's rect (beyond the rest count).
-Dividers: the middle of the gap between the content edges of the two fixture panes beside each trace divider.
+Dividers: the middle of the gap between the content edges of the two fixture panes beside each trace divider, read
+only in frames where both content edges are on their pane edges (less than 1 px off; a late edge is off). In a frame
+where one is off, the derived middle moves with that edge while the divider can be on time, and the edge's own row
+carries the defect: the divider is not read there (information: divider not read, with its frames). Its settle counts
+only the frames that read it: not those, nor the frames where a content edge beside it is not found or under the cue.
 Tab strips (the note's strip rows): the strip's two edges against the pane's edges, each read inside the pane's own
 rect of the shown sample and 48 pt around it (a strip that lags its pane): a neighbour's strip that touches it with no
 shell between is never this strip (that side's edge is the pane's own edge); the selected tab's pill against the pane's
@@ -562,10 +566,12 @@ def motions_of(series):
     return out
 
 
-def judge_track(film, shown, measured, series, rest_frames, spring, reduce):
+def judge_track(film, shown, measured, series, rest_frames, spring, reduce, settle_reads_only=False):
     """measured: per frame a position (device px) or None; series: per sample the trace's position or None.
     Returns {rest_offset, per_frame: {f: {dev, lag}}, motions: [...], stats}: dev is measured - rest offset - the shown
-    sample's position; lag the samples back that match within TOL_PX."""
+    sample's position; lag the samples back that match within TOL_PX. A settle counts a frame with no position as not
+    landed (content that does not show has not landed), or, with SETTLE_READS_ONLY (a track derived from other tracks:
+    the divider), not at all: it counts from the first frame that shows the landed sample and has a position."""
     pool = [f for f in rest_frames if measured[f] is not None and series[shown[f]] is not None]
     if not pool:
         pool = [f for f in range(film.n) if measured[f] is not None and shown[f] is not None and series[shown[f]] is not None][-REST_FALLBACK:]
@@ -590,11 +596,14 @@ def judge_track(film, shown, measured, series, rest_frames, spring, reduce):
         mv = {"samples": [a, landed], "travel_px": round(final - before, 2) if before is not None else None}
         driven = film.input_driven(film.sample_t[a] - film.period, film.sample_t[landed])
         mv["input_driven"] = driven
-        first_landed = next((f for f in range(film.n) if shown[f] is not None and shown[f] >= landed), None)
+        first_landed = next((f for f in range(film.n) if shown[f] is not None and shown[f] >= landed
+                             and not (settle_reads_only and measured[f] is None)), None)
         settle = None
         if first_landed is not None:
             ok_from = None
             for f in range(first_landed, film.n):
+                if settle_reads_only and measured[f] is None:
+                    continue
                 on = measured[f] is not None and abs(measured[f] - offset - final) <= TOL_PX
                 ok_from = (f if ok_from is None else ok_from) if on else None
             settle = (ok_from - first_landed) if ok_from is not None else None
@@ -820,6 +829,7 @@ def judge(base, all_frames=False):
     rest_frames = [f for f in range(film.n) if shown[f] is not None and (first is None or shown[f] < first - 1)]
     report["rest_frames"] = len(rest_frames)
     summary, frames_out = {}, {}
+    edge_off = {}  # (pid, line, axis, side) -> the frames where that content edge is 1 px or more off its pane edge
 
     def add_frame(f, entry):
         if entry.get("problems") or all_frames:
@@ -838,6 +848,8 @@ def judge(base, all_frames=False):
             continue
         view = [m["view_edge"] if judged(m) else None for m in per]
         track = judge_track(film, shown, view, series[(pid, axis, side)], rest_frames, spring, reduce)
+        # A lag is off too: lag 0 (within TOL_PX of the shown sample) is the first one tried.
+        edge_off[key] = {f for f, t in track["per_frame"].items() if abs(t["dev"]) >= TOL_PX}
         pool = [f for f in rest_frames if per[f] is not None and per[f].get("status") == "found"] or \
             [f for f in range(film.n) if per[f] is not None and per[f].get("status") == "found"][-REST_FALLBACK:]
         rings_rest = [float(np.median([per[f]["rings"][r] for f in pool])) if pool else None for r in range(3)]
@@ -935,6 +947,7 @@ def judge(base, all_frames=False):
                 continue
             mid = [None] * film.n
             pair = None
+            not_read = []  # frames where a content edge beside the divider is off its pane edge: its own row carries it
             for f in range(film.n):
                 k = shown[f]
                 if k is None or rects[k] is None:
@@ -962,11 +975,17 @@ def judge(base, all_frames=False):
                 ma, mb = (a[f] if a else None), (b[f] if b else None)
                 if not judged(ma) or not judged(mb):
                     continue
-                mid[f] = (ma["view_edge"] + mb["view_edge"]) / 2
                 pair = (film.panes[left]["label"], film.panes[right]["label"])
-            if not any(v is not None for v in mid):
+                if f in edge_off.get((left, name, axis, "hi"), ()) or f in edge_off.get((right, name, axis, "lo"), ()):
+                    not_read.append(f)
+                    add_frame(f, {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": k, "line": name,
+                                  "divider": did, "label": f"divider {pair[0]}|{pair[1]}", "side": "mid",
+                                  "not_read": "a content edge beside the divider is off its pane edge"})
+                    continue
+                mid[f] = (ma["view_edge"] + mb["view_edge"]) / 2
+            if pair is None:  # no frame shows both content edges beside the divider on this line
                 continue
-            track = judge_track(film, shown, mid, centres, rest_frames, spring, reduce)
+            track = judge_track(film, shown, mid, centres, rest_frames, spring, reduce, settle_reads_only=True)
             for f, t in sorted(track["per_frame"].items()):
                 entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name,
                          "divider": did, "label": f"divider {pair[0]}|{pair[1]}", "side": "mid", "dev": t["dev"], "lag": t["lag"]}
@@ -979,7 +998,8 @@ def judge(base, all_frames=False):
                     entry["problems"] = problems
                 add_frame(f, entry)
             summary[f"divider:{did}:{name}"] = row_summary("divider", did, f"divider {pair[0]}|{pair[1]}", "divider", name, "mid", track,
-                                                           divider=did)
+                                                           divider=did, not_read_frames=len(not_read),
+                                                           not_read_ranges=ranges(not_read))
     judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
     judge_page_windows(film, shown, measured, summary, add_frame)
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
@@ -1165,6 +1185,10 @@ def findings_of(report):
             out.append({"check": "lag", "where": where, "detail": f"up to {s['max_lag_frames']} frame(s) behind the trace"})
         if s["not_found_frames"]:
             info.append({"check": "not found", "where": where, "detail": f"{s['not_found_frames']} frame(s) (frames {s['not_found_ranges']})"})
+        if s.get("not_read_frames"):
+            info.append({"check": "divider not read", "where": where,
+                         "detail": f"{s['not_read_frames']} frame(s): a content edge beside it is off its pane edge, and "
+                                   f"that edge's row carries the defect (frames {s['not_read_ranges']})"})
         if s["cue_frames"]:
             info.append({"check": "divider cue", "where": where,
                          "detail": f"{s['cue_frames']} frame(s): the drag cue over the rings (frames {s['cue_ranges']})"})
