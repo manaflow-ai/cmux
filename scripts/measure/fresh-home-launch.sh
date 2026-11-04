@@ -41,6 +41,10 @@ stop_load() {
   wait 2>/dev/null; load_pgids=()
   [ -n "$load_dir" ] && rm -rf "$load_dir"; load_dir=""
 }
+# A cancelled or timed-out step gets SIGTERM, which skips an EXIT trap unless the signal is trapped:
+# exit on it so the EXIT traps below stop the load (its workers are in their own process groups, so
+# the step's own group signal never reaches them) and remove the worktree.
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 out="$here/.build/fresh-home-launch"
 rm -rf "$out" && mkdir -p "$out"
 src="$here"
