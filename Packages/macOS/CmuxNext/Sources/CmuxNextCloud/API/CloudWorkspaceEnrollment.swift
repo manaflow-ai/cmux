@@ -1,12 +1,13 @@
 public import Foundation
 
-/// Owner attachments to the same workspace share provisioning and reconnect. The run lasts only
-/// until the network operation and fresh daemon handshake finish; failed runs may be retried.
+/// Owner attachments to the same machine share provisioning and reconnect, whichever workspace
+/// their tabs are in: the machine's guest serves one enrollment scope, so a second concurrent
+/// enrollment of another workspace would replace the first's. The run lasts only until the
+/// network operation and fresh daemon handshake finish; failed runs may be retried.
 @MainActor
 public final class CloudWorkspaceEnrollment {
     private struct Key: Hashable {
         let scope: CloudWorkspaceBindings.Scope
-        let workspace: String
         let machine: String
     }
     private var runs: [Key: Task<Void, any Error>] = [:]
@@ -15,10 +16,10 @@ public final class CloudWorkspaceEnrollment {
 
     public init() {}
 
-    public func run(scope: CloudWorkspaceBindings.Scope, workspace: String, machine: String,
+    public func run(scope: CloudWorkspaceBindings.Scope, machine: String,
                     action: @escaping @MainActor () async throws -> Void) async throws {
         try Task.checkCancellation()
-        let key = Key(scope: scope, workspace: workspace, machine: machine)
+        let key = Key(scope: scope, machine: machine)
         if let running = runs[key] {
             joined()
             try await running.value

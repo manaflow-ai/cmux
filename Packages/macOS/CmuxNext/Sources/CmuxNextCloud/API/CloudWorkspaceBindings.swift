@@ -31,6 +31,13 @@ public final class CloudWorkspaceBindings {
         try entries().filter { $0.scope == scope }
     }
 
+    /// The workspace every chat on `machine` captures and rewinds under. A VM snapshot covers the
+    /// whole machine and its guest serves one startup workspace scope, so the machine's verified
+    /// binding wins over the tab's own workspace (`proposed`), which only a first enrollment uses.
+    public func enrollmentWorkspace(machine: String, scope: Scope, proposed: String) throws -> String {
+        try bindings(in: scope).first { $0.machine == machine }?.workspace ?? proposed
+    }
+
     /// Call only after the owner API verified this exact workspace and logical machine.
     @discardableResult
     public func remember(workspace: String, machine: String, scope: Scope, target: String? = nil) throws -> Bool {

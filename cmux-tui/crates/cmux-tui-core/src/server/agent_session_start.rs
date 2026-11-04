@@ -492,10 +492,7 @@ pub(in crate::server) fn restart_with(
 /// An already running acpmux may predate the host's immutable turn scope. Give the
 /// installed binary one preserving handoff, under the same lock as daemon starts.
 /// Recheck inside the lock so concurrent attachments never restart a ready daemon.
-pub(super) fn reconcile_cloud_scope(
-    mux: &Mux,
-    socket: &std::path::Path,
-) -> Result<(), Refusal> {
+pub(super) fn reconcile_cloud_scope(mux: &Mux, socket: &std::path::Path) -> Result<(), Refusal> {
     let Some(handoff) = mux.acpmux_handoff() else { return Ok(()) };
     let sessions = &mux.control_clients.agent_sessions;
     let _one_start = sessions.starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());

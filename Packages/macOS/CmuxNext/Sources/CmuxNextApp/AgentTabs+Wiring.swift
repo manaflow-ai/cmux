@@ -419,7 +419,9 @@ extension AgentTabStore {
                 }
             }
             host.ownerCloud = RemoteAcpmuxWire.ownerCloud(links?.ownerLink, served: daemon.supports(RemoteAcpmuxWire.ownerCloudCapability))
-            if host.cloudMachineID != nil, services.cloud.configuration.linkSource == .appServer {
+            // The session's own transport decides, not the build's link setting: a legacy-link
+            // session (tests, a machine opened before the switch) keeps its plain prompt path.
+            if host.cloudMachineID != nil, Self.capturesCloudTurns(services.machines.session(daemon.machineID)) {
                 host.cloudTurn = Self.turnForwarder(tab: key, services: services)
                 host.prepareCloudTurns = { [weak services] in
                     guard let services else { throw CancellationError() }
@@ -571,6 +573,11 @@ extension AgentTabStore {
 }
 
 extension AgentTabStore {
+    /// Only a session on the app link captures turns: enrollment and the owner ticket need it.
+    @MainActor static func capturesCloudTurns(_ machine: CloudMachineSession?) -> Bool {
+        machine?.appLink != nil
+    }
+
     /// Enrolls the tab's workspace machine. A dropped link has no owner answer: it reconnects
     /// first (as the attachment's own reconnect would), and the fresh link's owner is checked
     /// before enrollment.
@@ -608,8 +615,9 @@ extension AgentTabStore {
                       let (tab, pane) = services.locateTabOnAnyMachine(key),
                       let daemon = try? services.machines.agentDaemon(forTab: tab),
                       let machine = services.machines.session(daemon.machineID), let link = machine.appLink,
-                      let workspace = daemon.store.workspace(containing: pane.handle), let resource = workspace.resourceID else { return nil }
-                return (resource.rawValue, machine.machineID, link)
+                      let workspace = daemon.store.workspace(containing: pane.handle), let resource = workspace.resourceID,
+                      let enrolled = try? services.cloud.turnWorkspace(machine: machine.machineID, proposed: resource.rawValue) else { return nil }
+                return (enrolled, machine.machineID, link)
             }
             guard let (workspace, machine, link) = scope, await link.ownerLink != nil else {
                 throw CloudTurnOwnerClient.Failure.scope

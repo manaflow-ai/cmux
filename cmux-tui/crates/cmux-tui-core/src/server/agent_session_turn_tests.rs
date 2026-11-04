@@ -310,3 +310,54 @@ fn failed_scope_handoff_never_attaches_or_restarts_repeatedly() {
     fake.no_frame();
     assert_eq!(calls.load(Ordering::Acquire), 1);
 }
+
+#[test]
+fn pending_capture_fences_every_other_prompt_on_the_machine() {
+    let fake = FakeAcpmux::start("turn-epoch");
+    let mux = mux_with(&fake, "turn-epoch");
+    configure_turns(&mux);
+    let first = agent_tab(&mux, Some(SESSION));
+    let second = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "turn-epoch");
+    assert_eq!(attach(&mut owner, first)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
+    let _ = fake.frame();
+    let mut other = Client::connect(&mux, "turn-epoch");
+    assert_eq!(attach(&mut other, second)["ok"], true);
+    assert_eq!(fake.frame()["method"], "initialize");
+    let _ = fake.frame();
+    let plain = |surface: SurfaceId, id: &str| json!({"cmd":"agent-session-prompt","surface":surface,"prompt_id":id,"text":"hello"});
+
+    // A prepared turn holds the machine: neither its own chat nor another chat on the same
+    // daemon dispatches an uncaptured prompt, and no second capture starts beside it.
+    assert_eq!(owner.request(turn_command("agent-session-turn-prepare", first))["ok"], true);
+    assert_eq!(fake.frame()["method"], "agent-session-turn-prepare");
+    assert_code(&owner.request(plain(first, "p2")), "agent_session.capture_pending");
+    assert_code(&other.request(plain(second, "p3")), "agent_session.capture_pending");
+    fake.no_frame();
+    assert_code(
+        &other.request(turn_command("agent-session-turn-prepare", second)),
+        "agent_session.capture_pending",
+    );
+    assert_eq!(fake.frame()["method"], "agent-session-turn-prepare");
+    assert_eq!(fake.frame()["method"], "agent-session-turn-abandon");
+
+    // The captured turn's fenced prompt is dispatched first, then the machine is free.
+    assert_eq!(
+        owner.request(json!({"cmd":"agent-session-prompt","surface":first,
+        "prompt_id":"p1","text":"hello","cloud_turn":turn_capability()}))["ok"],
+        true
+    );
+    assert_eq!(fake.frame()["params"]["cloud_turn"], turn_capability());
+    assert_eq!(other.request(plain(second, "p3"))["ok"], true);
+    assert_eq!(fake.frame()["method"], "session/prompt");
+
+    // Abandonment frees the machine as well.
+    assert_eq!(owner.request(turn_command("agent-session-turn-prepare", first))["ok"], true);
+    assert_eq!(fake.frame()["method"], "agent-session-turn-prepare");
+    assert_code(&other.request(plain(second, "p4")), "agent_session.capture_pending");
+    assert_eq!(owner.request(turn_command("agent-session-turn-abandon", first))["ok"], true);
+    assert_eq!(fake.frame()["method"], "agent-session-turn-abandon");
+    assert_eq!(other.request(plain(second, "p4"))["ok"], true);
+    assert_eq!(fake.frame()["method"], "session/prompt");
+}

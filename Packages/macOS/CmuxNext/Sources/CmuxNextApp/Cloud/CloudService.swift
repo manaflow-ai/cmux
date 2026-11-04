@@ -586,12 +586,22 @@ final class CloudService {
 
     /// Enroll before an agent attachment negotiates turn support: the guest learns the workspace
     /// scope at startup. The owner endpoint reuses this carrier and performs no machine allocation.
+    /// `workspace` is the tab's own; a machine already bound keeps its one machine-wide workspace
+    /// (``CloudWorkspaceBindings/enrollmentWorkspace(machine:scope:proposed:)``), and concurrent
+    /// tabs in different workspaces join one enrollment of that machine.
     func enrollTurnWorkspace(workspace: String, machine: CloudMachineSession) async throws {
         guard let scope = workspaceBindingScope else { throw CancellationError() }
-        try await workspaceEnrollment.run(scope: scope, workspace: workspace, machine: machine.machineID) { [self] in
-            try await provisionTurnWorkspace(workspace: workspace, machine: machine, scope: scope)
+        try await workspaceEnrollment.run(scope: scope, machine: machine.machineID) { [self] in
+            let enrolled = try workspaceBindings.enrollmentWorkspace(machine: machine.machineID, scope: scope, proposed: workspace)
+            try await provisionTurnWorkspace(workspace: enrolled, machine: machine, scope: scope)
         }
         guard workspaceBindingScope == scope else { throw CancellationError() }
+    }
+
+    /// The workspace a send on `machine` captures under: the machine's enrolled one when bound.
+    func turnWorkspace(machine: String, proposed: String) throws -> String {
+        guard let scope = workspaceBindingScope else { throw CancellationError() }
+        return try workspaceBindings.enrollmentWorkspace(machine: machine, scope: scope, proposed: proposed)
     }
 
     private func provisionTurnWorkspace(workspace: String, machine: CloudMachineSession, scope: CloudWorkspaceBindings.Scope) async throws {

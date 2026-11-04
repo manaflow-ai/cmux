@@ -1,6 +1,7 @@
 //! Owner-only turn preparation on a configured new-platform workspace machine.
 use super::*;
 use serde::Serialize;
+use std::time::Instant;
 
 pub const CAPABILITY: &str = "agent-session-turn-rewind-v1";
 const DEFAULT_PREPARE_WINDOW_MS: u64 = 120_000;
@@ -181,12 +182,125 @@ pub(super) fn prepare(attachment: &Attachment, request: Prepare) -> Result<Value
         .ok_or(Refusal::BadRequest)?;
     // The daemon expires this exact reservation at the same deadline. The bounded worker
     // releases on deadline or attachment close; cancel remains responsive on another worker.
-    attachment.link.call("agent-session-turn-prepare", json!({
+    let started = Instant::now();
+    let prepared = attachment.link.call("agent-session-turn-prepare", json!({
         "sessionId": attachment.session, "prompt_id": request.prompt_id,
         "workspace": request.workspace, "machine": request.machine, "generation": request.generation,
         "attempt_id": request.attempt_id, "authorization": request.authorization,
         "deadline_ms": deadline,
-    }), Duration::from_millis(remaining)).map_err(Refusal::of)
+    }), Duration::from_millis(remaining)).map_err(Refusal::of)?;
+    // An accepted replay was dispatched already: no capture follows, so it fences nothing.
+    if prepared.get("accepted").is_some_and(|accepted| !accepted.is_null()) {
+        return Ok(prepared);
+    }
+    let expires = started + Duration::from_millis(remaining);
+    if acquire(attachment, &request.prompt_id, expires) {
+        return Ok(prepared);
+    }
+    // Another chat's capture holds the machine. Free this reservation so its slot does not
+    // wait out the deadline; the client sees a typed refusal and may prepare again.
+    let _ = attachment.link.call("agent-session-turn-abandon", json!({
+        "sessionId": attachment.session, "prompt_id": request.prompt_id,
+        "workspace": request.workspace, "machine": request.machine, "generation": request.generation,
+        "attempt_id": request.attempt_id, "authorization": request.authorization,
+    }), CALL_TIMEOUT);
+    Err(Refusal::CapturePending)
+}
+
+/// One prepared turn whose external machine capture has not been dispatched yet. A VM snapshot
+/// covers the whole machine, so one epoch serves every session on this daemon: until the
+/// prepared turn's fenced prompt is recorded (or it is abandoned, expires or its attachment
+/// ends), every other prompt here is refused with `agent_session.capture_pending`.
+pub(crate) struct CaptureEpoch {
+    client: u64,
+    surface: SurfaceId,
+    session: String,
+    prompt: String,
+    expires: Instant,
+}
+
+impl CaptureEpoch {
+    fn held_by(&self, attachment: &Attachment, prompt: &str) -> bool {
+        self.client == attachment.client
+            && self.surface == attachment.surface
+            && self.session == attachment.session
+            && self.prompt == prompt
+    }
+}
+
+fn epoch_of(mux: &Mux) -> std::sync::MutexGuard<'_, Option<CaptureEpoch>> {
+    let mut epoch =
+        mux.control_clients.agent_sessions.capture.lock().unwrap_or_else(|e| e.into_inner());
+    if epoch.as_ref().is_some_and(|held| held.expires <= Instant::now()) {
+        *epoch = None;
+    }
+    epoch
+}
+
+/// Takes the machine's epoch for this prepared turn; false while another turn holds it.
+fn acquire(attachment: &Attachment, prompt: &str, expires: Instant) -> bool {
+    let Some(mux) = attachment.mux.upgrade() else { return false };
+    let mut epoch = epoch_of(&mux);
+    match epoch.as_ref() {
+        Some(held) if !held.held_by(attachment, prompt) => false,
+        _ => {
+            *epoch = Some(CaptureEpoch {
+                client: attachment.client,
+                surface: attachment.surface,
+                session: attachment.session.clone(),
+                prompt: prompt.to_owned(),
+                expires,
+            });
+            true
+        }
+    }
+}
+
+fn release(attachment: &Attachment, prompt: Option<&str>) {
+    let Some(mux) = attachment.mux.upgrade() else { return };
+    let mut epoch = epoch_of(&mux);
+    if epoch.as_ref().is_some_and(|held| match prompt {
+        Some(prompt) => held.held_by(attachment, prompt),
+        None => held.client == attachment.client && held.surface == attachment.surface,
+    }) {
+        *epoch = None;
+    }
+}
+
+/// An ended attachment can never send its prepared turn.
+pub(super) fn release_attachment(attachment: &Attachment) {
+    release(attachment, None);
+}
+
+/// Frees the epoch once the fenced prompt it admitted was handed to acpmux (or refused).
+pub(super) struct Admission<'a> {
+    attachment: &'a Attachment,
+    prompt: String,
+}
+
+impl Drop for Admission<'_> {
+    fn drop(&mut self) {
+        release(self.attachment, Some(&self.prompt));
+    }
+}
+
+/// Prompt admission on a configured machine. With no pending capture every prompt goes as
+/// before. While one is pending, only that turn's own fenced prompt goes, and it holds the
+/// epoch until acpmux recorded it, so no prompt is dispatched ahead of the captured turn.
+pub(super) fn admit<'a>(
+    attachment: &'a Attachment,
+    prompt: &str,
+    fenced: bool,
+) -> Result<Option<Admission<'a>>, Refusal> {
+    let Some(mux) = attachment.mux.upgrade() else { return Ok(None) };
+    let epoch = epoch_of(&mux);
+    match epoch.as_ref() {
+        None => Ok(None),
+        Some(held) if fenced && held.held_by(attachment, prompt) => {
+            Ok(Some(Admission { attachment, prompt: prompt.to_owned() }))
+        }
+        Some(_) => Err(Refusal::CapturePending),
+    }
 }
 
 pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value, Refusal> {
@@ -205,7 +319,7 @@ pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value
     {
         return Err(Refusal::BadRequest);
     }
-    attachment
+    let abandoned = attachment
         .link
         .call(
             "agent-session-turn-abandon",
@@ -216,7 +330,10 @@ pub(super) fn abandon(attachment: &Attachment, request: Abandon) -> Result<Value
             }),
             CALL_TIMEOUT,
         )
-        .map_err(Refusal::of)
+        .map_err(Refusal::of);
+    // Abandoned, or its reservation is unknown to acpmux: either way no capture follows.
+    release(attachment, Some(&request.prompt_id));
+    abandoned
 }
 
 pub(super) fn prompt_envelope(

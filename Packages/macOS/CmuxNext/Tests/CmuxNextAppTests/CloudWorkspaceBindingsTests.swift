@@ -25,6 +25,17 @@ import Testing
         """.utf8)
     }
 
+    @Test func everyWorkspaceOnABoundMachineUsesItsOneEnrollment() throws {
+        let store = CloudWorkspaceBindings()
+        #expect(try store.enrollmentWorkspace(machine: logical, scope: scope, proposed: "ws_one") == "ws_one")
+        try store.remember(workspace: "ws_one", machine: logical, scope: scope)
+        #expect(try store.enrollmentWorkspace(machine: logical, scope: scope, proposed: "ws_two") == "ws_one")
+        // Another machine, or another account, enrolls its own.
+        #expect(try store.enrollmentWorkspace(machine: replacement, scope: scope, proposed: "ws_two") == "ws_two")
+        let other = CloudWorkspaceBindings.Scope(user: "user_two", team: nil, origin: scope.origin)
+        #expect(try store.enrollmentWorkspace(machine: logical, scope: other, proposed: "ws_two") == "ws_two")
+    }
+
     @Test func restartKeepsBindingAndAccountIsolation() throws {
         let name = "CloudWorkspaceBindingsTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: name))

@@ -106,6 +106,9 @@ const THREAD_STACK_BYTES: usize = 256 * 1024;
 #[derive(Default)]
 pub(crate) struct AgentSessions {
     cloud_turn: RwLock<Option<CloudTurnConfig>>,
+    /// The machine-wide capture admission epoch (agent_session_turn.rs): while one prepared
+    /// turn's capture is pending, no other prompt on this machine is dispatched.
+    capture: Mutex<Option<turn::CaptureEpoch>>,
     cloud_scope_handoff_attempted: AtomicBool,
     socket: RwLock<inventory_socket::SocketState>,
     #[cfg(test)]
@@ -360,6 +363,8 @@ impl Attachment {
             return;
         }
         self.link.close();
+        // A capture this attachment held can no longer dispatch: free the machine.
+        turn::release_attachment(self);
         if let Some(reason) = reason {
             // The stream may be full; the close notice is a control message.
             self.outbound.close();
@@ -676,6 +681,8 @@ pub(crate) enum Refusal {
     ScopeNotGranted,
     /// A link guest whose share expired or was revoked, or who was removed.
     ShareEnded,
+    /// Another prepared Cloud turn is capturing this machine; send again once it starts.
+    CapturePending,
 }
 
 impl Refusal {
@@ -705,6 +712,7 @@ impl Refusal {
             Self::NotShared => "agent_session.not_shared",
             Self::ScopeNotGranted => "agent_session.scope_not_granted",
             Self::ShareEnded => "agent_session.share_ended",
+            Self::CapturePending => "agent_session.capture_pending",
         }
     }
 
@@ -744,6 +752,9 @@ impl Refusal {
             Self::NotShared => "the surface does not show the chat that was shared",
             Self::ScopeNotGranted => "a link guest only watches and writes to the shared chat",
             Self::ShareEnded => "the share ended, or the owner removed this guest",
+            Self::CapturePending => {
+                "a Cloud turn is capturing this machine; send again once it has started"
+            }
         }
     }
 
@@ -1285,8 +1296,12 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, cloud_turn, .. }) => {
+        AgentSessionCommand::Prompt(PromptParams {
+            prompt_id, text, content, cloud_turn, ..
+        }) => {
             let envelope = turn::prompt_envelope(attachment, cloud_turn)?;
+            // Held until acpmux recorded the prompt, so the prepared turn is queued first.
+            let _admission = turn::admit(attachment, &prompt_id, envelope.is_some())?;
             prompt(attachment, prompt_id, text, content, envelope)
         }
         AgentSessionCommand::PrepareTurn(params) => turn::prepare(attachment, params),
