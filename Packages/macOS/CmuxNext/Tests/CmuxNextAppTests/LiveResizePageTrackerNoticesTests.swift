@@ -74,9 +74,8 @@ struct LiveResizePageTrackerNoticesTests {
                 window.layoutIfNeeded()
                 let final = window.convertToScreen(host.convert(host.bounds, to: nil))
                 try #require(final != before, "step \(step): the page host did not change; the test proves nothing")
-                let stale = tracker.notices.filter { $0.hostOnScreen != final }
-                #expect(stale.isEmpty, "step \(step): \(stale.count) of \(tracker.notices.count) notices showed the tracker an in-between host: "
-                    + "\(stale.map(\.hostOnScreen)) (final \(final))")
+                let stale = tracker.notices.filter { $0.hostOnScreen != final }.map(\.hostOnScreen), count = tracker.notices.count
+                #expect(stale.isEmpty, "step \(step): \(stale.count) of \(count) notices showed the tracker an in-between host: \(stale) (final \(final))")
                 let views = Dictionary(grouping: tracker.notices, by: \.view).mapValues(\.count)
                 #expect(views.values.allSatisfy { $0 == 1 }, "step \(step): a view posted more than one notice: \(views.values.sorted())")
                 #expect(!tracker.notices.isEmpty, "step \(step): the tracker heard nothing of the resize")
