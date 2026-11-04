@@ -1441,8 +1441,6 @@ CmuxNextApp	enum	CloudAccessCard	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/C
 CmuxNextApp	struct	CloudAccessAsk	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCard.swift	Ask card model with answer rules
 CmuxNextApp	class	CloudAccessRevokes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessRevokes.swift	from class CloudAccessRevokes:10: Revoke retry with backoff (timing policy)
 CmuxNextApp	enum	CloudAccessStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessStrings.swift	Localized string accessors
-CmuxNextApp	class	ResultSlot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppLinks+Cancel.swift	from extension CloudAppLinks:4: Cloud app link cancel rules
-CmuxNextApp	extension	CloudAppLinks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppLinks+Cancel.swift	Cloud app link cancel rules
 CmuxNextApp	enum	CloudAppLinks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppLinks.swift	Cloud app server link source: apps-run ops, link state machine
 CmuxNextApp	extension	CloudAppLinks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppOps.swift	from struct CloudAppOpFailure:10: Cloud app op failure mapping and policy
 CmuxNextApp	extension	CloudAppLinks	1	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppOps.swift	from struct CloudAppOpFailure:10: Cloud app op failure mapping and policy
@@ -4837,6 +4835,11 @@ CmuxNextCloud	actor	MacInstallIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextCloud	enum	OwnerOnlyFile	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	from struct MacInstallStore:16: Keychain/Secure Enclave install key blob and 0600 record store
 CmuxNextCloud	struct	MacInstallStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Identity/MacInstallStore.swift	Keychain/Secure Enclave install key blob and 0600 record store
 CmuxNextCloud	struct	CloudConnectOpResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudConnectOpResolver.swift	cloud.machine.connect op resolution and ownership rule
+CmuxNextCloud	struct	CloudAppRun	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun.swift	Cloud app op apps-run request, wire origin, refusal mapping (from the App's CloudAppLinks)
+CmuxNextCloud	extension	CloudAppRun	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun+Cancel.swift	Cloud app link cancel rules (from the App's CloudAppLinks)
+CmuxNextCloud	class	ResultSlot	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudAppRun+Cancel.swift	from extension CloudAppRun:3: Cloud app link cancel rules
+CmuxNextCloud	extension	CloudLinkChange	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange+Event.swift	link change of a daemon event (from the App's CloudAppLinks)
+CmuxNextCloud	extension	DaemonIdentity	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/DaemonIdentity+CloudLink.swift	post-handshake link socket check (from the App's CloudAppLinks)
 CmuxNextCloud	struct	CloudLinkChange	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkChange.swift	link changed event shape copy
 CmuxNextCloud	enum	CloudLinkError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkError.swift	link error enum with localized text
 CmuxNextCloud	struct	CloudAppOpError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Link/CloudLinkError.swift	from enum CloudLinkError:6: link error enum with localized text
