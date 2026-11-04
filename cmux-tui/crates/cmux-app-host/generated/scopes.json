@@ -1821,6 +1821,10 @@
       "scope": "title:write",
       "class": "mutation"
     },
+    "toast.show": {
+      "scope": "none",
+      "class": "mutation"
+    },
     "usage_app.cycle_variant": {
       "scope": "usage_app:write",
       "class": "mutation"
