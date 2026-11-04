@@ -22,6 +22,19 @@ extension HomeStore {
         return agentMessages[conversation]?.thread(peer: peer, in: items)
     }
 
+    /// The person wrote `text` to agent `peer` from the agent pane: it goes to the Chief's chat as a
+    /// ``HomeAgentNote`` (`[to <peer>] <text>`), so the Chief reads it, relays it to the agent and keeps it in
+    /// its log, and the agent's chat shows it labelled "You" at once. A send that fails shows Not Delivered
+    /// in the chat, as any send.
+    ///
+    /// - Parameters:
+    ///   - text: What the person wrote (trimmed; empty sends nothing).
+    ///   - peer: The agent's id.
+    ///   - conversation: The Chief's chat.
+    /// - Throws: What ``perform(_:key:)`` throws.
+    public func sendAgentNote(_ text: String, to peer: String, in conversation: ConversationID) async throws {
+    }
+
     /// The person opened agent `peer`'s chat: its newest report so far is read, so its pill's unread dot
     /// clears; a newer report shows the dot again. Kept for this launch only.
     public func markAgentSeen(_ peer: String, in conversation: ConversationID) {

@@ -57,6 +57,10 @@ final class HomeAgentPane {
         if let selected { threads.markAgentSeen(selected, in: conversation) }
     }
 
+    /// The person sent `text` to agent `peer` from its tab's composer.
+    func send(_ text: String, to peer: String) {
+    }
+
     /// What agent `peer`'s tab shows now; nil when no run has a message with it.
     func content(_ peer: String, now: Date) -> HomeAgentChatContent? {
         threads.agentThread(peer, in: conversation).map { HomeAgentChatContent($0, now: now) }
