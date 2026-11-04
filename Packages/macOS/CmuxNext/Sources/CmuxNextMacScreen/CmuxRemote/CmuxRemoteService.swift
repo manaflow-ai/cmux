@@ -69,10 +69,13 @@ public final class CmuxRemoteService {
 
     /// Applies the current switches once when none were sent yet; whether the daemon runs cmux Remote.
     public func waitAvailable() async -> Bool {
-        if lastConfig == nil, let config = currentConfig?() {
+        // Before the settings load (`follow` sets it), cmux Remote is not in use.
+        guard let config = currentConfig?() else { return false }
+        if lastConfig == nil {
             await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
         }
-        return available
+        // `remote.enabled` off sends both switches off: the app's own helper and host serve.
+        return available && (config.computerUse || config.screenSharing)
     }
 
     /// One host request over the daemon (status, refresh, request, restart, screen.*).

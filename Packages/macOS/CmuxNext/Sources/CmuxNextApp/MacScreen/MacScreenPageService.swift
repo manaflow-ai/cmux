@@ -224,12 +224,12 @@ extension AppServices {
             // task-owner: one consent line to the worker; it serves with the app quit too.
             Task { await devices.consent(enabled: on, view: view, full: full) }
         }
-        cmuxRemote.follow(settings) { [weak self, weak settings] in
-            guard let self, let settings else { return (false, false, true) }
+        cmuxRemote.follow(settings) { [weak self, weak settings] enabled in
+            guard enabled, let self, let settings else { return (false, false, true) }
             let computerUse = settings.snapshot.computerUse
             _ = daemon.identity?.capabilities.count // a reconnected daemon sends the switches again
             return (computerUse.enabled && computerUse.driver == .upstream && !registry.disabledFeatures.contains(.computerUse),
-                    cloud.isSignedIn, settings.snapshot.remote.headless)
+                    cloud.isSignedIn, !settings.snapshot.remote.endSharingOnQuit)
         }
     }
 
