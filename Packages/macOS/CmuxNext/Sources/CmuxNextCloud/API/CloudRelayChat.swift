@@ -19,8 +19,9 @@ public nonisolated struct CloudRelayChat: Sendable {
 
     /// `session` must refuse redirects (the default does): one would carry the bearer and the prompt elsewhere.
     public init(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String, teamID: @escaping CloudAPIClient.TeamID,
-                session: URLSession = CloudOwnerAPIClient.transport) {
-        (self.baseURL, self.accessToken, self.teamID, self.session) = (baseURL, accessToken, teamID, session)
+                session: URLSession? = nil) {
+        (self.baseURL, self.accessToken, self.teamID) = (baseURL, accessToken, teamID)
+        self.session = session ?? CloudOwnerAPIClient.transport
     }
 
     /// What one chat's turn came to.
