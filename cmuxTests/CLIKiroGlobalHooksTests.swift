@@ -342,6 +342,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(try Data(contentsOf: sandbox.defaultAgentFile), agentBytes)
     }
 
+    func testKiroDefaultInstallSkipsBothInstalledNoteAfterPartialGlobalUninstall() throws {
+        let sandbox = try makeKiroGlobalHookSandbox()
+        let env = sandbox.environment()
+        XCTAssertEqual(try runKiroHooksCLI(["hooks", "kiro", "install", "--yes"], environment: env).status, 0)
+        XCTAssertEqual(try runKiroHooksCLI(["hooks", "kiro", "install", "--global", "--yes"], environment: env).status, 0)
+
+        // A user entry in cmux's file makes uninstall keep the file with only
+        // the disabled ownership marker, which runs no cmux hook.
+        var entries = try kiroGlobalHookEntries(at: sandbox.defaultHooksFile)
+        entries.append(["name": "user-hook", "trigger": "Stop", "action": ["type": "command", "command": "true"]])
+        try JSONSerialization.data(withJSONObject: ["version": "v1", "hooks": entries])
+            .write(to: sandbox.defaultHooksFile)
+        let partial = try runKiroHooksCLI(["hooks", "kiro", "uninstall", "--global"], environment: env)
+        XCTAssertEqual(partial.status, 0, partial.stderr)
+        XCTAssertEqual(
+            try kiroGlobalHookEntries(at: sandbox.defaultHooksFile).map { $0["name"] as? String },
+            ["user-hook", "cmux-ownership"]
+        )
+
+        let reinstall = try runKiroHooksCLI(["hooks", "kiro", "install", "--yes"], environment: env)
+        XCTAssertEqual(reinstall.status, 0, reinstall.stderr)
+        XCTAssertFalse(reinstall.stdout.contains("twice"), reinstall.stdout)
+    }
+
     func testGlobalFlagIsRejectedForOtherAgents() throws {
         let sandbox = try makeKiroGlobalHookSandbox()
         let env = sandbox.environment()
