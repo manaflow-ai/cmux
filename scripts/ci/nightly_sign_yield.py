@@ -22,7 +22,7 @@ the older builds that yielded to it are not signed, and the next tip builds as u
 
 Scope: attempt 1 of a nightly-next push run on the nightly-next track, unless
 NIGHTLY_NEXT_SIGN_YIELD is 0. A re-run, a dispatch, main's nightly, and any doubt (an unreadable
-answer, a malformed field, a listing that does not add up) sign as before.
+answer, a malformed field, a listing longer than MAX_PAGES pages) sign as before.
 
     nightly_sign_yield.py
 Env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME, GITHUB_REF_NAME,
@@ -66,25 +66,22 @@ def http_get(api: str, token: str) -> Get:
 
 
 def listing(get: Get, path: str, key: str) -> list[dict[str, Any]]:
-    """Every item of a paginated listing; the items must add up to total_count."""
+    """Every item of a paginated listing, read until an empty page, as signing_runner.every_page: total_count is not
+    trusted (it runs ahead of a status-filtered list). More than MAX_PAGES pages is doubt."""
     items: list[dict[str, Any]] = []
-    total = None
-    for page in range(1, MAX_PAGES + 1):
+    for page in range(1, MAX_PAGES + 2):
         body = get(f"{path}{'&' if '?' in path else '?'}per_page={PAGE}&page={page}")
-        if not isinstance(body, dict) or not isinstance(body.get(key), list) or not isinstance(body.get("total_count"), int):
+        if not isinstance(body, dict) or not isinstance(body.get(key), list):
             raise Unreadable(f"{path}: not a {key} listing")
-        if total is None:
-            total = body["total_count"]
-        elif body["total_count"] != total:
-            raise Unreadable(f"{path}: total_count moved between pages")
-        if not all(isinstance(item, dict) for item in body[key]):
+        batch = body[key]
+        if not all(isinstance(item, dict) for item in batch):
             raise Unreadable(f"{path}: an item that is not an object")
-        items.extend(body[key])
-        if len(items) >= total or not body[key]:
+        if not batch:
+            return items
+        if page > MAX_PAGES:
             break
-    if len(items) != total:
-        raise Unreadable(f"{path}: {len(items)} items for a total_count of {total}")
-    return items
+        items.extend(batch)
+    raise Unreadable(f"{path}: more than {MAX_PAGES} pages")
 
 
 def signing(job: dict[str, Any]) -> bool:

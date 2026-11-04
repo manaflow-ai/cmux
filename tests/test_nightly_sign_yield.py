@@ -43,12 +43,13 @@ class Fake:
         self.paths.append(path)
         if self.fail and self.fail in path:
             raise sy.Unreadable("refused")
+        first = path.endswith("&page=1")
         if "/actions/workflows/nightly.yml/runs" in path:
-            items = [{"id": rid} for rid in self.runs]
-            return {"total_count": len(items), "workflow_runs": items}
+            items = [{"id": rid} for rid in self.runs] if first else []
+            return {"total_count": len(self.runs) + 7, "workflow_runs": items}  # total_count runs ahead, as GitHub's can
         rid = int(path.split("/actions/runs/")[1].split("/")[0])
-        jobs = self.runs[rid]
-        return {"total_count": len(jobs), "jobs": jobs}
+        jobs = self.runs[rid] if first else []
+        return {"total_count": len(self.runs[rid]), "jobs": jobs}
 
 
 def decide(run_id, runs, **over):
@@ -98,9 +99,10 @@ class SignYieldTest(unittest.TestCase):
         for fail in ("/actions/workflows/", "/actions/runs/105/"):
             with self.subTest(fail=fail):
                 self.assertEqual(sy.decide(env(103), Fake(runs, fail=fail), log=lambda _: None)[0], False)
-        # A listing that does not add up, and a job with no status.
-        short = lambda path: {"total_count": 3, "workflow_runs": [{"id": 105}]}
-        self.assertEqual(sy.decide(env(103), short, log=lambda _: None)[0], False)
+        # A listing with no end (more than MAX_PAGES pages), one that is not a listing, and a job with no status.
+        endless = lambda path: {"workflow_runs": [{"id": 105}]}
+        self.assertEqual(sy.decide(env(103), endless, log=lambda _: None)[0], False)
+        self.assertEqual(sy.decide(env(103), lambda path: {"message": "x"}, log=lambda _: None)[0], False)
         bad = {103: [], 105: [{"id": 1, "name": SIGN}]}
         self.assertEqual(decide(103, bad)[0], False)
 
