@@ -503,3 +503,67 @@ fn switching_to_a_targetless_desktop_clears_the_browser_target() {
         "a desktop card must not open the previous browser: {shown:?}"
     );
 }
+
+/// A browser step on another tab (an explicit `cmux browser <tab>` or a browser MCP tool, which
+/// names no cmux tab) must not keep the previous tab's target and URL: the card would show the
+/// new step but its Open button would reveal the earlier page (review of cmux #25858, 2026-11-03).
+#[test]
+fn a_step_on_another_browser_tab_drops_the_previous_target_and_url() {
+    for (tool, command) in [
+        ("Bash", "cmux browser tab_0123abcd click '#send'"),
+        ("mcp__browser__click", ""),
+    ] {
+        let mut h = Harness::new(Box::new(move |_, _| {
+            vec![
+                json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+                update(
+                    "tool_call",
+                    json!({"toolCallId": "alpha", "title": "Bash", "kind": "execute",
+                "rawInput": {"command": "cmux browser right open https://alpha.example/start"}, "_meta": {"claude": {"tool": "Bash"}}}),
+                ),
+                update(
+                    "tool_call_update",
+                    json!({"toolCallId": "alpha", "status": "completed"}),
+                ),
+                update(
+                    "tool_call",
+                    json!({"toolCallId": "other", "title": tool, "kind": "execute",
+                "rawInput": {"command": command}, "_meta": {"claude": {"tool": tool}}}),
+                ),
+                update(
+                    "tool_call_update",
+                    json!({"toolCallId": "other", "status": "completed"}),
+                ),
+                json!({"dir": "mux", "kind": "turn_end", "msg": {}}),
+            ]
+        }));
+        h.connect();
+        h.say("user_local", "check the other tab");
+        h.settle_posts();
+        let shown = cards(&h);
+        assert!(
+            shown.iter().any(|(_, card)| matches!(
+                card,
+                Card::Browser { target: Some(t), url: Some(u), .. }
+                    if t == "browser:right" && u == "https://alpha.example/start"
+            )),
+            "{tool}: the first step's card names its tab and page: {shown:?}"
+        );
+        assert!(
+            matches!(
+                shown.last(),
+                Some((
+                    _,
+                    Card::Browser {
+                        surface: CardSurface::Browser,
+                        target: None,
+                        url: None,
+                        image: None,
+                        ..
+                    }
+                ))
+            ),
+            "{tool}: a step on another tab must not open the previous one: {shown:?}"
+        );
+    }
+}
