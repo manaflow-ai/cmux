@@ -99,6 +99,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
     [messageCache, steps, run.conversation, run.author, run.id],
   );
   const shown = useMemo(() => (open ? runBlocks(run, work.slice(-CARD_STEPS)) : []), [open, run, work]);
+  const stepsById = useMemo(() => new Map(steps.map((step) => [step.id, step])), [steps]);
   const count = run.stepCount;
   // Tokens, not dollars: most runs go through a subscription or a router, where the harness's dollar
   // figure (pay-per-token API prices) is not what anyone pays. The run sheet keeps it, labelled.
@@ -157,7 +158,7 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
                 key={block.key}
                 row={block.row}
                 steps={(block.row.items ?? []).flatMap((item) => {
-                  const step = item.tool ? steps.find((candidate) => candidate.id === item.tool!.id) : undefined;
+                  const step = item.tool ? stepsById.get(item.tool.id) : undefined;
                   return step ? [step] : [];
                 })}
                 agentNames={agentNames ?? EMPTY_AGENT_NAMES}

@@ -19,10 +19,10 @@ test("groups mixed calls into a concise human summary", () => {
   const group = homeToolGroup([
     tool({ name: "shell", kind: "command", input: { command: "cargo test" } }),
     tool({ name: "read_file", kind: "read", input: { file_path: "src/main.rs" } }),
-    tool({ name: "apply_patch", kind: "edit", files: [{ path: "src/main.rs", newText: "ok" }] }),
+    tool({ name: "apply_patch", kind: "edit", input: {}, files: [{ path: "src/main.rs", newText: "ok" }] }),
   ]);
   expect(group.summary).toBe("Ran 1 command, 1 read, 1 edit");
-  expect(group.entries.map((entry) => entry.title)).toEqual(["cargo test", "read_file src/main.rs", "apply_patch"]);
+  expect(group.entries.map((entry) => entry.title)).toEqual(["cargo test", "read_file src/main.rs", "Apply Patch"]);
 });
 
 test("omits loaded-tools and empty waiting protocol rows", () => {
@@ -33,6 +33,15 @@ test("omits loaded-tools and empty waiting protocol rows", () => {
     tool({ name: "shell", input: { command: "pwd" } }),
   ]);
   expect(group.entries).toHaveLength(1);
+});
+
+test("does not classify substrings in tool names as kinds", () => {
+  expect(homeToolKind(tool({ name: "prune_branches", input: {} }))).toBe("tool");
+  expect(homeToolKind(tool({ name: "TodoWrite", input: {} }))).toBe("tool");
+});
+
+test("labels a group with only protocol rows as having no visible calls", () => {
+  expect(homeToolGroup([tool({ name: "tool_search", input: undefined })]).summary).toBe("No visible tool calls");
 });
 
 test("prefers the command title and never displays raw JSON", () => {

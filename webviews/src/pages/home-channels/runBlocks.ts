@@ -58,12 +58,14 @@ export function homeToolTitle(step: HomeRunStep): string {
 
 export function homeToolKind(step: HomeRunStep): HomeToolKind {
   const value = `${step.tool?.kind ?? ""} ${step.tool?.name ?? ""}`.toLowerCase();
-  if (/(?:shell|bash|zsh|fish|\bsh\b|command|terminal|exec|run)/.test(value)) return "command";
-  if (/(?:edit|write|patch|delete|move|rename)/.test(value) || step.tool?.files.some((file) => file.newText !== undefined))
+  const tokens = value.replace(/([a-z])([A-Z])/g, "$1 $2").split(/[^a-z0-9]+/).filter(Boolean);
+  const has = (...words: string[]) => words.some((word) => tokens.includes(word));
+  if (has("shell", "bash", "zsh", "fish", "sh", "command", "terminal", "exec", "run")) return "command";
+  if (has("edit", "write", "patch", "delete", "move", "rename") || step.tool?.files.some((file) => file.newText !== undefined))
     return "edit";
-  if (/(?:search|grep|glob|find|query)/.test(value)) return "search";
-  if (/(?:read|cat|open|list|stat)/.test(value)) return "read";
-  if (step.attachments.length > 0 || /(?:capture|screenshot|image|record)/.test(value)) return "capture";
+  if (has("search", "grep", "glob", "find", "query")) return "search";
+  if (has("read", "cat", "open", "list", "stat")) return "read";
+  if (step.attachments.length > 0 || has("capture", "screenshot", "image", "record")) return "capture";
   return "tool";
 }
 
@@ -87,7 +89,7 @@ export function homeToolGroup(steps: readonly HomeRunStep[]): HomeToolGroup {
     const count = counts.get(kind);
     if (count) parts.push(`${count} ${labels[kind]}${count === 1 ? "" : "s"}`);
   }
-  return { entries, summary: parts.length ? `Ran ${parts.join(", ")}` : "No tool calls" };
+  return { entries, summary: parts.length ? `Ran ${parts.join(", ")}` : "No visible tool calls" };
 }
 
 export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock[] {
