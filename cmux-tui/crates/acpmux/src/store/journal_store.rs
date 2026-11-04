@@ -276,7 +276,9 @@ impl Inner {
     fn apply(&self, replay: Replay) -> Result<()> {
         let Replay { chats, cancelled } = replay;
         for (chat, mut entry) in chats {
-            if entry.forgotten && self.local.dir(&chat).exists() {
+            // Deleted again, unless lines follow its forget: then the chat was made again under
+            // the same id (a transfer back), and its folder holds that chat's own files.
+            if entry.forgotten && entry.lines.is_empty() && self.local.dir(&chat).exists() {
                 Store::delete(&self.local, &chat)
                     .with_context(|| format!("delete {chat} again (its forget record)"))?;
             }
@@ -477,6 +479,9 @@ impl Store for JournalStore {
         let payload = encode_log(id, line.as_bytes());
         let inner = &self.inner;
         let mut order = inner.order.lock_or_recover();
+        // After the seal (under the same lock, so exact): refused as the logs refuse it, and the
+        // journal is not touched.
+        drop(inner.local.writable()?);
         let lsn =
             inner.journal.append(KIND_LOG, class, &payload).map_err(JournalStore::journal_error)?;
         let written = inner.local.append_line(id, line.as_bytes());
@@ -564,6 +569,10 @@ impl Store for JournalStore {
     /// The logs refuse writes, and the journal fully syncs every record (the shutdown's `flush`
     /// then checkpoints).
     fn seal(&self) {
+        // Under the appends' lock: an append either lands in the journal and the logs, or in
+        // neither (never a record whose line the sealed logs refused, which a later replay
+        // would write).
+        let _order = self.inner.order.lock_or_recover();
         Store::seal(&self.inner.local);
         if let Err(error) = self.inner.journal.seal(SEAL_WAIT) {
             tracing::error!("seal the event journal: {error}");
@@ -591,6 +600,7 @@ impl Store for JournalStore {
         let inner = &self.inner;
         let forget = {
             let mut order = inner.order.lock_or_recover();
+            drop(inner.local.writable()?);
             let lsn = inner
                 .journal
                 .append(KIND_FORGET, Class::Ack, id.as_bytes())
