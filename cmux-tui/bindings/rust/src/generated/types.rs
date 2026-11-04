@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87.
+// cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1914,7 +1914,13 @@ pub struct ServerStatsWritePath {
     pub effect_intent_batches: u64,
     pub effect_intent_failures: u64,
     pub effect_intents: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub registry_wal_frame_bytes: Option<u64>,
     pub request_effect_commits: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub wal_commits: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub wal_synced_commits: Option<u64>,
     pub writer_registry_locks: u64,
 }
 
