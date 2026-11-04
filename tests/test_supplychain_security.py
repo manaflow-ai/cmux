@@ -143,14 +143,18 @@ def test_cloud_dogfood_keeps_the_public_installer_out_of_the_secret_job() -> Non
     assert any("actions/upload-artifact@" in str(step.get("uses", "")) for step in installer["steps"])
 
     assert journey.get("needs") == "installer"
-    assert journey.get("environment") == "cloud-vm-${{ inputs.target }}"
+    # NEXT Cloud: the cmux VM API's own environments, never classic cloud-vm-*.
+    assert journey.get("environment") == "cmux-vm-${{ inputs.target }}"
+    assert "/api/vm" not in yaml.dump(journey)
+    assert "scripts/dogfood-journey.ts" in run_text(journey)
     assert not re.search(r"vars\.(?!RUNNER_POOLS)", OVERFLOW_FAILOVER.sub("", journey["runs-on"]))
-    assert "STACK_SECRET_SERVER_KEY" not in (journey.get("env") or {})
+    assert "STACK_SECRET_SERVER_KEY" not in yaml.dump(journey)
+    assert "CMUX_VM_SMOKE_API_KEY" not in (journey.get("env") or {})
     assert any("actions/download-artifact@" in str(step.get("uses", "")) for step in journey["steps"])
     assert "CMUX_TUI_INSTALL_MS" in run_text(journey)
     secret_steps = [
         step for step in journey["steps"]
-        if "STACK_SECRET_SERVER_KEY" in (step.get("env") or {})
+        if any("secrets." in str(value) and "!= ''" not in str(value) for value in (step.get("env") or {}).values())
     ]
     assert len(secret_steps) == 1
     assert secret_steps[0].get("name") == "Journey"
