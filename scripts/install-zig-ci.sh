@@ -194,7 +194,7 @@ zig_has_required_version() {
   [ "$("$zig_path" version 2>/dev/null || true)" = "$ZIG_REQUIRED" ] || return 1
   zig_lib_dir="$(read_zig_lib_dir "$zig_path" || true)"
   [ -n "$zig_lib_dir" ] || return 1
-  [ -f "$zig_lib_dir/compiler/build_runner.zig" ] || return 1
+  [ -f "$zig_lib_dir/std/std.zig" ] || return 1
   # An unpatched install of a Zig that needs the std fix is not reused; a
   # verified copy is installed instead (never an in-place edit of another install).
   zig_std_is_reviewed "$zig_lib_dir" || {
@@ -550,7 +550,7 @@ install_zig_with_sudo() {
   # system wrapper. Verify the version and extracted root directly; the
   # wrapper still exports ZIG_LIB_DIR for compiler invocations.
   if [ "$("${bin_dir}/zig" version 2>/dev/null || true)" != "$ZIG_REQUIRED" ] ||
-     [ ! -f "${install_root}/lib/compiler/build_runner.zig" ]; then
+     [ ! -f "${install_root}/lib/std/std.zig" ]; then
     echo "Installed zig ${ZIG_REQUIRED} at ${bin_dir}/zig, but its lib_dir is incomplete" >&2
     exit 1
   fi

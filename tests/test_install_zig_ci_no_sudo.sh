@@ -91,7 +91,7 @@ DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/compiler"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/std" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/std"
 rm -rf "$SHARED_TMP_ZIG_DIR"
 mkdir -p "$SHARED_TMP_ZIG_DIR"
 printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
@@ -114,9 +114,9 @@ case "\${1:-}" in
 esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
-printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
-printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
-printf 'wrong version build runner fixture\n' > "$WRONG_VERSION_LIB_DIR/compiler/build_runner.zig"
+printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/fixture.txt"
+printf 'std fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std/std.zig"
+printf 'wrong version std fixture\n' > "$WRONG_VERSION_LIB_DIR/std/std.zig"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 ARCHIVE_SHA256="$(archive_sha256 "$ARCHIVE")"
 
@@ -206,7 +206,7 @@ fi
 
 if grep -Fq "already installed at" "$OUTPUT_FILE"; then
   cat "$OUTPUT_FILE"
-  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks compiler/build_runner.zig" >&2
+  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks std/std.zig" >&2
   exit 1
 fi
 
@@ -285,9 +285,9 @@ if [ "$(canonical_install_root "$(readlink "$SUDO_SYSTEM_PREFIX/lib/zig")")" != 
   exit 1
 fi
 
-if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/compiler/build_runner.zig" ]; then
+if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/std/std.zig" ]; then
   cat "$SUDO_OUTPUT_FILE"
-  echo "FAIL: sudo-installed zig is missing compiler/build_runner.zig in its extracted root" >&2
+  echo "FAIL: sudo-installed zig is missing std/std.zig in its extracted root" >&2
   exit 1
 fi
 

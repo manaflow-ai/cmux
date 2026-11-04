@@ -22,8 +22,8 @@ TOOLCHAINS = ROOT / "cmux-tui/build-support/notices/toolchains/toolchains.json"
 
 def fake_zig(directory: Path, version: str) -> None:
     lib = directory / "lib"
-    (lib / "compiler").mkdir(parents=True)
-    (lib / "compiler/build_runner.zig").write_text("// fixture\n")
+    (lib / "std").mkdir(parents=True)
+    (lib / "std/std.zig").write_text("// fixture\n")
     zig = directory / "zig"
     zig.write_text(
         "#!/bin/sh\n"
