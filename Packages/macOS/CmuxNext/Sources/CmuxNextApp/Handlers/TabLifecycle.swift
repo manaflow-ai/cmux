@@ -25,11 +25,11 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
-        let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
+        let opensWorkspace = NewTerminalWorkspaceSetting.opensWorkspace(
             setting: ctx.services.settings?.snapshot.newTerminalOpensWorkspace ?? NewTerminalWorkspaceSetting.fallback,
-            toggled: invocation["toggleWorkspace"]?.boolValue == true
+            toggled: invocation["toggleWorkspace"]?.boolValue == true, byPerson: invocation.origin == .user, byKey: ctx.registry.isDispatchingKeyDown()
         )
-        if invocation.origin == .user, opensWorkspace, case let windows = ctx.services.windows,
+        if opensWorkspace, case let windows = ctx.services.windows,
            let windowID = ctx.activeWindow?.state.id {
             let daemon = ctx.services.daemon(for: focused)
             let selected = ctx.services.paneController(for: focused)?.selectedTab

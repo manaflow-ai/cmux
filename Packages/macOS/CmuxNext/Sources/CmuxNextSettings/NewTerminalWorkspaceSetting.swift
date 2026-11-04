@@ -16,6 +16,13 @@ nonisolated extension NewTerminalWorkspaceSetting {
         setting != toggled
     }
 
+    /// Whether a New Terminal run makes a workspace instead of a tab in the focused one: a
+    /// person's run (`byPerson`) that ``resolves(setting:toggled:)`` says should. `byKey`: a key
+    /// press ran it (New Terminal Tab's Ctrl-`).
+    public static func opensWorkspace(setting: Bool, toggled: Bool, byPerson: Bool, byKey: Bool) -> Bool {
+        byPerson && resolves(setting: setting, toggled: toggled)
+    }
+
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
