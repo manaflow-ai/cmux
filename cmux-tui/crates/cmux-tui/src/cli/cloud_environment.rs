@@ -173,7 +173,7 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let resolver = Resolver::new(bundle, &home)?;
     let switching = matches!(command, Command::Set(_));
     let check_create = match &command {
-        Command::CheckCreate { backend, params } => Some((backend.as_str(), params)),
+        Command::CheckCreate { backend, params } => Some((backend.clone(), params.clone())),
         _ => None,
     };
     // A failed read cannot prevent an explicit set from repairing malformed
@@ -198,7 +198,7 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
         .map_err(|error| format!("create client-config runtime: {error}"))?;
     let selection = runtime.block_on(resolver.client_config(selection))?;
     if let Some((_, params)) = check_create {
-        check_create_capabilities(&selection, params)?;
+        check_create_capabilities(&selection, &params)?;
         return Ok(serde_json::json!({
             "check_create": true,
             "ok": true,

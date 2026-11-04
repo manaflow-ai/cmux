@@ -85,6 +85,25 @@ public struct CloudConfiguration: Sendable, Equatable {
         return selection.legacyStorage ? selection.authStorageNamespace : selection.authNamespace
     }
 
+    /// A signed NEXT DEV production launch may import the existing NIGHTLY session without
+    /// changing or clearing NIGHTLY's own token store. This is read-only metadata for CloudAuth.
+    public struct NightlySession: Sendable, Equatable {
+        public var keychainService: String
+        public var accessGroup: String
+        public var credentialsDirectory: URL
+    }
+
+    public var nightlySession: NightlySession? {
+        guard runtimeSelection?.name == "prod", !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" else { return nil }
+        let nightly = "com.cmuxterm.app.nightly"
+        return NightlySession(
+            keychainService: "\(nightly).auth",
+            accessGroup: "7WLXT3NR37.\(nightly)",
+            credentialsDirectory: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+                .appendingPathComponent(nightly, isDirectory: true))
+    }
+
     /// `<scheme>://auth-callback`. `/dev/null` stands in for a hand-built
     /// configuration with one that does not.
     public var callbackURL: URL { URL(string: "\(callbackScheme)://auth-callback") ?? Self.inertURL }
