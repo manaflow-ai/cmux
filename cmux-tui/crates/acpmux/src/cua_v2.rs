@@ -121,11 +121,10 @@ pub fn dir_from_env() -> Option<PathBuf> {
 /// configures its cmux Remote host.
 pub fn write_pointer(home: &Path, dir: &Path) -> std::io::Result<()> {
     use std::io::Write;
-    crate::owner_only::create_dir_all(home)?;
     let target = home.join(ENDPOINT_POINTER_FILE);
     let temporary = home.join(format!("{ENDPOINT_POINTER_FILE}.{}.tmp", std::process::id()));
     let _ = std::fs::remove_file(&temporary);
-    let mut file = crate::owner_only::create_new(&temporary)?;
+    let mut file = create_private_new(home, &temporary)?;
     let written = file
         .write_all(dir.as_os_str().to_string_lossy().as_bytes())
         .and_then(|()| file.sync_all())
@@ -134,6 +133,26 @@ pub fn write_pointer(home: &Path, dir: &Path) -> std::io::Result<()> {
         let _ = std::fs::remove_file(&temporary);
     }
     written
+}
+
+/// Creates `path` (which must not exist) private to this user, never through
+/// a link, after creating `home` if needed.
+#[cfg(unix)]
+fn create_private_new(home: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(home)?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)
+}
+
+#[cfg(windows)]
+fn create_private_new(home: &Path, path: &Path) -> std::io::Result<std::fs::File> {
+    crate::owner_only::create_dir_all(home)?;
+    crate::owner_only::create_new(path)
 }
 
 /// The folder [`ENDPOINT_POINTER_FILE`] at `path` names, when it is usable.

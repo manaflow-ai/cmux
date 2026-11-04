@@ -36,6 +36,9 @@
 /// Advertised by `identify` once `remote-host-status` and `remote-host-call` exist.
 pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 
+#[cfg(any(unix, windows))]
+use std::path::{Path, PathBuf};
+
 /// The folder where the cmux Remote host of the daemon on `daemon_socket`
 /// writes the Computer Use worker's `endpoint.json` (acpmux reads it from
 /// `CMUX_NEXT_CUA_V2_DIR`): `<runtime>/cu`, where the runtime folder is the one
@@ -43,7 +46,7 @@ pub(crate) const REMOTE_HOST_CAPABILITY: &str = "remote-host-v1";
 /// socket path, so a process that knows that socket names the same folder. On
 /// macOS the app names the folder itself; Windows and Linux use this.
 #[cfg(any(unix, windows))]
-pub fn computer_use_endpoint_dir(daemon_socket: &std::path::Path) -> std::path::PathBuf {
+pub fn computer_use_endpoint_dir(daemon_socket: &Path) -> PathBuf {
     imp::runtime_dir_for(daemon_socket).join("cu")
 }
 
