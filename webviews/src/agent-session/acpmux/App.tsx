@@ -4498,6 +4498,7 @@ export function VirtualTranscript({
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
       sentBeforeOpen.current = false;
+      sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       endSeek();
       setSeeking(false);
       setSeekExpired(false);
