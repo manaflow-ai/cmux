@@ -2012,6 +2012,7 @@ pre.cv-math-source {
 }
 .cv-worked.is-toggle {
   cursor: default;
+  height: var(--cv-tool-row-height);
 }
 .cv-worked.has-divider::after {
   content: "";
