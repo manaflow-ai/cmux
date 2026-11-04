@@ -121,16 +121,19 @@ def main():
             if time.monotonic() - t0 > 180 or proc.poll() is not None:
                 raise SystemExit(f"no socket {sock} (exit {proc.poll()})")
             time.sleep(0.2)
-        def rpc(method, params=None):
+        def call(method, params=None):
             try:
-                reply = Client(sock).call(method, params or {})
-            except (OSError, ValueError):
-                return {}
+                return Client(sock).call(method, params or {})
+            except (OSError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
+
+        def rpc(method, params=None):
+            reply = call(method, params)
             return (reply.get("result") or {}) if isinstance(reply, dict) and reply.get("ok") else {}
 
-        def focused_tab():
-            windows = rpc("debug.focus").get("windows") or []
-            return (windows[0].get("model") or {}).get("resolved_tab") if windows else None
+        def focused_pane():
+            panes = [p for w in (rpc("debug.surfaces").get("windows") or []) for p in w.get("panes", [])]
+            return next((p for p in panes if p.get("focused")), None)
 
         def wait_for(predicate, seconds):
             deadline = time.monotonic() + seconds
@@ -141,20 +144,27 @@ def main():
                 time.sleep(0.5)
             return None
 
-        # A fresh profile opens on Home (first-run import), which has no pane: a terminal tab gives
-        # the Chromium tab a pane to open in, as the live browser tests do.
-        if not wait_for(focused_tab, 15):
-            rpc("action.run", {"action": "newTab", "origin": "script", "focus": True})
-        res["first_tab"] = wait_for(focused_tab, 60)
-        res["open_reply"] = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
-                                               "origin": "script", "focus": True})
+        # A fresh profile opens on Home (first-run import or Chief's chat), where a browser cannot
+        # open: a focused terminal tab gives the Chromium tab a pane, as cef-tab-bench.py does.
+        wait_for(lambda: rpc("debug.windows").get("windows"), 60)
+        res["new_tab_reply"] = call("action.run", {"action": "newTab", "args": {"name": "cef-helper-check"},
+                                                   "focus": True, "origin": "script"})
+        res["terminal_pane"] = bool(wait_for(lambda: (focused_pane() or {}).get("kind") == "terminal", 60))
+        time.sleep(1)  # test harness: the shell prompt draws before the next tab opens
+        res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
+                                                "focus": True, "origin": "script"})
 
         def title_ran():
             value = rpc("browser.page.eval", {"script": "document.title"}).get("value")
             return value if isinstance(value, str) and value.startswith("js-ran-") else None
 
-        title = wait_for(title_ran, 60)
-        res["tab"] = focused_tab()
+        title = wait_for(title_ran, 30)
+        if not title:
+            # cef-tab-bench.py's path: the app's own new-browser command in the focused pane.
+            res["bench_create_reply"] = call("debug.new_tab", {"action": "bench_create", "command": "new_browser",
+                                                               "run": "openBrowser", "url": PAGE})
+            title = wait_for(title_ran, 45)
+        res["focused_kind"] = (focused_pane() or {}).get("kind")
         res["title"] = title
         time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
