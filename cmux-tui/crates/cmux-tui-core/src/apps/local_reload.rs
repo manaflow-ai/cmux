@@ -170,7 +170,7 @@ impl Supervisor {
         }
         let mut next = inner.mirror.clone();
         if let Some(record) = next.apps.get_mut(CUSTOMIZE_APP) {
-            record.grants.extend(new);
+            record.grants.extend(new.iter().cloned());
         }
         next.revision += 1;
         match self.persist(&next) {
@@ -178,12 +178,18 @@ impl Supervisor {
                 inner.mirror = next;
                 vec![]
             }
-            Err(error) => self.log_locked(
-                inner,
-                "cmux/supervisor",
-                "warn",
-                format!("{CUSTOMIZE_APP}: its new read scopes were not saved: {error}"),
-            ),
+            Err(error) => {
+                // Not offered after all: the next save tries these again.
+                if let Some(offered) = inner.customize_reads_offered.as_mut() {
+                    offered.retain(|scope| !new.contains(scope));
+                }
+                self.log_locked(
+                    inner,
+                    "cmux/supervisor",
+                    "warn",
+                    format!("{CUSTOMIZE_APP}: its new read scopes were not saved, so the next save tries again: {error}"),
+                )
+            }
         }
     }
 }

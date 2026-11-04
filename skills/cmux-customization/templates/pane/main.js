@@ -1,7 +1,7 @@
 // A pane: the customize app's page, opened as a tab with "Open My views" in the Command
 // Palette (no scope needed), `cmux action run app.open --app local/customize`, or the sidebar button below
 // (which needs actions:run). The checklist is kept with storage:local when it is on, and
-// lives only until the app reloads (the next save) when it is off. Both are in Settings > Apps > My views.
+// lives only until the app reloads or its last view closes when it is off. Both are in Settings > Apps > My views.
 
 const [items, setItems] = signal([]) // [{ id, text, done }]
 const [draft, setDraft] = signal("")
@@ -14,7 +14,11 @@ function load() {
   loaded = true
   cmux.storage.get("items").then(
     // Items added before the read finished stay, after the saved ones, and are saved too.
-    (saved) => Array.isArray(saved) && save([...saved, ...items()]),
+    (saved) => {
+      if (!Array.isArray(saved)) return
+      const added = items().filter((x) => !saved.some((s) => s.id === x.id))
+      added.length ? save([...saved, ...added]) : setItems(saved)
+    },
     () => (saving = false)
   )
 }

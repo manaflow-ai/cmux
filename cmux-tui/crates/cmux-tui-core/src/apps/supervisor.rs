@@ -238,8 +238,9 @@ pub(super) struct Inner {
     pub calls: super::cancel::Calls,
     /// The customize app's read scopes offered so far (granted by a save that
     /// first declared them), seeded on the first reload from the catalog
-    /// read at start. Only grows, so a read the person turned off is never
-    /// granted again by a broken save or one that drops and re-adds it.
+    /// read at start. Only grows (except scopes whose grant failed to save),
+    /// so within a daemon run a read the person turned off is never granted
+    /// again by a broken save or one that drops and re-adds it.
     pub customize_reads_offered: Option<BTreeSet<String>>,
 }
 
