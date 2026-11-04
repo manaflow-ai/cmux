@@ -1332,6 +1332,12 @@ pub fn daemon_prefix() -> Vec<std::ffi::OsString> {
 // timeout: cleanup for a child that never reaches readiness must return to the CLI.
 pub(crate) const START_BUDGET: Duration = Duration::from_secs(8);
 
+/// Test-only upper bound used by integration assertions that dead-socket
+/// failures remain prompt; production handover waits use peer liveness.
+// timeout: test-only fast-failure assertion.
+#[doc(hidden)]
+pub const HANDOVER_BUDGET: Duration = Duration::from_secs(20);
+
 /// How long a stopping daemon may take to exit: the agents' budget, the router's stop and kill
 /// waits, and a margin.
 pub const EXIT_BUDGET: Duration = SHUTDOWN_BUDGET.saturating_add(Duration::from_secs(8));
