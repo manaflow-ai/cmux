@@ -19,7 +19,11 @@
 //!   confirms in polkit or Windows Hello). On macOS the cmux app serves these
 //!   itself (its card and saved list), so the CLI calls the app there. No method
 //!   approves, saves an app or raises the mode: only a protected collector
-//!   answers, and only the box owner sets the mode.
+//!   answers, and only the box owner sets the mode. `computer_use.reload`
+//!   (re-read the owner's root- or SYSTEM-owned config) is refused here too:
+//!   the elevated or root `cmux computer-use setup` that wrote the config
+//!   asks the host itself, which admits that one request from a root or
+//!   elevated peer without the supervisor secret.
 //! - `remote-host-config {computer_use, screen_sharing, headless}`: the
 //!   person's switches, from the verified app.
 //! - `remote-host-app`: the app socket's credentials for the verified app's
@@ -272,6 +276,9 @@ mod tests {
             "computer_use.approvals.save",
             "computer_use.mode.set",
             "computer_use.setup",
+            // Re-reading the owner's config cannot raise trust, but only the
+            // daemon and an elevated or root `setup` (straight to the host) ask for it.
+            "computer_use.reload",
         ] {
             assert_eq!(
                 code(method, json!({"id": "7", "decision": "always"})),

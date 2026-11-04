@@ -153,3 +153,38 @@ impl std::fmt::Display for AppSocketOnly {
 }
 
 impl std::error::Error for AppSocketOnly {}
+
+/// One legacy daemon command's `data`, or `{code, message}` (`cmux
+/// remote-host`, and `cmux computer-use setup` on every OS).
+pub(in crate::cli) fn daemon_value(global: &GlobalArgs, request: &Value) -> Result<Value, Value> {
+    use std::io::{BufRead, BufReader, Write};
+    let failure = |code: &str, message: String| json!({"code": code, "message": message});
+    let (socket, derived) =
+        resolve_socket_with_origin(global).map_err(|error| resolve_failure(&error))?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
+        .map_err(|error| failure("transport.unavailable", format!("cannot connect to {}: {error}", socket.display())))?;
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(25)));
+    let mut reader = BufReader::new(stream);
+    writeln!(reader.get_mut(), "{request}")
+        .and_then(|()| reader.get_mut().flush())
+        .map_err(|error| failure("transport.failed", format!("{error}")))?;
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => return Err(failure("transport.closed", "the daemon closed the connection".into())),
+            Ok(_) => {}
+            Err(error) => return Err(failure("transport.failed", format!("{error}"))),
+        }
+        let Ok(response) = serde_json::from_str::<Value>(&line) else { continue };
+        if response.get("event").is_some() || response.get("id") != request.get("id") {
+            continue;
+        }
+        if response.get("ok") == Some(&Value::Bool(true)) {
+            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+        }
+        let code = response.get("error_code").and_then(Value::as_str).unwrap_or("request.rejected");
+        let message = response.get("error").and_then(Value::as_str).unwrap_or("request rejected");
+        return Err(failure(code, message.to_string()));
+    }
+}

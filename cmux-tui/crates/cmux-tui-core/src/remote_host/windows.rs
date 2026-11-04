@@ -378,6 +378,66 @@ pub(super) fn spawn_host(staged: &Staged, paths: &Paths, bootstrap: &Value, read
     peer_pid(&probe).ok_or_else(|| "cannot read the host's pid".into())
 }
 
+/// The owner-only descriptor acpmux `owner_only` writes: owned by `sid`,
+/// a protected DACL granting only `sid` full access, inherited by what is
+/// made in a folder (`OICI`).
+fn owner_only_descriptor(sid: &str, folder: bool) -> std::io::Result<UserOnlySecurity> {
+    let flags = if folder { "OICI" } else { "" };
+    UserOnlySecurity::from_sddl(&format!("O:{sid}D:P(A;{flags};FA;;;{sid})")).map_err(std::io::Error::other)
+}
+
+/// Creates `path` (which must not exist) for writing with an owner-only DACL,
+/// never through a reparse point (`O_EXCL | O_NOFOLLOW`, mode 0600 on Unix).
+pub(super) fn create_owner_only(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{CREATE_NEW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT};
+    let sid = my_sid().ok_or_else(|| std::io::Error::other("cannot read this user's SID"))?;
+    let security = owner_only_descriptor(&sid, false)?;
+    let name = wide(path.as_os_str());
+    // SAFETY: a NUL-terminated name and attributes that outlive the call; the handle is owned below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &security.attributes,
+            CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: a handle CreateFileW returned; the File owns it.
+    Ok(unsafe { std::fs::File::from_raw_handle(handle as _) })
+}
+
+/// Makes `dir`: missing parents by inheritance, `dir` itself owner-only when
+/// this creates it; an existing folder is kept (the files in it carry their
+/// own owner-only DACL).
+pub(super) fn make_owner_only_dir(dir: &Path) -> std::io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+    if let Some(parent) = dir.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    let sid = my_sid().ok_or_else(|| std::io::Error::other("cannot read this user's SID"))?;
+    let security = owner_only_descriptor(&sid, true)?;
+    let name = wide(dir.as_os_str());
+    // SAFETY: a NUL-terminated name and attributes that outlive the call.
+    if unsafe { CreateDirectoryW(name.as_ptr(), &security.attributes) } == 0 {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::AlreadyExists {
+            return Err(error);
+        }
+    }
+    let meta = std::fs::symlink_metadata(dir)?;
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        return Err(std::io::Error::other(format!("{} is not a directory", dir.display())));
+    }
+    Ok(())
+}
+
 /// A user-only DACL for the ready event.
 struct UserOnlySecurity {
     descriptor: *mut core::ffi::c_void,
@@ -386,12 +446,16 @@ struct UserOnlySecurity {
 
 impl UserOnlySecurity {
     fn new(sid: &str) -> Result<Self, String> {
+        Self::from_sddl(&format!("D:P(A;;GA;;;{sid})"))
+    }
+
+    fn from_sddl(sddl: &str) -> Result<Self, String> {
         use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
-        let sddl = wide(OsStr::new(&format!("D:P(A;;GA;;;{sid})")));
+        let sddl = wide(OsStr::new(sddl));
         let mut descriptor: *mut core::ffi::c_void = std::ptr::null_mut();
         // SAFETY: a NUL-terminated SDDL; freed in Drop.
         if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), 1, &mut descriptor, std::ptr::null_mut()) } == 0 {
-            return Err(format!("cannot build the ready event's DACL: {}", std::io::Error::last_os_error()));
+            return Err(format!("cannot build a DACL: {}", std::io::Error::last_os_error()));
         }
         let attributes = windows_sys::Win32::Security::SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<windows_sys::Win32::Security::SECURITY_ATTRIBUTES>() as u32,

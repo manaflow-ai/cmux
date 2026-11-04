@@ -1124,7 +1124,7 @@ pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
 pub(super) use socket::resolve_socket_with_env;
 pub(super) use socket::resolve_socket_with_origin;
-pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or_report};
+pub(super) use socket::{RESOLVE_FAILURE_EXIT, daemon_value, resolve_failure, resolve_socket_or_report};
 
 #[cfg(test)]
 mod tests;

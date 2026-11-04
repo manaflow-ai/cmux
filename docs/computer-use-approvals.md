@@ -44,7 +44,11 @@ Computer Use worker loads upstream Cua Driver (trycua/cua, MIT,
 The driver is created with the ceiling `allowed_modes` = the configured mode
 (plus `bounded` under `ask`), `unrestricted_acknowledged` only for
 `unrestricted`. A running worker never changes mode; a mode change restarts
-the worker.
+the worker. On Windows and Linux the host reads the owner's config once and
+gives the worker that reading; `cmux computer-use setup` asks the running host
+to reload after it writes the file (`computer_use.reload`, docs/cmux-remote.md
+"Mode and collectors"), and `computer_use.status` reports the reading in
+force with `pending_reload` while the file differs.
 
 ## Sessions
 
@@ -139,8 +143,8 @@ Rules:
 | Machine | Collectors (first valid answer wins) |
 | --- | --- |
 | macOS with the cmux app | The app's approval card (Allow Once, Allow for This Session, Always Allow <App>, Deny); a phone push to the owner's iPhone |
-| Linux desktop session | polkit action `com.cmux.computer-use.approve` (system authentication dialog), plus the owner's phone and Mac through the device hub |
-| Windows interactive session | Windows Hello consent (`UserConsentVerifier`) in a host-owned window, plus phone and Mac through the device hub |
+| Linux desktop session | polkit action `com.cmux.computer-use.approve` (system authentication dialog, one at a time; `approvals pending` marks the question on screen), plus the owner's pinned iPhone through the device hub |
+| Windows interactive session | Windows Hello consent (`UserConsentVerifier`) in a host-owned window, one at a time (closing it is no answer, not a deny), plus the owner's pinned iPhone through the device hub |
 | Headless box or VM | Only the owner's other devices through the device hub |
 
 Phone choices: Allow Once, Allow for This Session, Deny as notification
@@ -170,8 +174,8 @@ or a 0600 key file on a headless box, reported as lower assurance).
 - **Which key signs.** An Allow (`once`, `session`, `always`) is signed only
   by the decider's **approval key**; a `deny` is signed by its device
   `signingKey`. The approval key is a P-256 key separate from the device keys
-  whose every use needs the person at the OS level: on iPhone (and any Mac
-  that answers) a Secure Enclave key made with access control
+  whose every use needs the person at the OS level: on iPhone (and on a Mac
+  once the macOS app registers one; it does not yet) a Secure Enclave key made with access control
   `.privateKeyUsage` + `.userPresence`, `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
   (Face ID or the passcode before each signature, the same protection as the
   phone's Mac approval key in `verify/phone-approvals.md`). Code running in the
@@ -215,11 +219,14 @@ or a 0600 key file on a headless box, reported as lower assurance).
   <device id>`, elevated): setup reads the account's devices as the box's own
   device, shows each chosen device's name, platform and **approval key**
   fingerprint (the lowercase hex SHA-256 of the 65 X9.63 bytes its
-  `approvalKey` decodes to, shown as the iPhone and Mac show it: the first 32
-  hex digits, uppercase, in eight groups of four) and writes
+  `approvalKey` decodes to, shown as the iPhone shows it: the first 32
+  hex digits, uppercase, in eight groups of four) and asks the owner to type
+  `yes` once it matches. The typed `yes` is only a check (an agent in that
+  terminal could type it); the gate is the elevation that writes
   `{device_id, approval_key_fingerprint}` into the root- or SYSTEM-owned
-  config only after the owner types `yes`. A device with no `approvalKey` is
-  refused. An Allow (`once`, `session`, `always`) applies only when the
+  config: `sudo -k` (always asks for the password, never a cached ticket) or
+  UAC. A device with no `approvalKey` is refused; for now that is every Mac
+  (the macOS app registers no approval key yet), so only iPhones can be pinned. An Allow (`once`, `session`, `always`) applies only when the
   decider is a pinned `macos`/`ios` device whose `approvalKey` in
   `GET /v1/devices` (used only to fetch it) still has the pinned fingerprint
   and `sig` verifies with that key; a `deny` applies when `sig` verifies with
@@ -384,14 +391,15 @@ the host, which answers from its state or asks the worker:
 | --- | --- | --- |
 | `computer_use.status` | `{}` | any local Unix connection |
 | `computer_use.approvals.list` | `{}` | any local Unix connection |
-| `computer_use.approvals.pending` | `{}` | any local Unix connection |
+| `computer_use.approvals.pending` | `{}` | any local Unix connection; each entry has `on_screen` (the question the local dialog shows), and `on_screen` at the top level is its id or null |
 | `computer_use.approvals.revoke` | `{"all":true}` or `{"app":{"bundle_id"\|"executable":S}}` | any local Unix connection (lowers) |
 | `computer_use.approvals.deny` | `{"id":S}` | any local Unix connection (lowers) |
-| `computer_use.approvals.prompt` | `{"id":S,"decision"?:"once"\|"session"}` | any local Unix connection; shows the question again with the dialog's own choices (never `always`, which only the phone or Mac offers), decides nothing; one question at most once every 10 s (`cooldown`) |
+| `computer_use.approvals.prompt` | `{"id":S,"decision"?:"once"\|"session"}` | any local Unix connection; shows the question again with the dialog's own choices (never `always`, which only the phone or Mac offers), decides nothing; one question at most once every 10 s (`cooldown`); refused while a dialog is up (`dialog_up`); `ended` when the question ends while its dialog is up (the dialog closes, its answer is ignored) |
 
 The daemon refuses every other `computer_use.*` method with
 `origin.forbidden` (`cmux-tui-core/src/server/remote_host_command.rs`): no
-command approves, saves an app or raises the mode. On macOS `approve` calls
+command approves, saves an app or raises the mode. `computer_use.reload` is
+refused there too; the elevated `setup` asks the host itself. On macOS `approve` calls
 the app's `computer_use.approvals.prompt {id}` instead, which shows the card.
 
 The driver's tools from the CLI (`tools`, `call`, `screenshot`) go through the
@@ -429,14 +437,20 @@ CLI renders each case and the host parses each file in their tests.
 
 | OS | Files | Writer |
 | --- | --- | --- |
-| Linux | `/etc/cmux/computer-use.toml`, `/etc/cmux/computer-use.manifest.yaml` (0644, in a root-owned 0755 folder; refused if the folder is not root's or is group/world writable) | root; otherwise `sudo` from a terminal |
+| Linux | `/etc/cmux/computer-use.toml`, `/etc/cmux/computer-use.manifest.yaml` (0644, in a root-owned 0755 folder; refused if the folder is not root's or is group/world writable) | root; otherwise `sudo -k` from a terminal |
 | Windows | `%ProgramData%\cmux\computer-use.toml`, `…\computer-use.manifest.yaml` (folder owned by Administrators, ACL SYSTEM and Administrators full, Users read, inheritance off) | an elevated administrator or SYSTEM; otherwise UAC from a terminal |
 
 `--approver` (repeatable) reads the account's devices from the hub as this
 user's device (the one cmux Remote uses), shows each chosen device's name,
-platform and approval key fingerprint, and pins them only after the person types
-`yes`; it then elevates with the confirmed pins. Only another Mac or iPhone of
-the account can be pinned. Root's provisioning can pass
+platform and approval key fingerprint, and asks the person to type `yes` once
+each matches the iPhone's; it then elevates with the confirmed pins. sudo or
+UAC is the gate; the `yes` is only a check that the person compared. Only
+another device of the account with an approval key can be pinned, which for
+now means an iPhone (the macOS app has no approval key yet). After writing,
+the elevated run asks the running host to reload (`--reload-endpoint`, from
+`computer_use.status`), and the non-elevated run reports whether the host has
+the new config in force (`host.in_force`); without a running host it applies
+when the host starts. Root's provisioning can pass
 `--approver-pin '{"device_id","approval_key_fingerprint","name","platform"}'`
 directly; a non-root run refuses it. A setup without approver flags keeps the
 current `[device_hub]` and approvers. `token_command` is a program that prints

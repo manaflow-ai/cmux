@@ -264,7 +264,7 @@ impl Backend for LiveBackend {
     #[cfg(unix)]
     fn daemon(&self, mut request: Value) -> Result<Value, CallFailure> {
         request["id"] = json!(1);
-        super::remote_host::daemon_value(&self.global, &request)
+        super::wire::daemon_value(&self.global, &request)
             .map_err(remote_tools::daemon_failure)
     }
     fn resource(

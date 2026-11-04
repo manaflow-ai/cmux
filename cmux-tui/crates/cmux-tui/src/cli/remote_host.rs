@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::wire::daemon_value;
 use super::{GlobalArgs, parse_globals, raw};
 
 const HELP: &str = "Usage: cmux remote-host <status|refresh|request|open-settings|restart|share|access|stop>\n\ncmux Remote holds the macOS grants (Accessibility, Screen Recording) for Computer Use and Screen Sharing. Grant them once, to \"cmux Remote\"; cmux never needs a relaunch.\n\n  cmux remote-host status                       The host, its workers, the grants and this Mac's sharing state\n  cmux remote-host refresh                      Read the grants again (a worker started before a new grant restarts)\n  cmux remote-host request accessibility|screen-recording\n                                                Ask macOS for a grant (macOS asks the person; a second ask opens System Settings)\n  cmux remote-host open-settings accessibility|screen-recording\n                                                Open the System Settings pane that lists cmux Remote\n  cmux remote-host restart computer-use|screen-sharing [--force]\n                                                Start a worker again (a Screen Sharing session ends first only with --force)\n  cmux remote-host share on|off                 Share This Mac (on: the person confirms in cmux)\n  cmux remote-host access DEVICE none|ask|view|full\n                                                A device's access to this Mac (raising it: the person confirms in cmux)\n  cmux remote-host stop                         Stop the current Screen Sharing session\n";
@@ -89,40 +90,6 @@ fn lower_or_refused(global: &GlobalArgs, params: &Value) -> Option<i32> {
         Ok(value) => Some(super::wire::print_local_success(&value, global.output)),
         Err(error) if error.get("code").and_then(Value::as_str) == Some("origin.forbidden") => None,
         Err(error) => Some(super::wire::print_local_error(&error, global.output, 1)),
-    }
-}
-
-/// One legacy daemon command's `data`, or `{code, message}`.
-pub(super) fn daemon_value(global: &GlobalArgs, request: &Value) -> Result<Value, Value> {
-    use std::io::{BufRead, BufReader, Write};
-    let failure = |code: &str, message: String| json!({"code": code, "message": message});
-    let (socket, derived) =
-        super::wire::resolve_socket_with_origin(global).map_err(|error| super::wire::resolve_failure(&error))?;
-    let stream = cmux_tui_core::server::connect_session_socket(&socket, derived)
-        .map_err(|error| failure("transport.unavailable", format!("cannot connect to {}: {error}", socket.display())))?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(25)));
-    let mut reader = BufReader::new(stream);
-    writeln!(reader.get_mut(), "{request}")
-        .and_then(|()| reader.get_mut().flush())
-        .map_err(|error| failure("transport.failed", format!("{error}")))?;
-    let mut line = String::new();
-    loop {
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => return Err(failure("transport.closed", "the daemon closed the connection".into())),
-            Ok(_) => {}
-            Err(error) => return Err(failure("transport.failed", format!("{error}"))),
-        }
-        let Ok(response) = serde_json::from_str::<Value>(&line) else { continue };
-        if response.get("event").is_some() || response["id"] != request["id"] {
-            continue;
-        }
-        if response["ok"] == true {
-            return Ok(response.get("data").cloned().unwrap_or(Value::Null));
-        }
-        let code = response.get("error_code").and_then(Value::as_str).unwrap_or("request.rejected");
-        let message = response.get("error").and_then(Value::as_str).unwrap_or("request rejected");
-        return Err(failure(code, message.to_string()));
     }
 }
 
