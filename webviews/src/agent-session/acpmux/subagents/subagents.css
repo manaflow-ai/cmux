@@ -471,17 +471,26 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
-   messages (SubagentPaneFooter.tsx). */
-.cv-subagent-pane-footer {
-  margin: 0;
-  padding: 12px 16px;
+/* A subagent's own pane: its composer's quiet row names the chat that passes the message on
+   (SubagentComposer.tsx), over the row's middle where a chat's look dots sit (composerLook.css). */
+.cv-subagent-composer-via {
+  position: absolute;
+  /* Clear of Send (16px inset, 28px button) with a 12px gap, so a long chat name truncates before it. */
+  right: 56px;
+  bottom: 12px;
+  left: 16px;
+  overflow: hidden;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
+  line-height: 24px;
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
   text-align: center;
   user-select: none;
-  letter-spacing: var(--text-detail--letter-spacing);
+  /* The row's controls under it stay clickable. */
+  pointer-events: none;
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
