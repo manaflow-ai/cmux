@@ -169,15 +169,15 @@ def prompt_text(params):
     return "".join(b.get("text", "") for b in blocks)
 
 
+# The hidden guidance blocks (`context_inventory::override_block`), and only those: the
+# forum's rules, a side question's chat and a message's attachments are cmux-*-context
+# blocks too, and the agent must read them, so their tests read them in the echo.
+GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>")
+
+
 def guidance_text(text):
-    """Recognize a context wrapper after an adapter dropped its metadata."""
-    if not isinstance(text, str):
-        return False
-    text = text.lstrip()
-    if not text.startswith("<cmux-"):
-        return False
-    name = text[1:].split(">", 1)[0]
-    return name.endswith("-context") and not any(c.isspace() for c in name)
+    """Recognize a guidance wrapper after an adapter dropped its metadata."""
+    return isinstance(text, str) and text.lstrip().startswith(GUIDANCE_TAGS)
 
 
 def is_cmux_guidance(block):
@@ -402,9 +402,12 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         time.sleep(0.05)
         os._exit(0)
-    # "net-refused-later" waits a moment, then fails with a refused connection.
-    if text == "net-refused-later":
-        time.sleep(0.5)
+    # "net-refused-gate: PATH" blocks on the FIFO at PATH (as "gate:"), then fails with a refused
+    # connection: the test's open of the FIFO returns once the agent has the prompt, and the
+    # answer waits until the test closes it.
+    if text.startswith("net-refused-gate:"):
+        with open(text[len("net-refused-gate:"):].split("<", 1)[0].strip()) as gate:
+            gate.read()
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "connection refused: error sending request for url (https://relay.invalid/responses)"}})
         return
     # A harness-level RPC failure whose wording resembles a dead daemon must

@@ -57,3 +57,27 @@ impl Default for StoreConfig {
         }
     }
 }
+
+/// Whether `store.journal` is on in this home's config file, read without loading the rest of the
+/// config (no harness discovery): the daemon's process tier is set before it starts any thread
+/// (`qos::enter_daemon`). A file that is missing or does not read counts as off, the default; the
+/// daemon's own config load then reports the error.
+pub fn store_journal_enabled() -> bool {
+    #[derive(Deserialize)]
+    struct File {
+        #[serde(default)]
+        store: Option<Store>,
+    }
+    #[derive(Deserialize)]
+    struct Store {
+        #[serde(default)]
+        journal: bool,
+    }
+    let path = super::Config::path();
+    let Ok(mut file) = super::private_state_file(&path) else { return false };
+    let mut text = String::new();
+    if std::io::Read::read_to_string(&mut file, &mut text).is_err() {
+        return false;
+    }
+    serde_json::from_str::<File>(&text).ok().and_then(|file| file.store).is_some_and(|s| s.journal)
+}
