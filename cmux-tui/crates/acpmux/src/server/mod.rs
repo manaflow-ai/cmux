@@ -158,6 +158,9 @@ pub struct Conn {
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
+    /// Its count in the daemon's unused rule (`daemon/unused_exit.rs`): an `initialize` that says
+    /// it only observes marks it, so it keeps nothing once the owner app exited.
+    presence: crate::daemon::unused_exit::Presence,
     out: mpsc::Sender<String>,
     /// True once the client stopped sending (its read side ended): it exited or hung up.
     ended: tokio::sync::watch::Sender<bool>,
@@ -1600,7 +1603,7 @@ async fn serve_connection_from(
         return;
     }
     // Counted while it is served: a daemon with none stops once unused (`daemon/unused_exit.rs`).
-    let _client = crate::daemon::unused_exit::client();
+    let client = crate::daemon::unused_exit::client();
     let raw_text = !peer_text::masks(origin);
     let conn = Arc::new(Conn {
         id: uuid::Uuid::now_v7().to_string(),
@@ -1609,6 +1612,7 @@ async fn serve_connection_from(
         device,
         raw_text,
         name: StdMutex::new(String::new()),
+        presence: client.presence(),
         out,
         outbound_lock: Arc::new(StdMutex::new(())),
         outbound_dropped: Arc::new(AtomicU64::new(0)),

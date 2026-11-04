@@ -21,6 +21,7 @@ mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
+mod automation_tools;
 mod browser_tools;
 mod caller_scope;
 mod chat_tools;
@@ -136,20 +137,7 @@ const MAX_MESSAGE_BYTES: usize = 8 << 20;
 /// The largest tool result; a larger page is cut and says where to go on.
 pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 
-const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
-    This chat runs in cmux: a terminal, tab or workspace the person asks for is a cmux one, \
-    made with these tools, not your own shell. \
-    Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
-    *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
-    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
-    A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
-    key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus. \
-    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
-    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
-    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
-    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
-    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
+const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::BASE_INSTRUCTIONS;
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,6 +194,20 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
+    /// One `cmux automation WORDS…` verb, run by the CLI's own code
+    /// (`automation_tools`); `idempotency_key` keys a Cloud mutation.
+    fn automation(
+        &self,
+        _words: &[String],
+        _idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "automation.unavailable",
+            "this server cannot reach the automation store",
+        ))
+    }
+
     /// Cloud chat repo actions run on the selected machine daemon.
     fn cloud_repo(&self, _action: &str, _args: Value) -> Result<Value, CallFailure> {
         Err(CallFailure::local(
@@ -325,6 +327,21 @@ impl Backend for LiveBackend {
 
     fn cloud_repo(&self, action: &str, args: Value) -> Result<Value, CallFailure> {
         super::cloud_repo::call(&self.global, action, args)
+    }
+
+    fn automation(
+        &self,
+        words: &[String],
+        idempotency_key: Option<&str>,
+    ) -> Result<Value, CallFailure> {
+        let mut global = self.global.clone();
+        global.output = OutputMode::Json;
+        global.idempotency_key = idempotency_key.map(str::to_owned);
+        super::automation::run_json(&global, words).map_err(|(error, unknown)| CallFailure {
+            kind: if unknown { FailureKind::InProgress } else { FailureKind::Rejected },
+            error,
+            idempotency_key: idempotency_key.map(str::to_owned),
+        })
     }
 
     fn resource(
@@ -712,7 +729,10 @@ impl<B: Backend> Server<B> {
         let result = match method {
             "initialize" => {
                 chat_tools::remember_client(&params);
-                Ok(initialize(&params, self.list_changed, self.code_mode && self.allowed.is_none()))
+                let code_mode = self.code_mode && self.allowed.is_none();
+                let wrap_up = code_mode
+                    && self.upstreams.iter().any(|up| up.name == code_mode::WRAP_UP_SERVER);
+                Ok(initialize(&params, self.list_changed, code_mode, wrap_up))
             }
             "ping" => Ok(json!({})),
             "tools/list" if self.code_mode && self.allowed.is_none() => {
@@ -782,6 +802,7 @@ impl<B: Backend> Server<B> {
         tools.extend(video_tools::descriptors());
         tools
             .extend(settings_tools::TOOLS.iter().map(settings_tools::SettingTool::descriptor_json));
+        tools.extend(automation_tools::descriptors());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
         );
@@ -1028,6 +1049,9 @@ impl<B: Backend> Server<B> {
         }
         if let Some(tool) = settings_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
+        }
+        if let Some(result) = automation_tools::call(&self.backend, name, &arguments) {
+            return Ok(result);
         }
         if let Some(tool) = keybinding_tools::find(name) {
             return Ok(match tool.params(&arguments) {
@@ -1448,15 +1472,18 @@ impl<B: Backend> Server<B> {
     }
 }
 
-fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
+/// `wrap_up`: the chat's acpmux server is folded in, so its next-step box is steered to here too
+/// (code_mode.rs [`code_mode::WRAP_UP_INSTRUCTION`]).
+fn initialize(params: &Value, list_changed: bool, code_mode: bool, wrap_up: bool) -> Value {
     json!({
         "protocolVersion": acpmux::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
         "instructions": format!(
-            "{} {}",
+            "{} {}{}",
             if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
-            acpmux::agent_tools::ASKING_RULE
+            acpmux::agent_tools::ASKING_RULE,
+            if wrap_up { code_mode::WRAP_UP_INSTRUCTION } else { "" }
         ),
     })
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87. */
+/* cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -665,6 +665,18 @@ export type Layout = ({ "type": "leaf" } & {
   "type": "stack";
 });
 
+export type LayoutSizePaneWidth = {
+  "pane": Id;
+  "width": number;
+};
+
+export type LayoutSizeSplitRatio = {
+  "ratio": number;
+  "split": Id;
+};
+
+export type LayoutSizeValue = (LayoutSizeSplitRatio) | (LayoutSizePaneWidth);
+
 export type LayoutUndoConfirmationRequired = {
   "closes_panes": Array<Id>;
   "confirmation_required": true;
@@ -1175,7 +1187,10 @@ export type ServerStatsWritePath = {
   "effect_intent_batches": bigint;
   "effect_intent_failures": bigint;
   "effect_intents": bigint;
+  "registry_wal_frame_bytes"?: bigint;
   "request_effect_commits": bigint;
+  "wal_commits"?: bigint;
+  "wal_synced_commits"?: bigint;
   "writer_registry_locks": bigint;
 };
 

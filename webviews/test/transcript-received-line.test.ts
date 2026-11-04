@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { TRANSCRIPT_SPACING } from "../src/agent-session/acpmux/transcriptSpacing";
+import { TRANSCRIPT_SPACING, TRANSCRIPT_SPACING_KINDS } from "../src/agent-session/acpmux/transcriptSpacing";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -23,7 +23,8 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     { name: "Apple System Colors Light", file: "light" },
     { name: "Catppuccin Mocha", file: "dark" },
   ];
-  const value = (id: string) => TRANSCRIPT_SPACING.find((row) => row.id === id)!.value;
+  const value = (id: string) =>
+    [...TRANSCRIPT_SPACING, ...TRANSCRIPT_SPACING_KINDS].find((row) => row.id === id)!.value;
 
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -62,10 +63,8 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     glyph: number | null;
     received: Line | null;
     run: Line | null;
+    worked: number | null;
     sender: { text: string; height: number; top: number; bottom: number } | null;
-    /** The message's first line, on its own line under the received line (messageLineLook.ts
-     * `stacked`, its 18px pinned by rowEstimates.test.ts); null when the line carries it. */
-    first: { text: string; height: number } | null;
   };
 
   const measure = (page: Page): Promise<Measured> =>
@@ -121,9 +120,12 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       const tagBox = tag?.querySelector(".cv-agent-tag")?.getBoundingClientRect();
       return {
         glyph: glyph ? (glyph.top + glyph.bottom) / 2 : null,
-        // Stacked, the line's words are the sender's; the first line is under it (`first`).
-        received: line(receivedRow, ".cv-received__preview, .cv-received__from", ".cv-received__mark > *"),
+        received: line(receivedRow, ".cv-received__preview", ".cv-received__mark > *"),
         run: line(runRow, ".cv-tool__summary", ".cv-tool__icon > *"),
+        worked: (() => {
+          const label = [...document.querySelectorAll(".cv-worked .cv-worked__label")].find(shown);
+          return label ? (textCentre(label)?.centre ?? null) : null;
+        })(),
         sender:
           tag && tagBox
             ? {
@@ -136,13 +138,6 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
                 bottom: tagBox.bottom,
               }
             : null,
-        first: (() => {
-          const below = receivedRow?.parentElement?.querySelector<HTMLElement>(":scope > .cv-msgline__preview");
-          const box = below?.getBoundingClientRect();
-          return below && box && box.height > 0
-            ? { text: (below.textContent ?? "").replace(/\s+/g, " ").trim(), height: box.height }
-            : null;
-        })(),
       };
     });
 
@@ -186,11 +181,12 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
       const got = await of(theme);
       expect(Math.abs(got.received!.centre - got.glyph! - value("footer-to-next"))).toBeLessThanOrEqual(1);
     });
-    test(`the received line and the run's line are one line apart (${theme.file})`, async () => {
+    // The turn the received line started folds under its Worked for (Leo, 2026-11-04), opened here:
+    // that line is a one-line row between the two (transcriptSpacing.ts).
+    test(`the received line, its turn's Worked for and the run's line sit one line apart each (${theme.file})`, async () => {
       const got = await of(theme);
-      // Line to line, plus the message's first line under the received one.
-      const first = got.first?.height ?? 0;
-      expect(Math.abs(got.run!.centre - got.received!.centre - first - value("step-pitch"))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(got.worked! - got.received!.centre - value("received-to-worked"))).toBeLessThanOrEqual(0.5);
+      expect(Math.abs(got.run!.centre - got.worked! - value("worked-to-status"))).toBeLessThanOrEqual(0.5);
     });
     test(`the received line's words are the tool rows' size (${theme.file})`, async () => {
       const got = await of(theme);
@@ -204,12 +200,8 @@ await requireBrowserLane("transcript-received-line.test.ts", async () => {
     test(`the sender is named once, its machine after it (${theme.file})`, async () => {
       const got = await of(theme);
       expect(got.sender!.text).toBe("merge-timeout · lane-vm-01");
-      // Its message's "merge-timeout:" signature is out: the line names the sender once, and the
-      // message's first line (under it, stacked) starts at its words.
-      if (got.first) {
-        expect(got.received!.text).toContain("lane-vm-01");
-        expect(got.first.text.startsWith("please deploy")).toBe(true);
-      } else expect(got.received!.text).toContain("lane-vm-01please deploy");
+      // Its message's "merge-timeout:" signature is out: the line names the sender once.
+      expect(got.received!.text).toContain("lane-vm-01please deploy");
     });
     test(`the sender's tag stays inside its line, clear of the run's line (${theme.file})`, async () => {
       const got = await of(theme);
