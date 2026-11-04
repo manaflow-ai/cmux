@@ -50,7 +50,10 @@
 //!   yet, so it is false and the Cloud never sleeps a machine inside a turn on it.
 //!
 //! A tool call a lagged event stream missed is forgotten at the turn's end or when the session
-//! stops being at work, so a missed `completed` never holds `tool` past its turn.
+//! stops being at work, so a missed `completed` never holds `tool` past its turn. A missed start
+//! is worse (a tool would run under `model-wait`), so after a lag every session then at work
+//! reports `unknown` (which the Cloud reads as awake) until its turn ends or it is no longer at
+//! work.
 //!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
@@ -84,6 +87,11 @@ pub(super) struct Tracker {
     open_tools: BTreeMap<String, BTreeSet<String>>,
     /// Each session's calls named before they run ([`crate::hub::tool_start`]).
     starting: BTreeMap<String, BTreeSet<String>>,
+    /// The event stream lagged: tool events may be missing. Sessions at work at the next read
+    /// are `unknown` until their turn ends ([`Self::uncertain`]).
+    lagged: bool,
+    /// Sessions whose tool events may be missing since a lag.
+    uncertain: BTreeSet<String>,
     /// Each session at work's phase and since when, once [`Self::observe`] ran.
     phases: Option<BTreeMap<String, TurnPhase>>,
     /// The phases the agent last got, by session: (phase, since).
@@ -153,8 +161,15 @@ impl Tracker {
     /// Session `sid`'s turn ended: whatever call it left open (cancelled, or a `completed` the
     /// event stream dropped) is closed. True when one was open.
     pub(super) fn turn_ended(&mut self, sid: &str) -> bool {
+        let uncertain = self.uncertain.remove(sid);
         let starting = self.starting.remove(sid).is_some();
-        self.open_tools.remove(sid).is_some() || starting
+        self.open_tools.remove(sid).is_some() || starting || uncertain
+    }
+
+    /// The event stream dropped events: what a session at work waits on is not known until its
+    /// turn ends.
+    pub(super) fn lagged(&mut self) {
+        self.lagged = true;
     }
 
     /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
@@ -163,10 +178,16 @@ impl Tracker {
         let ids: BTreeSet<&str> = at_work.iter().map(|s| s.id.as_str()).collect();
         self.open_tools.retain(|sid, _| ids.contains(sid.as_str()));
         self.starting.retain(|sid, _| ids.contains(sid.as_str()));
+        self.uncertain.retain(|sid| ids.contains(sid.as_str()));
+        if std::mem::take(&mut self.lagged) {
+            self.uncertain.extend(ids.iter().map(|id| (*id).to_owned()));
+        }
         let before = self.phases.take().unwrap_or_default();
         let mut phases = BTreeMap::new();
         for s in at_work {
-            let phase = if self.open_tools.contains_key(&s.id) {
+            let phase = if self.uncertain.contains(&s.id) {
+                "unknown"
+            } else if self.open_tools.contains_key(&s.id) {
                 "tool"
             } else if self.starting.contains_key(&s.id) {
                 "tool-starting"
@@ -265,31 +286,35 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         let renew = tokio::select! {
-            ev = events.recv() => {
-                let ev = match ev {
-                    Ok(ev) => ev,
-                    // Missed events only delay a change to the next tick.
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
-                };
-                if ev.remote.is_some() {
-                    continue;
+            ev = events.recv() => match ev {
+                // Missed events: the count is read again now, and what each session at work
+                // waits on is unknown until its turn ends.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    tracker.lagged();
+                    true
                 }
-                let (dir, kind) = (ev.record.dir.as_str(), ev.record.kind.as_str());
-                if Tracker::is_action(dir, kind) {
-                    tracker.acted(ev.record.at);
+                Err(_) => break,
+                Ok(ev) => {
+                    if ev.remote.is_some() {
+                        continue;
+                    }
+                    let (dir, kind) = (ev.record.dir.as_str(), ev.record.kind.as_str());
+                    if Tracker::is_action(dir, kind) {
+                        tracker.acted(ev.record.at);
+                    }
+                    if dir == "mux" && kind == "turn_result" {
+                        tracker.turn_ended(&ev.session_id);
+                    }
+                    // Only acpmux's own records change what is at work, and a tool call's start
+                    // or end what a session waits on; an agent's stream (every token) never does.
+                    let phase =
+                        dir == "in" && tracker.tool_event(&ev.session_id, kind, &ev.record.msg);
+                    if dir != "mux" && !phase {
+                        continue;
+                    }
+                    false
                 }
-                if dir == "mux" && kind == "turn_result" {
-                    tracker.turn_ended(&ev.session_id);
-                }
-                // Only acpmux's own records change what is at work, and a tool call's start or
-                // end what a session waits on; an agent's stream (every token) never does.
-                let phase = dir == "in" && tracker.tool_event(&ev.session_id, kind, &ev.record.msg);
-                if dir != "mux" && !phase {
-                    continue;
-                }
-                false
-            }
+            },
             _ = tick.tick() => true,
             // After a pause the agent's count may have run out: a line goes at once.
             Ok(()) = resumes.changed() => true,

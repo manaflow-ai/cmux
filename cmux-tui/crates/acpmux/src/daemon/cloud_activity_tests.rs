@@ -248,3 +248,33 @@ fn a_named_call_is_tool_starting_until_it_runs_or_its_turn_ends() {
     assert!(t.tool_event("a", "tool_call", &call("t2", "pending")));
     assert!(t.tool_event("a", "tool_call_update", &call("t2", "failed")));
 }
+
+/// A lagged event stream may have dropped a tool's start: every session then at work reports
+/// `unknown` (awake to the Cloud) until its turn ends or it is no longer at work; one that
+/// starts at work later is read as usual.
+#[test]
+fn after_a_lag_a_session_at_work_is_unknown_until_its_turn_ends() {
+    let mut t = Tracker::default();
+    t.observe(&[turn("a")], 1);
+    assert!(t.line(1, false, 1).is_some());
+    t.lagged();
+    t.observe(&[turn("a")], 2);
+    assert_eq!(phases(&t.line(1, true, 2).unwrap()), [("unknown".to_owned(), 2)]);
+    t.observe(&[turn("a"), turn("b")], 3);
+    assert_eq!(
+        phases(&t.line(2, false, 3).unwrap()),
+        [("unknown".to_owned(), 2), ("model-wait".to_owned(), 3)]
+    );
+    assert!(t.turn_ended("a"));
+    t.observe(&[turn("a"), turn("b")], 4);
+    assert_eq!(
+        phases(&t.line(2, false, 4).unwrap()),
+        [("model-wait".to_owned(), 4), ("model-wait".to_owned(), 3)]
+    );
+    // Leaving work clears it too.
+    t.lagged();
+    t.observe(&[turn("b")], 5);
+    t.observe(&[], 6);
+    t.observe(&[turn("b")], 7);
+    assert_eq!(phases(&t.line(1, false, 7).unwrap()), [("model-wait".to_owned(), 7)]);
+}
