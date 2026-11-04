@@ -13,10 +13,10 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
     /// Tests: the checkpoint's `sync_log` on this thread stops right after it cloned the open
     /// log, before its own sync of it.
-    pub(crate) static HOLD_AFTER_LOG_CLONE: Hold = const { std::cell::RefCell::new(None) };
+    pub(crate) static HOLD_AFTER_LOG_CLONE: HoldSlot = const { std::cell::RefCell::new(None) };
     /// Tests: a log's close on this thread whose sync failed stops right before it notes the
     /// failure in `sync_failed`.
-    pub(crate) static HOLD_BEFORE_CLOSE_NOTE: Hold = const { std::cell::RefCell::new(None) };
+    pub(crate) static HOLD_BEFORE_CLOSE_NOTE: HoldSlot = const { std::cell::RefCell::new(None) };
     /// Tests: this thread says so, once, right before it waits for the syncs of the store's
     /// files under way on other threads (`SyncsUnderWay::wait_for_those_under_way`).
     pub(crate) static NOTE_BEFORE_SYNCS_WAIT: Note = const { std::cell::RefCell::new(None) };
@@ -40,12 +40,12 @@ pub(super) fn note(slot: &'static std::thread::LocalKey<Note>, what: &'static st
 
 /// Tests: a stop on one thread: it says so on the first channel and waits for the second.
 #[cfg(test)]
-pub(crate) type Hold =
+pub(crate) type HoldSlot =
     std::cell::RefCell<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>;
 
 /// Tests: the stop in `slot`, if this thread has one.
 #[cfg(test)]
-pub(super) fn hold(slot: &'static std::thread::LocalKey<Hold>) {
+pub(super) fn hold(slot: &'static std::thread::LocalKey<HoldSlot>) {
     if let Some((arrived, release)) = slot.with(|hold| hold.borrow_mut().take()) {
         let _ = arrived.send(());
         let _ = release.recv();

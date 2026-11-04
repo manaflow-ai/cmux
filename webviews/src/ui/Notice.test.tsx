@@ -150,6 +150,14 @@ test("a queue keeps at least the newest toast, whatever its limit", () => {
   expect(closed).toEqual(["a:replaced"]);
 });
 
+test("a toast with no id never replaces one whose caller picked a generated-looking id", () => {
+  const queue = createNoticeQueue();
+  queue.show({ id: "toast-1", message: "mine" });
+  const id = queue.show({ message: "new" });
+  expect(id).not.toBe("toast-1");
+  expect(queue.snapshot().map((entry) => entry.spec.message)).toEqual(["mine", "new"]);
+});
+
 test("an onClose that changes the queue sees it already changed", () => {
   // Replaced: closing a toast ahead of it must not leave the old toast in place of the new one.
   const replaced = createNoticeQueue();

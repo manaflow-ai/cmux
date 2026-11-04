@@ -38,6 +38,8 @@ public import Foundation
     /// whose creator is the caller (the platform's `vmKind == "owner"` answer, still required) may
     /// receive the login although teammates share its Unix user. Off everywhere else.
     public let allowsCreatorTeamGuest: Bool
+    /// How long the first guest check waits for a new guest's bind (``guestCheckBudget``; tests shorten it).
+    var guestBudget = Self.guestCheckBudget
 
     public init(provider: Provider, machineID: String, teamID: String?, userID: String, allowsCreatorTeamGuest: Bool = false,
                 openTerminal: @escaping @MainActor (String) async -> Bool) {
@@ -60,6 +62,14 @@ public import Foundation
         var backoff = Backoff(initial: .seconds(3), maximum: .seconds(3), multiplier: 1)
         // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
         try await backoff.wait(owner: "cloud-credential-transfer.guest-bind")
+    }
+
+    /// `operation`, cancelled at `deadline`: nil once the deadline is reached, before or while it runs.
+    nonisolated static func before<T: Sendable>(_ deadline: ContinuousClock.Instant,
+                                                _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
+        let left = deadline - .now
+        guard left > .zero else { return nil }
+        do { return try await withDeadline(left, label: "cloud guest bind", operation) } catch is DeadlineExceeded { return nil }
     }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
@@ -155,7 +165,7 @@ public import Foundation
         // No credential is acquired or read until the platform says the caller owns the machine and
         // the machine has the image's launchers.
         guard try await effects.callerOwnsVM() else { throw Failure.sharedMachine }
-        try await waitForGuest(effects: effects, checkScope: checkScope)
+        try await waitForGuest(program: preflight, effects: effects, checkScope: checkScope)
         try checkScope()
         let cached = refresh ? nil : try await effects.load()
         let credential: Data
@@ -194,13 +204,15 @@ public import Foundation
     /// The first guest check, run again while the guest has no kind record yet (it has not bound). A kind
     /// record that fails the check is the guest's answer (a team guest, an image without the launchers):
     /// refused at once. A record that never comes is ``Failure/machineNotReady``.
-    private func waitForGuest(effects: Effects, checkScope: () throws -> Void) async throws {
-        let deadline = ContinuousClock.now + Self.guestCheckBudget
+    /// Every exec and pause counts against ``guestBudget``, slow ones included.
+    private func waitForGuest(program: String, effects: Effects, checkScope: () throws -> Void) async throws {
+        let deadline = ContinuousClock.now + guestBudget
         for attempt in 1...Self.guestCheckTries {
-            if try await effects.exec(preflight) == 0 { return }
-            guard try await effects.exec(Self.kindMissing) == 0 else { throw Failure.sharedMachine }
-            guard attempt < Self.guestCheckTries, ContinuousClock.now < deadline else { break }
-            try await effects.pause()
+            guard let passed = try await Self.before(deadline, { try await effects.exec(program) }) else { break }
+            if passed == 0 { return }
+            guard let missing = try await Self.before(deadline, { try await effects.exec(Self.kindMissing) }) else { break }
+            guard missing == 0 else { throw Failure.sharedMachine }
+            guard attempt < Self.guestCheckTries, try await Self.before(deadline, effects.pause) != nil else { break }
             try checkScope()
         }
         throw Failure.machineNotReady
