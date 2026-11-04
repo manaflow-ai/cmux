@@ -28,10 +28,10 @@ public final class AgentPaneStartFolders {
     func prefetch(for model: AgentPaneModel) {
         // A handshake that already took the last one awaits it on its own; this one is the next's.
         prefetched = nil
-        guard model.sessionId == nil, let resolve, model.seed?.pending != true else { return }
+        guard model.sessionId == nil, resolve != nil, model.seed?.pending != true else { return }
         let proposed = model.seed?.knownCwd ?? (model.newTab != nil ? model.tabsNewTabFolder : nil)
         // task-owner: one store read the handshake reply awaits (``resolved(_:)``) or drops; replaced by the next prefetch
-        prefetched = Task { @MainActor in (proposed, await resolve(proposed)) }
+        prefetched = Task { @MainActor [weak self] in (proposed, await self?.resolve?(proposed)) }
     }
 
     /// The store's answer for `proposed`: the prefetched one when it was asked for the same folder,
