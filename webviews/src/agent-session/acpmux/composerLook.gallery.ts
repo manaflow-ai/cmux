@@ -196,7 +196,7 @@ const ALT_IN_BOX_ROW = `
 /// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
 /// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
 /// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
-/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ on a disc after the mic, as Codex does.
 /// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
 /// state this replaced) is never drawn.
 const runningChat = () => {
@@ -206,9 +206,16 @@ const runningChat = () => {
 const DRAFT = { draft: "Also cover the 503 path" };
 const ALT_AFTER_MIC = `
 .acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
-const ALT_FILLED_DISC = `
-.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
-  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+/// Codex's Send (composerLook.css, the pick: the accent disc after the mic). The alternates: ChatGPT's
+/// disc in the text colour, and the plain ↑ glyph Codex's look drew before (#23763's no-disc rule).
+const ALT_TEXT_DISC = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: var(--agent-text); color: var(--agent-page-bg, Canvas);
+}`;
+const ALT_PLAIN_GLYPH = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send,
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: transparent; color: var(--agent-muted);
 }`;
 
 const chatHeight = 360;
@@ -294,7 +301,7 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic and Send right. Every mode, model and context control stays inside the box.",
+      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic, then Codex's round Send, right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
@@ -408,11 +415,33 @@ export default agentPaneEntry({
       ready: DRAFT,
       play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
     },
-    "send-alt-filled-disc": {
-      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21), and the slot stays before the mic.",
-      snapshot: runningChat(),
+    "codex-send-accent-disc": {
+      note: "Codex's Send (the pick): the ↑ on the accent disc after the mic, as Codex and ChatGPT draw it (Leo 2026-11-04: \"our codex style composer should look like codex's/chatgpt's\"). Ref codex/live/composer-codex-empty-input-controls.",
+      snapshot: startedChat(),
       ready: DRAFT,
-      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-empty": {
+      note: "Codex's Send with nothing to send: the soft disc and the dimmed ↑ stay after the mic, so the mic never steps.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-stop": {
+      note: "Codex's slot mid-turn with an empty prompt: Stop's square on the soft disc.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-alt-text-disc": {
+      note: "Alternate (not shipped): ChatGPT's disc in the text colour. Not picked: Codex's own composer, the look's namesake, uses its accent.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_TEXT_DISC),
+    },
+    "codex-send-alt-plain-glyph": {
+      note: "Replaced: Codex's look drew Send as a plain glyph (no disc, #23763). Kept for comparison.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_PLAIN_GLYPH),
     },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",

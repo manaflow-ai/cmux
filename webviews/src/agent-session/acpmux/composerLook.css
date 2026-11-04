@@ -134,6 +134,32 @@
   z-index: calc(var(--layer-raised, 1) + 1);
 }
 
+/* Send in Codex's look is Codex's and ChatGPT's round button after the mic (Leo 2026-11-04: "our
+   codex style composer should look like codex's/chatgpt's"; private ref
+   codex/live/composer-codex-empty-input-controls): the ↑ on a disc in the theme's accent, always
+   drawn (Composer.tsx quietActions), a soft disc and the dimmed glyph while there is nothing to send,
+   the accent once there is, and Stop's square on the soft disc. Claude's look keeps the plain glyph
+   (#23763). Gallery agent-pane.composer-look `codex-send-*` shows the alternates. */
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send {
+  border-radius: 50%;
+  background: var(--acpmux-pill-open, color-mix(in srgb, var(--agent-text) 16%, transparent));
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, Canvas);
+}
+:is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-cancel {
+  color: var(--agent-text);
+}
+@media (hover: hover) and (pointer: fine) {
+  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send:not(:disabled):hover {
+    background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
+  }
+  :is(.acpmux-composer, .nt-composer)[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled):hover {
+    background: color-mix(in srgb, var(--agent-accent) 86%, var(--agent-text));
+  }
+}
+
 /* Full access names its risk in the theme's accent, where Codex draws orange. */
 :is(.acpmux-composer, .nt-composer, .acpmux-newtab)[data-composer-look="codex"] .acpmux-access.acpmux-unrestricted :is(.acpmux-picker-button, .acpmux-access-trigger) {
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));

@@ -140,11 +140,21 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
             expect(plus.width).toBe(28);
             expect(plus.height).toBe(28);
             expect(Math.abs(plus.left - 8)).toBeLessThanOrEqual(0.5);
+            // The last control keeps the right inset: the mic in Claude's look (Send is drawn only
+            // with a draft, before it), Codex's round Send after the mic in Codex's.
             const mic = controls[".acpmux-mic"];
+            const send = controls[".acpmux-send"];
+            if (look === "codex") expect(send).toBeDefined();
+            const last = look === "codex" ? send : mic;
             if (mic) {
               expect(mic.inside).toBe(true);
-              expect(Math.abs(geometry.box.width - mic.right - 8)).toBeLessThanOrEqual(0.5);
               expect(Math.abs(mic.top - plus.top)).toBeLessThanOrEqual(0.5);
+            }
+            if (last) expect(Math.abs(geometry.box.width - last.right - 8)).toBeLessThanOrEqual(0.5);
+            if (look === "codex" && mic && send) {
+              expect(send.left).toBeGreaterThan(mic.right);
+              expect(Math.abs(send.top - plus.top)).toBeLessThanOrEqual(0.5);
+              expect(send.width).toBe(28);
             }
             for (const selector of [
               ".acpmux-access-trigger",
@@ -178,8 +188,11 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           console.log(`COMPOSER_PROMPT_CONTROL_GAP ${theme}-${width} ${plus.top - codex.prompt!.bottom}`);
           // The switch keeps every control and both horizontal edge insets.
           expect(codex.box.height).toBeGreaterThan(claude.box.height + 20);
-          expect(Object.keys(codex.controls).sort()).toEqual(Object.keys(claude.controls).sort());
-          for (const selector of [".acpmux-composer-plus .acpmux-picker-button", ".acpmux-mic", ".acpmux-send"]) {
+          // Codex's look adds only its always-drawn Send.
+          expect(Object.keys(codex.controls).sort()).toEqual(
+            [...new Set([...Object.keys(claude.controls), ".acpmux-send"])].sort(),
+          );
+          for (const selector of [".acpmux-composer-plus .acpmux-picker-button"]) {
             const c = claude.controls[selector];
             const x = codex.controls[selector];
             if (!c || !x) continue;
@@ -190,6 +203,62 @@ await requireBrowserLane("composer-codex-row.test.ts", async () => {
           await page.close();
         }
       });
+
+  // Leo 2026-11-04: "our codex style composer should look like codex's/chatgpt's". Codex's Send is
+  // its round button after the mic: a soft disc with nothing to send, the accent disc with a draft.
+  // Claude's look keeps the plain glyph (no disc, #23763).
+  test("Codex's Send is a round disc after the mic, filled with a draft; Claude's stays a plain glyph", async () => {
+    const page = await browser.newPage({ viewport: { width: 760, height: 560 }, deviceScaleFactor: 2 });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      const send = async (variant: string) => {
+        await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-look", { variant })}`);
+        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+        await page.mouse.move(0, 0);
+        await settle(page);
+        await page
+          .locator(".acpmux-composer")
+          .screenshot({ path: path.join(out, `${variant}.png`), animations: "disabled", caret: "hide" });
+        return page.evaluate(() => {
+          const el = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-send");
+          const mic = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-mic");
+          if (!el) return null;
+          const style = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          const accent = getComputedStyle(el).getPropertyValue("--agent-accent").trim();
+          const probe = document.createElement("i");
+          probe.style.color = accent;
+          document.body.append(probe);
+          const accentColor = getComputedStyle(probe).color;
+          probe.remove();
+          return {
+            fill: style.backgroundColor,
+            radius: parseFloat(style.borderTopLeftRadius),
+            width: r.width,
+            ready: el.classList.contains("acpmux-send-ready"),
+            afterMic: mic ? r.left >= mic.getBoundingClientRect().right : null,
+            accentColor,
+          };
+        });
+      };
+      const transparent = (fill: string) => fill === "transparent" || /rgba\(.*,\s*0\)$/.test(fill);
+      const empty = await send("codex-send-empty");
+      expect(empty).not.toBeNull();
+      expect(empty!.afterMic).toBe(true);
+      expect(empty!.ready).toBe(false);
+      expect(transparent(empty!.fill)).toBe(false);
+      expect(empty!.radius).toBeGreaterThanOrEqual(empty!.width / 2 - 0.5);
+      const ready = await send("codex-send-accent-disc");
+      expect(ready!.ready).toBe(true);
+      expect(ready!.afterMic).toBe(true);
+      expect(ready!.fill).toBe(ready!.accentColor);
+      const claude = await send("send-alt-after-mic-claude");
+      expect(claude).not.toBeNull();
+      expect(transparent(claude!.fill)).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
 
   // New Tab in Codex's look splits as Claude's: + before the field, the mic and Send after it, the
   // mode and model in the quiet row under the box; a narrow pane steps the labels down there.
