@@ -120,6 +120,7 @@ pub mod qos;
 pub mod question_answer;
 pub mod recovery;
 pub mod registry;
+pub mod resume;
 pub mod review_box;
 pub mod route_account;
 mod route_probe;
@@ -139,6 +140,8 @@ mod session_scope;
 pub mod session_search;
 pub mod session_status;
 pub mod sha256;
+#[cfg(feature = "sim")]
+pub mod sim_agent;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;
@@ -148,6 +151,8 @@ pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
+pub mod suggestion_gate;
+pub mod wrap_up_suggestion;
 pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
