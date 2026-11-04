@@ -9,9 +9,9 @@ import Testing
 
 /// TERMINAL CREATE COST item 2 (STATUS 11351, 11836): New Terminal Tab from the docked agent chat opens a New Column, and
 /// its key turn took 10-11 ms on cmux21, of which 3.5 ms built the new pane's views (PaneContentView, TabStripView and its
-/// buttons) and 2 ms added them to the window (AppKit's `_setWindow` walk over the new subtree). As Chrome keeps a spare
-/// renderer for its next tab, each window keeps one spare pane view, built after a frame committed and parked in the
-/// window: a pane made in a key's turn (New Column, New Row, Cmd-D) adopts it, so the key's turn builds no pane view.
+/// buttons) and 2 ms added them to the window. As Chrome keeps a spare renderer for its next tab, each shown workspace
+/// keeps one pane's strip model and views made ahead while the app is still, out of every window: a pane made in a key's
+/// turn (New Column, New Row, Cmd-D) adopts them, so the key's turn builds no pane view and no view leaves a window.
 ///
 /// The test is the layout's clock (`DisplayLinkDriver.isManual`); the daemon is an offline store.
 @Suite(.closesItsWindows)
@@ -47,16 +47,6 @@ import Testing
         }
     }
 
-    /// Every view in `root`'s subtree.
-    private static func subtree(_ root: NSView) -> Set<ObjectIdentifier> {
-        var seen: Set<ObjectIdentifier> = [], stack = [root]
-        while let view = stack.popLast() {
-            seen.insert(ObjectIdentifier(view))
-            stack.append(contentsOf: view.subviews)
-        }
-        return seen
-    }
-
     @Test(.timeLimit(.minutes(1)))
     func aNewColumnsKeyTurnBuildsNoPaneView() async throws {
         _ = NSApplication.shared
@@ -90,8 +80,10 @@ import Testing
             services.mainWork.frameDidFire()
         }
         await Self.drainMain()
-        let before = Self.subtree(window.contentView ?? content.contentView)
         try #require(content.panes.count == 1, "fixture: one pane")
+        let ready = try #require(content.paneSpare.ready, "no pane views were made ahead while the app was still")
+        // Out of every window: a pane's content installed before its host joins the window enters the window once (WindowEntryHandoff).
+        try #require(ready.view.window == nil, "the views made ahead are in a window: a page installed there would leave it again")
 
         // The key's turn of New Column (`WorkspaceContentController.newColumn` -> `createInKeysTurn`): the stand-in pane in
         // the store, then laid out and mounted before the key's frame.
@@ -102,8 +94,9 @@ import Testing
 
         let made = try #require(content.panes.values.first { $0.pane.handle == provisional.handle }, "the key's turn did not mount the new column's pane")
         #expect(made.view.window === window, "the new column's pane view is not in the window in the key's turn")
-        #expect(before.contains(ObjectIdentifier(made.view)), "the key's turn built the new column's pane view (its PaneContentView is new)")
-        #expect(before.contains(ObjectIdentifier(made.view.stripView)), "the key's turn built the new column's tab strip")
+        #expect(made.view === ready.view, "the key's turn built the new column's pane view (its PaneContentView is new)")
+        #expect(made.stripModel === ready.stripModel, "the key's turn built the new column's strip model")
+        #expect(content.paneSpare.ready == nil, "a new spare was made in the key's turn")
         #expect(made.stripModel.selectedID?.rawValue == provisional.tabID, "the new column's strip does not select its stand-in tab")
     }
 }
