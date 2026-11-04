@@ -149,7 +149,7 @@ extension BrowserHibernation {
         // A quarter of the cache, less a margin for row padding; same aspect and color space, off the main actor.
         let bytes = Double((cache?.previews.capacityBytes ?? 32 << 20) / 4) * 0.98
         let scale = min(1, (bytes / Double(max(image.width * image.height * 4, 1))).squareRoot())
-        let fitted = await TabPreviewFitting.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
+        let fitted = await PreviewImageCache.fit(image, CGSize(width: Double(image.width) * scale, height: Double(image.height) * scale))
         return HibernationSnapshots.Picture(data: nil, image: fitted)
     }
 }

@@ -578,7 +578,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       // One line at the left with the sender's name and the message's first line, the sender's
       // words only; nothing under it until it opens.
       expect(await card.locator(".cv-received__from").innerText()).toBe("Grid fix");
-      expect(await card.locator(".cv-disclosure__below").innerText()).toBe(
+      expect(await card.locator(".cv-received__preview").innerText()).toBe(
         "The grid fix is on cmux/grid-fix; tests pass.",
       );
       expect(await card.locator(".cv-disclosure__panel").count()).toBe(0);
@@ -617,7 +617,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(await card.locator(".cv-disclosure__below").innerText()).toBe("Step 1 of the landing report.");
+      expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
       expect(await card.locator(".cv-disclosure__line").evaluate((el) => el.getBoundingClientRect().height)).toBe(22);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });

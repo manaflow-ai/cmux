@@ -1277,6 +1277,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBridge",
             dependencies: [
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextRemote", "CmuxNextSidebar", "CmuxNextTabs", "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
@@ -1555,7 +1556,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextSidebarTests",
-            dependencies: ["CmuxNextSidebar"],
+            dependencies: ["CmuxNextSidebar", "CmuxNextWakeups"],
             exclude: ["Fixtures"],
             swiftSettings: uiSwiftSettings
         ),
@@ -1587,7 +1588,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextBridge", "CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox

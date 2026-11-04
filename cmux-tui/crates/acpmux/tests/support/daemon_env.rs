@@ -325,7 +325,13 @@ pub fn acpmux(scratch: &Path) -> Command {
 /// `acpmux` with the hermetic environment; `tools` are host tools (by name,
 /// found on the test's PATH) to put on the daemon's PATH besides `python3`.
 pub fn command(scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
-    let mut cmd = Command::new(bin());
+    command_at(bin(), scratch, agents, tools)
+}
+
+/// A specific acpmux build with the same hermetic environment. Differential benchmarks
+/// can run one unchanged test harness against base and head without exposing host agents.
+pub fn command_at(binary: &Path, scratch: &Path, agents: Agents, tools: &[&str]) -> Command {
+    let mut cmd = Command::new(binary);
     apply(&mut cmd, scratch, agents, tools);
     cmd
 }

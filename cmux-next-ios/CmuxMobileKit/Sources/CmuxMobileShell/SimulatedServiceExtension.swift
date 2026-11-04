@@ -55,8 +55,10 @@ struct SimulatedServiceExtension {
         let keys = PushKeys.current()
         // The extension's own chain (NotificationService).
         let service = ServicePush()
-        let opened = service.withheld(content, keys: keys) ?? service.opened(content, keys: keys)
+        let served = service.withheld(content, keys: keys) ?? service.opened(content, keys: keys)
             ?? service.inert(content, trust: keys?.trust()) ?? service.categorized(content) ?? content
+        // The extension's last step too: a chat muted on this phone arrives quietly.
+        let opened = PushChatMutes.live().quieted(served) ?? served
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
