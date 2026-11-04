@@ -61,17 +61,17 @@ export const computerUsedAt = (b: ChiefBrainDO): number | null => {
 
 /** Whether the Chief acted on its computer moments ago. */
 export const computerActing = (b: ChiefBrainDO, now = Date.now()): boolean => {
-  const n = Number(readConfig(b.sql, [COMPUTER_ACTIVE_KEY])[COMPUTER_ACTIVE_KEY])
+  const n = Number(configValue(b, COMPUTER_ACTIVE_KEY))
   return Number.isFinite(n) && now - n < ACTING_MS
 }
 
-/** The sandbox `id` is gone: when it was the computer, the Chief has none until the next setup. */
 /** Whether the Chief acted on its computer within IDLE_MS (the owner's view refreshes only then). */
 export const computerIdle = (b: ChiefBrainDO, now = Date.now()): boolean => {
   const n = Number(configValue(b, COMPUTER_ACTIVE_KEY))
   return !(Number.isFinite(n) && now - n < IDLE_MS)
 }
 
+/** The sandbox `id` is gone: when it was the computer, the Chief has none until the next setup. */
 export const forgetComputer = (b: ChiefBrainDO, id?: string) => {
   const c = computerOf(b)
   if (c && (id === undefined || c.id === id)) b.sql.exec(`DELETE FROM cb_config WHERE name = ?`, COMPUTER_KEY)
