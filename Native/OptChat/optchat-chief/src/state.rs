@@ -171,6 +171,11 @@ pub struct HostState {
     /// The number of the last watch started (`w<N>`); ids never repeat.
     #[serde(default, skip_serializing_if = "is_zero_u64")]
     pub last_watch: u64,
+    /// The cloud peers whose VMs this Chief paused (B4,
+    /// cloud-subagents-DESIGN.md). Saved, so a Chief that restarts or moves to
+    /// another Mac resumes such a VM before it tells a subagent there.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub cloud_paused: std::collections::BTreeSet<String>,
 }
 
 /// One watch the Chief started with `watch`: the host runs `command` off
@@ -462,6 +467,16 @@ pub struct SubRecord {
     /// not ended a run with a real report since: it is not moved again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub moved: bool,
+    /// The acpmux machine a Chief move handed it to (`acpmux session move`,
+    /// migrate_subagents.rs); None: where the Chief's own daemon runs. Its
+    /// `session_id` stays the same across the move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    /// Raised by every Chief move that changes its `place` (one write with it),
+    /// so Home re-attaches an open tab where the session went
+    /// (home-agent-pills-DESIGN.md, "Identity").
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub epoch: u64,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.

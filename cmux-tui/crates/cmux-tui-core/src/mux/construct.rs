@@ -232,7 +232,10 @@ impl Mux {
             workspace_lifecycles: Mutex::new(HashMap::new()),
             pending_workspace_surfaces: Mutex::new(HashMap::new()),
             client_sizing_lifecycle: Mutex::new(()),
-            client_sizing: Mutex::new(ClientSizingState::default()),
+            client_sizing: sizing_fast_path::SizingMutex::new(
+                ClientSizingState::default(),
+                lane_on,
+            ),
             client_focus_memory: Mutex::new(Vec::new()),
             last_reported_focus: Mutex::new(None),
             conversations: crate::conversation_store::ConversationHost {
@@ -340,7 +343,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::default(),
+            agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
@@ -422,7 +425,7 @@ impl Mux {
             agent_transfers: Default::default(),
             #[cfg(unix)]
             access_requests: Default::default(),
-            activity: Default::default(),
+            activity: crate::server::activity::ActivityStream::new(lane_on),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             pty_reclaim_forced: AtomicBool::new(false),
@@ -450,6 +453,8 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        // The agent roster's one owner: every fold and snapshot save runs there.
+        mux.start_agent_roster_worker()?;
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

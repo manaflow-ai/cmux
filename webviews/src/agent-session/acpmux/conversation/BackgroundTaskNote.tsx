@@ -74,11 +74,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             text
           )}
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>

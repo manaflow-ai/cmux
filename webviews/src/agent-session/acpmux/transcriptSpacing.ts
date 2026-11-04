@@ -103,10 +103,10 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
   {
     id: "step-to-live",
     between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
-    value: 22,
+    value: 38,
     tolerance: 0.5,
     source:
-      'the live line is a one-line row, and the running turn\'s last (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad")',
+      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
 ];
 
@@ -202,8 +202,8 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
  * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
  * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
  * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
- * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to"
- * sit flush on the 22 pitch (rule 3), 16 from the prose around them (rule 4). Measured over gallery
+ * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to".
+ * Activity rows sit flush on the 22 pitch; the live line takes the run gap below activity. Measured over gallery
  * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
 export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   variant: "working-bottom" | "reply-received" | "notes-live" | "status-prompt";
@@ -228,9 +228,10 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "waiting-to-live",
     variant: "working-bottom",
     between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
-    value: 22,
+    value: 38,
     tolerance: 0.5,
-    source: "the live line is a one-line row (rule 3, step-to-live)",
+    source:
+      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "reply-footer-to-received",
@@ -252,19 +253,20 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     id: "sent-to-live",
     variant: "reply-received",
     between: '"Sent to" and the live "Thinking" line under it, centre to centre',
-    value: 22,
+    value: 38,
     tolerance: 0.5,
-    source: "the live line is a one-line row (rule 3, step-to-live)",
+    source:
+      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "note-to-live",
     variant: "notes-live",
     between:
       'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
-    value: 22,
+    value: 38,
     tolerance: 0.5,
     source:
-      'the live line is a one-line row (rule 3, step-to-live); Leo, 2026-11-03: "this feels like too awkward of a gap :("',
+      '22 line + scaled run gap 16; Leo, 2026-11-04: "the gap between tool calls and thinking needs to be bigger"',
   },
   {
     id: "status-to-prompt",
