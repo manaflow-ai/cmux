@@ -10,11 +10,15 @@ struct NekoIconThemeSettingTests {
     @Test func keyIsReservedAndHidden() throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: NekoIconThemeSetting.configPath))
         #expect(!descriptor.isShownOnSettingsPage)
+        #expect(!descriptor.isPaletteExposed)
         #expect(descriptor.defaultValue == .string(NekoIconThemeSetting.fallback.rawValue))
     }
 
     @Test func nekoFallsBackUntilArtworkIsApproved() {
-        #expect(Self.parse(.string("neko")).iconTheme == .default)
+        let reserved = Self.parse(.string("neko"))
+        #expect(reserved.iconTheme == .default)
+        #expect(!reserved.diagnostics.contains { $0.path == "appearance.iconTheme" })
+        #expect(Self.parse(.string("default")).iconTheme == .default)
         #expect(Self.parse(nil).iconTheme == .default)
     }
 

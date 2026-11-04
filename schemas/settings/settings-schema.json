@@ -2940,7 +2940,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "minimal",
+      "default" : "standard",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.window",
@@ -21011,6 +21011,155 @@
       "title" : {
         "key" : "settings.tasks.layout",
         "text" : "Tasks Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "neko"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Neko"
+          },
+          "value" : "neko"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.iconTheme",
+        "text" : "Icon Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.iconTheme.help",
+        "text" : "The icon drawings used by cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.iconTheme",
+      "keywords" : [
+        "icons",
+        "icon",
+        "theme",
+        "neko",
+        "cat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "iconTheme"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "reserved until the Neko artwork passes light/dark 1x/2x review",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.iconTheme",
+        "text" : "Icon Theme"
       },
       "validation" : "portable"
     },

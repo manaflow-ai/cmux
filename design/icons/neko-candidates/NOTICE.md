@@ -1,8 +1,8 @@
 # Neko candidate art notices
 
 These files are gallery candidates only. They are not imported by the shipped icon pack and are not
-approved production artwork. Each candidate is an unmodified representative SVG fetched at the pinned
-commit in `manifest.json`; the neighboring `LICENSE.txt` and `README.md` files are the complete
+approved production artwork. The three third-party representatives are unmodified SVGs fetched at the
+pinned commits in `manifest.json`; the neighboring `LICENSE.txt` and `README.md` files are the complete
 license and upstream README captured at that same commit.
 
 - `noto-emoji/cat.svg` is `2D/svg/emoji_u1f431.svg` from Google Noto Emoji at commit
