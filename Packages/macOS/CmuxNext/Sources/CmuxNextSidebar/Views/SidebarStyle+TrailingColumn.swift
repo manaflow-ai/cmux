@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// AppKit adapters for the pure grid, measured from the highlight's left edge. The trailing column's
-/// line is the grid's, and it never comes nearer the fill edge than the largest trailing hit target at
+/// line is `trailingCenterInset` inside the fill, and it never comes nearer the fill edge than the largest trailing hit target at
 /// the current density (footer Search included) allows, so every row state stays clear of the
 /// sidebar resize band.
 extension SidebarStyle {

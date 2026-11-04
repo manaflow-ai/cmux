@@ -74,12 +74,12 @@ import Testing
             let expectedText = c.kind == .sectionHeader ? Self.lead(c.comfortable) : Self.text(c.comfortable)
             #expect(abs(origin + lead - Self.lead(c.comfortable) - CGFloat(c.depth * 7)) <= 0.5)
             #expect(abs(origin + text - expectedText - CGFloat(c.depth * 7)) <= 0.5)
-            // A control's size never changes its center. A second column is one 20 pt pitch in.
+            // A control's size never changes its center: 19 / 23 pt from the edge (Leo 2026-11-04). A second column is one 20 pt pitch in.
             for index in 0..<c.marks {
                 let side: CGFloat = index == 0 ? 16 : 12
                 let mark = SidebarStyle.trailingColumnFrame(rowWidth: width - CGFloat(index) * 20,
                                                            centerY: height / 2, side: side)
-                #expect(abs(origin + mark.midX - (320 - 24 - CGFloat(index) * 20)) <= 0.5)
+                #expect(abs(origin + mark.midX - (320 - (c.comfortable ? 23 : 19) - CGFloat(index) * 20)) <= 0.5)
                 #expect(abs(mark.midY - height / 2) <= 0.5)
             }
         }
