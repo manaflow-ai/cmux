@@ -71,6 +71,9 @@ import Testing
         pane.view.layoutSubtreeIfNeeded()
         for _ in 0..<12 where pane.currentTabKey != historyTab.id || page.contentView.window == nil { await Self.nextCommittedPass() }
         try #require(pane.currentTabKey == historyTab.id && page.contentView.window === window, "the History page never showed")
+        // Shown in the cache's content lifecycle too, as a page the app loaded (its hide is the cache's conceal).
+        services.cache.applyLifecycle(services.cache.lifecycle.send(.show(historyTab.id)))
+        try #require(!page.contentView.isHidden, "the History page's view does not show")
 
         // The page has the keyboard (a key view inside it is the first responder).
         let field = KeyLoopCountingView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
