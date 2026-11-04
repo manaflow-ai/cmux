@@ -12,7 +12,9 @@ extension AppDelegate {
     /// even when one has arrived or gone since, and does nothing if that one is gone. Only the
     /// popover over the event's window takes it; another window's digits switch its workspaces.
     func openNotificationsPopoverRow(forDigit digit: Int, event: NSEvent) -> Bool {
-        guard let window = event.window ?? NSApp.keyWindow,
+        // The same window whose workspaces the digit would switch, so the two always agree.
+        guard let window = preferredMainWindowContextForShortcutRouting(event: event)?.window
+                ?? event.window ?? NSApp.keyWindow,
               let displayed = titlebarAccessoryController.shownNotificationsPopoverRowIds(
                   forWindowNumber: window.windowNumber
               ),
