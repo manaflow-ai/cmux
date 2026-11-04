@@ -81,7 +81,11 @@ test("before usage is known the ring is the inert track alone", async () => {
   const { track, used, container } = await ring(undefined);
   expect(used).toBeUndefined();
   expect(track).toBeDefined();
-  expect(container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!.disabled).toBe(true);
+  // Off but not `disabled`: its right-click menu still has to open (UsageRingMenu), so a click is inert.
+  const button = container.querySelector<HTMLButtonElement>(".acpmux-context-ring")!;
+  expect(button.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => button.click());
+  expect(button.getAttribute("aria-expanded")).toBe("false");
   // No caption in the shipped look.
   expect(container.querySelector(".acpmux-context-caption")).toBeNull();
 });
