@@ -24,7 +24,11 @@ for arg in "$@"; do
   esac
 done
 echo "RELAUNCH-SHIFT-MACHINE sha=$(git rev-parse HEAD) model=$(sysctl -n hw.model) cores=$(sysctl -n hw.ncpu) macos=$(sw_vers -productVersion) load=\"$(uptime | sed 's/.*load averages*: //')\""
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" >/dev/null || { tail -n 80 "$out/reload.log"; exit 1; }
+# The build and the bench stream to the step log as they go (as the other measure scripts do): the controller stops a
+# measurement whose log is silent for 45 min (CMUX_CI_MEASURE_SILENT_MAX), and a cold Debug build on a light mini
+# takes about that long. 2026-11-04: two relaunch-shift steps on a light mini were stopped as "hung" after
+# the MACHINE line while reload.sh was still compiling (one build log ended 43 s before the stop).
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" || { tail -n 80 "$out/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
 if [[ -z "$app" || ! -d "$app" ]]; then
   echo "relaunch-shift: the tagged reload printed no app path" >&2
@@ -32,7 +36,7 @@ if [[ -z "$app" || ! -d "$app" ]]; then
   exit 1
 fi
 status=0
-python3 scripts/cmux-next/relaunch-shift-bench.py --app "$app" --out "$out" ${bench_args[@]+"${bench_args[@]}"} > "$out/bench.log" 2>&1 || status=$?
+python3 -u scripts/cmux-next/relaunch-shift-bench.py --app "$app" --out "$out" ${bench_args[@]+"${bench_args[@]}"} 2>&1 | tee "$out/bench.log" || status=${PIPESTATUS[0]}
 tail -n 120 "$out/journey/journey.log" 2>/dev/null || true
 echo "RELAUNCH-SHIFT-TABLE-BEGIN"
 cat "$out/report.md" 2>/dev/null || tail -n 60 "$out/bench.log"
