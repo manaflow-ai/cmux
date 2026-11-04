@@ -1482,7 +1482,9 @@ When no config exists, harnesses are imported from `~/.acpx/config.json` (its `a
   could not write into a log that changed without the journal (a run with the switch off after a
   crash, or an older build) go to `journal-unapplied/`. Turning it off is safe: the next start
   writes the journal's lines into the logs first. A failed log sync stops the daemon for a restart,
-  which writes the logs again. Read when the daemon starts.
+  which writes the logs again. With it on, an event line over 64 MiB (the journal's record limit)
+  is refused, and its log does not get it either; with it off, the log takes it. Read when the
+  daemon starts.
 - `websocket`: optional. The same protocol over WebSocket text frames, for remote clients such
   as a dashboard or a Durable Object. Put it behind a tunnel; the token is a bearer token.
 
