@@ -92,6 +92,24 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: a failed sync on this thread stops right before it freezes the store, says so on
+    /// the first channel and waits for the second.
+    pub(crate) static HOLD_BEFORE_FREEZE: std::cell::RefCell<
+        Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests: the stop of [`HOLD_BEFORE_FREEZE`].
+#[cfg(test)]
+fn hold_before_freeze() {
+    if let Some((arrived, release)) = HOLD_BEFORE_FREEZE.with(|hold| hold.borrow_mut().take()) {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
+
 /// Tests: the next append stops right after its log write, says so on the first channel and
 /// waits for the second (the appends' lock held, as at that point in a real append).
 #[cfg(test)]
@@ -468,6 +486,8 @@ impl Store for JournalStore {
         self.inner.settle_meta(id)?;
         Store::flush_session(&self.inner.local, id).inspect_err(|error| {
             if error.chain().any(|cause| cause.is::<SyncFailed>()) {
+                #[cfg(test)]
+                hold_before_freeze();
                 self.inner.freeze(format!("an event log failed to sync: {error:#}"));
             }
         })
