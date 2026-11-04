@@ -11,11 +11,14 @@ import Testing
 
 /// FRAME OWNER REFACTOR S3: the rules the content policy keeps beside PaneGroundCoversPaneTests (the shell never shows
 /// inside a pane rect).
-/// - In a key resize the terminal surface (the producer) stays fixed at the pane edge that does not move, for each side
-///   a pane can grow or shrink on, while its host (the container) follows the pane in every frame.
-/// - One grid per press: each terminal asks its PTY for its final grid once, by the press's first frame tick (FRAME
-///   OWNER S1B; it was the key's turn), and its surface takes a
-///   new size at most once (no surface `setFrameSize` per frame, no reflow per frame).
+/// - In a key resize the terminal surface stays on the pane edge that does not move, for each side a pane can grow or
+///   shrink on, while its host (the container) follows the pane in every frame.
+/// - Pixels per frame, program size per press (cmux-ad m6, the lead's contract): in every frame each terminal's surface
+///   has the size its pane shows it at, so its text follows the pane (S3 held it at one size per press: the text froze,
+///   then jumped; Lawrence on dogfood 363e39f2: "tabbar moves smoothly on ctrl shift hjkl but browsers/terminals do not
+///   anymore"); each terminal asks its PTY for its final grid once, by the press's first frame tick (FRAME OWNER S1B).
+///   With the window on screen, a size whose frame Ghostty has not drawn yet keeps the last frame, top-left
+///   (TerminalKeyResizeFrameTests); these windows draw nothing, so each size shows at once.
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
 ///   and nothing of it is left in the view tree after the landing.
 @MainActor
@@ -98,21 +101,23 @@ struct PaneContentPolicyTests {
         #expect(off.isEmpty, "\(off.count) frames off: \(off.prefix(3))")
     }
 
-    // MARK: Note 3: one grid per press
+    // MARK: Note 3: pixels per frame, one grid per press (cmux-ad m6)
 
-    /// One press with the switch on: each terminal asks its PTY for one grid, the final one, by the press's first frame; its
-    /// surface takes a new size at most once in the whole press (none per frame), and none at the landing.
+    /// One press: in every frame each terminal's surface has the size its pane shows it at, and it takes a new size in
+    /// most of them (its text follows the pane); each terminal asks its PTY for one grid, the final one, by the press's
+    /// first frame.
     @Test(arguments: [LayoutDirection.left, .right, .up, .down])
-    func aKeyPressSizesEachSurfaceOnceAndSendsOneGrid(direction: LayoutDirection) async throws {
+    func aKeyPressShowsEachSurfaceAtItsPanesSizeAndSendsOneGrid(direction: LayoutDirection) async throws {
         let vertical = direction == .up || direction == .down
         let rig = Rig(PaneGroundCoversPaneTests.column(vertical ? PaneGroundCoversPaneTests.stack : PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
-        var sizes: [PaneID: [CGSize]] = [:]
+        var off: [String] = [], sizes: [PaneID: [CGSize]] = [:]
         var last: [PaneID: CGSize] = [:]
         for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
-        func note() throws {
+        func note(_ label: String) throws {
+            off += try Self.offTheirPanes(panes, in: rig, label)
             for pane in panes {
                 let size = try Self.surface(pane, in: rig).frame.size
                 if size != last[pane] { sizes[pane, default: []].append(size) }
@@ -123,57 +128,49 @@ struct PaneContentPolicyTests {
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        try note()
-        let frames = try Self.run(rig) { _ in try note() }
-        try note()
+        try note("the key's turn")
+        let frames = try Self.run(rig) { frame in try note("frame \(frame)") }
+        try note("after the landing")
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
+        #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count), "more grid reports than terminals for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids == [final], "\(pane) asked its PTY for \(grids), not its final grid \(final) once")
-            #expect((sizes[pane] ?? []).count <= 1, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in one press: \(sizes[pane] ?? [])")
+            #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
     }
 
-    /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): each terminal asks its PTY for the
-    /// final grid of each press, once, by that press's first frame (at most one grid per press, the last one the final),
-    /// and its surface takes a new size only in a press's turn or first frame, never in another frame or at the landing.
-    @Test func aHeldKeySizesEachSurfaceOnlyInAPressTurn() async throws {
+    /// A held key (three Ctrl-Shift-H presses 4 frames apart retarget one spring): in every frame each terminal's
+    /// surface has the size its pane shows it at; each terminal asks its PTY for the final grid of each press, once, by
+    /// that press's first frame (at most one grid per press, the last one the final).
+    @Test func aHeldKeyShowsEachSurfaceAtItsPanesSizeAndSendsAtMostOneGridPerPress() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]
         for pane in panes { _ = try await Self.grids(pane, rig) }
-        var last: [PaneID: CGSize] = [:]
-        for pane in panes { last[pane] = try Self.surface(pane, in: rig).frame.size }
-        var inFrames: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
-        func note(_ label: String, frame: Bool) throws {
-            for pane in panes {
-                let size = try Self.surface(pane, in: rig).frame.size
-                if size != last[pane], frame { inFrames.append("\(label): \(pane) \(size)") }
-                last[pane] = size
-            }
-        }
+        var off: [String] = [], grids: [PaneID: [TerminalGridSize]] = [:]
         var frames = 0
         for press in 1...3 {
             #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root), "press \(press) moved nothing")
             rig.root.syncWithModel()
-            // The press's first frame is its own (S1B): its rest size and its grid go there.
+            // The press's first frame is its own (S1B): its grid goes there.
             if rig.frame() { frames += 1 }
-            try note("press \(press)", frame: false)
+            off += try Self.offTheirPanes(panes, in: rig, "press \(press)")
             for pane in panes { grids[pane, default: []] += try await Self.grids(pane, rig) }
             for _ in 1...3 where rig.frame() {
                 frames += 1
-                try note("frame \(frames)", frame: true)
+                off += try Self.offTheirPanes(panes, in: rig, "frame \(frames)")
             }
         }
         try Self.run(rig) { _ in
             frames += 1
-            try note("frame \(frames)", frame: true)
+            off += try Self.offTheirPanes(panes, in: rig, "frame \(frames)")
         }
-        try note("after the landing", frame: true)
+        off += try Self.offTheirPanes(panes, in: rig, "after the landing")
         #expect(frames > 12, "the presses did not spring (\(frames) frames)")
-        #expect(inFrames.isEmpty, "a surface took a new size outside a press's turn and first frame: \(inFrames.prefix(3))")
+        #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         for pane in panes {
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             let sent = (grids[pane] ?? []) + (try await Self.grids(pane, rig))
@@ -183,7 +180,8 @@ struct PaneContentPolicyTests {
 
     /// A press and its reverse in one key hold (Ctrl-Shift-H, then L 4 frames later, before the first lands): the panes
     /// rest where they began. Each terminal hears each press's final grid by that press's first frame (the reverse one too, though
-    /// it rests at the size the hold began at), and its surface takes no new size at the landing.
+    /// it rests at the size the hold began at), its surface has its pane's size in every frame, and it rests at its start
+    /// size.
     @Test func aPressAndItsReverseInOneHoldSendEachGridInItsTurn() async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
@@ -194,30 +192,44 @@ struct PaneContentPolicyTests {
             let surface = try Self.surface(pane, in: rig)
             start[pane] = (surface.frame.size, surface.fittedGrid)
         }
+        var off: [String] = []
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(rig.frame(), "the first press did not spring")
+        off += try Self.offTheirPanes(panes, in: rig, "frame 1")
         var atPress: [PaneID: [TerminalGridSize]] = [:]
         for pane in panes { atPress[pane] = try await Self.grids(pane, rig) }
-        for frame in 2...4 { #expect(rig.frame(), "the first press landed after \(frame) frames") }
+        for frame in 2...4 {
+            #expect(rig.frame(), "the first press landed after \(frame) frames")
+            off += try Self.offTheirPanes(panes, in: rig, "frame \(frame)")
+        }
         #expect(PaneResize.press("p2", .right, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         #expect(rig.frame(), "the reverse press did not spring")
-        var atReverse: [PaneID: [TerminalGridSize]] = [:], sizeAtReverse: [PaneID: CGSize] = [:]
-        for pane in panes {
-            atReverse[pane] = try await Self.grids(pane, rig)
-            sizeAtReverse[pane] = try Self.surface(pane, in: rig).frame.size
-        }
-        let frames = try Self.run(rig)
+        off += try Self.offTheirPanes(panes, in: rig, "the reverse press's first frame")
+        var atReverse: [PaneID: [TerminalGridSize]] = [:]
+        for pane in panes { atReverse[pane] = try await Self.grids(pane, rig) }
+        let frames = try Self.run(rig) { frame in off += try Self.offTheirPanes(panes, in: rig, "reverse frame \(frame)") }
         #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
+        #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         for pane in panes {
             let was = try #require(start[pane]), surface = try Self.surface(pane, in: rig)
             let startGrid = try #require(was.grid, "SETUP: \(pane) fits no grid at rest")
             #expect(atPress[pane]?.count == 1 && atPress[pane]?.first != startGrid, "\(pane): the first press sent \(atPress[pane] ?? [])")
             #expect(atReverse[pane] == [startGrid], "\(pane): the reverse press sent \(atReverse[pane] ?? []), not the start grid \(startGrid)")
             #expect(try await Self.grids(pane, rig).isEmpty, "\(pane) sent a grid at the landing")
-            #expect(surface.frame.size == sizeAtReverse[pane] && surface.frame.size == was.size,
-                    "\(pane)'s surface took \(surface.frame.size) at the landing (\(String(describing: sizeAtReverse[pane])) at the reverse press, \(was.size) at rest)")
+            #expect(surface.frame.size == was.size, "\(pane)'s surface rests at \(surface.frame.size), not its start size \(was.size)")
+        }
+    }
+
+    /// The surfaces of `panes` whose size is not the one their pane shows them at now (their host's area,
+    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`.
+    static func offTheirPanes(_ panes: [PaneID], in rig: Rig, _ label: String) throws -> [String] {
+        try panes.compactMap { pane in
+            let surface = try Self.surface(pane, in: rig)
+            let host = try #require(rig.provider.sessions[pane]?.session.view)
+            let shown = host.surfaceSize(forHostSize: host.bounds.size)
+            return surface.frame.size == shown ? nil : "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area"
         }
     }
 

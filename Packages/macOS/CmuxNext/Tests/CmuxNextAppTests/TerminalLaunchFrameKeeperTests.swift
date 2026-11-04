@@ -213,7 +213,10 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
-        #expect(shown.session.frameChanges.generation > before, "the surface's new size counted as no change")
+        // The surface takes its new size in the commit that shows its frame drawn at that size (FRAME OWNER S4,
+        // `motion.frameOwner.terminals`), a refresh or two after the layout: the change counts then.
+        let counted = try await Self.eventually(2) { shown.session.frameChanges.generation > before }
+        #expect(counted, "the surface's new size counted as no change")
         let resaved = try await Self.eventually(3) { frames.keepSaves > saves }
         #expect(resaved, "a resized terminal was not saved again within 3 s: a kill now leaves a frame the launch refuses")
     }
@@ -233,6 +236,10 @@ import Testing
         frame.size.width /= 2
         shown.window.setFrame(frame, display: true)
         shown.session.view.layoutSubtreeIfNeeded()
+        // The surface shows its new size with its frame drawn at it (FRAME OWNER S4), a refresh or two after the layout.
+        let host = shown.session.view, target = host.surfaceSize(forHostSize: host.bounds.size)
+        let showsNewSize = try await Self.eventually(2) { shown.session.surfaceView.bounds.size == target }
+        try #require(showsNewSize, "the surface never showed its new size \(target)")
         let resized = shown.session.surfaceView.bounds.size
         // It never goes quiet: output every 30 ms for 4 s.
         let busyUntil = ContinuousClock.now.advanced(by: .seconds(4))

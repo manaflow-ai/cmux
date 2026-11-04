@@ -68,10 +68,12 @@ struct KeyboardResizeContentHoldTests {
         }
     }
 
-    /// FRAME OWNER S3, the app's pane content with a terminal in each pane: the containers (each terminal host) take their
-    /// pane's content area in every frame of the spring, and the producer (the terminal surface) takes a new size once, its
-    /// final size in the key's turn, and never again in the press.
-    @Test func theProducerResizesOnceAndTheContainersFollowEveryFrame() throws {
+    /// The app's pane content with a terminal in each pane (cmux-ad m6, the lead's contract: pixels per frame, program size
+    /// per press): in every frame of the spring each terminal host (the container) takes its pane's content area, and its
+    /// surface takes the size the host shows it at, so the text follows the pane; the press asks each PTY for one grid.
+    /// FRAME OWNER S3 held the surface at its final size through the press (one size per press): the text froze, then
+    /// jumped (Lawrence on dogfood 363e39f2).
+    @Test func theTerminalFollowsItsPaneInEveryFrameAndSendsOneGridPerTerminal() throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         let panes: [PaneID] = ["p1", "p2"]
@@ -88,8 +90,11 @@ struct KeyboardResizeContentHoldTests {
                 }
                 last[pane] = now
                 if now.host != area.bounds.size { off.append("\(label): \(pane)'s host \(now.host) in its area \(area.bounds.size)") }
+                let shown = session.view.surfaceSize(forHostSize: session.view.bounds.size)
+                if now.surface != shown { off.append("\(label): \(pane)'s surface \(now.surface) in a \(shown) area") }
             }
         }
+        let reports = TerminalSurfaceView.gridReports
         try note("at rest")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
@@ -103,13 +108,11 @@ struct KeyboardResizeContentHoldTests {
         rig.commit()
         try note("after the landing")
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(off.isEmpty, "a terminal host (a container) did not follow its pane: \(off.prefix(3))")
+        #expect(off.isEmpty, "\(off.count) frames showed a terminal host or surface off its pane: \(off.prefix(3))")
         for pane in panes {
-            let session = try #require(rig.provider.sessions[pane]?.session)
-            #expect((surfaces[pane] ?? []).count <= 1, "\(pane)'s surface (the producer) took \(surfaces[pane]?.count ?? 0) sizes in one press")
+            #expect((surfaces[pane] ?? []).count > 3, "\(pane)'s surface took \(surfaces[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
             #expect((hosts[pane] ?? []).count > 3, "\(pane)'s terminal host took \(hosts[pane]?.count ?? 0) sizes in a \(frames)-frame spring")
-            let host = session.view
-            #expect(session.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size), "\(pane)'s surface did not land at its host's size")
         }
+        #expect(TerminalSurfaceView.gridReports - reports == UInt64(panes.count), "the press sent \(TerminalSurfaceView.gridReports - reports) grids for \(panes.count) terminals")
     }
 }
