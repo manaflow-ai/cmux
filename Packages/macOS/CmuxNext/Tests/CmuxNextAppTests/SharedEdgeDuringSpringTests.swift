@@ -373,8 +373,9 @@ struct SharedEdgeDuringSpringTests {
             try #require(b1.targetRect.width - b1.rect.width > minimum + 20,
                          "b1 is nearly grown: \(b1.rect.width) -> \(b1.targetRect.width)")
             let column = try #require(rig.model.screens.first?.layout.columns.first { $0.id == "B" })
-            // B's right edge in to B's minimum width and on: b2's right edge from b1's left edge (B's left edge).
-            try rig.drag(.columnEdge("B"), dragged: "b2", moves: 18, step: -50, floor: column.minimumSize(style: rig.root.context.style).width,
+            // B's right edge in to B's minimum width in three fast moves, while b1 still grows (a slow drag lets its spring
+            // settle first): b2's right edge from b1's left edge (B's left edge).
+            try rig.drag(.columnEdge("B"), dragged: "b2", moves: 3, step: -300, floor: column.minimumSize(style: rig.root.context.style).width,
                          edges: edges)
             rig.land(edges, "landing")
         case .clickDuringReleaseSpring:
