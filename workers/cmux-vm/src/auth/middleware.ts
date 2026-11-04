@@ -61,7 +61,7 @@ export const authenticationLayer = Layer.effect(
         if (Option.isSome(service)) return yield* fromServiceKey(service.value);
         const record = yield* apiKeys.findActiveByHash(hash, now).pipe(
           Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: error.operation }))),
-          Effect.mapError(() => unavailable()),
+          Effect.mapError(unavailable),
         );
         if (Option.isNone(record)) return yield* Effect.fail(unauthorized());
         const principal: Principal = {
@@ -95,13 +95,13 @@ export const authenticationLayer = Layer.effect(
             IdentityUnavailable: (error) =>
               Effect.logWarning("cmux-vm dependency unavailable").pipe(
                 Effect.annotateLogs({ operation: `stack.${error.reason}` }),
-                Effect.zipRight(Effect.fail(unavailable())),
+                Effect.zipRight(Effect.fail(unavailable(error))),
               ),
           }),
         );
         const member = yield* membership.isMember(tenant.value, userId).pipe(
           Effect.tapError((error) => Effect.logWarning("cmux-vm dependency unavailable").pipe(Effect.annotateLogs({ operation: `stack.${error.reason}` }))),
-          Effect.mapError(() => unavailable()),
+          Effect.mapError(unavailable),
         );
         if (!member) return yield* Effect.fail(new Forbidden({ message: "You are not a member of this team" }));
         const principal: Principal = {
