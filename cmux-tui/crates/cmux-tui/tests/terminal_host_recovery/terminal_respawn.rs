@@ -363,10 +363,15 @@ fn an_unadoptable_host_that_dies_without_a_record_is_respawned() {
     );
     assert_ne!(resolved["lifecycle"], "exited", "{resolved}");
 
-    // The host and its shell die with no exit record.
+    // The host and its shell die with no exit record. The host is stopped
+    // first, as `kill_shell_then_host` does: a host that still ran when its
+    // shell died could record that end (SIGKILL), and a recorded end is a
+    // process end, which never respawns.
     let host_pid = record.host_pid as libc::pid_t;
-    let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
     // SAFETY: the record PID is the harness-owned terminal host.
+    unsafe { libc::kill(host_pid, libc::SIGSTOP) };
+    let _ = Command::new("/usr/bin/pkill").args(["-KILL", "-P", &host_pid.to_string()]).status();
+    // SAFETY: as above; SIGKILL also ends a stopped process.
     unsafe { libc::kill(host_pid, libc::SIGKILL) };
     wait_for_process_and_group_absent(host_pid);
 
