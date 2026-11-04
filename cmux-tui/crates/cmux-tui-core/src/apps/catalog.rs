@@ -335,6 +335,12 @@ pub fn load(sources: &Sources) -> Catalog {
         paths.sort();
         for dir in paths {
             match package(&dir, kind) {
+                // The customize app may run the person's own actions, so only
+                // their customize folder (below) provides it.
+                Ok(package) if package.id == CUSTOMIZE_APP => catalog.rejected.push((
+                    dir,
+                    format!("{CUSTOMIZE_APP} loads only from the customize folder"),
+                )),
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
