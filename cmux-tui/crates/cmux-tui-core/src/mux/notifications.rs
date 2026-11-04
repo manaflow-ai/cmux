@@ -724,8 +724,14 @@ impl Mux {
             "operation": OPERATION,
             "terminal_id": terminal_id,
         });
-        if let NotificationClearScope::Workspace(workspace) = cleared_scope.scope {
-            fingerprint.set("workspace_id", serde_json::json!(workspace));
+        match cleared_scope.scope {
+            NotificationClearScope::Workspace(workspace) => {
+                fingerprint.set("workspace_id", serde_json::json!(workspace));
+            }
+            NotificationClearScope::Notification(notification) => {
+                fingerprint.set("notification_id", serde_json::json!(notification));
+            }
+            NotificationClearScope::Session | NotificationClearScope::Terminal(_) => {}
         }
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) = registry.replay_resource_patch(mutation, OPERATION, &fingerprint)? {
@@ -765,9 +771,31 @@ impl Mux {
             extra,
         )?;
         if !commit.replayed {
+            // Where a one-row clear's row was shown, and whether another row of the same
+            // terminal or view stays: its marker goes only with the last of them.
+            let mut single_row_source = None;
             {
                 let mut ledger = self.notification_ledger.lock().unwrap();
+                if let NotificationClearScope::Notification(_) = cleared_scope.scope {
+                    single_row_source = ledger
+                        .iter()
+                        .find(|entry| cleared.contains(&entry.id))
+                        .map(|entry| (entry.terminal_id.clone(), entry.surface));
+                }
                 ledger.retain(|entry| !cleared.contains(&entry.id));
+                if let Some((terminal, surface)) = &single_row_source {
+                    let shown_elsewhere = ledger.iter().any(|entry| match terminal {
+                        Some(terminal) => entry.terminal_id.as_ref() == Some(terminal),
+                        None => {
+                            entry.terminal_id.is_none()
+                                && surface.is_some()
+                                && entry.surface == *surface
+                        }
+                    });
+                    if shown_elsewhere {
+                        single_row_source = None;
+                    }
+                }
             }
             {
                 let mut reads = self.notification_reads.lock().unwrap();
@@ -805,6 +833,18 @@ impl Mux {
                     });
                 }
                 (NotificationClearScope::Workspace(_), None) => {}
+                (NotificationClearScope::Notification(_), _) => match single_row_source {
+                    Some((Some(terminal), _)) if !terminal_unread(&terminal) => {
+                        self.terminal_notifications.lock().unwrap().remove(&terminal);
+                    }
+                    Some((None, Some(surface))) => {
+                        let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
+                        if !tab_unread(&tabs, &surface) {
+                            self.placement_notifications.lock().unwrap().remove(&surface);
+                        }
+                    }
+                    _ => {}
+                },
                 (NotificationClearScope::Session, _) => {
                     let tabs = self.with_state(|state| state.resource_indexes.tab_ids.clone());
                     self.terminal_notifications.lock().unwrap().retain(|t, _| terminal_unread(t));
@@ -831,6 +871,9 @@ pub(crate) enum NotificationClearScope<'a> {
     /// One workspace's: its terminal-less rows (`notify --workspace`) and
     /// those of every terminal and tab it shows.
     Workspace(&'a WorkspacePublicId),
+    /// One ledger row by its id (the notifications panel's Clear on a row,
+    /// which has no terminal when an agent chat or a view posted it).
+    Notification(&'a NotificationPublicId),
 }
 
 /// The terminals, views and tabs one workspace shows, read before the clear
@@ -855,6 +898,7 @@ impl ClearedScope<'_> {
             NotificationClearScope::Terminal(terminal) => {
                 entry.terminal_id.as_ref() == Some(terminal)
             }
+            NotificationClearScope::Notification(notification) => entry.id == *notification,
             NotificationClearScope::Workspace(workspace) => {
                 entry.workspace_id.as_ref() == Some(workspace)
                     || entry.terminal_id.as_ref().is_some_and(|terminal| {
@@ -872,6 +916,9 @@ impl ClearedScope<'_> {
         match self.scope {
             NotificationClearScope::Session => true,
             NotificationClearScope::Terminal(wanted) => terminal == Some(wanted.as_str()),
+            // A feed item follows its terminal or tab, not one ledger row: a one-row
+            // clear reads none (marking the row read is notification.ack's).
+            NotificationClearScope::Notification(_) => false,
             NotificationClearScope::Workspace(_) => self.members.is_some_and(|members| {
                 terminal.is_some_and(|terminal| {
                     members.terminals.iter().any(|known| known.as_str() == terminal)
