@@ -75,7 +75,7 @@ function member(row: AcpmuxRow): Member | undefined {
   for (const stretch of runStretches(row, groups)) lines += stretch.fold ? 1 : stretch.groups.length;
   // A group of sends counts each of its messages (toolGroups.ts `sendGroup`).
   const sent = groups.reduce(
-    (sum, group) => sum + (group.type === "sendGroup" ? group.sends.length : isSend(group) ? 1 : 0),
+    (sum, group) => sum + (group.type === "sendGroup" ? group.entries.length : isSend(group) ? 1 : 0),
     0,
   );
   const sentItems = new Set(

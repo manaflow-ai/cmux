@@ -33,6 +33,8 @@ import { AgentTag } from "./AgentTag";
 import { SentActions } from "./MessageActions";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { messageRunSummary } from "./messageRuns";
+import { AgentNamesContext, recipientName, shortId } from "./agentNames";
+import { isFailed, isRunning, type SentEntry } from "./toolGroups";
 import { acpmuxMcpSendCall } from "./acpmuxMcpSends";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
@@ -421,36 +423,59 @@ function SendRaw({ tool, reveal, live }: { tool: Tool; reveal: number; live: boo
 }
 
 /// Two or more sent messages in a row (toolGroups.ts `sendGroup`: a shell loop of `acpmux send`, a
-/// batch, adjacent sends) as one closed line, as a group of received messages is
+/// batch, adjacent sends of any kind) as one closed line, as a group of received messages is
 /// (MessageGroupHead.tsx): "Sent 8 messages", the recipients muted after it, and once "· and 1
 /// more command" for what else those calls ran, never on every message. It opens to each message's
-/// own row (Leo, 2026-11-04: "why arent these collapsed/collapsible"; each message still opens on
-/// its own, cmux#29800). The open state lasts across the virtualized transcript.
+/// own row (`children`; Leo, 2026-11-04: "why arent these collapsed/collapsible"; each message still
+/// opens on its own, cmux#29800). The open state lasts across the virtualized transcript.
 export function SentMessageGroup({
-  sends,
+  entries,
   disclosureKey,
+  children,
 }: {
-  sends: readonly { item: AcpmuxActivity; send: AcpmuxSendCallPart }[];
+  entries: readonly SentEntry[];
   disclosureKey: string;
+  /// Each message's row, drawn while the group is open.
+  children: ReactNode;
 }) {
   const t = useT();
+  const names = useContext(AgentNamesContext);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const bodyId = useId();
-  const tools = useMemo(() => [...new Set(sends.map(({ item }) => item))], [sends]);
+  const tools = useMemo(() => [...new Set(entries.map(({ item }) => item))], [entries]);
   // Find in Chat opens the group when its match is in one of its messages.
   useFindReveal(tools, () => setOpen(true));
-  const running = sends.some(({ send }) => send.state === "sending");
-  const failed = sends.filter(({ send }) => send.state === "failed").length;
-  // Each call's other commands once: a batch's messages all carry its count.
-  const others = [...new Map(sends.map(({ item, send }) => [item, send.others ?? 0])).values()].reduce(
-    (sum, n) => sum + n,
-    0,
+  const running = entries.some((entry) =>
+    entry.type === "send"
+      ? entry.send.state === "sending"
+      : entry.type === "subsession"
+        ? entry.call.running
+        : isRunning(entry.item.tool!),
   );
-  const summary = messageRunSummary(t, { sent: sends.length, received: 0, work: [], failed, running, rows: [] });
+  const failed = entries.filter((entry) =>
+    entry.type === "send" ? entry.send.state === "failed" : entry.type === "message" && isFailed(entry.item.tool!),
+  ).length;
+  // Each call's other commands once: a batch's messages all carry its count.
+  const others = [
+    ...new Map(entries.map((entry) => [entry.item, entry.type === "send" ? (entry.send.others ?? 0) : 0])).values(),
+  ].reduce((sum, n) => sum + n, 0);
+  const summary = messageRunSummary(t, { sent: entries.length, received: 0, work: [], failed, running, rows: [] });
   const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
   const failedText = failed > 0 ? ` (${t("tools.failedCount", { n: failed })})` : "";
   const count = `${summary}${failedText}${more ? ` · ${more}` : ""}`;
-  const recipients = [...new Set(sends.map(({ send }) => send.target))].join(", ");
+  const recipients = [
+    ...new Set(
+      entries.map((entry) =>
+        entry.type === "send"
+          ? entry.send.target
+          : entry.type === "subsession"
+            ? shortId(entry.call.sessionId)
+            : entry.message.to
+              ? (recipientName(entry.message.to, names) ?? shortId(entry.message.to))
+              : t("message.unknown"),
+      ),
+    ),
+  ].join(", ");
   return (
     <div className="cv-sent-group" data-open={open || undefined} data-live={running || undefined}>
       <MessageGroupHead
@@ -465,9 +490,7 @@ export function SentMessageGroup({
       />
       {open && (
         <div className="cv-sent-group__body" id={bodyId}>
-          {sends.map(({ item, send }, index) => (
-            <AcpmuxSendLine key={sendKey(item.tool!.id, send.index) || index} tool={item.tool!} send={send} grouped />
-          ))}
+          {children}
         </div>
       )}
     </div>

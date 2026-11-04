@@ -1377,6 +1377,17 @@ function activityStepHeight(item: AcpmuxActivity, width: number): number {
       return 26;
   }
 }
+/// Whether a call sends another agent a message (toolGroups.ts `SentEntry`): cheap checks first.
+const sendsMessage = (tool: NonNullable<AcpmuxActivity["tool"]>): boolean =>
+  Boolean(
+    agentMessage(tool) ||
+      acpmuxSendCalls(tool) ||
+      acpmuxMcpSends(tool) ||
+      (() => {
+        const mcp = mcpCall(tool);
+        return mcp !== undefined && subsessionCall(tool, mcp)?.tool === "send";
+      })(),
+  );
 /// A folded run's lines as ToolRows draws them (TurnRows.tsx, toolGroups.ts `runStretches`): the
 /// work between coordination cards folds under one summary line per stretch, and every card the run
 /// keeps in sight is its own row. A run of agent-to-agent messages ("Sent to lane-a", a command,
@@ -1802,7 +1813,7 @@ function fallbackRowHeight(
       : toolRowHeight();
     // Adjacent calls that each sent a message draw as one closed group's line (toolGroups.ts
     // `sendGroup`), not a line per call. One call's batch is one step already.
-    if (items.filter((item) => item.tool && (acpmuxSendCalls(item.tool) || acpmuxMcpSends(item.tool))).length > 1)
+    if (items.filter((item) => item.tool && sendsMessage(item.tool)).length > 1)
       for (const group of toolGroups(items))
         if (group.type === "sendGroup" && group.items.length > 1)
           steps +=

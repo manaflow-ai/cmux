@@ -159,14 +159,25 @@ function groupNode(
           send={group.send}
         />
       );
-    case "sendGroup":
+    case "sendGroup": {
+      const key = `sends:${group.entries[0]!.type === "send" ? sendKey(group.items[0]!.tool!.id, group.entries[0]!.send.index) : group.items[0]!.tool!.id}`;
       return (
-        <SentMessageGroup
-          key={`sends:${sendKey(group.items[0]!.tool!.id, group.sends[0]!.send.index)}`}
-          sends={group.sends}
-          disclosureKey={`sends:${sendKey(group.items[0]!.tool!.id, group.sends[0]!.send.index)}`}
-        />
+        <SentMessageGroup key={key} entries={group.entries} disclosureKey={key}>
+          {group.entries.map((entry, at) =>
+            entry.type === "send" ? (
+              <AcpmuxSendLine
+                key={sendKey(entry.item.tool!.id, entry.send.index) || at}
+                tool={entry.item.tool!}
+                send={entry.send}
+                grouped
+              />
+            ) : (
+              groupNode(entry, at, rowId, rowAt, false)
+            ),
+          )}
+        </SentMessageGroup>
       );
+    }
     case "subsession":
       return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "subsessionGroup":

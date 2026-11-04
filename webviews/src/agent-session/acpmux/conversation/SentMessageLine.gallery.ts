@@ -176,7 +176,7 @@ const writtenFile = () =>
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
   const run = () => ctx.document.querySelector("button[data-message-run]");
-  // Adjacent sends are one closed group ("Sent 6 messages", SentMessageLine.tsx `SentMessageGroup`).
+  // Adjacent sends are one closed group ("Sent 7 messages", SentMessageLine.tsx `SentMessageGroup`).
   const groupHead = ".cv-sent-group .cv-message-group__head";
   const group = () => ctx.document.querySelector(groupHead);
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
@@ -256,7 +256,7 @@ export default agentPaneEntry({
       note: "A send that waits for the reply, in flight, with the Codex-style runs off: its own row, with the working spinner (with them on, the live line names it: agent-pane.sending-line).",
       theme: { codexToolRuns: false },
       snapshot: chat(
-        [user("Report the merge and wait for the deputy's answer.", 1), activity([reported, running], 0.8)],
+        [user("Report the merge and wait for the deputy's answer.", 1), activity([running], 0.8)],
         { title: "net-retries", isWorking: true },
       ),
     },

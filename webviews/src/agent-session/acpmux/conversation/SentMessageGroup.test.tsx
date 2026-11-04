@@ -122,6 +122,36 @@ test("adjacent calls that each sent one message group too; a lone send keeps its
   expect(toolGroups([a, read, b]).map((group) => group.type)).toEqual(["send", "item", "send"]);
 });
 
+test("a message card and a sub-session's send_message next to a shell send join its group", () => {
+  const card: AcpmuxActivity = {
+    kind: "tool",
+    text: "SendMessage",
+    tool: {
+      id: "card",
+      title: "SendMessage",
+      kind: "other",
+      status: "completed",
+      inputSummary: JSON.stringify({ to: "lane-x", message: "Rebase first." }),
+    },
+  };
+  const subsession: AcpmuxActivity = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__send_message",
+    tool: {
+      id: "sub",
+      title: "mcp__cmux-subsessions__send_message",
+      status: "completed",
+      inputSummary: JSON.stringify({ sessionId: "child-1", text: "Run the tests." }),
+      output: JSON.stringify({ delivery: "queued" }),
+    },
+  };
+  const shell = call("acpmux send --no-wait ux-a 'Then land it.'", { id: "shell" });
+  const groups = toolGroups([card, shell, subsession]);
+  expect(groups.map((group) => group.type)).toEqual(["sendGroup"]);
+  if (groups[0]?.type === "sendGroup")
+    expect(groups[0].entries.map((entry) => entry.type)).toEqual(["message", "send", "subsession"]);
+});
+
 test("the group draws closed as one line: Sent 8 messages, the other command once, the recipients, no Copy", async () => {
   const host = await render(<ToolRows row={activity([call(LOOP, { output: Array(8).fill("queued").join("\n") })])} />);
   const head = host.querySelector<HTMLElement>(".cv-sent-group .cv-message-group__head")!;

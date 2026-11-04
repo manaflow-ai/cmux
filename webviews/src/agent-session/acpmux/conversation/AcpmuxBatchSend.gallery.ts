@@ -163,7 +163,7 @@ export default agentPaneEntry({
       play: openTurn,
     },
     "batch-sending": {
-      note: "A loop batch in flight: each message is its own row and reads Sending to, with no spinner on the row.",
+      note: "A loop batch in flight: one live group line for its messages, with no spinner on the row.",
       theme: { codexToolRuns: false },
       snapshot: turn([RUNNING], true),
     },
