@@ -358,6 +358,10 @@ describe("machine-vault-e2e", () => {
     expect(inHome.result).toBe("fail")
     expect(inHome.reason).toContain("the home holds the Claude login")
     expect(inHome.secretScan.home.login).toBe(1)
+    expect(inHome.secretScan.home.files).toEqual(["./.zshenv"])
+    // A file name that is itself a secret is redacted.
+    const named = await runE2E(opts, env(), fakes({ homeFiles: { [`./${LOGIN}`]: "x" } }).deps)
+    expect(named.secretScan.home.files?.join(" ")).not.toContain(LOGIN)
   })
 
   test("a reply in the login's shape is never written as evidence", async () => {
