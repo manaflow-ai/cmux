@@ -317,9 +317,10 @@ fn starts_past_the_running_cap_are_refused() {
     }
     let refused = start_under(&service, &origin, b"one more plan", &folder(99));
     assert_eq!(refused["error_code"], "blob.busy", "{refused}");
-    // A start under a running job's folder takes its place.
+    // A start under a running job's folder cancels it, and its worker, still
+    // waiting on the store, keeps its place under the cap until it ends.
     let again = start_under(&service, &origin, b"plan 0 again", &folder(0));
-    assert_eq!(again["ok"], true, "{again}");
+    assert_eq!(again["error_code"], "blob.busy", "{again}");
     let line = json!({"id": 2, "cmd": "blob.fetch.status", "job": first}).to_string();
     let old = answer_line(Some(&service), true, &line);
     assert_eq!(old["data"]["error_code"], "blob.superseded", "{old}");
