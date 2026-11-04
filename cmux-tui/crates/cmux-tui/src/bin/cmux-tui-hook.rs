@@ -36,6 +36,10 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
+/// A native PreToolUse hook is synchronous for Codex and Claude. Hold it while
+/// Cloud finishes seeding the repository, but keep a bound so a dead marker
+/// cannot strand the agent forever.
+const SYNC_BARRIER_WAIT: Duration = Duration::from_secs(30);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -132,6 +136,9 @@ fn run_reading(
         }
     };
     let native = payload()?;
+    if is_pre_tool_event(&args.native_event) {
+        wait_for_repository_sync(&native)?;
+    }
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
@@ -163,6 +170,30 @@ fn run_reading(
         None => {}
     }
     Ok(())
+}
+
+fn is_pre_tool_event(event: &str) -> bool {
+    matches!(
+        event,
+        "PreToolUse"
+            | "BeforeTool"
+            | "preToolUse"
+            | "beforeShellExecution"
+            | "beforeMCPExecution"
+            | "pre_tool_use"
+    )
+}
+
+fn wait_for_repository_sync(native: &Value) -> anyhow::Result<()> {
+    let cwd = native
+        .get("cwd")
+        .or_else(|| native.get("working_directory"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .or_else(|| env::current_dir().ok())
+        .context("agent hook has no repository working directory")?;
+    cmux_git::sync_barrier::wait_ready(&cwd, SYNC_BARRIER_WAIT)
+        .with_context(|| format!("repository sync barrier for {}", cwd.display()))
 }
 
 /// Set to `launch` by a hook command that carries its own route (the Codex

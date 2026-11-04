@@ -1756,6 +1756,7 @@ fn rewrite_json_hooks_with_helper(
         let entry = if nested {
             let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. })
                 && !delivers_messages(provider.id, event)
+                && !sync_barrier_event(event)
             {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
             } else {
@@ -2013,12 +2014,24 @@ pub fn claude_session_hook_settings(
                     handler.insert("command".into(), Value::String(command.clone()));
                     // `agent hook emit` delivers no messages, so nothing
                     // needs Claude to wait for its output.
-                    handler.insert("async".into(), Value::Bool(true));
+                    handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
             }
         }
     }
     Ok(root)
+}
+
+fn sync_barrier_event(event: &str) -> bool {
+    matches!(
+        event,
+        "PreToolUse"
+            | "BeforeTool"
+            | "preToolUse"
+            | "beforeShellExecution"
+            | "beforeMCPExecution"
+            | "pre_tool_use"
+    )
 }
 
 #[cfg(unix)]
@@ -3965,6 +3978,20 @@ mod tests {
                 "{provider} outer timeout must exceed the journal admission window"
             );
         }
+    }
+
+    #[test]
+    fn claude_pre_tool_hook_waits_for_sync_barrier() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let root: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let hook = &root["hooks"]["PreToolUse"][0]["hooks"][0];
+        assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
     }
 
     #[test]

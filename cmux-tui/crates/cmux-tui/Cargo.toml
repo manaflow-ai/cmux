@@ -54,6 +54,7 @@ tempfile = "3"
 cmux-json.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-core.workspace = true
+cmux-git.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
 # `cmux vm`: the cmux VM API CLI (workers/cmux-vm/cli), linked in process so the
