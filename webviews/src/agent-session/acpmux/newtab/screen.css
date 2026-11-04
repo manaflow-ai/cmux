@@ -455,12 +455,10 @@
   height: var(--acpmux-composer-trail-glyph);
   stroke-width: var(--acpmux-composer-trail-stroke);
 }
-/* New Tab's trailing controls share the chat composer's action rhythm. The default button group
-   leaves its legacy 8px gap in place; use the same 4px token as Claude's composer so mic and Send
-   keep one icon column in Home and New Tab. The gallery keeps the tighter and legacy arms visible
-   for comparison. */
+/* New Tab's mic and Send sit 2px apart, the experiment's tight arm (Leo's pick among the review
+   council's top three). The shared 4px token and the legacy 8px gap stay as arms for comparison. */
 .nt-pickers .acpmux-composer-actions {
-  gap: var(--acpmux-composer-action-gap, var(--ds-space-1));
+  gap: var(--acpmux-composer-action-gap, 2px);
 }
 .nt-composer[data-trailing-gap="tight"] { --acpmux-composer-action-gap: 2px; }
 .nt-composer[data-trailing-gap="shared"] { --acpmux-composer-action-gap: var(--ds-space-1); }
