@@ -100,6 +100,49 @@ export default diffPageEntry({
     "diff-viewer/WorkerRenderOptionsSync.tsx",
   ],
   variants: {
+    "jump-file-overflow": {
+      note: "Thirty changed files scroll under soft edges in the open jump-to-file palette.",
+      files: many,
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#jump-to-file-button"), { capMs: 10_000 });
+        await ctx.click({ selector: "#jump-to-file-button" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".jump-palette-row").length === many.length);
+      },
+    },
+    "branch-base-overflow": {
+      note: "Forty suggested branch bases scroll below the search field with soft edges.",
+      files: [{ path: "src/net/client.ts", before, after }],
+      branchGroups: [
+        {
+          id: "suggested",
+          label: "Suggested",
+          rows: Array.from({ length: 40 }, (_, index) => ({
+            ref: `feature/review-${String(index).padStart(2, "0")}`,
+            label: `feature/review-${String(index).padStart(2, "0")}`,
+          })),
+        },
+      ],
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".base-picker-button"), { capMs: 10_000 });
+        await ctx.click({ selector: ".base-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".base-picker-row").length === 40);
+      },
+    },
+    "committed-overflow": {
+      note: "Forty commits scroll in the Committed submenu while the source menu stays open.",
+      files: [{ path: "src/net/client.ts", before, after }],
+      sourceOptions: Array.from({ length: 40 }, (_, index) => ({
+        value: `commit:${index.toString(16).padStart(40, "0")}`,
+        label: `Commit ${String(index).padStart(2, "0")}: refine file search`,
+        url: `/__gallery/commit/${index}`,
+      })),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".source-pill-button"), { capMs: 10_000 });
+        await ctx.click({ selector: ".source-pill-button" });
+        await ctx.hover({ selector: '.toolbar-submenu-anchor > [aria-haspopup="menu"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".toolbar-submenu .menu-item").length === 40);
+      },
+    },
     "cloud-offline": {
       note: "The loaded Cloud diff stays visible with its machine's offline reason.",
       title: "Build VM changes",

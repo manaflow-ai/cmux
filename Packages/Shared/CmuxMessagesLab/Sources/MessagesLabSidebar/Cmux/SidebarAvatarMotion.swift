@@ -7,12 +7,13 @@ import AppKit
 /// dots"). The avatar itself never moves off its place: no bob, bounce or slide.
 ///
 /// The states (``Mode``) and what the default look (``CmuxSidebarAvatarMotionStyle/ring``) draws:
-/// - idle: at rest, with a soft glint across the face once every few seconds (a pet's blink);
+/// - idle: at rest, nothing runs (the idle budget: no CPU or wakeups while nothing changes);
 /// - working: a short arc runs around the avatar's edge (its turn is running);
 /// - waiting: a reply is unread: a thin ring in the accent, still;
 /// - failed: a send failed: a thin red ring, still.
 /// A change of state plays one short cue (at most 240 ms, `design/motion-and-polish.md`): a turn
-/// ending pops the avatar 4 %, a failure gives it a quick shake of a few degrees about its centre.
+/// ending pops the avatar 4 %, a failure gives it a quick shake of a few degrees about its centre, and
+/// Ring glints once across the face on every change out of working or into a new rest state.
 ///
 /// Everything runs on the render server: Core Animation loops and cues on the avatar layer and two
 /// named sublayers of it (``SidebarAvatarLooks``), no timer, display link or main-thread work per frame.
@@ -61,6 +62,8 @@ struct SidebarAvatarMotion {
 
     /// The host's gate for loops (cmux-next: `Motion.home.animatesLoops`); nil: only Reduce Motion decides.
     var gate: (@MainActor () -> Bool)?
+    /// The list's motion is on (`SidebarController.animates`); off (the default), only the state's still ring shows.
+    var animates = false
     /// How avatars show their state (the host's Debug setting).
     var style = CmuxSidebarAvatarMotionStyle.ring
     /// The list's window is key (the vendored list's key tracking sets it).
@@ -78,7 +81,7 @@ struct SidebarAvatarMotion {
     /// Whether loops may run in `window` now: the host's gate (Reduce Motion included), the window
     /// is key (so the app is active), shown and not minimized.
     @MainActor func mayRun(in window: NSWindow?) -> Bool {
-        guard !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
+        guard animates, !CmuxSidebarView.reducesMotion, gate?() ?? true, windowKey else { return false }
         if let onScreenPin { return onScreenPin }
         // Not the occlusion state: the window server reports it after the window becomes key (a launch
         // or an un-minimize would leave the avatar still), and a key window is the frontmost one.
@@ -98,7 +101,8 @@ struct SidebarAvatarMotion {
         let before = row.avatarMotion?.seed == seed ? row.avatarMotion : nil
         row.avatarMotion = Shown(mode: mode, seed: seed, look: wanted)
         if before?.look != wanted || (wanted.map { SidebarAvatarLooks.isMissing($0, on: row.avatar) } ?? false) {
-            SidebarAvatarLooks.clear(row.avatar, keepCue: true)
+            // A cue already playing ends too when motion stops (Reduce Motion, the window, Still).
+            SidebarAvatarLooks.clear(row.avatar, keepCue: wanted?.moving == true)
             if let wanted { SidebarAvatarLooks.show(wanted, on: row.avatar, seed: seed) }
         } else {
             SidebarAvatarLooks.fit(row.avatar)
@@ -135,13 +139,13 @@ struct SidebarAvatarMotion {
 /// How a Chief's avatar shows its state (Debug Settings > Home > Chief avatar motion; the gallery's
 /// variants). None moves the avatar off its place.
 public enum CmuxSidebarAvatarMotionStyle: String, Sendable, CaseIterable {
-    /// The default. Idle glints now and then, working runs an arc around the edge, waiting and failed
-    /// draw a still ring (accent, red); a turn ending pops, a failure shakes.
+    /// The default. Idle rests, working runs an arc around the edge, waiting and failed
+    /// draw a still ring (accent, red); a turn ending pops, a failure shakes, each change glints once.
     case ring
     /// A soft glow behind the avatar: none at idle, a glint sweeping across while working, a still
     /// glow while waiting (accent) or failed (red); the same cues as Ring.
     case glow
-    /// The avatar turns its head: a small tilt now and then at idle, a slow rock while working; the
+    /// The avatar turns its head: at rest at idle, a slow rock while working; the
     /// rings and cues of Ring.
     case tilt
     /// No motion and no ring.

@@ -66,6 +66,7 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
@@ -87,6 +88,7 @@ members = [
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
@@ -100,6 +102,7 @@ members = [
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
     "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 default-members = [
     "crates/acpmux",
@@ -139,6 +142,7 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
@@ -160,6 +164,7 @@ default-members = [
     "crates/cmux-rd-link",
     "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-link",
@@ -172,6 +177,7 @@ default-members = [
     "crates/cmux-palette-ranker",
     "crates/cmux-host-budget",
     "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
@@ -230,6 +236,7 @@ cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
 cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }

@@ -1,7 +1,8 @@
 public import CmuxNextCloud
 import CmuxNextCompat
-import CmuxNextSettings
+public import CmuxNextSettings
 public import Foundation
+import os
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
@@ -10,6 +11,8 @@ public import Foundation
 public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The person's first prompt (never logged).
     public var task: String
+    /// The composer's chips, in draft order. Mac paths are never used as file-read authority.
+    public var attachments: [JSONValue] = []
     /// The chat's folder on this Mac, absolute; nil: the tab's own folder, or none with ``home``.
     public var cwd: String?
     /// The page said the chat has no project (cloudRun.ts `cloudStartFolder`): nothing is copied,
@@ -38,7 +41,14 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
             guard let text = value as? String, !text.isEmpty, text.count <= 128 else { return nil }
             return .some(text)
         }
-        guard let task = params?["task"] as? String, !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        let attachments: [JSONValue]
+        if let value = params?["attachments"] {
+            guard let json = JSONValue(foundation: value), let list = json.arrayValue,
+                  list.allSatisfy({ $0.objectValue != nil }) else { return nil }
+            attachments = list
+        } else { attachments = [] }
+        guard let task = params?["task"] as? String,
+              !task.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty,
               task.count <= AgentPaneRequest.maximumSandboxTask,
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment") else { return nil }
@@ -48,6 +58,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let home, !(home is Bool) || cwd != nil { return nil }
         self.init(task: task, cwd: cwd as? String, harness: harness, model: model, key: key, environment: environment)
         self.home = home as? Bool ?? false
+        self.attachments = attachments
     }
 
     // The send's machine, its create, tab and copy keys and its pin are cmux-tui's
@@ -109,7 +120,8 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The seed of the chat on the Cloud machine, in `cwd` (the folder's copy there): the person's
     /// prompt, sent once with the Send's gesture, on the agent and model the page picked.
     public func seed(cwd: String?) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: cwd, prompt: task, promptBy: .person, harness: harness, model: model)
+        AgentPaneSeed(cwd: cwd, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
+                      promptBy: .person, harness: harness, model: model)
     }
 }
 
@@ -163,9 +175,37 @@ struct AgentPaneHandOff {
         }
     }
 
+    private static let cloudLog = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
+
+    /// `cloud.startChat`, and a refusal made here, before the App's start ran (the folder check, the
+    /// gesture, an attachment), logged under `app.cloud` beside the App's own start failures: such a
+    /// refusal never reaches CloudStartChat, so without this the log said nothing at all.
     func cloud(_ start: AgentPaneCloudStart) async -> [String: Any] {
+        let reply = await cloudChecked(start)
+        if let code = Self.refusedHere(reply) {
+            Self.cloudLog.error("cloud start chat refused on this Mac before it reached Cloud (nothing was sent): \(code, privacy: .public)")
+        }
+        return reply
+    }
+
+    /// The codes this pane refuses a start with before the App's start runs, besides `transport.*`:
+    /// an attachment Cloud can't take, a pane that can't start one, the send line or another hand-off
+    /// still out (`held`), and the tab's one Sandboxed send (`AgentPaneSandboxRuns.refusal`). The page
+    /// keeps the same list (webviews cloudStartProgress.ts `REFUSED_HERE`).
+    nonisolated static let refusedHereCodes: Set<String> = ["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]
+
+    /// The reply's code when this pane refused the start itself; nil for a success or the App's own failure.
+    nonisolated static func refusedHere(_ reply: [String: Any]) -> String? {
+        guard reply["ok"] as? Bool == false, let code = (reply["error"] as? [String: Any])?["code"] as? String else { return nil }
+        return code.hasPrefix("transport.") || refusedHereCodes.contains(code) ? code : nil
+    }
+
+    private func cloudChecked(_ start: AgentPaneCloudStart) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        guard AgentPaneCloudAttachments(start.attachments) != nil else {
+            return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
+        }
         // The page names the folder, and its whole tree is copied off this Mac: it must be one of
         // the pane's own folders (AcpmuxPathPolicy's roots, by canonical path and by components),
         // never home or above it, as for a chat that starts here. Nil: the App uses the tab's folder.

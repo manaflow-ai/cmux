@@ -50,6 +50,16 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+const folderMenuProps = {
+  ...baseProps,
+  summary: {
+    sessionId: "gallery-folder",
+    harness: "claude",
+    cwd: projects[1]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
+};
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
   { id: "vm-build", name: "build box", stage: "paused" },
@@ -98,6 +108,29 @@ const projectIcons = {
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzI1NjNlYiIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjUiLz48cGF0aCBkPSJNNyAxNmgxOE0xNiA3Yy00IDUtNCAxMyAwIDE4TTE2IDdjNCA1IDQgMTMgMCAxOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=",
   "/Users/you/src/relay":
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iI2Y5NzMxNiIvPjxwYXRoIGQ9Ik04IDIwbDgtOSA4IDkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==",
+};
+
+/// A new chat on `machine` with `folders` added beside its own (ComposerContext `extraFolders`).
+function extraProps(
+  machine: string,
+  folders: string[],
+  extra: Partial<ComponentProps<typeof ComposerContext>> = {},
+): ComponentProps<typeof ComposerContext> {
+  return {
+    ...baseProps,
+    onNoProject: () => undefined,
+    ...extra,
+    extraFolders: {
+      draft: { machine, folders },
+      onChange: () => undefined,
+      ...(machine === "local" ? { onBrowse: () => undefined } : {}),
+    },
+  };
+}
+
+const openFolderMenu: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Folder/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
 const openFolder: Play = async (ctx) => {
@@ -537,8 +570,24 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "folder-menu": {
       note: "Project actions stay directly below search, above the recent projects (paths on hover).",
-      props: baseProps,
+      props: folderMenuProps,
       play: openFolder,
+    },
+    "folder-menu-hover": {
+      note: "Hover uses the neutral menu wash; the current folder keeps only its check.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.hover({ role: "option", name: /atlas-web/ });
+      },
+    },
+    "folder-menu-keyboard": {
+      note: "Arrow navigation uses the same neutral wash as hover.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.press("ArrowDown");
+      },
     },
     "menu-grid-legacy": {
       note: "Experiment arm: the old 8px row inset and icon gap, which leaves environment labels off the shared menu column.",
@@ -1193,6 +1242,48 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ selector: ".acpmux-location-choose:last-child" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
+    },
+    // A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`). Leo, 2026-11-03:
+    // "being able to have chatgpt (and in this case, any harnesses) see whatever folders/files would
+    // be cool" and "and you can also just start with nothing".
+    "extra-folders-no-project": {
+      note: "No project: the chat starts in its private folder and sees the two folders added beside it; the chip reads No project +2, the menu lists them under Also sees with × each.",
+      props: extraProps("local", ["/Users/you/notes", "/Users/you/Downloads/receipts"], { noProject: true }),
+      play: openFolderMenu,
+    },
+    "extra-folders-project": {
+      note: "A project and three folders beside it: the chip reads atlas-web +3, the menu lists the three under Also sees.",
+      props: extraProps("local", ["/Users/you/src/relay", "/Users/you/notes", "/Users/you/design/specs"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "extra-folders-adding": {
+      note: "Add folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Choose folder… opens this Mac's panel.",
+      props: extraProps("local", ["/Users/you/src/relay"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: async (ctx) => {
+        await openFolderMenu(ctx);
+        await ctx.click({ role: "option", name: "Add folder…" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
+      },
+    },
+    "extra-folders-peer": {
+      note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",
+      props: extraProps("gpu-box", ["/home/dev/datasets", "/srv/shared/checkpoints"], {
+        environments: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        summary: { sessionId: "", harness: "claude", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box" },
+        machineFolders: [
+          { cwd: "/home/dev/model", label: "model" },
+          { cwd: "/home/dev/datasets", label: "datasets" },
+          { cwd: "/home/dev/eval", label: "eval" },
+        ],
+      }),
+      play: openFolderMenu,
     },
   },
 });

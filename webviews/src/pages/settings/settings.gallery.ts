@@ -1252,6 +1252,36 @@ Object.assign(variants, {
     }),
     note: "A team with an active subscription cannot be deleted: the confirmation says why.",
   }),
+  "accounts-team-invited": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+        { id: "inv-2", teamId: "team-design", team: "Sample team 4", invitedBy: null, email: "you@example.com" },
+      ];
+    }),
+    note: "Invitations to You: teams that invited one of your verified emails, each with Join Team and Decline.",
+  }),
+  "accounts-team-joined": variant("accounts", {
+    accounts: withTeams((teams) => {
+      teams.received = [
+        {
+          id: "inv-1",
+          teamId: "team-research",
+          team: "Sample team 3",
+          invitedBy: "Sample Person",
+          email: "you@example.com",
+        },
+      ];
+      teams.run({ action: "team.accept", team: "inv-1" });
+    }),
+    note: "Join Team: the team joins your list as a member and becomes your active team.",
+  }),
   "accounts-team-create": variant("accounts", {
     accounts: withTeams((teams) => teams.run({ action: "team.new" })),
     note: "New Team: you become its admin and it becomes your active team.",

@@ -245,6 +245,9 @@ pub struct SendCall {
     pub attachments: Vec<String>,
     /// The view line id of the user message whose thread it goes into.
     pub reply_to: Option<u64>,
+    /// Chief knows the reply is long (a list the person asked for): the
+    /// length gate lets its first send post (chief_kernel::replies).
+    pub long: bool,
 }
 
 impl SendCall {
@@ -281,10 +284,16 @@ impl SendCall {
                     .ok_or("send: `reply_to` must be a message's line id")?,
             ),
         };
+        let long = match args.get("long") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("send: `long` must be true or false".into()),
+        };
         Ok(SendCall {
             text,
             attachments,
             reply_to,
+            long,
         })
     }
 
@@ -298,6 +307,9 @@ impl SendCall {
         }
         if let Some(id) = self.reply_to {
             v["reply_to"] = json!(id);
+        }
+        if self.long {
+            v["long"] = json!(true);
         }
         v
     }
@@ -906,14 +918,12 @@ impl Call {
                     .filter(|e| !e.is_empty())
                     .map(str::to_owned);
                 if let Some(p) = place.as_deref()
-                    && !PLACES.contains(&p)
-                    && !p
-                        .strip_prefix("cloud:")
-                        .is_some_and(|s| crate::subagents::SIZES.contains(&s))
+                    && let Some(size) = p.strip_prefix("cloud:")
+                    && !crate::subagents::SIZES.contains(&size)
                 {
                     return Err(format!(
-                        "spawn: no place {p}; one of {}, or cloud:small|medium|large",
-                        PLACES.join(", ")
+                        "spawn: no Cloud size {size}; one of {}",
+                        crate::subagents::SIZES.join(", ")
                     ));
                 }
                 let harness = args
