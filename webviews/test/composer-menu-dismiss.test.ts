@@ -253,10 +253,13 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
       [pairs, want] as const,
       { timeout: 5_000 },
     );
-    const done = await settled.then(Boolean).catch(() => false);
-    if (!done) {
-      // Unsettled: the expect after it shows the chips that are open; say where the keyboard and
-      // the popups are, which the timeout alone threw away.
+    const failure = await settled.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    if (failure) {
+      // Unsettled: say which chips are open, where the keyboard is and which popups are mounted,
+      // which the timeout alone threw away, then fail as before.
       const seen = await page.evaluate(() => {
         const active = document.activeElement;
         return {
@@ -267,7 +270,9 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
           }),
         };
       });
-      console.error(`settle: wanted [${want.join(", ")}]: ${JSON.stringify(seen)}`);
+      const open = await expanded(page, names);
+      console.error(`settle: wanted [${want.join(", ")}], open [${open.join(", ")}]: ${JSON.stringify(seen)}`);
+      throw failure;
     }
     return expanded(page, names);
   };
