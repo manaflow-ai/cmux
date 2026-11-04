@@ -116,10 +116,21 @@ def finish(result: str) -> None:
 
 
 def parsed(text: str) -> dict:
+    """The JSON answer in TEXT: the whole text, else its last line that is JSON (a CLI may print
+    progress lines on stderr before its error object, which left the evidence's stderr empty)."""
+    value: object = {}
     try:
         value = json.loads(text) if text.strip() else {}
     except json.JSONDecodeError:
-        return {}
+        for line in reversed(text.splitlines()):
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                break
+        else:
+            return {}
     value = value.get("result", value) if isinstance(value, dict) else {}
     return value if isinstance(value, dict) else {}
 
@@ -303,7 +314,10 @@ while True:  # bounded: the same start-chat again while its machine is still bei
                           "--name", args.tag, "--wait", "--timeout", "600", "--json", timeout=660)
     if code != 75 or time.monotonic() > chat_deadline:
         break
-    record("cloud start-chat (machine still starting)", code, "", failure_text(err))
+    # The stage it is stuck at (cloud_start_chat.rs StartStage): machine status, create in flight, or link.
+    pending_stage = (parsed(err).get("details") or {}).get("stage")
+    record("cloud start-chat (machine still starting)", code, "", failure_text(err) or "(no error on stderr)",
+           **({"stage": pending_stage} if isinstance(pending_stage, dict) else {}))
     time.sleep(10)
 answer = parsed(out) if code == 0 else {}
 reply = answer.get("reply")
