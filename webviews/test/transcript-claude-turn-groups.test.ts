@@ -206,3 +206,33 @@ test("a steered Codex turn still folds everything but the steer, the reply befor
   const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "codex" });
   expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", `${SUPERSEDED}-s1`, "s1", "answer", "sum"]);
 });
+
+// Gemini CLI and Muse Code draw a turn as it ran, with no "Worked for" over the conclusion (Leo,
+// 2026-11-04: "chatgpt-style minimalism conclusion folding can only necessarily make sense for
+// them"): each run folds into its own line in place, the longer messages between them.
+for (const family of ["gemini", "muse"]) {
+  test(`the recorded turn in a ${family} chat draws no Worked for; each run folds in place`, async () => {
+    const rows = await replayRows();
+    const view = turnView(rows, new Set(), { now: history.at(-1).at + 60_000, liveRuns: true, agentFamily: family });
+    expect(view.some((row) => row.kind === WORKED)).toBe(false);
+    const runs = view.filter((row) => row.kind === "activity" && !row.merged);
+    expect(runs.length).toBeGreaterThan(1);
+    expect(runs.every((row) => row.foldRun === true)).toBe(true);
+    expect(
+      assistants(view)
+        .filter((row) => LONG.test(row.text ?? ""))
+        .map(longAt),
+    ).toEqual([14, 16, 17]);
+    expect(view.find((row) => row.kind === "turnSummary")?.folded).toBe(false);
+  });
+
+  test(`a steered ${family} turn keeps every run in place, its notes inside them`, () => {
+    const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: family });
+    expect(view.map((row) => row.id)).toEqual(["u", "b1", "r1", "b3", "s1", "b4", "answer", "sum"]);
+  });
+}
+
+test("a family the table does not name folds as Codex does", () => {
+  const view = turnView(steered(), new Set(), { now: Date.UTC(2026, 10, 1, 10), liveRuns: true, agentFamily: "opencode" });
+  expect(view.map((row) => row.id)).toEqual(["u", `${WORKED}-u`, "r1", "s1", "answer", "sum"]);
+});
