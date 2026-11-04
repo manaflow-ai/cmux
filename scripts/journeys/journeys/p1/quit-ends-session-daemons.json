@@ -1,11 +1,11 @@
 {
   "id": "quit-ends-session-daemons",
   "priority": "P1",
-  "title": "An app with no terminal that quits, crashes or is killed leaves no cmux-tui of its sessions 30 s later",
-  "why": "R-LIFECYCLE ORPHANS: Lawrence's Mac had 380 cmux-tui processes with parent 1 from old tagged DEV apps. Fleet repro on build 3a43a131 (2026-11-04): with no terminal, Cmd-Q, SIGTERM, SIGKILL and a crash all left the app session's owner (cmux-tui --headless --session cmux-app-...), the Chief session's owner (cmux-chief-...) and each one's screen detection plugin running with parent 1; only Quit and End Sessions ended them. The owners keep nothing a person can see: their state is durable and the next launch starts them again. With live terminals and Keep Sessions the owner and its terminal hosts stay by design (pty-holder.md D1), so this journey quits with none. It expects agents off (the capture slot's default, ACPMUX_AGENT_LAUNCH=deny): a working Chief brain host keeps its Chief owner by design.",
+  "title": "An app with no terminal that quits, crashes or is killed leaves no cmux-tui or acpmux of its sessions 30 s later; a Keep quit with a terminal leaves only that terminal's daemon and host",
+  "why": "R-LIFECYCLE ORPHANS: Lawrence's Mac had 380 cmux-tui processes with parent 1 from old tagged DEV apps. Fleet repro on build 3a43a131 (2026-11-04): with no terminal, Cmd-Q, SIGTERM, SIGKILL and a crash all left the app session's owner (cmux-tui --headless --session cmux-app-...), the Chief session's owner (cmux-chief-...) and each one's screen detection plugin running with parent 1; only Quit and End Sessions ended them. The owners keep nothing a person can see: their state is durable and the next launch starts them again. With live terminals and Keep Sessions the owner and its terminal hosts stay by design (pty-holder.md D1), so this journey quits with none. It expects agents off (the capture slot's default, ACPMUX_AGENT_LAUNCH=deny): a working Chief brain host keeps its Chief owner by design. The last case (R-LIFECYCLE ORPHANS part 2, acpmux): after Quit and Keep Sessions with one idle terminal, the app session's daemon and the terminal's host stay by design, but the acpmux daemon and router must not (no agent works); this case is red until the acpmux PR (r-lifecycle/orphans-acpmux) is in the build.",
   "source": "R-LIFECYCLE ORPHANS (handoff/rewrites/R-LIFECYCLE/DESIGN.md section 8), fleet repro rlc-orphans-base-3..6",
   "first_in_app": true,
-  "budget_seconds": 240,
+  "budget_seconds": 260,
   "steps": [
     {
       "do": "fresh_app"
@@ -39,15 +39,15 @@
     },
     {
       "do": "expect",
-      "title": "30 s after Cmd-Q: no cmux-tui process of the app's sessions runs",
+      "title": "30 s after Cmd-Q: no cmux-tui or acpmux process of the app's sessions runs",
       "timeout": 2,
       "all": [
         {
           "quit_leftovers": {
             "allow": [
               {
-                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection)).*$",
-                "why": "not a cmux-tui process: the acpmux daemon and router follow their own rule (R-LIFECYCLE S3, PL-acpmux)"
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
               }
             ]
           }
@@ -77,15 +77,15 @@
     },
     {
       "do": "expect",
-      "title": "30 s after a crash of the app: no cmux-tui process of the app's sessions runs",
+      "title": "30 s after a crash of the app: no cmux-tui or acpmux process of the app's sessions runs",
       "timeout": 2,
       "all": [
         {
           "quit_leftovers": {
             "allow": [
               {
-                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection)).*$",
-                "why": "not a cmux-tui process: the acpmux daemon and router follow their own rule (R-LIFECYCLE S3, PL-acpmux)"
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
               }
             ]
           }
@@ -115,15 +115,15 @@
     },
     {
       "do": "expect",
-      "title": "30 s after SIGKILL of the app: no cmux-tui process of the app's sessions runs",
+      "title": "30 s after SIGKILL of the app: no cmux-tui or acpmux process of the app's sessions runs",
       "timeout": 2,
       "all": [
         {
           "quit_leftovers": {
             "allow": [
               {
-                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection)).*$",
-                "why": "not a cmux-tui process: the acpmux daemon and router follow their own rule (R-LIFECYCLE S3, PL-acpmux)"
+                "match": "^(?!.*(cmux-tui|cmux-agent-screen-detection|acpmux)).*$",
+                "why": "not a daemon of the app's sessions (cmux-tui owners, their screen detection plugins, acpmux daemon and router)"
               }
             ]
           }
@@ -164,6 +164,58 @@
       "title": "after the three ends the reopened daemon runs a new terminal",
       "since": "typed",
       "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "after-${nonce}-42"
+        },
+        {
+          "app_text_line": "after-${nonce}-42"
+        },
+        {
+          "frame_text": "after-${nonce}-42"
+        }
+      ]
+    },
+    {
+      "do": "relaunch",
+      "how": "quit-keep",
+      "leftovers_after": 30,
+      "mark": "after-keep"
+    },
+    {
+      "do": "expect",
+      "title": "30 s after Quit and Keep Sessions with one terminal: only the app session's daemon, its plugin and the terminal's host run",
+      "timeout": 2,
+      "all": [
+        {
+          "quit_leftovers": {
+            "allow": [
+              {
+                "match": "/cmux-tui --headless --session cmux-app-",
+                "why": "the app session's daemon: it holds the kept terminal (pty-holder.md D1)"
+              },
+              {
+                "match": "/cmux-agent-screen-detection$",
+                "why": "that daemon's screen detection plugin; it ends with the daemon (the Chief owner's plugin ends with the Chief owner, which must be gone)"
+              },
+              {
+                "match": "(^|/)cmux-tui __terminal-host ",
+                "why": "the kept terminal's host"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "last"
+    },
+    {
+      "do": "expect",
+      "title": "after the reopen the kept terminal is back with its text",
+      "since": "after-keep",
+      "timeout": 45,
       "all": [
         {
           "daemon_line": "after-${nonce}-42"
