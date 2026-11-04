@@ -1704,6 +1704,8 @@ body[data-loading="true"] #status::before {
   --agent-text: var(--cmux-diff-fg);
   --agent-muted: color-mix(in srgb, var(--cmux-diff-fg) 62%, var(--cmux-diff-solid-bg));
   --agent-page-bg: var(--cmux-diff-solid-bg);
+  /* The opaque page colour git.css inks its filled Commit button with, as the agent pane's shell. */
+  --acpmux-base: var(--cmux-diff-solid-bg);
   --agent-border: var(--cmux-diff-border);
   --agent-surface-elevated: var(--cmux-diff-solid-bg);
   --agent-control: color-mix(in srgb, var(--cmux-diff-fg) 8%, var(--cmux-diff-solid-bg));
