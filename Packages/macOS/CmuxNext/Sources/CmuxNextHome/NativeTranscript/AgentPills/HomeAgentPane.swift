@@ -66,7 +66,24 @@ final class HomeAgentPane {
 
     /// What agent `peer`'s tab shows now; nil when no run has a message with it.
     func content(_ peer: String, now: Date) -> HomeAgentChatContent? {
-        threads.agentThread(peer, in: conversation).map { HomeAgentChatContent($0, now: now) }
+        threads.agentThread(peer, in: conversation).map {
+            HomeAgentChatContent($0, now: now, session: threads.agentSession(peer, in: conversation))
+        }
+    }
+
+    /// Go to workspace on agent `peer`'s tab: where its session runs at this moment (a read, then a
+    /// re-attach when it moved), so the button opens the place it went, never the one it left.
+    ///
+    /// - Returns: The link to open; nil when the agent has no workspace link.
+    func goToWorkspace(_ peer: String) async -> URL? {
+        _ = await threads.followAgentSessions([peer], in: conversation)
+        return content(peer, now: Date())?.workspaceLink
+    }
+
+    /// Reads where the open agents run now (a tab opened or selected): a moved one re-attaches, and its tab
+    /// redraws with the new place.
+    func followSessions() async {
+        _ = await threads.followAgentSessions(tabs, in: conversation)
     }
 
     /// Agent `peer`'s title for its tab (its id when its chat is not loaded).
