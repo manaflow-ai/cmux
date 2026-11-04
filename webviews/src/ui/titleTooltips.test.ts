@@ -298,12 +298,12 @@ test("a tooltip near the right edge is measured at its full width, wherever the 
   try {
     const tip = doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
     await hover(close);
-    expect(tip.style.left).toBe(`${1000 - 6 - 35}px`);
+    expect(tip.style.left).toBe(`${1000 - UI_TOOLTIP_EDGE - 35}px`);
     close.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true }));
     await hover(summary);
     expect(tip.textContent).toBe("Chat summary");
     // As wide as its text (84 px), not squeezed into the 41 px right of the last tooltip's place.
-    expect(tip.style.left).toBe(`${1000 - 6 - 84}px`);
+    expect(tip.style.left).toBe(`${1000 - UI_TOOLTIP_EDGE - 84}px`);
   } finally {
     proto.getBoundingClientRect = original;
   }

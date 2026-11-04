@@ -363,7 +363,8 @@ await requireBrowserLane("tooltip-surface.test.ts", async () => {
         });
         expect(seen.width).toBeLessThanOrEqual(320 * scale);
         expect(seen.width).toBeLessThan(450);
-        expect(seen.gap).toBeCloseTo(4 * scale, 0);
+        // Placement rounds its top to a CSS pixel, including fractional scaled line heights.
+        expect(Math.abs(seen.gap - 4 * scale)).toBeLessThanOrEqual(0.5);
         expect(seen.titleWeight).toBeGreaterThan(seen.detailWeight);
         expect(seen.titleColor).not.toBe(seen.detailColor);
         expect(seen.text).toContain("This one stays as it is.");
