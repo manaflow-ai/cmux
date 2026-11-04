@@ -380,6 +380,11 @@ fn after_a_respawn_keys_wait_for_no_sizing_lock_again() {
     connection.submit("after-respawn", b'r');
     assert!(connection.arrival(b'r').is_some(), "the key after the respawn never arrived");
     connection.settle(&["after-respawn"]);
+    // The old runtime's slot is cleared, so nothing publishes into a runtime that no view types into.
+    assert!(
+        !removed.skips_sizing_note(connection.client),
+        "the replaced runtime still publishes the sizing fast path"
+    );
     let waited = key_wait_while_held(&connection, 0, hold_client_sizing);
     eprintln!(
         "SHARED-LOCKS after a respawn, key wait while client sizing is held {HOLD:?}: {waited:?}"
