@@ -103,7 +103,7 @@
 .acpmux-context{flex:none}
 .acpmux-context-ring{flex:none;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:var(--agent-muted)}
 .acpmux-context-ring svg{width:12px;height:12px}
-.acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
+.acpmux-context-ring:disabled,.acpmux-context-ring[aria-disabled="true"]{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}

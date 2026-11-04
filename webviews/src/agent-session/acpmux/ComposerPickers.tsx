@@ -1563,9 +1563,14 @@ export function ContextRing({
         aria-haspopup="dialog"
         aria-expanded={shown}
         // Before the first usage report there is nothing to show: the ring keeps its place, off.
-        disabled={!known}
+        // aria-disabled, not disabled: a disabled button gets no contextmenu in WebKit, and its
+        // right-click (UsageRingMenu) must still hide it or switch it to plan usage (Leo
+        // 2026-11-04: "i want to be able to right click disable it"). The click stays inert.
+        aria-disabled={known ? undefined : true}
         {...hover.trigger}
-        onClick={() => setPinned((was) => !was)}
+        onClick={() => {
+          if (known) setPinned((was) => !was);
+        }}
         onKeyDown={(event) => {
           // Tab goes into the open card (it sits in a portal, out of the page's tab order).
           if (event.key !== "Tab" || event.shiftKey || !shown) return;

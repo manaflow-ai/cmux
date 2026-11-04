@@ -2649,21 +2649,22 @@ export function Composer({
           showContextUsage && (
             <UsageRingMenu>
               <ContextRing
-              used={usage?.used}
-              size={usage?.size}
-              setup={usage?.setup}
-              cacheExpiresAt={usage?.cacheExpiresAt}
-              breakdown={snapshot.summary?.contextBreakdown}
-              onOpenDetails={onOpenContext}
-              {...(composerRing === "planUsage"
-                ? {
-                    plan: {
-                      limits: typeof snapshot.summary?.usageLimits === "object" ? snapshot.summary.usageLimits : undefined,
-                      family: snapshot.summary?.family ?? snapshot.summary?.harness,
-                    },
-                  }
-                : {})}
-            />
+                used={usage?.used}
+                size={usage?.size}
+                setup={usage?.setup}
+                cacheExpiresAt={usage?.cacheExpiresAt}
+                breakdown={snapshot.summary?.contextBreakdown}
+                onOpenDetails={onOpenContext}
+                {...(composerRing === "planUsage"
+                  ? {
+                      plan: {
+                        limits:
+                          typeof snapshot.summary?.usageLimits === "object" ? snapshot.summary.usageLimits : undefined,
+                        family: snapshot.summary?.family ?? snapshot.summary?.harness,
+                      },
+                    }
+                  : {})}
+              />
             </UsageRingMenu>
           )
         }

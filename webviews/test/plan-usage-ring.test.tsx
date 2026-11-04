@@ -142,9 +142,8 @@ test("acpmux's usageLimits keep Codex's plan, credits and window length; nothing
 });
 
 test("the popover names windows and reset times as the references do", async () => {
-  const { planWindowName, planResetLabel, planCreditsLabel, planName, planUsageUrl, planUsedFraction } = await import(
-    "../src/agent-session/acpmux/usageLimits"
-  );
+  const { planWindowName, planResetLabel, planCreditsLabel, planName, planUsageUrl, planUsedFraction } =
+    await import("../src/agent-session/acpmux/usageLimits");
   const { translate } = await import("../src/agent-session/acpmux/i18n");
   expect(planWindowName({ id: "session", usedPercent: 1 }, translate)).toBe("5-hour limit");
   expect(planWindowName({ id: "weekly", usedPercent: 1 }, translate)).toBe("Weekly limit");
@@ -190,24 +189,30 @@ test("in plan mode with no limit reported the ring stays on the context, never a
 
 test("each popover look reads the same report; none says nothing was reported", async () => {
   const { PlanUsageCardBody } = await import("../src/agent-session/acpmux/PlanUsageCard");
-  const bars = renderToStaticMarkup(<PlanUsageCardBody limits={claude} family="claude" look="claude-bars" now={() => NOW} />);
+  const bars = renderToStaticMarkup(
+    <PlanUsageCardBody limits={claude} family="claude" look="claude-bars" now={() => NOW} />,
+  );
   expect(bars).toContain("Plan usage limits");
   expect(bars).toContain("5-hour limit");
   expect(bars).toContain("22%");
   expect(bars).toContain("41%");
   expect(bars.match(/<progress/g)?.length).toBe(2);
-  const rows = renderToStaticMarkup(<PlanUsageCardBody limits={codex} family="codex" look="codex-rows" now={() => NOW} />);
+  const rows = renderToStaticMarkup(
+    <PlanUsageCardBody limits={codex} family="codex" look="codex-rows" now={() => NOW} />,
+  );
   expect(rows).toContain("Usage source: Your Pro plan");
   expect(rows).toContain("10% left");
   expect(rows).toContain("Manage usage");
   expect(rows).not.toContain("<progress");
-  const compact = renderToStaticMarkup(<PlanUsageCardBody limits={claude} family="claude" look="compact" now={() => NOW} />);
+  const compact = renderToStaticMarkup(
+    <PlanUsageCardBody limits={claude} family="claude" look="compact" now={() => NOW} />,
+  );
   expect(compact).toContain("5-hour limit");
   expect(compact.match(/<progress/g)?.length).toBe(2);
   // A harness with no known usage page gets no link.
-  expect(renderToStaticMarkup(<PlanUsageCardBody limits={claude} family="opencode" look="claude-bars" />)).not.toContain(
-    "See all",
-  );
+  expect(
+    renderToStaticMarkup(<PlanUsageCardBody limits={claude} family="opencode" look="claude-bars" />),
+  ).not.toContain("See all");
   const none = renderToStaticMarkup(<PlanUsageCardBody look="claude-bars" />);
   expect(none).toContain("No plan usage reported yet");
   expect(none).not.toContain("0%");
@@ -236,11 +241,7 @@ test("the ring's right-click picks Context Usage or Plan Usage, and hides it", a
   await render(<Ring />);
   expect(ring()!.getAttribute("aria-label")).toBe("5% of context used");
   await rightClick(ring()!);
-  expect(menuItems().map(itemText)).toEqual([
-    "Context Usage",
-    "Plan Usage",
-    "Hide Usage Ring",
-  ]);
+  expect(menuItems().map(itemText)).toEqual(["Context Usage", "Plan Usage", "Hide Usage Ring"]);
   expect(item("Context Usage")!.getAttribute("aria-checked")).toBe("true");
   await act(async () => item("Plan Usage")!.click());
   expect(settings.composerSettingsSnapshot().composerRing).toBe("planUsage");
@@ -264,11 +265,33 @@ test("Session Info's Usage lists the plan's limits only when reported", async ()
   const { usageSection } = await import("../src/agent-session/acpmux/session-info/native/usage");
   const { NativeInfoActions } = await import("../src/agent-session/acpmux/session-info/native/model");
   const { translate } = await import("../src/agent-session/acpmux/i18n");
-  const section = usageSection({ planLimits: codex, sessions: [], open: true, locale: "en-US" }, new NativeInfoActions(), translate);
+  const section = usageSection(
+    { planLimits: codex, sessions: [], open: true, locale: "en-US" },
+    new NativeInfoActions(),
+    translate,
+  );
   const rows = section!.rows.map((row) => [row.id, row.title, row.trailing]);
   expect(rows[0]).toEqual(["plan", "Plan limits", undefined]);
   expect(rows[1]![0]).toBe("plan:weekly");
   expect(rows[1]![2]).toMatch(/^90% · Resets /);
   expect(rows[2]).toEqual(["plan:credits", "Credits", "56,766 credits"]);
   expect(usageSection({ sessions: [], open: true }, new NativeInfoActions(), translate)).toBeUndefined();
+});
+
+test("an inert ring (no usage reported yet) still opens its right-click, and a click does nothing", async () => {
+  const { UsageRingMenu } = await import("../src/agent-session/acpmux/composerChrome");
+  const { ContextRing } = await import("../src/agent-session/acpmux/ComposerPickers");
+  await render(
+    <UsageRingMenu>
+      <ContextRing />
+    </UsageRingMenu>,
+  );
+  // aria-disabled, not disabled: WebKit sends no contextmenu to a disabled button.
+  expect(ring()!.disabled).toBe(false);
+  expect(ring()!.getAttribute("aria-disabled")).toBe("true");
+  await act(async () => ring()!.click());
+  await wait(50);
+  expect(card()).toBeNull();
+  await rightClick(ring()!);
+  expect(menuItems().map(itemText)).toEqual(["Context Usage", "Plan Usage", "Hide Usage Ring"]);
 });

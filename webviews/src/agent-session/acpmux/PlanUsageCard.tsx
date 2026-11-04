@@ -10,14 +10,7 @@ import { useT } from "./i18n";
 import type { AcpmuxUsageLimits } from "./model";
 import { planUsageLook } from "./planUsageLook.experiment";
 import { nativeExternalUrl } from "./session-info/native/links";
-import {
-  planCreditsLabel,
-  planName,
-  planPercent,
-  planResetLabel,
-  planUsageUrl,
-  planWindowName,
-} from "./usageLimits";
+import { planCreditsLabel, planName, planPercent, planResetLabel, planUsageUrl, planWindowName } from "./usageLimits";
 import "./planUsageCard.css";
 
 export type PlanUsageLook = "claude-bars" | "codex-rows" | "compact";
@@ -123,12 +116,7 @@ export function PlanUsageCardBody({
               <div className="acpmux-plan-usage-row">
                 <span className="acpmux-plan-usage-name">{name}</span>
                 {layout === "compact" && (
-                  <progress
-                    className="acpmux-plan-usage-bar"
-                    aria-label={name}
-                    value={limit.usedPercent}
-                    max={100}
-                  />
+                  <progress className="acpmux-plan-usage-bar" aria-label={name} value={limit.usedPercent} max={100} />
                 )}
                 {layout !== "compact" && reset && <span className="acpmux-plan-usage-reset">{reset}</span>}
                 <span className="acpmux-plan-usage-value">{percent}</span>

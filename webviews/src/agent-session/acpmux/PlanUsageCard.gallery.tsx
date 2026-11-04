@@ -115,8 +115,20 @@ export default componentEntry<Props>({
   variants: {
     ...Object.fromEntries(
       looks.flatMap((look) => [
-        [`${look}-claude`, { note: `${lookNotes[look]} Claude chat (5-hour 22%, weekly 41%).`, props: { limits: claude, family: "claude", look } }],
-        [`${look}-codex`, { note: `${lookNotes[look]} Codex chat on a Pro plan with credits.`, props: { limits: codex, family: "codex", look } }],
+        [
+          `${look}-claude`,
+          {
+            note: `${lookNotes[look]} Claude chat (5-hour 22%, weekly 41%).`,
+            props: { limits: claude, family: "claude", look },
+          },
+        ],
+        [
+          `${look}-codex`,
+          {
+            note: `${lookNotes[look]} Codex chat on a Pro plan with credits.`,
+            props: { limits: codex, family: "codex", look },
+          },
+        ],
       ]),
     ),
     "claude-bars-near-cap": {
