@@ -290,7 +290,7 @@ extension CloudHandlers {
                 return
             }
             guard let window = window(context) else { throw ActionFailure(message: CloudPortStrings.noWindow(names)) }
-            let choice = await CmuxDialogCenter.shared.present(CloudPreviewPresentation(inventory).picker(machineName: session.machine.title), in: .window(window))
+            let choice = await CmuxDialogCenter.shared.present(CloudPreviewPresentation(inventory).picker(machineName: session.machine.title, cancelTitle: CloudStrings.cancel), in: .window(window))
             guard choice.button == "open", !choice.isDismissal, let port = choice.text("port").flatMap(Int.init),
                   let preview = inventory.previews.first(where: { $0.port == port }) else { return }
             // A person can leave the picker open longer than the bootstrap credential lives.

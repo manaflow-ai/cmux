@@ -27,12 +27,12 @@ public struct CloudPreviewPresentation {
         ]
     }
 
-    public func picker(machineName: String) -> CmuxDialogSpec {
+    public func picker(machineName: String, cancelTitle: String) -> CmuxDialogSpec {
         CmuxDialogSpec(title: CloudPortStrings.title, lines: [machineName], fields: [
             .choice(id: "port", label: nil,
                     options: inventory.previews.map { CmuxDialogOption(label: "\($0.port) · \($0.origin)", value: String($0.port)) },
                     selected: inventory.previews.first.map { String($0.port) }),
-        ], buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
+        ], buttons: [.cancel(cancelTitle), CmuxDialogButton(id: "open", title: CloudPortStrings.openPreview, role: .default)],
         identifier: "cmux.dialog.cloud.livePreviews")
     }
 
