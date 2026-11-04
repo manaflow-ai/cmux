@@ -1,5 +1,9 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-04: the Home list header follows `sidebar.density` and `sidebar.textSize` (HomeSidebarHeaderMetrics):
+  the filter circle and search field (30 pt at Compact/default), the Unread chip (24 pt, 12 pt text) and the empty
+  list's No Unread Chats and Show All grow by the row tokens' extraHeight and textStep, live. Compact/default keeps
+  its sizes. The user: the playground's Home filter columns all looked the same. Regression: HomeHeaderDensityTests.
 - 2026-11-03 FYI from a939 (Home filter): the filter button stays filled while the filter is on; an "Unread
   Messages ×" chip shows under search; the empty state reads "No Unread Chats" with Show All. Owner commits and the
   Sidebar States Playground match it; owner helpers do not change these views.
