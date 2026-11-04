@@ -144,7 +144,8 @@ def flip(j, e):
     """A Settings toggle row: its switch, at the row's trailing edge (a tap on the title does not flip it)."""
     x, y, w_, h = e.frame
     # The switch sits at the list's trailing edge, whatever part of the row the element covers.
-    j.sim.tap(340, y + h / 2)
+    # A short press: a bare tap event often misses a SwiftUI switch on the simulator.
+    j.sim.press(340, y + h / 2, hold=0.15)
     time.sleep(1.0)
 
 
