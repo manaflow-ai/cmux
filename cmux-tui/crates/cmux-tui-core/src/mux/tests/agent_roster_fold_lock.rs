@@ -69,12 +69,14 @@ fn a_roster_fold_reads_the_journal_tail_with_the_registry_and_roster_locks_free(
 
 /// cmux-ad m11 item 2: a journal maintenance tick's roster catch-up held the roster FOLD lock for
 /// its whole tail read and snapshot write (agent_roster_fold.rs, before this test), and request
-/// paths take that lock: a terminal close (`purge_terminal_side_tables`), a direct agent report
-/// (its journal echo folds) and every agent hook. Requests on one connection run in order on one
-/// dispatch thread, so one of them waiting there held every later request of the app (#34628's
-/// 5-8 s step timed out `workspace.place`, `new-conversation-tab` and others together; #35075
-/// raised the app's deadline to 30 s for it). While a catch-up is mid-tail, those requests must
-/// finish within the typing budget.
+/// paths take that lock: every agent hook (`session.journal.append` ->
+/// `finish_journal_ingress` -> `fold_agent_roster`) and every terminal close
+/// (`purge_terminal_side_tables`, from the resource close, a terminal exit, batch closes). Requests
+/// on one connection run in order on one dispatch thread, so one of them waiting there held every
+/// later request of the app (#34628's 5-8 s step timed out `workspace.place`,
+/// `new-conversation-tab` and others together; #35075 raised the app's deadline to 30 s for it).
+/// While a catch-up is mid-tail, those requests must finish within the typing budget, and the
+/// catch-up still does what they asked: it folds the hook and retires the closed terminal.
 #[test]
 fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
     let root = std::env::temp_dir()
@@ -85,14 +87,16 @@ fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
     let agent_terminal = agent.terminal_public_id().cloned().expect("workspace terminal");
     append_journal_hook(&mux, &agent_terminal, "SessionStart", Some("agent-fold-hold"));
     let doomed = mux.new_workspace(None, None).unwrap();
-    let doomed_workspace = mux.surface_workspace(doomed.id).expect("its workspace");
+    let doomed_terminal = doomed.terminal_public_id().cloned().expect("workspace terminal");
+    append_journal_hook(&mux, &doomed_terminal, "SessionStart", Some("doomed-fold-hold"));
+    assert!(roster_agent_state(&mux, &doomed_terminal).is_some(), "the closed terminal's entry");
     // A tail of journal records the catch-up has not read yet.
     for index in 0..40 {
         mux.create_empty_workspace(Some(format!("tail-{index}")), None, None).unwrap();
     }
 
     let budget = Duration::from_millis(500);
-    let (closed, reported) = std::thread::scope(|scope| {
+    let (hooked, closed) = std::thread::scope(|scope| {
         let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
         let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
         mux.pause_agent_roster_fold_after_page_for_test(entered_sender, release_receiver);
@@ -103,27 +107,25 @@ fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
         // Two requests while the catch-up is paused mid-tail, each on its own thread so a request
         // that waits for the fold lock cannot hang the test.
         let (done_sender, done) = std::sync::mpsc::channel();
-        let close_done = done_sender.clone();
-        let mux_ref = &mux;
+        let hook_done = done_sender.clone();
+        let (mux_ref, agent_ref, doomed_ref) = (&mux, &agent_terminal, &doomed_terminal);
         scope.spawn(move || {
             let started = Instant::now();
-            let closed = mux_ref.close_workspace(doomed_workspace);
-            let _ = close_done.send(("close", closed, started.elapsed()));
+            append_journal_hook(mux_ref, agent_ref, "UserPromptSubmit", Some("agent-fold-hold"));
+            let _ = hook_done.send(("hook", started.elapsed()));
         });
         scope.spawn(move || {
             let started = Instant::now();
-            let reported = mux_ref
-                .report_agent(agent.id, AgentState::Working, AgentSource::Socket, None)
-                .is_ok();
-            let _ = done_sender.send(("report", reported, started.elapsed()));
+            mux_ref.purge_terminal_side_tables(doomed_ref);
+            let _ = done_sender.send(("close", started.elapsed()));
         });
         let mut results = std::collections::HashMap::new();
         let deadline = Instant::now() + budget;
         while results.len() < 2 {
             let left = deadline.saturating_duration_since(Instant::now());
             match done.recv_timeout(left) {
-                Ok((what, ok, took)) => {
-                    results.insert(what, (ok, took));
+                Ok((what, took)) => {
+                    results.insert(what, took);
                 }
                 Err(_) => break,
             }
@@ -131,16 +133,21 @@ fn requests_do_not_wait_for_a_roster_catch_up_reading_the_journal_tail() {
         // Let the catch-up go on, so the requests that waited for it end and the scope joins.
         release.send(()).unwrap();
         fold.join().unwrap();
-        (results.get("close").copied(), results.get("report").copied())
+        (results.get("hook").copied(), results.get("close").copied())
     });
     assert!(
-        closed.is_some_and(|(ok, _)| ok),
-        "a workspace close waited for the roster catch-up's tail read ({budget:?}): {closed:?}"
+        hooked.is_some(),
+        "an agent hook waited for the roster catch-up's tail read (budget {budget:?})"
     );
     assert!(
-        reported.is_some_and(|(ok, _)| ok),
-        "an agent report waited for the roster catch-up's tail read ({budget:?}): {reported:?}"
+        closed.is_some(),
+        "a terminal close waited for the roster catch-up's tail read (budget {budget:?})"
     );
+    // What they asked for is done once the catch-up lets go.
+    let head = mux.workspace_registry.lock().unwrap().session_journal_head().unwrap();
+    assert_eq!(saved_roster_cursor(&mux), head, "the roster reaches the journal head");
+    assert_eq!(roster_agent_state(&mux, &doomed_terminal), None, "the closed terminal's entry");
+    assert!(roster_agent_state(&mux, &agent_terminal).is_some(), "the hooked agent's entry");
     mux.shutdown();
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
