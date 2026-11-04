@@ -26,18 +26,19 @@ extension DividerDrag {
             ScreenGeometry.compute(value.applied(to: layout), viewport: viewport, style: style, scale: 0)
         }
         let caughtGeometry = geometry(caught.value)
-        guard let influence = caught.probes.lazy.compactMap({
+        let influence = caught.probes.lazy.compactMap({
             SharedEdgeMotion.Influence(kind, caught: caughtGeometry, probe: geometry($0), axis: caught.axis)
-        }).first else {
-            if caught.catches { turnSharedEdgesOff() }
-            return
-        }
-        // A pane the drag resizes that still shows far narrower than its rest size (its own size spring, which a catch
-        // of this line does not stop: an inner split's release) would show a negative size when the drag shrinks it.
-        if influence.leavesNegativeSize(screen.paneFrames, minimum: style.minimumPaneSize.extent(along: caught.axis)) {
+        }).first
+        if caught.catches, influence == nil { return turnSharedEdgesOff() }
+        // No pane may show a negative size later in this drag (rule C keeps each edge's spring leftover): checked on
+        // every pane, after the catch this press makes, along its spring's whole path.
+        let spring = Motion.panes.policy.spring(screen.motionState.frameSpring)
+        if SharedEdgeMotion.mayShowNegativeSize(screen.paneFrames, targets: caught.catches ? caughtGeometry.panes : nil,
+                                                influence: caught.catches ? influence : nil, speedChange: caught.speedChange,
+                                                minimum: style.minimumPaneSize, spring: spring) {
             return turnSharedEdgesOff()
         }
-        guard caught.catches else { return }
+        guard caught.catches, let influence else { return }
         // The value the layout showed before the catch, when a local one (a release the daemon has not confirmed): a
         // cancel sends it again, in a new transaction, so it lands as it would have.
         screen.activeDrag?.replaced = shownOverride(caught.value.key)

@@ -238,18 +238,10 @@ extension SharedEdgeMotion {
             (self.caught, self.probe, self.axis, lineMove) = (caught, probe, axis, move)
         }
 
-        /// Whether a pane whose size the drag changes shows narrower than its caught rest size by more than `minimum`
-        /// along the axis: a drag that shrinks it to its minimum would then show it with a negative size (a move keeps
-        /// each edge's leftover). Its press then takes the drag from before S2B.
-        func leavesNegativeSize(_ frames: [PaneID: AnimatedFrame], minimum: CGFloat) -> Bool {
-            let horizontal = axis == .horizontal
-            for (pane, frame) in frames {
-                guard let from = caught.panes[pane], let to = probe.panes[pane] else { continue }
-                let (size, change) = horizontal ? (from.width, to.width - from.width) : (from.height, to.height - from.height)
-                guard abs(change) > 0.01 else { continue }
-                if (horizontal ? frame.width.value : frame.height.value) - size < 1 - minimum { return true }
-            }
-            return false
+        /// How fast `pane`'s size along the axis changes for each point per second of the line's change of speed.
+        func sizeShare(_ pane: PaneID) -> CGFloat {
+            guard let from = caught.panes[pane], let to = probe.panes[pane] else { return 0 }
+            return (axis == .horizontal ? to.width - from.width : to.height - from.height) / lineMove
         }
 
         static func target(_ kind: DividerHandleView.Kind, in geometry: ScreenGeometry) -> CGRect? {
@@ -278,5 +270,42 @@ extension SharedEdgeMotion {
                 edges.write(start: &frame.y, extent: &frame.height)
             }
         }
+    }
+}
+
+extension SharedEdgeMotion {
+    /// Whether some pane could show a negative size after this press (rule C keeps each edge's spring leftover through a
+    /// drag): along either axis, its size's leftover from its rest size (`targets`: the caught layout's; nil: its own
+    /// target) and its size's speed (plus `influence`'s share of `speedChange`), followed on `spring` for as long as it
+    /// moves, must stay above minus `minimum` there: a drag (any mode) can shrink its rest size to that minimum, never
+    /// under. Any pane, not only the ones this drag resizes: a modifier can resize others. True: the press takes the drag
+    /// from before S2B, whose frames snap to rest and never show a negative size.
+    static func mayShowNegativeSize(_ frames: [PaneID: AnimatedFrame], targets: [PaneID: CGRect]?, influence: Influence?,
+                                    speedChange: CGFloat, minimum: CGSize, spring: SpringParameters) -> Bool {
+        for (pane, frame) in frames {
+            let target = targets?[pane] ?? frame.targetRect
+            let share = influence?.sizeShare(pane) ?? 0
+            let horizontal = influence?.axis != .vertical
+            let width = (leftover: frame.width.value - target.width, speed: frame.width.velocity + (horizontal ? speedChange * share : 0))
+            let height = (leftover: frame.height.value - target.height, speed: frame.height.velocity + (horizontal ? 0 : speedChange * share))
+            if lowest(width, spring: spring) < 1 - minimum.width || lowest(height, spring: spring) < 1 - minimum.height { return true }
+        }
+        return false
+    }
+
+    /// The lowest leftover a spring from `state` (leftover, speed) reaches before it rests, sampled at a fortieth of its
+    /// response (at most the settle horizon). Zero for a spring at rest.
+    private static func lowest(_ state: (leftover: CGFloat, speed: CGFloat), spring: SpringParameters) -> CGFloat {
+        guard state.leftover != 0 || state.speed != 0 else { return 0 }
+        var value = SpringValue(0)
+        (value.value, value.velocity) = (state.leftover, state.speed)
+        let dt = max(spring.response, 0.05) / 40
+        var lowest = min(state.leftover, 0)
+        for _ in 0..<400 {
+            value.step(dt, parameters: spring)
+            lowest = min(lowest, value.value)
+            if abs(value.value) < 0.25, abs(value.velocity) < 2 { break }
+        }
+        return lowest
     }
 }
