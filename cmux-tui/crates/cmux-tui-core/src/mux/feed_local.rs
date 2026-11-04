@@ -207,7 +207,7 @@ impl Mux {
             keys.extend(took.as_deref().filter(|_| shows_notice));
             self.keep_agent_feed_texts(
                 &keys,
-                super::agent_prompts::FeedTexts {
+                agent_prompts::FeedTexts {
                     message: message.as_deref().map(Arc::from),
                     prompt: prompt.as_deref().map(Arc::from),
                     detail: Arc::from(detail),
