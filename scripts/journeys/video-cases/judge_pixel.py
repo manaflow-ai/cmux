@@ -18,7 +18,13 @@ channel being >= 160 (1) or <= 96 (0); any channel between is "other" (a glyph, 
 divider's drag cue (DividerHandleView lights a band from the mouse-down, drawn over the page through its occlusion rect)
 is its own class: shell-class pixels that are not the exact shell color, within 40 pt of a divider of the shown sample.
 
-Clock. A film frame shown at host time t shows the trace sample of t minus one refresh (video_judge.committed_sample).
+Clock. The fixed clock: a film frame shown at host time t shows the trace sample of t minus one refresh
+(video_judge.committed_sample). Per film the judge fits the offset from it (-1, 0 or +1 refresh: a whole film presented
+late, or a trace that samples a tick off) from the content edges that follow the trace over the moving frames, and
+judges every layer against that clock (fit_clock; `clock` in the JSON). An offset that is not 0 is the finding
+"presentation offset". When no offset fits (most moving frames of every moving edge match none: content late by more
+than a refresh), the finding "clock not found", and the film is judged on the fixed clock: its lags and deviations in
+motion can be one refresh off.
 
 Pane sides. Per film frame, per scan line, per fixture pane whose content the line crosses (its shown rect below its tab
 strip: the note's chrome), on each side the walk starts at a fill pixel within 48 pt of the pane edge whose next pixel
@@ -106,6 +112,8 @@ COMMIT_SLACK_S = 0.0005
 MOVE_EPS_PX = 0.01
 STILL_SAMPLES = 3           # a motion ends after this many still samples
 REST_FALLBACK = 5           # frames used for rest values when nothing rests before the first motion
+CLOCK_OFFSETS = (-1, 0, 1)  # the clock's offsets fitted per film (refreshes later than the fixed clock: + is later)
+CLOCK_MIN_FRAMES = 4        # a track votes for the clock with at least this many moving frames that tell offsets apart
 SPRING_T0_STEPS = 41        # t0 grid points (coarse, then as many again around the best)
 DIVIDER_NEAR_PT = 12.0      # a pane edge this close to a divider's side is that divider's neighbour
 NON_SPRING_INPUTS = ("drag", "held keys", "window resize")  # inputs whose motion follows the input by design
@@ -772,26 +780,12 @@ def row_summary(what, key, label, kind, line, side, track=None, **extra):
     return row
 
 
-def judge(base, all_frames=False):
-    film = Film(base)
-    report = {"case": film.name, "base": str(film.base), "scale": film.scale, "period_ms": round(film.period * 1000, 3),
-              "frames": film.n, "rows": film.rows, "columns": film.cols, "notes": [], "findings": [], "info": [],
-              "fixture": {"panes": {p: {k: v for k, v in i.items() if k != "fill"} for p, i in film.panes.items()},
-                          "speed": film.note.get("speed"), "reduce": film.note.get("reduce"), "spring": film.note.get("spring"),
-                          "input": film.note.get("input"), "page_backdrop": film.note.get("page_backdrop")}}
-    for why, bad in (("no scan file or no scan records", not film.has_scan or film.n == 0),
-                     ("no fixture panes in the meta notes (notes.pixel)", not film.panes), ("no trace samples", not film.samples)):
-        if bad:
-            report["notes"].append(f"{why}: nothing judged")
-            return report
-    shown = [film.committed(float(t)) for t in film.t]
-    spring = film.note.get("spring") or None
-    reduce = bool(film.note.get("reduce"))
-    # Per line, per frame: the classes (with the divider cue) and the measurements of every fixture pane the line crosses.
-    measured = {}   # (pid, line, axis, side) -> per frame: side dict or None
-    inside = {}     # (pid, line, axis) -> per frame: (shell px inside the pane, has fill) or None
-    line_codes = {}  # line -> per frame codes (the cue marked), for the strips
-    lines = film.lines()
+def measure_lines(film, lines, shown):
+    """(measured, inside, line_codes) of every scan line with the clock SHOWN (per frame, the sample it shows): per line
+    and frame the classes (with the divider cue) and the measurements of every fixture pane the line crosses.
+    measured: (pid, line, axis, side) -> per frame a side dict or None; inside: (pid, line, axis) -> per frame (shell px
+    inside the pane, has fill) or None; line_codes: line -> per frame codes (the cue marked), for the strips."""
+    measured, inside, line_codes = {}, {}, {}
     for name, axis, coord, px in lines:
         codes_all = classify(px)
         rgb = px[..., 2::-1].astype(np.int16)
@@ -809,6 +803,125 @@ def judge(base, all_frames=False):
                 for side in ("lo", "hi"):
                     measured.setdefault((pid, name, axis, side), [None] * film.n)[f] = m[side]
         line_codes[name] = per_line
+    return measured, inside, line_codes
+
+
+def fit_clock(film, fixed, measured):
+    """The film's clock (3d, FRAME OWNER): {"offset": refreshes later than the fixed clock (a frame shows the sample
+    FIXED[f] - offset) or None when no offset fits, "why", "votes", "tracks"}. Each content edge track (a pane side on a
+    scan line) is read on its moving frames: those whose three candidate samples (fixed - 1, fixed, fixed + 1) differ
+    by 1 px or more, so the offsets give different answers. A track with CLOCK_MIN_FRAMES such frames votes for the
+    offset (of CLOCK_OFFSETS) at which more than half of them are within TOL_PX of the trace (its rest offset taken
+    off), and for none when no offset or two do. The film's offset is the smallest offset any edge votes for: a frame
+    composites the geometry of one layout transaction, and a layer can show an older geometry (late) but never a newer
+    one, so the edges that follow the trace at the smallest offset show the frame's own sample and the edges at a larger
+    offset are late layers, judged as such against that clock. A whole film late (presentation latency, or a trace
+    that samples one tick early or late) moves every edge, so every vote moves with it. With no vote: 0 (the fixed
+    clock, "not confirmed") when most of the edges' moving frames match some offset (few frames, or an edge that is
+    late by a varying amount: the film cannot set its clock, and is judged as before); None (clock not found: judged on
+    the fixed clock, with that finding) when most of them match none; 0 with no moving edge (nothing to fit)."""
+    k_max = len(film.samples) - 1
+    votes, tracks = collections.Counter(), []
+    for (pid, name, axis, side), per in sorted(measured.items()):
+        series = edge_series(film, pid, axis, side)
+        values = [m["view_edge"] if m is not None and m.get("status") in ("found", "cut") and m.get("view_edge") is not None
+                  else None for m in per]
+        # Frames whose three candidate samples are one position: at rest under any offset (the edge's rest offset);
+        # frames whose three differ by 1 px or more tell the offsets apart (the moving frames).
+        rest, frames = [], []
+        for f in range(film.n):
+            k = fixed[f]
+            if values[f] is None or k is None or not 1 <= k < k_max:
+                continue
+            near = [series[j] for j in (k - 1, k, k + 1)]
+            if any(v is None for v in near):
+                continue
+            spread = max(near) - min(near)
+            if spread == 0:
+                rest.append(f)
+            elif spread >= TOL_PX:
+                frames.append(f)
+        if not rest:
+            continue
+        offset = float(np.median([values[f] - series[fixed[f]] for f in rest]))
+        if len(frames) < CLOCK_MIN_FRAMES:
+            continue
+        # Within TOL_PX as the lag search matches a sample (judge_track): a content edge 1 px inside its pane edge
+        # (device-pixel rounding) follows that sample.
+        near = {f: [o for o in CLOCK_OFFSETS if abs(values[f] - offset - series[fixed[f] - o]) <= TOL_PX] for f in frames}
+        hits = {o: sum(1 for f in frames if o in near[f]) for o in CLOCK_OFFSETS}
+        vote = track_vote(hits, len(frames))
+        if vote is not None:
+            votes[vote] += 1
+        tracks.append({"track": f"{film.panes[pid]['label']} {side} on {name}", "frames": len(frames),
+                       "within_1px": {f"{o:+d}": n for o, n in hits.items()},
+                       "any_offset": sum(1 for f in frames if near[f]), "vote": vote})
+    return clock_verdict(votes, tracks)
+
+
+def track_vote(hits, frames):
+    """The offset one edge votes for: the one at which more than half of its FRAMES moving frames are within TOL_PX of
+    the trace (HITS: offset -> frames), or None when none is, or when two offsets have the most."""
+    best = max(hits.values())
+    winners = [o for o, n in hits.items() if n == best]
+    return winners[0] if best * 2 > frames and len(winners) == 1 else None
+
+
+def clock_verdict(votes, tracks):
+    """fit_clock's answer from the edges' VOTES (offset -> edges) and TRACKS (each moving edge's frames, within_1px,
+    any_offset, vote): the smallest offset voted for; with no vote, 0 ("not confirmed") when most moving frames match
+    some offset, None ("not found") when most match none; 0 with no moving edge."""
+    moving_tracks = len(tracks)
+    clock = {"offsets": list(CLOCK_OFFSETS), "votes": {f"{o:+d}": n for o, n in sorted(votes.items())}, "tracks": tracks}
+    if not moving_tracks:
+        return dict(clock, offset=0, status="fixed: no motion",
+                    why="no edge moved in frames that tell the offsets apart: the fixed clock")
+    if not votes:
+        total, matched = sum(t["frames"] for t in tracks), sum(t["any_offset"] for t in tracks)
+        offsets = ", ".join(f"{o:+d}" for o in CLOCK_OFFSETS)
+        if matched * 2 > total:
+            return dict(clock, offset=0, status="fixed: not confirmed",
+                        why=f"no offset of {offsets} puts more than half of any edge's moving frames within {TOL_PX:g} px "
+                            f"of the trace, but {matched} of their {total} moving frames match one of them ({moving_tracks} "
+                            "edges moved): the film cannot set its clock, judged on the fixed clock")
+        return dict(clock, offset=None, status="not found",
+                    why=f"{matched} of the {total} moving frames of {moving_tracks} moving edges are within {TOL_PX:g} px "
+                        f"of the trace at any offset of {offsets}")
+    o = min(votes)
+    agree = [t for t in tracks if t["vote"] == o]
+    frames = sum(t["frames"] for t in agree)
+    within = sum(t["within_1px"][f"{o:+d}"] for t in agree)
+    later = ", ".join(f"{v:+d}: {n}" for v, n in sorted(votes.items()) if v != o)
+    return dict(clock, offset=o, status="fitted",
+                why=f"{votes[o]} of {moving_tracks} moving edges follow the trace at {o:+d} ({within} of their {frames} "
+                    f"moving frames within {TOL_PX:g} px)" + (f"; edges at a later offset (late layers) {later}" if later else ""))
+
+
+def judge(base, all_frames=False):
+    film = Film(base)
+    report = {"case": film.name, "base": str(film.base), "scale": film.scale, "period_ms": round(film.period * 1000, 3),
+              "frames": film.n, "rows": film.rows, "columns": film.cols, "notes": [], "findings": [], "info": [],
+              "fixture": {"panes": {p: {k: v for k, v in i.items() if k != "fill"} for p, i in film.panes.items()},
+                          "speed": film.note.get("speed"), "reduce": film.note.get("reduce"), "spring": film.note.get("spring"),
+                          "input": film.note.get("input"), "page_backdrop": film.note.get("page_backdrop")}}
+    for why, bad in (("no scan file or no scan records", not film.has_scan or film.n == 0),
+                     ("no fixture panes in the meta notes (notes.pixel)", not film.panes), ("no trace samples", not film.samples)):
+        if bad:
+            report["notes"].append(f"{why}: nothing judged")
+            return report
+    spring = film.note.get("spring") or None
+    reduce = bool(film.note.get("reduce"))
+    lines = film.lines()
+    # The clock (3d): the fixed clock says a frame at t shows the sample of t minus one refresh; per film, the offset
+    # that the film's own edges follow over the moving frames (presentation latency, or a trace sampled a tick off).
+    fixed = [film.committed(float(t)) for t in film.t]
+    measured, inside, line_codes = measure_lines(film, lines, fixed)
+    clock = fit_clock(film, fixed, measured)
+    report["clock"] = clock
+    offset = clock["offset"] or 0  # clock not found: the fixed clock, and the finding says so
+    shown = [None if k is None or not 0 <= k - offset < len(film.samples) else k - offset for k in fixed]
+    if offset:
+        measured, inside, line_codes = measure_lines(film, lines, shown)
     # The first trace sample where any judged edge moves; frames before it (less one) are at rest.
     series = {}
     first = None
@@ -1004,6 +1117,18 @@ def judge(base, all_frames=False):
     report["summary"] = summary
     report["frame_findings"] = [{"f": f, "entries": frames_out[f]} for f in sorted(frames_out)]
     report["findings"], report["info"] = findings_of(report)
+    report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
+                                                                          f"{clock['why']}"})
+    if clock["offset"] is None:
+        report["findings"].insert(0, {"check": "clock not found", "where": "film",
+                                      "detail": f"{clock['why']}: judged on the fixed clock, so a lag or a deviation in "
+                                                "motion can be one refresh off (at rest the clock does not matter)"})
+    elif clock["offset"]:
+        report["findings"].insert(0, {"check": "presentation offset", "where": "film",
+                                      "detail": f"{clock['offset']:+d} refresh(es): the film shows the trace sample "
+                                                f"{clock['offset']:+d} refresh(es) from the fixed clock's (a frame at t shows "
+                                                f"the sample of t minus {1 + clock['offset']} refreshes); every layer is "
+                                                f"judged against this clock; {clock['why']}"})
     return report
 
 
