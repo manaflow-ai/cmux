@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import Foundation
@@ -13,6 +13,10 @@ import Testing
 @MainActor
 struct SubagentTabTitleTests {
     private static let host = "install:this-mac"
+
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
 
     @Test func aSubagentsPaneIsNamedAfterTheSubagentNotTheChat() throws {
         let daemon = DaemonService()
@@ -92,6 +96,35 @@ struct SubagentTabTitleTests {
         titles.bind("reviewer", of: "s", toTab: "new") { $0 != "closed" }
         #expect(titles.tone(ofTab: "closed") == nil)
         #expect(titles.tone(ofTab: "new") == 1)
+    }
+
+    @Test func loadingAWorkflowKeepsItsBoundTabNameAndClearsThePreviousChildTone() async {
+        let titles = SubagentTabTitles()
+        titles.name("workflow", of: "s", title: "Review the patch")
+        titles.bind("workflow", of: "s", toTab: "tab")
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, showsSubagent: { title, tone, keepingTitle in
+            titles.show(title, inTab: "tab", tone: tone, keepingTitle: keepingTitle)
+        })
+        @MainActor func shown(_ params: [String: Any]) async {
+            let reply = await model.respondToHeader(AgentPaneRequest(body: ["method": "chat.subagentShown", "params": params]))
+            #expect(reply["ok"] as? Bool == true)
+        }
+
+        await shown(["subagent": "workflow"])
+        #expect(titles.title(ofTab: "tab") == "Review the patch", "loading discarded the name bound when the workflow opened")
+        #expect(titles.tone(ofTab: "tab") == nil)
+        await shown(["subagent": "child", "title": "Auditor", "tone": 3])
+        #expect(titles.title(ofTab: "tab") == "Auditor")
+        #expect(titles.tone(ofTab: "tab") == 3)
+        await shown(["subagent": "workflow"])
+        #expect(titles.title(ofTab: "tab") == "Auditor", "an unknown name must not erase the current bound name")
+        #expect(titles.tone(ofTab: "tab") == nil, "the workflow kept the previous child's identity")
+        await shown(["subagent": "workflow", "title": "Review the patch"])
+        #expect(titles.title(ofTab: "tab") == "Review the patch")
+        await shown([:])
+        #expect(titles.title(ofTab: "tab") == nil, "returning to the parent kept a child name")
+        #expect(titles.tone(ofTab: "tab") == nil)
     }
 
     @Test func thePageReportsWhatThePaneShows() {

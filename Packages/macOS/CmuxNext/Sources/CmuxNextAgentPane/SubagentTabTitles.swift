@@ -46,9 +46,12 @@ public final class SubagentTabTitles {
     /// Tab `tab` now shows a subagent named `title`, or (nil or blank) its chat again: a subagent pane
     /// shows the chat's other subagents in place, and its "Subagent of" pill goes back to the chat.
     /// Review of #28497 at 995299ff: the name bound at open stayed on the tab through those.
-    public func show(_ title: String?, inTab tab: String, tone: Int? = nil) {
-        let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        tabs[tab] = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.limit))
+    /// While a shown subagent's name is loading, `keepingTitle` updates only the identity ink.
+    public func show(_ title: String?, inTab tab: String, tone: Int? = nil, keepingTitle: Bool = false) {
+        if !keepingTitle {
+            let trimmed = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            tabs[tab] = trimmed.isEmpty ? nil : String(trimmed.prefix(Self.limit))
+        }
         tabTones[tab] = AgentIdentityTone.valid(tone)
     }
 

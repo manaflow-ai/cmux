@@ -6,12 +6,7 @@ type Call = (method: string, params: Record<string, unknown>) => Promise<unknown
 
 /// Keep the pane tab's identity in step with its transcript. A workflow uses this placement
 /// transport but is not a subagent: clear any previous child's ink, even before it has a title.
-export function useShownSubagent(
-  call: Call,
-  ownPane: boolean,
-  id: string | undefined,
-  title: string | undefined,
-) {
+export function useShownSubagent(call: Call, ownPane: boolean, id: string | undefined, title: string | undefined) {
   const shownOnce = useRef(false);
   useEffect(() => {
     if (!ownPane) return;
