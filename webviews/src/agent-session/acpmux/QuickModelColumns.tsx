@@ -976,6 +976,8 @@ function Columns({
         // A mouse press never focuses the chip, as the list menu's button: a press that closes the
         // menu and lands a pick leaves the keyboard in the prompt the picker focused.
         onPointerDown={(event) => {
+          // A sibling composer popover can consume the compatibility click while it dismisses;
+          // close its React state while this trigger is still the stable pointer target.
           event.currentTarget.ownerDocument.dispatchEvent(
             new CustomEvent("cmux-composer-popover-switch", { detail: event.currentTarget }),
           );
