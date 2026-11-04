@@ -250,6 +250,92 @@ export const mockSessions: MockSession[] = [
       "The lane wasn't foregrounded by acpmux or cmux NEXT. It ran about 40 slow Bash calls in the foreground itself, and they stalled the turn. Separately, the activity-row timer bug went to the timer helper.\n\n[outward] Add a hook that pushes known-slow commands to the background?\n- Yes, add the hook\n- Not now\n- Fix CI first",
   },
   {
+    // The agent's own wrap-up call at the end of its turn (acpmux's `wrap_up` tool,
+    // conversation/wrapUp.ts): the next-step box under the answer, the recap muted on top, then the
+    // question and its two answers; a click sends one as the next prompt.
+    sessionId: "mock-wrap-up",
+    title: "Fix product grid layout shift",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 30,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "Done. The grid reserves its space now.",
+    history: (at) => [
+      { ago: at + 90_000, mux: "user_message", msg: { text: "Fix the layout shift on the product grid" } },
+      { ago: at + 90_000, mux: "turn_started" },
+      { ago: at + 30_000, update: text("Done. The grid reserves its space now.") },
+      {
+        ago: at + 20_000,
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "mock-wrap-up-call",
+          kind: "other",
+          title: "mcp__acpmux__wrap_up",
+          status: "completed",
+          rawInput: {
+            recap:
+              "Product images now have a width and height, and the grid reserves a 4:5 box while they load, so the product grid no longer shifts. All 14 tests pass.",
+            ask: "Should I open a PR for this?",
+            actions: ["Yes, open PR", "Not now"],
+          },
+        },
+      },
+      { ago: at, mux: "turn_result", msg: { status: "completed" } },
+    ],
+  },
+  {
+    // A real chat's wrap-up from a code-mode script: a DEV build's SR2 Claude chat called
+    // `cmux.acpmux_wrap_up` from `cmux_exec`, and this is the call_log it recorded (code_mode.rs keeps
+    // the box as `shown`). The pane reads the box from it; a click sends an answer as the next prompt.
+    sessionId: "mock-wrap-up-code-mode",
+    title: "Look in an empty folder",
+    harness: "claude",
+    model: "claude-opus-5-5",
+    status: "idle",
+    cwd: CMUX,
+    ago: 25,
+    host: LOCAL_HOST,
+    hostKind: "local",
+    reply: "The folder is empty. I asked in the wrap-up box whether to add a README.",
+    history: (at) => {
+      const shown = {
+        recap: "Checked the folder: it is empty.",
+        ask: "Should I add a README here?",
+        actions: ["Yes, add README", "No thanks"],
+      };
+      const log = JSON.stringify({ calls: 1, call_log: [{ name: "acpmux_wrap_up", ok: true, shown }] });
+      return [
+        { ago: at + 60_000, mux: "user_message", msg: { text: "What's in this folder?" } },
+        { ago: at + 60_000, mux: "turn_started" },
+        {
+          ago: at + 30_000,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "mock-wrap-up-exec",
+            kind: "other",
+            title: "mcp__cmux__cmux_exec",
+            status: "in_progress",
+            rawInput: { script: `await cmux.acpmux_wrap_up(${JSON.stringify(shown)})` },
+          },
+        },
+        {
+          ago: at + 29_000,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "mock-wrap-up-exec",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: log } }],
+          },
+        },
+        { ago: at + 20_000, update: text("The folder is empty. I asked in the wrap-up box whether to add a README.") },
+        { ago: at, mux: "turn_result", msg: { status: "completed" } },
+      ];
+    },
+  },
+  {
     // The person came back to a Claude chat after 5+ minutes away (Leo, 2026-11-03: "lkewise with
     // teh cli summarization thing? how do those get turned on? maybe we can expose it in cmux-next
     // too"): acpmux's `recap` record, drawn as the recap row under the last turn.
@@ -707,8 +793,8 @@ export const mockSessions: MockSession[] = [
     // Claude Code's prompt suggestions (Leo, 2026-11-03: "i know there's suggested prompts that you
     // can right arrow/tab to do stuff with... maybe we can expose it in cmux-next too"): after the
     // second turn acpmux sends the agent's guess at the next prompt (live, `suggestion`), which the empty composer shows
-    // as ghost text (Tab or Right-arrow takes it). The chat's switch is the Options chip's
-    // "Prompt suggestions", as acpmux offers it (claude_stdio/prompt_suggestions.rs).
+    // as ghost text (Tab or Right-arrow takes it). acpmux also offers the chat's "Prompt
+    // suggestions" switch (claude_stdio/prompt_suggestions.rs), which the composer leaves out.
     sessionId: PROMPT_SUGGESTION_SESSION,
     title: "Retry flaky uploads",
     harness: "claude",

@@ -242,10 +242,13 @@ class WorkflowTests(unittest.TestCase):
         upload = job.index("- name: Upload nightly-next appcasts to R2")
         readback = job.index("- name: Read the live nightly-next feed back")
         self.assertLess(upload, readback)
-        # Last in the job but for the lease release, never failing it, and reported by report-nightly-failure.
+        # Last in the job but for the lease release and the owned-Mac wipe (always last,
+        # tests/test_nightly_owned_minis_only.py), never failing it, and reported by report-nightly-failure.
         release = job.index("- name: Release the nightly-next publish lease")
+        wipe = job.index("- name: Wipe this job's credentials and files from the owned Mac")
         self.assertNotIn("\n      - ", job[readback + 1:release - 1])
-        self.assertNotIn("\n      - ", job[release + 1:])
+        self.assertNotIn("\n      - ", job[release + 1:wipe - 1])
+        self.assertNotIn("\n      - ", job[wipe + 1:])
         step = job[readback:release]
         self.assertIn("if: always() && steps.recheck.outputs.already_published != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true'", step)
         self.assertIn("continue-on-error: true", step)
