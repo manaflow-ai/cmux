@@ -98,5 +98,20 @@ import Testing
         #expect(made.stripModel === ready.stripModel, "the key's turn built the new column's strip model")
         #expect(content.paneSpare.ready == nil, "a new spare was made in the key's turn")
         #expect(made.stripModel.selectedID?.rawValue == provisional.tabID, "the new column's strip does not select its stand-in tab")
+
+        // The column springs in: no spare is made in a spring frame. It lands: the next one is made after that.
+        try #require(root.isInLayoutMotion, "fixture: the New Column does not spring")
+        for _ in 0..<2 {
+            await Self.nextCommittedPass()
+            services.mainWork.frameDidFire()
+        }
+        #expect(content.paneSpare.ready == nil, "a spare was made while the new column sprang in")
+        frames = 0
+        while frames < 600, root.advanceFrame(Self.dt) { frames += 1 }
+        for _ in 0..<4 {
+            await Self.nextCommittedPass()
+            services.mainWork.frameDidFire()
+        }
+        #expect(content.paneSpare.ready != nil, "no spare was made after the new column landed")
     }
 }

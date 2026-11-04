@@ -100,7 +100,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController.resume`), and the attention rings are read now and followed again.
     func unpark() {
         isParked = false
-        refillPaneSpare()
+        AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } // after the switch's frame
         comeOnScreen()
         setDrawsNothing(false)
         observeAttention()
@@ -421,7 +421,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// already queued (none runs in a spring frame), its landing asks again.
     func refillPaneSpare() {
         guard contentView.window != nil else { return paneSpare.isWanted = false } // torn down, or not shown yet
-        if paneSpareMotion == nil { paneSpareMotion = layoutView.observeLayoutMotion { [weak self] _ in self?.refillPaneSpare() } }
+        if paneSpareMotion == nil { paneSpareMotion = layoutView.observeLayoutMotion { [weak self] moving in
+            if moving { self?.paneSpare.isWanted = false } else { AfterFrameCommit().run { [weak self] in self?.refillPaneSpare() } } } }
         paneSpare.isWanted = !isParked && !layoutView.isInLayoutMotion // shown and still
         paneSpare.fill()
     }
