@@ -90,14 +90,38 @@ const LOCK_WAIT: Duration = Duration::from_secs(5);
 /// The longest a repair waits for the lines it journals before it cuts a log.
 const REPAIR_WAIT: Duration = Duration::from_secs(60);
 
-/// Tests: how many times the checkpointer's loop woke (`journal_store/checkpoint.rs`).
+/// Tests: the seams of one store's checkpointer (`journal_store/checkpoint.rs`), by the store's
+/// home: under `cargo test` the tests are threads of one process, and each sees only its own.
 #[cfg(test)]
-pub(crate) static CHECKPOINTER_WAKES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
-/// Tests: the checkpoint period in milliseconds when not 0 (`checkpoint_every`).
+#[derive(Default)]
+pub(crate) struct CheckpointerSeams {
+    /// The checkpoint period in milliseconds when not 0 (`Inner::checkpoint_every`).
+    pub(crate) every_ms: u64,
+    /// How many times the checkpointer's loop woke to checkpoint.
+    pub(crate) wakes: u64,
+    /// Stops the checkpointer once, right after it marked itself idle (before its second look).
+    pub(crate) idle_hold: Option<Hold>,
+    /// Stops `Inner::touched` once, right after it took the idle flag (before the timer lock).
+    pub(crate) touch_hold: Option<Hold>,
+}
+
+/// Tests: a stop on one thread: it says so on the first channel, then waits on the second.
 #[cfg(test)]
-pub(crate) static TEST_CHECKPOINT_EVERY_MS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+pub(crate) type Hold = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+#[cfg(test)]
+static CHECKPOINTER_SEAMS: Mutex<BTreeMap<PathBuf, CheckpointerSeams>> =
+    Mutex::new(BTreeMap::new());
+
+/// Tests: runs `with` on the checkpointer seams of the store at `home`.
+#[cfg(test)]
+pub(crate) fn checkpointer_seams<T>(
+    home: &Path,
+    with: impl FnOnce(&mut CheckpointerSeams) -> T,
+) -> T {
+    let mut seams = CHECKPOINTER_SEAMS.lock_or_recover();
+    with(seams.entry(home.to_path_buf()).or_default())
+}
 
 pub struct JournalStore {
     inner: Arc<Inner>,

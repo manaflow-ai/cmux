@@ -7,7 +7,7 @@
 //! in a temporary folder; an OS crash of them is modelled as the worst case: every log file goes
 //! back to its length at the last `flush` (the kernel lost every write since).
 
-use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT};
+use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT, checkpointer_seams};
 use super::log_sync::FAIL_NEXT_LOG_SYNC;
 use super::sync_model;
 use super::*;
@@ -980,10 +980,9 @@ fn a_hole_that_ends_at_a_line_start_keeps_that_line() {
 /// checkpoint one period later.
 #[test]
 fn an_idle_store_does_not_wake_its_checkpointer() {
-    use super::journal_store::{CHECKPOINTER_WAKES, TEST_CHECKPOINT_EVERY_MS};
-    use std::sync::atomic::Ordering;
-    TEST_CHECKPOINT_EVERY_MS.store(20, Ordering::SeqCst);
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    checkpointer_seams(home.path(), |seams| seams.every_ms = 20);
+    let wakes = || checkpointer_seams(home.path(), |seams| seams.wakes);
     let journal = SimStorage::new(46);
     let store = open(home.path(), &journal);
     store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
@@ -991,9 +990,9 @@ fn an_idle_store_does_not_wake_its_checkpointer() {
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
     // Let the checkpointer see that nothing is left to do.
     std::thread::sleep(Duration::from_millis(100));
-    let before = CHECKPOINTER_WAKES.load(Ordering::SeqCst);
+    let before = wakes();
     std::thread::sleep(Duration::from_millis(500));
-    let woke = CHECKPOINTER_WAKES.load(Ordering::SeqCst).saturating_sub(before);
+    let woke = wakes().saturating_sub(before);
     assert!(woke <= 1, "an idle checkpointer woke {woke} times in 500 ms (period 20 ms)");
     // A change wakes it: its checkpoint comes about one period later.
     store.append(CHAT, &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
@@ -1011,5 +1010,56 @@ fn an_idle_store_does_not_wake_its_checkpointer() {
     assert!(
         checkpointed.is_some_and(|lsn| lsn >= 2),
         "no checkpoint after a change ({checkpointed:?})"
+    );
+}
+
+/// The idle checkpointer (follow-up 4) and its period. A change whose `touched` takes the idle
+/// flag while the checkpointer holds the timer lock (between marking itself idle and its second
+/// look) notifies once it gets that lock. The second look saw the change, so the checkpointer is
+/// in its period wait by then, and that notify must not end it: else a checkpoint runs at once on
+/// the checkpointer's thread, and a burst no longer shares one. In fleet run 0577ac62 such a
+/// checkpoint took the line whose sync `a_failed_log_sync_freezes_the_checkpoint` fails (on a
+/// thread where the failure is not set), and the test's own flush had nothing to do.
+#[test]
+fn a_change_seen_by_the_idle_checkpointers_second_look_waits_one_period() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (idle_arrived, idle_seen) = std::sync::mpsc::channel();
+    let (idle_release, idle_released) = std::sync::mpsc::channel();
+    let (touch_arrived, touch_seen) = std::sync::mpsc::channel();
+    let (touch_release, touch_released) = std::sync::mpsc::channel();
+    checkpointer_seams(home.path(), |seams| {
+        seams.idle_hold = Some((idle_arrived, idle_released));
+        seams.touch_hold = Some((touch_arrived, touch_released));
+    });
+    let journal = SimStorage::new(47);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    // The checkpointer found nothing to do, marked itself idle and holds the timer lock.
+    idle_seen
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the checkpointer never went idle: {e}"));
+    let appender = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || {
+            store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+        })
+    };
+    // The change took the idle flag; its notify waits for the timer lock.
+    touch_seen
+        .recv_timeout(WAIT)
+        .unwrap_or_else(|e| panic!("the change never took the idle flag: {e}"));
+    // The second look sees the change, so the checkpointer goes to its period wait (30 s), and
+    // the change's notify comes in there.
+    idle_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    touch_release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    appender.join().unwrap_or_else(|_| panic!("the append panicked"));
+    std::thread::sleep(Duration::from_millis(300));
+    let woke = checkpointer_seams(home.path(), |seams| seams.wakes);
+    assert_eq!(
+        woke, 0,
+        "the change's notify ended the checkpointer's period: a checkpoint ran at once"
+    );
+    assert!(
+        !home.path().join("journal-projected.json").exists(),
+        "a checkpoint ran before one period after the change"
     );
 }
