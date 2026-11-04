@@ -672,6 +672,13 @@ export function Composer({
   // Queued prompts a Return already steered (`steerQueuedOnReturn`), so the next Return steers the
   // one after them instead of sending the same one again before acpmux's queue update arrives.
   const steeredOnReturn = useRef(new Set<string>());
+  // Forgets the ones that left the queue, and every one when the chat changes.
+  const steerChat = snapshot.summary?.sessionId || sessionId;
+  useEffect(() => {
+    const queued = new Set(snapshot.queue.map((entry) => entry.id));
+    for (const id of steeredOnReturn.current) if (!queued.has(id)) steeredOnReturn.current.delete(id);
+  }, [snapshot.queue]);
+  useEffect(() => () => steeredOnReturn.current.clear(), [steerChat]);
   /// The newest `onOpenInWindow`, for a ⌘Return held until a screenshot's chip is ready.
   const openInWindow = useRef(onOpenInWindow);
   openInWindow.current = onOpenInWindow;
@@ -1679,13 +1686,20 @@ export function Composer({
   // chosen with the arrows, or the typed word begins its name and is not that name in full with no
   // arguments to take. A path or a word that only resembles a command is never rewritten.
   const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed);
-  // The queued prompt Return on an empty prompt steers: the person's first one that still waits
-  // (not a teammate's, not one already sent now or held for the folder's trust or a waking machine).
+  // The queued prompt Return on an empty prompt steers: the person's first one acpmux holds that
+  // still waits (not a teammate's, not one already sent now, held for the folder's trust or a
+  // waking machine, or still on its way to acpmux, which has nothing to steer yet). Only while
+  // the composer may send at all (`queues`), with nothing typed, staged or still being read.
   const queuedToSteer = () =>
-    !shell && snapshot.isWorking && onQueueChange && !text.trim() && attachments.length === 0
+    queues && onQueueChange && !hasDraft
       ? ownQueue(snapshot.queue).find(
           (entry) =>
-            !entry.author && !entry.next && !entry.held && !entry.retry && !steeredOnReturn.current.has(entry.id),
+            !entry.author &&
+            !entry.next &&
+            !entry.held &&
+            !entry.sending &&
+            !entry.retry &&
+            !steeredOnReturn.current.has(entry.id),
         )
       : undefined;
   const steerQueuedOnReturn = (event: { preventDefault(): void; repeat?: boolean }) => {

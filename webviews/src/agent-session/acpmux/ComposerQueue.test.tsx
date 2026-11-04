@@ -171,6 +171,37 @@ test("Steer sends the prompt now through the queue's steer path; Delete withdraw
   expect(container.querySelector('[data-prompt-id="p-1"]')).toBeNull();
 });
 
+// https://github.com/manaflow-ai/cmux/issues/34765: a prompt the composer sent that acpmux has not
+// queued yet (`sending`) had nothing to steer there, so its Steer did nothing. The click is kept and
+// goes once acpmux holds the prompt.
+test("Steer on a prompt still on its way to acpmux goes once acpmux holds it", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const onChange = async (id: string, edit: QueueEdit) => {
+    edits.push([id, edit]);
+    return true;
+  };
+  const container = await render(onChange, async () => true, [{ id: "p-1", prompt: "first", sending: true }]);
+  await act(async () => actions(container, "p-1")[0]!.click());
+  expect(edits).toEqual([]);
+  // The row offers no second Steer while the first waits.
+  expect(actions(container, "p-1").map((button) => button.dataset.action ?? button.dataset.menu)).toEqual([
+    "delete",
+    "queued-more",
+  ]);
+  await act(async () =>
+    root!.render(
+      <ComposerQueue
+        queue={[{ id: "p-1", prompt: "first" }]}
+        chat="c"
+        t={t}
+        onChange={onChange}
+        onRemove={async () => true}
+      />,
+    ),
+  );
+  expect(edits).toEqual([["p-1", { op: "send_now" }]]);
+});
+
 test("a successful Steer hides its action before the next queue snapshot", async () => {
   let resolve: ((ok: boolean) => void) | undefined;
   const container = await render(
