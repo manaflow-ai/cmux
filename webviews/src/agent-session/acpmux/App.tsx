@@ -4764,7 +4764,9 @@ export function VirtualTranscript({
         // A send made a tail that fit overflow (Leo, 2026-11-04: "from partially empty"): the
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
-        if (sentBeforeOpen.current && at < 0 && node.scrollTop - before > 0.5)
+        // The send's own effect runs after this pass, so a send in this commit counts here too.
+        const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
+        if (sentHere && at < 0 && node.scrollTop - before > 0.5)
           followGlide.current?.sent(thread.current, node.scrollTop - before);
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
