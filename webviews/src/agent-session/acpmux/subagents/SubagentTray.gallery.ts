@@ -65,6 +65,31 @@ const devServer = activity(
   1.5,
 );
 
+// The raw assignment from Leo's 2026-11-04 running-strip screenshot. Synthetic paths and data;
+// the executed SHA lookup stays named, while flags and interpolation live in the tooltip/output.
+const glyphCheck =
+  "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script scripts/check-glyphs.sh";
+const glyphCheckScene = (description?: string) =>
+  chat(
+    [
+      user("Check the glyphs on the fleet", 9),
+      activity(
+        [
+          tool(glyphCheck, "execute", "completed", {
+            inputSummary: JSON.stringify({
+              command: glyphCheck,
+              ...(description ? { description } : {}),
+              run_in_background: true,
+            }),
+            startedAt: minutesAgo(8.75),
+          }),
+        ],
+        8.75,
+      ),
+    ],
+    { isWorking: true },
+  );
+
 /** A long shell line Claude runs in the background, still running (Leo 2026-10-21: "is that a
  * command or a subagent?"). */
 const testRun = activity(
@@ -101,6 +126,27 @@ const described = activity(
     }),
   ],
   1.4,
+);
+
+/** The shell lines in Leo's screenshot of the tray (2026-11-03: "we should be able to parse these
+ * more... like instead of raw things, we should be able to deterministically/heuristically have
+ * stuff"), with no description, so each reads by its rule (session-info/commandRules.ts). */
+const RAW_COMMANDS = [
+  "glaeda-gh wait run manaflow-ai/cmux/41762593154 --until done --timeout 3000 2>&1 | tail -5",
+  'cmux-ci test --setup playwright --timeout 2400 --workflow-ref feat-cmux-next -- "$(cat check.sh)"',
+  'python3 -c "import time; time.sleep(560)"; GH_QUOTA_TIMEOUT=1 gh pr view 34769',
+  "cmux-ci run --key sr2c-ctx-34769-$(date +%s) --class light --script check.sh --ref HEAD",
+  "gh pr merge 34769 -R manaflow-ai/cmux --squash --match-head-commit 0123abcd",
+  "cd ~/Projects/cmux && git push -q origin HEAD:lane/hat-command-labels 2>&1 | tail -3",
+];
+const rawCommands = activity(
+  RAW_COMMANDS.map((command, index) =>
+    tool(command, "execute", "completed", {
+      inputSummary: JSON.stringify({ command, run_in_background: true }),
+      startedAt: minutesAgo(6 - index),
+    }),
+  ),
+  6,
 );
 
 /** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
@@ -570,6 +616,55 @@ export default agentPaneEntry({
           throw new Error("a command's line says Command first");
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
+    "command-words": {
+      note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): a wait reads Waiting on cmux checks, cmux-ci reads Fleet tests · Playwright or Fleet run for #34769, a sleep reads Waiting 9m 20s. The shell line is the tooltip; a line about a run or a pull request links to it from its tail.',
+      height: 560,
+      play: async (ctx) => {
+        await trayLines(RAW_COMMANDS.length)(ctx);
+        const names = [...ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-summary-agent__name")].map(
+          (name) => name.textContent,
+        );
+        for (const want of [
+          "Waiting on cmux checks",
+          "Fleet tests · Playwright",
+          "Waiting 9m 20s",
+          "Fleet run for #34769",
+        ])
+          if (!names.includes(want)) throw new Error(`a command reads "${want}", got ${names.join(" | ")}`);
+        if (names.some((name) => name?.includes("--"))) throw new Error("no line shows a raw shell line");
+      },
+      snapshot: chat([user("Wait on the checks, run the fleet tests and land it", 7), rawCommands], {
+        isWorking: true,
+      }),
+    },
+    "command-substitution": {
+      note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · Fleet run: the setup's substitution stays named, the cmux-ci step reads by its rule (session-info/commandRules.ts). Shell flags and interpolation remain in the full-command tooltip.",
+      snapshot: glyphCheckScene(),
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        const name = ctx.document.querySelector(".acpmux-running-tray .acpmux-summary-agent__name");
+        if (name?.textContent !== "git rev-parse HEAD · Fleet run")
+          throw new Error("the command needs a readable title");
+        const line = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-agent-line__button");
+        if (line?.title !== glyphCheck) throw new Error("the full command stays available in the tooltip");
+      },
+    },
+    "command-substitution-described": {
+      note: "The same shell line with a human description: the tray uses that title unchanged.",
+      snapshot: glyphCheckScene("Check the glyphs on the fleet"),
+      play: trayLines(1),
+    },
+    "command-substitution-folded": {
+      note: "The command shares the tray with a reviewer. Its readable title also appears in the folded name arm; no malformed assignment leaks into the strip.",
+      snapshot: chat(
+        [
+          user("Check the glyphs on the fleet", 9),
+          group([agent("Review glyph changes", 9)], 9),
+          ...glyphCheckScene().rows.slice(1),
+        ],
+        { isWorking: true },
+      ),
     },
     "expand-on-composer": {
       note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end).",

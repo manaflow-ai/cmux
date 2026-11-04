@@ -162,6 +162,17 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         return Reply(response: response, body: resource.data)
     }
 
+    /// A ranged source's byte range as Chromium takes it: the status, the type, the bytes and the
+    /// `Content-Range` and `Accept-Ranges` the source set; a 404 when it has none. Chromium adds the
+    /// page's CSP and the other page headers itself.
+    static func rangedResponse(to request: PageResourceRequest, range: String?,
+                               source: any PageRangedResourceSource) async -> PageChromiumResponse {
+        guard let resource = await source.rangedResource(for: request, range: range) else { return .notFound }
+        let type = resource.headers["Content-Type"].flatMap(validMIMEType) ?? "application/octet-stream"
+        let kept = resource.headers.filter { $0.key == "Content-Range" || $0.key == "Accept-Ranges" }
+        return PageChromiumResponse(status: resource.status, mimeType: type, body: resource.data, rangeHeaders: kept)
+    }
+
     /// The dynamic request `url` makes of `page`, nil when it is not under one of the page's dynamic
     /// prefixes (another origin, a static file, a `.` or `..` component).
     nonisolated static func dynamicRequest(for url: URL, page: PageDescriptor) -> PageResourceRequest? {
