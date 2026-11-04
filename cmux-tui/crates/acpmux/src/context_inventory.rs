@@ -21,6 +21,11 @@ pub struct ContextPart {
     pub tokens: u64,
     pub included: bool,
     pub editable: bool,
+    /// `measured` comes from the harness, `estimated` is derived by cmux, and
+    /// `unavailable` means the provider did not expose this part.
+    pub measurement: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_bytes: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
 }
@@ -76,6 +81,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             tokens,
             included: kind != "free",
             editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
             text: None,
         });
     }
@@ -94,6 +101,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             tokens: file.get("tokens").and_then(Value::as_u64).unwrap_or(0),
             included: true,
             editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
             text: None,
         });
     }
@@ -112,6 +121,8 @@ fn push_breakdown(parts: &mut Vec<ContextPart>, breakdown: &Value) {
             tokens: tool.get("tokens").and_then(Value::as_u64).unwrap_or(0),
             included: tool.get("isLoaded").and_then(Value::as_bool).unwrap_or(true),
             editable: false,
+            measurement: "measured".into(),
+            source_bytes: None,
             text: None,
         });
     }
@@ -161,6 +172,8 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             tokens: estimated_tokens(&text),
             included: true,
             editable: true,
+            measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64),
             text: Some(text),
         });
     }
@@ -174,14 +187,29 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         parts.push(ContextPart {
             id: "cmux-user-override".into(), source: "cmux-user".into(),
             label: "User override".into(), tokens: estimated_tokens(text), included: true,
-            editable: true, text: Some(text.into()),
+            editable: true, measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64), text: Some(text.into()),
         });
     }
     if let Some(text) = project.as_deref() {
         parts.push(ContextPart {
             id: "cmux-project-override".into(), source: "cmux-project".into(),
             label: "Project override".into(), tokens: estimated_tokens(text), included: true,
-            editable: true, text: Some(text.into()),
+            editable: true, measurement: "estimated".into(),
+            source_bytes: Some(text.len() as u64), text: Some(text.into()),
+        });
+    }
+    if breakdown.is_none() {
+        parts.push(ContextPart {
+            id: "harness-context-unavailable".into(),
+            source: "harness".into(),
+            label: "Harness context report unavailable".into(),
+            tokens: 0,
+            included: false,
+            editable: false,
+            measurement: "unavailable".into(),
+            source_bytes: None,
+            text: None,
         });
     }
     let total_tokens = breakdown
