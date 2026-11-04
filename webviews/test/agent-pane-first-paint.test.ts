@@ -91,6 +91,8 @@ class Daemon {
   status = { peers: [{ name: "remote-box", connected: true }] };
   /// The turn opener's own read answers these records of the chat.
   readonly prompts = new Map<string, Step[]>();
+  /// Asks the attach lists as still pending, per chat (`detail.pending`).
+  readonly pending = new Map<string, Record<string, unknown>[]>();
   holding?: (message: Message) => boolean;
   private held: Message[] = [];
 
@@ -176,6 +178,7 @@ class Daemon {
         events,
         hasMore: page.hasMore === true,
         ...(this.servesOpener ? { turnOpener: null } : {}),
+        ...(this.pending.has(sessionId) ? { pending: this.pending.get(sessionId) } : {}),
       };
     } else if (message.method === "_acpmux/events") {
       const events =
@@ -389,5 +392,45 @@ test("a remote connection still settles peer status before completing its open",
   } finally {
     daemon.release();
     (await opening).client.close();
+  }
+});
+
+test("a grouped ask draws on the card at once while its group read is out, then the group takes it", async () => {
+  // Leo, 2026-11-03, on a peer chat's Run command card: "it needed to load the permissions
+  // settings/the permissions pop itself for like 10 seconds before it loaded". The ask waited, undrawn,
+  // for `_acpmux/permission_groups`, which on a peer waits on its attach and the shared read queue.
+  const daemon = new Daemon("grouped-ask");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, { steps: [prompt("Retry path"), reply(A, "Retry added.")] });
+  daemon.pages.set(B, { steps: [prompt("Check disk"), reply(B, "Running du.")] });
+  daemon.pending.set(B, [
+    {
+      permissionId: `perm-${B}`,
+      groupId: `group-${B}`,
+      request: {
+        sessionId: B,
+        toolCall: { toolCallId: "t1", title: "Run du -sh .", kind: "execute" },
+        options: [
+          { optionId: "allow", name: "Allow once", kind: "allow_once" },
+          { optionId: "deny", name: "Deny", kind: "reject_once" },
+        ],
+      },
+    },
+  ]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    daemon.holding = (message) => message.method === PERMISSION_GROUP_OPS.groups && message.params?.sessionId === B;
+    expect(await settlesWithin(client.select(B), 1_000)).toBe(true);
+    await turns();
+    expect(daemon.heldMethods()).toEqual([PERMISSION_GROUP_OPS.groups]);
+    // The first frame of B has its ask on the card, with the group read still out.
+    expect(last().permission?.permissionId).toBe(`perm-${B}`);
+    daemon.release();
+    await turns();
+    // The read landed: the group's card holds the ask, and no single card repeats it.
+    expect(last().permissionGroups?.groups.map((group) => group.groupId)).toEqual([`group-${B}`]);
+    expect(last().permission).toBeUndefined();
+  } finally {
+    client.close();
   }
 });

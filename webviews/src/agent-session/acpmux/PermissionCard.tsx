@@ -109,6 +109,7 @@ export function PermissionCard({
   focusComposer,
   shortcuts = true,
   waiting = 0,
+  alwaysAtSource = false,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -124,6 +125,10 @@ export function PermissionCard({
   shortcuts?: boolean;
   /// More asks waiting behind this one, answered after it.
   waiting?: number;
+  /// A peer's chat: the peer takes only a one-time Allow and a Deny from this Mac, never a lasting
+  /// grant (acpmux mac_approvers.rs), so Always allow stays on the card, disabled, saying why,
+  /// instead of failing after the click.
+  alwaysAtSource?: boolean;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -291,7 +296,7 @@ export function PermissionCard({
         deny(true);
         return true;
       }
-      const option = action === "allow_once" ? allowOnce : allowAlways;
+      const option = action === "allow_once" ? allowOnce : alwaysAtSource ? undefined : allowAlways;
       if (!option) return false;
       answerByKey(option);
       return true;
@@ -410,9 +415,10 @@ export function PermissionCard({
           {allowAlways && allowAlwaysLabel && (
             <PermissionActionButton
               label={allowAlwaysLabel}
-              shortcut={shortcuts ? allowChatShortcut : undefined}
-              title={alwaysScope}
+              shortcut={shortcuts && !alwaysAtSource ? allowChatShortcut : undefined}
+              title={alwaysAtSource ? t("permission.alwaysAtSource") : alwaysScope}
               aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
+              disabled={alwaysAtSource}
               onClick={() => answer(allowAlways)}
             />
           )}
