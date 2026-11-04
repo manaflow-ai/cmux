@@ -582,16 +582,20 @@ final class RemoteTmuxViewConnection {
         failures <= maxAdoptionRetries
     }
 
-    /// Unlinks the view's copy of `windowId`, at `windowIndex` in the view, so the real session
-    /// keeps the window, and drops cmux's mark from it.
+    /// Unlinks the view's copy of `windowId` so the real session keeps the window, and drops
+    /// cmux's mark from it.
+    ///
+    /// The copy is named `view:@id`, not by its index in the view: a window created in the view
+    /// between the reconcile's listing and this write moves every later index up, and `-k` on a
+    /// stale index would destroy that new window, whose only link is the view.
     nonisolated static func unlinkFromViewCommands(
-        windowId: String, viewSessionName: String, windowIndex: Int
+        windowId: String, viewSessionName: String
     ) -> [String] {
         // Then the mark, which is a window option and would outlive the link: a window linked
         // into the view again by somebody else would read as cmux's. After `-k` destroys a
         // window whose only link was the view, the unset fails and changes nothing.
         [
-            "unlink-window -k -t \(RemoteTmuxHost.shellSingleQuoted(viewSessionName)):\(windowIndex)",
+            "unlink-window -k -t \(RemoteTmuxHost.shellSingleQuoted("\(viewSessionName):\(windowId)"))",
             "set-option -wu -t \(windowId) \(RemoteTmuxViewSession.optLinked(viewSessionName: viewSessionName))",
         ]
     }
@@ -781,6 +785,9 @@ final class RemoteTmuxViewConnection {
                   conn.connectionState == .connected else { return }
             didBootstrapView = true
             bringupRetries = 0
+            // Failures counted on the previous stream include its reset, which fails every
+            // pending write without tmux refusing anything.
+            adoptionFailures = [:]
         }
 
         // Bounded: an alive-but-slow server gets one longer retry before we decide
@@ -877,23 +884,35 @@ final class RemoteTmuxViewConnection {
                     if linked { self?.ownedWindowIds.insert(windowId) }
                 }
             case let .unlinkFromView(windowId):
-                // Unlink the view's COPY (by its index in the view), so the real
+                // Unlink the view's COPY (`view:@id`), so the real
                 // session keeps the window. `-k` is required for the case where the
                 // home session has since died and the view is the window's ONLY
                 // remaining link: tmux refuses a plain `unlink-window` there ("window
                 // only linked to one session") and logs a commandError. With `-k` tmux
                 // unlinks normally when other links exist, and unlinks+destroys the
                 // already-orphaned window when the view is the last link — the correct cleanup either way.
-                if let idx = snapshot.windows.first(where: {
+                // Ownership goes once tmux carries out the unlink. Dropped on a refused one, the
+                // copy would read as unowned and the next reconcile would adopt a killed
+                // session's window into a live session.
+                if snapshot.windows.contains(where: {
                     $0.sessionName == view.sessionName && $0.windowId == windowId
-                })?.windowIndex {
+                }) {
                     _ = conn.sendSequence(Self.unlinkFromViewCommands(
-                        windowId: windowId, viewSessionName: view.sessionName, windowIndex: idx))
+                        windowId: windowId, viewSessionName: view.sessionName
+                    )) { [weak self] unlinked in
+                        if unlinked { self?.ownedWindowIds.remove(windowId) }
+                    }
+                } else {
+                    ownedWindowIds.remove(windowId)
                 }
-                ownedWindowIds.remove(windowId)
             }
         }
-        Self.adopt(plan.adoptions, viewSessionName: view.sessionName, on: conn, onLinked: { [weak self] windowId in
+        // A window whose link tmux has refused past the bound waits for a new bringup, so a link
+        // tmux always refuses is not re-sent on every reconcile.
+        let adoptions = plan.adoptions.filter {
+            Self.shouldRetryAdoption(failures: adoptionFailures[$0.windowId] ?? 0)
+        }
+        Self.adopt(adoptions, viewSessionName: view.sessionName, on: conn, onLinked: { [weak self] windowId in
             guard let self else { return }
             self.adoptionFailures[windowId] = nil
             self.ownedWindowIds.insert(windowId)

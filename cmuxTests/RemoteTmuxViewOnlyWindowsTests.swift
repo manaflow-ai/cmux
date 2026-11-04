@@ -185,12 +185,10 @@ import Testing
             .trimmingCharacters(in: .whitespacesAndNewlines)
         _ = try tmux.run(["new-session", "-d", "-s", "view"])
         try tmux.run(["link-window", "-d", "-s", a, "-t", "=view:"])
-        let index = try tmux.run(["display-message", "-p", "-t", "=view:\(a)", "#{window_index}"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         _ = try tmux.run(["set-option", "-w", "-t", a, RemoteTmuxViewSession.optLinked(viewSessionName: "view"), "1"])
 
         let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(
-            windowId: a, viewSessionName: "view", windowIndex: try #require(Int(index)))
+            windowId: a, viewSessionName: "view")
         let file = tmux.directory.appendingPathComponent("unlink.conf")
         try commands.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
         try tmux.run(["source-file", file.path])
@@ -198,6 +196,32 @@ import Testing
         #expect(try tmux.windowIds(session: "main") == [a])
         #expect(try !tmux.windowIds(session: "view").contains(a))
         #expect(try tmux.windowMark(a) == "")
+    }
+
+    /// The unlink names the view's copy by window id. A window created in the view after the
+    /// reconcile listed it moves later indexes up, so an unlink by the listed index would hit the
+    /// new window and `-k` would destroy it, since the view is its only link.
+    @Test(.enabled(if: ViewOnlyTmuxServer.binary != nil))
+    func anUnlinkAfterTheViewsIndexesMoveKeepsTheNewWindowInARealTmux() throws {
+        let tmux = try ViewOnlyTmuxServer()
+        defer { tmux.stop() }
+        let a = try tmux.run(["new-session", "-d", "-s", "main", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        _ = try tmux.run(["new-session", "-d", "-s", "view"])
+        try tmux.run(["link-window", "-d", "-s", a, "-t", "=view:"])
+        // Listed now; then a window lands in the view right before the copy, taking its index.
+        let x = try tmux.run(["new-window", "-d", "-b", "-t", "=view:\(a)", "-P", "-F", "#{window_id}"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(windowId: a, viewSessionName: "view")
+        let file = tmux.directory.appendingPathComponent("unlink-moved.conf")
+        try commands.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
+        try tmux.run(["source-file", file.path])
+
+        let viewWindows = try tmux.windowIds(session: "view")
+        #expect(viewWindows.contains(x), "the window created in the view was destroyed")
+        #expect(!viewWindows.contains(a))
+        #expect(try tmux.windowIds(session: "main") == [a])
     }
 
     /// Two cmux installs mirroring one host each have a view, and a window can sit in both. The
@@ -218,11 +242,9 @@ import Testing
             try link.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
             try tmux.run(["source-file", file.path])
         }
-        let index = try tmux.run(["display-message", "-p", "-t", "=view:\(a)", "#{window_index}"])
-            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let commands = RemoteTmuxViewConnection.unlinkFromViewCommands(
-            windowId: a, viewSessionName: "view", windowIndex: try #require(Int(index)))
+            windowId: a, viewSessionName: "view")
         let file = tmux.directory.appendingPathComponent("unlink.conf")
         try commands.joined(separator: " ; ").write(to: file, atomically: true, encoding: .utf8)
         try tmux.run(["source-file", file.path])
