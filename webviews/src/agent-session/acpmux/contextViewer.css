@@ -49,7 +49,6 @@
   border-radius: var(--ui-row-radius);
   background: transparent;
   color: var(--agent-muted);
-  cursor: pointer;
 }
 .acpmux-context-viewer__back {
   display: grid;
@@ -107,7 +106,6 @@
   color: inherit;
   font: inherit;
   text-align: left;
-  cursor: pointer;
 }
 .acpmux-context-part__head:hover { background: color-mix(in srgb, var(--agent-text) 5%, transparent); }
 .acpmux-context-part__head:focus-visible { outline: 1px solid var(--agent-accent); outline-offset: -1px; }
@@ -169,7 +167,7 @@
 }
 .acpmux-context-editor__textarea:focus { border-color: color-mix(in srgb, var(--agent-accent) 60%, transparent); outline: 1px solid color-mix(in srgb, var(--agent-accent) 25%, transparent); outline-offset: -1px; }
 .acpmux-context-editor__actions { display: flex; align-items: center; gap: var(--ds-space-2); padding-top: var(--ds-space-2); }
-.acpmux-context-editor__actions button { padding: var(--ds-space-1) var(--ds-space-2); border: 1px solid var(--agent-border); border-radius: var(--ui-row-radius); background: transparent; color: var(--agent-text); font: inherit; font-size: var(--text-caption); cursor: pointer; }
+.acpmux-context-editor__actions button { padding: var(--ds-space-1) var(--ds-space-2); border: 1px solid var(--agent-border); border-radius: var(--ui-row-radius); background: transparent; color: var(--agent-text); font: inherit; font-size: var(--text-caption); }
 .acpmux-context-editor__actions button:hover:not(:disabled) { background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 10%, transparent)); }
 .acpmux-context-editor__actions button:disabled { cursor: default; opacity: 0.45; }
 .acpmux-context-editor__actions .acpmux-context-part__save { border-color: color-mix(in srgb, var(--agent-accent) 55%, var(--agent-border)); }

@@ -1,3 +1,4 @@
+import { translate } from "./i18n";
 import type { ContextPart, ContextSettings } from "./ContextViewer";
 
 type RecordValue = Record<string, unknown>;
@@ -14,9 +15,9 @@ export function contextInventory(value: unknown) {
         const part = record(value);
         return {
           id: typeof part.id === "string" ? part.id : `context-part-${index}`,
-          label: typeof part.label === "string" ? part.label : "Context",
+          label: typeof part.label === "string" ? part.label : translate("context.viewer.title"),
           source: typeof part.source === "string" ? part.source : "harness",
-          text: typeof part.text === "string" ? part.text : "The harness has not exposed this text.",
+          text: typeof part.text === "string" ? part.text : translate("context.notExposed"),
           textAvailable: typeof part.text === "string",
           tokenCount: count(part.tokens),
           measurement:

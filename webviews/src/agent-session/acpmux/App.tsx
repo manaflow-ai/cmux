@@ -7647,7 +7647,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setContextViewerError(undefined);
     try {
       const client = directClient.current;
-      if (!client) throw new Error("Session is disconnected");
+      if (!client) throw new Error(t("error.nativeUnavailable"));
       const inventory = contextInventory(await client.contextInventory(sessionId));
       if (request !== contextRequest.current) return;
       setContextViewerParts(inventory.parts);
@@ -7657,7 +7657,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setContextViewerSettings(inventory.settings);
     } catch (error) {
       if (request !== contextRequest.current) return;
-      setContextViewerError(error instanceof Error ? error.message : "Could not read context");
+      setContextViewerError(error instanceof Error ? error.message : t("error.nativeUnavailable"));
     } finally {
       if (request === contextRequest.current) setContextViewerLoading(false);
     }
@@ -7665,9 +7665,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const saveContextOverride = useCallback(
     async (scope: ContextOverrideScope, text: string, partId?: string) => {
       const sessionId = shownSessionId ?? snapshot.sessionId;
-      if (!sessionId) throw new Error("No session is selected");
+      if (!sessionId) throw new Error(t("permission.error.selectSession"));
       const client = directClient.current;
-      if (!client) throw new Error("Session is disconnected");
+      if (!client) throw new Error(t("error.nativeUnavailable"));
       const request = contextRequest.current;
       const editablePartId = partId === "cmux-system-prompt" ? partId : undefined;
       const next = contextInventory(await client.setContextOverride(sessionId, scope, text, editablePartId));
@@ -7678,9 +7678,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const resetContextOverride = useCallback(
     async (scope: ContextOverrideScope, partId?: string) => {
       const sessionId = shownSessionId ?? snapshot.sessionId;
-      if (!sessionId) throw new Error("No session is selected");
+      if (!sessionId) throw new Error(t("permission.error.selectSession"));
       const client = directClient.current;
-      if (!client) throw new Error("Session is disconnected");
+      if (!client) throw new Error(t("error.nativeUnavailable"));
       const request = contextRequest.current;
       const editablePartId = partId === "cmux-system-prompt" ? partId : undefined;
       const next = contextInventory(await client.setContextOverride(sessionId, scope, null, editablePartId));
