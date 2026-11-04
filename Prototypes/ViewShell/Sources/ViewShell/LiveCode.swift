@@ -4,9 +4,9 @@
 // this executable also defines is interposed onto the new one (the executable is linked
 // `-interposable` in Debug, so its own calls go through bindings dyld can repoint), and the views
 // are redrawn. A change inside a function body (a padding, a colour, a string, a modifier inside a
-// view whose body is an `AnyView`) applies. A change of stored properties or signatures needs a
-// rebuild, and nothing here checks for it: such a patch is applied anyway and the running code then
-// disagrees with the patch about the type's layout. The tool that sends patches has to refuse those.
+// view whose body is an `AnyView`) applies. A change of stored properties needs a rebuild: a patch
+// whose types have another size than this build's (``Interposer/layoutChanges``) is refused before
+// anything is repointed. A changed signature is a new symbol, so it replaces nothing.
 import AppKit
 import Combine
 import Darwin
@@ -93,6 +93,7 @@ enum LiveCodeError: Error, CustomStringConvertible {
     case noImage
     case noInterposer
     case nothingToReplace
+    case layoutChanged([String])
 
     var description: String {
         switch self {
@@ -100,6 +101,7 @@ enum LiveCodeError: Error, CustomStringConvertible {
         case .noImage: "the patch is loaded but dyld does not list it"
         case .noInterposer: "dyld_dynamic_interpose is not available"
         case .nothingToReplace: "the patch defines no function this build has (built against another build?)"
+        case .layoutChanged(let types): "stored properties changed, rebuild instead: \(types.joined(separator: ", "))"
         }
     }
 }
@@ -130,9 +132,12 @@ enum Interposer {
         }
         let interpose = unsafeBitCast(symbol, to: DynamicInterpose.self)
         let mainOnly = UnsafeMutableRawPointer(bitPattern: -5) // RTLD_MAIN_ONLY
+        let slide = _dyld_get_image_vmaddr_slide(index)
+        let changed = layoutChanges(header: header, slide: slide, mainOnly: mainOnly)
+        guard changed.isEmpty else { throw LiveCodeError.layoutChanged(changed) }
         var tuples: [Tuple] = []
         var replaced: [String: UnsafeRawPointer] = [:]
-        for (name, address) in codeSymbols(header: header, slide: _dyld_get_image_vmaddr_slide(index)) {
+        for (name, address) in codeSymbols(header: header, slide: slide) {
             // Swift functions only, that the executable also defines.
             guard name.hasPrefix("_$s"), let old = dlsym(mainOnly, String(name.dropFirst())), UnsafeRawPointer(old) != address else { continue }
             let original = UnsafeRawPointer(old)
@@ -149,8 +154,44 @@ enum Interposer {
         return replaced.count
     }
 
+    /// The types the patch defines with another layout than this build's: a struct or enum whose
+    /// value size or stride differs, or a class whose instance size differs. Read from the type
+    /// metadata both images emit for a non-generic type (`$s…VN`, `…ON`, `…CN`); a type whose
+    /// metadata is filled in at run time (size 0 here) is not compared.
+    static func layoutChanges(header: UnsafePointer<mach_header>, slide: Int, mainOnly: UnsafeMutableRawPointer?) -> [String] {
+        var changed: [String] = []
+        for (name, patch) in symbols(header: header, slide: slide, code: false) {
+            let kind = name.suffix(2)
+            guard name.hasPrefix("_$s"), kind == "VN" || kind == "ON" || kind == "CN",
+                  let found = dlsym(mainOnly, String(name.dropFirst())) else { continue }
+            let old = UnsafeRawPointer(found)
+            guard old != patch else { continue }
+            if kind == "CN" {
+                // Class metadata: the instance size is the UInt32 at offset 48 from the address point.
+                let before = old.load(fromByteOffset: 48, as: UInt32.self)
+                let after = patch.load(fromByteOffset: 48, as: UInt32.self)
+                if before != 0, after != 0, before != after { changed.append(String(name.dropFirst())) }
+            } else {
+                // Value metadata: its value witness table is the word before the address point;
+                // size and stride follow the table's eight functions.
+                let layout = { (metadata: UnsafeRawPointer) -> (Int, Int) in
+                    guard let table = metadata.load(fromByteOffset: -8, as: UnsafeRawPointer?.self) else { return (0, 0) }
+                    return (table.load(fromByteOffset: 64, as: Int.self), table.load(fromByteOffset: 72, as: Int.self))
+                }
+                let (before, after) = (layout(old), layout(patch))
+                if before.1 != 0, after.1 != 0, before != after { changed.append(String(name.dropFirst())) }
+            }
+        }
+        return changed
+    }
+
     /// The external symbols defined in the image's `__TEXT,__text`: its functions, not its data.
     private static func codeSymbols(header: UnsafePointer<mach_header>, slide: Int) -> [(String, UnsafeRawPointer)] {
+        symbols(header: header, slide: slide, code: true)
+    }
+
+    /// The image's external defined symbols: those in `__TEXT,__text` (`code`), or every other section's.
+    private static func symbols(header: UnsafePointer<mach_header>, slide: Int, code: Bool) -> [(String, UnsafeRawPointer)] {
         let base = UnsafeRawPointer(header)
         var command = base + MemoryLayout<mach_header_64>.size
         var sectionIndex = 0
@@ -185,7 +226,7 @@ enum Interposer {
             let symbol = symbols[index]
             let type = symbol.n_type
             guard type & UInt8(N_STAB) == 0, type & UInt8(N_TYPE) == UInt8(N_SECT), type & UInt8(N_EXT) != 0,
-                  Int(symbol.n_sect) == textSection, let address = UnsafeRawPointer(bitPattern: Int(symbol.n_value) + slide) else { continue }
+                  (Int(symbol.n_sect) == textSection) == code, let address = UnsafeRawPointer(bitPattern: Int(symbol.n_value) + slide) else { continue }
             out.append((String(cString: strings + Int(symbol.n_un.n_strx)), address))
         }
         return out
