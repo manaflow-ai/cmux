@@ -70,10 +70,12 @@ import Testing
         #expect(tracker.newSpeech(in: [Self.turn("t1", [.tool(Self.edit)], status: .completed)]) == ["Edited one file."])
     }
 
-    @Test func aRunningTurnInTheBaselineEndsAloud() {
+    @Test func aMessageStreamingWhenVoiceModeStartsIsReadWhenComplete() {
         var tracker = AgentChatVoiceTracker(speech: AgentVoiceSpeech())
-        tracker.baseline([Self.turn("t1", [.message(id: "m0", markdown: "Working.")])])
-        let done = Self.turn("t1", [.message(id: "m0", markdown: "Working."), .message(id: "m1", markdown: "All green.")], status: .completed)
-        #expect(tracker.newSpeech(in: [done]) == ["All green."])
+        tracker.baseline([Self.turn("t1", [.tool(Self.edit), .message(id: "m0", markdown: "Running the")])])
+        let done = Self.turn("t1", [.tool(Self.edit), .message(id: "m0", markdown: "Running the tests."),
+                                    .message(id: "m1", markdown: "All green.")], status: .completed)
+        // The edit was on screen already: not counted again at the turn's end either.
+        #expect(tracker.newSpeech(in: [done]) == ["Running the tests.", "All green."])
     }
 }

@@ -1,3 +1,4 @@
+import CmuxAgentQuestion
 public import CmuxMobileRealtime
 import Foundation
 import Observation
@@ -74,10 +75,14 @@ struct AgentChatVoiceTracker {
         self.speech = speech
     }
 
-    /// Everything on screen now counts as heard.
+    /// Everything on screen now counts as heard, except a message still
+    /// streaming: it is read once it is complete.
     mutating func baseline(_ turns: [AgentTurn]) {
         for turn in turns {
-            for item in turn.items { said.insert(item.id) }
+            for (index, item) in turn.items.enumerated() {
+                if turn.status == .running, index == turn.items.count - 1, case .message = item { continue }
+                said.insert(item.id)
+            }
             if turn.status != .running { endedTurns.insert(turn.id) }
         }
     }
@@ -118,7 +123,7 @@ struct AgentChatVoiceTracker {
                     out.append(reason.map { String(localized: "The turn failed: \($0)") } ?? String(localized: "The turn failed."))
                 case .completed where turn.lastAnswerMarkdown == nil && turn.hasEdits:
                     // Edits with no words: say that much, never the diff.
-                    let files = Set(turn.edits.map(\.path)).count
+                    let files = Set(turn.edits.map { $0.path }).count
                     out.append(files == 1 ? String(localized: "Edited one file.") : String(localized: "Edited \(files) files."))
                 default:
                     break

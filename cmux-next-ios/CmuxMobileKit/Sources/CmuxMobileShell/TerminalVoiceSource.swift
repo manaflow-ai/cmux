@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxAgentQuestion
+import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileRealtime
 import CmuxMobileTerminal

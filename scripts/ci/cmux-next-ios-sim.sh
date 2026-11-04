@@ -25,6 +25,8 @@
 #               (a suite, or TARGET/SUITE/test for an XCTest method)
 #             ui=SUITE[,SUITE...]   also run those CmuxMobileAppUITests suites
 #               against a Debug app; with ui= and no only=, the kit run is skipped
+#             video   record the UI tests' iPhone screen (simctl recordVideo)
+#               to ui-video.mp4 in the artifact: before/after videos of a change
 #           The artifact keeps each run's log, its console output (a test's
 #           print lines, e.g. benchmark numbers) and its per-test results.
 #   bench   build, plus the in-app flood benchmark (TerminalFloodBench,
@@ -43,8 +45,6 @@
 #           KEY=VALUE words are the app's environment, e.g.
 #             --arg shots --arg devices=-cmux-mobile-settings-page,devices \
 #               --arg feed=CMUX_MOBILE_FEED_STRESS=60,-cmux-mobile-tab,feed
-#           A leading VIDEO=N word records the scene for N seconds (max 60) as
-#           screens/NAME.mp4, with a still every 3 s, instead of the two looks.
 #           Run it at the base and at the head for a PR's before and after.
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
@@ -108,6 +108,7 @@ fi
 # test's optional selection (see MODE above), checked before anything is built.
 kit_only=()
 ui_suites=()
+ui_video=0
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -125,7 +126,8 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
           ui_suites+=("-only-testing:CmuxMobileAppUITests/$item")
         done ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST and ui=LIST, got '$sel'" >&2; exit 2 ;;
+      video) ui_video=1 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST and video, got '$sel'" >&2; exit 2 ;;
     esac
   done
 fi
@@ -539,12 +541,26 @@ if [[ ${#ui_suites[@]} -gt 0 ]]; then
   # A Debug build of the app and its UI test bundle, on a new iPhone in the
   # default device set (xcodebuild sees no other), deleted by its UDID after.
   ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  recorder=""
+  if [[ $ui_video -eq 1 ]]; then
+    # Booted first so the recording covers the whole run; the test run uses the booted device.
+    xcrun simctl boot "$ui_udid"
+    xcrun simctl bootstatus "$ui_udid" -b >/dev/null
+    xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/ui-video.mp4" >"$work/ui-video.log" 2>&1 &
+    recorder=$!
+  fi
   set +e
   xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
     -destination "id=$ui_udid,arch=arm64" -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" \
     -resultBundlePath "$work/ui.xcresult" CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
     -quiet "${ui_suites[@]}" >"$work/ui-test.log" 2>&1
   ui_status=$?
+  if [[ -n "$recorder" ]]; then
+    # recordVideo finishes the file on SIGINT.
+    kill -INT "$recorder" 2>/dev/null
+    wait "$recorder"
+    note "- UI test video: ui-video.mp4 ($(du -h "$out/ui-video.mp4" 2>/dev/null | cut -f1 || echo missing))"
+  fi
   set -e
   xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
@@ -683,28 +699,9 @@ if [[ "$mode" == shots ]]; then
     IFS=',' read -r -a words <<< "${scene#*=}"
     envs=(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1)
     args=()
-    video_secs=0
     for w in ${words[@]+"${words[@]}"}; do
-      # VIDEO=N (first words): record N seconds (at most 60) in light, with a still every 3 s.
-      if [[ ${#args[@]} -eq 0 && "$w" =~ ^VIDEO=([0-9]+)$ ]]; then video_secs=$(( BASH_REMATCH[1] > 60 ? 60 : BASH_REMATCH[1] )); continue; fi
       if [[ ${#args[@]} -eq 0 && "$w" =~ ^[A-Z_][A-Z0-9_]*= ]]; then envs+=("SIMCTL_CHILD_$w"); else args+=("$w"); fi
     done
-    if (( video_secs > 0 )); then
-      simctl ui "$udid" appearance light >/dev/null 2>&1 || true
-      simctl io "$udid" recordVideo --codec h264 --force "$out/screens/$name.mp4" >/dev/null 2>&1 &
-      recorder=$!
-      env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null
-      for (( i = 1; i * 3 <= video_secs; i++ )); do
-        # The scene plays on its own (a demo driver); stills at a fixed pace, bounded by VIDEO.
-        sleep 3
-        simctl io "$udid" screenshot "$out/screens/$name-$(printf '%02d' "$i").png" >/dev/null
-      done
-      kill -INT "$recorder" 2>/dev/null || true
-      wait "$recorder" 2>/dev/null || true
-      simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
-      note "- $name: screens/$name.mp4 and $((video_secs / 3)) stills"
-      continue
-    fi
     for look in dark light; do
       simctl ui "$udid" appearance "$look" >/dev/null 2>&1 || true
       env "${envs[@]}" xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${args[@]+"${args[@]}"} >/dev/null

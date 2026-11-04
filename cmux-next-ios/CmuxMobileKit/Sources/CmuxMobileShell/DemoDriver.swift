@@ -7,7 +7,6 @@ import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
 import CmuxMobileModel
-import CmuxMobileRealtime
 import CmuxMobileTerminal
 import CmuxMobileWorkspaces
 import QuartzCore
@@ -165,33 +164,25 @@ struct DemoDriver {
             }
         case "kbd-feed":
             shell.tab = .feed
-        // Voice mode (with CMUX_MOBILE_VOICE_MODE_DEMO=1, the scripted Realtime link): a chat
-        // with history, voice mode on; the scripted user prompt goes to the mock agent, and
-        // its reply is read aloud without its code and diffs.
+        // Voice mode (with CMUX_MOBILE_VOICE_MODE_DEMO=1, the scripted Realtime link): an idle
+        // chat with history, or a terminal with its composer open, for VoiceModeUITests to tap
+        // the composer's voice button; its scripted prompt goes to the agent for real.
         case "voice-chat":
             AgentSessionDirectory.shared.makeSource = { summary in
                 var summary = summary
                 summary.status = .idle
-                return MockAgentSession(summary: summary, richFirstTurn: true, history: true)
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
-            await pause(1.5)
-            guard let ws = shell.store.workspace(id: "ws-cmux"), let tab = ws.tabs.first(where: { $0.id == "t-claude" }) else { return }
-            let store = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: "Demo Mac")
-            AgentVoiceLauncher.shared.toggle(AgentChatVoiceSource(store: store))
         case "voice-terminal":
-            // A terminal with voice mode on: the dictation mic is gone, the waveform is lit.
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(1.0)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
             shell.workspacesPath = [ws]
             await pause(1.2)
-            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
-            model.toggleKeyboard()
-            await pause(0.5)
-            if let source = model.voiceSource { AgentVoiceLauncher.shared.toggle(source) }
+            shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
         default: break
         }
     }

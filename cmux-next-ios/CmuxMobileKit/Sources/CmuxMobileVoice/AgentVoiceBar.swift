@@ -12,7 +12,6 @@ enum AgentVoiceText {
     static var idle: String { String(localized: "voiceMode.status.idle", defaultValue: "Reading new replies aloud", bundle: .module) }
     static var end: String { String(localized: "voiceMode.button.end", defaultValue: "End Voice Mode", bundle: .module) }
     static var unmute: String { String(localized: "voiceMode.button.unmute", defaultValue: "Unmute", bundle: .module) }
-    static var skip: String { String(localized: "voiceMode.button.skip", defaultValue: "Skip", bundle: .module) }
 }
 
 /// Voice mode's bar, over the top of the app while it runs: who it talks
@@ -44,7 +43,6 @@ public struct AgentVoiceBar: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(.rect)
             .onTapGesture { if session.agentSpeaking { session.skip() } }
-            .accessibilityAction(named: AgentVoiceText.skip) { session.skip() }
             controls
         }
         .padding(.leading, 14)

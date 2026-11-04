@@ -77,7 +77,8 @@ public final class AgentVoiceMode {
         launcher.activeSourceID = source.voiceSourceID
         feed = source.startVoiceFeed { [weak session] text in session?.relay(text) }
         Task {
-            guard demo != nil || (await Self.microphoneAllowed()) else {
+            let allowed = demo != nil ? true : await Self.microphoneAllowed()
+            guard allowed else {
                 session.abort(.microphoneDenied)
                 return
             }
