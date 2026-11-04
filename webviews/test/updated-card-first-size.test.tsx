@@ -50,9 +50,9 @@ test("the Updated card reports no height until the notes of its span have loaded
     rest: [],
     changelog: { from: "1.0.0-nightly.41", to: "1.0.0-nightly.42" },
   };
-  // Lets every queued promise and frame callback run (no timer: the page's own work is all promises).
-  const settle = async () => {
-    for (let i = 0; i < 50; i++) await Promise.resolve();
+  // Yields macrotasks (the notes store waits on `setTimeout(0)`) until `done` holds, at most 200 times.
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 200 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 0));
   };
   const sizes: unknown[] = [];
   let answerList: ((value: unknown) => void) | undefined;
@@ -75,8 +75,10 @@ test("the Updated card reports no height until the notes of its span have loaded
     const host = dom.window.document.getElementById("root")!;
     await act(async () => mountUpdateSurface(host, "updated", client));
     await act(async () => {
-      await settle();
+      await until(() => host.querySelector(".wn-card") !== null);
       for (const observer of observers) observer();
+      // Room for a report the page would send now (a few turns after the card drew).
+      for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(host.querySelector(".wn-card")).not.toBeNull();
     expect(sizes).toEqual([]);
@@ -84,7 +86,7 @@ test("the Updated card reports no height until the notes of its span have loaded
     // The list answers with no builds: the host's items are the card's final words, and it reports.
     await act(async () => {
       answerList?.({ builds: [], current: "1.0.0-nightly.42" });
-      await settle();
+      await until(() => sizes.length > 0);
     });
     expect(sizes.length).toBe(1);
   } finally {
