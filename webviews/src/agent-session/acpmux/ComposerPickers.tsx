@@ -70,14 +70,6 @@ import {
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
-import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
-import { useScrollEdges } from "./summary/scrollEdges";
-import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
-import { useEscapingPopup } from "../../ui/popupHost";
-import { usePopupHost } from "../../ui/UiProvider";
-import { usePopoverTrigger } from "../../ui/popoverTrigger";
-import { isMousePress } from "../../ui/pressRelease";
-import { focusAfterEscape } from "../../ui/escapeFocus";
 import { experimentArm } from "../../experiments/experiment";
 import { contextRingLook } from "./contextRingLook.experiment";
 import {
