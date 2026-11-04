@@ -81,3 +81,33 @@ fn a_persistent_session_with_a_poisoned_state_still_shuts_down() {
     assert!(dropped.is_ok(), "the shutdown of a session with a poisoned state panicked");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A terminal's launch credential is an authorization decision: on a poisoned session state the daemon cannot show
+/// the terminal is still open, so the check refuses it (fails closed), as the other auth checks do on a poisoned lock.
+/// The lookup itself no longer panics on poison (#35279 review), so the refusal must be explicit.
+#[test]
+fn a_terminal_credential_is_refused_on_a_poisoned_state() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal = surface.terminal_public_id().cloned().expect("a workspace terminal");
+    let credential = mux.mint_terminal_credential(&terminal).expect("the test mux has launch keys");
+    assert!(
+        matches!(
+            mux.check_launch_credential(&credential),
+            crate::mux::launch_identity::CredentialCheck::Verified(_)
+        ),
+        "the credential of a live terminal verifies"
+    );
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _state = mux.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // crash-allow: test-only panic to poison the session state.
+        panic!("a writer panics while it holds the session state");
+    }));
+    assert!(
+        matches!(
+            mux.check_launch_credential(&credential),
+            crate::mux::launch_identity::CredentialCheck::Refused("credential_closed")
+        ),
+        "a poisoned session state verified a terminal credential"
+    );
+}
