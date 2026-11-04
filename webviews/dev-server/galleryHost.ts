@@ -14,6 +14,9 @@
 //                                          roots, the Swift packages' Fixtures folders) by repo path
 // The agent pane's chart library is served as `__lib/vega.js` beside the frame (the markdown
 // viewer's bundled Vega and Vega-Lite, as the pane's scheme handler serves them).
+//   virtual:cmux-gallery/entry-index       each gallery entry id and its file (the first `id: "..."` in
+//                                          every *.gallery.ts(x)), so a stage or the mock app loads one
+//                                          entry file instead of the whole registry
 //   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
 //                                          read when the module loads; the live server pushes newer
 //                                          ones (galleryLive.ts)
@@ -47,6 +50,7 @@ const METRICS_SWIFT = path.join(
 const THEMES_ID = "virtual:cmux-gallery/themes";
 const WEB_THEME_ID = "virtual:cmux-gallery/web-theme";
 const REVISION_ID = "virtual:cmux-gallery/revision";
+const ENTRY_INDEX_ID = "virtual:cmux-gallery/entry-index";
 const PANE_CSS_ID = "virtual:cmux-gallery/agent-pane.css";
 // The CSS id is a path under the gallery (no file there), so Vite's CSS pipeline takes it.
 const PANE_CSS_PATH = path.join(galleryDir, "agent-pane.virtual.css");
@@ -277,6 +281,25 @@ function tailwindSources(): string {
 
 /** The virtual modules, for the dev server and the static build. */
 /** The markdown viewer's Vega then Vega-Lite, joined as MarkdownPageResource.library joins them. */
+/** Entry id to its file (`src/...gallery.ts`), from the first `id: "..."` in each entry file. An
+ * entry whose id is not a literal is missing here; a stage then falls back to the whole registry. */
+export function readEntryIndex(root = path.join(webviewsRoot, "src")): Record<string, string> {
+  const index: Record<string, string> = {};
+  const walk = (dir: string) => {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, item.name);
+      if (item.isDirectory()) {
+        if (item.name !== "node_modules") walk(file);
+      } else if (/\.gallery\.tsx?$/.test(item.name)) {
+        const id = /\bid:\s*"([a-z0-9][a-z0-9.-]*)"/.exec(fs.readFileSync(file, "utf8"))?.[1];
+        if (id && !index[id]) index[id] = path.relative(webviewsRoot, file).split(path.sep).join("/");
+      }
+    }
+  };
+  walk(root);
+  return index;
+}
+
 function readVegaLibrary(): string {
   const folder = path.join(repoRoot, "Resources/markdown-viewer");
   return ["vega.min.js", "vega-lite.min.js"]
@@ -291,7 +314,7 @@ export function galleryModules(): Plugin {
       this.emitFile({ type: "asset", fileName: "__lib/vega.js", source: readVegaLibrary() });
     },
     resolveId(source) {
-      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID].includes(source)) return `\0${source}`;
+      if ([THEMES_ID, WEB_THEME_ID, FIXTURES_ID, METRICS_ID, REVISION_ID, ENTRY_INDEX_ID].includes(source)) return `\0${source}`;
       if (source === PANE_CSS_ID) return PANE_CSS_PATH;
       return null;
     },
@@ -300,6 +323,7 @@ export function galleryModules(): Plugin {
       if (id === `\0${METRICS_ID}`) return `export default ${JSON.stringify(readChromeMetrics())};`;
       if (id === `\0${FIXTURES_ID}`) return `export default ${JSON.stringify(readSharedFixtures())};`;
       if (id === `\0${WEB_THEME_ID}`) return `export default ${JSON.stringify(readWebThemeBootstrap())};`;
+      if (id === `\0${ENTRY_INDEX_ID}`) return `export default ${JSON.stringify(readEntryIndex())};`;
       if (id === `\0${REVISION_ID}`) return `export default ${JSON.stringify(readRevision())};`;
       if (id.split("?")[0] === PANE_CSS_PATH) return agentPaneCSS();
       return null;
@@ -324,6 +348,13 @@ export function galleryModules(): Plugin {
       ]);
       server.watcher.on("all", (_event, file) => {
         const fixture = file === FIXTURE_INDEX || roots.some((root) => file.startsWith(`${root}/`));
+        // An entry file may change its id: the index is read again on its next import, with no
+        // reload (the live gallery reloads the entry itself, galleryLive.ts).
+        if (/\.gallery\.tsx?$/.test(file)) {
+          const index = server.moduleGraph.getModuleById(`\0${ENTRY_INDEX_ID}`);
+          if (index) server.moduleGraph.invalidateModule(index);
+          return;
+        }
         const id = fixture
           ? `\0${FIXTURES_ID}`
           : file === METRICS_SWIFT
@@ -370,7 +401,7 @@ export function galleryModules(): Plugin {
  */
 export function galleryHost({ mount = "/gallery/" }: { mount?: string } = {}): Plugin {
   const escaped = mount.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&");
-  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html)?$`);
+  const page = new RegExp(`^${escaped}(index\\.html|frame\\.html|app\\.html)?$`);
   return {
     name: "cmux-dev-gallery",
     apply: "serve",
