@@ -101,6 +101,7 @@ PILL_MIN_PX = 12            # the selected tab's pill: the longest run of non-gr
 PILL_WIDTH_SHARE = 0.25     # a pill run whose width is this share off its rest width is not the pill (a reflow, a title)
 HOST_TOL_PX = 0.99          # a page window this far off its host (device px) or more: off
 STRIP_REACH_PT = 48.0       # a strip edge is read this far outside its pane's rect (a strip that lags its pane)
+STRIP_SHARE = 0.6           # a strip's top on a scan column: this share of its height in the strip class (a glyph may cross)
 TOL_PX = 1.0                # device px: an edge this close is in place
 SKIP_PT = 24.0              # points walked over (fill and "other": the rulers, glyphs) from the fill to ring 3
 NEAR_PT = 48.0              # the walk starts this close to the pane edge
@@ -706,6 +707,21 @@ def strip_extent(codes, center, shell, lo=0, hi=None, reach=0):
     return lo_edge, hi_edge
 
 
+def strip_extent_read(codes, center, shell, lo, hi, reach_lo, reach_hi):
+    """(lo, hi) device px of this pane's strip on a strip row, each read from the pixels or None: a side is read when a
+    shell pixel bounds the run around CENTER inside [lo - REACH_LO, CENTER) (or (CENTER, hi + REACH_HI)); a side that does
+    not reach the shell there (a neighbour's strip touching it, or a strip farther away than the reach) is not read, never
+    the pane's own edge (3e.1: cmux's own layer only, never the trace). None when CENTER is shell."""
+    L = len(codes)
+    a, b = max(0, int(math.floor(lo)) - reach_lo), min(L, int(math.ceil(hi)) + reach_hi)
+    c = int(round(center))
+    if not a <= c < b or codes[c] == shell:
+        return None
+    seg = np.flatnonzero(codes[a:b] == shell) + a
+    left, right = seg[seg < c], seg[seg > c]
+    return (int(left[-1]) + 1 if len(left) else None), (int(right[0]) if len(right) else None)
+
+
 def pill_run(rgb, lo, hi, ground):
     """[a, b) of the selected tab's pill on a strip row: the longest run of non-ground pixels in [lo, hi) (gaps of ground of
     PILL_BRIDGE px or less bridged: the glyphs of its title), at least PILL_MIN_PX long; or None."""
@@ -810,57 +826,92 @@ def measure_lines(film, lines, shown):
     return measured, inside, line_codes
 
 
-def fit_clock(film, fixed, measured):
-    """The film's clock (3d, FRAME OWNER): {"offset": refreshes later than the fixed clock (a frame shows the sample
-    FIXED[f] - offset) or None when no offset fits, "why", "votes", "tracks"}. Each content edge track (a pane side on a
-    scan line) is read on its moving frames: those whose three candidate samples (fixed - 1, fixed, fixed + 1) differ
-    by 1 px or more, so the offsets give different answers. A track with CLOCK_MIN_FRAMES such frames votes for the
-    offset (of CLOCK_OFFSETS) at which more than half of them are within TOL_PX of the trace (its rest offset taken
-    off), and for none when no offset or two do. The film's offset is the smallest offset any edge votes for: a frame
-    composites the geometry of one layout transaction, and a layer can show an older geometry (late) but never a newer
-    one, so the edges that follow the trace at the smallest offset show the frame's own sample and the edges at a larger
-    offset are late layers, judged as such against that clock. A whole film late (presentation latency, or a trace
-    that samples one tick early or late) moves every edge, so every vote moves with it. With no vote: 0 (the fixed
-    clock, "not confirmed") when most of the edges' moving frames match some offset (few frames, or an edge that is
-    late by a varying amount: the film cannot set its clock, and is judged as before); None (clock not found: judged on
-    the fixed clock, with that finding) when most of them match none; 0 with no moving edge (nothing to fit)."""
+def content_value(m, kind, axis, side):
+    """The content edge that the clock and the m6 check read from a measured side M of a pane of KIND: for a terminal's
+    or an agent's top edge, ring 1's outer edge (the tab strip above may cover the surface's top: then the ground run
+    below the strip shortens and the view edge stays at the strip, but ring 1 moves with the surface; 3e.1), None when
+    ring 1 is not found (rings cut); else the view edge. None when the side is not judged in that frame."""
+    if m is None or m.get("status") not in ("found", "cut"):
+        return None
+    if axis == "col" and side == "lo" and kind in ("terminal", "agent"):
+        return m.get("ring_edge")  # no ring 1 (its rings cut): not read in that frame, never the view edge (another place)
+    return m.get("view_edge")
+
+
+def _vote_track(film, fixed, values, series):
+    """(moving frames, hits per offset, the offsets each moving frame matches) of one edge track against the trace
+    SERIES on the fixed clock FIXED, or None (no frame at rest, or fewer than CLOCK_MIN_FRAMES moving frames). Frames whose
+    three candidate samples (fixed - 1, fixed, fixed + 1) are one position are at rest under any offset (the edge's rest
+    offset); frames whose three differ by 1 px or more tell the offsets apart. A frame matches an offset within TOL_PX
+    (inclusive), as the lag search matches a sample (a content edge 1 px inside its pane edge follows that sample)."""
     k_max = len(film.samples) - 1
-    votes, tracks = collections.Counter(), []
-    for (pid, name, axis, side), per in sorted(measured.items()):
-        series = edge_series(film, pid, axis, side)
-        values = [m["view_edge"] if m is not None and m.get("status") in ("found", "cut") and m.get("view_edge") is not None
-                  else None for m in per]
-        # Frames whose three candidate samples are one position: at rest under any offset (the edge's rest offset);
-        # frames whose three differ by 1 px or more tell the offsets apart (the moving frames).
-        rest, frames = [], []
-        for f in range(film.n):
-            k = fixed[f]
-            if values[f] is None or k is None or not 1 <= k < k_max:
-                continue
-            near = [series[j] for j in (k - 1, k, k + 1)]
-            if any(v is None for v in near):
-                continue
-            spread = max(near) - min(near)
-            if spread == 0:
-                rest.append(f)
-            elif spread >= TOL_PX:
-                frames.append(f)
-        if not rest:
+    rest, frames = [], []
+    for f in range(film.n):
+        k = fixed[f]
+        if values[f] is None or k is None or not 1 <= k < k_max:
             continue
-        offset = float(np.median([values[f] - series[fixed[f]] for f in rest]))
-        if len(frames) < CLOCK_MIN_FRAMES:
+        near = [series[j] for j in (k - 1, k, k + 1)]
+        if any(v is None for v in near):
             continue
-        # Within TOL_PX as the lag search matches a sample (judge_track): a content edge 1 px inside its pane edge
-        # (device-pixel rounding) follows that sample.
-        near = {f: [o for o in CLOCK_OFFSETS if abs(values[f] - offset - series[fixed[f] - o]) <= TOL_PX] for f in frames}
-        hits = {o: sum(1 for f in frames if o in near[f]) for o in CLOCK_OFFSETS}
+        spread = max(near) - min(near)
+        if spread == 0:
+            rest.append(f)
+        elif spread >= TOL_PX:
+            frames.append(f)
+    if not rest or len(frames) < CLOCK_MIN_FRAMES:
+        return None
+    offset = float(np.median([values[f] - series[fixed[f]] for f in rest]))
+    near = {f: [o for o in CLOCK_OFFSETS if abs(values[f] - offset - series[fixed[f] - o]) <= TOL_PX] for f in frames}
+    return frames, {o: sum(1 for f in frames if o in near[f]) for o in CLOCK_OFFSETS}, near
+
+
+def fit_clock(film, fixed, measured, strip_x=None, strip_y=None):
+    """The film's clock (3d, FRAME OWNER; 3e.1): {"offset": refreshes later than the fixed clock (a frame shows the sample
+    FIXED[f] - offset) or None when no offset fits, "status", "why", "votes", "tracks", "page"}. The main window's edges
+    vote: each terminal's and agent's content edge track (a pane side on a scan line) and each tab strip edge (its x
+    edges on the strip row, STRIP_X; its top on each scan column, STRIP_Y). A page is drawn by another window
+    (Chromium's), which presents on its own time: page edges never vote; they give "page" (the same fit over the page
+    edges) and "page_window_offset" (the page window's offset against the main window's clock). Per track (_vote_track),
+    a track votes for the offset (of CLOCK_OFFSETS) at which more than half of its moving frames are within TOL_PX of the
+    trace, and for none when no offset or two do. The clock is the smallest offset any main-window edge votes for: a frame
+    composites the geometry of one layout transaction, and a layer can show an older geometry (late) but never a newer
+    one, so the edges at the smallest offset show the frame's own sample and the edges at a larger offset are late layers,
+    judged as such against that clock. A whole window late (presentation latency, or a trace that samples one tick early
+    or late) moves every edge, so every vote moves with it. With no vote: 0 ("not confirmed") when most moving frames
+    match some offset, None (clock not found: judged on the fixed clock, with that finding) when most match none; 0 with
+    no moving edge (nothing to fit)."""
+    groups = {"main": (collections.Counter(), []), "page": (collections.Counter(), [])}
+
+    def add(group, label, values, series):
+        got = _vote_track(film, fixed, values, series)
+        if got is None:
+            return
+        frames, hits, near = got
         vote = track_vote(hits, len(frames))
+        votes, tracks = groups[group]
         if vote is not None:
             votes[vote] += 1
-        tracks.append({"track": f"{film.panes[pid]['label']} {side} on {name}", "frames": len(frames),
-                       "within_1px": {f"{o:+d}": n for o, n in hits.items()},
+        tracks.append({"track": label, "frames": len(frames), "within_1px": {f"{o:+d}": n for o, n in hits.items()},
                        "any_offset": sum(1 for f in frames if near[f]), "vote": vote})
-    return clock_verdict(votes, tracks)
+
+    for (pid, name, axis, side), per in sorted(measured.items()):
+        kind = m6_kind(film.panes[pid])
+        add("page" if kind == "page" else "main", f"{film.panes[pid]['label']} {side} on {name}",
+            [content_value(m, kind, axis, side) for m in per], edge_series(film, pid, axis, side))
+    for pid, (y, _ext, read) in sorted((strip_x or {}).items()):
+        label = film.panes.get(pid, {}).get("label", pid[:12])
+        for si, side in ((0, "lo"), (1, "hi")):
+            add("main", f"strip {label} {side} on row@{y}", [e[si] if e else None for e in read],
+                edge_series(film, pid, "row", side))
+    for (pid, name), tops in sorted((strip_y or {}).items()):
+        add("main", f"strip {film.panes.get(pid, {}).get('label', pid[:12])} top on {name}", tops,
+            edge_series(film, pid, "col", "lo"))
+    clock = clock_verdict(*groups["main"])
+    page = clock_verdict(*groups["page"])
+    clock["page"] = page
+    if page["tracks"] and page["offset"] is not None and clock["offset"] is not None:
+        clock["page_window_offset"] = page["offset"] - clock["offset"]
+    return clock
 
 
 def track_vote(hits, frames):
@@ -920,12 +971,14 @@ def judge(base, all_frames=False):
     # that the film's own edges follow over the moving frames (presentation latency, or a trace sampled a tick off).
     fixed = [film.committed(float(t)) for t in film.t]
     measured, inside, line_codes = measure_lines(film, lines, fixed)
-    clock = fit_clock(film, fixed, measured)
+    strip_x, strip_y = strip_x_extents(film, fixed, line_codes), strip_tops(film, fixed, line_codes)
+    clock = fit_clock(film, fixed, measured, strip_x, strip_y)
     report["clock"] = clock
     offset = clock["offset"] or 0  # clock not found: the fixed clock, and the finding says so
     shown = [None if k is None or not 0 <= k - offset < len(film.samples) else k - offset for k in fixed]
     if offset:
         measured, inside, line_codes = measure_lines(film, lines, shown)
+        strip_x, strip_y = strip_x_extents(film, shown, line_codes), strip_tops(film, shown, line_codes)
     # The first trace sample where any judged edge moves; frames before it (less one) are at rest.
     series = {}
     first = None
@@ -1050,7 +1103,7 @@ def judge(base, all_frames=False):
     judge_inside(film, shown, inside, rest_frames, summary, add_frame)
 
     judge_divider_rects(film, dividers, summary)
-    strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes)
+    strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, strip_x, strip_y, fixed)
     judge_page_windows(film, shown, measured, summary, add_frame)
     report["m6"] = judge_m6(film, shown, measured, side_rest, strips)
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
@@ -1067,6 +1120,12 @@ def judge(base, all_frames=False):
     report["info"] += m6_info
     report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
                                                                           f"{clock['why']}"})
+    if "page_window_offset" in clock:
+        page = clock["page"]
+        report["info"].insert(1, {"check": "page window offset", "where": "film",
+                                  "detail": f"{clock['page_window_offset']:+d} refresh(es) against the main window's clock "
+                                            f"(the page edges fit {page['offset']:+d}, the main window {offset:+d}: "
+                                            f"{page['why']})"})
     if clock["offset"] is None:
         # Every finding read from the film's frames was judged on the fixed clock (3d.1): it says so. A trace row's
         # finding (on trace) does not depend on the clock.
@@ -1180,6 +1239,7 @@ def judge_divider_rects(film, dividers, summary):
 
 
 M6_KINDS = ("terminal", "page", "agent")
+M6_RULES = ("E2", "E3", "E4", "E5", "page early 1")
 
 
 def m6_kind(info):
@@ -1203,12 +1263,13 @@ def _previous_distinct(values):
     return prev
 
 
-def m6_edge_verdict(kind, side, c, cur, prev):
+def m6_edge_verdict(kind, side, c, cur, prev, nxt=None):
     """(verdict, rule) of one content edge at C (device px, its rest offset taken off) against its pane's edges (lo, hi)
     in the current frame CUR and the frame before PREV (either side None when not shown): E2 for a lo edge (top-left
     anchored: the current lo edge, within TOL_PX inclusive; a page also the previous frame's: "page late 1"), E3 for a
     hi edge (the current hi edge: pass; the previous frame's size anchored at the current lo edge, clipped at the
-    current hi edge: "late")."""
+    current hi edge: "late"). NXT: the pane's edges in the next frame whose edge differs; a page lo edge on it is EARLY
+    (rule "page early 1": the page window ahead of the main window), a failure counted on its own."""
     lo_i, hi_i = 0, 1
     si = lo_i if side == "lo" else hi_i
     if abs(c - cur[si]) <= TOL_PX:
@@ -1216,6 +1277,9 @@ def m6_edge_verdict(kind, side, c, cur, prev):
     if side == "lo":
         if kind == "page" and prev is not None and prev[lo_i] is not None and abs(c - prev[lo_i]) <= TOL_PX:
             return "page late 1", None
+        if kind == "page" and nxt is not None and nxt[lo_i] is not None and abs(c - nxt[lo_i]) <= TOL_PX \
+                and abs(nxt[lo_i] - cur[lo_i]) > TOL_PX:
+            return "fail", "page early 1"
         return "fail", "E2"
     if prev is not None and None not in prev and cur[lo_i] is not None:
         late_at = min(cur[lo_i] + (prev[hi_i] - prev[lo_i]), cur[hi_i])
@@ -1226,11 +1290,27 @@ def m6_edge_verdict(kind, side, c, cur, prev):
     return "fail", "E3"
 
 
+def _next_distinct(values):
+    """Per frame, the first later frame whose value is not None and differs from this frame's (None: none)."""
+    out, nxt, cur_v = [None] * len(values), None, None
+    for f in range(len(values) - 1, -1, -1):
+        v = values[f]
+        if v is None:
+            continue
+        if cur_v is not None and v != cur_v:
+            nxt = last_start
+        if v != cur_v:
+            last_start, cur_v = f, v
+        out[f] = nxt
+    return out
+
+
 def judge_m6(film, shown, measured, side_rest, strips):
     """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
-    content edge against its pane edge as cmux's own layer shows it in the same film frame: the pane's tab strip (x edges
-    of a pane with a strip row; a frame whose strip is not shown is not judged, never a pass), else (y edges, panes with
-    no strip row) the trace sample of the frame on the film's clock (3d). Each edge, after its rest offset:
+    content edge against its pane edge as cmux's own layer shows it in the same film frame (3e.1: never the trace): the
+    pane's tab strip on its strip row (x edges) and the strip's top on each scan column that crosses it (the pane's top
+    edge; a terminal's or agent's top content edge is ring 1, which moves with its surface). A pane edge that no layer
+    shows (a pane with no strip; its bottom edge) is not judged, never a pass. Each edge, after its rest offset:
       E2  a lo edge (top-left anchored) on the current frame's pane edge, within TOL_PX; a page's also on the previous
           frame's ("page late 1": the interim browser contract until S5);
       E3  a hi edge on the current pane edge (pass) or on the previous frame's size anchored at the current lo edge and
@@ -1238,14 +1318,21 @@ def judge_m6(film, shown, measured, side_rest, strips):
           refresh does not widen the allowance); for the trace source, the previous sample;
       E4  never the shell beyond it (gap over its rest: the page's own backdrop and the terminal's own ground are no gap);
       E5  never stretched (a ring wider than at rest by more than TOL_PX).
-    A frame of a kind: fail if an edge fails, else late, else page late 1, else pass; not judged when none of its edges
-    can be judged. E7: frames where every strip edge that moved into the frame's sample is one sample late are late as a
-    whole (the window presented the whole frame late; its content on the same strips passes). Program grid size per press (E8) is not a film fact."""
+    A page edge on the NEXT frame's pane edge fails as "page early 1" (the page window ahead of the main window). A frame
+    of a kind: fail if an edge fails, else late, else page late 1, else pass; not judged when none of its edges can be
+    judged. E7: frames where every strip edge (x on the strip rows, the strip tops on the columns) that moved into the
+    frame's sample on the fixed clock is one sample late are late as a whole (the window presented the whole frame late);
+    against the film's own clock (3d) a whole-late film shows none (its clock took the lag), so E7 reads the fixed clock. Program grid size per press (E8) is not a film fact."""
     edges = strips.get("edges") or {}
+    tops = strips.get("tops") or {}
     prev_strip = {pid: _previous_distinct(ext) for pid, ext in edges.items()}
+    prev_top = {key: _previous_distinct(t) for key, t in tops.items()}
+    next_strip = {pid: _next_distinct(ext) for pid, ext in edges.items()}
+    next_top = {key: _next_distinct(t) for key, t in tops.items()}
     frames = {kind: collections.defaultdict(list) for kind in M6_KINDS}  # kind -> frame -> [edge verdicts]
     edge_counts = {kind: collections.Counter() for kind in M6_KINDS}
     rules = {kind: collections.Counter() for kind in M6_KINDS}
+    rule_frames = {kind: collections.defaultdict(set) for kind in M6_KINDS}  # kind -> rule -> frames that fail it
     sources = {kind: collections.Counter() for kind in M6_KINDS}
     for key, per in sorted(measured.items()):
         if key not in side_rest:
@@ -1256,46 +1343,53 @@ def judge_m6(film, shown, measured, side_rest, strips):
             continue
         gap_rest, rings_rest = side_rest[key]
         si = 0 if side == "lo" else 1
-        strip = edges.get(pid) if axis == "row" else None
-        source = "strip" if strip is not None else "trace"
+        if axis == "row":
+            strip, prev_i, next_i, source = edges.get(pid), prev_strip.get(pid), next_strip.get(pid), "strip"
+            to_pair = lambda v: v
+        else:  # a y edge: the pane's strip top on this scan column, as the pane's lo edge (3e.1); its hi edge: no layer
+            strip, prev_i, next_i, source = tops.get((pid, name)), prev_top.get((pid, name)), next_top.get((pid, name)), "strip top"
+            to_pair = lambda v: None if v is None else (v, None)
+        if axis == "col" and side == "hi":
+            strip = None  # a pane's bottom edge: no layer of cmux shows it on a scan column (not judged)
         series = {"lo": edge_series(film, pid, axis, "lo"), "hi": edge_series(film, pid, axis, "hi")}
 
         def pane_at(f):
-            """((lo, hi) of the pane edge in frame f, (lo, hi) in the frame before), None where not shown."""
-            if strip is not None:
-                g = prev_strip[pid][f]
-                return strip[f], (strip[g] if g is not None else None)
-            k = shown[f]
-            if k is None:
-                return None, None
-            cur = (series["lo"][k], series["hi"][k])
-            return cur, ((series["lo"][k - 1], series["hi"][k - 1]) if k >= 1 else None)
+            """((lo, hi) of the pane edge in frame f, in the frame before, in the next frame that differs), each None
+            where not shown. From cmux's own layer only (the tab strip); a pane edge no layer shows is None (not judged,
+            never the trace)."""
+            if strip is None:
+                return None, None, None
+            g, h = prev_i[f], next_i[f]
+            return to_pair(strip[f]), (to_pair(strip[g]) if g is not None else None), \
+                (to_pair(strip[h]) if h is not None else None)
 
-        values = [m["view_edge"] if m is not None and m.get("status") in ("found", "cut") and m.get("view_edge") is not None
-                  else None for m in per]
+        values = [content_value(m, kind, axis, side) for m in per]
         rest = [f for f in range(film.n) if values[f] is not None and (pane_at(f)[0] or (None, None))[si] is not None]
-        if not rest:
-            continue
-        offset = float(np.median([values[f] - pane_at(f)[0][si] for f in rest[:REST_FALLBACK * 4]]))
+        offset = float(np.median([values[f] - pane_at(f)[0][si] for f in rest[:REST_FALLBACK * 4]])) if rest else 0.0
         for f in range(film.n):
-            if values[f] is None:
-                continue
-            cur, prev = pane_at(f)
-            if cur is None or cur[si] is None:
-                frames[kind][f].append("not judged")
-                edge_counts[kind]["not judged"] += 1
-                continue
-            sources[kind][source] += 1
-            verdict, rule = m6_edge_verdict(kind, side, values[f] - offset, cur, prev)
             m = per[f]
+            if m is None or m.get("status") not in ("found", "cut"):
+                continue
+            cur, prev, nxt = pane_at(f)
+            if values[f] is None or cur is None or cur[si] is None or not rest:
+                verdict, rule = "not judged", None  # E2 and E3 need the pane edge as shown and the content edge
+            else:
+                sources[kind][source] += 1
+                verdict, rule = m6_edge_verdict(kind, side, values[f] - offset, cur, prev, nxt)
+            # E4 and E5 are facts of the content itself: they hold whether or not a layer shows the pane edge.
+            # E4 and E5 explain an edge that is off: a shell gap shortens the content, a stretched ring moves its outer
+            # edge. When one of them fails, the edge's E2 or E3 is not counted again (the frame fails either way).
             if m.get("gap", 0.0) - gap_rest >= TOL_PX:
                 verdict, rule = "fail", "E4"
                 rules[kind]["E4"] += 1
+                rule_frames[kind]["E4"].add(f)
             if any(rings_rest[r] is not None and m["rings"][r] > rings_rest[r] + TOL_PX for r in range(3)):
                 verdict, rule = "fail", "E5"
                 rules[kind]["E5"] += 1
-            if verdict == "fail" and rule in ("E2", "E3"):
+                rule_frames[kind]["E5"].add(f)
+            if verdict == "fail" and rule in ("E2", "E3", "page early 1"):
                 rules[kind][rule] += 1
+                rule_frames[kind][rule].add(f)
             frames[kind][f].append(verdict)
             edge_counts[kind][verdict] += 1
     out = {"kinds": {}}
@@ -1313,9 +1407,10 @@ def judge_m6(film, shown, measured, side_rest, strips):
                               "not_judged": len(by["not judged"]), "fail_ranges": ranges(by["fail"]),
                               "late_ranges": ranges(by["late"]), "page_late_1_ranges": ranges(by["page late 1"]),
                               "not_judged_ranges": ranges(by["not judged"]),
-                              "fail_by_rule": {r: rules[kind][r] for r in ("E2", "E3", "E4", "E5")},
+                              "fail_by_rule": {r: rules[kind][r] for r in M6_RULES},
+                              "fail_frames_by_rule": {r: ranges(rule_frames[kind][r]) for r in M6_RULES},
                               "sources": dict(sources[kind]), "edges": dict(edge_counts[kind])}
-    late = sorted(f for f, lags in (strips.get("lags") or {}).items() if lags and all(v == 1 for v in lags))
+    late = sorted(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
     return out
 
@@ -1340,15 +1435,15 @@ def m6_findings_of(m6):
     return out, info
 
 
-def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes):
-    """Each pane's tab strip on its strip row: the strip's two edges against the pane's edges, and the selected tab's pill
-    against the pane's left edge, per frame (frames where the row is outside the strip's height now are skipped).
-    Returns {"edges": {pid: per frame (lo, hi) of the strip as shown (a side None when not on screen) or None},
-    "lags": {frame: [the lag of each strip edge judged in it that moved into the frame's sample]}}: cmux's own layer in
-    each film frame, for the m6 check."""
+def strip_x_extents(film, shown, line_codes):
+    """{pid: (strip row y, ext, read)}: per frame (lo, hi) device px of the pane's tab strip on its strip row, None where
+    the row is outside the strip's height now or no strip is found. EXT: as the strip rows have judged it (a side None
+    when not on screen; a side that does not reach the shell inside the pane's rect is the pane's own edge there).
+    READ: each side only as read from the pixels (strip_extent_read, the reach on each side shown), else None: cmux's own
+    layer, the panes' x edges in each film frame, for the clock and the m6 check (never the trace)."""
     rows = {y: i for i, y in enumerate(film.rows)}
     shell = film.roles["shell"]
-    out = {"edges": {}, "lags": collections.defaultdict(list)}
+    out = {}
     for pid, y in sorted(film.strip_rows.items()):
         if y not in rows or film.row_px is None:
             continue
@@ -1359,10 +1454,8 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
             continue
         (_, py0, _, _), _ = pane_rect(first)
         off_y, strip_h = float(strip[1]) - py0, float(strip[3])
-        px = film.row_px[:, rows[y]]
-        codes_line = line_codes.get(f"row@{y}") or classify(px)
-        rgb_all = px[..., 2::-1]
-        ext = [None] * film.n
+        codes_line = line_codes.get(f"row@{y}") or classify(film.row_px[:, rows[y]])
+        ext, read = [None] * film.n, [None] * film.n
         for f in range(film.n):
             k = shown[f]
             row = film.samples[k].panes.get(pid) if k is not None else None
@@ -1376,10 +1469,124 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
             if vhi - vlo < 1:
                 continue
             codes = np.where(codes_line[f] == CUE, shell, codes_line[f])  # the cue is not the strip
+            reach = int(STRIP_REACH_PT * film.scale)
             e = strip_extent(codes, (vlo + vhi) / 2 * film.scale, shell, vlo * film.scale, vhi * film.scale,
-                             int(STRIP_REACH_PT * film.scale) if lo_shown and hi_shown else 0)
+                             reach if lo_shown and hi_shown else 0)
             ext[f] = (e[0] if lo_shown else None, e[1] if hi_shown else None) if e else None
-        out["edges"][pid] = ext
+            r = strip_extent_read(codes, (vlo + vhi) / 2 * film.scale, shell, vlo * film.scale, vhi * film.scale,
+                                  reach if lo_shown else 0, reach if hi_shown else 0)
+            read[f] = (r[0] if lo_shown else None, r[1] if hi_shown else None) if r else None
+        out[pid] = (y, ext, read)
+    return out
+
+
+def strip_top_on_line(codes, strip_code, expected, height, reach):
+    """The y (device px) of a tab strip's top on one scan column's CODES: the first strip-class pixel below a pixel of
+    another class (or at the line's first pixel), with at least STRIP_SHARE of the next HEIGHT pixels in the strip class
+    (a glyph of the pill may cross the column; a neighbour's ring 3 or a terminal's cell row of black is shorter or
+    farther), nearest EXPECTED within REACH; None when there is none."""
+    lo, hi = max(0, int(expected - reach)), min(len(codes) - height, int(expected + reach))
+    best = None
+    for y in range(lo, hi + 1):
+        if codes[y] == strip_code and (y == 0 or codes[y - 1] != strip_code) \
+                and float(np.mean(codes[y:y + height] == strip_code)) >= STRIP_SHARE \
+                and (best is None or abs(y - expected) < abs(best - expected)):
+            best = y
+    return best
+
+
+def strip_tops(film, shown, line_codes):
+    """{(pid, column line): per frame the y (device px) of the pane's tab strip top on that scan column, or None}: cmux's
+    own layer, the panes' top edges in each film frame (3e.1). A column reads a pane's strip where it crosses the strip
+    (its x range in the shown sample, from the note's chrome); the search starts at the strip's place in the shown
+    sample (the trace only bounds the search; the value is read from the pixels)."""
+    out = {}
+    code = film.roles["strip"]
+    s = film.scale
+    columns = [(f"col@{x}", x) for x in film.cols]
+    for pid, chrome in sorted(film.chrome.items()):
+        strip, cell = chrome.get("strip"), chrome.get("cell")
+        if not strip or not cell or pid not in film.panes:
+            continue
+        dx, dy = float(strip[0]) - float(cell[0]), float(strip[1]) - float(cell[1])
+        inset_r = (float(cell[0]) + float(cell[2])) - (float(strip[0]) + float(strip[2]))
+        height = int(round(float(strip[3]) * s))
+        for name, coord in columns:
+            codes_line = line_codes.get(name)
+            if codes_line is None:
+                continue
+            tops, crossed = [None] * film.n, False
+            for f in range(film.n):
+                k = shown[f]
+                row = film.samples[k].panes.get(pid) if k is not None else None
+                if row is None or len(row) < 5:
+                    continue
+                (x, y, w, h), _ = pane_rect(row)
+                if not (x + dx) * s <= coord <= (x + w - inset_r) * s:
+                    continue
+                crossed = True
+                tops[f] = strip_top_on_line(codes_line[f], code, (y + dy) * s, height, int(STRIP_REACH_PT * s))
+            if crossed:
+                out[(pid, name)] = tops
+    return out
+
+
+def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, extents=None, tops=None,
+                 fixed=None):
+    """Each pane's tab strip on its strip row: the strip's two edges against the pane's edges, and the selected tab's pill
+    against the pane's left edge, per frame (frames where the row is outside the strip's height now are skipped); and
+    each strip's top on the scan columns that cross it against the pane's top (3e.1). EXTENTS (strip_x_extents) and
+    TOPS (strip_tops) are read here when not given. Returns {"edges": {pid: per frame (lo, hi) of the strip as shown (a
+    side None when not on screen) or None}, "tops": TOPS, "lags": {frame: [the lag of each strip edge judged in it that
+    moved into the frame's sample]}, "lags_fixed": the same against the fixed clock FIXED}: cmux's own layer in each film
+    frame, for the m6 check."""
+    rows = {y: i for i, y in enumerate(film.rows)}
+    out = {"edges": {}, "tops": {}, "lags": collections.defaultdict(list), "lags_fixed": collections.defaultdict(list)}
+    extents = strip_x_extents(film, shown, line_codes) if extents is None else extents
+    tops = strip_tops(film, shown, line_codes) if tops is None else tops
+    out["tops"] = tops
+    fixed = shown if fixed is None else fixed
+
+    def moved_lags(values, series):
+        """The lag of each frame's edge (read from the pixels) that moved into its sample, against the film's clock SHOWN
+        and against the fixed clock."""
+        for clock, dest in ((shown, out["lags"]), (fixed, out["lags_fixed"])):
+            t = judge_track(film, clock, values, series, rest_frames, None, False)
+            for f, v in t["per_frame"].items():
+                k = clock[f]
+                if k is not None and 1 <= k and series[k] is not None and series[k - 1] is not None \
+                        and abs(series[k] - series[k - 1]) >= TOL_PX:
+                    dest[f].append(v["lag"])
+
+    for (pid, name), top in sorted(tops.items()):
+        if not any(v is not None for v in top):
+            continue
+        label = (film.panes.get(pid) or {}).get("label", pid[:12])
+        series = edge_series(film, pid, "col", "lo")
+        track = judge_track(film, shown, top, series, rest_frames, spring, reduce)
+        moved_lags(top, series)
+        for f, t in sorted(track["per_frame"].items()):
+            entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": name, "pane": pid,
+                     "label": f"strip {label}", "side": "lo", "dev": t["dev"], "lag": t["lag"], "at": top[f]}
+            problems = []
+            if abs(t["dev"]) >= TOL_PX:
+                problems.append(f"tab strip top {t['dev']:+.1f} px off the pane edge")
+            if t["lag"]:
+                problems.append(f"tab strip lag {t['lag']} frame(s)")
+            if problems:
+                entry["problems"] = problems
+            add_frame(f, entry)
+        summary[f"strip:{label}:{pid}:{name}:lo"] = row_summary("strip", pid, f"strip {label}", "strip", name, "lo", track,
+                                                                detail="its top against the pane's top edge")
+    shell = film.roles["shell"]
+    for pid, (y, ext, read) in sorted(extents.items()):
+        chrome = film.chrome.get(pid) or {}
+        px = film.row_px[:, rows[y]]
+        codes_line = line_codes.get(f"row@{y}") or classify(px)
+        rgb_all = px[..., 2::-1]
+        out["edges"][pid] = read  # the m6 check reads only the sides read from the pixels
+        for si, side in ((0, "lo"), (1, "hi")):
+            moved_lags([e[si] if e else None for e in read], edge_series(film, pid, "row", side))
         # A side hidden under the sidebar or past the window is None; the run between the strip's shown ends (a hidden
         # end: the visible area's edge) gives the ground and the pill.
         spans = [None] * film.n
@@ -1417,10 +1624,6 @@ def judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, l
                 continue
             track = judge_track(film, shown, measured, series, rest_frames, spring, reduce)
             for f, t in sorted(track["per_frame"].items()):
-                k = shown[f]
-                if what == "strip" and k is not None and 1 <= k and series[k] is not None and series[k - 1] is not None \
-                        and abs(series[k] - series[k - 1]) >= TOL_PX:
-                    out["lags"][f].append(t["lag"])  # a strip edge that moved into this frame's sample
                 entry = {"f": f, "t_ms": round((film.t[f] - film.t[0]) * 1000, 2), "sample": shown[f], "line": f"row@{y}",
                          "pane": pid, "label": f"{what} {label}", "side": side, "dev": t["dev"], "lag": t["lag"], "at": measured[f]}
                 problems = []
