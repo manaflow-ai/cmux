@@ -1,7 +1,7 @@
 import CoreGraphics
 import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3c (`motion.frameOwner.contentPolicy`, read at the close): the panes a springing close took out
+/// FRAME OWNER REFACTOR S3c: the panes a springing close took out
 /// of one screen, each still shown with only its own ground (`PaneHostView.showClosingGround`) on the space its
 /// neighbours, or its row column's scroll, have not covered yet.
 ///

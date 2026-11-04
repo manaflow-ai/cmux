@@ -28,7 +28,8 @@ spec.loader.exec_module(smoke)
 
 BUNDLE = "com.example.fresh-smoke-stub"
 
-# The stub app: MODE (crash | healthy | no-home) comes from the bundle's Resources/mode file.
+# The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked) comes from the
+# bundle's Resources/mode file.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -46,12 +47,18 @@ if mode == "crash":
     os.abort()
 marks = int(os.environ["CMUX_NEXT_LAUNCH_MARKS_FD"])
 os.write(marks, b"main_start 10.0\n")
-if mode == "healthy":
+if mode in ("healthy", "new-tab", "first-run", "first-run-unmarked"):
     os.write(marks, b"first_window_frame_committed 120.5\n")
-page = "home-dock" if mode == "healthy" else "terminal"
+# first-run: a fresh NEXT Nightly since #33215. The Bring your history page covers Home, which parks Home's pane
+# (no selected tab), and the app marks that it opened the page. first-run-unmarked: the same topology, no mark.
+if mode == "first-run":
+    os.write(marks, b"first_run.history_import_shown 300.0\n")
+# new-tab: what a fresh launch of feat shows (2026-11-04): its first frame, a New Tab tab selected, Home not.
+page = {"healthy": "home-dock", "new-tab": "new-tab", "first-run": "home-dock", "first-run-unmarked": "home-dock"}.get(mode, "terminal")
+selected = None if mode.startswith("first-run") else "tab_1"
 topology = {"windows": [{"id": "win_1", "visible": True, "workspace": "ws_1"}],
             "workspaces": [{"id": "ws_1", "name": "Home", "screens": [{"panes": [
-                {"id": "pane_1", "selected_tab": "tab_1", "tabs": [{"id": "tab_1", "kind": "page", "page": page}]}]}]}]}
+                {"id": "pane_1", "selected_tab": selected, "tabs": [{"id": "tab_1", "kind": "page", "page": page}]}]}]}]}
 server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 server.bind(os.environ["CMUX_NEXT_SOCKET_PATH"])
 server.listen(8)
@@ -137,10 +144,21 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_smoke(self, mode: str, *extra: str, env: dict | None = None) -> tuple[int, str, dict]:
-        app = make_app(self.dir, mode)
-        out = self.dir / f"out-{mode}"
-        result = subprocess.run([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out), *extra],
+    def run_smoke(self, mode: str, *extra: str, env: dict | None = None, ready: str = "") -> tuple[int, str, dict]:
+        """The smoke on a stub of MODE. `ready`: a caller's READY (a Python expression over `smoke`), set by a small
+        caller script as scripts/cmux-next/idle_cpu.py sets it; empty runs the smoke itself."""
+        self.runs = getattr(self, "runs", 0) + 1
+        app = make_app(self.dir / f"run-{self.runs}", mode)
+        out = self.dir / f"out-{mode}-{self.runs}"
+        argv = [str(SCRIPT), "--app", str(app), "--out", str(out), *extra]
+        if ready:
+            caller = ("import importlib.util, sys\n"
+                      f"spec = importlib.util.spec_from_file_location('smoke', {str(SCRIPT)!r})\n"
+                      "smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)\n"
+                      f"smoke.READY = {ready}\n"
+                      "sys.exit(smoke.main(sys.argv[1:]))\n")
+            argv = ["-c", caller, *argv[1:]]
+        result = subprocess.run([sys.executable, *argv],
                                 env=env or self.env, capture_output=True, text=True, timeout=120)
         report = json.loads((out / "report.json").read_text())
         return result.returncode, result.stdout + result.stderr, report
@@ -243,6 +261,35 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertIn("Home did not render", report["failures"][0])
         self.assert_cleaned_up(report)
 
+    def test_a_caller_ready_check_replaces_only_the_home_check(self):
+        # scripts/cmux-next/idle_cpu.py: a fresh launch of feat opens a New Tab tab, not Home (cmux-ad m9, job
+        # 857451d6: "Home did not render"). A caller's READY decides the window part; the nightly smoke keeps Home.
+        status, output, report = self.run_smoke("new-tab", "--seconds", "2", "--startup-timeout", "3")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertIn("Home did not render", report["failures"][0])
+        visible = "lambda snap: smoke.visible_windows(snap) > 0"
+        status, output, report = self.run_smoke("new-tab", "--seconds", "2", "--startup-timeout", "10", ready=visible)
+        self.assertEqual(status, smoke.PASS, output)
+        self.assert_cleaned_up(report)
+        # The frame mark still counts: a visible window with no first frame is not ready.
+        status, output, report = self.run_smoke("no-home", "--seconds", "2", "--startup-timeout", "3", ready=visible)
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assert_cleaned_up(report)
+
+    def test_a_fresh_launch_with_the_first_run_page_over_home_passes(self):
+        # Every NEXT Nightly since #33215 failed here as "Home did not render ... Home tab not selected" (cannot-run in
+        # nightly_next_launch_smoke.py, so the job stayed green): the page covers Home and Home's pane has no selection.
+        status, output, report = self.run_smoke("first-run", "--seconds", "2", "--startup-timeout", "10")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual(report["verdict"], "pass")
+        self.assert_cleaned_up(report)
+        # Without the app's mark the same parked pane is not a healthy launch.
+        status, output, report = self.run_smoke("first-run-unmarked", "--seconds", "2", "--startup-timeout", "3")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertIn("Home did not render", report["failures"][0])
+        self.assertIn("first_run.history_import_shown missing", report["failures"][0])
+        self.assert_cleaned_up(report)
+
     def test_the_detached_helper_is_stopped_by_the_runs_root(self):
         status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10")
         self.assertEqual(status, smoke.PASS, output)
@@ -279,6 +326,21 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(smoke.home_tab(snap), tab)
         snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["selected_tab"] = "tab_2"
         self.assertIsNone(smoke.home_tab(snap))
+
+    def test_the_first_run_page_over_home_counts_only_with_the_apps_mark(self):
+        tab = {"id": "tab_1", "kind": "page", "page": "home-dock"}
+        snap = {"topology": {"windows": [{"visible": True, "workspace": "ws_1"}],
+                             "workspaces": [{"id": "ws_1", "screens": [{"panes": [{"selected_tab": None, "tabs": [tab]}]}]}]}}
+        frame = {smoke.RENDER_MARK: 1.0}
+        shown = {**frame, smoke.FIRST_RUN_MARK: 2.0}
+        self.assertFalse(smoke.home_rendered(snap, frame))
+        self.assertFalse(smoke.home_rendered(snap, {smoke.FIRST_RUN_MARK: 2.0}))
+        self.assertTrue(smoke.home_rendered(snap, shown))
+        snap["topology"]["windows"][0]["visible"] = False
+        self.assertFalse(smoke.home_rendered(snap, shown))
+        snap["topology"]["windows"][0]["visible"] = True
+        snap["topology"]["workspaces"][0]["screens"][0]["panes"][0]["tabs"] = [{"id": "tab_2", "page": "terminal"}]
+        self.assertFalse(smoke.home_rendered(snap, shown))
 
 
 if __name__ == "__main__":

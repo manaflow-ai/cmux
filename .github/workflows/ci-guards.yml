@@ -208,6 +208,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_send_path_caps.py
 
+      # No new hard timeout below 30 seconds in the app/daemon request paths;
+      # existing hits ratchet down in tests/short-timeout-allowlist.json.
+      - name: Validate short timeout ratchet
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_short_timeout_guard.py
+
       # NEXT code adds no call to classic Cloud (/api/vm, /api/runs, a cmux.com
       # or cmux-staging API base), as a shrink-only ratchet
       # (tests/classic-cloud-route-allowlist.json).
