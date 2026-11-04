@@ -1699,7 +1699,7 @@ const SummaryRow = memo(
 const PlanRow = memo(
   function PlanRow({ row }: RowProps) {
     return row.plan ? (
-      <PlanList entries={row.plan} ended={row.turnEnded} />
+      <PlanList entries={row.plan} ended={row.turnEnded} id={row.id} />
     ) : (
       <div className="acpmux-muted">{row.text}</div>
     );

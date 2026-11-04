@@ -5585,6 +5585,64 @@ a.cv-sha:focus-visible {
   border-color: var(--cv-text-muted);
 }
 
+/* A step's change fades in place (Leo, 2026-11-03: the pinned list "animates in place with no layout
+   shift"): only colours move, never a size, so nothing under the list shifts. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-plan__item,
+  .cv-plan__mark {
+    transition:
+      color var(--agent-motion-in) var(--agent-ease-out, ease-out),
+      background-color var(--agent-motion-in) var(--agent-ease-out, ease-out),
+      border-color var(--agent-motion-in) var(--agent-ease-out, ease-out);
+  }
+}
+/* An ended turn's list folds where it stood to its one progress line, which opens the steps
+   (PlanList.tsx): a muted row with the tool rows' chevron after its words. */
+.cv-plan__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--cv-text-muted);
+  font: inherit;
+  line-height: 16px;
+  text-align: start;
+  cursor: default;
+}
+.cv-plan__summary:hover {
+  color: var(--cv-text);
+}
+.cv-plan__summary:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.cv-plan__summary .cv-plan__mark {
+  margin-top: 0;
+}
+.cv-plan__summary .cv-plan__mark[data-status="completed"] {
+  border-color: transparent;
+  background: var(--cv-text-muted);
+  color: var(--agent-accent-text, #fff);
+}
+.cv-plan__summary .cv-plan__mark[data-status="pending"] {
+  border-style: dashed;
+}
+.cv-plan__chevron {
+  color: var(--cv-text-muted);
+}
+/* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
+.cv-plan[data-folded] {
+  /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
+  padding-inline: calc((var(--cv-row-icon) - 12px) / 2) 0;
+  background: transparent;
+  box-shadow: none;
+}
+
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
    cx-ncc.102): what the agent is doing now and the turn's time. */
 .cv-activity {
