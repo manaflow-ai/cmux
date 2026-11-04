@@ -688,6 +688,50 @@ fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn renameat2(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. The syscall does not retain the pointers; calling it
+    // directly avoids depending on glibc's `renameat2` wrapper.
+    let done =
+        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+#[cfg(target_vendor = "apple")]
+fn renameatx(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    let done = unsafe { libc::renameatx_np(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Renames `from` to `to` in one folder only while `to` is missing.
+fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, from, to, libc::RENAME_NOREPLACE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, from, to, libc::RENAME_EXCL);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, from, to);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+}
+
+/// Exchanges `left` and `right` in one folder, atomically.
+fn exchange_names(fd: RawFd, left: &CStr, right: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, left, right, libc::RENAME_EXCHANGE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, left, right, libc::RENAME_SWAP);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, left, right);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use sha2::{Digest as _, Sha256};
@@ -752,49 +796,5 @@ mod tests {
         assert_eq!(std::fs::read_link(root.join("old")).unwrap(), Path::new("src"));
         assert!(!root.join("deep").exists());
         assert_eq!(std::fs::read_link(root.join("mine")).unwrap(), Path::new("edited"));
-    }
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn renameat2(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
-    // SAFETY: both names are NUL-terminated and relative to the live
-    // descriptor. The syscall does not retain the pointers; calling it
-    // directly avoids depending on glibc's `renameat2` wrapper.
-    let done =
-        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
-    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
-}
-
-#[cfg(target_vendor = "apple")]
-fn renameatx(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
-    // SAFETY: both names are NUL-terminated and relative to the live
-    // descriptor. `renameatx_np` does not retain the pointers.
-    let done = unsafe { libc::renameatx_np(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
-    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
-}
-
-/// Renames `from` to `to` in one folder only while `to` is missing.
-fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    return renameat2(fd, from, to, libc::RENAME_NOREPLACE);
-    #[cfg(target_vendor = "apple")]
-    return renameatx(fd, from, to, libc::RENAME_EXCL);
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-    {
-        let _ = (fd, from, to);
-        Err(io::Error::from(io::ErrorKind::Unsupported))
-    }
-}
-
-/// Exchanges `left` and `right` in one folder, atomically.
-fn exchange_names(fd: RawFd, left: &CStr, right: &CStr) -> io::Result<()> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    return renameat2(fd, left, right, libc::RENAME_EXCHANGE);
-    #[cfg(target_vendor = "apple")]
-    return renameatx(fd, left, right, libc::RENAME_SWAP);
-    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
-    {
-        let _ = (fd, left, right);
-        Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 }
