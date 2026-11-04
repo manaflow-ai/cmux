@@ -22,9 +22,13 @@ export const WAITING_STEERS_SNAPSHOT: SeedSnapshotFields = {
   summary: { steering: true, backgroundsWork: true },
 };
 
-/// The turn the agent is on, then the three steers, oldest first, each `at` ms apart from `at`.
+/// The turn the agent is on, from `at`, then the three steers, oldest first, 15 s apart.
 export function waitingSteersRows(at: number): AcpmuxRow[] {
-  const steers = ["Use the cache dir, not tmp", "And keep the old run's logs", "Use the cache directory for the next run"];
+  const steers = [
+    "Use the cache dir, not tmp",
+    "And keep the old run's logs",
+    "Use the cache directory for the next run",
+  ];
   return [
     { id: "waiting-steer-prompt", version: 1, at, kind: "user", text: "Check the cache" },
     {
@@ -35,16 +39,14 @@ export function waitingSteersRows(at: number): AcpmuxRow[] {
       text: "Checking the cache.",
       streaming: true,
     },
-    ...steers.map(
-      (text, index): AcpmuxRow => ({
-        id: WAITING_STEER_IDS[index]!,
-        version: 1,
-        at: at + (30 + index * 15) * SECOND,
-        kind: "user",
-        text,
-        steer: "waiting",
-        steerPromptId: `waiting-steer-prompt-${index + 1}`,
-      }),
-    ),
+    ...steers.map((text, index): AcpmuxRow => ({
+      id: WAITING_STEER_IDS[index]!,
+      version: 1,
+      at: at + (30 + index * 15) * SECOND,
+      kind: "user",
+      text,
+      steer: "waiting",
+      steerPromptId: `waiting-steer-prompt-${index + 1}`,
+    })),
   ];
 }
