@@ -507,7 +507,7 @@ if ! acpmux_why=$(launchctl bootstrap gui/$acpmux_uid "$acpmux_pd/probe.plist" 2
 launchctl bootout gui/$acpmux_uid/com.acpmux.probe >/dev/null 2>&1; rm -rf "$acpmux_pd"
 acpmux_dis=$(launchctl print-disabled gui/$acpmux_uid 2>&1) || acpmux_refuse launchdRefused "launchd did not say whether com.acpmux.daemon is disabled in gui/$acpmux_uid ($acpmux_dis)"
 case "$acpmux_dis" in *'"com.acpmux.daemon" => disabled'*|*'"com.acpmux.daemon" => true'*) acpmux_refuse launchdRefused "launchd has com.acpmux.daemon disabled in gui/$acpmux_uid (launchctl enable $acpmux_job turns it on)";; esac
-if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux host setup writes it again)"; fi
+if ! acpmux_why=$(plutil -lint "$acpmux_plist" 2>&1); then acpmux_refuse launchdRefused "launchd cannot start the daemon from $acpmux_plist ($acpmux_why; acpmux machine setup writes it again)"; fi
 acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
 acpmux_p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -n 1)
 if [ -n "$acpmux_p" ] && [ "$acpmux_p" != "$acpmux_old" ]; then {SHUTDOWN_KEEPING_AGENTS}

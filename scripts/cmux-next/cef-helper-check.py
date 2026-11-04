@@ -26,8 +26,9 @@ import argparse, base64, glob, json, os, plistlib, subprocess, sys, tempfile, ti
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
 
-PAGE = "data:text/html," + urllib.parse.quote("<title>start</title><script>document.title='js-ran-'+(6*7)</script>"
-                                       "<h1 style='font:48px sans-serif'>cmux helper check: JavaScript ran</h1>")
+# openBrowser takes http(s) and file URLs, not data: URLs ("is not a URL cmux can open").
+PAGE_HTML = ("<!doctype html><title>start</title><script>document.title='js-ran-'+(6*7)</script>"
+             "<h1 style='font:48px sans-serif'>cmux helper check: JavaScript ran</h1>")
 FRAME = (40, 40, 1200, 800)
 
 
@@ -97,6 +98,10 @@ def main():
     opts = ap.parse_args()
     app = os.path.realpath(opts.app)
     os.makedirs(opts.out, exist_ok=True)
+    page_path = os.path.join(opts.out, "page.html")
+    with open(page_path, "w") as f:
+        f.write(PAGE_HTML)
+    page = "file://" + urllib.parse.quote(page_path)
     fw, plain = helpers(app)
     res = {"app": app, "release_signing": opts.release_signing, "checks": {}}
     if opts.release_signing:
@@ -151,7 +156,7 @@ def main():
                                                    "focus": True, "origin": "script"})
         res["terminal_pane"] = bool(wait_for(lambda: (focused_pane() or {}).get("kind") == "terminal", 60))
         time.sleep(1)  # test harness: the shell prompt draws before the next tab opens
-        res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
+        res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": page},
                                                 "focus": True, "origin": "script"})
 
         def title_ran():
@@ -162,7 +167,7 @@ def main():
         if not title:
             # cef-tab-bench.py's path: the app's own new-browser command in the focused pane.
             res["bench_create_reply"] = call("debug.new_tab", {"action": "bench_create", "command": "new_browser",
-                                                               "run": "openBrowser", "url": PAGE})
+                                                               "run": "openBrowser", "url": page})
             title = wait_for(title_ran, 45)
         res["focused_kind"] = (focused_pane() or {}).get("kind")
         res["title"] = title
