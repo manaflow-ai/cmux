@@ -1,8 +1,9 @@
 // l10n-allow-file: protocol fixtures, not shipped UI.
 import { expect, test } from "bun:test";
+import type { ExternalAccess } from "../model";
 import { externalAccessFromRequest } from "./externalAccess";
 
-const access = {
+const access: ExternalAccess = {
   kind: "files_and_folders",
   target: "/Users/you/Documents/report.txt",
   operation: "read_text_file",
