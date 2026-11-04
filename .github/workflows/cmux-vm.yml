@@ -35,15 +35,22 @@
 # entries of the optional secrets CMUX_VM_SERVICE_KEYS_EXTRA and
 # CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM appended.
 #
-# Production: workflow_dispatch action deploy-production from feat-cmux-next runs
-# check, deploy-staging and smoke-staging, then deploy-production and
-# smoke-production in the same run, for the same SHA (cx-b4h.5). Environment
+# Production: every push to feat-cmux-next that touches the Worker runs check, then
+# migrate-production (apply the landed cmux_vm migrations, no rehearsal; nothing new
+# is a no-op), then deploy-production and smoke-production in the same run, for the
+# same SHA. No manual step between a landing and production (M2 of cmuxterm-hq
+# plans/cloud/ARCHITECTURE-2026-11.md). Action deploy-production does the same for
+# the dispatched feat-cmux-next commit. Environment
 # cmux-vm-production (feat-cmux-next only) holds the same secret names as
 # staging plus CMUX_VM_SERVICE_KEYS and CMUX_VM_SMOKE_SERVICE_KEY, and the
 # variables CMUX_VM_DEPLOY_ENABLED, CMUX_VM_PRODUCTION_URL and
 # CMUX_VM_SMOKE_SERVICE_TEAM. first_production_deploy=true only for the first.
 # Action smoke-production runs only the production route and service smoke
-# against the live version (no deploy, no rollback).
+# against the live version (no deploy, no rollback). Its product leg
+# (scripts/smoke-product.ts) creates the way cmux-platform does, with no key: the
+# job's GitHub OIDC token maps to the Worker's CMUX_VM_CI_TRUST row ci-product-smoke
+# (a product team, not in DEV_TEST_TENANT_IDS, so the never-pause -1 idle default),
+# the approved boot image and no idle timeout.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
@@ -61,7 +68,8 @@
 #                         tail_minutes; repository Cloudflare secrets, feat-cmux-next only
 #   migrate-production    apply the landed cmux_vm migrations to cmux-prod main (job
 #                         migrate-production, feat-cmux-next only, environment
-#                         cmux-vm-production). Fails closed until the environment holds
+#                         cmux-vm-production; every feat-cmux-next push runs it as an apply
+#                         before the production deploy). Fails closed until the environment holds
 #                         PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN.
 #                         dry_run (default true) only inspects (roles, cmux_vm owners,
 #                         tracking table) and runs db-release.ts plan and rehearse on a
@@ -121,7 +129,7 @@ on:
         type: boolean
         default: true
       skip_rehearsal:
-        description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (for a token without the restore-backup scope); every other check still runs
+        description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (push and deploy-production always skip it); every other check still runs
         type: boolean
         default: false
       tail_minutes:
@@ -137,6 +145,10 @@ concurrency:
 
 permissions:
   contents: read
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 jobs:
   check:
@@ -579,14 +591,19 @@ jobs:
         run: bun scripts/smoke.ts
 
   deploy-production:
-    # Production (cx-b4h.5): dispatch only, from feat-cmux-next. The cmux-vm-production environment admits only
+    # Production (cx-b4h.5): from feat-cmux-next only. The cmux-vm-production environment admits only
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
+    # Every push to feat-cmux-next that touches the Worker, and action deploy-production, once the migrations
+    # are applied: no manual step between a landing and production (M2).
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      needs.check.result == 'success' && needs.migrate-production.result == 'success' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production'))
     # Only the code check, not the staging deploy and smoke: NEXT production has no outside users, so a
     # production deploy no longer waits on staging (Leo, 2026-11-04: "why did we have to take so long doing
     # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
     # migrations production lacks.
-    needs: check
+    needs: [check, migrate-production]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 45
     environment: cmux-vm-production
@@ -737,12 +754,17 @@ jobs:
     # This is diagnostic only and never blocks the feature branch or nightly.
     continue-on-error: true
     if: >-
-      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' &&
-      (inputs.action == 'smoke-production' || (inputs.action == 'deploy-production' && needs.deploy-production.result == 'success'))
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') ||
+      ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))
     needs: deploy-production
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-production
+    # id-token: the product smoke authenticates with this job's GitHub OIDC token (workers/cmux-vm/src/auth/ci-trust.ts).
+    permissions:
+      contents: read
+      id-token: write
     concurrency:
       group: cmux-vm-smoke-production
       cancel-in-progress: false
@@ -757,11 +779,14 @@ jobs:
           URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' }}
         run: |
-          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+          # The product smoke needs no key (OIDC); only the dev/test service leg needs CMUX_VM_SMOKE_SERVICE_KEY.
+          echo "service_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          [ "$HAS_KEY" = true ] || echo "::notice::No CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production: the dev/test service leg is skipped."
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_PRODUCTION_URL and CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production."
+            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1 and CMUX_VM_PRODUCTION_URL in cmux-vm-production."
             exit 1
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -797,7 +822,7 @@ jobs:
       # Production has no tenant smoke key: the service leg alone, on a synthetic dev/test team
       # (DEV_TEST_TENANT_IDS), create, exec, pause and delete by exact id.
       - name: Smoke the production Worker (service key, dev/test team)
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.service_key == 'true'
         continue-on-error: true
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
@@ -805,18 +830,32 @@ jobs:
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
+      # The product create path (scripts/smoke-product.ts): a product team (never-pause -1 idle default) and the approved boot image, as cmux-platform creates. The dev/test leg
+      # above passed while every product create answered 503 (cmux#35012). No step-level continue-on-error, so
+      # a red shows on the job; the job itself stays non-blocking.
+      # No key: the job's GitHub OIDC token (audience: the Worker's origin) maps to the Worker's CMUX_VM_CI_TRUST row
+      # ci-product-smoke, its own team and VMs only, at most 2, each paused after 15 minutes and deleted once stopped.
+      - name: Smoke the product create path (CI OIDC principal, product team, approved boot image)
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+          CMUX_VM_SMOKE_IMAGE: ${{ vars.CMUX_VM_SMOKE_IMAGE }}
+          CMUX_VM_SMOKE_IMAGE_REVISION: ${{ vars.CMUX_VM_SMOKE_IMAGE_REVISION }}
+        run: bun scripts/smoke-product.ts
 
   tail-production:
     # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,
     # so a 503 "temporarily unavailable" shows the dependency behind it while someone reproduces it. Only the
-    # repository Cloudflare secrets are read (no environment). Printed per event:
+    # Cloudflare secrets are read, in cmux-vm-production like the deploy (a dispatchable job that reads a secret
+    # names its environment, tests/test_supplychain_security.py). Printed per event:
     # time, method, path, status, outcome, Durable Object RPC, log lines and exceptions (scripts/tail-filter.mjs);
     # no headers, bodies or query strings, emails redacted.
     name: tail production
     # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 30
+    environment: cmux-vm-production
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -860,7 +899,7 @@ jobs:
     # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
     name: sweep orphan VMs (production)
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 20
     environment: cmux-vm-production
     defaults:
@@ -886,11 +925,15 @@ jobs:
           if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
 
   migrate-production:
-    # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): dispatch only, from
-    # feat-cmux-next, in cmux-vm-production. Shares deploy-production's concurrency group, so a migration and a
-    # deploy never overlap. Changes only schema cmux_vm of cmux-prod main and the PlanetScale role cmux-vm-owner.
+    # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): every push to
+    # feat-cmux-next and action deploy-production apply them before the deploy (no rehearsal: NEXT production
+    # has only our team, Leo 2026-11-03/04); action migrate-production runs them alone, in cmux-vm-production.
+    # Shares deploy-production's concurrency group, so a migration and a deploy never overlap. Changes only schema cmux_vm of cmux-prod main and the PlanetScale role cmux-vm-owner.
     name: migrate production (cmux_vm)
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && github.ref == 'refs/heads/feat-cmux-next'
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-production' || inputs.action == 'deploy-production')))
+    needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # A rehearsal restores a branch copy (up to 20 min) and an apply rehearses again, plus the PITR wait.
     timeout-minutes: 90
@@ -902,7 +945,7 @@ jobs:
       # Fail closed: without the PlanetScale service token nothing runs (no checkout, no install, no read).
       - name: Required secrets
         env:
-          DRY_RUN: ${{ inputs.dry_run }}
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) }}
           HAS_PSCALE_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID != '' }}
           HAS_PSCALE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN != '' }}
           HAS_DB: ${{ secrets.CMUX_VM_DATABASE_URL != '' }}
@@ -955,11 +998,11 @@ jobs:
           echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
       # Production steps run with only the variables they need (release-rails.md, "Hardening 1"): every other
       # exported variable is unset in the subshell first, so nothing else reaches the rails or a child.
-      - name: ${{ inputs.dry_run && 'Inspect, plan and rehearse (dry run; production unchanged)' || 'Inspect, owner, adopt and apply (production)' }}
+      - name: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) && 'Inspect, plan and rehearse (dry run; production unchanged)' || 'Inspect, owner, adopt and apply (production)' }}
         working-directory: scripts/cmux-next/release
         env:
-          MODE: ${{ inputs.dry_run && 'dry-run' || 'migrate' }}
-          CMUX_VM_SKIP_REHEARSAL: ${{ inputs.skip_rehearsal && 'true' || 'false' }}
+          MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) && 'dry-run' || 'migrate' }}
+          CMUX_VM_SKIP_REHEARSAL: ${{ (github.event_name == 'push' || inputs.action == 'deploy-production' || inputs.skip_rehearsal) && 'true' || 'false' }}
           PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
           PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
