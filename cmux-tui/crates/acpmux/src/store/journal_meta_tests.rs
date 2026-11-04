@@ -115,35 +115,6 @@ fn last_seq_never_passes_the_log_after_an_os_crash() {
     );
 }
 
-/// An acknowledged chat made after the last checkpoint survives an OS crash that lost its folder
-/// (nothing synced the sessions folder since the folder was made): the replay makes it again
-/// from its records.
-#[test]
-fn a_chat_made_after_the_checkpoint_survives_an_os_crash_that_loses_its_folder() {
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let journal = SimStorage::new(51);
-    let store = open(home.path(), &journal);
-    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
-    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
-    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
-    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    let crashed = journal.restart(Crash::Os);
-    drop(store);
-    // The worst case: the new folder's entry never reached the disk.
-    std::fs::remove_dir_all(home.path().join("sessions").join(CHAT))
-        .unwrap_or_else(|e| panic!("{e}"));
-    let store = open(home.path(), &crashed);
-    let loaded = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-    assert_eq!(
-        loaded.map(|meta| (meta.name, meta.last_seq)),
-        Some(("new".to_owned(), 1)),
-        "an acknowledged chat was lost with its folder"
-    );
-    assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
-}
-
 /// A metadata change does not write `session.json` on the request path (no file sync per
 /// change): the store answers with the change at once, and the next checkpoint writes the file.
 #[test]

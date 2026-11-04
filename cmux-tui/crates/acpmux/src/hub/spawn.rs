@@ -279,8 +279,10 @@ impl Hub {
         // transferable directory and therefore leaves the bridge disabled.
         if p.family.as_deref() == Some("cmux-harness") {
             p.env.remove("CMUX_HARNESS_SESSION_STORE_DIR");
-            if let Some(dir) =
-                self.store.session_dir(&meta.id).and_then(|dir| dir.parent().map(Path::to_path_buf))
+            if let Some(dir) = self
+                .store
+                .session_path(&meta.id)
+                .and_then(|dir| dir.parent().map(Path::to_path_buf))
             {
                 let root = dir.to_string_lossy().into_owned();
                 if let Some(agent_id) = meta.agent_session_id.as_deref() {

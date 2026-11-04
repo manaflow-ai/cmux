@@ -920,7 +920,8 @@ pub trait Store: Send + Sync {
         None
     }
     /// The chat's folder path only, for a caller that needs the path or its parent and reads or
-    /// moves none of the chat's own files. (Red stub: the same as `session_dir` for now.)
+    /// moves none of the chat's own files: no lock, no wait, no write. `session_dir` is for code
+    /// that reads or moves them (the journal store writes the chat's metadata first).
     fn session_path(&self, id: &str) -> Option<PathBuf> {
         self.session_dir(id)
     }
