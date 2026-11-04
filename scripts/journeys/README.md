@@ -310,11 +310,13 @@ Every change to a judge reproduces the judge goldens. They have two tiers:
   judge writes it with (`NAMES` in `judge_goldens.py`, pinned to the source: 14 video_judge names are defects, 5 notes
   and 4 recorder findings). An absence fails when the judge reports the name; when it does not, it holds only where
   that name's own check looked, as the result shows it (`NEEDS`: complete frames, a motion window, trace samples, a
-  tracked divider, a divider compared with the trace, the film's movie in the store; for judge_trace a judged motion,
-  and 2 or more panes at rest for `gap`, `overlap` and `overlap-fading`); else it is NO VERDICT. Two video_judge
-  checks start from an input that its result does not count (`main thread missed refreshes before the first frame`,
-  `frame gap during slow input`): an absence of them is NO VERDICT until the judge writes that count. A check (must
-  report) needs no coverage: a judge that did not look, and so missed it, fails. A ruler fact also needs the film's
+  tracked divider, a divider compared with the trace, the film's movie in the store, a HID drag in the film's pinned
+  `events.json` that the judge placed (for `jump back`); for judge_trace a judged motion, an edge that travelled for
+  `reverse`, `lurch` and `end-jump`, and 2 or more panes at rest for `gap`, `overlap` and `overlap-fading`); else it is
+  NO VERDICT. Two video_judge checks start from an input that its result does not count (`main thread missed
+  refreshes before the first frame`, `frame gap during slow input`): a fact of an absence of them is refused before
+  any film is judged, until the judge writes that count. A check (must report) needs no coverage: a judge that did
+  not look, and so missed it, fails. A ruler fact also needs the film's
   scan records to be its complete frames, one each, in order (the judge's frame numbers).
 
 ```bash
@@ -332,7 +334,7 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   slowest of the 834 films takes about 50 s, and each run prints its slowest film; the budget holds also for a
   film process that closed its output), the run over `--deadline-minutes`, a judge process that dies, `judge_scan`
   timed out, ended by a signal or hit by an error of the machine, out of memory, an operating-system error of the
-  machine, a result with no stable JSON form, a changed, missing or unpinned store file, a blessed result that is
+  machine, a result with no stable JSON form, a pinned store file that changed or is missing, a blessed result that is
   gone or changed, a judge or runner file that changed during the run, another toolchain (python, numpy, the ffmpeg
   binary), a TRUTH fact that cannot be checked or a
   ruler fact the film does not show, an expectation whose check did not look, a unit-test file that is ended by a
@@ -347,9 +349,13 @@ $PY -I scripts/journeys/test_judge_goldens.py          # the runner's own tests 
   runner makes the judges' inputs and normalizes their results). A change on no film needs a film that shows it: a
   new gallery film (`snapshot`, `bless`) or a TRUTH fact.
 - `snapshot` takes a gallery folder only when no file in it changed for 10 minutes (`--settled-minutes`), decides
-  the whole folder before it copies a file, never replaces a stored file, and refuses a new input of a recorded film
-  or folder (`display.json`, `diag-tiers.json`, `<film>.*`): a changed film needs a new folder name. It copies
-  with reflink, so it needs no space.
+  the whole folder before it copies a file, never replaces a stored file (whatever its manifest records: a file the
+  store holds with the same bytes is recorded with no copy, other bytes refuse the folder), and refuses a new input of
+  a recorded film or folder (`display.json`, `diag-tiers.json`, `<film>.*`): a changed film needs a new folder name.
+  It copies with reflink, so it needs no space.
+- One store serves every manifest: a branch that adds films (S1b, a judge PR's new film) snapshots them into the same
+  store before it lands. `run` and `bless` check only the files their own table pins, and count the others in a note
+  ("the store also holds N folder(s) and M file(s) this manifest does not pin"); no judge sees them (sealed views).
 
 ## Gate a dogfood build
 

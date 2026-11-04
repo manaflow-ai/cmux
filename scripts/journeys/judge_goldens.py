@@ -423,8 +423,17 @@ def cmd_snapshot(opts):
         plans = {folder: job.result() for folder, job in plans.items()}
     for folder, names in found.items():
         take, issues = plans[folder]
-        if not issues and take:
-            issues = copy_folder(opts.source, store, folder, take)
+        # A file already in the store is never replaced, whatever this manifest records (one store serves every
+        # manifest): the same bytes are recorded with no copy; other bytes refuse the folder.
+        stored = {n: e for n, e in take.items() if (store / "films" / folder / n).exists()}
+        for n, entry in sorted(stored.items()):
+            have = store / "films" / folder / n
+            if [have.stat().st_size, sha256_file(have)] != list(entry):
+                issues.append(f"{folder}/{n}: the store holds other bytes under this name (another manifest's film); "
+                              "a stored file is never replaced (a changed film needs a new folder name)")
+        copy = {n: e for n, e in take.items() if n not in stored}
+        if not issues and copy:
+            issues = copy_folder(opts.source, store, folder, copy)
         problems += issues
         if issues:
             continue  # nothing of a refused folder is kept or recorded
@@ -651,24 +660,43 @@ def verify_file(path, size, sha):
     return None
 
 
+def store_extras(store, films_doc):
+    """(folders, files) in the store's films/ that the files table films.json pins does not name: other manifests'
+    films (one store serves every manifest: a branch adds films before it lands). No judge sees them (sealed views),
+    so they change no result; run and bless count them in a note."""
+    try:
+        table = files_table(store, films_doc)
+    except (OSError, ValueError):
+        return 0, 0
+    root = Path(store) / "films"
+    known_dirs = {""} | {str(Path(f)) for f in table} | {str(p) for f in table for p in Path(f).parents if str(p) != "."}
+    folders = files = 0
+    for path in root.rglob("*") if root.is_dir() else []:
+        rel = path.relative_to(root)
+        if path.is_dir():
+            folders += str(rel) not in known_dirs
+        elif str(rel.parent) not in table or path.name not in table[str(rel.parent)]:
+            files += 1
+    return folders, files
+
+
+def extras_note(store, films_doc):
+    folders, files = store_extras(store, films_doc)
+    return (f"; the store also holds {folders} folder(s) and {files} file(s) this manifest does not pin (other "
+            "manifests' films; no judge sees them)") if folders or files else ""
+
+
 def verify_store(store, films_doc, films, jobs):
-    """Problems with the store against the files table whose hash films.json pins: a file of FILMS' folders missing,
-    of another size or content; any file or folder in films/ the table does not name (the judges never see one: they
-    run in sealed views; but a store with one is not the store the table pins)."""
+    """Problems with the store against the files table whose hash films.json pins: a pinned file of FILMS' folders
+    missing, of another size or content, or a folder of FILMS the table does not record. Files and folders the table
+    does not pin are not problems: one store serves every manifest, and the judges run in sealed views that hold only
+    the pinned files (review 6 of #33930, finding A); store_extras counts them."""
     try:
         table = files_table(store, films_doc)
     except (OSError, ValueError) as error:
         return [f"the files table: {error}"]
     root = Path(store) / "films"
     problems = []
-    known_dirs = {""} | {str(Path(f)) for f in table} | {str(p) for f in table for p in Path(f).parents if str(p) != "."}
-    for path in sorted(root.rglob("*")) if root.is_dir() else []:
-        rel = str(path.relative_to(root))
-        if path.is_dir():
-            if rel not in known_dirs:
-                problems.append(f"films/{rel}/: a folder the files table does not name")
-        elif str(path.parent.relative_to(root)) not in table or path.name not in table[str(path.parent.relative_to(root))]:
-            problems.append(f"films/{rel}: a file the files table does not pin")
     folders = sorted({f.rsplit("/", 1)[0] for f in films})
     work = []
     for folder in folders:
@@ -965,21 +993,24 @@ class Unchecked(Exception):
     VERDICT, never met."""
 
 
-def _unmet_need(judge, name, result, movie):
-    """The first input NAME's check needs (NAMES) that RESULT does not show, as the words of NEEDS; None when all
-    show. MOVIE: the film's movie is pinned in the store (video_judge decodes it for its movie checks)."""
+def _unmet_need(judge, name, result, film):
+    """The first input NAME's check needs (NAMES) that RESULT, with FILM (the film's pinned inputs: "movie", its movie
+    is in the store; "hid_drag", its events.json has a HID drag), does not show, as the words of NEEDS; None when all
+    show."""
     for need in NAMES[judge][name][1]:
         words, shows = NEEDS[need]
-        if not shows(result, movie):
+        if not shows(result, film):
             return words
     return None
 
 
-def _expectation(result, expect, movie=False):
+def _expectation(result, expect, movie=False, hid_drag=False):
     """None when the judge RESULT meets the TRUTH expectation EXPECT, else why not; Unchecked when RESULT cannot
     answer it. A name is read at the severity its judge writes it with (NAMES). An absence fails when the judge
     reports the name; when it does not, it holds only where the name's own check looked (NAMES' needs, as the result
-    shows them; review 5 of #33930, finding A): else Unchecked. MOVIE: the film's movie is in the store."""
+    shows them; reviews 5 and 6 of #33930, finding A and B): else Unchecked. MOVIE: the film's movie is in the store;
+    HID_DRAG: the film's pinned events.json has a HID drag."""
+    film = {"movie": movie, "hid_drag": hid_drag}
     if not isinstance(result, dict) or result.get("error") and len(result) == 1:
         return f"the judge gave no result: {json.dumps(result)[:200]}"
     judge = expect.get("judge")
@@ -1005,7 +1036,7 @@ def _expectation(result, expect, movie=False):
             return None if hits else f"no {name!r} {severity}"
         if hits:
             return f"must not report {name!r} ({severity}), reports it over frames {[f.get('frames') for f in hits]}"
-        unmet = _unmet_need("video_judge", name, result, movie)
+        unmet = _unmet_need("video_judge", name, result, film)
         if unmet:
             raise Unchecked(f"{unmet}: an absence of {name!r} needs it")
         return None
@@ -1019,7 +1050,7 @@ def _expectation(result, expect, movie=False):
         n = kinds.get(name, 0)
         if n:
             return f"must not report {name!r}, reports {n}"
-        unmet = _unmet_need("judge_trace", name, result, movie)
+        unmet = _unmet_need("judge_trace", name, result, film)
         if unmet:
             raise Unchecked(f"{unmet}: an absence of {name!r} needs it")
         return None
@@ -1068,22 +1099,31 @@ def _panes_at_rest(result):
 # VERDICT says when the result does not show it. Each is read from the judge's result, except the movie: the film's
 # movie pinned in the store (video_judge decodes it for its movie checks).
 NEEDS = {
-    "frames": ("video_judge judged no frame of this film", lambda r, movie: bool(r.get("frames"))),
+    "frames": ("video_judge judged no frame of this film", lambda r, film: bool(r.get("frames"))),
     "motion": ("video_judge judged no motion window of this film (its checks look only inside motion windows)",
-               lambda r, movie: bool(r.get("motion"))),
+               lambda r, film: bool(r.get("motion"))),
     "trace": ("the film has no trace samples (video_judge's pacing.trace is false)",
-              lambda r, movie: bool((r.get("pacing") or {}).get("trace"))),
+              lambda r, film: bool((r.get("pacing") or {}).get("trace"))),
     "tracked": ("video_judge tracked no divider on this film (tracked_dividers is 0): its divider checks did not look",
-                lambda r, movie: bool(r.get("tracked_dividers"))),
+                lambda r, film: bool(r.get("tracked_dividers"))),
     "model": ("video_judge compared no tracked divider with the trace (model_lag is empty)",
-              lambda r, movie: bool(r.get("model_lag"))),
-    "movie": ("the film has no movie in the store: video_judge's movie checks did not look", lambda r, movie: movie),
+              lambda r, film: bool(r.get("model_lag"))),
+    "movie": ("the film has no movie in the store: video_judge's movie checks did not look",
+              lambda r, film: film["movie"]),
+    "drag": ("the film has no HID drag that video_judge placed (none in its pinned events.json, or the result's hid_clock "
+             "has no offset): jump back is a reversal against a drag",
+             lambda r, film: film["hid_drag"] and (r.get("hid_clock") or {}).get("offset_s") is not None),
     "input": ("video_judge's result does not show the input this check starts from (it writes no count of inputs)",
-              lambda r, movie: False),
-    "judged": ("judge_trace judged no motion of this film", lambda r, movie: r.get("motion") is not None),
+              lambda r, film: False),
+    "judged": ("judge_trace judged no motion of this film", lambda r, film: r.get("motion") is not None),
+    "travelled": ("judge_trace judged no edge that travelled (each motion's travel is empty: it checks reverse, lurch "
+                  "and end-jump only on edges whose net travel is over 1 device px)",
+                  lambda r, film: any(isinstance(m, dict) and m.get("travel") for m in r.get("motions") or [])),
     "neighbours": ("judge_trace judged no motion with 2 or more panes at rest (it checks gap and overlap only between "
-                   "neighbours at rest)", lambda r, movie: _panes_at_rest(r) >= 2),
+                   "neighbours at rest)", lambda r, film: _panes_at_rest(r) >= 2),
 }
+# Needs that no result shows: an absence of a name with one can never be checked (truth_problems refuses the fact).
+NEVER_SHOWN = frozenset({"input"})
 # Every name each judge reports, as its source writes it (a test pins the names and video_judge's severities to the
 # source): (the severity its judge writes it with, what its check needs; see NEEDS). video_judge writes each name at
 # one severity: 14 are defects, 5 notes, 4 recorder findings. Every video_judge check but the model grid reads complete
@@ -1101,9 +1141,9 @@ NAMES = {
         "half-pixel blend": ("defect", ("frames", "motion")),
         # dividers: the dividers tracked along the scan lines in each motion window
         "gap or overlap": ("defect", ("frames", "motion", "tracked")),
-        "divider not shown": ("defect", ("frames", "motion", "tracked")),
+        "divider not shown": ("defect", ("frames", "motion", "trace", "tracked")),
         "jump": ("defect", ("frames", "motion", "tracked")),
-        "jump back": ("defect", ("frames", "motion", "tracked")),
+        "jump back": ("defect", ("frames", "motion", "tracked", "drag")),
         "jump back (animation)": ("note", ("frames", "motion", "tracked")),
         # model: the tracked dividers' frames against the trace's dividers
         "shown geometry not in the model": ("defect", ("frames", "motion", "trace", "tracked", "model")),
@@ -1123,7 +1163,8 @@ NAMES = {
         "model edge off the device-pixel grid": ("defect", ("trace",)),
     },
     "judge_trace": {
-        **{kind: ("defect", ("judged",)) for kind in ("dropped", "end-jump", "lurch", "off-grid", "reverse")},
+        **{kind: ("defect", ("judged",)) for kind in ("dropped", "off-grid")},
+        **{kind: ("defect", ("judged", "travelled")) for kind in ("end-jump", "lurch", "reverse")},
         **{kind: ("defect", ("judged", "neighbours")) for kind in ("gap", "overlap", "overlap-fading")},
     },
 }
@@ -1146,8 +1187,11 @@ def truth_problems(truth, films_doc):
     films = (films_doc or {}).get("films") or {}
     for fact in truth["facts"]:
         fid = fact.get("id") if isinstance(fact, dict) else None
-        if not isinstance(fact, dict) or not fid:
-            problems.append(f"a fact with no id: {json.dumps(fact)[:120]}")
+        if not isinstance(fact, dict) or not fid or not isinstance(fid, str):
+            problems.append(f"a fact with no id (a text): {json.dumps(fact)[:120]}")
+            continue
+        if not isinstance(fact.get("film"), str):
+            problems.append(f"{fid}: its film is a folder/name text, not {json.dumps(fact.get('film'))[:80]}")
             continue
         if fid in seen:
             problems.append(f"{fid}: two facts have this id")
@@ -1172,6 +1216,10 @@ def truth_problems(truth, films_doc):
                 why = _span_problem(ruler.get(field))
                 if field in ruler and why:
                     problems.append(f"{fid}: ruler {field}: {why}")
+            if type(ruler.get("at")) is not int or not isinstance(ruler.get("class"), str) \
+                    or ("min_run_px" in ruler and type(ruler["min_run_px"]) is not int):
+                problems.append(f"{fid}: a ruler's at and min_run_px are whole numbers and its class a text: "
+                                f"{json.dumps(ruler)[:160]}")
         for expect in expects:
             kinds = [k for k in EXPECT_KINDS if k in expect] if isinstance(expect, dict) else []
             unknown = set(expect) - EXPECT_KEYS if isinstance(expect, dict) else {"(not an object)"}
@@ -1190,6 +1238,10 @@ def truth_problems(truth, films_doc):
                     and expect[kinds[0]] not in JUDGE_NAMES.get(expect["judge"], ()):
                 problems.append(f"{fid}: {expect['judge']} reports no {expect[kinds[0]]!r} (its names: "
                                 f"{', '.join(sorted(JUDGE_NAMES.get(expect['judge'], ())))})")
+            elif kinds[0] in ("absent_check", "absent_kind"):
+                never = [NEEDS[n][0] for n in NAMES[expect["judge"]][expect[kinds[0]]][1] if n in NEVER_SHOWN]
+                if never:
+                    problems.append(f"{fid}: an absence of {expect[kinds[0]]!r} can never be checked: {never[0]}")
             if fact.get("film") in films and expect["judge"] not in film_judges_listed:
                 problems.append(f"{fid}: {expect['judge']} does not judge {fact.get('film')} "
                                 f"(its judges: {', '.join(sorted(film_judges_listed)) or 'none'})")
@@ -1206,6 +1258,15 @@ def truth_problems(truth, films_doc):
     return problems
 
 
+def _has_hid_drag(path):
+    """Whether a film's pinned events.json has a HID drag (an entry of kind "drag", as video_judge reads them)."""
+    try:
+        hid = (read_json(path, {}) or {}).get("hid") or []
+    except (OSError, ValueError, AttributeError):
+        return False
+    return any(isinstance(h, dict) and h.get("kind") == "drag" for h in hid)
+
+
 def check_truth(store, truth, films_doc, results, films=None):
     """(passed, total, failures, no_verdict) of the facts of TRUTH (load_truth's document) on RESULTS (per film and
     judge, as judge_all gives), for the facts of FILMS (default: every fact). A ruler fact the film does not show, or an
@@ -1220,12 +1281,14 @@ def check_truth(store, truth, films_doc, results, films=None):
             continue
         folder, _, name = str(film).rpartition("/")
         movie = f"{name}.mov" in (table.get(folder) or {})
+        hid_drag = _has_hid_drag(Path(store) / "films" / folder / f"{name}.events.json") \
+            if f"{name}.events.json" in (table.get(folder) or {}) else False
         base = str(Path(store) / "films" / film)
         if fact.get("ruler"):
             total += 1
             try:
                 got = ruler_check(base, fact["ruler"])
-            except (OSError, ValueError, KeyError) as error:
+            except (OSError, ValueError, KeyError, TypeError) as error:
                 got = {"holds": False, "error": f"{type(error).__name__}: {error}"}
             if got["holds"]:
                 passed += 1
@@ -1239,7 +1302,7 @@ def check_truth(store, truth, films_doc, results, films=None):
                 no_verdict.append(f"{fid} ({film}): {judge} did not judge this film")
                 continue
             try:
-                why = _expectation(results[film][judge]["result"], expect, movie=movie)
+                why = _expectation(results[film][judge]["result"], expect, movie=movie, hid_drag=hid_drag)
             except Unchecked as error:
                 no_verdict.append(f"{fid} ({film}): {judge}: {error}")
                 continue
@@ -1370,7 +1433,8 @@ def cmd_bless(opts):
     write_json(manifest / "expected.json", {"v": 1, "toolchain": toolchain(), "calls": CALLS, "history": history,
                                             "films": entries})
     print(f"blessed {len(films)} films ({sum(len(v) for v in entries.values())} results); changed {len(changed)}; "
-          f"truth: {passed} of {total}; slowest film {slowest[0]:.1f} s ({slowest[1]}): {opts.reason}")
+          f"truth: {passed} of {total}; slowest film {slowest[0]:.1f} s ({slowest[1]}): {opts.reason}"
+          f"{extras_note(store, films_doc)}")
     return 0
 
 
@@ -1466,7 +1530,8 @@ def cmd_run(opts):
     runner_note = "" if blessed_runner in (None, runner_blob()) else \
         f"; the runner changed since the bless ({str(blessed_runner)[:12]} -> {runner_blob()[:12]}): a difference may be the runner's"
     print(f"judge goldens: {len(films)} films, judges in {Path(opts.judges).resolve()}: reproduced {same} of {total}; "
-          f"truth: {t_passed} of {t_total}; {unit_line}; slowest film {slowest[0]:.1f} s ({slowest[1]}){runner_note}")
+          f"truth: {t_passed} of {t_total}; {unit_line}; slowest film {slowest[0]:.1f} s ({slowest[1]}){runner_note}"
+          f"{extras_note(store, films_doc)}")
     if opts.json:
         write_json(opts.json, {"reproduced": same, "results": total, "films": report, "differences": sorted(diffs),
                                "truth": {"passed": t_passed, "total": t_total, "failures": t_failures,
