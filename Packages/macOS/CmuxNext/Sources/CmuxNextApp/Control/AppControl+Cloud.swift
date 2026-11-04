@@ -23,6 +23,8 @@ extension AppControl {
                     "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
                     "backend": .string(cloud.configuration.ownerAPIBaseURL().absoluteString),
                     "cloud_environment": cloud.configuration.runtimeSelection.map { .string($0.name) } ?? .null,
+                    "client_config_source": cloud.configuration.runtimeSelection?.configSource.map(JSONValue.string) ?? .null,
+                    "client_config_version": cloud.configuration.runtimeSelection?.clientConfigVersion.map { .number(Double($0)) } ?? .null,
                     "cloud_unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
                 ]))
             },
@@ -248,6 +250,9 @@ extension AppControl {
     func registerCloudEnvironmentMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("cloud.environment.apply") { call in
+                guard call.connection != .inProcess else {
+                    throw ControlError.invalidParams("Apply a saved Cloud backend through the bundled CLI.")
+                }
                 guard let selected = services.cloud.configuration.runtimeSelection, selected.mutable,
                       call.params["bundle_id"]?.stringValue == Bundle.main.bundleIdentifier,
                       call.params["bundle_id"]?.stringValue == selected.bundleId,

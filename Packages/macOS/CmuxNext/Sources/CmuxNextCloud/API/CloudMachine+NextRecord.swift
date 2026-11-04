@@ -18,13 +18,23 @@ extension CloudMachine {
         case "failed": .failed
         default: .unknown
         }
-        // The record's `capabilities` are machine capability names
-        // (`agent_session`, …), not provider operations, so the machine
-        // declares none and every Cloud action stays available.
+        // `capabilities` is the older guest/session name list (`agent_session`,
+        // `terminal`, ...), not a provider feature gate. Only the dedicated
+        // provider-operation field is mapped to action capabilities; this
+        // preserves old records while allowing newer backends to gate actions.
+        let providerRaw = value["provider_operations"] ?? value["providerOperations"] ?? value["provider_capabilities"]
+        let capabilities: CloudMachine.Capabilities? = providerRaw.flatMap { raw in
+            if case let .array(names) = raw {
+                return CloudMachine.Capabilities(names: names.compactMap(\.stringValue))
+            }
+            guard let data = try? JSONEncoder().encode(raw) else { return nil }
+            return try? JSONDecoder().decode(CloudMachine.Capabilities.self, from: data)
+        }
         // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
         let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
         let idlePause = Self.idlePauseDiagnostics(value["idlePause"])
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
+                  capabilities: capabilities,
                   pauseReason: Self.nextPauseReason(value["pause_reason"] ?? value["pauseReason"]), idlePauseMinutes: minutes,
                   idlePause: idlePause, lastChangeFailure: Self.changeFailure(value["error"]))
         serverRevision = value["revision"]?.stringValue

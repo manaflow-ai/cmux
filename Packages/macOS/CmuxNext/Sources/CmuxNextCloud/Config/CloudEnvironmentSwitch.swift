@@ -1,5 +1,4 @@
 import CmuxNextDaemon
-import Darwin
 import Foundation
 
 /// Native lifecycle adapter after Rust has persisted a selection.
@@ -16,7 +15,7 @@ import Foundation
         guard pending == nil else { throw DaemonError.launchFailed("A Cloud environment change is already in progress.") }
         let task = Task { @MainActor () throws -> Bool in
             defer { pending = nil }
-            let persisted = try await bootstrap.resolve()
+            let persisted = try await bootstrap.resolve(persisted: true)
             guard persisted.name == name, persisted.bundleId == selected.bundleId,
                   persisted.authNamespace == namespace, persisted.mutable else {
                 throw DaemonError.launchFailed("The persisted Cloud environment changed before apply.")
@@ -24,14 +23,11 @@ import Foundation
             guard persisted.authNamespace != selected.authNamespace else { return false }
             await signOut()
             stopServices()
-            let helper = try await bootstrap.startRelaunch()
-            do {
-                try await stopDaemon()
-                return true
-            } catch {
-                kill(helper, SIGTERM)
-                throw error
-            }
+            _ = try await bootstrap.startRelaunch()
+            // The next Rust `server ensure` also hands off an owner from another
+            // backend. A failed shutdown must not strand the signed-out app.
+            try? await stopDaemon()
+            return true
         }
         pending = task
         return task

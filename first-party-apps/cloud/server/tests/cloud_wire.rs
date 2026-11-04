@@ -47,6 +47,24 @@ fn err_json(out: Result<Value, CloudError>) -> Value {
 }
 
 #[test]
+fn create_options_reach_backend_and_preserve_its_capability_refusal() {
+    let mut s = server();
+    let args = json!({"name":"custom", "size":{"cpu":2,"memory_mb":4096,"disk_mb":16384},
+        "size_name":"medium", "idle_seconds":0,
+        "bootstrap":{"kind":"shell","contents_base64":"ZWNobyBvaw==","repo":null},
+        "machine_config_base64":"e30="});
+    s.control_plane_mut().answer("cloud.machine.create", args.clone(), Some("capabilities-key"),
+        json!({"error":{"code":"validation.invalid","message":"Bootstrap is unavailable on this backend",
+            "retryable":false,"details":{"capability":"create.bootstrap"}}}));
+    let error =
+        err_json(s.handle(&mutation("cloud.machine.create", args.clone(), "capabilities-key")));
+    assert_eq!(s.control_plane().calls.last().unwrap().params, args);
+    assert_eq!(error["message"], "Bootstrap is unavailable on this backend");
+    assert_eq!(error["upstream_code"], "validation.invalid");
+    assert_eq!(s.projection().len(), 0, "a refused option never creates a machine");
+}
+
+#[test]
 fn list_pages_follow_the_cursor() {
     let mut s = server();
     let first = s.handle(&Request::new("cloud.machine.list", json!({ "limit": 2 })));

@@ -99,9 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
                 try Task.checkCancellation()
-                environment.cloudConfiguration = CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild).applying(selection)
+                environment.cloudConfiguration = CloudConfiguration.from(selection: selection, isDebugBuild: ControlService.isDebugBuild)
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
                 environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_BACKEND"] = selection.apiOrigin.absoluteString
                 environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
                 daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                     terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),

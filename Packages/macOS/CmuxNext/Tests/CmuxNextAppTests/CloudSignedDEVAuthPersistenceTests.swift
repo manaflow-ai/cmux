@@ -11,8 +11,12 @@ struct CloudSignedDEVAuthPersistenceTests {
 
     private var previousProduction: CloudConfiguration {
         var configuration = development
+        if var selection = configuration.runtimeSelection {
+            selection.authNamespace = "production-fixture"
+            configuration.runtimeSelection = selection
+        }
         configuration.isProductionAuth = true
-        configuration.stackProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
+        configuration.stackProjectID = "production-fixture"
         return configuration
     }
 

@@ -9,14 +9,17 @@ public struct CloudEnvironmentBootstrap {
 
     public init(work: BackgroundWork) { self.work = work }
 
-    public func resolve() async throws -> CloudRuntimeSelection {
+    public func resolve(persisted: Bool = false) async throws -> CloudRuntimeSelection {
         guard let cli = await BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work).resolve() else {
             throw DaemonError.launchFailed("The bundled cmux CLI is unavailable.")
         }
         var environment = ProcessInfo.processInfo.environment
         // A source CLI override still resolves the actual app's namespace.
         if let bundleID = Bundle.main.bundleIdentifier { environment["CMUX_BUNDLE_ID"] = bundleID }
-        let result = try await ProcessRunner.run(executable: cli, arguments: ["--json", "cloud", "env", "get"],
+        let launchArguments = try JSONSerialization.data(withJSONObject: ProcessInfo.processInfo.arguments)
+        let result = try await ProcessRunner.run(executable: cli,
+            arguments: ["--json", "cloud", "env", "get"] + (persisted ? ["--persisted"]
+                : ["--launch-args", String(decoding: launchArguments, as: UTF8.self)]),
             environment: environment, timeout: nil, clock: ContinuousClock())
         guard result.status == 0 else {
             throw DaemonError.launchFailed("Could not resolve this app's Cloud environment: " + String(decoding: result.stderr, as: UTF8.self))
