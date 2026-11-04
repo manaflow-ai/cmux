@@ -258,7 +258,7 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   writing in its chat) reports again when it finishes.
 
 - Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
-  caps it (one spawn takes at most 8 tasks; call spawn again for more). A spawn
+  caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
   of that moment and its task, when another finishes. Its record keeps its
@@ -1288,6 +1288,27 @@ there is no approval card, and an `allow` or `deny` message is only a message.
   host-served section 9 `spawn` takes the same floor (`Brain::spawn_policy`).
 - The native engine refuses its bash and editor tools in such a turn and says
   so to the model.
+
+Hidden local owner subagents can show an Allow once / Deny card in Home by
+default. This is another view of an existing harness permission, not a new
+Chief approval gate (#22747): it changes no turn or spawn policy. Only the
+local native app can answer, using its person proof and a fresh click bound
+to the exact pending request. Phone answers, cloud peers, turn sessions and
+other-person `ask` children cannot use this path.
+
+Once the conversation owner acknowledges the card, the request waits for the
+person's Allow or Deny however long Home stays closed: it is never denied for
+the 120-second no-answer deadline from #22941 (Leo, 2026-11-03: a subagent's
+prompt must show in Home as an Allow/Deny card, never be declined silently).
+Replayed events post no second card. The Chief can still deny or steer the
+subagent, and opening its local workspace keeps the existing answer path. A
+hidden request Home cannot draw as Allow once / Deny (no single allow-once and
+reject-once option, a question, or a snapshot over the preview bound) opens
+its subagent's workspace instead, whose tab answers it. The deadline still
+applies until a card is acknowledged, to a card that was refused or retired,
+and where this host makes no workspaces. A completed or replaced request
+closes its card, including a late delivery acknowledgement. No Preview
+Features setting is required, and there is no rollout polling timer.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 

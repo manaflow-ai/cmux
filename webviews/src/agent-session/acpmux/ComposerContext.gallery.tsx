@@ -50,6 +50,16 @@ const baseProps = {
 
 /// 21 machines, as `acpmux host ls` lists them on a Mac with a fleet.
 const fleetProps = { ...baseProps, ...fleetPeers() };
+const folderMenuProps = {
+  ...baseProps,
+  summary: {
+    sessionId: "gallery-folder",
+    harness: "claude",
+    cwd: projects[1]!.cwd,
+    host: "This Mac",
+    hostKind: "local" as const,
+  },
+};
 /// The account's Cloud machines acpmux does not list (cloudMachines.ts): paused, ready and booting.
 const accountMachines = [
   { id: "vm-build", name: "build box", stage: "paused" },
@@ -98,6 +108,29 @@ const projectIcons = {
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iIzI1NjNlYiIvPjxjaXJjbGUgY3g9IjE2IiBjeT0iMTYiIHI9IjkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIyLjUiLz48cGF0aCBkPSJNNyAxNmgxOE0xNiA3Yy00IDUtNCAxMyAwIDE4TTE2IDdjNCA1IDQgMTMgMCAxOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmIiBzdHJva2Utd2lkdGg9IjIiLz48L3N2Zz4=",
   "/Users/you/src/relay":
     "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iNyIgZmlsbD0iI2Y5NzMxNiIvPjxwYXRoIGQ9Ik04IDIwbDgtOSA4IDkiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIzLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPjwvc3ZnPg==",
+};
+
+/// A new chat on `machine` with `folders` added beside its own (ComposerContext `extraFolders`).
+function extraProps(
+  machine: string,
+  folders: string[],
+  extra: Partial<ComponentProps<typeof ComposerContext>> = {},
+): ComponentProps<typeof ComposerContext> {
+  return {
+    ...baseProps,
+    onNoProject: () => undefined,
+    ...extra,
+    extraFolders: {
+      draft: { machine, folders },
+      onChange: () => undefined,
+      ...(machine === "local" ? { onBrowse: () => undefined } : {}),
+    },
+  };
+}
+
+const openFolderMenu: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /^Folder/ });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
 const openFolder: Play = async (ctx) => {
@@ -460,6 +493,64 @@ function stripVariants(arm: StripArm) {
   };
 }
 
+// A Cloud machine that sleeps (cloudMachines.ts withCloudSleep). Cloud machines pause on their own
+// when idle and between tool calls (cmux-platform docs/agent-turn-sleep.md), so acpmux's lost link
+// to one the account says is paused reads Paused (the quiet ring), a resume a spinner, and only a
+// machine the account knows nothing about keeps Not connected. Leo, 2026-11-03: "it's all still
+// responsive on the ui side".
+const sleepingMachine = (stage?: string) => ({
+  ...stripMachines,
+  stripLayout: "where-machine-always" as const,
+  ...onMachine("Cloud machine"),
+  peerStates: { "studio-mini": "connected", "gpu-box": "connected", "Cloud machine": "reconnecting" },
+  cloudMachines: stage ? [{ id: "vm-cloud", name: "Cloud machine", stage }] : [],
+  onCloudMachine: () => undefined,
+});
+const chipSleep =
+  (sleep: "paused" | "resuming" | "none"): Play =>
+  async (ctx) => {
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-button .acpmux-env-live"));
+    const live = ctx.document.querySelector(".acpmux-location-button .acpmux-env-live");
+    const shown = live?.getAttribute("data-sleep") ?? "none";
+    if (shown !== sleep) throw new Error(`the machine chip reads ${shown}, not ${sleep}`);
+    const box = live?.getBoundingClientRect();
+    // The dot's own 6px box in every state: nothing in the strip moves as paused turns to resuming.
+    if (!box || Math.round(box.width) !== 6) throw new Error("the live dot's box changed size");
+    if (sleep === "resuming" && !live?.querySelector(".acpmux-env-live-spinner"))
+      throw new Error("a resuming machine draws no spinner");
+  };
+const sleepVariants = {
+  "machine-sleep-paused": {
+    note: "Picked: a Cloud machine the account says is paused while acpmux has no link to it. The chip keeps the quiet ring and says Paused (to screen readers), never Not connected or Reconnecting; a send wakes it.",
+    props: sleepingMachine("paused"),
+    play: chipSleep("paused"),
+  },
+  "machine-sleep-resuming": {
+    note: "The same machine on its way up (stage booting): a spinner turns in the dot's 6px box, so the strip does not move; it says Resuming.",
+    props: sleepingMachine("booting"),
+    play: chipSleep("resuming"),
+  },
+  "machine-sleep-unknown": {
+    note: "Before / control: a Cloud machine acpmux lost that the account does not list: the ring, Not connected, as before.",
+    props: sleepingMachine(),
+    play: chipSleep("none"),
+  },
+  "machine-sleep-paused-list": {
+    height: 320,
+    note: "Machines… with that machine paused: its row reads Paused · Resume and is a pick (it resumes the machine, and the chat moves there once it links), never a greyed Reconnecting row.",
+    props: { ...sleepingMachine("paused"), stripLayout: "combined" as const },
+    play: async (ctx: Parameters<Play>[0]) => {
+      await openMachineList(ctx);
+      const row = [...ctx.document.querySelectorAll(".acpmux-env-popover .acpmux-env-row")].find((candidate) =>
+        candidate.textContent?.includes("Cloud machine"),
+      );
+      if (!row) throw new Error("the paused machine is not listed");
+      if (row.getAttribute("aria-disabled") === "true") throw new Error("the paused machine is greyed");
+      if (!row.textContent?.includes("Paused")) throw new Error("the paused machine does not say Paused");
+    },
+  },
+};
+
 // Composer warning specimens use the same health shape emitted by the cached `_acpmux/status`
 // snapshot. Keep a quiet specimen beside the warning states so a capture shows the unchanged
 // menu when the host is within budget.
@@ -537,8 +628,24 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "folder-menu": {
       note: "Project actions stay directly below search, above the recent projects (paths on hover).",
-      props: baseProps,
+      props: folderMenuProps,
       play: openFolder,
+    },
+    "folder-menu-hover": {
+      note: "Hover uses the neutral menu wash; the current folder keeps only its check.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.hover({ role: "option", name: /atlas-web/ });
+      },
+    },
+    "folder-menu-keyboard": {
+      note: "Arrow navigation uses the same neutral wash as hover.",
+      props: folderMenuProps,
+      play: async (ctx) => {
+        await openFolder(ctx);
+        await ctx.press("ArrowDown");
+      },
     },
     "menu-grid-legacy": {
       note: "Experiment arm: the old 8px row inset and icon gap, which leaves environment labels off the shared menu column.",
@@ -915,6 +1022,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     ...stripVariants("where-machine-always"),
     ...stripVariants("cloud-toggle"),
     ...stripVariants("combined"),
+    ...sleepVariants,
     "strip-cloud-works-on": {
       note: "ChatGPT Work's model, for comparison only (not built in cmux: a Cloud chat's agent runs on its Cloud machine with its files there). Where says the agent lives in Cloud; the machine chip says the computer it works on, as ChatGPT's \"In the cloud\" chat whose files and shell are on the Mac.",
       props: {
@@ -1193,6 +1301,48 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.click({ selector: ".acpmux-location-choose:last-child" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="alert"]'));
       },
+    },
+    // A new chat's extra folders (extraFolders.ts, acpmux `additionalDirectories`). Leo, 2026-11-03:
+    // "being able to have chatgpt (and in this case, any harnesses) see whatever folders/files would
+    // be cool" and "and you can also just start with nothing".
+    "extra-folders-no-project": {
+      note: "No project: the chat starts in its private folder and sees the two folders added beside it; the chip reads No project +2, the menu lists them under Also sees with × each.",
+      props: extraProps("local", ["/Users/you/notes", "/Users/you/Downloads/receipts"], { noProject: true }),
+      play: openFolderMenu,
+    },
+    "extra-folders-project": {
+      note: "A project and three folders beside it: the chip reads atlas-web +3, the menu lists the three under Also sees.",
+      props: extraProps("local", ["/Users/you/src/relay", "/Users/you/notes", "/Users/you/design/specs"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: openFolderMenu,
+    },
+    "extra-folders-adding": {
+      note: "Add folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Choose folder… opens this Mac's panel.",
+      props: extraProps("local", ["/Users/you/src/relay"], {
+        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
+      }),
+      play: async (ctx) => {
+        await openFolderMenu(ctx);
+        await ctx.click({ role: "option", name: "Add folder…" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
+      },
+    },
+    "extra-folders-peer": {
+      note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",
+      props: extraProps("gpu-box", ["/home/dev/datasets", "/srv/shared/checkpoints"], {
+        environments: true,
+        peers: ["gpu-box"],
+        peerKinds: { "gpu-box": "ssh" },
+        peerConnected: { "gpu-box": true },
+        summary: { sessionId: "", harness: "claude", cwd: "/home/dev/model", host: "gpu-box", peer: "gpu-box" },
+        machineFolders: [
+          { cwd: "/home/dev/model", label: "model" },
+          { cwd: "/home/dev/datasets", label: "datasets" },
+          { cwd: "/home/dev/eval", label: "eval" },
+        ],
+      }),
+      play: openFolderMenu,
     },
   },
 });

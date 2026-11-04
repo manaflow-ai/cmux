@@ -342,6 +342,7 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-cua", "cmux", "cmux", true, false),
+            row("skill:cmux:cmux-customization", "cmux", "cmux", true, false),
             row("skill:cmux:acpmux", "cmux", "cmux", true, false),
             row("mcp:github", "mcp", "claude", true, true),
             row("mcp:linear", "mcp", "claude", false, false),

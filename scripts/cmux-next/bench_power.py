@@ -391,7 +391,10 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         span = t1 - t0
         steps = [100 * (b[1][1] - a[1][1]) / 1e9 / (b[0] - a[0]) for a, b in zip(samples, samples[1:]) if b[0] > a[0]]
         role = "app" if kind == "app" else roles.get(pid, kind)
-        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(u1[4] / MB, 1),
+        # The largest footprint the window read. A live process never has none: a 0 is a read that
+        # failed (24 of 46 renderers in one display run), so it counts as unread, not as 0 MB.
+        footprint = max(sample[1][4] for sample in samples)
+        rows.append({"pid": pid, "kind": kind, "role": role, "footprint_mb": round(footprint / MB, 1) if footprint else None,
                      "cpu_pct": round(100 * (u1[1] - u0[1]) / 1e9 / span, 3), "cpu_p95_pct": round(percentile(steps, 0.95), 3),
                      "idle_wakeups_per_s": round((u1[2] - u0[2]) / span, 2),
                      "interrupt_wakeups_per_s": round((u1[3] - u0[3]) / span, 2),
@@ -413,7 +416,8 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
         lists = steps_by_role.get(role) or [[]]
         summed = [sum(values) for values in zip(*lists)]  # the role's CPU per 1 s step
         main = [row["main_thread_pct"] for row in members if row["main_thread_pct"] is not None]
-        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] for r in members), 1),
+        totals[role] = {"count": len(members), "footprint_mb": round(sum(r["footprint_mb"] or 0 for r in members), 1),
+                        "footprint_unread": sum(1 for r in members if r["footprint_mb"] is None),
                         "cpu_pct": round(sum(r["cpu_pct"] for r in members), 3), "cpu_p95_pct": round(percentile(summed, 0.95), 3),
                         "idle_wakeups_per_s": round(sum(r["idle_wakeups_per_s"] for r in members), 2),
                         "interrupt_wakeups_per_s": round(sum(r["interrupt_wakeups_per_s"] for r in members), 2),
@@ -421,6 +425,7 @@ def measure_processes(app_pid: int, bundle: str, label: str, seconds: float, rol
                         "main_thread_pct": round(sum(main), 3) if main else None}
     for role, entry in totals.items():
         print(f"PERF-IDLE-COST {label} role={role!r} n={entry['count']} footprint_mb={entry['footprint_mb']} "
+              f"footprint_unread={entry['footprint_unread']} "
               f"cpu_pct={entry['cpu_pct']} cpu_p95_pct={entry['cpu_p95_pct']} idle_wakeups_per_s={entry['idle_wakeups_per_s']} "
               f"interrupt_wakeups_per_s={entry['interrupt_wakeups_per_s']} wakeups_per_s={entry['wakeups_per_s']} main_thread_pct={entry['main_thread_pct']}", flush=True)
     return {"label": label, "seconds": round(seconds, 1), "roles": totals, "processes": rows}
@@ -522,6 +527,103 @@ def idle_cost_markdown(result: dict, budget: float) -> tuple[str, dict]:
     return "\n".join(lines) + "\n", verdict
 
 
+def devtools(sock: str, browser: int, method: str, params: dict | None = None):
+    """A DevTools method on cmux's own Chromium page `browser` (`debug.cef_page_devtools`): its reply, parsed."""
+    reply = rpc(sock, "debug.cef_page_devtools", {"browser": browser, "method": method, "params": params or {}}, timeout=60)
+    if reply.get("error") or not isinstance(reply.get("result"), str):
+        return {"error": reply.get("error") or "no reply"}
+    try:
+        return json.loads(reply["result"])
+    except ValueError as error:
+        return {"error": str(error)}
+
+
+def profile_summary(profile: dict, top: int = 25) -> dict:
+    """A V8 CPU profile's self time by function (name, script, line), busiest first, in ms."""
+    nodes = {node["id"]: node for node in profile.get("nodes", [])}
+    samples, deltas = profile.get("samples", []), profile.get("timeDeltas", [])
+    self_us: dict[int, float] = {}
+    for index, node_id in enumerate(samples):
+        # A sample's time is the gap to the next one (Chrome DevTools' own attribution).
+        gap = deltas[index + 1] if index + 1 < len(deltas) else 0
+        self_us[node_id] = self_us.get(node_id, 0) + max(gap, 0)
+    by_function: dict[str, float] = {}
+    for node_id, micros in self_us.items():
+        frame = nodes.get(node_id, {}).get("callFrame", {})
+        url = (frame.get("url") or "").rsplit("/", 1)[-1]
+        key = f"{frame.get('functionName') or '(anonymous)'} {url}:{frame.get('lineNumber', -1) + 1}:{frame.get('columnNumber', -1) + 1}"
+        by_function[key] = by_function.get(key, 0) + micros
+    total = sum(by_function.values())
+    busiest = sorted(by_function.items(), key=lambda item: -item[1])[:top]
+    return {"total_ms": round(total / 1000, 1), "self_ms": [[key, round(micros / 1000, 1)] for key, micros in busiest]}
+
+
+def native_sample(pid: int, role: str, seconds: int) -> dict:
+    """`sample PID seconds` (macOS): the main thread's call tree, its first 200 lines, and the
+    heaviest frames of the whole process (the tool's "Sort by top of stack" section)."""
+    out_path = os.path.join(tempfile.gettempdir(), f"idle-sample-{pid}.txt")
+    try:
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "1", "-mayDie", "-file", out_path],
+                       capture_output=True, timeout=seconds + 60, check=False)
+        text = open(out_path, errors="replace").read()
+    except (OSError, subprocess.SubprocessError) as error:
+        return {"pid": pid, "role": role, "error": str(error)}
+    finally:
+        if os.path.exists(out_path):
+            os.remove(out_path)
+    lines = text.splitlines()
+    main, inside = [], False
+    for line in lines:
+        if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line or "CrRendererMain" in line):
+            inside = True
+        elif inside and re.match(r"\s*\d+ Thread_", line):
+            break
+        if inside:
+            main.append(line[:220])
+        if len(main) >= 200:
+            break
+    top = []
+    if "Sort by top of stack" in text:
+        top = text.split("Sort by top of stack", 1)[1].splitlines()[1:40]
+    return {"pid": pid, "role": role, "seconds": seconds, "main": "\n".join(main), "top": "\n".join(line[:200] for line in top)}
+
+
+def idle_profile(sock: str, pages: list[dict], seconds: float) -> list[dict]:
+    """What each shown cmux page's renderer main thread runs while nobody touches it, all in one
+    window of `seconds`: Chromium's page metrics (task, script, style and layout time, counts) per
+    second, and a V8 CPU profile by function. The profilers and the metrics are off again after."""
+    shown = [page for page in pages if not page.get("hidden") and str(page.get("origin", "")).startswith("cmux-page://")]
+    def metrics(browser):
+        reply = devtools(sock, browser, "Performance.getMetrics")
+        return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else reply
+    for page in shown:
+        for method, params in (("Performance.enable", None), ("Profiler.enable", None),
+                               ("Profiler.setSamplingInterval", {"interval": 500}), ("Profiler.start", None)):
+            devtools(sock, page["browser"], method, params)
+    before = {page["browser"]: metrics(page["browser"]) for page in shown}
+    time.sleep(seconds)  # test script: the profiled idle window
+    after = {page["browser"]: metrics(page["browser"]) for page in shown}
+    out = []
+    for page in shown:
+        browser = page["browser"]
+        stopped = devtools(sock, browser, "Profiler.stop")
+        devtools(sock, browser, "Profiler.disable")
+        devtools(sock, browser, "Performance.disable")
+        entry = {"browser": browser, "origin": page.get("origin"), "path": page.get("path"),
+                 "renderer_clients": page.get("renderer_clients"), "seconds": seconds}
+        first, last = before[browser], after[browser]
+        if "error" not in first and "error" not in last:
+            keys = ("TaskDuration", "ScriptDuration", "LayoutDuration", "RecalcStyleDuration", "LayoutCount", "RecalcStyleCount")
+            entry["metrics_per_s"] = {key: round((last.get(key, 0) - first.get(key, 0)) / seconds, 4) for key in keys if key in last}
+            entry["heap_mb"] = round(last.get("JSHeapUsedSize", 0) / MB, 1)
+            entry["nodes"] = last.get("Nodes")
+        else:
+            entry["metrics_error"] = [first, last]
+        entry["profile"] = profile_summary(stopped["profile"]) if "profile" in stopped else stopped
+        out.append(entry)
+    return out
+
+
 def run_loaded(args):
     """An idle-cost scenario (`loaded` or `idle-chats`, see the module): load, settle, measure, report."""
     label = getattr(args, "scenario", "loaded")
@@ -554,6 +656,23 @@ def run_loaded(args):
         time.sleep(5)  # test script: the debug read's own work ends before the window
         result = measure_processes(pid, args.app, label, args.measure, roles, peer.pids())
         result["load"] = reached
+        if label == "idle-chats":
+            # After the window, so it costs the measurement nothing: what the shown chat's page asks
+            # for while nobody touches it, by call site (idleProbe.ts), for the idle loop's source.
+            # A 3.5 s window: a Chromium page's script call ends at 5 s (Runtime.evaluate).
+            probe = rpc(sock, "debug.agent_pane", {"action": "idle_probe", "ms": 3500}, timeout=20)
+            result["idle_probe"] = probe
+            print(f"PERF-IDLE-PROBE {json.dumps(probe)[:20000]}", flush=True)
+            pages_now = (rpc(sock, "debug.cef_pages") or {}).get("pages") or []
+            result["pages"] = pages_now
+            result["idle_profile"] = idle_profile(sock, pages_now, 10)
+            print(f"PERF-IDLE-PROFILE {json.dumps(result['idle_profile'])[:20000]}", flush=True)
+            # A page's script and tasks can read 0 while its renderer's main thread still burns: a native
+            # sample of each renderer over 1% names that work.
+            busy = [row for row in result["processes"] if row["kind"] == "cef-renderer" and row["cpu_pct"] > 1][:3]
+            result["native_samples"] = [native_sample(row["pid"], row["role"], 8) for row in busy]
+            for entry in result["native_samples"]:
+                print(f"PERF-IDLE-SAMPLE pid={entry['pid']} role={entry['role']!r}\n{entry.get('main', entry.get('error'))}", flush=True)
         result["renderer_roles"] = "debug.cef_pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
         model = subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip()

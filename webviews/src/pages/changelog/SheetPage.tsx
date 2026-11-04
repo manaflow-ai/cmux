@@ -17,6 +17,7 @@
 // back into the title, and a line that repeats it becomes the title.
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
+import { Button } from "../../ui/Button";
 import type { Strings } from "../shared/i18n";
 import { areaOf, byArea, type AreaKey } from "./areas";
 import { dayLabel, groupByDay, isFiller, mergedView, rowKind, type ReleaseView } from "./model";
@@ -91,7 +92,12 @@ function SheetDay({
         <div
           className="clj-placeholder"
           aria-busy="true"
-          style={{ "--cls-rows": placeholderRows(builds) } as CSSProperties}
+          style={
+            {
+              "--cls-rows": placeholderRows(builds),
+              "--cls-areas": placeholderAreas(builds),
+            } as CSSProperties
+          }
         />
       ) : rows.length === 0 ? (
         <Maintenance strings={strings} />
@@ -137,10 +143,10 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
         ))}
       </ul>
       {shown.length < rows.length && (
-        <button type="button" className="cl-more cls-more" onClick={() => setOpen(true)}>
+        <Button size="sm" variant="ghost" className="cl-more cls-more" onClick={() => setOpen(true)}>
           {strings.t("changelog.page.showMore")}
           <span className="cl-count">{rows.length - shown.length}</span>
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -152,6 +158,21 @@ function SheetArea({ area, rows, strings }: { area?: AreaKey; rows: SheetRow[]; 
 export function placeholderRows(builds: IndexEntry[]): number {
   const highlights = builds.reduce((sum, b) => sum + b.highlights, 0);
   return Math.min(highlights > 0 ? highlights : 3, 60);
+}
+
+/** About how many area headers a loading day will draw. With a highlight count, a day's changes
+    spread over more areas as it grows, but slower than its rows (real nightly days: 1 change in 1
+    area, 3 in 3, 10 in 6, 26 in 9; at most 13, at the 60-row cap); with none, one (a day the
+    index counts nothing for has one to four changes in one to four areas, the three-row guess plus
+    one header is their mean). The placeholder reserves each header's line and gap (styles.css
+    .cls-area), since #32744 grouped a day by area: without them a loaded day came out taller than
+    its placeholder and pushed the days under it down (gallery shift rows pages.changelog#sheet,
+    #current, #nightly-unpublished). */
+export function placeholderAreas(builds: IndexEntry[]): number {
+  const highlights = builds.reduce((sum, b) => sum + b.highlights, 0);
+  if (highlights <= 0) return 1;
+  const rows = placeholderRows(builds);
+  return Math.min(rows, Math.ceil(1.6 * Math.sqrt(rows)));
 }
 
 export interface SheetRow {

@@ -7,6 +7,7 @@
 // daemon has evidence for, and Update / Update all, which start owner-bound terminal jobs.
 // An update that needs sudo shows its exact command instead of a button.
 import { useCallback, useId } from "react";
+import { Button } from "../../../ui/Button";
 import { agentDisplayName } from "../../../agent-session/acpmux/agents";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsState, useStore } from "../context";
@@ -53,7 +54,7 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
         )}
       </div>
       {safeUpdate && (
-        <button
+        <Button
           type="button"
           className="button"
           data-harness-action="updateCard"
@@ -62,7 +63,7 @@ function HarnessUpdateCard({ row, harnesses }: { row: HarnessRow; harnesses: Har
           onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
         >
           {t("settingsWindow.harnesses.update")}
-        </button>
+        </Button>
       )}
     </article>
   );
@@ -135,7 +136,7 @@ function Row({ row }: { row: HarnessRow }) {
         </div>
         <div className="row-control">
           {offersUpdate(row) && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="update"
@@ -144,13 +145,13 @@ function Row({ row }: { row: HarnessRow }) {
               onClick={() => void store.runHarnesses({ action: "update", id: row.id })}
             >
               {t("settingsWindow.harnesses.update")}
-            </button>
+            </Button>
           )}
           {terminal ? (
             <span className="badge">{t("settingsWindow.harnesses.terminalOnly")}</span>
           ) : (
             <>
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-harness-action="check"
@@ -158,8 +159,8 @@ function Row({ row }: { row: HarnessRow }) {
                 onClick={() => void store.runHarnesses({ action: "check", id: row.id })}
               >
                 {t("settingsWindow.harnesses.check")}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 className="button"
                 data-harness-action="signIn"
@@ -167,7 +168,7 @@ function Row({ row }: { row: HarnessRow }) {
                 onClick={() => void store.runHarnesses({ action: "signIn", id: row.id })}
               >
                 {t("settingsWindow.harnesses.signIn")}
-              </button>
+              </Button>
             </>
           )}
         </div>
@@ -192,7 +193,7 @@ export function HarnessesCard() {
     <section className="group" data-card="harnesses" ref={mounted}>
       <h3 className="group-title">{t("settingsWindow.harnesses.title")}</h3>
       <div className="accounts-header">
-        <button
+        <Button
           type="button"
           className="button"
           data-harness-action="refresh"
@@ -200,8 +201,8 @@ export function HarnessesCard() {
           onClick={() => void store.runHarnesses({ action: "refresh", recheck: true })}
         >
           {t("settingsWindow.harnesses.refresh")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           className="button"
           data-harness-action="registry"
@@ -209,16 +210,16 @@ export function HarnessesCard() {
           onClick={() => void store.runHarnesses({ action: "registry" })}
         >
           {t("settingsWindow.harnesses.registry")}
-        </button>
+        </Button>
         {outdated.length > 0 && (
-          <button
+          <Button
             type="button"
             className="button"
             data-harness-action="updateAll"
             onClick={() => void store.runHarnesses({ action: "updateAll" })}
           >
             {t("settingsWindow.harnesses.updateAll")}
-          </button>
+          </Button>
         )}
       </div>
       {harnesses && !harnesses.problem && (
@@ -236,24 +237,24 @@ export function HarnessesCard() {
             {jobText(job)}
           </output>
           {job.can_resume && job.intent_key && job.state === "unknown" && !job.terminal && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="resumeUpdate"
               onClick={() => void store.runHarnesses({ action: "resumeUpdate", intent: job.intent_key })}
             >
               {t("settingsWindow.harnesses.resumeUpdate")}
-            </button>
+            </Button>
           )}
           {job.can_dismiss && job.intent_key && job.state === "unknown" && !job.terminal && (
-            <button
+            <Button
               type="button"
               className="button"
               data-harness-action="dismissUpdate"
               onClick={() => void store.runHarnesses({ action: "dismissUpdate", intent: job.intent_key })}
             >
               {t("settingsWindow.harnesses.dismissUpdate")}
-            </button>
+            </Button>
           )}
         </div>
       ))}
