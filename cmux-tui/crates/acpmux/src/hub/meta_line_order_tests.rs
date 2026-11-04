@@ -35,6 +35,9 @@ impl Store for Recording {
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.inner.events(id, after, limit)
     }
+    fn delete(&self, id: &str) -> Result<()> {
+        self.inner.delete(id)
+    }
 }
 
 fn hub_with(show: fn(&SessionMeta) -> String) -> (Arc<Hub>, Arc<Session>, Calls) {
