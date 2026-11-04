@@ -124,5 +124,26 @@ install click.
   slot gets the new view inside its existing render; add each new name to the one
   `__cmuxAppExports` object.
 
+### Matching the app
+
+Build a pane only from the kit so it looks like cmux in every theme: `Panel`
+(the app's card surface), `Row`, `Button`, `Menu`, `Toggle`, `Slider`,
+`TextField`, `Badge`, `EmptyState`, plus `cmux.toast({ title, message?, tone? })`
+for a notice and `cmux.theme` for the tone names. Never a literal color
+(`#RRGGBB`) or size (point fonts, hand-set padding or radii): pass tones
+(`tint: cmux.theme.success`) and font names. The kit, its rules and a
+copy-paste focus timer template are in
+[references/local-app-views.md](references/local-app-views.md#matching-the-app).
+
 The worked example, as copy-paste files, and the recipe for adding a view:
 [references/local-app-views.md](references/local-app-views.md).
+
+### Change what cmux does
+
+To make a button run the person's own command, read the current workspace,
+follow changes or open a pane of their own, start from a folder in
+[templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
+`pane`). A button runs a `cmux-next.json` action with
+`cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
+`actions:run`. What an extension can call, what is missing, and how to install
+a template: [references/extensions.md](references/extensions.md).

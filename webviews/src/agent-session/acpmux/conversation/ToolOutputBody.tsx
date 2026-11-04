@@ -134,7 +134,7 @@ export const ToolOutput = memo(function ToolOutput({
             onClick={() => setRawShown((value) => !value)}
           >
             {t("subsession.raw")}
-            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
+            <ChevronRight size={12} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
           </button>
         )}
       </div>

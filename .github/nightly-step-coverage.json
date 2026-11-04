@@ -186,6 +186,7 @@
       "build-sign-notarize-nightly": {
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Yield the sign slot to a newer build": {"nightly_only": "reads the in-progress nightly-next push runs' sign jobs through the Actions API, only on attempt 1 of a nightly-next push; the decision and its wiring are checked by tests/test_nightly_sign_yield.py"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
@@ -231,6 +232,8 @@
         "Verify final DMG artifact": {"nightly_only": "statically verifies the notarized stapled final DMG and records its exact digest without launching app code"},
         "Launch smoke from a fresh home": {"nightly_only": "launches the final notarized DMG from a fresh home in the console session; only a release run has one (gate tested by tests/test_nightly_next_launch_smoke.py)"},
         "Bundle size budget": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"}},
+      "republish-nightly-next": {
+        "Fetch the source run's verified build": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next pending notarization continuation", "note": "tests/test_nightly_next_recovery.py runs scripts/ci/republish-verified-nightly.py's source, artifact and tested-digest checks on fixtures"}},
       "find-nightly-next-recovery": {
         "Install gh if this runner lacks it": {"plumbing": true},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},

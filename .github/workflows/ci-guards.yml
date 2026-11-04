@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   workflow-guard-submodule-forward-only:
     name: workflow-guard-submodule-forward-only
@@ -207,6 +211,12 @@ jobs:
       - name: Validate send-path caps
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_send_path_caps.py
+
+      # No new hard timeout below 30 seconds in the app/daemon request paths;
+      # existing hits ratchet down in tests/short-timeout-allowlist.json.
+      - name: Validate short timeout ratchet
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_short_timeout_guard.py
 
       # NEXT code adds no call to classic Cloud (/api/vm, /api/runs, a cmux.com
       # or cmux-staging API base), as a shrink-only ratchet
@@ -1811,6 +1821,10 @@ jobs:
       - name: Validate every nightly job runs on our own Mac minis and the publishers hold the whole Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_owned_minis_only.py
+
+      - name: Validate nightly-next signs and publishes on cmux15 first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_signing_on_cmux15.py
 
       - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
