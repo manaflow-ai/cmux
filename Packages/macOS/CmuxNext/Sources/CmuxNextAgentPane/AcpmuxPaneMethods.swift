@@ -49,6 +49,9 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // The Context tab reads the attached chat's inventory and saves cmux-owned instructions
+        // for future sessions. The daemon derives the project from that chat, never a page path.
+        "_acpmux/context", "_acpmux/context_override",
         // An inbox notice's thread the person opened (direct.ts inboxThread, InboxNoticeCard):
         // the messages of one thread of the chat in the pane's scope, read without marking them.
         "_acpmux/inbox_thread",
@@ -261,6 +264,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits",
+        "_acpmux/context", "_acpmux/context_override",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -336,6 +340,8 @@ nonisolated enum AcpmuxPaneMethods {
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,
+        // Save and Reset change instructions for future sessions, only on the person's click.
+        "_acpmux/context_override": .always,
         "acp.trust.set": .whenTrusting,
         // The page's click opens the native sheet; the sheet's Enable is the second gesture.
         "_acpmux/harness_enable": .always,

@@ -31,7 +31,8 @@ struct AgentPaneTransportContextTests {
 
     @Test(arguments: ["user", "project"])
     func editsEmptyOverridesAndResetsWaitForThePersonsClick(scope: String) throws {
-        for text: Any in ["Read independent sources concurrently.", "", NSNull()] {
+        let values: [Any] = ["Read independent sources concurrently.", "", NSNull()]
+        for text in values {
             let params: [String: Any] = ["sessionId": "own", "scope": scope, "text": text]
             let frame = try Self.text("_acpmux/context_override", params)
             guard case .frame(let facts, let box) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
@@ -49,7 +50,8 @@ struct AgentPaneTransportContextTests {
 
     @Test(arguments: ["_acpmux/context", "_acpmux/context_override"])
     func foreignOrMissingSessionsCannotReadOrEdit(method: String) throws {
-        for session: Any in ["foreign", NSNull(), 7] {
+        let sessions: [Any] = ["foreign", NSNull(), 7]
+        for session in sessions {
             let frame = try Self.text(method, ["sessionId": session])
             guard case .refuse(.refuse(.sessionNotInPane, _, _), _) = AgentPaneTransport.checkOne(frame, Self.snapshot()) else {
                 Issue.record("Context request escaped the pane's session scope")

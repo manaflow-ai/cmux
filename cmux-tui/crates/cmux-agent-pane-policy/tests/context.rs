@@ -14,7 +14,10 @@ fn check(method: &str, params: Value, first: bool) -> Checked {
         scope: &sessions,
         options: &options,
     };
-    check_frame(&json!({"jsonrpc":"2.0", "id":7, "method":method, "params":params}).to_string(), &state)
+    check_frame(
+        &json!({"jsonrpc":"2.0", "id":7, "method":method, "params":params}).to_string(),
+        &state,
+    )
 }
 
 #[test]
@@ -33,7 +36,9 @@ fn context_edits_empty_overrides_and_resets_wait_for_the_persons_click() {
     for scope in ["user", "project"] {
         for text in [json!("Read independent sources concurrently."), json!(""), Value::Null] {
             let params = json!({"sessionId":"own", "scope":scope, "text":text});
-            let Checked::Frame { frame, facts } = check("_acpmux/context_override", params.clone(), false) else {
+            let Checked::Frame { frame, facts } =
+                check("_acpmux/context_override", params.clone(), false)
+            else {
                 panic!("Context edit refused before the wire")
             };
             assert!(facts.needs_gesture);
@@ -53,7 +58,12 @@ fn expect_refusal(method: &str, params: Value, first: bool, expected: Refusal) {
 #[test]
 fn context_requires_the_panes_session() {
     for method in ["_acpmux/context", "_acpmux/context_override"] {
-        for params in [json!({}), json!({"sessionId":"foreign"}), json!({"sessionId":null}), json!({"sessionId":7})] {
+        for params in [
+            json!({}),
+            json!({"sessionId":"foreign"}),
+            json!({"sessionId":null}),
+            json!({"sessionId":7}),
+        ] {
             expect_refusal(method, params, false, Refusal::SessionNotInPane);
         }
     }
