@@ -72,7 +72,6 @@ extension ActionRegistry {
         // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
         // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
-            leavesTopPage(for: action.id, handed, run: run)
             if let invocationScope {
                 invocationScope(handed) { settle(action.run(handed), of: id, handed) }
             } else {

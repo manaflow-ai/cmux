@@ -4804,9 +4804,13 @@ a.cv-sha:focus-visible {
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
- * compositor. The text holds its final layout while transparent, so no line ever reflows. */
+ * compositor. The text holds its final layout while transparent, so no line ever reflows. The fade
+ * runs three of the host's fade-in steps (FRESH_FADE_STEPS), so the last few words of a streaming
+ * reply read as a soft trailing edge, as Claude's and ChatGPT's do; one step (120 ms) was too quick
+ * to see (Leo, 2026-11-03: "hey even u have that text fading in! i want that..."). A zero token
+ * (motion off) still makes it zero. */
 .cv-fresh {
-  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  animation: cv-enter-fade calc(var(--agent-motion-in, 180ms) * 3) var(--agent-ease-out, ease-out) both;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes

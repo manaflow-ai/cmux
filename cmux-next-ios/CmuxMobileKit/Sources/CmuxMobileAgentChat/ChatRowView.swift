@@ -148,8 +148,14 @@ struct ChatRowView: View {
             // The latest failed turn retries through acpmux (its input and context kept).
             FailureCard(title: "Agent stopped", message: failure.sentence, detail: failure.detail,
                         canRetry: turn.map { store.canRetryFailedTurn($0) } ?? false,
-                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) }) {
+                        retryWith: turn.flatMap { RetryModelChoice(store: store, turn: $0) },
+                        leadsWithContinue: turn?.continuesAfterFailure ?? false) {
                 if let turn { store.retryFailedTurn(turn) }
+            }
+        case .nextStep(let ask, let answer, let canAnswer):
+            NextStepCard(ask: ask, answer: answer, canAnswer: canAnswer) { option in
+                // The answer goes as the next prompt (`session/prompt`), in the agent's own words.
+                store.send(prompt: option.label)
             }
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),

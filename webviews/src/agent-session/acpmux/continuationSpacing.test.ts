@@ -9,6 +9,7 @@ import {
   TRANSCRIPT_FOOTER_GAP,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
+  MARK_FOOTER_ROW,
   MARK_MESSAGE,
   MARK_PROMPT,
   MARK_STATUS,
@@ -52,6 +53,29 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
     expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
     expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
+  }
+});
+
+// A status line the agent's own background work drew after its turn ended ("Background update",
+// "Background task finished", "Subagent finished") is that turn's tail: 8 under its footer row, as
+// the footer is under the reply, and the turn gap to the next prompt. A block gap above and the
+// turn gap below left it floating alone in the band (Leo, 2026-11-04: "this bare background update
+// tool call floating in teh air is so weird loking proportionally"). Another agent's line there
+// keeps the block gap (the test above).
+test("a lone status line under a footer row is its turn's tail, 8 under it", () => {
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(transcriptGap(MARK_STATUS, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  const lone = [
+    row("bg", BACKGROUND_TURN, { background: { id: "bg", trigger: "system", running: false, quiet: true } }),
+    row("bg-running", BACKGROUND_TURN, { background: { id: "bg2", trigger: "system", running: true } }),
+    row("task", "backgroundTask", {}),
+    row("subagent", "subagentDone", {}),
+  ];
+  for (const line of lone) {
+    const layout = layoutConversation([answer, footer, hidden, line, row("prompt", "user", { text: "Next." })], 720);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.tops[4]! - (layout.tops[3]! + layout.heights[3]!)).toBe(TRANSCRIPT_TURN_GAP);
   }
 });
 

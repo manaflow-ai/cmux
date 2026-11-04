@@ -130,12 +130,22 @@ export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
     tolerance: 1,
     source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
   },
+  // A turn a received message started folds under its "Worked for" line, a Claude turn's too (Leo,
+  // 2026-11-04: "i think it should be the top level collapsible thing IF POSSIBLE"): that line is a
+  // one-line row between the received line and the work.
   {
-    id: "received-to-status",
-    between: 'a received message line and the "Scheduled check" line under it, centre to centre',
+    id: "received-to-worked",
+    between: 'a received message line and its turn\'s "Worked for" line under it, centre to centre',
     value: 22,
     tolerance: 0.5,
-    source: "one-line rows sit flush (rule 3); no reference shows a received line over a scheduled check",
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "worked-to-status",
+    between: '"Worked for", opened, and the "Scheduled check" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
   },
   {
     id: "status-to-run",
@@ -285,6 +295,32 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
     source: "prompt-to-step: 32 + 11 (rule 5)",
   },
 ];
+
+/** A lone system line between turns, under the turn's footer row (design/transcript-spacing.md
+ * "Lone system rows"; Leo, 2026-11-04, on a lone "Background update" a block gap under the footer and a
+ * turn gap over the next prompt: "this bare background update tool call floating in teh air is so
+ * weird loking proportionally"). The agent's own work that came in after the turn ended ("Background
+ * update", "Background task finished", "3 background tasks finished", "Subagent finished") is that
+ * turn's tail: 8 under the footer row, as the footer is under the reply, so its centre is as far from
+ * the footer's glyph as the reply's last line is (prose-to-footer, 35.375); the next prompt keeps the
+ * turn gap under it. Another agent's line there keeps footer-to-received. Measured over gallery entry
+ * agent-pane.lone-system-rows by test/transcript-lone-system-rows.test.ts. */
+export const LONE_SYSTEM_ROWS = {
+  /** The footer's glyph centre to the line's centre: 16 + 8 + 11. */
+  footerToLine: 35,
+  /** The line's centre to the next prompt bubble's top edge: 11 + 32 (step-to-prompt). */
+  lineToPrompt: 43,
+  /** Another agent's line under the footer: footer-to-received. */
+  footerToReceived: 51,
+  tolerance: 1,
+  variants: [
+    "background-update",
+    "background-update-running",
+    "background-task",
+    "background-tasks-run",
+    "subagent-finished",
+  ],
+} as const;
 
 /** A session link chip on a one-line row (a received line's sender, "Sent to"'s recipient): no taller
  * than the row's text, so the row reads as one line of words (Leo, 2026-11-03, on a bordered chip

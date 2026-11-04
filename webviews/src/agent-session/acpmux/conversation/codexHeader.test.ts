@@ -62,7 +62,9 @@ test("work with the agent's messages between it reads N previous messages", () =
   expect(workedLabel(t, row!)).toBe("6 previous messages");
 });
 
-test("a Claude turn keeps its per-run folding and draws no header", () => {
+// Leo, 2026-11-04: "ofc claude code doesn't actually have the worked for... but i think we should be
+// able to do that replacing the top level thingy maybe".
+test("a Claude turn draws the same header; its runs fold inside it", () => {
   const rows = [
     prompt,
     work("w1", 1_000, 2),
@@ -71,7 +73,8 @@ test("a Claude turn keeps its per-run folding and draws no header", () => {
     say("a", 50_000, "Done."),
     end,
   ];
-  expect(header(rows, "claude")).toBeUndefined();
+  expect(header(rows, "claude")?.previous).toBeGreaterThan(0);
+  expect(header(rows, "claude")?.previous).toBe(header(rows)?.previous);
 });
 
 test("a message joining the fold redraws the header: its count is part of the row's version", () => {
