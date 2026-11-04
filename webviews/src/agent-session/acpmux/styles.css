@@ -162,6 +162,12 @@
   inset-block-end:var(--cmux-hairline,.5px);
   background:linear-gradient(to bottom, transparent, var(--glass-tint));
 }
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]{
+  padding-block-start:calc(var(--ui-popup-padding) + var(--ui-scroll-fade-top));
+}
+.acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]{
+  padding-block-end:calc(var(--ui-popup-padding) + var(--ui-scroll-fade-bottom));
+}
 @media (prefers-reduced-transparency:reduce){
   .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before,
   .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{display:none}
