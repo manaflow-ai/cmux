@@ -24,7 +24,8 @@ public final class CloudAppLinkRedial {
         self.healthy = healthy
     }
 
-    /// The last end was one a redial can help (``CloudLinkError/isRedialable(_:)``): a start's wait redials only such an end.
+    /// The last end is one a redial can help (``CloudLinkError/isRedialable(_:)``), or any end but a revoke once redials
+    /// started: a start's wait and the scheduled redial dial only such an end.
     public private(set) var lastEndRedialable = false
 
     /// A redial is waiting out its delay.
@@ -42,9 +43,9 @@ public final class CloudAppLinkRedial {
     public func ended(_ error: any Error, live: Bool = true, redial: @escaping @MainActor () -> Void) -> Bool {
         if let upSince, upSince.duration(to: clock.now) >= healthy { startOver() }
         upSince = nil
-        lastEndRedialable = CloudLinkError.isRedialable(error)
         let revoked = if case CloudLinkError.revoked = error { true } else { false }
-        guard live, lastEndRedialable || (ends > 0 && !revoked) else {
+        lastEndRedialable = CloudLinkError.isRedialable(error) || (ends > 0 && !revoked)
+        guard live, lastEndRedialable else {
             cancel()
             return false
         }

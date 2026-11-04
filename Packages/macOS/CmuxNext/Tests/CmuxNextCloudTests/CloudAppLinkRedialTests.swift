@@ -61,6 +61,7 @@ struct CloudAppLinkRedialTests {
         let redial = CloudAppLinkRedial(backoff: Self.fast)
         #expect(redial.ended(Self.drop) {})
         #expect(redial.ended(CloudLinkError.failed(code: "cloud.not_ready", message: "")) {}, "a redial's failed connect goes on")
+        #expect(redial.lastEndRedialable, "the session's redial dials it (review F1 at 4eea0da2840b)")
         #expect(!redial.ended(CloudLinkError.revoked(reason: "x")) {})
         #expect(!redial.isPending && redial.ends == 0)
     }
