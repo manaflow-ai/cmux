@@ -11,11 +11,13 @@
 //! - [`Reader::threads`]: conversations (1:1 and group chats), newest activity first.
 //! - [`Reader::messages`]: one conversation's messages, oldest first, paged backwards by rowid.
 //! - [`Reader::since`]: messages newer than a rowid watermark, for live updates.
+//! - [`send::send`]: sends a message to an existing chat through Messages.app (Automation).
 
 mod date;
 mod error;
 mod model;
 mod reader;
+pub mod send;
 mod typedstream;
 
 pub use date::apple_to_unix_ms;

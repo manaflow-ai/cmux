@@ -88,10 +88,10 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
         },
         width === 360 ? 1.25 : 1,
       );
-      // Closed: the line alone, its first line cut with an ellipsis on one line, nothing under it.
+      // Closed: the line and, under it, its first line cut with an ellipsis on one line (stacked).
       expect(await page.locator(".cv-received__text, .cv-received__show, [data-cut]").count()).toBe(0);
       const preview = await page
-        .locator(".cv-received__preview")
+        .locator(".cv-disclosure__below")
         .first()
         .evaluate((box) => {
           const style = getComputedStyle(box);
@@ -101,7 +101,8 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
             // One line: no taller than the 26px line it sits on.
             oneLine:
               box.getBoundingClientRect().height <=
-              box.closest(".cv-disclosure__line")!.getBoundingClientRect().height + 0.5,
+              box.closest(".cv-disclosure")!.querySelector(".cv-disclosure__line")!.getBoundingClientRect().height +
+                0.5,
           };
         });
       expect(preview).toEqual({ overflow: "ellipsis", wrap: "nowrap", oneLine: true });
@@ -127,15 +128,19 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
   });
   test("sent preview has no fade or partial chip and Show more reveals all of it", async () => {
     await open();
-    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    // Stacked, the toggle holds no words: the line, which toggles whole, takes the click.
+    await page.locator(".cv-message .cv-agentmsg__line").first().click();
     await page.locator(".cv-message__text").waitFor();
     expect((await intact(".cv-message__text")).mask).toBe("none");
     await page.locator(".cv-message__more").waitFor();
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
     await page.locator(".cv-message__more").click();
     expect(await page.locator(".cv-message__text").evaluate((box) => box.clientHeight >= box.scrollHeight)).toBe(true);
-    await page.locator(".cv-message .cv-agentmsg__toggle").click();
-    await page.locator(".cv-message .cv-agentmsg__toggle").click();
+    // Open, the toggle button holds no preview and has no width since #32867 put the chevron right
+    // after the words, and stacked it holds none shut either; the whole line still toggles, so close
+    // and open it from its chevron.
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
+    await page.locator(".cv-message .cv-agentmsg__chevron").click();
     expect(await page.locator(".cv-message__more").getAttribute("aria-expanded")).toBe("true");
     await page.locator(".cv-message__more").press("Enter");
     expect(await intact(".cv-message__text")).toEqual({ mask: "none", split: 0, visible: true });
@@ -145,7 +150,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     expect(await page.locator(".cv-received__text").count()).toBe(0);
     expect(
       await page
-        .locator(".cv-received__preview")
+        .locator(".cv-disclosure__below")
         .first()
         .evaluate((box) => getComputedStyle(box).textOverflow),
     ).toBe("ellipsis");
@@ -161,7 +166,8 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
       const toggle = row.locator(direction === "received" ? ".cv-disclosure__toggle" : ".cv-agentmsg__toggle");
       const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
       if (direction === "sent") {
-        await toggle.click();
+        // Shut and stacked, the message's first line under its row is what the pointer opens.
+        await row.locator(".cv-agentmsg__below").click();
         await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
         await page.waitForFunction(
           (selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",

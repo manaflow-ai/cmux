@@ -13,6 +13,7 @@ import {
   holdFold,
   keepFold,
   opensBody,
+  pushUpCut,
   trimmedFoldRoom,
   verticalWheel,
 } from "./foldAnchor";
@@ -284,5 +285,26 @@ describe("opensBody", () => {
   });
   test("a control that says nothing of its state opens nothing", () => {
     expect(opensBody(dom("<button data-t>Raw</button>"))).toBe(false);
+  });
+});
+
+describe("pushUpCut", () => {
+  const inset = (frame: Keyframe) => Number(/inset\(0 0 ([\d.]+)px 0\)/.exec(String(frame.clipPath))![1]);
+  test("the opened row is cut at the held line all the way, as the stack carries its foot up to it", () => {
+    const frames = pushUpCut(0, 120);
+    expect(frames.map((frame) => frame.offset)).toEqual([0, 1, 1]);
+    expect(inset(frames[0]!)).toBe(120);
+    expect(inset(frames[1]!)).toBe(0);
+  });
+  test("a row ending above the line is cut only until its foot rises past it", () => {
+    const frames = pushUpCut(-30, 120);
+    expect(inset(frames[0]!)).toBe(90);
+    // Its foot is 30 px above the line once the stack has a quarter of its way left.
+    expect(frames[1]!.offset).toBeCloseTo(0.75);
+    expect(inset(frames[1]!)).toBe(0);
+  });
+  test("a row that never reaches the line, or no slide at all, is not cut", () => {
+    expect(pushUpCut(-200, 120)).toEqual([]);
+    expect(pushUpCut(0, 0)).toEqual([]);
   });
 });

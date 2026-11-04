@@ -14,21 +14,18 @@ import os
 /// The strip is the pane's header, or with the strip at the bottom its
 /// footer: the layout's border and rounded corners trace the content host
 /// between them, a browser's toolbar included.
-final class PaneContentView: NSView, PaneContentChrome {
+final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding {
     let stripView: TabStripView
-    /// The strip's colors: its pane's scope, subtler while another pane
-    /// has focus (`setChromeEmphasis`).
-    private let stripScope = ThemeScope(level: .terminal)
+    /// The strip's colors: its pane's scope, subtler while another pane has focus (`setChromeEmphasis`). Chrome, not
+    /// `.terminal`, which keeps the terminal theme under an App Theme (`PaneStripAppThemeTests`).
+    private let stripScope = ThemeScope(level: .workspace)
     /// The pane's own scope, under its workspace's: it pins nothing unless the pane has its own
     /// background (`PaneContentView+Backdrop`), so its strip and content inherit as before.
     let paneScope = ThemeScope(level: .workspace)
     /// The pane's own background and tint (`PaneContentView+Backdrop`).
     let backdropState = PaneBackdropState()
     private var paneBackgroundsObservation: Task<Void, Never>?
-    let contentHost = NSView()
-    /// The surface of the content sharing the tab row now (``PaneTabRowSharing/tabRowSurface``), whose
-    /// background the strip paints behind its tabs (``paintStrip()``); nil while nothing shares it.
-    private(set) var rowSurface: SurfaceKind?
+    let contentHost = PaneContentAreaView()
     private(set) weak var content: NSView?
     /// Explicitly observed ownership: first-paint holds can change this without a tab-store update.
     let nativeToolOwner = PaneNativeToolOwner()
@@ -39,6 +36,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var onResize: (() -> Void)?
     var onPaneHeaderHeightChange: (() -> Void)?
     private var contentCornerRadius: CGFloat = 0
+    private var tabRow: (offered: Bool, tools: CGFloat) = (false, 0) // a chat's tab-row decision at rest (layout); a key resize's area hold keeps it (S1)
     /// The edge the strip sits on (`tabs.barPosition`, R109); follows
     /// `DesignSettings` (`observePlacement`).
     var barPosition: TabBarPosition = .top {
@@ -120,8 +118,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         barOrder = DesignSettings.shared.tabBarOrder
         toolbarPosition = DesignSettings.shared.browserToolbarPosition
         wantsLayer = true
-        contentHost.wantsLayer = true
-        contentHost.layer?.masksToBounds = true
         addSubview(contentHost)
         addSubview(stripView)
         paneScope.root(self)
@@ -173,12 +169,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
         let shown = shownStripHeight
-        stripView.isHidden = shown <= 0
         toolbar?.view.isHidden = shown <= 0
         let tools = toolbarWidth(shown: shown), room = bounds.width - tools, row = onTop && !isBandActive && !hidesStrip && hostsContent && shown > 0 ? content as? PaneTabRowSharing : nil
-        let rowContent = row?.fitsTabRow(room: room) == true ? row : nil, rowTools = rowContent?.tabRowWidth(room: room) ?? 0 // a chat's tools in the row when they fit (PaneTabRowSharing)
-        let surface = rowTools > 0 ? rowContent?.tabRowSurface : nil
-        if surface != rowSurface { rowSurface = surface; paintStrip() }
+        let held = contentHost.isHolding, rowContent = (held ? tabRow.offered : row?.fitsTabRow(room: room) == true) ? row : nil, rowTools = held ? tabRow.tools : rowContent?.tabRowWidth(room: room) ?? 0
+        // The strip shows at every tab count, one included: a lone tab hidden left the top of the pane bare and
+        // undraggable (Leo 2026-11-03: "i think that's just too alien of a look"; it replaced #33132).
+        stripView.isHidden = shown <= 0
+        if !held { tabRow = (rowContent != nil, rowTools) }
         if !isBandActive {
             stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools - rowTools, height: shown)
             toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
@@ -189,7 +186,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
         if hostChanged { contentHost.frame = hostFrame }
-        if launchImageView != nil, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
+        if launchImageView != nil, !contentHost.isHolding, let shown = launchImageSizes.first, shown != .zero, !launchImageSizes.contains(where: { abs($0.width - contentHost.bounds.width) <= 2 && abs($0.height - contentHost.bounds.height) <= 2 }) {
             // A move cover owns the clear callback that reveals the page on its next frame. A resize drops old-size pixels, but
             // not a grow to the image's own size (±2 pt of pixel rounding): a restored chat's tools joining the tab row (Leo 10-24).
             clearLaunchImage(invokeCallback: launchImageInvokesResizeCallback)
@@ -203,7 +200,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
-        if hostsContent, let content {
+        if hostsContent, !contentHost.isHolding, let content {
             let resized = content.frame != contentHost.bounds
             if resized { content.frame = contentHost.bounds }
             // Content shown before the pane had its size (a restored selected
@@ -221,10 +218,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         if hostsContent, let content, content.autoresizingMask.isEmpty, content is PaneParkableContent {
             content.autoresizingMask = [.width, .height]
         }
-        layoutParked()
+        if !contentHost.isHolding { layoutParked() }
         layoutAgentTag()
-        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, in: self) }
-        if hostChanged { onResize?() }
+        if hostsContent, let sharing = content as? PaneTabRowSharing { sharing.offerTabRow(height: rowContent == nil ? 0 : shown, trailingInset: tools, toolbar: toolbar?.view, in: self) } else { toolbar?.view.paintTabRowHole(nil) }
+        if contentHost.takeEndedHold() || hostChanged && !contentHost.isHolding { onResize?() }
     }
 
     // MARK: PaneContentChrome
@@ -292,14 +289,11 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     /// The content host is the pane's one rounded container, for every kind
     /// of content: a browser's toolbar sits inside it, as a terminal does.
-    private func applyCornerRadius() {
-        let radius = paneFramesContent ? contentCornerRadius : 0
-        guard let layer = contentHost.layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
-    }
+    private func applyCornerRadius() { contentHost.setCornerRadius(paneFramesContent ? contentCornerRadius : 0) }
+
+    /// FRAME OWNER S1: a key resize holds only the content area; the strip lays out at the pane's rect in each frame. In a
+    /// browser's band, or beside a page that draws its tools in the tab row (a chat: page pixels, stage S5/S6), it holds whole.
+    var paneMotionHoldArea: PaneContentAreaView? { isBandActive || tabRow.tools > 0 ? nil : contentHost }
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
@@ -469,15 +463,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         paintPaneBackdrop()
     }
 
-    /// The strip: clear, or the user's tab bar background (R55). While a chat shares the row, the
-    /// background its page paints under the header (``PaneTabRowSharing/tabRowSurface``), so the row
-    /// behind the tabs and the chat's tools is one fill with no band of its own.
+    /// The strip: clear, or the user's tab bar background (R55). A chat sharing the row never gives it
+    /// a fill: the row, its tabs and the chat's tools sit on the window's own glass (Leo, 2026-11-03,
+    /// on the chat's color behind the header buttons: "it's so obvious to just remove the thing").
     func paintStrip() {
         stripView.wantsLayer = true
-        let surface = rowSurface
-        stripView.layer?.backgroundColor = stripView.performWithTheme {
-            (Palette.surfaceOverride(.tabBar) ?? surface.flatMap { Palette.surfaceOverride($0) })?.cgColor
-        }
+        stripView.layer?.backgroundColor = stripView.performWithTheme { Palette.surfaceOverride(.tabBar)?.cgColor }
     }
 }
 // A terminal or page edge inside the titlebar band never moves the window;

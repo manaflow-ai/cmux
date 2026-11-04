@@ -257,7 +257,10 @@ elif [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; the
   ./node_modules/.bin/playwright install webkit
   # Chromium is the system Google Chrome (test/preload.ts), never Playwright's bundled build, which
   # lacks recent security fixes and runs unsandboxed. A host without a current Chrome skips Chromium.
-  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional
+  chrome_out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/ensure-system-chrome.sh" --optional)"
+  printf '%s\n' "$chrome_out"
+  shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
+  [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
 fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
@@ -312,40 +315,6 @@ keep = [name for name in listed if name in selected]
 path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
 PY
 fi
-shard="${CMUX_WEB_TEST_SHARD:-}"
-shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
-durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
-# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
-# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
-# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
-dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
-if [ -n "$shard" ] || [ -n "$shard_count" ]; then
-  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
-    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
-    exit 2
-  fi
-  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
-  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
-  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
-    > "$results/shard-files"
-  mv "$results/shard-files" "$results/files"
-fi
-count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
-if [ "$count" -eq 0 ]; then
-  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
-  exit 1
-fi
-xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
-serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
-xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
-# With recorded durations: plain files start longest first, and each Vite config warms on its
-# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
-if [ "$durations" != /dev/null ]; then
-  for list in parallel:desc serial:asc; do
-    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
-    mv "$results/ordered" "$results/${list%%:*}"
-  done
-fi
 # A quarter of the jobs: each dev server file runs a Vite server and a browser, and at jobs / 2 the
 # 8-core runner was CPU bound (no faster per file) and frame-budget plays (instructions-notice)
 # and attach timing (agent-pane-seen) failed.
@@ -365,6 +334,47 @@ browser_jobs="${CMUX_WEB_TEST_BROWSER_JOBS:-$((jobs > 3 ? jobs / 4 : 1))}"
 [[ "$browser_jobs" =~ ^[1-9][0-9]*$ ]] || browser_jobs=1
 if [ "$browser_jobs" -gt "$jobs" ]; then browser_jobs="$jobs"; fi
 plain_jobs=$((jobs - browser_jobs))
+# The split weighs each file by the pool it runs in, so it gets these widths, but only widths the
+# workflow set (CMUX_WEB_TEST_JOBS): widths from this runner's cores could differ between shards,
+# and shards that split differently skip or repeat files. Unset, the split keeps its own widths.
+# At one job there is no plain lane beside the browser one (the pools run in turn); the split then
+# counts one plain lane, which only an unsharded run (the base replay) ever has.
+split_widths=""
+if [[ "${CMUX_WEB_TEST_JOBS:-}" =~ ^[1-9][0-9]*$ && "$browser_jobs$dev_jobs" =~ ^[0-9]+$ ]]; then split_widths="$((plain_jobs > 0 ? plain_jobs : 1)),$browser_jobs,$dev_jobs"; fi
+shard="${CMUX_WEB_TEST_SHARD:-}"
+shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
+durations="${CMUX_WEB_TEST_DURATIONS:-/dev/null}"
+# Two dev servers at once (composer-mention, composer-send-stop) optimize dependencies into the
+# same node_modules/.vite, and each loses files the other wrote. `"dev",` is the argument a file
+# passes when it spawns `vp dev` itself, `configFile: …` one that calls createServer. `--null`, not `-Z`: BSD grep reads -Z as decompress.
+dev_servers='vite\.config\.(acpmux-pane\.mjs|gallery-dev\.ts)|"dev",|configFile: path\.join\(webviews, "vite\.config'
+if [ -n "$shard" ] || [ -n "$shard_count" ]; then
+  if [[ ! "$shard" =~ ^[1-9][0-9]*$ || ! "$shard_count" =~ ^[1-9][0-9]*$ || "$shard" -gt "$shard_count" ]]; then
+    echo "error: CMUX_WEB_TEST_SHARD and CMUX_WEB_TEST_SHARD_COUNT must be a valid one-based shard" >&2
+    exit 2
+  fi
+  # The split weighs dev-server files by how few run at once, so it needs them before it splits.
+  xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/all-serial" || true
+  python3 "$shards_py" assign "$results/files" "$results/all-serial" "$durations" "$shard" "$shard_count" \
+    ${split_widths:+"$split_widths"} > "$results/shard-files"
+  mv "$results/shard-files" "$results/files"
+fi
+count="$(tr -cd '\0' < "$results/files" | wc -c | tr -d ' ')"
+if [ "$count" -eq 0 ]; then
+  echo "error: no webviews test files found under $PWD${shard:+ for shard $shard/$shard_count}" >&2
+  exit 1
+fi
+xargs -0 grep -lE --null -- "$dev_servers" < "$results/files" > "$results/serial" || true
+serial="$(tr -cd '\0' < "$results/serial" | wc -c | tr -d ' ')"
+xargs -0 grep -LE --null -- "$dev_servers" < "$results/files" > "$results/parallel" || true
+# With recorded durations: plain files start longest first, and each Vite config warms on its
+# shortest file (accent-glass-invariants warmed alone for 549 s of an 18.6 min shard, run 40815704587).
+if [ "$durations" != /dev/null ]; then
+  for list in parallel:desc serial:asc; do
+    python3 "$shards_py" order "$results/${list%%:*}" "$durations" "${list#*:}" > "$results/ordered"
+    mv "$results/ordered" "$results/${list%%:*}"
+  done
+fi
 # Both lists keep the parallel list's order (longest first with durations): grep prints in input order.
 : > "$results/browser"
 : > "$results/plain"

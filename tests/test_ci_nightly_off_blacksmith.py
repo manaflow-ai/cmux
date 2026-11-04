@@ -44,17 +44,20 @@ FLEET_ROUTE = re.compile(r"vars\.CI_NIGHTLY_ONLY_RUNNER|vars\.CI_NIGHTLY_NEXT_BU
 # placement, #29130/#29436), never to grow: a new nightly job on Blacksmith Linux alone fails, and an entry that has
 # gained a fleet route (or no longer exists) must leave this list. decide left it first: run 41234993713 queued it on
 # blacksmith-32vcpu-ubuntu-2404 with no fleet route, and every other nightly job waits on it. The signer route's
-# jobs (signer-app, signer-app-notary, signer-dmg, the cmux NIGHTLY-identity copy's legacy-signer-app and
+# jobs (signer-app, signer-dmg, the cmux NIGHTLY-identity copy's legacy-signer-app and
 # legacy-signer-dmg, and legacy-identity-target, the feed compare that picks that copy's build) are the rulebook's
 # measured exception: GitHub-hosted Ubuntu first, Blacksmith
 # Linux 4 vCPU on a re-run (tests/test_ci_self_hosted_guard.sh allowlists that exact line). sentry-dsyms-nightly
 # takes the same route: a network-bound Sentry upload that holds the Sentry token, not CPU-bound.
 BLACKSMITH_LINUX_ONLY_DEBT = frozenset({
     "promote-nightly-next", "await-release-surface-ack", "promote-nightly-next-acked",
-    "attest-nightly-remote-daemon", "signer-app", "signer-app-notary",
+    "signer-app",
     "signer-dmg", "legacy-identity-target", "sentry-dsyms-nightly", "legacy-signer-app", "legacy-signer-dmg", "keep-published-dsyms",
     "publish-nightly-identity-legacy", "republish-nightly-deltas",
     "published-in", "sign-release-notes", "publish-release-notes", "publish-nightly-reel",
+    # GitHub-hosted Ubuntu first, Linux 4 vCPU on a re-run: the all-nightly reservation queued it
+    # 7-12 min behind the builds (runs 41561996502, 41563477649).
+    "pick-nightly-sign-runner",
 })
 
 # Secret-free late bookkeeping and advisory verdicts have no fresh fleet lease.
@@ -226,8 +229,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         light = ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
                  "contains(needs.build-nightly-app.outputs.light_mini_jobs, ' {job} ') && "
                  "needs.build-nightly-app.outputs.light_mini_runner || ")
-        linux = ("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
-                 "fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32 }}")
+        # About one core at 32 vCPU (.github/runners.json linux_sizes), so the Linux 4 vCPU pool.
+        linux = "fromJSON(vars.RUNNER_POOLS).linux_4 }}"
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
             expected = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
             if name == "prepare-nightly-variant-primary":
@@ -237,10 +240,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             expected += light.replace("{job}", name)
             if name == "prepare-nightly-variant":
                 expected += ("needs.prepare-nightly-variant-primary.result == 'success' && "
-                             "(vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
-                             "fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_32) || "
-                             "vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && "
-                             "fromJSON(vars.RUNNER_POOLS).linux_32 || fromJSON(vars.RUNNER_POOLS).linux_16 }}")
+                             "fromJSON(vars.RUNNER_POOLS).linux_4 || fromJSON(vars.RUNNER_POOLS).linux_16 }}")
             else:
                 expected += linux
             with self.subTest(job=name):
@@ -288,11 +288,15 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
                 # A member of the declared set: 16 vCPU when LINUX_RUNNER names it, else 32; a job
-                # holding a secret takes the literal (the signing-keychain guard).
+                # holding a secret takes the literal (the signing-keychain guard). The prepare jobs,
+                # about one core, end in the Linux 4 vCPU pool (16 vCPU for a retry after a failed primary).
                 # The sign pick takes GitHub-hosted Ubuntu, then Blacksmith Linux 4 vCPU on a re-run
                 # (tests/test_nightly_trusted_routing.py, the signer route).
                 self.assertTrue("vars.LINUX_RUNNER == 'blacksmith-16vcpu-ubuntu-2404' && fromJSON(vars.RUNNER_POOLS).linux_16 || " in runs_on
                                 or runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_32 }}") and "LINUX_RUNNER" not in runs_on
+                                or name.startswith("prepare-nightly-variant")
+                                and runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}",
+                                                      "&& fromJSON(vars.RUNNER_POOLS).linux_4 || fromJSON(vars.RUNNER_POOLS).linux_16 }}"))
                                 or name == "pick-nightly-sign-runner"
                                 and runs_on.endswith("github.run_attempt > 1 && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}"),
                                 runs_on)

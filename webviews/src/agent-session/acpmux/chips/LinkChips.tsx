@@ -14,7 +14,8 @@ import { useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { FileDoc, Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
 import { isDeniedPath, pathName, textLinks } from "./paths";
@@ -24,6 +25,7 @@ import { pullRequestRef } from "./PullRequestCard";
 import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { useAgentLinkClick } from "../conversation/SessionRef";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -59,7 +61,7 @@ function HostPathChip({ path, label, written }: { path: string; label?: ReactNod
       draggable
       onClick={() => void callChipHost("link.openPath", { path })}
     >
-      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileDoc size={16} className="cv-chip__icon" />}
+      {folder ? <Folder size={16} className="cv-chip__icon" /> : <FileKindIcon path={path} className="cv-chip__icon" />}
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </button>
   );
@@ -120,7 +122,7 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
       /* tooltip-allow: the chip shows the file's name only; the tooltip says where it is */ title={where}
       aria-label={where}
     >
-      <FileDoc size={16} className="cv-chip__icon" />
+      <FileKindIcon path={path} className="cv-chip__icon" />
       <span className="cv-chip__label">{label ?? pathName(path)}</span>
     </span>
   );
@@ -153,15 +155,28 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
   // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
   const state = usePullRequestState(pullRequest?.url);
+  // An agent link (`cmux.com/deeplink/agent?...`) opens the reader's own session's chat
+  // (conversation/SessionRef.tsx); its web page otherwise.
+  const agent = useAgentLinkClick(href);
   return (
     <>
       <a
         ref={setAnchor}
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         data-pr-state={state}
+        data-session-ref={agent["data-session-ref"]}
         href={href}
         rel="noreferrer"
         {...hover.trigger}
+        onPointerEnter={(event) => {
+          agent.onPointerEnter?.();
+          hover.trigger.onPointerEnter(event);
+        }}
+        onFocus={(event) => {
+          agent.onFocus?.();
+          hover.trigger.onFocus(event);
+        }}
+        onClick={agent.onClick}
       >
         {mark}
         <span className="cv-chip__label">{label}</span>

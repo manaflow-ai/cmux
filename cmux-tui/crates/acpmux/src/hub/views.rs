@@ -456,6 +456,7 @@ impl Hub {
             created_at: m.created_at,
             updated_at: m.updated_at,
             last_seq: m.last_seq,
+            transcript_seq: m.transcript_seq,
             event_count: m.event_count,
             turn_count: m.turn_count,
             parent_id: m.parent_id.clone(),
@@ -603,6 +604,9 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));
+        if let Some(dirs) = super::additional_dirs::acp_value(&m) {
+            summary.set(super::additional_dirs::FIELD, dirs);
+        }
         // Since when work it started runs on past its own turn (`work_below.rs`).
         summary.set("subagentsWorkingSince", json!(self.work_below_since(session)));
         // What runs below it now (the sidebar hover card, Leo 2026-11-01: "this hover preview
@@ -750,6 +754,9 @@ impl Hub {
             "socket": crate::config::socket_path(),
             "store": cfg.store,
             "sessions": sessions.len(),
+            // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
+            // `acpmux ls` says so, `acpmux send --status` lists them.
+            "outboxPending": self.outbox_unsettled(),
             "liveAgents": live,
             "stuckSessions": stuck,
             "disk": disk,
