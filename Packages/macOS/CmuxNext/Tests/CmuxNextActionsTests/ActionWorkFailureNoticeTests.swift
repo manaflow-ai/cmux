@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// No daemon error text reaches a toast: a missed deadline or a dropped connection shows nothing, a daemon refusal
+/// No daemon error text reaches a toast: a missed deadline shows nothing, a daemon refusal or a dropped connection
 /// shows only that the change did not apply, and a reason in the person's words shows as is (Leo, 2026-11-04, on
 /// "Move did not apply: set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)": "did you
 /// encounter this? i dont like chatty unactionable toasts").
@@ -35,7 +35,7 @@ import Testing
     @Test func aDaemonRefusalSaysOnlyThatTheChangeDidNotApply() {
         let failure = ActionWorkFailure(log: "set-personal-workspace: workspace.place failed: no workspace matches ws_1 [not_found]")
         #expect(Self.notices(failure) == ["Move did not apply."])
-        #expect(failure.notice(title: nil) == nil, "a refusal with no change to name goes to the log only")
+        #expect(failure.notice(title: nil) == "That did not apply.", "a refusal is never silent, and never the daemon's text")
     }
 
     @Test func aReasonInThePersonsWordsShows() {

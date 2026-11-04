@@ -32,7 +32,7 @@ extension ActionWorkFailure {
         self.init("\(label): \(error)", mayHaveApplied: daemonError?.isMissedDeadline == true,
                   terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
         // What a person reads (`notice(title:)`): never the daemon's text, the command label or an op name. A missed
-        // deadline or a dropped connection shows nothing; the store's echo or the reconnect shows what the daemon holds.
+        // deadline shows nothing (the store's echo shows what the daemon holds); a refusal or a lost connection, only "did not apply".
         if cause == .text { cause = daemonError?.isLostConnection == true ? .connection : .daemon }
         // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
         if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }

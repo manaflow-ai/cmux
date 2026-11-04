@@ -4,7 +4,7 @@ import CmuxNextDaemonService
 import Testing
 
 /// A daemon intent's failure as the sidebar reports it (`ActionRegistry.reportFailure`, the "Move" of a drag): a missed
-/// deadline or a lost connection shows nothing, a daemon refusal shows only that the move did not apply, and no notice
+/// deadline shows nothing, a daemon refusal or a lost connection shows only that the move did not apply, and no notice
 /// names the command, the op or a deadline (Leo, 2026-11-04, on "Move did not apply: set-personal-workspace: timed out:
 /// workspace.place (no reply within 2.0 seconds)": "did you encounter this? i dont like chatty unactionable toasts").
 @MainActor
@@ -21,10 +21,10 @@ import Testing
         #expect(Self.notices(.timedOut("workspace.place (no reply within 2.0 seconds)")).isEmpty)
     }
 
-    @Test func aLostConnectionShowsNoNotice() {
-        #expect(Self.notices(.notConnected).isEmpty)
-        #expect(Self.notices(.connectionClosed(reason: "eof")).isEmpty)
-        #expect(Self.notices(.daemonShutdown).isEmpty)
+    @Test func aLostConnectionSaysOnlyThatTheMoveDidNotApply() {
+        #expect(Self.notices(.notConnected) == ["Move did not apply."])
+        #expect(Self.notices(.connectionClosed(reason: "eof")) == ["Move did not apply."])
+        #expect(Self.notices(.daemonShutdown) == ["Move did not apply."])
     }
 
     @Test func aDaemonRefusalShowsOnlyThatTheMoveDidNotApply() {
