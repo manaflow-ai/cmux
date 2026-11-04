@@ -9,9 +9,9 @@ public nonisolated final class FocusInput {
     let handle: OpaquePointer
     private var windowsOpened: UInt64 = 0
 
-    /// A router whose key lanes are bounded by `memory`, the machine's physical memory in bytes.
-    public init(memory: UInt64 = ProcessInfo.processInfo.physicalMemory) {
-        handle = cmux_input_new(memory)
+    /// A router whose key lanes are bounded by `memory` in bytes (nil: this Mac's physical memory).
+    public init(memory: UInt64? = nil) {
+        handle = cmux_input_new(memory ?? ProcessInfo.processInfo.physicalMemory)
     }
 
     deinit {
