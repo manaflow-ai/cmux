@@ -56,6 +56,9 @@ FAKE_LOG = r'''#!/usr/bin/env python3
 import sys
 assert sys.argv[1] == "show", sys.argv
 assert "cloud.link" in sys.argv[sys.argv.index("--predicate") + 1]
+import re
+assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d", sys.argv[sys.argv.index("--start") + 1]), sys.argv
+assert "--last" not in sys.argv, sys.argv
 print("2026-11-04 11:31:02.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.link] legacy connect m-1: daemon start")
 print("2026-11-04 11:31:03.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.hub] sent caller-context-7f3a")
 print("2026-11-04 11:31:04.1 Df cmux[1:2] [com.cmuxterm.app.next:cloud.hub] token=abcdef123456")

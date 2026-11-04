@@ -17,6 +17,7 @@ run demonstrates that the agent on the Cloud machine drove its browser and read 
 Nothing here reads the credentials file; the app does.
 """
 import argparse
+import collections
 import hashlib
 import json
 import os
@@ -24,6 +25,7 @@ import re
 import secrets
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -153,23 +155,32 @@ EVIDENCE_SCAN = re.compile(  # the "Check the evidence" step's grep in cloud-cha
 )
 
 
-def app_link_log(since: float, keep: int = 300) -> dict:
-    minutes = int((time.monotonic() - since) / 60) + 2
+def app_link_log(since: str, keep: int = 300) -> dict:
+    """The link lines logged from `since` (local "YYYY-MM-DD HH:MM:SS", the chat's start) on, read
+    as they stream so only the last `keep` are held, and stopped after 180 s."""
     try:
-        done = subprocess.run([LOG_TOOL, "show", "--style", "compact", "--last", f"{minutes}m",
-                               "--predicate", LINK_LOG_PREDICATE], capture_output=True, text=True, timeout=180)
-    except (OSError, subprocess.TimeoutExpired) as error:
+        proc = subprocess.Popen([LOG_TOOL, "show", "--style", "compact", "--start", since,
+                                 "--predicate", LINK_LOG_PREDICATE],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, errors="replace")
+    except OSError as error:
         return {"unavailable": clean(str(error), 300)}
-    lines, left_out = [], 0
-    for line in done.stdout.splitlines():
-        for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
-            if prompt:
-                line = line.replace(prompt, "[prompt]")
-        if EVIDENCE_SCAN.search(line):
-            left_out += 1
-        elif line.strip():
-            lines.append(clean(line, 400))
-    return {"exit": done.returncode, "line_count": len(lines), "left_out": left_out, "lines": lines[-keep:]}
+    timer = threading.Timer(180, proc.kill)
+    timer.start()
+    lines, line_count, left_out = collections.deque(maxlen=keep), 0, 0
+    try:
+        for line in proc.stdout:
+            for prompt in (BROWSER_PROOF_PROMPT, args.prompt):
+                if prompt:
+                    line = line.replace(prompt, "[prompt]")
+            if EVIDENCE_SCAN.search(line):
+                left_out += 1
+            elif line.strip():
+                line_count += 1
+                lines.append(clean(line, 400))
+    finally:
+        timer.cancel()
+        code = proc.wait()
+    return {"exit": code, "line_count": line_count, "left_out": left_out, "lines": list(lines)}
 
 
 def listed() -> tuple[int, str, str, dict]:
@@ -285,6 +296,7 @@ if code != 0:
 # name, and the machine can be found for cleanup by that name when no answer named its id.
 # The whole step has 30 minutes: sign-in (at most ~5), pending retries (10) and the last wait (10).
 chat_started = time.monotonic()
+chat_started_at = time.strftime("%Y-%m-%d %H:%M:%S")
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
     code, out, err = cmux("cloud", "start-chat", "--prompt", BROWSER_PROOF_PROMPT, "--agent", args.agent,
@@ -305,7 +317,7 @@ record("cloud start-chat", code, "", failure_text(err) if code != 0 else "", rep
        browser_proof={"url": BROWSER_PROOF_URL, "marker": BROWSER_PROOF_MARKER,
                       "reply_observed": bool(reply_text), "reply_matches": browser_marker, "tool_calls": tool_calls,
                       "tool_call_observed": browser_tools},
-       **({"app_link_log": app_link_log(chat_started)} if code != 0 else {}))
+       **({"app_link_log": app_link_log(chat_started_at)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = parsed(err).get("details") or {}
