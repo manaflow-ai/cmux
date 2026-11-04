@@ -135,14 +135,17 @@
    shared portal keeps it above the composer's glass, so its own glass frosts the pills behind it. */
 .acpmux-composer-plus .acpmux-menu{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);scrollbar-gutter:stable}
 .acpmux-menu.acpmux-composer-plus{--popup-scroll-cap:360px;width:min(340px,calc(100vw - 16px));min-width:0;max-height:min(360px,50vh);scrollbar-gutter:stable}
-/* WebKit treats any CSS mask on this surface as part of hit testing, including an opaque mask.
-   Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
-   four row edges) by moving the visible edge fade onto pointer-transparent overlays. */
+/* Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
+   four row edges) by leaving WebKit's hit-tested mask channel off and moving the visible edge fade
+   onto pointer-transparent overlays. The unprefixed mask remains for the shared fade contract. */
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
   /* Keep a computed mask for the shared edge-fade contract, but make the mask fully opaque.
      WebKit includes mask alpha in hit testing; the pointer-transparent sticky overlays below
      provide the visible fade without making a row's trailing edge unpressable. */
-  -webkit-mask-image:linear-gradient(#000,#000);
+  /* Keep the unprefixed value observable for the shared fade contract. WebKit's prefixed mask
+     participates in hit testing, so leave that channel disabled and let the overlays paint the
+     edge treatment without stealing a row's press. */
+  -webkit-mask-image:none;
   mask-image:linear-gradient(#000,#000);
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
