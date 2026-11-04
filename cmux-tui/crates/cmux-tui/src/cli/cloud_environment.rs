@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use cmux_cloud_environment::{Environment, Resolver};
+use cmux_json::JsonSet as _;
 use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -82,11 +83,12 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     Some(match run(command, &global) {
         Ok(value) => match global.output {
             OutputMode::Human => {
-                println!("{}", value["name"].as_str().unwrap_or("unknown"));
-                if value["restart_required"] == true {
+                let flag = |key: &str| value.get(key).and_then(Value::as_bool) == Some(true);
+                println!("{}", value.get("name").and_then(Value::as_str).unwrap_or("unknown"));
+                if flag("restart_required") {
                     eprintln!(
                         "{}",
-                        if value["restart_scheduled"] == true {
+                        if flag("restart_scheduled") {
                             "The app is restarting. Sign in to Cloud again."
                         } else {
                             "Restart this app and sign in to Cloud again to apply the selection."
@@ -123,9 +125,9 @@ fn run(command: Command, global: &GlobalArgs) -> Result<Value, String> {
     let changed = switching
         && previous.is_none_or(|previous| previous.auth_namespace != selection.auth_namespace);
     let mut value = serde_json::to_value(selection).map_err(|error| error.to_string())?;
-    value["restart_required"] = Value::Bool(scheduled || changed);
-    value["sign_in_required"] = Value::Bool(scheduled || changed);
-    value["restart_scheduled"] = Value::Bool(scheduled);
+    value.set("restart_required", Value::Bool(scheduled || changed));
+    value.set("sign_in_required", Value::Bool(scheduled || changed));
+    value.set("restart_scheduled", Value::Bool(scheduled));
     Ok(value)
 }
 
@@ -213,6 +215,35 @@ mod tests {
             &["set", "preview-../../prod"],
         ] {
             assert!(parse(&words(args)).is_err(), "{args:?}");
+        }
+    }
+
+    /// The `cloud env` lines of `cmux cloud --help` parse here, each named environment of
+    /// `set`'s `a|b|c` alternatives included.
+    #[test]
+    fn the_help_env_lines_parse() {
+        for japanese in [false, true] {
+            let help = crate::cli::cloud_help::overview(japanese);
+            let lines = help
+                .lines()
+                .filter_map(|line| line.trim().strip_prefix("cmux cloud env "))
+                .collect::<Vec<_>>();
+            assert_eq!(lines.len(), 2, "{lines:?}");
+            for line in lines {
+                let line = line.trim_end_matches(" --json");
+                let (verb, names) = line.split_once(' ').unwrap_or((line, ""));
+                if names.is_empty() {
+                    assert_eq!(parse(&words(&[verb])).unwrap(), Command::Get, "{line}");
+                    continue;
+                }
+                for name in names.split('|') {
+                    let name = if name == "preview-N" { "preview-7" } else { name };
+                    assert!(
+                        matches!(parse(&words(&[verb, name])), Ok(Command::Set(_))),
+                        "{line}: {name}"
+                    );
+                }
+            }
         }
     }
 

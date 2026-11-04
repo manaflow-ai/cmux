@@ -90,6 +90,8 @@ public enum CloudStrings {
         String(localized: "cloud.upgrade.required", defaultValue: "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing.", table: "Cloud", bundle: .module)
     }
     public static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
+    /// The create card's switch: creates the machine and stops asking (`cloud.agentsStartWithoutAsking` back on).
+    public static var createStopAsking: String { String(localized: "cloud.create.request.stopAsking", defaultValue: "Don't Ask Again", table: "Cloud", bundle: .module) }
     nonisolated public static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
     }

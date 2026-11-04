@@ -26,8 +26,9 @@ import argparse, base64, glob, json, os, plistlib, subprocess, sys, tempfile, ti
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_cli_storm import Client  # noqa: E402
 
-PAGE = "data:text/html," + urllib.parse.quote("<title>start</title><script>document.title='js-ran-'+(6*7)</script>"
-                                       "<h1 style='font:48px sans-serif'>cmux helper check: JavaScript ran</h1>")
+# openBrowser takes http(s) and file URLs, not data: URLs ("is not a URL cmux can open").
+PAGE_HTML = ("<!doctype html><title>start</title><script>document.title='js-ran-'+(6*7)</script>"
+             "<h1 style='font:48px sans-serif'>cmux helper check: JavaScript ran</h1>")
 FRAME = (40, 40, 1200, 800)
 
 
@@ -97,13 +98,17 @@ def main():
     opts = ap.parse_args()
     app = os.path.realpath(opts.app)
     os.makedirs(opts.out, exist_ok=True)
+    page_path = os.path.join(opts.out, "page.html")
+    with open(page_path, "w") as f:
+        f.write(PAGE_HTML)
+    page = "file://" + urllib.parse.quote(page_path)
     fw, plain = helpers(app)
     res = {"app": app, "release_signing": opts.release_signing, "checks": {}}
     if opts.release_signing:
         res["plain_helper_hardened"] = release_sign(plain, opts.out)
 
-    exe_dir = os.path.join(app, "Contents", "MacOS")
-    exe = os.path.join(exe_dir, sorted(os.listdir(exe_dir))[0])
+    with open(os.path.join(app, "Contents", "Info.plist"), "rb") as f:
+        exe = os.path.join(app, "Contents", "MacOS", plistlib.load(f)["CFBundleExecutable"])
     sock = f"/tmp/cmux-debug-{opts.tag}.sock"
     if os.path.exists(sock):
         os.unlink(sock)
@@ -121,31 +126,64 @@ def main():
             if time.monotonic() - t0 > 180 or proc.poll() is not None:
                 raise SystemExit(f"no socket {sock} (exit {proc.poll()})")
             time.sleep(0.2)
-        time.sleep(3)
-        reply = Client(sock).call("action.run", {"action": "openBrowser.chromium", "args": {"url": PAGE},
-                                                 "origin": "script"})
-        tab = ((reply.get("result") or {}).get("created") or [None])[0]
-        res["tab"] = tab
-        title, t1 = None, time.monotonic()
-        while time.monotonic() - t1 < 30:
-            r = Client(sock).call("browser.page.eval", {"tab": tab, "script": "document.title"})
-            v = (r.get("result") or {}).get("value") if isinstance(r, dict) else None
-            if isinstance(v, str) and v.startswith("js-ran-"):
-                title = v
-                break
-            time.sleep(0.5)
+        def call(method, params=None):
+            try:
+                return Client(sock).call(method, params or {})
+            except (OSError, ValueError) as error:
+                return {"ok": False, "error": str(error)}
+
+        def rpc(method, params=None):
+            reply = call(method, params)
+            return (reply.get("result") or {}) if isinstance(reply, dict) and reply.get("ok") else {}
+
+        def focused_pane():
+            panes = [p for w in (rpc("debug.surfaces").get("windows") or []) for p in w.get("panes", [])]
+            return next((p for p in panes if p.get("focused")), None)
+
+        def wait_for(predicate, seconds):
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                value = predicate()
+                if value:
+                    return value
+                time.sleep(0.5)
+            return None
+
+        # A fresh profile opens on Home (first-run import or Chief's chat), where a browser cannot
+        # open: a focused terminal tab gives the Chromium tab a pane, as cef-tab-bench.py does.
+        wait_for(lambda: rpc("debug.windows").get("windows"), 60)
+        res["new_tab_reply"] = call("action.run", {"action": "newTab", "args": {"name": "cef-helper-check"},
+                                                   "focus": True, "origin": "script"})
+        res["terminal_pane"] = bool(wait_for(lambda: (focused_pane() or {}).get("kind") == "terminal", 60))
+        time.sleep(1)  # test harness: the shell prompt draws before the next tab opens
+        res["open_reply"] = call("action.run", {"action": "openBrowser.chromium", "args": {"url": page},
+                                                "focus": True, "origin": "script"})
+
+        def title_ran():
+            value = rpc("browser.page.eval", {"script": "document.title"}).get("value")
+            return value if isinstance(value, str) and value.startswith("js-ran-") else None
+
+        title = wait_for(title_ran, 30)
+        if not title:
+            # cef-tab-bench.py's path: the app's own new-browser command in the focused pane.
+            res["bench_create_reply"] = call("debug.new_tab", {"action": "bench_create", "command": "new_browser",
+                                                               "run": "openBrowser", "url": page})
+            title = wait_for(title_ran, 45)
+        res["focused_kind"] = (focused_pane() or {}).get("kind")
         res["title"] = title
         time.sleep(opts.settle)  # renderers that die do so ~0.6 s after launch; let any crash loop show
         rows = [(pid, kind_of(cmd), cmd) for pid, cmd in children(proc.pid)]
         renderer_suffix = " Helper (Renderer).app/Contents/MacOS/"
-        gpu_suffix = " Helper (GPU).app/Contents/MacOS/"
+        # Chromium 156 (gpu_process_host.cc) starts the GPU process from the " (GPU)" helper only when SwiftShader
+        # is allowed, and from the plain helper otherwise (the default). Both are right; the Renderer helper is not.
+        gpu_helpers = (" Helper.app/Contents/MacOS/", " Helper (GPU).app/Contents/MacOS/")
         res["processes"] = [{"pid": p, "type": k, "exe": c.split(" --")[0]} for p, k, c in rows if k]
         renderers = [r for r in res["processes"] if r["type"] == "renderer"]
         gpus = [r for r in res["processes"] if r["type"] == "gpu-process"]
         c = res["checks"]
         c["renderer_running"] = bool(renderers)
         c["renderers_use_renderer_helper"] = bool(renderers) and all(renderer_suffix in r["exe"] for r in renderers)
-        c["gpu_uses_gpu_helper"] = all(gpu_suffix in r["exe"] for r in gpus)
+        c["gpu_uses_plain_or_gpu_helper"] = all(any(h in r["exe"] for h in gpu_helpers) for r in gpus)
         c["javascript_ran"] = title == "js-ran-42"
         log_hits = 0
         for log in glob.glob(os.path.join(home, "Library/Application Support/*", "Chromium", "cef.log")):

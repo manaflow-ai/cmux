@@ -204,7 +204,7 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     for phrase in [
         "Full access",
         "never ask them to allow",
-        "decide, say why",
+        "Decide, say why",
         "never widens",
         "product taste",
     ] {
