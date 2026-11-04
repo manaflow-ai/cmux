@@ -256,7 +256,8 @@
       "aliases": ["share sheet", "invite people", "share with guest", "guest link", "chat invites"],
       "paths": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteSheet.swift",
-        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/AgentShareInviteRowView.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteCard.swift",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextNotifications/Share/AgentShareInviteRowView.swift",
         "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentShareInviteSheetModel.swift",
         "webviews/src/agent-session/guest/"
       ]
