@@ -1,0 +1,1177 @@
+#if os(macOS)
+import AppKit
+import CmuxConversationCore
+import CmuxConversationGeometry
+
+/// A flipped, layer-backed view so layouts share UIKit's top-left origin.
+class MacFlippedView: NSView {
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+}
+
+/// A non-editing label that draws attributed text.
+@MainActor
+func makeMacLabel() -> NSTextField {
+    let label = NSTextField(labelWithString: "")
+    label.isSelectable = false
+    label.drawsBackground = false
+    label.isBordered = false
+    label.lineBreakMode = .byWordWrapping
+    label.maximumNumberOfLines = 0
+    label.cell?.wraps = true
+    return label
+}
+
+/// Draws attributed text with the same metrics `boundingRect` measured, so
+/// bubbles size exactly (an NSTextField would add its own padding).
+final class MacMeasuredTextView: MacFlippedView {
+    var attributedText = NSAttributedString() {
+        didSet {
+            needsDisplay = true
+            needsLayout = true
+        }
+    }
+    /// Keys explode and jitter randomness to the message.
+    var effectSeed: UInt64 = 0
+    /// Draws and loops text-effect glyphs, which `draw` leaves clear.
+    private let effectLayer = ConversationTextEffectLayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        wantsLayer = true
+        layer?.addSublayer(effectLayer)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(reduceMotionChanged), name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        refreshEffects(restart: false)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshEffects(restart: true)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        refreshEffects(restart: true)
+    }
+
+    @objc private func reduceMotionChanged() {
+        refreshEffects(restart: true)
+    }
+
+    private func refreshEffects(restart: Bool) {
+        effectLayer.frame = bounds
+        guard attributedText.length > 0, bounds.width > 0 else {
+            effectLayer.clear()
+            return
+        }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            effectLayer.update(
+                text: attributedText,
+                textSize: bounds.size,
+                scale: window?.backingScaleFactor ?? 2,
+                animated: !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+                seed: effectSeed,
+                restart: restart
+            )
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        attributedText.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading])
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+final class MacBubbleLayer: CAShapeLayer {
+    func update(rect: CGRect, side: ConversationBubbleGeometry.Side, tail: Bool) {
+        let t = MacConversationTheme.self
+        path = ConversationBubbleGeometry.path(
+            in: rect, side: side, tail: tail,
+            radius: t.bubbleCornerRadius, tailWidth: t.tailWidth, tailDrop: t.tailDrop, style: .macOS
+        )
+    }
+}
+
+final class MacAvatarView: MacFlippedView {
+    private let gradient = CAGradientLayer()
+    private let label = makeMacLabel()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layer?.addSublayer(gradient)
+        gradient.colors = [
+            NSColor(srgbRed: 0.66, green: 0.69, blue: 0.74, alpha: 1).cgColor,
+            NSColor(srgbRed: 0.53, green: 0.56, blue: 0.62, alpha: 1).cgColor,
+        ]
+        label.alignment = .center
+        label.textColor = .white
+        label.maximumNumberOfLines = 1
+        label.lineBreakMode = .byClipping
+        label.cell?.wraps = false
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    var initials = "" { didSet { label.stringValue = initials } }
+
+    /// Tints the monogram with a participant color (Messages derives one per contact).
+    var colorHex: String? {
+        didSet {
+            guard let colorHex, let base = NSColor(hexString: colorHex) else {
+                gradient.colors = [
+                    NSColor(srgbRed: 0.66, green: 0.69, blue: 0.74, alpha: 1).cgColor,
+                    NSColor(srgbRed: 0.53, green: 0.56, blue: 0.62, alpha: 1).cgColor,
+                ]
+                return
+            }
+            // Messages monograms are muted contact tints, not saturated colors.
+            let muted = base.blended(withFraction: 0.6, of: NSColor(srgbRed: 0.45, green: 0.47, blue: 0.5, alpha: 1))!
+            gradient.colors = [muted.blended(withFraction: 0.15, of: .white)!.cgColor, muted.blended(withFraction: 0.2, of: .black)!.cgColor]
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.width / 2
+        layer?.masksToBounds = true
+        gradient.frame = bounds
+        label.font = .systemFont(ofSize: bounds.width * 0.4, weight: .semibold)
+        let h = label.font!.boundingRectForFont.height
+        label.frame = CGRect(x: -4, y: (bounds.height - h) / 2 + 1, width: bounds.width + 8, height: h)
+    }
+}
+
+extension NSColor {
+    convenience init?(hexString: String) {
+        var value: UInt64 = 0
+        guard Scanner(string: hexString.trimmingCharacters(in: CharacterSet(charactersIn: "#"))).scanHexInt64(&value) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255, blue: CGFloat(value & 0xFF) / 255, alpha: 1)
+    }
+}
+
+enum MacTapbackGlyph {
+    static func text(_ reaction: ConversationReaction) -> NSAttributedString {
+        switch reaction {
+        case .heart: return emoji("\u{1FA77}")
+        case .thumbsup: return emoji("\u{1F44D}")
+        case .thumbsdown: return emoji("\u{1F44E}")
+        case .exclamation: return emoji("\u{203C}\u{FE0F}")
+        case .emoji(let value): return emoji(value)
+        case .haha:
+            return NSAttributedString(string: "HA\nHA", attributes: [
+                .font: NSFont.systemFont(ofSize: 7, weight: .black),
+                .foregroundColor: NSColor(srgbRed: 0.18, green: 0.62, blue: 1, alpha: 1),
+                .paragraphStyle: centered(lineHeight: 7),
+            ])
+        case .question:
+            return NSAttributedString(string: "?", attributes: [
+                .font: NSFont.systemFont(ofSize: 15, weight: .black),
+                .foregroundColor: NSColor(srgbRed: 0.62, green: 0.45, blue: 1, alpha: 1),
+                .paragraphStyle: centered(lineHeight: 0),
+            ])
+        }
+    }
+
+    private static func emoji(_ value: String) -> NSAttributedString {
+        NSAttributedString(string: value, attributes: [.font: NSFont.systemFont(ofSize: 13), .paragraphStyle: centered(lineHeight: 0)])
+    }
+
+    private static func centered(lineHeight: CGFloat) -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        if lineHeight > 0 {
+            style.minimumLineHeight = lineHeight
+            style.maximumLineHeight = lineHeight
+        }
+        return style
+    }
+}
+
+/// One message row: sender name, reply quote, images, bubble or large emoji,
+/// tapback badge, avatar and footers, placed from a `MacMessageLayout`.
+final class MacMessageRowView: MacFlippedView {
+    let bubble = MacBubbleLayer()
+    let textLabel = MacBubbleTextView()
+    let linkCard = MacLinkPreviewView()
+    let emojiLabel = makeMacLabel()
+    let senderLabel = makeMacLabel()
+    let quoteBubble = MacBubbleLayer()
+    let quoteLabel = makeMacLabel()
+    let threadLine = CAShapeLayer()
+    let avatar = MacAvatarView()
+    let quoteAvatar = MacAvatarView()
+    let quoteThumb = NSImageView()
+    private var quoteThumbTask: Task<Void, Never>?
+    let badge = MacFlippedView()
+    private var badgeCircles: [MacFlippedView] = []
+    let editedLabel = makeMacLabel()
+    let repliesLabel = makeMacLabel()
+    let translationLabel = makeMacLabel()
+    let footerLabel = makeMacLabel()
+    let failedBadge = NSImageView()
+    /// Messages' hover control beside an image: a 29 pt glass circle 12 pt
+    /// outside the image's outer edge, vertically centered, that saves it.
+    let saveButton = MacGlassCircleButton(
+        symbol: "square.and.arrow.down",
+        label: String(localized: "conversation.image.save", defaultValue: "Save Image", bundle: .module),
+        identifier: "conversation.image.save"
+    )
+    private var hoverArea: NSTrackingArea?
+    /// Poll card pieces, added on first use (MacConversationPolls.swift).
+    let pollCard = MacPollCardView()
+    let addChoiceLabel = makeMacLabel()
+    let pollFailedLabel = makeMacLabel()
+    private var imageViews: [NSImageView] = []
+    private var imageTasks: [Task<Void, Never>] = []
+    private(set) var model: MacMessageRowModel?
+    private(set) var rowLayout: MacMessageLayout?
+    /// Audio messages (created on first use; see MacConversationAudio).
+    weak var audioDelegate: (any MacAudioMessageDelegate)?
+    var audioViews: MacAudioRowViews?
+    private var lastFooterRowID: String?
+    /// Send-effect state (see MacConversationEffects).
+    let replayButton = NSButton()
+    var effectLayer: CALayer?
+    var inkLayer: CAEmitterLayer?
+    var inkRowID: String?
+    var isInkRevealed = false
+    /// How the incoming bubble fills over a conversation background; set by
+    /// the transcript before `configure`.
+    var backdropStyle: MacBubbleBackdrop = .none
+    /// The incoming bubble's material over a background, masked to its shape.
+    private var bubbleMaterial: NSVisualEffectView?
+    private var materialPath: CGPath?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        layer?.addSublayer(threadLine)
+        threadLine.fillColor = nil
+        threadLine.lineWidth = 2
+        threadLine.lineCap = .round
+        layer?.addSublayer(quoteBubble)
+        quoteBubble.lineWidth = 1
+        layer?.addSublayer(bubble)
+        addSubview(textLabel)
+        addSubview(linkCard)
+        translationLabel.setAccessibilityIdentifier("conversation.message.translation")
+        for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, translationLabel, footerLabel] {
+            addSubview(label)
+        }
+        senderLabel.font = MacConversationTheme.senderNameFont
+        senderLabel.textColor = MacConversationTheme.secondaryText
+        quoteLabel.font = .systemFont(ofSize: 10)
+        quoteLabel.maximumNumberOfLines = 2
+        quoteLabel.lineBreakMode = .byTruncatingTail
+        editedLabel.font = MacConversationTheme.editedFont
+        editedLabel.textColor = .systemBlue
+        repliesLabel.font = MacConversationTheme.editedFont
+        repliesLabel.textColor = .systemBlue
+        footerLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        addSubview(avatar)
+        addSubview(quoteAvatar)
+        saveButton.target = self
+        saveButton.action = #selector(saveImage)
+        addSubview(saveButton)
+        quoteThumb.imageScaling = .scaleProportionallyUpOrDown
+        quoteThumb.wantsLayer = true
+        quoteThumb.layer?.cornerRadius = 5
+        quoteThumb.layer?.masksToBounds = true
+        quoteThumb.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        addSubview(quoteThumb)
+        addSubview(badge)
+        failedBadge.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
+        failedBadge.contentTintColor = .systemRed
+        failedBadge.symbolConfiguration = .init(pointSize: 16, weight: .regular)
+        addSubview(failedBadge)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        installEffectViews()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(_ model: MacMessageRowModel, layout: MacMessageLayout, text: NSAttributedString) {
+        let sameRow = self.model?.rowID == model.rowID
+        let hadFooter = self.model?.footer ?? .none
+        let wasScheduled = sameRow && self.model?.message.isScheduled == true
+        self.model = model
+        rowLayout = layout
+        let side: ConversationBubbleGeometry.Side = model.isOutgoing ? .trailing : .leading
+
+        if let frame = layout.bubbleFrame {
+            bubble.isHidden = false
+            bubble.update(rect: frame, side: side, tail: model.showsTail && !layout.linkCardIsLast)
+            bubble.fillColor = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: self)
+            updateBubbleMaterial(incoming: !model.isOutgoing)
+            bubble.opacity = model.footer == .notDelivered && !model.message.isScheduled ? 0.85 : 1
+            textLabel.isHidden = layout.textFrame == nil
+            textLabel.isOutgoing = model.isOutgoing
+            textLabel.effectSeed = ConversationTextEffectMotion.seed(model.rowID)
+            textLabel.attributedText = text
+            if let textFrame = layout.textFrame { textLabel.frame = textFrame }
+            applySendLaterStyle(scheduled: model.message.isScheduled, wasScheduled: wasScheduled, text: text)
+        } else {
+            bubble.isHidden = true
+            textLabel.isHidden = true
+            bubbleMaterial?.isHidden = true
+        }
+
+        if let frame = layout.linkCardFrame, let card = layout.linkCard, let preview = model.message.linkPreview {
+            let tailed = model.showsTail && layout.linkCardIsLast
+            linkCard.isHidden = false
+            linkCard.frame = tailed ? CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + MacConversationTheme.tailDrop) : frame
+            linkCard.configure(preview: preview, layout: card, side: side, tail: tailed)
+        } else {
+            linkCard.isHidden = true
+        }
+
+        emojiLabel.isHidden = layout.emojiFrame == nil
+        if let frame = layout.emojiFrame {
+            emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize(count: model.message.text.filter { !$0.isWhitespace }.count))
+            emojiLabel.stringValue = model.message.text
+            emojiLabel.frame = frame
+        }
+
+        senderLabel.isHidden = layout.senderNameFrame == nil
+        if let frame = layout.senderNameFrame {
+            senderLabel.stringValue = model.senderName ?? ""
+            senderLabel.frame = frame
+        }
+
+        if let quote = model.replyQuote, let frame = layout.quoteFrame, let textFrame = layout.quoteTextFrame {
+            quoteBubble.isHidden = false
+            quoteBubble.update(rect: frame, side: quote.isOutgoing ? .trailing : .leading, tail: true)
+            quoteBubble.fillColor = nil
+            quoteBubble.strokeColor = resolved(quote.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.quoteStroke, in: self)
+            quoteLabel.isHidden = false
+            var attributes = MacConversationTheme.quoteAttributes
+            (attributes[.paragraphStyle] as? NSParagraphStyle).map { style in
+                let truncating = style.mutableCopy() as! NSMutableParagraphStyle
+                truncating.lineBreakMode = .byTruncatingTail
+                attributes[.paragraphStyle] = truncating
+            }
+            attributes[.foregroundColor] = quote.isOutgoing ? NSColor.systemBlue : MacConversationTheme.secondaryText
+            quoteLabel.attributedStringValue = NSAttributedString(string: quote.text, attributes: attributes)
+            quoteLabel.textColor = quote.isOutgoing ? .systemBlue : MacConversationTheme.secondaryText
+            // NSTextField insets its text ~2 pt per side; without this a short
+            // quote (one emoji) measures exactly and truncates to nothing.
+            quoteLabel.frame = textFrame.insetBy(dx: -3, dy: 0)
+        } else {
+            quoteBubble.isHidden = true
+            quoteLabel.isHidden = true
+        }
+        quoteThumbTask?.cancel()
+        quoteThumb.isHidden = layout.quoteThumbFrame == nil
+        if let frame = layout.quoteThumbFrame, let attachment = model.replyQuote?.thumbnail {
+            quoteThumb.frame = frame
+            if let cached = MacImageLoader.shared.cached(attachment) {
+                quoteThumb.image = cached
+            } else {
+                quoteThumb.image = nil
+                quoteThumbTask = Task { @MainActor [weak self] in
+                    let image = await MacImageLoader.shared.image(for: attachment)
+                    guard !Task.isCancelled else { return }
+                    self?.quoteThumb.image = image
+                }
+            }
+        }
+        quoteAvatar.isHidden = layout.quoteAvatarFrame == nil
+        if let frame = layout.quoteAvatarFrame, let quote = model.replyQuote {
+            quoteAvatar.frame = frame
+            quoteAvatar.initials = quote.senderInitials
+            quoteAvatar.colorHex = quote.senderColorHex
+        }
+        threadLine.path = layout.threadPath
+        threadLine.isHidden = layout.threadPath == nil
+        threadLine.strokeColor = resolved(MacConversationTheme.threadLine, in: self)
+
+        avatar.isHidden = layout.avatarFrame == nil
+        if let frame = layout.avatarFrame {
+            avatar.frame = frame
+            avatar.initials = model.senderInitials
+            avatar.colorHex = model.senderColorHex
+        }
+
+        configureBadge(model, layout: layout)
+        configureImages(model, layout: layout)
+        configurePoll(model, layout: layout)
+
+        editedLabel.isHidden = layout.editedFrame == nil
+        if let frame = layout.editedFrame {
+            editedLabel.stringValue = String(localized: "conversation.message.edited", defaultValue: "Edited", bundle: .module)
+            editedLabel.alignment = model.isOutgoing ? .right : .left
+            editedLabel.frame = frame
+        }
+        repliesLabel.isHidden = layout.repliesFrame == nil
+        if let frame = layout.repliesFrame {
+            repliesLabel.stringValue = model.message.replyCount == 1
+                ? String(localized: "conversation.message.oneReply", defaultValue: "1 Reply", bundle: .module)
+                : String(format: String(localized: "conversation.message.replies", defaultValue: "%d Replies", bundle: .module), model.message.replyCount)
+            repliesLabel.alignment = model.isOutgoing ? .right : .left
+            repliesLabel.frame = frame
+        }
+        translationLabel.isHidden = layout.translationFrame == nil
+        if let frame = layout.translationFrame, let caption = model.translation {
+            translationLabel.attributedStringValue = MacTranslationText.caption(caption, alignment: model.isOutgoing ? .right : .left)
+            translationLabel.frame = frame
+        }
+
+        switch model.footer {
+        case .none:
+            footerLabel.isHidden = true
+        case let .status(text):
+            footerLabel.isHidden = false
+            footerLabel.stringValue = text
+            footerLabel.textColor = MacConversationTheme.secondaryText
+        case .notDelivered:
+            footerLabel.isHidden = false
+            footerLabel.stringValue = model.message.isScheduled
+                ? String(localized: "conversation.sendLater.failed", defaultValue: "Your scheduled message will not send.", bundle: .module)
+                : String(localized: "conversation.status.notDelivered", defaultValue: "Not Delivered", bundle: .module)
+            footerLabel.textColor = .systemRed
+        }
+        if let frame = layout.footerFrame {
+            footerLabel.alignment = model.isOutgoing ? .right : .left
+            footerLabel.frame = frame
+        }
+        // A status landing on this row fades in.
+        if sameRow, hadFooter == .none, model.footer != .none {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.4
+            footerLabel.layer?.add(fade, forKey: "statusFade")
+        }
+        failedBadge.isHidden = layout.failedBadgeFrame == nil
+        if let frame = layout.failedBadgeFrame { failedBadge.frame = frame }
+
+        configureAudio(model, layout: layout)
+        toolTip = model.message.sentAt.formatted(date: .abbreviated, time: .shortened)
+        // The controller adds tapbacks (it knows reactor names) and actions;
+        // an audio message speaks its duration and transcript.
+        var spoken = model.message
+        spoken.reactions = []
+        if let audio = audioAccessibilityText { spoken.text = audio }
+        setAccessibilityLabel(ConversationAccessibilityText.messageLabel(spoken, isOutgoing: model.isOutgoing, senderName: model.senderName, reactorName: { _ in nil }))
+        setAccessibilityIdentifier("conversation.message.\(model.message.id)")
+        configureEffects(model, layout: layout)
+    }
+
+    /// Every distinct tapback gets its own circle; circles overlap by 45%,
+    /// newest in front, mine tinted blue.
+    private func configureBadge(_ model: MacMessageRowModel, layout: MacMessageLayout) {
+        guard let anchor = layout.reactionAnchor else {
+            badge.isHidden = true
+            return
+        }
+        badge.isHidden = false
+        let s = MacConversationTheme.reactionBadgeSize
+        let kinds = Array(model.reactionKinds.prefix(3))
+        let step = s * 0.55
+        let width = s + CGFloat(max(0, kinds.count - 1)) * step
+        let x = model.isOutgoing ? anchor.x - width + 9 : anchor.x - 9
+        badge.frame = CGRect(x: x, y: anchor.y - s + 10, width: width, height: s)
+        badge.layer?.backgroundColor = nil
+        while badgeCircles.count < kinds.count {
+            let circle = MacFlippedView()
+            let label = makeMacLabel()
+            label.maximumNumberOfLines = 2
+            circle.addSubview(label)
+            badge.addSubview(circle)
+            badgeCircles.append(circle)
+        }
+        let mine = model.myReactions
+        for (index, circle) in badgeCircles.enumerated() {
+            guard index < kinds.count else {
+                circle.isHidden = true
+                continue
+            }
+            circle.isHidden = false
+            // Leading circles sit behind; on outgoing rows the stack grows leftward.
+            let order = model.isOutgoing ? kinds.count - 1 - index : index
+            circle.frame = CGRect(x: CGFloat(order) * step, y: 0, width: s, height: s)
+            circle.layer?.cornerRadius = s / 2
+            circle.layer?.borderWidth = 1.5
+            circle.layer?.borderColor = resolved(MacConversationTheme.background, in: self)
+            circle.layer?.backgroundColor = resolved(mine.contains(kinds[index]) ? NSColor.systemBlue : MacConversationTheme.badgeFill, in: self)
+            circle.layer?.zPosition = CGFloat(index)
+            guard let label = circle.subviews.first as? NSTextField else { continue }
+            let text = MacTapbackGlyph.text(kinds[index])
+            label.attributedStringValue = text
+            let h = text.boundingRect(with: CGSize(width: s, height: s), options: [.usesLineFragmentOrigin]).height
+            label.frame = CGRect(x: 0, y: (s - ceil(h)) / 2, width: s, height: ceil(h) + 1)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self)
+        addTrackingArea(area)
+        hoverArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        saveButton.isHidden = rowLayout?.imageFrames.isEmpty ?? true
+        setInkRevealed(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        saveButton.isHidden = true
+        setInkRevealed(false)
+    }
+
+    /// Opens the photo under `point` (row coordinates) in Quick Look.
+    func quickLookPhoto(at point: CGPoint) -> Bool {
+        guard let model,
+              let index = imageViews.indices.first(where: { !imageViews[$0].isHidden && imageViews[$0].frame.contains(point) }),
+              index < model.message.macImageAttachments.count, let image = imageViews[index].image else { return false }
+        MacPhotoQuickLook.shared.show(model.message.macImageAttachments[index], image: image, from: self, rect: imageViews[index].frame)
+        return true
+    }
+
+    @objc private func saveImage() {
+        // The button sits beside the last photo; save that one.
+        guard let attachment = model?.message.attachments.last(where: { $0.kind == .image }) else { return }
+        Task { @MainActor in
+            guard let image = await MacImageLoader.shared.image(for: attachment),
+                  let tiff = image.tiffRepresentation,
+                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]),
+                  let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
+            var url = downloads.appendingPathComponent("Image \(attachment.id.suffix(6)).png")
+            var copy = 1
+            while FileManager.default.fileExists(atPath: url.path) {
+                copy += 1
+                url = downloads.appendingPathComponent("Image \(attachment.id.suffix(6)) \(copy).png")
+            }
+            try? png.write(to: url)
+        }
+    }
+
+    private func placeSaveButton(_ model: MacMessageRowModel, layout: MacMessageLayout) {
+        guard let image = layout.imageFrames.last else {
+            saveButton.isHidden = true
+            return
+        }
+        let d: CGFloat = 29
+        let x = model.isOutgoing ? image.minX - 12 - d : image.maxX + 12
+        saveButton.frame = CGRect(x: x, y: image.midY - d / 2, width: d, height: d)
+    }
+
+    private func configureImages(_ model: MacMessageRowModel, layout: MacMessageLayout) {
+        placeSaveButton(model, layout: layout)
+        imageTasks.forEach { $0.cancel() }
+        imageTasks = []
+        while imageViews.count < layout.imageFrames.count {
+            let view = NSImageView()
+            view.imageScaling = .scaleProportionallyUpOrDown
+            view.wantsLayer = true
+            view.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+            addSubview(view, positioned: .below, relativeTo: badge)
+            imageViews.append(view)
+        }
+        for (index, view) in imageViews.enumerated() {
+            guard index < layout.imageFrames.count, index < model.message.macImageAttachments.count else {
+                view.isHidden = true
+                continue
+            }
+            view.isHidden = false
+            let frame = layout.imageFrames[index]
+            view.frame = frame
+            let tailed = model.showsTail && index == layout.imageFrames.count - 1 && model.message.text.isEmpty
+            let mask = CAShapeLayer()
+            mask.path = ConversationBubbleGeometry.path(
+                in: CGRect(origin: .zero, size: frame.size), side: model.isOutgoing ? .trailing : .leading, tail: tailed,
+                radius: MacConversationTheme.bubbleCornerRadius, tailWidth: MacConversationTheme.tailWidth, tailDrop: 0, style: .macOS
+            )
+            view.layer?.mask = mask
+            let attachment = model.message.macImageAttachments[index]
+            if let cached = MacImageLoader.shared.cached(attachment) {
+                view.image = cached
+                continue
+            }
+            let rowID = model.rowID
+            imageTasks.append(Task { @MainActor [weak self, weak view] in
+                let image = await MacImageLoader.shared.image(for: attachment)
+                guard let self, let view, self.model?.rowID == rowID else { return }
+                view.image = image
+            })
+        }
+    }
+
+    /// The bubble/content area, for hit testing and menus.
+    var contentFrame: CGRect { rowLayout?.contentFrame ?? bounds }
+
+    /// Re-applies the current model (a new appearance or backdrop style).
+    func refreshAppearance() {
+        guard let model, let rowLayout else { return }
+        configure(model, layout: rowLayout, text: textLabel.attributedText)
+        textLabel.needsDisplay = true
+    }
+
+    /// Over a background, Messages fills the incoming balloon with a material
+    /// (ChatKit `forcesMaterialBackground`): a blur of the background masked
+    /// to the bubble, with a light tint of the gray so it still reads as one.
+    /// Reduce Transparency keeps the opaque gray.
+    private func updateBubbleMaterial(incoming: Bool) {
+        guard incoming, backdropStyle == .material, let path = bubble.path, !bubble.isHidden else {
+            bubbleMaterial?.isHidden = true
+            return
+        }
+        let material: NSVisualEffectView
+        if let existing = bubbleMaterial {
+            material = existing
+        } else {
+            material = NSVisualEffectView()
+            material.blendingMode = .withinWindow
+            material.material = .popover
+            material.state = .active
+            addSubview(material, positioned: .below, relativeTo: subviews.first)
+            bubbleMaterial = material
+        }
+        let box = path.boundingBoxOfPath.integral
+        material.isHidden = false
+        material.frame = box
+        if materialPath != path {
+            materialPath = path
+            material.maskImage = NSImage(size: box.size, flipped: true) { _ in
+                guard let context = NSGraphicsContext.current?.cgContext else { return false }
+                context.translateBy(x: -box.minX, y: -box.minY)
+                context.addPath(path)
+                context.setFillColor(NSColor.black.cgColor)
+                context.fillPath()
+                return true
+            }
+        }
+        // The shape layer keeps a faint tint of the gray above the blur.
+        bubble.fillColor = resolved(MacConversationTheme.incomingBubble, in: self).copy(alpha: 0.35)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Resolved CGColors (bubble fills, strokes, badges) follow the new appearance now.
+        refreshAppearance()
+    }
+
+    private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.mass = 1
+        animation.stiffness = 240
+        animation.damping = 26
+        animation.duration = animation.settlingDuration
+        return animation
+    }
+
+    /// The send flight: the bubble starts at the composer field's frame and
+    /// width and springs to its slot; the text glides from the field's text.
+    func flyIn(fromField field: CGRect, text: CGRect) {
+        guard let rowLayout else { return }
+        let identity = NSValue(caTransform3D: CATransform3DIdentity)
+        if let frame = rowLayout.bubbleFrame, frame.width > 0, frame.height > 0 {
+            var start = CATransform3DMakeTranslation(-frame.minX, -frame.minY, 0)
+            start = CATransform3DConcat(start, CATransform3DMakeScale(field.width / frame.width, field.height / frame.height, 1))
+            start = CATransform3DConcat(start, CATransform3DMakeTranslation(field.minX, field.minY, 0))
+            bubble.add(spring("transform", from: NSValue(caTransform3D: start), to: identity), forKey: "flight")
+        }
+        if let target = rowLayout.textFrame {
+            let dx = text.minX - target.minX
+            let dy = text.minY + (min(text.height, field.height) - target.height) / 2 - target.minY
+            textLabel.layer?.add(spring("transform", from: NSValue(caTransform3D: CATransform3DMakeTranslation(dx, dy, 0)), to: identity), forKey: "flight")
+        }
+        let content = rowLayout.emojiFrame ?? rowLayout.imageFrames.first
+        if let content {
+            let shift = NSValue(caTransform3D: CATransform3DMakeTranslation(field.minX - content.minX, field.minY - content.minY, 0))
+            for view in [emojiLabel] + imageViews where !view.isHidden {
+                view.layer?.add(spring("transform", from: shift, to: identity), forKey: "flight")
+            }
+        }
+    }
+
+    /// A send failing or being retried: the bubble glides sideways to make
+    /// (or give back) room for the red badge, which pops in or fades out.
+    func animateFailedChange(fromContentMinX oldMinX: CGFloat, failed: Bool) {
+        guard let layer, let rowLayout else { return }
+        let dx = oldMinX - rowLayout.contentFrame.minX
+        if abs(dx) > 0.5 {
+            let slide = CASpringAnimation(keyPath: "transform.translation.x")
+            slide.fromValue = dx
+            slide.toValue = 0
+            slide.isAdditive = true
+            slide.damping = 26
+            slide.stiffness = 300
+            slide.mass = 1
+            slide.duration = slide.settlingDuration
+            layer.add(slide, forKey: "failedShift")
+        }
+        if failed, let badge = failedBadge.layer {
+            let pop = CABasicAnimation(keyPath: "transform.scale")
+            pop.fromValue = 0.3
+            pop.toValue = 1
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            let group = CAAnimationGroup()
+            group.animations = [pop, fade]
+            group.duration = 0.25
+            group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            badge.add(group, forKey: "failedPop")
+            // The row glides; the badge is born at its place.
+            if abs(dx) > 0.5, let slide = layer.animation(forKey: "failedShift") as? CASpringAnimation,
+               let counter = slide.copy() as? CASpringAnimation {
+                counter.fromValue = -dx
+                badge.add(counter, forKey: "failedHold")
+            }
+        }
+    }
+
+    /// An arrival fades in at its place (0.3 s) while the transcript scrolls
+    /// it into view, as ChatKit's transcript layout does; there is no scale.
+    func growIn() {
+        var targets: [CALayer] = [bubble]
+        for view in [textLabel, emojiLabel, badge] + imageViews where !view.isHidden {
+            if let layer = view.layer { targets.append(layer) }
+        }
+        for layer in targets {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.3
+            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(fade, forKey: "arriveFade")
+        }
+    }
+}
+
+@MainActor
+final class MacImageLoader {
+    static let shared = MacImageLoader()
+    private let cache = NSCache<NSString, NSImage>()
+
+    func cached(_ attachment: ConversationAttachment) -> NSImage? {
+        cache.object(forKey: attachment.id as NSString)
+    }
+
+    func image(for attachment: ConversationAttachment) async -> NSImage? {
+        if let cached = cached(attachment) { return cached }
+        let data: Data?
+        if let local = attachment.localData {
+            data = local
+        } else if let url = attachment.url {
+            data = try? await URLSession.shared.data(from: url).0
+        } else {
+            data = nil
+        }
+        guard let data, let image = NSImage(data: data) else { return nil }
+        cache.setObject(image, forKey: attachment.id as NSString)
+        return image
+    }
+}
+
+extension MacMessageRowView {
+    /// A scheduled message is a dashed outline with label-colored text; when
+    /// it is sent the same row fills in.
+    fileprivate func applySendLaterStyle(scheduled: Bool, wasScheduled: Bool, text: NSAttributedString) {
+        guard scheduled else {
+            bubble.strokeColor = nil
+            bubble.lineDashPattern = nil
+            if wasScheduled {
+                let fade = CABasicAnimation(keyPath: "fillColor")
+                fade.fromValue = NSColor.clear.cgColor
+                fade.toValue = bubble.fillColor
+                fade.duration = 0.3
+                fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                bubble.add(fade, forKey: "sendLaterFill")
+            }
+            return
+        }
+        bubble.fillColor = nil
+        bubble.strokeColor = resolved(MacSendLaterStyle.outline, in: self)
+        bubble.lineWidth = MacSendLaterStyle.outlineWidth
+        bubble.lineDashPattern = MacSendLaterStyle.dashPattern
+        let recolored = NSMutableAttributedString(attributedString: text)
+        recolored.addAttribute(.foregroundColor, value: NSColor.labelColor, range: NSRange(location: 0, length: recolored.length))
+        textLabel.attributedText = recolored
+    }
+}
+
+final class MacTimestampRowView: MacFlippedView {
+    let label = makeMacLabel()
+    static let height: CGFloat = 26
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.alignment = .center
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(date: Date) {
+        let calendar = Calendar.current
+        let day: String
+        if calendar.isDateInToday(date) {
+            day = String(localized: "conversation.timestamp.today", defaultValue: "Today", bundle: .module)
+        } else if calendar.isDateInYesterday(date) {
+            day = String(localized: "conversation.timestamp.yesterday", defaultValue: "Yesterday", bundle: .module)
+        } else {
+            day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
+        }
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let text = NSMutableAttributedString(string: day, attributes: [
+            .font: MacConversationTheme.timestampBoldFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ])
+        text.append(NSAttributedString(string: " " + date.formatted(date: .omitted, time: .shortened), attributes: [
+            .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ]))
+        label.attributedStringValue = text
+        needsLayout = true
+    }
+
+    /// A system line ("**You** unsent a message") in the timestamp's weights;
+    /// a failure ("(!) Not Unsent") is red and clickable.
+    func configure(notice: ConversationNotice) {
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
+        let regular: [NSAttributedString.Key: Any] = [
+            .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ]
+        let text = NSMutableAttributedString(string: notice.leading, attributes: regular)
+        text.append(NSAttributedString(string: notice.emphasis, attributes: [
+            .font: MacConversationTheme.timestampBoldFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
+        ]))
+        let parts = notice.trailingParts
+        text.append(NSAttributedString(string: parts.before, attributes: regular))
+        if let failure = notice.failure {
+            let red: [NSAttributedString.Key: Any] = [
+                .font: MacConversationTheme.timestampFont, .foregroundColor: NSColor.systemRed, .paragraphStyle: centered,
+            ]
+            if let range = failure.range(of: "(!)"),
+               let symbol = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)?
+                   .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: MacConversationTheme.timestampFont.pointSize, weight: .regular)
+                       .applying(NSImage.SymbolConfiguration(paletteColors: [.white, .systemRed]))) {
+                text.append(NSAttributedString(string: String(failure[..<range.lowerBound]), attributes: red))
+                let attachment = NSTextAttachment()
+                attachment.image = symbol
+                let icon = NSMutableAttributedString(attachment: attachment)
+                icon.addAttributes(red, range: NSRange(location: 0, length: icon.length))
+                text.append(icon)
+                text.append(NSAttributedString(string: String(failure[range.upperBound...]), attributes: red))
+            } else {
+                text.append(NSAttributedString(string: failure, attributes: red))
+            }
+        }
+        text.append(NSAttributedString(string: parts.after, attributes: regular))
+        label.attributedStringValue = text
+        setAccessibilityLabel(notice.text)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = CGRect(x: 0, y: 8, width: bounds.width, height: 14)
+    }
+}
+
+final class MacSpinnerRowView: MacFlippedView {
+    let spinner = NSProgressIndicator()
+    /// ChatKit's load-more row on the Mac too (CKTranscriptHeaderCell
+    /// defaultCellHeight 20, under CKUIBehaviorMac).
+    static let height: CGFloat = 20
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+        addSubview(spinner)
+        spinner.startAnimation(nil)
+        setAccessibilityIdentifier("conversation.loadingOlder")
+        setAccessibilityLabel(String(localized: "conversation.loadingOlder", defaultValue: "Loading earlier messages", bundle: .module))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        spinner.frame = CGRect(x: bounds.midX - 8, y: (bounds.height - 16) / 2, width: 16, height: 16)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window == nil ? spinner.stopAnimation(nil) : spinner.startAnimation(nil)
+    }
+}
+
+final class MacConversationStartRowView: MacFlippedView {
+    let label = makeMacLabel()
+    static let height: CGFloat = 40
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.alignment = .center
+        label.font = MacConversationTheme.timestampFont
+        label.textColor = MacConversationTheme.secondaryText
+        addSubview(label)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    func configure(title: String, subtitle: String) {
+        label.stringValue = "\(title)\n\(subtitle)"
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = CGRect(x: 0, y: 8, width: bounds.width, height: 30)
+    }
+}
+
+/// Three pulsing dots in an incoming bubble.
+/// Messages' typing indicator, built to macOS ChatKit's `CKTypingIndicatorLayer`
+/// (`CKUIBehaviorMac`): a 44 x 27 capsule with 9.25 and 4.75 pt tail circles
+/// and three dots that brighten in turn.
+final class MacTypingRowView: MacFlippedView {
+    private let bubble = CALayer()
+    private let medium = CALayer()
+    private let small = CALayer()
+    private let replicator = CAReplicatorLayer()
+    private let dot = CALayer()
+    let avatar = MacAvatarView()
+    var showsAvatar = false { didSet { needsLayout = true } }
+    /// 0...1 as the row opens or collapses; the indicator fades with it.
+    var progress: CGFloat = 1 { didSet { applyProgress() } }
+    static let height: CGFloat = 39
+
+    private static let bubbleSize = CGSize(width: 44, height: 27)
+    // Relative to the bubble's origin (CKTypingIndicatorPunchOutLayer, Mac idiom).
+    private static let mediumFrame = CGRect(x: 0.12, y: 20.14, width: 9.25, height: 9.25)
+    private static let smallFrame = CGRect(x: -3.37, y: 28.05, width: 4.75, height: 4.75)
+    private static let dotDiameter: CGFloat = 6.5
+    private static let dotSpacing: CGFloat = 9.5
+    /// The bubble's bottom sits where a one-line message's does (keeps the composer gap).
+    private static let bubbleBottom: CGFloat = 34
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        for (part, anchor) in [(small, CGPoint(x: 0.318, y: 0.318)), (medium, CGPoint(x: 0.326, y: 0.37)), (bubble, CGPoint(x: 0.185, y: 0.28))] {
+            part.anchorPoint = anchor
+            layer?.addSublayer(part)
+        }
+        dot.bounds = CGRect(x: 0, y: 0, width: Self.dotDiameter, height: Self.dotDiameter)
+        dot.position = CGPoint(x: Self.dotDiameter / 2, y: Self.dotDiameter / 2)
+        dot.cornerRadius = Self.dotDiameter / 2
+        dot.opacity = 0.2
+        replicator.instanceCount = 3
+        replicator.instanceTransform = CATransform3DMakeTranslation(Self.dotSpacing, 0, 0)
+        replicator.instanceDelay = 0.25
+        replicator.addSublayer(dot)
+        bubble.addSublayer(replicator)
+        addSubview(avatar)
+        setAccessibilityIdentifier("conversation.typing")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layout() {
+        super.layout()
+        let t = MacConversationTheme.self
+        let leading = t.sideMargin + (showsAvatar ? t.avatarSize + t.avatarGap : 0)
+        let origin = CGPoint(x: leading, y: Self.bubbleBottom - Self.bubbleSize.height)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        func place(_ part: CALayer, _ rect: CGRect) {
+            let frame = rect.offsetBy(dx: origin.x, dy: origin.y)
+            part.bounds = CGRect(origin: .zero, size: frame.size)
+            part.position = CGPoint(x: frame.minX + frame.width * part.anchorPoint.x, y: frame.minY + frame.height * part.anchorPoint.y)
+            part.cornerRadius = min(frame.width, frame.height) / 2
+            part.backgroundColor = resolved(t.incomingBubble, in: self)
+        }
+        place(bubble, CGRect(origin: .zero, size: Self.bubbleSize))
+        place(medium, Self.mediumFrame)
+        place(small, Self.smallFrame)
+        let dotsWidth = Self.dotDiameter + 2 * Self.dotSpacing
+        replicator.frame = CGRect(x: (Self.bubbleSize.width - dotsWidth) / 2, y: (Self.bubbleSize.height - Self.dotDiameter) / 2, width: dotsWidth, height: Self.dotDiameter)
+        dot.backgroundColor = resolved(.labelColor, in: self)
+        CATransaction.commit()
+        avatar.isHidden = !showsAvatar
+        avatar.frame = CGRect(x: t.sideMargin, y: Self.bubbleBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
+        applyProgress()
+        startAnimating()
+    }
+
+    private func applyProgress() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for part in [bubble, medium, small] { part.opacity = Float(progress) }
+        CATransaction.commit()
+        avatar.alphaValue = progress
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
+    }
+
+    private var parts: [(layer: CALayer, pulseScale: CGFloat, pulseDuration: CFTimeInterval, delay: CFTimeInterval, wobble: CGPoint)] {
+        [
+            (small, 1.15, 0.7, 0, CGPoint(x: 4, y: -2)),
+            (medium, 1.1, 0.9, 0.065, CGPoint(x: 3.5, y: 2)),
+            (bubble, 1.03, 1.9, 0.12, CGPoint(x: 3.5, y: -4)),
+        ]
+    }
+
+    private func startAnimating() {
+        if dot.animation(forKey: "dot") == nil {
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0.2
+            fade.toValue = 0.45
+            fade.duration = 0.5
+            fade.autoreverses = true
+            fade.repeatCount = .infinity
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 0.757, 0.015, 0.58, 1)
+            fade.fillMode = .both
+            dot.add(fade, forKey: "dot")
+        }
+        addPulses(after: 0)
+    }
+
+    /// Each part's scale-up; its pulse takes over when it ends.
+    private static let scaleDuration: CFTimeInterval = 0.25
+
+    /// ChatKit's pulse (`kCKAnimationKeyPulse`): each part breathes from its
+    /// own start, `delay` after now.
+    private func addPulses(after delay: CFTimeInterval) {
+        let now = CACurrentMediaTime()
+        for part in parts where part.layer.animation(forKey: "pulse") == nil {
+            let pulse = CAKeyframeAnimation(keyPath: "transform.scale.xy")
+            pulse.values = [1, part.pulseScale, 1]
+            pulse.calculationMode = .cubicPaced
+            pulse.duration = part.pulseDuration
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            pulse.beginTime = now + delay + (delay > 0 ? part.delay : 0)
+            pulse.fillMode = .forwards
+            pulse.isRemovedOnCompletion = false
+            part.layer.add(pulse, forKey: "pulse")
+        }
+    }
+
+    /// ChatKit's insertion (macOS 27 `CKTypingIndicatorPunchOutLayer`, the
+    /// same animations as iOS 26.5 and 27.0): small circle, medium (+0.065 s),
+    /// then bubble (+0.12 s) scale up from nothing (0.25 s ease) while
+    /// swinging out and back (0.4 s). Every part carries ChatKit's 0.25 s
+    /// `hidden` animation from the start, so the first visible frame shows the
+    /// grow under way; each pulse begins as its part's scale-up ends.
+    func grow() {
+        layoutSubtreeIfNeeded()
+        let now = CACurrentMediaTime()
+        let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+        for part in parts {
+            let layer = part.layer
+            layer.removeAnimation(forKey: "pulse")
+            let hidden = CABasicAnimation(keyPath: "hidden")
+            hidden.fromValue = true
+            hidden.toValue = false
+            hidden.duration = Self.scaleDuration
+            hidden.beginTime = now
+            hidden.fillMode = .forwards
+            layer.add(hidden, forKey: "growHidden")
+            let scale = CABasicAnimation(keyPath: "transform.scale.xy")
+            scale.fromValue = 0
+            scale.toValue = 1
+            scale.duration = Self.scaleDuration
+            scale.timingFunction = ease
+            let x = CAKeyframeAnimation(keyPath: "position.x")
+            x.values = [layer.position.x, layer.position.x + part.wobble.x, layer.position.x]
+            x.calculationMode = .cubicPaced
+            x.duration = 0.4
+            x.timingFunction = ease
+            let y = CAKeyframeAnimation(keyPath: "position.y")
+            y.values = [layer.position.y, layer.position.y + part.wobble.y, layer.position.y]
+            y.calculationMode = .cubicPaced
+            y.duration = 0.4
+            y.timingFunction = layer === bubble
+                ? CAMediaTimingFunction(controlPoints: 0.209, 0.258, 0.561, 0.954)
+                : CAMediaTimingFunction(controlPoints: 0.332, 0.1, 0.561, 0.954)
+            let group = CAAnimationGroup()
+            group.animations = [scale, x, y]
+            group.duration = 0.4
+            group.beginTime = now + part.delay
+            group.fillMode = .backwards
+            layer.add(group, forKey: "grow")
+        }
+        addPulses(after: Self.scaleDuration)
+    }
+}
+/// A Liquid Glass circle wrapping a borderless button (the glass bezel style
+/// throws from a table row's layout pass).
+final class MacGlassCircleButton: MacFlippedView {
+    private let button: NSButton
+
+    init(symbol: String, label: String, identifier: String) {
+        button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .medium)) ?? NSImage(), target: nil, action: nil)
+        button.isBordered = false
+        button.contentTintColor = .labelColor
+        super.init(frame: .zero)
+        // Effect views (glass or material) throw from a table row's layout
+        // pass; Messages' save control reads as a flat translucent circle.
+        wantsLayer = true
+        addSubview(button)
+        isHidden = true
+        setAccessibilityLabel(label)
+        setAccessibilityIdentifier(identifier)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    var target: AnyObject? {
+        get { button.target }
+        set { button.target = newValue }
+    }
+
+    var action: Selector? {
+        get { button.action }
+        set { button.action = newValue }
+    }
+
+    func performClick(_ sender: Any?) {
+        button.performClick(sender)
+    }
+
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
+        layer?.backgroundColor = resolved(NSColor(white: effectiveAppearance.isDarkMac ? 1 : 0, alpha: effectiveAppearance.isDarkMac ? 0.14 : 0.08), in: self)
+        button.frame = bounds
+    }
+}
+#endif

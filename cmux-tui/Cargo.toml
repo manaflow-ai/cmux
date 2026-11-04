@@ -140,7 +140,10 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 # the cross-platform fs-event backend for the fs_watch stream family.
 ignore = "0.4"
 notify = "8"
-iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+# platform-verifier: iroh-relay verifies relay TLS against the OS trust store,
+# not its compiled-in webpki list, which still trusted the leaked emSign
+# (eMudhra) roots (manaflow-ai/cmux#25452).
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
 wait-timeout = "0.2"
@@ -182,6 +185,13 @@ codegen-units = 1
 # code, full for dependencies (ratatui/crossterm do the heavy lifting).
 [profile.dev]
 opt-level = 1
+# Line tables keep file:line in panics, backtraces and profiles; full DWARF made
+# each worktree's target about twice the size (feat-cmux-next #22193, Huge Blue
+# 10-19: 11 GB -> 5.4 GB cold, cold builds 360 s -> 251 s). `[profile.test]`
+# inherits these settings, so test and dev builds keep sharing dependency
+# artifacts. Use `debug = true` locally to step through locals in a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3
+debug = false

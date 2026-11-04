@@ -1,0 +1,249 @@
+{
+  "paths": [
+    "Sources/Chief/*",
+    "Sources/*Chief*",
+    "Sources/Sidebar/SidebarChiefHomeRow.swift",
+    "Packages/macOS/CmuxChief/*",
+    "Packages/Shared/CmuxMessagesLab/*"
+  ],
+  "launch": {
+    "env": {
+      "CMUX_CHIEF_BRAIN": "scripted"
+    }
+  },
+  "steps": [
+    {
+      "socket": "workspace.create",
+      "params": {
+        "title": "Build",
+        "initial_input": "echo build ready\n",
+        "focus": true
+      },
+      "save": "build"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "socket": "chief.open"
+    },
+    {
+      "wait": 1.5
+    },
+    {
+      "expect": {
+        "id": "ChiefFirstRunStarter.list.bullet.rectangle"
+      }
+    },
+    {
+      "shot": "home-first-run"
+    },
+    {
+      "tree": "home-first-run"
+    },
+    {
+      "click": {
+        "id": "ChiefFirstRunStarter.list.bullet.rectangle"
+      }
+    },
+    {
+      "wait": 2.0
+    },
+    {
+      "shot": "starter-tool-running"
+    },
+    {
+      "wait": 2.3
+    },
+    {
+      "shot": "starter-answer-streaming"
+    },
+    {
+      "wait": 3.5
+    },
+    {
+      "shot": "starter-answered"
+    },
+    {
+      "click": {
+        "label": "Message"
+      }
+    },
+    {
+      "type": "Thanks, keep an eye on Docs for me\n"
+    },
+    {
+      "wait": 0.6
+    },
+    {
+      "shot": "typed-send-morph-done"
+    },
+    {
+      "wait": 5.5
+    },
+    {
+      "shot": "second-turn-answered"
+    },
+    {
+      "socket": "chief.read",
+      "params": {
+        "limit": 20
+      }
+    },
+    {
+      "rightClick": {
+        "labelContains": "ping you when Docs",
+        "type": "staticText"
+      }
+    },
+    {
+      "wait": 0.6
+    },
+    {
+      "shot": "bubble-context-menu"
+    },
+    {
+      "tree": "bubble-context-menu"
+    },
+    {
+      "key": "escape"
+    },
+    {
+      "wait": 0.4
+    },
+    {
+      "socket": "chief.debug",
+      "params": {
+        "action": "tapback"
+      }
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "tapback-on-newest-chief-bubble"
+    },
+    {
+      "click": {
+        "label": "Message"
+      }
+    },
+    {
+      "type": "please approve this\n"
+    },
+    {
+      "wait": 3.0
+    },
+    {
+      "shot": "approval-requested"
+    },
+    {
+      "tree": "approval-requested"
+    },
+    {
+      "expect": {
+        "id": "ChiefApprovalOption.Allow"
+      }
+    },
+    {
+      "click": {
+        "id": "ChiefApprovalOption.Allow"
+      }
+    },
+    {
+      "wait": 3.5
+    },
+    {
+      "shot": "approval-allowed-done"
+    },
+    {
+      "socket": "chief.stop",
+      "params": {}
+    },
+    {
+      "click": {
+        "label": "Message"
+      }
+    },
+    {
+      "type": "simulate an error please\n"
+    },
+    {
+      "wait": 4.5
+    },
+    {
+      "shot": "turn-failed"
+    },
+    {
+      "click": "HomeHeaderNamePill"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "expect": "ChiefSettingsPanel"
+    },
+    {
+      "shot": "settings-panel-open"
+    },
+    {
+      "tree": "settings-panel-open"
+    },
+    {
+      "click": "HomeHeaderNamePill"
+    },
+    {
+      "wait": 0.8
+    },
+    {
+      "shot": "settings-panel-closed"
+    },
+    {
+      "click": {
+        "labelContains": "Build, workspace",
+        "type": "cell"
+      }
+    },
+    {
+      "wait": 1
+    },
+    {
+      "expect": "HomeHeaderNamePill",
+      "exists": false
+    },
+    {
+      "shot": "workspace-shown-home-hidden"
+    },
+    {
+      "socket": "pane.create",
+      "params": {
+        "type": "chief",
+        "direction": "right",
+        "workspace_id": "${build.workspace_id}",
+        "focus": true
+      },
+      "save": "chiefPane"
+    },
+    {
+      "wait": 2
+    },
+    {
+      "expect": "HomeHeaderNamePill"
+    },
+    {
+      "shot": "chief-pane-in-split"
+    },
+    {
+      "tree": "chief-pane-in-split"
+    },
+    {
+      "socket": "chief.open"
+    },
+    {
+      "wait": 1
+    },
+    {
+      "shot": "back-to-home"
+    }
+  ]
+}

@@ -680,6 +680,13 @@ struct TodoCommand: SharedLegacyFacadeCommand {
     static let configuration = CommandConfiguration(commandName: "todo", helpNames: [])
 }
 
+/// `cmux chief ...`: the legacy runner owns every verb (some run without the
+/// app socket), so the facade declares the family as a passthrough.
+struct ChiefCommand: SharedLegacyFacadeCommand {
+    @Argument(parsing: .allUnrecognized) var arguments: [String] = []
+    static let configuration = CommandConfiguration(commandName: "chief", helpNames: [])
+}
+
 struct CommentsCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("repo"), completion: .directory) var repo: String?
     @Flag(name: .customLong("all")) var all = false

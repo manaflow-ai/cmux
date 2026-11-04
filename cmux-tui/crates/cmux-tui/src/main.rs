@@ -908,11 +908,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
-                print!("{}", usage());
+                print!("{}", cli::with_program_name(&usage(), &cli::program_name()));
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                println!("{} {}", cli::program_name(), version_string());
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -1359,6 +1359,17 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+const STARTUP_SWITCH_OPTIONS: &[&str] = &[
+    "--ephemeral",
+    "--cloud",
+    "--headless",
+    "--ws-insecure-bind",
+    "--remote",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--iroh",
+];
+
 const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
@@ -1467,14 +1478,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
         }
         match value {
             "--json" | "--jsonl" | "--quiet" => index += 1,
-            "--ephemeral"
-            | "--cloud"
-            | "--headless"
-            | "--ws-insecure-bind"
-            | "--remote"
-            | "--remote-ws-insecure-bind"
-            | "--remote-ws-trusted-carrier"
-            | "--iroh" => index += 1,
+            value if STARTUP_SWITCH_OPTIONS.contains(&value) => index += 1,
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
             value if cli::is_public_scope(value) => return true,
@@ -2167,10 +2171,18 @@ fn run_server(
         surface_options.extra_env.push(("PATH".into(), path));
     }
     #[cfg(unix)]
-    if let Some(path) = codex_wrapper::pane_path()
-        && !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path)
-    {
-        surface_options.extra_env.push(("PATH".into(), path));
+    if let Some(path) = codex_wrapper::pane_path() {
+        if !surface_options.extra_env.iter().any(|(name, value)| name == "PATH" && value == &path) {
+            surface_options.extra_env.push(("PATH".into(), path));
+        }
+        // Integrated shells keep this directory first after startup files
+        // reorder PATH: Codex runs its hooks in a shared daemon that cannot
+        // see the terminal's environment, so only the shim routes them.
+        if let Some(dir) =
+            codex_wrapper::shim_directory().and_then(|dir| dir.into_os_string().into_string().ok())
+        {
+            surface_options.extra_env.push((cmux_tui_core::AGENT_SHIMS_ENV.into(), dir));
+        }
     }
 
     let state_root = if args.ephemeral {
@@ -3085,7 +3097,12 @@ pub(crate) fn wake_headless() {
 }
 
 fn usage_exit(msg: &str) -> ! {
-    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    let program = cli::program_name();
+    crate::client_log::stderr_log!(
+        "startup",
+        "{program}: {msg}\n\n{}",
+        cli::with_program_name(&usage(), &program)
+    );
     client_log::exit(2);
 }
 

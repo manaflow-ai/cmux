@@ -591,7 +591,9 @@ def already_fixing(prs: Iterable[Mapping], culprit_pr: int, merged_at: str | Non
 
 def command_analyze(args: argparse.Namespace) -> int:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    gh = GitHub(os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"), token)
+    # READ_TOKEN: an App's, with its own budget; the analysis only reads.
+    gh = GitHub(os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"), token,
+                read_token=os.environ.get("READ_TOKEN") or "")
     head = args.head or git("rev-parse", "HEAD")
     report = analyze(Source(gh), gh, head, args.log_wait)
     target = fix_target(report)
@@ -628,7 +630,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             handle.write(f"probes={' '.join(report['probes'])}\n")
             handle.write(f"fix={'true' if fix and not fix.get('skip') else 'false'}\n")
     print(summary(report))
-    print(f"GitHub API calls: {gh.calls}")
+    print(f"GitHub API calls: {gh.calls} (read token: {gh.read_calls})")
     return 0
 
 

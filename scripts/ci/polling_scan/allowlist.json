@@ -1,0 +1,49 @@
+{
+  "entries": [
+    {
+      "path": ".github/workflows/cmux-next-dev-daily.yml",
+      "match": "for try in 1 2 3; do",
+      "reason": "Not a wait: ghw retries one gh call refused for the API rate limit, at most 3 tries and 15 minutes in total, sleeping until the reset GitHub names. Runs in CI, where glaeda-gh does not exist."
+    },
+    {
+      "path": ".github/workflows/coderouter-release.yml",
+      "match": "for _ in 1 2 3 4 5; do",
+      "reason": "Read-after-write check of a draft release's asset list right after gh release upload: at most 5 reads 2 s apart (about 10 s), then the release fails. No event or glaeda-gh exists for it in CI."
+    },
+    {
+      "path": ".github/workflows/merge-group-fail-fast.yml",
+      "match": "for _ in $(seq 1 30); do",
+      "reason": "Locates the merge-group CI run that the triggering workflow_run started at the same head: at most 30 reads 2 s apart. workflow_run gives this job only the policy-check run, not the CI run, and glaeda-gh does not exist in CI."
+    },
+    {
+      "path": ".github/workflows/merge-group-fail-fast.yml",
+      "match": "while :; do",
+      "reason": "The fail-fast itself: it reads the merge-group CI run every 20 s to cancel it at the first failed job, which no GitHub event reports to another workflow. Bounded by the job's timeout-minutes and by the run completing; only merge groups start it."
+    },
+    {
+      "path": ".github/workflows/nightly-next-canary.yml",
+      "match": "for attempt in 1 2 3; do",
+      "reason": "Not a wait: retries one workflow dispatch refused with 403/429 for the API rate limit, at most 3 attempts 15 and 30 s apart; any other error fails at once."
+    },
+    {
+      "path": ".github/workflows/tui-publish-npm.yml",
+      "match": "for _ in {1..24}; do",
+      "reason": "The publisher is dispatched by the cmux-tui-release run it must validate, before that run concludes; it waits at most 120 s (24 x 5 s) for it. That run now dispatches with return_run_details and does nothing after, so it concludes within seconds. glaeda-gh does not exist in CI."
+    },
+    {
+      "path": ".github/workflows/tui-publish-pypi.yml",
+      "match": "for _ in {1..24}; do",
+      "reason": "The publisher is dispatched by the cmux-tui-release run it must validate, before that run concludes; it waits at most 120 s (24 x 5 s) for it. That run now dispatches with return_run_details and does nothing after, so it concludes within seconds. glaeda-gh does not exist in CI."
+    },
+    {
+      "path": "scripts/install-cmux-tui-client.sh",
+      "match": "while :; do",
+      "reason": "Not a wait: retries gh attestation verify only when GitHub answers with a rate limit, with doubling backoff (4 retries from 1 minute by default, CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES and CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS change them); any other answer is final. Runs on user machines and nightly legs without glaeda-gh."
+    },
+    {
+      "path": "workers/presence/scripts/local-proof.sh",
+      "match": "while [ \"$(date +%s)\" -lt \"$DEADLINE\" ]; do",
+      "reason": "A local proof of the presence worker: waits for its own SSE transcript to show the alarm-driven offline event, bounded by a 90 s deadline after the last heartbeat. No GitHub call, and it runs on a developer machine that may lack glaeda-gh."
+    }
+  ]
+}

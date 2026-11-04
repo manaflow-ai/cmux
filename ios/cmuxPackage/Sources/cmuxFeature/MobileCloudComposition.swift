@@ -57,6 +57,13 @@ struct MobileCloudComposition {
     /// the packet tunnel extension, which hides its switch.
     @MainActor
     func makeSystemVPNController(bundle: Bundle = .main) -> CloudSystemVPNController? {
+#if CMUX_APPSTORE
+        // The App Store binary deliberately omits the system VPN feature. Its
+        // Network Extension API requires an Apple approval that is not part of
+        // the public cmux distribution. Beta/internal builds keep the opt-in
+        // feature below, where the packet-tunnel extension is provisioned.
+        return nil
+#else
         guard let service = makeService(),
               let identityStore = makeIdentityStore(),
               let appNamespace = auth.appNamespace,
@@ -92,6 +99,7 @@ struct MobileCloudComposition {
                 defaults: .standard
             )
         )
+#endif
     }
 
     /// Builds the bridge that publishes a controller's machines into the
