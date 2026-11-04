@@ -252,10 +252,12 @@ extension Workspace {
         detail: String,
         retry: @escaping @MainActor () -> Void
     ) {
-        guard let reservation = cloudPendingCreations[panelID],
-              !reservation.isShowingRestoredMachineUnavailable else { return }
+        guard let reservation = cloudPendingCreations[panelID] else { return }
+        let isSameCard = reservation.isShowingRestoredMachineUnavailable
+            && cloudMaterializationFailures[panelID]?.detail == detail
         reservation.isShowingRestoredMachineUnavailable = true
         reservation.retry = retry
+        guard !isSameCard else { return }
         setCloudMaterializationFailure(surfaceID: panelID, detail: detail, reference: nil)
     }
 

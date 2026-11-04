@@ -743,9 +743,17 @@ final class CmuxTuiSurfaceProviderRegistry {
         // The page belongs to the team selected when the read started. The
         // client cancels the read if the selection changes before it returns.
         let pageTeamID = activeTeamID()
-        guard !isRetired, let catalog, let page = await listPage() else { return nil }
+        guard !isRetired, let catalog else { return nil }
+        let listedPage = await listPage()
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled,
               pageTeamID == activeTeamID() else { return nil }
+        guard let page = listedPage else {
+            // No read of a restored machine can run, so its panes would wait in silence.
+            for machineID in catalog.pendingRestoredMachineIDs where providers[machineID] == nil {
+                showRestoredMachineUnavailable(machineID, reason: .cloudUnavailable)
+            }
+            return nil
+        }
         if allowsBackgroundWork() { await wireGuardHub?.prepareForCloudUse() }
         guard !isRetired, generation == refreshGeneration, isCloudEnabled(), !Task.isCancelled else { return nil }
         let seen = Set(page.vms.map(\.id))
@@ -846,7 +854,7 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// through a provider built from persisted metadata.
     private func endRestoredMachine(_ machineID: String) {
         // Terminal panes stay open when their machine is unregistered.
-        showRestoredMachineUnavailable(machineID, loss: .forbidden)
+        showRestoredMachineUnavailable(machineID)
         adoptedOwnerTeams[machineID] = nil
         unregisterMachine(machineID)
     }
@@ -854,10 +862,13 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Nothing will attach these terminals until the machine is found. Each pane
     /// says so and offers Reconnect instead of staying blank. After a 404 the
     /// saved link stays, so a later read that finds the machine reconnects it.
-    private func showRestoredMachineUnavailable(_ machineID: String, loss: CloudMachineAccessLoss = .notFound) {
+    private func showRestoredMachineUnavailable(
+        _ machineID: String,
+        reason: CloudTuiManualMirrorStopReason = .accessLost
+    ) {
         catalog?.showRestoredMachineUnavailable(
             .cloud(machineID),
-            detail: CloudTuiManualMirrorStopReason(accessLoss: loss).endedPresentation?.detail ?? ""
+            detail: reason.endedPresentation?.detail ?? ""
         ) { [weak self] in
             Task { @MainActor [weak self] in _ = await self?.refresh(force: true) }
         }

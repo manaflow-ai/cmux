@@ -491,6 +491,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // whose items cannot be ordered against the installed snapshot.
                 await link.suspendEventsSubscription()
             }
+            catalog.clearRestoredMachineUnavailable(machine)
             guard await reconcileManualMirrorAttachments(
                 connected: connected, link: link, lifecycle: lifecycle, refresh: generation
             ) else { return false }
@@ -506,6 +507,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = eventsFeedWarning == nil ? (status?.state ?? .error) : .error
             let text = eventsFeedWarning ?? status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
+            // A restored terminal has no session yet to show the failure.
+            catalog.showRestoredMachineUnavailable(machine, detail: text) { [weak self] in
+                self?.scheduleRefresh(force: true)
+            }
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif

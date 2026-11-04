@@ -91,12 +91,13 @@ struct CloudStaleInventoryMaterializationTests {
         workspace.cloudPendingCreations[panelID] = reservation
         defer { reservation.cancel?(); workspace.cloudPendingCreations[panelID] = nil }
 
+        var listAvailable = false
         var machineFound = false
         var statusReads = 0
         let registry = CmuxTuiSurfaceProviderRegistry(
             links: CloudMachineLinkManager(clientURL: nil, hub: nil, hostThemeColors: { nil }),
             allowsBackgroundWork: { false },
-            listPage: { VMListPage(vms: [], limits: nil) },
+            listPage: { listAvailable ? VMListPage(vms: [], limits: nil) : nil },
             activeTeamID: { "team-a" },
             loadMachineStatus: { id, _ in
                 statusReads += 1
@@ -108,7 +109,15 @@ struct CloudStaleInventoryMaterializationTests {
         registry.adoptOwnerTeam(savedTeam, forMachineID: machineID)
         registry.start(catalog: catalog)
 
+        // Cloud cannot be read at all: the pane says so instead of waiting silently.
+        _ = await registry.refresh(force: true)
+        #expect(
+            workspace.cloudMaterializationFailures[panelID]?.detail
+                == CloudTuiManualMirrorStopReason.cloudUnavailable.endedPresentation?.detail
+        )
+
         // Both reads failed: the pane says so, and its saved link is untouched.
+        listAvailable = true
         #expect(await registry.refresh(force: true))
         #expect(registry.provider(machineID: machineID) == nil)
         #expect(catalog.pendingRestoredMachineIDs == [machineID])
@@ -126,16 +135,18 @@ struct CloudStaleInventoryMaterializationTests {
         #expect(statusReads > readsBeforeReconnect)
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
 
-        // The machine is found: the card leaves as soon as the provider registers,
-        // whether or not its terminal can attach yet.
+        // The machine is found, so it no longer claims access is lost. A link that
+        // cannot connect says that instead of leaving the pane blank.
         machineFound = true
         #expect(await registry.refresh(force: true))
         let provider = try #require(registry.provider(machineID: machineID))
-        #expect(workspace.cloudMaterializationFailures[panelID] == nil)
+        _ = await provider.refreshCurrentGraph(force: true)
+        let linkFailure = try #require(workspace.cloudMaterializationFailures[panelID])
+        #expect(linkFailure.detail != failure.detail)
 
         // A later 404 reaches the pane through the provider, and a listing clears it.
         provider.noteAccessLost(.notFound)
-        #expect(workspace.cloudMaterializationFailures[panelID] != nil)
+        #expect(workspace.cloudMaterializationFailures[panelID]?.detail == failure.detail)
         #expect(workspace.retryReservedCloudTerminalPane(surfaceId: panelID))
         #expect(workspace.cloudMaterializationFailures[panelID] != nil)
         provider.noteAccessConfirmed()

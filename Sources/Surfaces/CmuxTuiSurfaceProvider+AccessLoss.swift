@@ -13,6 +13,17 @@ extension CmuxTuiSurfaceProvider {
         // A pane still restoring keeps its reservation; rebuilding it on
         // regain restarts its attach.
         accessLostPanelIDs.formUnion(restoredAttachTasks.keys)
+        let reconnect: @MainActor () -> Void = {
+            Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
+        }
+        for panelID in restoredAttachTasks.keys {
+            guard let workspaceID = catalog.projection(forPanel: panelID)?.workspaceID else { continue }
+            Workspace.liveWorkspace(id: workspaceID)?.failRestoredCloudTerminalPane(
+                panelID: panelID,
+                detail: stopReason.endedPresentation?.detail ?? "",
+                retry: reconnect
+            )
+        }
         for task in restoredAttachTasks.values { task.cancel() }
         restoredAttachTasks.removeAll()
         attachmentRetry.cancel()
@@ -22,9 +33,7 @@ extension CmuxTuiSurfaceProvider {
         manualMirrorSurfaceIDsSocketPath = nil
         let detail = stopReason.endedPresentation?.detail ?? ""
         // A restored terminal that has not attached yet has no session to stop.
-        catalog.showRestoredMachineUnavailable(machine, detail: detail) {
-            Task { @MainActor in _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) }
-        }
+        catalog.showRestoredMachineUnavailable(machine, detail: detail, retry: reconnect)
         // Cloud browser and display panes of this machine keep the same state,
         // in the browser's own unavailable card.
         for task in browserPaneTasks.values { task.cancel() }
