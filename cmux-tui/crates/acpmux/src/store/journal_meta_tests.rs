@@ -199,9 +199,9 @@ fn a_chat_made_before_the_checkpoint_and_deleted_is_not_made_again() {
     assert!(!home.path().join("sessions").join(CHAT).exists(), "the replay made the folder again");
 }
 
-/// The replay never rolls `session.json` back to an older image: a checkpoint may write an image
-/// whose record a crash then takes back, and an older image after the checkpoint survive. (The
-/// newer file holds a change that was never acknowledged, as a log line may lack its record.)
+/// A checkpoint writes a metadata image only once its record is durable (it waits for the
+/// journal's sync on its own thread), and the replay never writes an older image over a newer
+/// `session.json`.
 #[test]
 fn the_replay_never_writes_an_older_image_over_session_json() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
@@ -210,15 +210,13 @@ fn the_replay_never_writes_an_older_image_over_session_json() {
     store.save(&meta(CHAT, "one", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    journal.set_sync_delay(Duration::from_secs(2));
-    // The writer takes "two" into a 2 s sync; "three" waits for the next one.
+    journal.set_sync_delay(Duration::from_secs(1));
+    // The writer takes "two" into a 1 s sync; "three" waits for the next one.
     store.save(&meta(CHAT, "two", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     std::thread::sleep(Duration::from_millis(300));
     store.save(&meta(CHAT, "three", 0)).unwrap_or_else(|e| panic!("{e:#}"));
-    // The checkpoint (before "two", the durable end) writes the newest image, "three".
+    // The checkpoint waits until "three" is durable, then writes it.
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    // "two" is durable, "three" is in its own sync: an OS crash keeps "two" only.
-    std::thread::sleep(Duration::from_millis(2_100));
     let crashed = journal.restart(Crash::Os);
     crashed.set_sync_delay(Duration::ZERO);
     drop(store);

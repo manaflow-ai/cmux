@@ -42,7 +42,10 @@
 //!   writer that ends while the store is not dropped (a panic on its thread) closes that watch
 //!   and asks the daemon to stop (DESIGN.md decision 9.8).
 //!
-//! Session metadata is S3.
+//! - Chat metadata (S3a, [`meta`]): a change is a `meta` record with the chat's whole metadata
+//!   image, not a `session.json` write: reads see the newest image in an overlay, the checkpoint
+//!   writes `session.json` once the record is durable, and the replay writes the newest image of
+//!   each chat. A folder a crash lost is made again only for a chat a replayed record made.
 
 use super::*;
 use cmux_journal::{AppendError, Class, Damage, Journal, Lsn, OpenError};
@@ -52,6 +55,7 @@ use std::time::{Duration, Instant};
 
 mod checkpoint;
 mod fenced;
+mod meta;
 mod repair;
 
 use checkpoint::{read_checkpoint, remove_checkpoint_temporaries};
@@ -108,6 +112,11 @@ struct Inner {
     durable: tokio::sync::watch::Receiver<u64>,
     /// The store is being dropped: its writer's end is not a failure.
     dropping: Arc<AtomicBool>,
+    /// Held while a checkpoint writes `session.json` files and drops their overlay entries; a
+    /// list reads the overlay and the files under it (`journal_store/meta.rs`).
+    projection: std::sync::RwLock<()>,
+    /// Held while a chat's folder is removed or its `session.json` written by a checkpoint.
+    folders: Mutex<()>,
 }
 
 /// Owned by the journal's durable listener, which the writer drops when it ends: a writer that
@@ -151,6 +160,9 @@ struct Order {
     failures: u32,
     /// The open reported damage: cleared (`Journal::clear_damage`) after the next checkpoint.
     damage: bool,
+    /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
+    /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
+    metas: BTreeMap<String, meta::Pending>,
 }
 
 #[derive(Default)]
@@ -212,6 +224,8 @@ impl JournalStore {
             acked: Arc::new(AtomicU64::new(0)),
             durable,
             dropping,
+            projection: std::sync::RwLock::new(()),
+            folders: Mutex::new(()),
         });
         inner.apply(replay)?;
         if let Err(error) = inner.checkpoint() {
@@ -344,16 +358,25 @@ impl JournalStore {
 
 impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        Store::list(&self.inner.local)
+        self.inner.list_metas()
     }
+    /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
+    /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Store::load(&self.inner.local, id)
+        match self.inner.pending_meta(id) {
+            Some(meta) => Ok(Some(meta)),
+            None => Store::load(&self.inner.local, id),
+        }
     }
     fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
-        Store::load_startup(&self.inner.local, id)
+        match self.inner.pending_meta(id) {
+            Some(meta) => Ok(Some(meta)),
+            None => Store::load_startup(&self.inner.local, id),
+        }
     }
+    /// A `meta` record and the overlay; the checkpoint writes `session.json` ([`meta`]).
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        Store::save(&self.inner.local, meta)
+        self.inner.save_meta(meta)
     }
     /// The line to the log first, then its record ([module docs](self)).
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
@@ -387,14 +410,24 @@ impl Store for JournalStore {
         }
         Ok(())
     }
-    /// A failed file sync here freezes the checkpoint, as one in a checkpoint or at a log's
-    /// close does: a later sync may report success for the pages it dropped.
+    /// The chat's log synced and every record appended so far durable: its metadata is a
+    /// journal record until a checkpoint writes `session.json` (S3a). A failed file sync here
+    /// freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync may
+    /// report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
         Store::flush_session(&self.inner.local, id).inspect_err(|error| {
             if error.chain().any(|cause| cause.is::<SyncFailed>()) {
                 self.inner.freeze(format!("an event log failed to sync: {error:#}"));
             }
-        })
+        })?;
+        let lsn = self.inner.journal.last_lsn();
+        if lsn > 0 {
+            self.inner
+                .journal
+                .wait_durable(lsn, SEAL_WAIT)
+                .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;
+        }
+        Ok(())
     }
     fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         Store::events(&self.inner.local, id, after, limit)
@@ -508,7 +541,10 @@ impl Store for JournalStore {
                 .map_err(JournalStore::journal_error)?;
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
+            order.metas.remove(id);
         }
+        // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
+        let _folder = inner.folders.lock_or_recover();
         Store::delete(&inner.local, id)
     }
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
