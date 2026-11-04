@@ -168,6 +168,9 @@ struct Inner {
     new_folders: Arc<new_folders::NewFolders>,
     /// The store is being dropped: its writer's end is not a failure.
     dropping: Arc<AtomicBool>,
+    /// Syncs of the store's files under way on threads other than the checkpoint's own
+    /// (`Inner::counted_sync`): a checkpoint writes its LSN only when there are none.
+    syncs_in_flight: AtomicU64,
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
     /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
@@ -280,6 +283,7 @@ impl JournalStore {
             durable,
             new_folders,
             dropping,
+            syncs_in_flight: AtomicU64::new(0),
             folders: Mutex::new(()),
         });
         inner.apply(replay)?;
@@ -483,13 +487,10 @@ impl Store for JournalStore {
     /// sync freezes the checkpoint, as one in a checkpoint or at a log's close does: a later sync
     /// may report success for the pages it dropped.
     fn flush_session(&self, id: &str) -> Result<()> {
-        self.inner.settle_meta(id)?;
-        Store::flush_session(&self.inner.local, id).inspect_err(|error| {
-            if error.chain().any(|cause| cause.is::<SyncFailed>()) {
-                #[cfg(test)]
-                hold_before_freeze();
-                self.inner.freeze(format!("an event log failed to sync: {error:#}"));
-            }
+        let inner = &self.inner;
+        inner.counted_sync("a chat's files failed to sync", || {
+            inner.settle_meta(id)?;
+            Store::flush_session(&inner.local, id)
         })
     }
     // Every read of the logs ends with a fence on the appends' lock (`Inner::fenced`): a line
@@ -624,7 +625,10 @@ impl Store for JournalStore {
     /// The chat's folder, for code that reads or moves its files directly: its overlay image is
     /// written to `session.json` first ([`meta`]).
     fn session_dir(&self, id: &str) -> Option<PathBuf> {
-        if let Err(error) = self.inner.settle_meta(id) {
+        let inner = &self.inner;
+        if let Err(error) =
+            inner.counted_sync("a chat's metadata failed to sync", || inner.settle_meta(id))
+        {
             tracing::warn!(session = %id, "write the chat's metadata before handing out its folder: {error:#}");
         }
         Store::session_dir(&self.inner.local, id)

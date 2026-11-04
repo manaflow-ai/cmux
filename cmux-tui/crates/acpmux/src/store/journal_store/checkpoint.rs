@@ -77,6 +77,8 @@ impl Inner {
         let mut order = self.order.lock_or_recover();
         match &result {
             Ok(()) => order.failures = 0,
+            // Not a failure: the next turn does the work.
+            Err(error) if error.is::<Deferred>() => {}
             Err(error) if !order.frozen => {
                 order.failures = order.failures.saturating_add(1);
                 if order.failures >= CHECKPOINT_FAILURES_TO_STOP {
@@ -136,6 +138,21 @@ impl Inner {
                 "an event log failed to sync: the journal keeps every line until a restart"
             );
         }
+        // No LSN past a sync that failed on another thread (review of #35866, finding 2's base
+        // part). A request's `flush_session` may have failed its sync of a log since this
+        // checkpoint began, and the kernel may then report success to this checkpoint's own sync
+        // of that log for the pages the failed one dropped. Such a sync counts as in flight until
+        // its failure froze the store (`counted_sync`: the freeze, then the count), and this
+        // reads the count, then `frozen`: either it sees the sync in flight, or the store frozen.
+        // Nothing waits: a checkpoint that finds one in flight leaves its work for the next turn.
+        if self.syncs_in_flight.load(AtomicOrdering::SeqCst) > 0 {
+            self.order.lock_or_recover().dirty.extend(dirty);
+            return Err(Deferred.into());
+        }
+        anyhow::ensure!(
+            !self.order.lock_or_recover().frozen,
+            "the event journal's checkpoint is frozen (a sync failed while it ran): a restart writes the logs again"
+        );
         write_checkpoint(&self.home, lsn)?;
         let damage = {
             let mut order = self.order.lock_or_recover();
@@ -176,6 +193,28 @@ impl Inner {
             }
         }
         sync_directory(&self.local.root).map_err(failed)
+    }
+
+    /// Runs `sync`, a sync of the store's files on a thread other than the checkpoint's own (a
+    /// request's `flush_session`, the settle before `session_dir`, the folder syncer), so that a
+    /// checkpoint in flight never writes an LSN past its failure: it counts as in flight until
+    /// its failure, if any, froze the store, and only then leaves the count (`checkpoint_once`).
+    pub(super) fn counted_sync<T>(
+        &self,
+        what: &str,
+        sync: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        self.syncs_in_flight.fetch_add(1, AtomicOrdering::SeqCst);
+        let result = sync();
+        if let Err(error) = &result
+            && error.chain().any(|cause| cause.is::<SyncFailed>())
+        {
+            #[cfg(test)]
+            super::hold_before_freeze();
+            self.freeze(format!("{what}: {error:#}"));
+        }
+        self.syncs_in_flight.fetch_sub(1, AtomicOrdering::SeqCst);
+        result
     }
 
     /// A log sync failed: no checkpoint until a restart, and the daemon is asked to stop.
@@ -253,3 +292,18 @@ fn is_not_found(error: &anyhow::Error) -> bool {
             .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound)
     })
 }
+
+/// A checkpoint that found a sync of the store's files under way on another thread
+/// (`Inner::counted_sync`): it wrote no LSN and left its work for the next turn. Not a failure.
+#[derive(Debug)]
+pub(super) struct Deferred;
+
+impl std::fmt::Display for Deferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            "a sync of the store's files was under way: the checkpoint is left for the next turn",
+        )
+    }
+}
+
+impl std::error::Error for Deferred {}
