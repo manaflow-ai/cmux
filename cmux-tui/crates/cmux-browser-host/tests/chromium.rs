@@ -582,7 +582,7 @@ fn preview_proof_returns_screenshot_and_console_errors() {
         .unwrap()
         .write_all(
             format!(
-            "const proof = await previewProof({port}, {{ path: '/preview-proof' }}); \
+                "const proof = await previewProof({port}, {{ path: '/preview-proof' }}); \
              const imagePath = proof.screenshot.match(/png: (.+)\\]/)[1]; \
              console.log('PNG_SIGNATURE:' + Array.from(fs.readFileSync(imagePath).slice(0, 8)).join(',')); \
              proof"

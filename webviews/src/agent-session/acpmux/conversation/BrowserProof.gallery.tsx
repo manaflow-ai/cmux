@@ -65,11 +65,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 520,
-  covers: [
-    "cmux-tui/crates/cmux-browser-host/js/api.js#previewProof",
-    "agent-session/acpmux/toolImages.ts#toolImages",
-    "agent-session/acpmux/conversation/ToolRow.tsx#ToolImages",
-  ],
+  covers: ["agent-session/acpmux/conversation/ToolRow.tsx#ToolImages"],
   load: async () => galleryBrowserProof((await import("./ToolRow")).ToolRow),
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css"), import("../chips/chips.css")]),
   widths: { narrow: 420, normal: 720 },
