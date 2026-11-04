@@ -1220,7 +1220,15 @@ test.each(["project", "saved"] as const)(
     };
     let now = 0;
     const wakes: string[] = [];
-    const prewarm = new CloudTypingPrewarm({ prewarm: (id) => wakes.push(id) }, () => now);
+    const prewarm = new CloudTypingPrewarm(
+      {
+        prewarm: (id) => {
+          wakes.push(id);
+          return true;
+        },
+      },
+      () => now,
+    );
     const environment: SavedEnvironment = {
       id: "local-worktree",
       name: "Local worktree",
