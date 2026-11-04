@@ -519,22 +519,15 @@ async fn a_slow_but_alive_pooled_start_eventually_becomes_ready() {
     let mut daemon = Daemon::with_fakeb("long-alive", 0, &slow);
     let home = daemon.home.clone();
     let mut rpc = daemon.rpc().await;
-    let hint = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
-    assert_eq!(hint["accepted"], true, "{hint}");
-    let deadline = Instant::now() + Duration::from_secs(120);
-    loop {
-        let status = rpc.call("_acpmux/status", json!({})).await;
-        let ready = status["pool"]["entries"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|e| e["harness"] == "fakeb" && e["state"] == "ready");
-        if ready {
-            break;
-        }
-        assert!(Instant::now() < deadline, "slow live pooled start failed: {status}");
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+    // `wait: true` makes the old 90-second start cutoff a terminal test
+    // failure instead of leaving a warming entry for the status poller.
+    let ready = rpc
+        .call(
+            "_acpmux/prewarm",
+            json!({"harness": "fakeb", "cwd": home, "wait": true}),
+        )
+        .await;
+    assert_eq!(ready["accepted"], true, "{ready}");
     rpc.call("_acpmux/shutdown", json!({})).await;
     daemon.wait_exit();
 }
