@@ -74,6 +74,11 @@ final class CEFSpareWindow {
 
     func isSpare(_ candidate: CEFPaneHost) -> Bool { host === candidate }
 
+    /// `waiting` or `none`: the spare page made ahead (`debug.cef` `spare_page`). Not yet wired.
+    var pageState: String { "none" }
+    /// Spare pages a new tab took in this runtime (`debug.cef` `spare_pages_taken`). Not yet wired.
+    var pagesTaken: Int { 0 }
+
     /// Starts the spare window: true when it started. Chromium must run, no
     /// untaken spare may exist, and no other Chromium window may be on its
     /// way (a window built beside another one raced it, os-smoke 2026-10-18).

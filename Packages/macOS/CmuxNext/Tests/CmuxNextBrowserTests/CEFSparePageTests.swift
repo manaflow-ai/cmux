@@ -254,5 +254,54 @@ extension CEFSparePageSuites {
             #expect(SpareSpy.added.map(\.anchor) == [10], "the tab joins with tab_add")
             #expect(link.browserID != page && runtime.tabsByBrowser[page] == nil)
         }
+
+        /// `debug.cef` reports the spare page (`spare_page`: `waiting` while one waits, else `none`) and
+        /// how many a new tab took (`spare_pages_taken`), so a live check can see that a tab took it
+        /// (re-review of #34252 at 82b52979, item 2). A page an extension navigated and that the take
+        /// closed counts as no take.
+        @Test func theSparePageStateReadsWaitingUntilATabTakesItAndCountsTheTake() throws {
+            let (runtime, root) = try Self.runtime()
+            defer { Self.tearDown(runtime, root) }
+            let (host, _, container) = try Self.liveHost(runtime)
+            #expect(runtime.spareWindow.pageState == "none" && runtime.spareWindow.pagesTaken == 0)
+            let page = try Self.spareWithPage(runtime)
+            #expect(runtime.spareWindow.pageState == "waiting", "a page waits")
+
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            host.createDeferred()
+            #expect(link.browserID == page)
+            #expect(runtime.spareWindow.pageState == "none", "taken")
+            #expect(runtime.spareWindow.pagesTaken == 1, "one take")
+
+            runtime.spareWindow.prepare(runtime: runtime)
+            let next = try #require(SpareSpy.added.last?.browser)
+            #expect(runtime.spareWindow.pageState == "waiting")
+            runtime.handle(.loadStart(browser: next, url: "https://extension.example/", fromPost: false))
+            let other = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(other)
+            host.present(other, in: container)
+            host.createDeferred()
+            #expect(other.browserID != next, "the navigated page is not taken")
+            #expect(runtime.spareWindow.pagesTaken == 1, "a refused page is no take")
+        }
+
+        /// Chromium's loading state alone (`.loadingState`, which a new browser reports with no load of its
+        /// own) does not mark the waiting page as navigated: the next tab still takes it.
+        @Test func aLoadingStateEventAloneLeavesTheWaitingPageTakeable() throws {
+            let (runtime, root) = try Self.runtime()
+            defer { Self.tearDown(runtime, root) }
+            let (host, _, container) = try Self.liveHost(runtime)
+            let page = try Self.spareWithPage(runtime)
+            runtime.handle(.loadingState(browser: page, loading: false, canGoBack: false, canGoForward: false))
+
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            host.createDeferred()
+            #expect(link.browserID == page, "the page is still taken")
+            #expect(SpareSpy.added.isEmpty && SpareSpy.closed.isEmpty)
+        }
     }
 }
