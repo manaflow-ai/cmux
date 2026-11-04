@@ -173,12 +173,14 @@ class Daemon {
       const page = this.pages.get(sessionId) ?? { steps: [] };
       const events = this.records(sessionId, page.steps, page.from);
       result = {
-        session: this.summary(sessionId),
+        session: {
+          ...this.summary(sessionId),
+          ...(this.pending.has(sessionId) ? { pending: this.pending.get(sessionId) } : {}),
+        },
         lastSeq: events.at(-1)?.seq ?? 0,
         events,
         hasMore: page.hasMore === true,
         ...(this.servesOpener ? { turnOpener: null } : {}),
-        ...(this.pending.has(sessionId) ? { pending: this.pending.get(sessionId) } : {}),
       };
     } else if (message.method === "_acpmux/events") {
       const events =
@@ -408,8 +410,7 @@ test("a grouped ask draws on the card at once while its group read is out, then 
       permissionId: `perm-${B}`,
       groupId: `group-${B}`,
       request: {
-        sessionId: B,
-        toolCall: { toolCallId: "t1", title: "Run du -sh .", kind: "execute" },
+        toolCall: { toolCallId: "t1", title: "Run du -sh .", kind: "execute", rawInput: { command: "du -sh ." } },
         options: [
           { optionId: "allow", name: "Allow once", kind: "allow_once" },
           { optionId: "deny", name: "Deny", kind: "reject_once" },
