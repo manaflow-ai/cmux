@@ -53,7 +53,7 @@ export function createNoticeQueue(limit = STACK_LIMIT): NoticeQueue {
   return {
     show(spec) {
       // A generated id skips any id showing, so it never replaces a caller's `toast-1`.
-      let id = spec.id;
+      let id = spec.id ?? undefined;
       if (id === undefined) {
         do id = `toast-${++next}`;
         while (entries.some((entry) => entry.spec.id === id));
