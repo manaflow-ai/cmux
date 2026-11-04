@@ -64,6 +64,13 @@ extension CreationInputBuffer {
         }
     }
 
+    /// Held keys of a new workspace's terminal that never run: the log says how many and why.
+    static func logDropped(_ count: Int, why: String) {
+        guard count > 0 else { return }
+        Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
+            .notice("\(count, privacy: .public) key(s) typed for a new workspace's terminal dropped: \(why, privacy: .public)")
+    }
+
     /// Window `window` of the hold is gone: the keys held for a terminal, as runs for each terminal in typing order. A key
     /// held for no terminal had only that window and goes with it, logged (cmux-ad m12: no other key is dropped).
     public func takeForClosedWindow(window: Int) -> [([NSEvent], HeldLane)] {
