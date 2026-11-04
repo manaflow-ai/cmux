@@ -85,6 +85,13 @@ impl RouteKey<TerminalPublicId> for SurfaceId {
     }
 }
 
+/// `State::terminal_catalog_by_host`: the host id names a catalog owner, never a placement or runtime id itself.
+impl RouteKey<TerminalPublicId> for String {
+    fn routed_id(&self, _: &TerminalPublicId) -> Option<SurfaceId> {
+        None
+    }
+}
+
 /// `State::terminal_catalog`: the runtime id the owner is found under (`terminal_catalog_by_runtime`).
 impl RouteKey<Arc<Surface>> for TerminalPublicId {
     fn routed_id(&self, value: &Arc<Surface>) -> Option<SurfaceId> {
@@ -164,6 +171,7 @@ pub(crate) struct RouteSnapshot {
     surfaces: Arc<HashMap<SurfaceId, Arc<Surface>>>,
     catalog: Arc<HashMap<TerminalPublicId, Arc<Surface>>>,
     by_runtime: Arc<HashMap<SurfaceId, TerminalPublicId>>,
+    by_host: Arc<HashMap<String, TerminalPublicId>>,
 }
 
 impl RouteSnapshot {
@@ -173,6 +181,7 @@ impl RouteSnapshot {
             surfaces: state.surfaces.shared(),
             catalog: state.terminal_catalog.shared(),
             by_runtime: state.terminal_catalog_by_runtime.shared(),
+            by_host: state.terminal_catalog_by_host.shared(),
         }
     }
 
@@ -181,6 +190,7 @@ impl RouteSnapshot {
         state.surfaces.shares(&self.surfaces)
             && state.terminal_catalog.shares(&self.catalog)
             && state.terminal_catalog_by_runtime.shares(&self.by_runtime)
+            && state.terminal_catalog_by_host.shares(&self.by_host)
     }
 
     /// The surface `id` routes to: its placement, else the catalog owner of the runtime `id` names (the lookup of
@@ -191,6 +201,42 @@ impl RouteSnapshot {
             .or_else(|| self.by_runtime.get(&id).and_then(|terminal| self.catalog.get(terminal)))
             .cloned()
     }
+
+    /// The live terminal whose host id is `terminal_id` (the lookup of `Mux::live_surface_for_terminal`).
+    pub(crate) fn live_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
+        live_terminal(&self.surfaces, &self.catalog, &self.by_host, terminal_id).cloned()
+    }
+}
+
+/// The catalog owner the host index names for host id `terminal_id`, if it still carries that identity: the index
+/// is a verified cache (mux/terminal_catalog_index.rs).
+pub(crate) fn indexed_owner<'a>(
+    catalog: &'a HashMap<TerminalPublicId, Arc<Surface>>,
+    by_host: &HashMap<String, TerminalPublicId>,
+    terminal_id: &str,
+) -> Option<&'a Arc<Surface>> {
+    let public_id = by_host.get(terminal_id)?;
+    catalog.get(public_id).filter(|surface| {
+        surface.terminal_host_identity().is_some_and(|identity| identity.terminal_id == terminal_id)
+    })
+}
+
+/// The live terminal whose host id is `terminal_id`: the indexed catalog owner while it is placed, else the placement
+/// whose terminal has that identity. The session state and a published snapshot answer with these same tables.
+pub(crate) fn live_terminal<'a>(
+    surfaces: &'a HashMap<SurfaceId, Arc<Surface>>,
+    catalog: &'a HashMap<TerminalPublicId, Arc<Surface>>,
+    by_host: &HashMap<String, TerminalPublicId>,
+    terminal_id: &str,
+) -> Option<&'a Arc<Surface>> {
+    if let Some(owner) = indexed_owner(catalog, by_host, terminal_id)
+        && surfaces.contains_key(&owner.id)
+    {
+        return Some(owner);
+    }
+    surfaces.values().find(|surface| {
+        surface.terminal_host_identity().is_some_and(|identity| identity.terminal_id == terminal_id)
+    })
 }
 
 impl<K, V> Deref for RouteTable<K, V> {

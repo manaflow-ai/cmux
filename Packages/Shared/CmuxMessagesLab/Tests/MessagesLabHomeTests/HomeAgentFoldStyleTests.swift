@@ -102,13 +102,13 @@ import Testing
         #expect(shape == .chip ? height < 40 : height >= 3 * HomeAgentPills.pillHeight(shape))
     }
 
-    @Test func theShippedProviderStillDrawsTheShippedLine() throws {
+    @Test func theShippedProviderDrawsTheShippedPills() throws {
         let part = try #require(HomeAgentFoldRowProvider().part(Self.rows()[0].1))
         guard case let .custom(custom) = part else { Issue.record("not a drawn row"); return }
         let payload = try #require(HomeAgentFoldRowProvider.payload(custom))
         #expect(payload.style == 0)
         #expect(HomeAgentFoldStyle.drawing(payload) == nil)
-        #expect(HomeAgentFoldRowProvider().measure(custom, maxWidth: 420).height == HomeAgentFoldRowProvider.height)
+        #expect(HomeAgentFoldRowProvider().measure(custom, maxWidth: 420).height == HomeAgentPills(payload, shape: .pill, width: 420).height)
     }
 }
 #endif

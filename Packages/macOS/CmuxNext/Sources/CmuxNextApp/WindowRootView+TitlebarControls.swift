@@ -35,18 +35,10 @@ extension WindowRootView {
     /// After the band, the badge while `showsTitlebarBadge`, then the host
     /// pressure indicator while it shows, `space2` apart, centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
-        var x = toolbarBand.frame.maxX + Metrics.space2
-        if let badge = titlebarBadge {
-            badge.isHidden = !showsTitlebarBadge || presentsPage
-            if showsTitlebarBadge {
-                let size = badge.fittingSize
-                badge.frame = CGRect(x: x, y: (midY - size.height / 2).rounded(), width: size.width, height: size.height)
-                x = badge.frame.maxX + Metrics.space2
-            }
-        }
-        guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
-        let side = TitlebarBandButton.side
-        let width = (indicator as? HostPressureIndicatorView)?.width ?? side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        titlebarBadge?.isHidden = !showsTitlebarBadge || presentsPage
+        WindowTitlebar.layoutAccessories(after: toolbarBand.frame, badge: showsTitlebarBadge ? titlebarBadge : nil,
+                                        indicator: hostPressureIndicator,
+                                        indicatorWidth: (hostPressureIndicator as? HostPressureIndicatorView)?.width ?? TitlebarBandButton.side,
+                                        centeredOn: midY, scale: window?.backingScaleFactor ?? 1)
     }
 }
