@@ -12,7 +12,9 @@
  *     new-machine, machine-status, exec, start-session, start-chat --wait, kill-machine; cmux#35086)
  *
  * It signs in as the agent test account (Stack password sign-in; CMUX_DOGFOOD_STACK_EMAIL and
- * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file) and walks the
+ * CMUX_DOGFOOD_STACK_PASSWORD from the environment or a KEY=value --credentials file; or, in a GitHub Actions
+ * job with `id-token: write`, --sign-in oidc: the job's OIDC token for a short session, no stored password,
+ * hq#7076) and walks the
  * same routes the app and the cmux CLI use, against the cmux API Worker (which forwards Cloud ops to
  * cmux-platform):
  *
@@ -170,6 +172,26 @@ async function http(method: string, url: string, body: unknown, headers: Record<
 
 const short = (v: unknown) => JSON.stringify(v ?? null).slice(0, 300);
 
+/**
+ * --sign-in oidc: the GitHub Actions job's OIDC token (audience: the API origin) traded at the API's
+ * POST /v1/auth/github-actions for a short Stack session of the one test account the API trusts that job
+ * with (backend/apps/api/src/ci-session.ts). Both tokens are pushed to `secrets` before anything can print.
+ */
+export async function oidcSignIn(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): Promise<{ token: string; user: string; expiresAt: string }> {
+  const url = env.ACTIONS_ID_TOKEN_REQUEST_URL;
+  const bearer = env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+  if (!url || !bearer) throw new Error("no GitHub Actions OIDC token: the job needs `permissions: id-token: write`");
+  secrets.push(bearer);
+  const sep = url.includes("?") ? "&" : "?";
+  const gh = await fetchJson("GET", `${url}${sep}audience=${encodeURIComponent(apiOrigin)}`, undefined, { authorization: `bearer ${bearer}` });
+  if (gh.status !== 200 || typeof gh.body.value !== "string") throw new Error(`GitHub OIDC token HTTP ${gh.status}`);
+  secrets.push(gh.body.value);
+  const r = await fetchJson("POST", `${apiOrigin}/v1/auth/github-actions`, undefined, { authorization: `Bearer ${gh.body.value}` });
+  if (r.status !== 200 || typeof r.body.access_token !== "string") throw new Error(`OIDC sign-in HTTP ${r.status} ${String(r.body.error ?? "")}`);
+  secrets.push(r.body.access_token);
+  return { token: r.body.access_token, user: String(r.body.user ?? "?"), expiresAt: String(r.body.session_expires_at ?? "?") };
+}
+
 class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
@@ -291,6 +313,23 @@ function cliExec(cmux: string, api: Api, machine: string, journey: Journey): Exe
       // Preserve the raw CLI answer below when it did not produce its JSON contract.
     }
     return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
+  };
+}
+
+/**
+ * The CLI's exec, until it answers cloud.provider.unsupported: `cmux machine access exec` mints a client session,
+ * which a VM API machine does not have, so the journey then runs every exec through the machine exec route
+ * (directExec's guest route) and names the CLI gap in the journey's meta instead of going red on it.
+ */
+export function cliExecWithFallback(cli: Exec, direct: Exec, journey: { meta: Record<string, string> }): Exec {
+  let fallback = false;
+  return async (command, timeoutMs) => {
+    if (fallback) return direct(command, timeoutMs);
+    const r = await cli(command, timeoutMs);
+    if (r.code === 0 || !`${r.stderr}${r.stdout}`.includes("cloud.provider.unsupported")) return r;
+    fallback = true;
+    journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
+    return direct(command, timeoutMs);
   };
 }
 
@@ -583,6 +622,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_DOGFOOD_STACK_EMAIL ?? creds.CMUX_UITEST_STACK_EMAIL;
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_DOGFOOD_STACK_PASSWORD ?? creds.CMUX_UITEST_STACK_PASSWORD;
   const team = argValue("--team", argv) ?? process.env.CMUX_JOURNEY_TEAM ?? undefined;
+  const signIn = argValue("--sign-in", argv) ?? "password";
+  if (signIn !== "password" && signIn !== "oidc") throw new Error(`--sign-in ${signIn}: password or oidc`);
   const agent = argValue("--agent", argv) ?? "claude";
   const prompt = argValue("--prompt", argv) ?? "Reply with one short sentence that names the planet you are on.";
   const chatBudget = Number(argValue("--chat-timeout", argv) ?? 300) * 1000;
@@ -669,13 +710,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (r.status !== 200) throw new Error(`HTTP ${r.status} ${short(r.body)}`);
       return { value: null, detail: `commit ${r.body.commit ?? r.body.version ?? "?"}` };
     });
-    if (!email || !password) {
+    if (signIn === "oidc") {
+      api.bearer = await J.step("sign in (agent test account)", async () => {
+        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        return { value: s.token, detail: `GitHub OIDC, user ${s.user}, session ends ${s.expiresAt}` };
+      });
+    } else if (!email || !password) {
       await J.step("sign in (agent test account)", async () => {
         throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
       });
     }
     const stack = STACK[backend.stack];
-    api.bearer = await J.step("sign in (agent test account)", async () => {
+    if (signIn === "password") api.bearer = await J.step("sign in (agent test account)", async () => {
       const r = await http("POST", `${STACK_API}/api/v1/auth/password/sign-in`, { email, password }, {
         "x-stack-access-type": "client",
         "x-stack-project-id": stack.project,
