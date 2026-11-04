@@ -77,7 +77,7 @@ impl Inner {
     /// fails it.
     pub(super) fn apply(&self, replay: Replay) -> Result<()> {
         let Replay { chats, metas } = replay;
-        // The metadata first: it makes the folder of a chat a crash lost, so its lines go back.
+        // The metadata, then the logs. Neither makes a folder that is gone (`meta.rs`).
         self.apply_metas(metas)?;
         for (chat, journaled) in chats {
             let Some(first_lsn) = journaled.first().map(|(lsn, _)| *lsn) else { continue };

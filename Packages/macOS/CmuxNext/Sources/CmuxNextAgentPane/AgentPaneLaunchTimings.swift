@@ -10,7 +10,7 @@ import os
 /// installs the receiver at launch and keeps the first time of each name; a
 /// mark made before that is kept with its time until then.
 /// The relaunch-reconnect bench reads them (scripts/cmux-next/bench_relaunch_reconnect.py).
-public nonisolated final class AgentPaneLaunchTimings: @unchecked Sendable {
+public nonisolated final class AgentPaneLaunchTimings: Sendable {
     public static let shared = AgentPaneLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?

@@ -88,8 +88,8 @@ export const CONTEXT_LABELS = {
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Another machine) | Machine,
 ///   the machine control only while the pick is another machine. Cloud has none: it gives the
 ///   workspace its own new machine (design/composer.md rule 18).
-/// - `where-machine-always`: the same, the machine control always shown (This Mac's own name with
-///   its live dot; New machine for Cloud).
+/// - `where-machine-always`: the same, the machine control also shown on This Mac (its own name
+///   with its live dot); never for Cloud.
 /// - `cloud-toggle` (ChatGPT Work): Project | Machine (This Mac first), and a cloud toggle at the
 ///   strip's end asking "Where should this chat run?" (This Mac, Cloud).
 /// - `combined`: one control for both, This Mac and Cloud, the machines behind Machines….
@@ -621,7 +621,7 @@ export function ComposerContext({
     closeOnTrustAsk,
     ...(environmentFace ? { faceStyle: environmentFace } : {}),
   };
-  // Where it runs: Cloud (a new machine, or one of the account's Cloud machines), Sandboxed, another
+  // Where it runs: Cloud (the person's machine or a new one, or one picked in Machines…), Sandboxed, another
   // machine (the person's own, SSH), or this Mac. Each machine sits under where it runs, so the Where
   // chip never contradicts the chip beside it.
   const pickedOff = selectedComputer !== "local" && !savedPick;
@@ -655,25 +655,30 @@ export function ComposerContext({
     ) : (
       <EnvironmentIcon kind="local" />
     );
-  // The third chip: which Cloud machine while Cloud is the pick; which machine while another machine
-  // is (or Another machine was just picked); in `where-machine-always` the machine chip on this Mac too.
-  const cloudChipShown = layout !== "combined" && layout !== "cloud-toggle" && cloudSide;
+  // The third chip: which machine while another machine is the pick (or Another machine was just
+  // picked); in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
+  // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
+  // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
+  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". Only a
+  // Cloud machine picked by name (Machines…) gets the machine chip, naming it, with no New machine.
+  const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
   const machineShown =
     layout === "where-machine"
-      ? offMac || savedPick !== undefined || (machineAsked && !cloudSide && !sandboxPicked)
+      ? offMac || savedPick !== undefined || cloudMachinePicked || (machineAsked && !cloudSide && !sandboxPicked)
       : layout === "where-machine-always"
-        ? !cloudSide && !sandboxPicked
+        ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
         : true;
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
-  // machine picked is the workspace's own New machine; Another machine with none picked asks for one.
+  // machine picked says Cloud (Send reuses the person's machine or makes one, so no New machine shows;
+  // Leo, 2026-11-04); Another machine with none picked asks for one.
   const localMachine = currentComputer?.kind === "local" && !savedPick && !waiting;
   const machineValue =
     cloudPicked && cloudWorksOn
       ? cloudWorksOn
       : cloudPicked || sandboxPicked
-        ? t("composer.newMachine")
+        ? t(cloudPicked ? "composer.cloud" : "composer.newMachine")
         : layout === "where-machine" && localMachine
           ? t(CONTEXT_LABELS.chooseMachine)
           : localMachine
@@ -883,22 +888,10 @@ export function ComposerContext({
                     face={machineFace}
                     rows="machines"
                     includeLocal={layout === "where-machine-always"}
-                    ownOnly
+                    ownOnly={!cloudMachinePicked}
                     digits={false}
                     setupMenu={false}
                     {...(machineRequest !== undefined ? { openRequest: machineRequest } : {})}
-                  />
-                )}
-                {cloudChipShown && (
-                  <EnvironmentPicker
-                    {...pickerProps}
-                    label={t(CONTEXT_LABELS.machine)}
-                    menu="Machine"
-                    value={machineValue}
-                    face={machineFace}
-                    rows="cloud"
-                    digits={false}
-                    setupMenu={false}
                   />
                 )}
               </>
@@ -1133,7 +1126,7 @@ function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={10} loading className="acpmux-env-live-spinner" />
+          <Spinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
         </span>
       )}

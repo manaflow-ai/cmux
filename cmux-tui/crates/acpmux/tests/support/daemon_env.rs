@@ -371,6 +371,9 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     // background class on a loaded fleet Mac (load 13 to 21 on 10 performance cores) a Codex-steer
     // turn did not end in 18 to 30 s. `tests/cpu_class.rs` sets background itself.
     env.push((acpmux::cpu_class::ENV.into(), "normal".into()));
+    // No spare per harness used (`hub/pool/spare.rs`): a test counts the agents it started.
+    // `tests/session_pool.rs` turns it on for the spare's own tests.
+    env.push(("ACPMUX_SPARE_HARNESS".into(), "0".into()));
     env
 }
 

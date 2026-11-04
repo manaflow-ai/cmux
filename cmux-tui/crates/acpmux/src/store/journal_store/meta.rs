@@ -9,16 +9,50 @@
 //! replay use an image only for that same folder; an image whose folder was replaced or removed
 //! goes to `journal-unapplied/`. `session_dir` and `flush_session`, which hand the folder to such
 //! code or make it durable, first write the chat's image (`settle_meta`).
+//!
+//! A run without the journal (the switch off after a catch-up that failed, or an older build) can
+//! write `session.json` after the journal's records (review of #35483, F1). Every write of the
+//! store's own carries `journalLsn`; a file without it is one the journal did not write. So each
+//! record also says which `session.json` there was when its image was saved: that file's id,
+//! modification time and length (its stamp), or none. The replay writes an image over a file the
+//! journal did not write only when one of the chat's replayed records saw that same file;
+//! otherwise the file moved on without the journal, and the image goes aside, as a log's
+//! journaled lines do when the log moved on.
+//!
+//! The replay never makes a chat's folder again: a new chat is acknowledged only once its
+//! folder's entry is durable ([`super::new_folders`]), so a folder that is gone was removed (by a
+//! delete, a run without the journal, the transfer recovery), and its images go aside.
 
 use super::*;
 
-/// A chat's metadata image: chat id, flags, its folder's identity, the image as compact JSON.
+/// A chat's metadata image: chat id, flags, its folder's identity, the stamp of the
+/// `session.json` its save saw (with [`SAW_FILE`]), the image as compact JSON.
 pub(super) const KIND_META: u16 = 4;
-/// Flag: the chat's folder did not exist when its record was appended (its first save).
-const CREATED: u8 = 1;
+/// Flag: the save saw a `session.json`; its stamp follows the folder's identity.
+const SAW_FILE: u8 = 1;
 /// The key `session.json` keeps the LSN of the image it holds under (absent without the journal):
 /// the replay never writes an older image over a newer one.
 const JOURNAL_LSN_KEY: &str = "journalLsn";
+
+/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
+/// says so on the first channel and waits for the second.
+#[cfg(test)]
+type SettleHold = (String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+#[cfg(test)]
+pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+
+/// Tests: the stop of [`SETTLE_HOLD`].
+#[cfg(test)]
+fn hold_settle(id: &str) {
+    let held = {
+        let mut slot = SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.as_ref().is_some_and(|(chat, _, _)| chat == id) { slot.take() } else { None }
+    };
+    if let Some((_, arrived, release)) = held {
+        let _ = arrived.send(());
+        let _ = release.recv();
+    }
+}
 
 /// One chat folder: its file id and birth time (0 where the file system has none). A folder
 /// renamed away and back keeps it; another folder made under the same path does not.
@@ -28,8 +62,7 @@ pub(super) struct FolderId {
     birth_ns: u64,
 }
 
-/// A folder's file id (its inode); 0 where the platform gives none (its birth time then tells
-/// two folders apart).
+/// A file's id (its inode); 0 where the platform gives none (its times then tell two apart).
 #[cfg(unix)]
 fn file_id(meta: &std::fs::Metadata) -> u64 {
     use std::os::unix::fs::MetadataExt;
@@ -41,20 +74,82 @@ fn file_id(_meta: &std::fs::Metadata) -> u64 {
     0
 }
 
+/// Nanoseconds since 1970 of `at`; 0 when the platform gives none.
+fn nanos(at: std::io::Result<std::time::SystemTime>) -> u64 {
+    at.ok()
+        .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(u64::MAX))
+}
+
 /// The identity of the folder at `dir`; `None` when there is none.
 fn folder_id(dir: &Path) -> std::io::Result<Option<FolderId>> {
     match std::fs::symlink_metadata(dir) {
-        Ok(meta) => {
-            let birth_ns = meta
-                .created()
-                .ok()
-                .and_then(|at| at.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(u64::MAX));
-            Ok(Some(FolderId { ino: file_id(&meta), birth_ns }))
-        }
+        Ok(meta) => Ok(Some(FolderId { ino: file_id(&meta), birth_ns: nanos(meta.created()) })),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error),
     }
+}
+
+/// A `session.json` file: its id, modification time and length. A write of the file by rename
+/// (every writer's way) gives it a new id; one in place a new modification time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) struct FileStamp {
+    ino: u64,
+    modified_ns: u64,
+    len: u64,
+}
+
+impl FileStamp {
+    fn of(meta: &std::fs::Metadata) -> Self {
+        Self { ino: file_id(meta), modified_ns: nanos(meta.modified()), len: meta.len() }
+    }
+}
+
+/// What a chat's `session.json` is.
+enum SessionFile {
+    Missing,
+    /// A file the journal wrote, holding the image of this LSN.
+    Journaled(Lsn),
+    /// A file the journal did not write (before the switch went on, with it off, or by an older
+    /// build); one that does not parse is one too.
+    Plain(FileStamp),
+}
+
+/// Reads what `dir`'s `session.json` is: its stamp and its bytes from one open file.
+fn session_file(dir: &Path) -> std::io::Result<SessionFile> {
+    #[derive(Deserialize)]
+    struct Only {
+        #[serde(default, rename = "journalLsn")]
+        journal_lsn: Lsn,
+    }
+    let path = dir.join("session.json");
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(SessionFile::Missing);
+        }
+        Err(error) => return Err(error),
+    };
+    let meta = file.metadata()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(match serde_json::from_slice::<Only>(&bytes) {
+        Ok(Only { journal_lsn: lsn @ 1.. }) => SessionFile::Journaled(lsn),
+        _ => SessionFile::Plain(FileStamp::of(&meta)),
+    })
+}
+
+/// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
+/// there is none, or when it does not stat (a file there at the replay then counts as moved on).
+fn saw_file(dir: &Path) -> Option<FileStamp> {
+    std::fs::symlink_metadata(dir.join("session.json")).ok().map(|meta| FileStamp::of(&meta))
 }
 
 /// The newest image of a chat that its `session.json` does not hold yet.
@@ -71,38 +166,70 @@ pub(super) struct Replayed {
     lsn: Lsn,
     image: Vec<u8>,
     folder: FolderId,
-    /// A record of the replay made the chat (its folder may be lost with it).
-    created: bool,
+    /// The `session.json` files the chat's replayed records (for this folder) saw: a file the
+    /// journal did not write is written over only when it is one of them.
+    saw: Vec<FileStamp>,
 }
 
-/// The size of a `meta` record's payload: chat id length, chat id, flags, folder, image.
-fn meta_payload_len(id: &str, image: &[u8]) -> usize {
-    21usize.saturating_add(id.len()).saturating_add(image.len())
+/// One `meta` record, read.
+struct Decoded<'a> {
+    chat: String,
+    folder: FolderId,
+    saw: Option<FileStamp>,
+    image: &'a [u8],
 }
 
-fn encode_meta(id: &str, created: bool, folder: FolderId, image: &[u8]) -> Vec<u8> {
+/// The size of a `meta` record's payload: chat id length, chat id, flags, folder, the stamp of
+/// the file its save saw, image.
+fn meta_payload_len(id: &str, saw: Option<FileStamp>, image: &[u8]) -> usize {
+    let stamp = if saw.is_some() { 24usize } else { 0 };
+    21usize.saturating_add(stamp).saturating_add(id.len()).saturating_add(image.len())
+}
+
+fn encode_meta(id: &str, folder: FolderId, saw: Option<FileStamp>, image: &[u8]) -> Vec<u8> {
     let len = u32::try_from(id.len()).unwrap_or(u32::MAX);
-    let mut payload = Vec::with_capacity(meta_payload_len(id, image));
+    let mut payload = Vec::with_capacity(meta_payload_len(id, saw, image));
     payload.extend_from_slice(&len.to_le_bytes());
     payload.extend_from_slice(id.as_bytes());
-    payload.push(if created { CREATED } else { 0 });
+    payload.push(if saw.is_some() { SAW_FILE } else { 0 });
     payload.extend_from_slice(&folder.ino.to_le_bytes());
     payload.extend_from_slice(&folder.birth_ns.to_le_bytes());
+    if let Some(stamp) = saw {
+        payload.extend_from_slice(&stamp.ino.to_le_bytes());
+        payload.extend_from_slice(&stamp.modified_ns.to_le_bytes());
+        payload.extend_from_slice(&stamp.len.to_le_bytes());
+    }
     payload.extend_from_slice(image);
     payload
 }
 
-fn decode_meta(payload: &[u8]) -> Option<(String, bool, FolderId, &[u8])> {
+/// The little-endian `u64` at `at`, which moves past it.
+fn take_u64(payload: &[u8], at: &mut usize) -> Option<u64> {
+    let end = at.checked_add(8)?;
+    let value = u64::from_le_bytes(payload.get(*at..end)?.try_into().ok()?);
+    *at = end;
+    Some(value)
+}
+
+fn decode_meta(payload: &[u8]) -> Option<Decoded<'_>> {
     let len = usize::try_from(u32::from_le_bytes(payload.get(..4)?.try_into().ok()?)).ok()?;
     let end = 4usize.checked_add(len)?;
-    let id = std::str::from_utf8(payload.get(4..end)?).ok()?;
+    let chat = std::str::from_utf8(payload.get(4..end)?).ok()?.to_owned();
     let flags = *payload.get(end)?;
-    let at = end.checked_add(1)?;
-    let ino = u64::from_le_bytes(payload.get(at..at.checked_add(8)?)?.try_into().ok()?);
-    let at = at.checked_add(8)?;
-    let birth_ns = u64::from_le_bytes(payload.get(at..at.checked_add(8)?)?.try_into().ok()?);
-    let image = payload.get(at.checked_add(8)?..)?;
-    Some((id.to_owned(), flags & CREATED != 0, FolderId { ino, birth_ns }, image))
+    let mut at = end.checked_add(1)?;
+    let folder =
+        FolderId { ino: take_u64(payload, &mut at)?, birth_ns: take_u64(payload, &mut at)? };
+    let saw = if flags & SAW_FILE != 0 {
+        Some(FileStamp {
+            ino: take_u64(payload, &mut at)?,
+            modified_ns: take_u64(payload, &mut at)?,
+            len: take_u64(payload, &mut at)?,
+        })
+    } else {
+        None
+    };
+    let image = payload.get(at..)?;
+    Some(Decoded { chat, folder, saw, image })
 }
 
 /// `session.json` for `meta`, written as `LocalStore::save` writes it, with the image's LSN.
@@ -115,40 +242,77 @@ fn session_json(meta: &SessionMeta, lsn: Lsn) -> Result<Vec<u8>> {
     Ok(text.into_bytes())
 }
 
-/// The LSN `dir`'s `session.json` holds an image under; 0 without one.
-fn session_json_lsn(dir: &Path) -> Lsn {
-    #[derive(Deserialize)]
-    struct Only {
-        #[serde(default, rename = "journalLsn")]
-        journal_lsn: Lsn,
+/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json` durably: a new file, synced,
+/// renamed into place, then the folder synced. A failed sync of either is a [`SyncFailed`]
+/// (review of #35483, F3): what it was to make durable may be lost, and a later sync of the same
+/// file may report success without it.
+#[cfg(unix)]
+fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let path = dir.join("session.json");
+    crate::config::refuse_lost_home(&path)?;
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        file.write_all(&session_json(meta, lsn)?)
+            .with_context(|| format!("write {}", tmp.display()))?;
+        file.sync_all().map_err(SyncFailed).with_context(|| format!("sync {}", tmp.display()))?;
+        drop(file);
+        std::fs::rename(&tmp, &path).with_context(|| format!("rename to {}", path.display()))?;
+        sync_directory(dir).with_context(|| format!("sync {}", dir.display()))
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
-    std::fs::read(dir.join("session.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Only>(&bytes).ok())
-        .map_or(0, |only| only.journal_lsn)
+    written
 }
 
-/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably.
+/// Writes `meta` (the image of LSN `lsn`) to `dir`'s `session.json`, durably (NTFS journals its
+/// folder changes).
+#[cfg(not(unix))]
 fn write_session_json(dir: &Path, meta: &SessionMeta, lsn: Lsn) -> Result<()> {
     crate::config::write_atomic(&dir.join("session.json"), &session_json(meta, lsn)?)
 }
 
 impl super::repair::Replay {
-    /// A `meta` record: the chat's newest image so far.
+    /// A `meta` record: the chat's newest image so far, and the files its records saw.
     pub(super) fn take_meta(
         &mut self,
         record: &cmux_journal::Record<'_>,
     ) -> std::result::Result<(), String> {
-        let (chat, created, folder, image) = decode_meta(record.payload)
+        let decoded = decode_meta(record.payload)
             .ok_or_else(|| format!("meta record {} does not read", record.lsn))?;
-        // Made by an earlier record of this replay, for the same folder.
-        let created = created
-            || self
-                .metas
-                .get(&chat)
-                .is_some_and(|replayed| replayed.created && replayed.folder == folder);
-        self.metas
-            .insert(chat, Replayed { lsn: record.lsn, image: image.to_vec(), folder, created });
+        // What earlier records of this replay saw, for the same folder (a record for another
+        // folder starts over: that folder replaced this one).
+        let mut saw = self
+            .metas
+            .remove(&decoded.chat)
+            .filter(|replayed| replayed.folder == decoded.folder)
+            .map(|replayed| replayed.saw)
+            .unwrap_or_default();
+        if let Some(stamp) = decoded.saw
+            && !saw.contains(&stamp)
+        {
+            saw.push(stamp);
+        }
+        self.metas.insert(
+            decoded.chat,
+            Replayed {
+                lsn: record.lsn,
+                image: decoded.image.to_vec(),
+                folder: decoded.folder,
+                saw,
+            },
+        );
         Ok(())
     }
 }
@@ -159,25 +323,33 @@ impl Inner {
     pub(super) fn save_meta(&self, meta: &SessionMeta) -> Result<()> {
         let image = serde_json::to_vec(meta)?;
         let dir = self.local.dir(&meta.id);
+        // The file there now, stamped before the appends' lock: only the store's own writes
+        // change it meanwhile, and a stamp of a file the store wrote is harmless (the replay
+        // compares such a file's `journalLsn`, never its stamp).
+        let saw = saw_file(&dir);
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
         // Checked before the folder is made: a refused save makes nothing.
         self.journal
-            .check_append(meta_payload_len(&meta.id, &image))
+            .check_append(meta_payload_len(&meta.id, saw, &image))
             .map_err(JournalStore::journal_error)?;
-        let created = folder_id(&dir)?.is_none();
-        if created {
-            // The checkpoint syncs the sessions folder; the replay makes a lost one again.
+        let made = folder_id(&dir)?.is_none();
+        if made {
             crate::config::private_state_dir(&dir)?;
         }
         let Some(folder) = folder_id(&dir)? else {
             anyhow::bail!("the folder of chat {} is gone", meta.id);
         };
-        let payload = encode_meta(&meta.id, created, folder, &image);
-        let lsn = self
-            .journal
-            .append(KIND_META, Class::Ack, &payload)
-            .map_err(JournalStore::journal_error)?;
+        // A folder made now holds no `session.json`.
+        let saw = if made { None } else { saw };
+        let payload = encode_meta(&meta.id, folder, saw, &image);
+        let append = || {
+            self.journal
+                .append(KIND_META, Class::Ack, &payload)
+                .map_err(JournalStore::journal_error)
+        };
+        // A new folder's record is held back from the gate until the folder's entry is synced.
+        let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
         self.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
@@ -200,8 +372,9 @@ impl Inner {
     }
 
     /// `Store::list` with the journal: the folders' listing with the overlay's images over it.
-    /// The overlay is read first and the files after: a checkpoint writes a file before it drops
-    /// the file's overlay entry, so either read has the newest image.
+    /// The overlay is read first and the files after, with no lock across the two: a checkpoint
+    /// writes a file before it drops the file's overlay entry, so either read has the newest
+    /// image.
     pub(super) fn list_metas(&self) -> Result<Vec<SessionMeta>> {
         let pending: Vec<Pending> = self.order.lock_or_recover().metas.values().cloned().collect();
         let mut listed = Store::list(&self.local)?;
@@ -234,6 +407,13 @@ impl Inner {
         let Some(pending) = self.order.lock_or_recover().metas.get(id).cloned() else {
             return Ok(());
         };
+        #[cfg(test)]
+        hold_settle(id);
+        // Durable first (E13: an image names only lines the journal holds). The journal syncs in
+        // write order without flushing the drive's cache (macOS `F_BARRIERFSYNC`); the image's
+        // own `sync_all` (`F_FULLFSYNC`) flushes it, so after a power loss an image never holds
+        // a `journalLsn` the journal lost (review of #35483, refuted item). A weaker sync of
+        // `session.json` must first wait for `Journal::full_durable_lsn`.
         self.journal
             .wait_durable(pending.lsn, SEAL_WAIT)
             .map_err(|error| anyhow::anyhow!("the event journal: {error}"))?;
@@ -252,6 +432,9 @@ impl Inner {
     /// Writes `pending` (a durable image of chat `id`) to its folder's `session.json` and drops
     /// it from the overlay unless a newer one came. A folder that is gone or replaced is never
     /// made or written: the image goes aside. A chat deleted since (no overlay entry) is passed.
+    /// A file that holds this image or a newer one is not written again (F2 of the review of
+    /// #35483: a settle that read its image before a checkpoint wrote a newer one). A failed sync
+    /// freezes the checkpoint, as a failed log sync does (F3).
     fn write_through(&self, id: &str, pending: &Pending) -> Result<()> {
         // Against a delete's removal of the folder (`Store::delete` drops the entry first).
         let _folder = self.folders.lock_or_recover();
@@ -263,8 +446,17 @@ impl Inner {
         let dir = self.local.dir(id);
         let here = folder_id(&dir).with_context(|| format!("stat {}", dir.display()))?;
         if here == Some(pending.folder) {
-            write_session_json(&dir, &pending.meta, pending.lsn)
-                .with_context(|| format!("write the metadata of {id}"))?;
+            let held = matches!(
+                session_file(&dir),
+                Ok(SessionFile::Journaled(lsn)) if lsn >= pending.lsn
+            );
+            if !held && let Err(error) = write_session_json(&dir, &pending.meta, pending.lsn) {
+                let error = error.context(format!("write the metadata of {id}"));
+                if error.chain().any(|cause| cause.is::<SyncFailed>()) {
+                    self.freeze(format!("a chat's metadata failed to sync: {error:#}"));
+                }
+                return Err(error);
+            }
         } else {
             let image = serde_json::to_vec(&pending.meta)?;
             let kept = self.keep_aside_meta(id, pending.lsn, &image)?;
@@ -278,9 +470,10 @@ impl Inner {
     }
 
     /// The replay's part: each chat's newest image to its `session.json` when its folder is the
-    /// one the image was saved for and the file holds an older image. A missing folder is made
-    /// again only for a chat a replayed record made; else the chat was deleted or removed outside
-    /// the daemon, and its image goes aside, as does the image of a folder replaced since.
+    /// one the image was saved for and the file holds an older image the journal wrote, a file
+    /// one of its records saw, or none. The image goes aside when the folder is gone (removed:
+    /// never made again, [module docs](self)) or replaced, or when its `session.json` moved on
+    /// without the journal (F1 of the review of #35483).
     pub(super) fn apply_metas(&self, metas: BTreeMap<String, Replayed>) -> Result<()> {
         for (chat, replayed) in metas {
             let dir = self.local.dir(&chat);
@@ -293,14 +486,16 @@ impl Inner {
                 }
             };
             let why = match folder_id(&dir) {
-                Ok(Some(here)) if here == replayed.folder => {
-                    if session_json_lsn(&dir) >= replayed.lsn {
-                        continue;
-                    }
-                    None
-                }
+                Ok(Some(here)) if here == replayed.folder => match session_file(&dir) {
+                    Ok(SessionFile::Journaled(lsn)) if lsn >= replayed.lsn => continue,
+                    Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
+                    Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
+                    Ok(SessionFile::Plain(_)) => Some(
+                        "its session.json changed without the journal since (a run with store.journal off, or an older build)",
+                    ),
+                    Err(_) => Some("its session.json does not read"),
+                },
                 Ok(Some(_)) => Some("its folder was replaced since"),
-                Ok(None) if replayed.created => None,
                 Ok(None) => Some("its folder is gone"),
                 Err(_) => Some("its folder does not read"),
             };
@@ -309,9 +504,7 @@ impl Inner {
                 tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata of a chat not written again: {why}");
                 continue;
             }
-            let written = crate::config::private_state_dir(&dir)
-                .and_then(|()| write_session_json(&dir, &meta, replayed.lsn));
-            if let Err(error) = written {
+            if let Err(error) = write_session_json(&dir, &meta, replayed.lsn) {
                 let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
                 tracing::error!(session = %chat, kept = %kept.display(), "the chat's metadata could not be written: {error:#}");
             }
@@ -320,7 +513,8 @@ impl Inner {
     }
 
     /// Keeps a chat's metadata image beside the logs:
-    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only and synced.
+    /// `<home>/journal-unapplied/<id>.<lsn>.session.json`, owner-only, synced with its folder (an
+    /// error at any step is returned, as for kept lines).
     fn keep_aside_meta(&self, id: &str, lsn: Lsn, image: &[u8]) -> Result<PathBuf> {
         let dir = self.home.join(UNAPPLIED_DIR);
         crate::config::refuse_lost_home(&dir)?;
@@ -330,7 +524,18 @@ impl Inner {
             .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' })
             .collect();
         let path = dir.join(format!("{name}.{lsn}.session.json"));
-        crate::config::write_atomic(&path, image)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
+        file.write_all(image)?;
+        file.sync_all()?;
+        drop(file);
+        sync_directory(&dir)?;
         Ok(path)
     }
 }

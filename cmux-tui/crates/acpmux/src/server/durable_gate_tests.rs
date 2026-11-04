@@ -141,3 +141,66 @@ async fn agent_output_is_not_held_behind_another_chats_acked_change() {
     assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
     assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
 }
+
+/// F2: a journal that makes nothing durable (a hung or failing disk; the writer retries without
+/// end) must not hold every reply without a limit: past the stall limit, the store asks the
+/// daemon to stop for a restart.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_journal_that_syncs_nothing_asks_the_daemon_to_stop() {
+    use std::sync::atomic::Ordering;
+    super::TEST_STALL_MS.store(300, Ordering::SeqCst);
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let hub = hub(home.path(), &journal);
+    let (input, mut outgoing) = connect(&hub).await;
+    let mut stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    // Each sync takes 3 s: past the 300 ms stall limit, and short enough that the journal ends
+    // (a sync under way keeps its delay, and the store's drop waits for it).
+    journal.set_sync_delay(Duration::from_secs(3));
+    let rename = json!({"sessionId": CHAT, "newName": "renamed"});
+    send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
+    let asked = tokio::time::timeout(Duration::from_millis(2500), stop.wait_for(Option::is_some))
+        .await
+        .is_ok();
+    journal.set_sync_delay(Duration::ZERO);
+    let _ = until(&mut outgoing, |line| line["id"] == 2).await;
+    assert!(asked, "a reply waited past the stall limit and the store did not ask to stop");
+}
+
+/// F1, the streaming read: `session/load`'s replay sends each record as it reads it
+/// (`Hub::scan_events`). It must stop at the records whose journal record was appended when it
+/// started: a line the log holds while its record is not appended is not sent.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_replay_never_sends_a_line_before_its_record() {
+    use crate::store::PAUSE_AFTER_LOG_WRITE;
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(63);
+    let hub = hub(home.path(), &journal);
+    let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
+    let first = hub.append(&session, "mux", "note", json!({"n": 1}));
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    *PAUSE_AFTER_LOG_WRITE.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((arrived_tx, release_rx));
+    let appender = {
+        let (hub, session) = (hub.clone(), session.clone());
+        std::thread::spawn(move || hub.append(&session, "mux", "note", json!({"n": 2})).seq)
+    };
+    arrived
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap_or_else(|e| panic!("the append never paused: {e}"));
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = release.send(());
+    });
+    let mut seen = Vec::new();
+    hub.scan_events(CHAT, 0, &mut |record| {
+        seen.push(record.seq);
+        true
+    })
+    .unwrap_or_else(|e| panic!("{e:#}"));
+    releaser.join().unwrap_or_else(|_| panic!("releaser panicked"));
+    let second = appender.join().unwrap_or_else(|_| panic!("append panicked"));
+    assert!(seen.contains(&first.seq), "the replay missed line {}: {seen:?}", first.seq);
+    assert!(!seen.contains(&second), "the replay sent line {second} before its record: {seen:?}");
+}

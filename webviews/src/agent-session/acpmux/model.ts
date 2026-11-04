@@ -1,8 +1,11 @@
+import { experimentArm } from "../../experiments/experiment";
+import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
   gridLength,
   MARK_FOOTER,
+  MARK_INDICATOR,
   MARK_STATUS,
   MARK_STEP,
   rowMark,
@@ -176,6 +179,10 @@ export type AcpmuxBackgroundReaction = {
   weight: AcpmuxBackgroundWeight;
   text?: string;
   fresh?: true;
+  /// The task's end was interim (acpmux's cause status `interim`: Claude Code said the agent "is
+  /// waiting on its own background work"): it has not given its final report yet. A later end of
+  /// the same call replaces the reaction, which clears it.
+  interim?: true;
 };
 
 /// What a run of background-task notifications' line counts (conversation/backgroundRuns.ts): quiet
@@ -577,6 +584,9 @@ export type AcpmuxRow = {
   doingSendSession?: string;
   doingDraft?: boolean;
   untimed?: boolean;
+  /// The live line's turn, by its prompt's row id (conversation/thinkingVerbs.ts): kept from send to
+  /// the echo, so the line's verb stays one word for the whole turn.
+  verbKey?: string;
   quietKey?: string;
   /// When the reply `quietKey` names was written, on this page's clock (conversation/turns.ts).
   quietAt?: number;
@@ -1048,6 +1058,8 @@ export type AcpmuxSnapshot = {
     toolsMutable?: boolean;
   };
   connection: string;
+  /** The first request that crossed its progress threshold while the socket stayed open. */
+  daemonWaitingSince?: number;
   /// The origin acpmux names for this connection in `initialize` (`_meta.acpmux.origin`):
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
@@ -1298,13 +1310,18 @@ const isStepRow = (row: AcpmuxRow) =>
 export const isLiveLine = (row: AcpmuxRow) =>
   row.below === true && (row.kind === WORKING || row.kind === THINKING || row.kind === ACTIVITY_LINE);
 /// The running turn's line as its last row (`below`) right under a step row or a status row ("Subagent
-/// finished", "Scheduled check", a compaction): one more line of the run, 22 under it and 22 tall
+/// finished", "Scheduled check", a compaction): 22 tall, with the run gap above it
 /// (`.acpmux-row--below.acpmux-row--after-step`), not the footer's 32 slot (#29965); the waiting
 /// messages' head draws over it (pendingMessages.ts `withWaitingRows`). Under a status row it took the footer's
 /// slot a block gap away, 55 and 70 from its neighbours (Leo, 2026-11-03: "this is pretty bad
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
+/// A compact live line keeps its 22px height and composer gap, but is a live indicator for
+/// spacing: classifying it as another step would swallow the run gap before Thinking.
+export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
+  isStepRow(row) ? MARK_STEP : isLiveStep(row, prev) ? MARK_INDICATOR : isStatusRow(row) ? MARK_STATUS : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are 22 apart top to top (design/chat-transcript.md "One-line row pitch",
 /// #29965), `--cv-tool-row-height`.
@@ -1342,6 +1359,19 @@ function noteHeight(text: string | undefined, width: number): number {
   const flat = text?.replace(/\s+/g, " ").trim();
   const lines = flat ? textHeight(flat, width, notePrepared, undefined, NOTE_LINE) : NOTE_LINE;
   return Math.max(NOTE_LINE, lines) + 2 * noteGap();
+}
+/// The chat's reply to a subagent's end under its finished line (ReactionMark.tsx `ReactionReply`):
+/// its text on the notes' 20px lines at the rows' text column, with no margin of its own.
+const reactionPrepared = new Map<string, PreparedText | null>();
+const REACTION_INSET_PT = gridLength("transcript-text-gap");
+function reactionReplyHeight(text: string | undefined, width: number): number {
+  // Drawn only in the arms that put a task's end on its call (ReactionMark.tsx `ReactionReply`).
+  if (!text || !reactsOnCall(experimentArm(backgroundReactionLook))) return 0;
+  if (reactionPrepared.size > 256) reactionPrepared.clear();
+  return Math.max(
+    NOTE_LINE,
+    textHeight(text, Math.max(1, width - REACTION_INSET_PT * chromeScale), reactionPrepared, undefined, NOTE_LINE),
+  );
 }
 function activityStepHeight(item: AcpmuxActivity, width: number): number {
   const tool = item.tool;
@@ -1950,10 +1980,14 @@ function fallbackRowHeight(
   // A turn's footer: its line of buttons (the stack gives the gaps). An empty footer (only hover
   // controls, conversation/turns.ts isEmptyFooter) takes no extra line; its gap fits the controls.
   if (row.kind === "turnSummary") return finish(isEmptyFooter(row) ? Math.max(metaRow(), TURN_GAP) : footerRow());
+  // A finished subagent's line, and the chat's reply to its end under it on the reply's own lines
+  // (conversation.css `.cv-tools > .cv-reaction-reply`; ReactionMark.tsx), which the row draws in
+  // the default `background-reaction-look` arm.
+  if (row.kind === SUBAGENT_DONE)
+    return finish(toolRowHeight() + reactionReplyHeight(row.subagents?.[0]?.reaction?.text, width));
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "policyUnenforced" ||
@@ -2454,9 +2488,7 @@ export function layoutConversation(
   let prevDrawn = prevDrawnRow(rows, start);
   for (let index = start; index < rows.length; index += 1) {
     const row = rows[index]!;
-    // A step row (a tool run or a one-line row) joins the step row before it flush (transcriptGap).
-    marks[index] =
-      isStepRow(row) || isLiveStep(row, prevDrawn) ? MARK_STEP : isStatusRow(row) ? MARK_STATUS : rowMark(row);
+    marks[index] = gridMark(row, prevDrawn);
     messages.visit(row, index, previous?.rows[index]);
     if (nextDrawn <= index) {
       nextDrawn = index + 1;

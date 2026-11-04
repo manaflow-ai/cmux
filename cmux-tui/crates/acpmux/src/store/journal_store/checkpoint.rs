@@ -193,7 +193,7 @@ impl Inner {
         self.ask_to_stop(why);
     }
 
-    fn ask_to_stop(&self, why: String) {
+    pub(super) fn ask_to_stop(&self, why: String) {
         tracing::error!(
             "{why}: the event journal keeps every line; the daemon stops so that its restart writes the logs again"
         );

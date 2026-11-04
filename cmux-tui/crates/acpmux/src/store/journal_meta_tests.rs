@@ -115,35 +115,6 @@ fn last_seq_never_passes_the_log_after_an_os_crash() {
     );
 }
 
-/// An acknowledged chat made after the last checkpoint survives an OS crash that lost its folder
-/// (nothing synced the sessions folder since the folder was made): the replay makes it again
-/// from its records.
-#[test]
-fn a_chat_made_after_the_checkpoint_survives_an_os_crash_that_loses_its_folder() {
-    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
-    let journal = SimStorage::new(51);
-    let store = open(home.path(), &journal);
-    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
-    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
-    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
-    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
-    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
-    let crashed = journal.restart(Crash::Os);
-    drop(store);
-    // The worst case: the new folder's entry never reached the disk.
-    std::fs::remove_dir_all(home.path().join("sessions").join(CHAT))
-        .unwrap_or_else(|e| panic!("{e}"));
-    let store = open(home.path(), &crashed);
-    let loaded = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
-    assert_eq!(
-        loaded.map(|meta| (meta.name, meta.last_seq)),
-        Some(("new".to_owned(), 1)),
-        "an acknowledged chat was lost with its folder"
-    );
-    assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
-}
-
 /// A metadata change does not write `session.json` on the request path (no file sync per
 /// change): the store answers with the change at once, and the next checkpoint writes the file.
 #[test]
@@ -352,4 +323,250 @@ fn the_checkpoint_never_makes_a_folder_removed_outside_the_store_again() {
         store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
         "a removed chat still reads"
     );
+}
+
+// ---------------------------------------------------------------- review of #35483 (F1 to F4)
+
+/// F1 (review of #35483): the metadata twin of S2's finding 1a (lines written with the switch off).
+/// A kill with the switch on; a run with it off whose catch-up did not replay this journal (an
+/// older build stops at kind 4, and the journal here is on `SimStorage`, so the switch-off start
+/// finds none); a rename then; the switch on again. The replay must not write the journal's older
+/// image over the change made with the switch off.
+#[test]
+fn metadata_written_with_the_switch_off_survives_turning_it_on_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(60);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "one", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "two", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let off = super::open(&StoreConfig::default(), home.path())
+        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
+    off.save(&meta(CHAT, "three", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    let store = open(home.path(), &killed);
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(
+        name.as_deref(),
+        Some("three"),
+        "the replay wrote the journal's older image over a change made with the switch off"
+    );
+}
+
+/// F1, a delete: a chat made after the checkpoint, a kill, a start with the switch off whose
+/// catch-up fails (here its checkpoint file does not read), and the chat deleted in that run. The
+/// next start with the switch on must not make the chat again from its journaled records.
+#[test]
+fn a_chat_deleted_with_the_switch_off_after_a_failed_catch_up_is_not_made_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(63);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    // The switch-off start finds a journal on disk and cannot catch up with it.
+    let checkpoint = home.path().join("journal-projected.json");
+    let saved = std::fs::read(&checkpoint).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(&checkpoint, b"not a checkpoint").unwrap_or_else(|e| panic!("{e}"));
+    let on_disk = home.path().join("journal");
+    std::fs::create_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
+    let off = super::open(&StoreConfig::default(), home.path())
+        .unwrap_or_else(|e| panic!("open the store with the switch off: {e:#}"));
+    off.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(off);
+    std::fs::write(&checkpoint, saved).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_dir(&on_disk).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &killed);
+    assert!(
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a chat deleted with the switch off came back"
+    );
+    assert!(
+        !home.path().join("sessions").join(CHAT).exists(),
+        "the replay made the folder of a chat deleted with the switch off again"
+    );
+}
+
+/// F2: a `session_dir` (or `flush_session`) that read a chat's overlay image before a checkpoint
+/// wrote a newer one must not write its older image over the newer file. It reads "one"; "two"
+/// is saved, made durable and checkpointed; "three" is saved and stays in memory; then the late
+/// write runs. A kill that loses "three" must keep the acknowledged "two".
+#[test]
+fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
+    const SETTLED: &str = "chat-settled";
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(61);
+    let store: Arc<dyn Store> = Arc::from(open(home.path(), &journal));
+    store.save(&meta(SETTLED, "one", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let (arrived_tx, arrived) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel();
+    *super::journal_store::SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((SETTLED.to_owned(), arrived_tx, release_rx));
+    let late = {
+        let store = Arc::clone(&store);
+        std::thread::spawn(move || store.session_dir(SETTLED))
+    };
+    arrived.recv_timeout(WAIT).unwrap_or_else(|e| panic!("the settle never read its image: {e}"));
+    store.save(&meta(SETTLED, "two", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    journal.set_sync_delay(Duration::from_secs(2));
+    // The writer is in chat-b's 2 s sync: "three" waits in memory.
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    std::thread::sleep(Duration::from_millis(300));
+    store.save(&meta(SETTLED, "three", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    release.send(()).unwrap_or_else(|e| panic!("{e}"));
+    let _dir = late.join().unwrap_or_else(|_| panic!("the late settle panicked"));
+    // A kill now: "three" is lost, "two" was acknowledged.
+    let killed = journal.restart(Crash::Process);
+    killed.set_sync_delay(Duration::ZERO);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let name = store.load(SETTLED).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(
+        name.as_deref(),
+        Some("two"),
+        "a late settle wrote an older image over an acknowledged one"
+    );
+}
+
+/// F3: a checkpoint that writes a chat's `session.json` and then fails to sync the chat's folder
+/// (the rename may be lost in an OS crash) freezes, as a failed log sync does, and keeps the
+/// record: the store asks the daemon to stop, and the restart writes the image again.
+#[test]
+fn a_failed_folder_sync_after_a_metadata_write_freezes_the_checkpoint() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(64);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "before", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    // A draft change: a `meta` record and no log line.
+    store.save(&meta(CHAT, "after", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    let folder = home.path().join("sessions").join(CHAT);
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = Some(folder));
+    let failed = store.flush();
+    super::log_sync::FAIL_DIR_SYNC.with(|fail| *fail.borrow_mut() = None);
+    assert!(failed.is_err(), "the checkpoint went on past a failed sync of a session.json folder");
+    assert!(store.flush().is_err(), "a checkpoint after a failed folder sync went ahead");
+    let reason = store.stop_reason().and_then(|reason| reason.borrow().clone());
+    assert!(reason.is_some(), "the store did not ask the daemon to stop");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(name.as_deref(), Some("after"), "the restart lost the image of a frozen checkpoint");
+}
+
+/// F4: a chat made after the last checkpoint and deleted by code no client waits for (a purge),
+/// then a kill before the group commit takes the `forget`: the next start must not make the chat
+/// again from its `created` record.
+#[test]
+fn a_chat_made_after_the_checkpoint_and_deleted_is_not_made_again() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(62);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    journal.set_sync_delay(Duration::from_secs(2));
+    // The writer is in chat-b's 2 s sync: the `forget` waits in memory.
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    std::thread::sleep(Duration::from_millis(300));
+    store.delete(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    let killed = journal.restart(Crash::Process);
+    killed.set_sync_delay(Duration::ZERO);
+    drop(store);
+    let store = open(home.path(), &killed);
+    assert!(
+        store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).is_none(),
+        "a deleted chat came back"
+    );
+    assert!(
+        !home.path().join("sessions").join(CHAT).exists(),
+        "the replay made a deleted chat's folder again"
+    );
+    assert!(
+        !store.list().unwrap_or_else(|e| panic!("{e:#}")).iter().any(|meta| meta.id == CHAT),
+        "a deleted chat is listed"
+    );
+}
+
+/// F4 and F1 at the root (review of #35483): the replay never makes a chat's folder again, so a
+/// chat removed by any path (a purge, a run without the journal, the transfer recovery) stays
+/// removed. That holds only if an OS crash can never take back the folder of a chat a client was
+/// told about: a new chat's first record is acknowledged (the durability the outbound gate waits
+/// for) only once its folder's entry in `sessions/` is synced too. The model keeps what each
+/// folder's last sync held (`sync_model::os_crash_folders`).
+#[test]
+fn a_new_chat_is_acknowledged_only_once_its_folder_is_durable() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(65);
+    let store = open(home.path(), &journal);
+    store.save(&meta("chat-old", "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "new", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    let acked = durability.acked.load(std::sync::atomic::Ordering::SeqCst);
+    let deadline = std::time::Instant::now() + WAIT;
+    while *durability.durable.borrow() < acked {
+        assert!(std::time::Instant::now() < deadline, "the chat's records never became durable");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let sessions = home.path().join("sessions");
+    assert!(
+        sync_model::folder_keeps(&sessions, CHAT),
+        "the new chat was acknowledged while an OS crash could still take back its folder"
+    );
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&sessions);
+    sync_model::os_crash_folders(&sessions);
+    let store = open(home.path(), &crashed);
+    let loaded = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(
+        loaded.map(|meta| (meta.name, meta.last_seq)),
+        Some(("new".to_owned(), 1)),
+        "an acknowledged chat was lost in an OS crash"
+    );
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1]);
+}
+
+/// Review of #35483, P3 1: a caller that needs only a chat's folder path (an agent's start, a
+/// fixed id's check under the hub's sessions lock) never waits for the journal or the disk; only
+/// `session_dir`, for code that reads or moves the chat's files, writes its metadata first.
+#[test]
+fn session_path_never_waits_for_the_journal() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(66);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "one", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    journal.set_sync_delay(Duration::from_secs(2));
+    // The writer takes "two" into a 2 s sync.
+    store.save(&meta(CHAT, "two", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    let started = std::time::Instant::now();
+    let path = store.session_path(CHAT);
+    let took = started.elapsed();
+    assert_eq!(path, Some(home.path().join("sessions").join(CHAT)));
+    assert!(
+        took < Duration::from_millis(500),
+        "session_path waited {took:?} for the journal and the disk"
+    );
+    journal.set_sync_delay(Duration::ZERO);
 }
