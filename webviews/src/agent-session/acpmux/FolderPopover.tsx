@@ -6,7 +6,7 @@ import { AddProjectDialog, type BrowseRequest, type BrowseResult } from "./AddPr
 import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { translate as t } from "./i18n";
-import { useLocationOpener, useLocationPopover } from "./locationPopover";
+import { useComposerPopoverSwitch, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { folderRepo, groupByRepo, isMainCheckout, shownRepoRows, worktreeName, type ProjectRepo } from "./projectRepos";
@@ -171,19 +171,7 @@ export function FolderPopover({
     if (escaped.current) trigger.current?.focus();
     escaped.current = false;
   };
-  useEffect(() => {
-    if (!open) return;
-    const switchPopover = (event: Event) => {
-      const target = (event as CustomEvent<unknown>).detail;
-      if (!(target instanceof Element)) return;
-      const targetComposer = target.closest(".acpmux-composer, .nt-composer");
-      const folderComposer = trigger.current?.closest(".acpmux-composer, .nt-composer");
-      if (targetComposer && targetComposer === folderComposer)
-        close();
-    };
-    document.addEventListener("cmux-composer-popover-switch", switchPopover);
-    return () => document.removeEventListener("cmux-composer-popover-switch", switchPopover);
-  }, [open, close]);
+  useComposerPopoverSwitch(open, trigger, close);
   const submit = (value: string) => {
     // Add folder… keeps the menu open: its list now adds a folder.
     if (value === ACTION_EXTRA) {
