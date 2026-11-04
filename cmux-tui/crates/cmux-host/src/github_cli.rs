@@ -649,10 +649,145 @@ pub fn first_token(
     Err(last)
 }
 
-/// Whether gh's `hosts.yml` holds a github.com login (a top-level
-/// `github.com:` key), the person's own `gh auth login`.
+/// What gh's `hosts.yml` holds at its root: the host keys read from it, and
+/// whether any content was left that this could not read. The one reader
+/// behind both own-login checks (`hosts_has_github` here and
+/// `github_cli_identity::hosts_has_any_login`).
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct GhHosts {
+    pub hosts: Vec<String>,
+    /// Content outside the forms read below. Unsure means a login may be there.
+    pub unread: bool,
+}
+
+impl GhHosts {
+    /// A login for any host may be there.
+    pub fn any_login(&self) -> bool {
+        self.unread || !self.hosts.is_empty()
+    }
+
+    /// A github.com login may be there.
+    pub fn github_login(&self) -> bool {
+        self.unread || self.hosts.iter().any(|h| h.eq_ignore_ascii_case("github.com"))
+    }
+}
+
+/// Reads the root mapping's keys from gh's `hosts.yml`: a block mapping at
+/// whatever indent its first key sets (spaces or tabs), or an inline
+/// `{host: {...}, ...}` mapping. Blank lines, comments and document markers
+/// (`---`, `...`) are skipped. Anything else is `unread`.
+pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
+    let lines: Vec<&str> = hosts_yml
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            !t.is_empty() && !t.starts_with('#') && t != "---" && t != "..."
+        })
+        .collect();
+    let mut out = GhHosts::default();
+    let Some(first) = lines.first() else { return out };
+    if first.trim_start().starts_with('{') {
+        match flow_keys(lines.join("\n").trim()) {
+            Some(keys) => out.hosts = keys,
+            None => out.unread = true,
+        }
+        return out;
+    }
+    let indent = |line: &str| line.len() - line.trim_start().len();
+    let root = indent(first);
+    for line in lines {
+        match indent(line) {
+            n if n > root => {}
+            n if n < root => out.unread = true,
+            _ => match block_key(line.trim()) {
+                Some(key) => out.hosts.push(key),
+                None => out.unread = true,
+            },
+        }
+    }
+    out
+}
+
+/// The key of one root line `key:` / `key: value` / `"key": value`.
+fn block_key(t: &str) -> Option<String> {
+    let after_colon_ok = |rest: &str| {
+        rest.strip_prefix(':').is_some_and(|r| r.is_empty() || r.starts_with(char::is_whitespace))
+    };
+    if let Some(q) = t.chars().next().filter(|c| *c == '"' || *c == '\'') {
+        let inner = &t[1..];
+        let end = inner.find(q)?;
+        return after_colon_ok(&inner[end + 1..]).then(|| inner[..end].to_owned());
+    }
+    let at = t.char_indices().find(|&(i, c)| c == ':' && after_colon_ok(&t[i..]))?.0;
+    let key = t[..at].trim_end();
+    let plain = key.chars().next().is_some_and(|c| !"-?{}[]&*!|>%@`,".contains(c));
+    plain.then(|| key.to_owned())
+}
+
+/// The root keys of an inline mapping `{a: {...}, "b": x}`, or `None` when it
+/// does not close.
+fn flow_keys(s: &str) -> Option<Vec<String>> {
+    let body = s.strip_prefix('{')?;
+    let mut keys = Vec::new();
+    let (mut depth, mut quote, mut in_key, mut key) = (0usize, None::<char>, true, String::new());
+    let mut push = |key: &mut String, keys: &mut Vec<String>| {
+        let k = key.trim().trim_matches(|c| c == '"' || c == '\'').to_owned();
+        if !k.is_empty() {
+            keys.push(k);
+        }
+        key.clear();
+    };
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            } else if c == '\\' && q == '"' {
+                let next = chars.next()?;
+                if depth == 0 && in_key {
+                    key.push(next);
+                }
+                continue;
+            }
+        } else {
+            match c {
+                '"' | '\'' => quote = Some(c),
+                '{' | '[' => depth += 1,
+                '}' | ']' if depth > 0 => depth -= 1,
+                '}' => {
+                    if in_key {
+                        push(&mut key, &mut keys);
+                    }
+                    return chars.as_str().trim().is_empty().then_some(keys);
+                }
+                ':' if depth == 0 && in_key => {
+                    push(&mut key, &mut keys);
+                    in_key = false;
+                    continue;
+                }
+                ',' if depth == 0 => {
+                    if in_key {
+                        push(&mut key, &mut keys);
+                    }
+                    in_key = true;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        if depth == 0 && in_key {
+            key.push(c);
+        }
+    }
+    None
+}
+
+/// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
+/// at its root, indented, tab-indented or inline), the person's own
+/// `gh auth login`. Content this cannot read counts as one, so an unsure
+/// read keeps the person's own gh rather than the team's token.
 pub fn hosts_has_github(hosts_yml: &str) -> bool {
-    hosts_yml.lines().any(|line| line.trim_end() == "github.com:")
+    parse_gh_hosts(hosts_yml).github_login()
 }
 
 /// gh's `hosts.yml`: `$GH_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gh`, else
