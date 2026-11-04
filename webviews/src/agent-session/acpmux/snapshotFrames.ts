@@ -94,6 +94,10 @@ export function snapshotFrames(
         if (queued === mine) flush();
       });
     },
+    /// Presents what is queued now, in the caller's commit; the frame asked for presents nothing.
+    flush() {
+      if (pending.length) flush();
+    },
     stop() {
       active = false;
       queued = undefined;

@@ -8583,6 +8583,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Only a New Tab page posts the chats it hears for the next one (newtab/warmSnapshot.ts).
   const showsNewTabRef = useRef(newTab !== undefined);
   showsNewTabRef.current = newTab !== undefined;
+  /// The connection's snapshot presenter (snapshotFrames.ts), while one is connected.
+  const presentationRef = useRef<ReturnType<typeof snapshotFrames> | undefined>(undefined);
+  // The New Tab page leaving shows the chat view in this commit: it draws the snapshots the client
+  // already sent, before paint, so its first frame is never the page's stale one (a shift on Return).
+  useLayoutEffect(() => {
+    if (newTab === undefined) presentationRef.current?.flush();
+  }, [newTab]);
   /// The New Tab context whose leftover the field already showed (``takeNewChatLeftover``).
   const leftoverShownFor = useRef<NewTabHost | undefined>(undefined);
   /// The New Tab field's text while it holds a leftover it showed, as edited since: what a pick
@@ -11005,6 +11012,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       activePresentation?.stop();
       const presentation = snapshotFrames(presentFrame, setSnapshot);
       activePresentation = presentation;
+      presentationRef.current = presentation;
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpmuxPerf.markLaunch("handshakeStart");

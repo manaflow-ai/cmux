@@ -376,3 +376,16 @@ test("a hidden page presents at once; a shown page waits for its frame or 50 ms"
     }
   }
 });
+
+test("flush presents what is queued in the caller's commit, and its frame presents nothing again", () => {
+  const { presenter, shown, frames, paint } = rig();
+  const next = { ...emptySnapshot(), sessionId: "chat", connection: "selected" };
+  presenter.flush();
+  expect(shown).toHaveLength(0);
+  presenter.push(next);
+  presenter.flush();
+  expect(shown).toEqual([next]);
+  expect(frames).toHaveLength(1);
+  paint();
+  expect(shown).toHaveLength(1);
+});
