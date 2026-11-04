@@ -93,7 +93,6 @@ extension WorkspaceTabsSource {
         }
     }
 
-    /// Rename Screen…: the Mac's name changes once it lists it (an empty name changes nothing).
     /// Duplicate Screen: a copy of the screen on the Mac (its name, a terminal in its folder);
     /// the phone opens its tab, as New Screen does.
     func duplicateScreen(_ screen: MacScreen) async {
@@ -115,6 +114,7 @@ extension WorkspaceTabsSource {
         }
     }
 
+    /// Rename Screen…: the Mac's name changes once it lists it (an empty name changes nothing).
     func renameScreen(_ screen: MacScreen, to name: String) async {
         renamingScreen = nil
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)

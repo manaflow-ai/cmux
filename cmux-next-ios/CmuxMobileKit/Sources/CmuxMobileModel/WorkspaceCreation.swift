@@ -514,6 +514,9 @@ public final class WorkspaceCreator {
 
     /// By placeholder id.
     public private(set) var phases: [String: Phase] = [:]
+    /// Bumped when a group with no workspace is made or deleted from here: the list reads it, since
+    /// such a change leaves the workspaces as they were (an empty group shows as its own header).
+    public internal(set) var groupsRevision = 0
     public var backend: any WorkspaceCreationBackend
     /// The Mac the next workspace goes to, when it can take one.
     public private(set) var preferredMacID: String?

@@ -919,7 +919,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             let tab = try await listedTab(surface)
             let name = screen.name.trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty, let copy = sync.tree?.workspaces.first(where: { $0.id == workspace.id })?.screen(ofTab: tab.id)?.screen {
-                try await run(client, "rename-screen", ["screen": copy.id, "name": name])
+                // The copy stands either way: a refused name leaves the Mac's default.
+                try? await run(client, "rename-screen", ["screen": copy.id, "name": name])
             }
             return tab
         } catch let error as DaemonReplyError {

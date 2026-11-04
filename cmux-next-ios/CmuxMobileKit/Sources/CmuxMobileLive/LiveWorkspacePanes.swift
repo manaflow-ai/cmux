@@ -7,7 +7,8 @@ import Foundation
 /// `split {pane, dir}`, `new-pane {pane}`, `new-pane-right {pane}`, `zoom-pane {pane, mode}`,
 /// `swap-pane {pane, dir|target}`, `rename-pane {pane, name}`, `close-pane {pane}`,
 /// `set-split-ratio {split, ratio, transaction}`, `undo-layout {pane, revision, confirm_close}`,
-/// `move-tab-to-split {surface, pane, edge}`, `move-tab-to-column {surface, pane}` and
+/// `move-tab-to-split {surface, pane, edge}`, `move-tab-to-column {surface, pane}` (with `width` and
+/// `dock` for a new dock column), `move-tab-to-new-workspace`, `move-tab-to-workspace` and
 /// `move-tab {surface, pane, index}`. A new pane's terminal is the Mac's own new terminal (the
 /// login shell; the phone names no program, folder or environment).
 extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {

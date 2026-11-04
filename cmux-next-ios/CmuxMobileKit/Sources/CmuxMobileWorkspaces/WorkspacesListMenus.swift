@@ -139,7 +139,7 @@ extension WorkspacesList {
         return UIMenu(options: .displayInline, children: items)
     }
 
-    /// New Workspace ▸ Above / Below / at Top / at Bottom (the Mac's row New folder): a new
+    /// New ▸ New Workspace Above / Below / at Top / at Bottom (the Mac's row New folder): a new
     /// terminal workspace, opened at once and placed there once the Mac lists it.
     private func newWorkspaceMenu(_ ws: Workspace) -> UIMenu? {
         let placements = creator.newWorkspacePlacements(beside: ws)
@@ -147,7 +147,8 @@ extension WorkspacesList {
         let items = placements.map { placement in
             action(placement.title, placement.systemImage) { create(.terminal, directory: nil, on: ws.macID, placement: placement) }
         }
-        return UIMenu(title: "New Workspace", image: UIImage(systemName: "plus.square"), children: items)
+        // The Mac's row folder title ("New", `MenuFolder.new`).
+        return UIMenu(title: "New", image: UIImage(systemName: "plus.square"), children: items)
     }
 
     /// Group: Move Workspace to Group… (its groups, then Move Workspace to New

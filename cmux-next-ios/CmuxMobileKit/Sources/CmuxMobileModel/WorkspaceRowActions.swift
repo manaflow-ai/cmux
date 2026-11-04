@@ -51,7 +51,9 @@ extension WorkspaceCreator {
             .filter { $0.element.macID == workspace.macID && $0.element.id != workspace.id && !$0.element.isPinned && !$0.element.isHome }
             .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
             .map(\.element)
-        return top ? rows.first : rows.last
+        // A loose row, so the new (loose) row lands outside any group's run; else any row.
+        let loose = rows.filter { $0.group == nil }
+        return top ? (loose.first ?? rows.first) : (loose.last ?? rows.last)
     }
 
     // MARK: Merge Workspace Into…
@@ -68,7 +70,7 @@ extension WorkspaceCreator {
 
     /// Merge Workspace Into…: every tab of `source` moves into `destination`, one after another
     /// so they keep their order (`move-tab-to-workspace`, as the Mac's `moveTabs`); the emptied
-    /// workspace goes, as on the Mac. Nothing restarts: each tab keeps its terminal, page or chat.
+    /// workspace then closes, as on the Mac. Nothing restarts: each tab keeps its terminal, page or chat.
     public func merge(_ source: Workspace, into destination: Workspace) {
         guard !mergeTargets(for: source).isEmpty, destination.macID == source.macID, !destination.isHome else { return }
         let tabs = source.tabs
@@ -76,6 +78,12 @@ extension WorkspaceCreator {
             do {
                 for tab in tabs {
                     _ = try await self?.backend.moveTab(tab, from: source, toWorkspace: destination)
+                }
+                // The Mac closes the emptied source itself (`WorkspaceMerge.run`); a source the Mac
+                // still lists with no tabs goes the same way. One that keeps tabs the phone does not
+                // list stays open.
+                if let self, let left = store.workspace(id: source.id), left.tabs.isEmpty {
+                    try await backend.close(left)
                 }
             } catch {
                 self?.onManageFailure?(source, "Couldn't merge \(source.title) into \(destination.title)", Self.message(error))
@@ -97,12 +105,14 @@ extension WorkspaceCreator {
         guard canCreateGroup(on: macID), let grouper else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = trimmed.isEmpty ? MacWorkspaceGroup.newGroupName : trimmed
-        let color = MacWorkspaceGroup.nextColor(used: Set(grouper.groups(on: macID).compactMap(\.color)))
         let previous = groupRequestTail[macID]
         let task = track("group-\(macID)") { [weak self] in
             await previous?.value
+            // The Mac's next color once the group before this one is made (two quick taps differ).
+            let color = MacWorkspaceGroup.nextColor(used: Set(grouper.groups(on: macID).compactMap(\.color)))
             do {
                 _ = try await grouper.createGroup(named: name, color: color, on: macID)
+                self?.groupsRevision += 1
             } catch {
                 self?.onGroupFailure?(macID, "Couldn't make the group \(name)", Self.message(error))
             }
@@ -113,6 +123,7 @@ extension WorkspaceCreator {
     /// Groups of `macID` the phone may use that hold no workspace yet (a New Workspace Group the
     /// Mac listed, or one emptied on the Mac): the list shows each as an empty header.
     public func emptyGroups(on macID: String) -> [MacWorkspaceGroup] {
+        _ = groupsRevision
         guard let grouper, rights(onMac: macID).group else { return [] }
         let used = Set(store.workspaces.filter { $0.macID == macID }.compactMap(\.group?.id))
         return grouper.groups(on: macID).filter { !used.contains($0.id) }
@@ -126,6 +137,7 @@ extension WorkspaceCreator {
             await previous?.value
             do {
                 try await grouper.deleteGroup(group, on: macID)
+                self?.groupsRevision += 1
             } catch {
                 self?.onGroupFailure?(macID, "Couldn't delete \(group.displayName)", Self.message(error))
             }

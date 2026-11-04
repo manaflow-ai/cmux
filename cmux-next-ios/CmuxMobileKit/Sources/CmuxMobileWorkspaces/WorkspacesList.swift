@@ -1038,7 +1038,8 @@ struct WorkspacesFilterMenu: View, Equatable {
                 Label("View Options", systemImage: model.grouping == .folder ? "folder.circle" : "line.3.horizontal.decrease")
             }
         }
-        .accessibilityIdentifier("workspaces.filter")
+        // `workspaces.filter` only when it filters Macs (the rigs read it as the Mac filter).
+        .accessibilityIdentifier(model.showsFilter ? "workspaces.filter" : "workspaces.viewOptions")
         // The chosen Mac and its presence and link line ("Online · Connected
         // over WebRTC"), so VoiceOver (and the rig's link reader) hears the
         // link without opening the menu.
@@ -1219,7 +1220,7 @@ struct FolderHeaderLabel: View {
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel("Folder \(WorkspaceListGrouping.title(folder))")
         .accessibilityValue(count == 1 ? "1 workspace" : "\(count) workspaces")
-        .accessibilityIdentifier("workspace.folder.\(WorkspaceListGrouping.title(folder))")
+        .accessibilityIdentifier("workspace.folder.\(folder.isEmpty ? "none" : folder)")
     }
 }
 

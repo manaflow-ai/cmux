@@ -76,8 +76,9 @@ import Testing
         creator.newGroup(on: macID, name: "  Backend ")
         creator.newGroup(on: macID, name: "")
         await creator.settle()
-        // Red and green are taken: the Mac's next color is yellow.
+        // Red and green are taken: the Mac's next color is yellow (the mock lists no new group).
         #expect(recorder.calls == ["create Backend yellow", "create New Group yellow"])
+        #expect(creator.groupsRevision == 2)
         // Green has no workspace on this phone: the list shows it as an empty group.
         #expect(creator.emptyGroups(on: macID).map(\.id) == ["grp_g"])
     }

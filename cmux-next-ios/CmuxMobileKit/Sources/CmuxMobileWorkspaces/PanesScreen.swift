@@ -110,9 +110,9 @@ struct PanesScreen: View {
                             .font(theme.type.meta)
                             .foregroundStyle(theme.colors.label2.color)
                     }
-                } onIncrement: {
+                } onIncrement: split.stepped(1) == nil ? nil : {
                     Task { await source.resize(split, 1) }
-                } onDecrement: {
+                } onDecrement: split.stepped(-1) == nil ? nil : {
                     Task { await source.resize(split, -1) }
                 }
                 .accessibilityIdentifier("panes.resize.\(split.split)")

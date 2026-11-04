@@ -87,7 +87,7 @@ public struct WorkspaceSymbolCatalog: Equatable, Sendable {
         var prefix: [String] = []
         var rest: [String] = []
         for (index, name) in names.enumerated() {
-            let haystack = name + " " + keywords[index]
+            let haystack = name + " " + keywords[index].lowercased()
             guard words.allSatisfy({ haystack.contains($0) }) else { continue }
             if name.hasPrefix(words[0]) { prefix.append(name) } else { rest.append(name) }
         }
