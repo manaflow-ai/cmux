@@ -122,7 +122,9 @@ Steps (`do`):
                the current divider frames (the handles have no tracking area and no cursor rects). The real pointer
                (CuaDriver move_cursor, hid_move) on the divider's center: the app shows a resize cursor (`debug.cursor`).
                One real key (rk_press) springs the divider away under the still pointer: no resize cursor. The pointer
-               at the divider's new center (the trace after the spring): the resize cursor; at its old center: none. Any
+               at the divider's new center (the trace after the spring): the resize cursor; at its old center: none. Then
+               the pointer on the new center again and a workspace switch (workspace.selectFirst, back with
+               workspace.selectLast): the hidden screen leaves no resize cursor under the still pointer. Any
                other reading fails the journey; a build without debug.cursor, or a key that did not move the divider by
                HOVER_MIN_MOVE_PT, is not run. Returns the four readings (the app's and the window server's cursor).
   hid_move     {window_point: [x, y]}  the real pointer to a window point (points from the window's top-left), with no
@@ -1176,6 +1178,14 @@ def _divider_hover(j, step):
     read("still pointer after the divider moved away", None, False)
     read("the divider's new place", new, True)
     read("the divider's old place", old, False)
+    # A workspace switch with the pointer on the divider: the screen hides under the still pointer (no resize cursor),
+    # then the case's workspace comes back.
+    read("on the divider at its new place", new, True)
+    j.app.rpc("action.run", {"action": "workspace.selectFirst", "args": {}, "focus": True})
+    time.sleep(float(step.get("switch_settle_s", 1.0)))
+    read("still pointer after a workspace switch", None, False)
+    j.app.rpc("action.run", {"action": "workspace.selectLast", "args": {}, "focus": True})
+    time.sleep(float(step.get("switch_settle_s", 1.0)))
     if getattr(j, "video", None) is not None:
         j.video["notes"].setdefault("pixel", {})["divider_hover"] = info
     wrong = [r for r in readings if not r["ok"]]

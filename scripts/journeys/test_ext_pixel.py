@@ -1945,15 +1945,27 @@ class HoverApp(SpringApp):
     current place (`stale`: of its place before the key, the bug: hover kept where the divider was), else the I-beam of
     the terminal under it. `cursor_reply`: what debug.cursor answers (None: a build without it)."""
 
-    def __init__(self, clock, offset, stale=False, cursor_reply=True):
+    def __init__(self, clock, offset, stale=False, cursor_reply=True, keeps_on_switch=False):
         super().__init__(clock, offset, response=0.15, hit_pt=7.0)
         self.pointer, self.stale, self.cursor_reply = None, stale, cursor_reply
-        self.moves = []
+        self.keeps_on_switch = keeps_on_switch  # the bug: a hidden screen kept its resize cursor
+        self.moves, self.switched, self.held = [], False, None
 
     def rpc(self, method, params=None, timeout=None):
+        if method == "action.run":
+            self.calls.append((method, params))
+            action = (params or {}).get("action")
+            if action == "workspace.selectFirst":
+                self.held = self.rpc("debug.cursor")["app"] if self.keeps_on_switch else None
+                self.switched = True
+            elif action == "workspace.selectLast":
+                self.switched, self.held = False, None
+            return {"ok": True}
         if method == "debug.cursor":
             if not self.cursor_reply:
                 return {"error": "unknown method debug.cursor"}
+            if self.switched:
+                return {"app": self.held or "arrow", "system": self.held or "arrow"}
             t = self.key_down if self.stale and self.key_down is not None else self.host()
             over = self.pointer is not None and any(
                 d[4] > d[3] and abs(self.pointer[0] - (d[1] + d[3] / 2)) <= d[3] / 2 for d in self.dividers(t - 1e-6))
@@ -2004,13 +2016,15 @@ class DividerHoverTests(unittest.TestCase):
         info = out["divider_hover"]
         self.assertEqual([r["label"] for r in info["readings"]],
                          ["on the divider at rest", "still pointer after the divider moved away", "the divider's new place",
-                          "the divider's old place"])
-        self.assertEqual([r["app"] for r in info["readings"]], ["columnResize", "iBeam", "columnResize", "iBeam"])
+                          "the divider's old place", "on the divider at its new place", "still pointer after a workspace switch"])
+        self.assertEqual([r["app"] for r in info["readings"]], ["columnResize", "iBeam", "columnResize", "iBeam", "columnResize", "arrow"])
         self.assertTrue(all(r["ok"] for r in info["readings"]))
         old, new = info["old_center"], info["new_center"]
         self.assertAlmostEqual(new[0] - old[0], app.S, delta=0.5)
-        self.assertEqual(app.moves, [tuple(old), tuple(new), tuple(old)])
-        self.assertEqual([e[0] for e in j.log], ["move", "key", "move", "move"])
+        self.assertEqual(app.moves, [tuple(old), tuple(new), tuple(old), tuple(new)])
+        self.assertEqual([e[0] for e in j.log], ["move", "key", "move", "move", "move"])
+        switches = [p["action"] for m, p in app.calls if m == "action.run"]
+        self.assertEqual(switches, ["workspace.selectFirst", "workspace.selectLast"])
         # Outside a film no trace runs: the step starts one first and stops it last.
         motion = [p.get("action") for m, p in app.calls if m == "debug.motion"]
         self.assertEqual((motion[0], motion[-1]), ("trace_start", "trace_stop"))
@@ -2019,6 +2033,11 @@ class DividerHoverTests(unittest.TestCase):
         with self.assertRaises(X.D.StepError) as caught:
             self.run_step(HoverApp(self.clock, 8000.0, stale=True))
         self.assertIn("the divider's new place", str(caught.exception))
+
+    def test_a_cursor_kept_by_a_hidden_screen_fails(self):
+        with self.assertRaises(X.D.StepError) as caught:
+            self.run_step(HoverApp(self.clock, 8000.0, keeps_on_switch=True))
+        self.assertIn("after a workspace switch", str(caught.exception))
 
     def test_a_build_without_debug_cursor_is_not_run(self):
         with self.assertRaises(X.D.NotRun):
