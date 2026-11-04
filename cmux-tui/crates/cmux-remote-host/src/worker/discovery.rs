@@ -112,7 +112,7 @@ pub fn list_windows(enumerator: &dyn Enumerator, allow_terminals: &[String], pid
         Windows::Listed(windows) => windows,
         Windows::Unavailable(reason) => {
             let text = format!(
-                "This desktop does not list windows before an app is allowed ({reason}). \
+                "This desktop does not list windows before an app is allowed ({reason}); titles are {TITLES_HIDDEN}. \
                  Use list_apps to find the app's pid. {HOW_TO_TARGET}"
             );
             return mcp(
