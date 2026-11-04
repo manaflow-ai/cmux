@@ -343,9 +343,11 @@ def continue_(j, label):
     c.wait_text(j, "Ada", timeout=180, exclude="Write a long story")
     # The failure: the agent process ends under the turn (rig fault, on the Mac).
     out = {"session": st["session"]}
-    # Only this tag's agents: a Claude process whose environment names this rig app's bundle.
-    killed = pq.rsh("for p in $(pgrep -f 'claude.*stream-json'); do "
-                    "ps eww -o command= -p $p | grep -q 'debug\\.newrows' && kill -9 $p && echo $p; done").stdout.split()
+    # The agent ends under the turn: the child of this chat's own host, whose PID acpmux recorded
+    # (`host_started`). Never a kill by name or pattern.
+    hosts = [e["msg"].get("hostPid") for e in c.events(st["session"], {"host_started"}) if e.get("msg")]
+    check(hosts and hosts[-1], "acpmux recorded no host for the chat")
+    killed = pq.rsh(f'w="$(pgrep -P {int(hosts[-1])} | head -1)"; [ -n "$w" ] && kill -9 "$w" && echo "$w"').stdout.split()
     out["killed"] = killed
     lead = j.sim.wait(ident="agentChat.failure.lead", timeout=120)
     pq.shot(f"continue-{label}-card")
