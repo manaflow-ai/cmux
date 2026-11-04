@@ -58,7 +58,7 @@ export function homeToolTitle(step: HomeRunStep): string {
 
 export function homeToolKind(step: HomeRunStep): HomeToolKind {
   const value = `${step.tool?.kind ?? ""} ${step.tool?.name ?? ""}`.toLowerCase();
-  if (/(?:shell|command|terminal|exec|run)/.test(value)) return "command";
+  if (/(?:shell|bash|zsh|fish|\bsh\b|command|terminal|exec|run)/.test(value)) return "command";
   if (/(?:edit|write|patch|delete|move|rename)/.test(value) || step.tool?.files.some((file) => file.newText !== undefined))
     return "edit";
   if (/(?:search|grep|glob|find|query)/.test(value)) return "search";

@@ -14,7 +14,7 @@ import { RunMessageCache } from "./runMessages";
 export { stepActivity } from "./runMessages";
 import { AgentNamesContext } from "../../agent-session/acpmux/conversation/agentNames";
 import { ChevronRight } from "../../agent-session/acpmux/conversation/icons";
-import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
+import { HomeToolGroup } from "./HomeToolGroup";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { Strings } from "../shared/i18n";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
@@ -153,9 +153,16 @@ export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTur
           {count > shown.length && <p className="lg-run-more">{strings.t("run.earlier")}</p>}
           {shown.map((block) =>
             block.kind === "tools" ? (
-              <AgentNamesContext.Provider key={block.key} value={agentNames ?? EMPTY_AGENT_NAMES}>
-                <ToolRows row={block.row} />
-              </AgentNamesContext.Provider>
+              <HomeToolGroup
+                key={block.key}
+                row={block.row}
+                steps={(block.row.items ?? []).flatMap((item) => {
+                  const step = item.tool ? steps.find((candidate) => candidate.id === item.tool!.id) : undefined;
+                  return step ? [step] : [];
+                })}
+                agentNames={agentNames ?? EMPTY_AGENT_NAMES}
+                collapsed
+              />
             ) : null,
           )}
         </div>
