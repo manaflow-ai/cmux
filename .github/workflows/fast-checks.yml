@@ -67,6 +67,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/fast_checks_runner.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
