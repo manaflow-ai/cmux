@@ -139,6 +139,7 @@ impl Hub {
             scope: scope.to_owned(),
             owner,
             tool_pin: cmux_mcp_connect::pin::ToolPin::of(&tools).tools,
+            tools_listed: state == "connected",
             tool_policy,
             tools,
             state: state.to_owned(),
@@ -532,7 +533,9 @@ impl Hub {
                     c.tool_policy.entry(name.to_owned()).or_insert_with(|| policy.to_owned());
                 }
             }
-            if c.tool_pin.is_empty() {
+            // The first list after a key or sign-in is the one the person connected for; once
+            // the server has listed (even nothing), a tool it adds waits for the person.
+            if !c.tools_listed {
                 c.tool_pin = cmux_mcp_connect::pin::ToolPin::of(&tools).tools;
             } else {
                 let diff =
@@ -543,6 +546,7 @@ impl Hub {
                 held = diff.added.into_iter().chain(diff.changed).collect();
             }
             c.tools = tools;
+            c.tools_listed = true;
             c.has_secret = true;
             c.state = "connected".to_owned();
         });
