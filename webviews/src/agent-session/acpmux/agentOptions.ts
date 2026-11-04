@@ -13,8 +13,9 @@ function codexFamily(value: string | undefined): boolean {
 /// A harness can advertise any select option (a custom harness's `thinking` or `sandbox`); Codex's
 /// `collaboration_mode` stays on its command/mode paths instead of becoming a composer chip. The
 /// model, effort level, Ultracode and fast mode have their own chips, and a `mode` option
-/// duplicates the Access chip when the session also reports modes. An option with one choice has
-/// nothing to pick.
+/// duplicates the Access chip when the session also reports modes. The session recap
+/// (`session-recap`, acpmux's per-chat switch for Claude Code) lives in Settings > Chats > Session
+/// Recap, never in the composer (Leo, 2026-11-04). An option with one choice has nothing to pick.
 export function extraConfigOptions(summary: AcpmuxSnapshot["summary"]): ConfigOption[] {
   const isCodex = codexFamily(summary?.family) || codexFamily(summary?.harness);
   const hasModes = (summary?.modes?.availableModes.length ?? 0) > 0;
@@ -26,6 +27,7 @@ export function extraConfigOptions(summary: AcpmuxSnapshot["summary"]): ConfigOp
     if (option.id === "ultracode" || option.id === "fast-mode" || /fast[ _-]?mode/i.test(option.name ?? ""))
       return false;
     if (hasModes && (option.id === "mode" || option.category === "mode")) return false;
+    if (option.id === "session-recap" || /^session[ _-]?recap$/i.test(option.name ?? "")) return false;
     return true;
   });
 }
