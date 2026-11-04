@@ -7,9 +7,10 @@ import Testing
 
 /// FRAME OWNER REFACTOR S7, the latency of a live-resize drag. With `motion.frameOwner.liveResize` on, every drag of a
 /// window's live resize waited for the window's next frame tick, also a drag that came early in a display frame in which
-/// no drag was applied yet: AppKit applied it up to one refresh later than at event time (the switch off). R-HARNESS's
-/// clock-corrected judge (3d) on the switch films ab-s7-sw-63b290e (120x2 and 120x1, all four films on clock +1): with
-/// the switch on, 64 and 71 frames showed the whole window one refresh late, against 12 and 14 with it off.
+/// no drag was applied yet: AppKit applied it up to one refresh later than at event time (the switch off). A
+/// one-film-per-arm judge of the switch films (R-HARNESS 3d, ab-s7-sw-63b290e) started this change; whole-window
+/// lateness varies between films of one app, so the rule stands on its own: input changes the model in its own turn
+/// when the frame has room, and the rest coalesces to the frame.
 ///
 /// Now the first drag of a display frame goes to AppKit in its own turn, as with the switch off. A drag that comes after
 /// one was applied in the same display frame waits for the next frame tick, and the newest of them replaces the rest, so

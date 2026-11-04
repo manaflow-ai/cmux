@@ -12,9 +12,11 @@ import CmuxNextWakeups
 /// turn, as with the switch off, so it costs no latency. A drag that comes after one was applied in the same display
 /// frame is kept, the newest replacing the one before, and the window's next frame tick gives it to AppKit as an input
 /// client (it ticks before the springs and probes): one window frame, one layout pass and one commit per display frame.
-/// Chrome aligns continuous input to the begin-frame and pays up to a refresh of latency for it; here the drags of a
-/// frame that has room do not wait (R-HARNESS 3d, films ab-s7-sw-63b290e: when every drag waited for the tick, 64 and
-/// 71 frames showed the whole window one refresh late, against 12 and 14 with the switch off). Any other event of the
+/// Input changes the model in its own turn when the frame has room, and the rest coalesces to the frame: Chrome aligns
+/// continuous input to the begin-frame and pays up to a refresh of latency for it, and a drag that waits for the tick
+/// pays it too, so the drags of a frame that has room do not wait. (A one-film-per-arm judge of the switch films,
+/// ab-s7-sw-63b290e, started this change; it is not proof by itself: whole-window lateness varies between films of one
+/// app.) Any other event of the
 /// window (the release, a key, a modifier change) gives the waiting drag to AppKit first, in its own turn, so the release
 /// lands where the pointer let go and nothing reorders.
 ///
