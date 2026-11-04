@@ -100,8 +100,9 @@ pub struct DialReply {
     pub error_detail: Option<String>,
 }
 
-/// The longest [`DialReply::error_detail`]: one display line.
-pub const MAX_ERROR_DETAIL_CHARS: usize = 300;
+/// The longest [`DialReply::error_detail`] in bytes: one display line, so a
+/// reply stays far inside [`MAX_LINE_BYTES`].
+pub const MAX_ERROR_DETAIL_BYTES: usize = 300;
 
 impl DialReply {
     pub fn connected(path_state: PathState) -> Self {
@@ -125,11 +126,16 @@ impl DialReply {
     }
 
     /// A failure with what failed: control characters dropped, at most
-    /// [`MAX_ERROR_DETAIL_CHARS`].
+    /// [`MAX_ERROR_DETAIL_BYTES`] (cut on a character boundary).
     pub fn failed_because(error: DialError, detail: &str) -> Self {
-        let detail: String =
-            detail.chars().filter(|c| !c.is_control()).take(MAX_ERROR_DETAIL_CHARS).collect();
-        let detail = detail.trim();
+        let mut kept = String::new();
+        for c in detail.chars().filter(|c| !c.is_control()) {
+            if kept.len().saturating_add(c.len_utf8()) > MAX_ERROR_DETAIL_BYTES {
+                break;
+            }
+            kept.push(c);
+        }
+        let detail = kept.trim();
         Self {
             error_detail: (!detail.is_empty()).then(|| detail.to_owned()),
             ..Self::failed(error)
@@ -309,7 +315,9 @@ mod tests {
             "{\"ok\":false,\"path_state\":\"unreachable\",\"relay_available\":false,\"error_code\":\"unreachable\",\"error_detail\":\"connect_info: cloud.machine.not_bound\"}\n"
         );
         let long = DialReply::failed_because(DialError::Unreachable, &"x".repeat(1000));
-        assert_eq!(long.error_detail.map(|d| d.len()), Some(MAX_ERROR_DETAIL_CHARS));
+        assert_eq!(long.error_detail.map(|d| d.len()), Some(MAX_ERROR_DETAIL_BYTES));
+        let wide = DialReply::failed_because(DialError::Unreachable, &"\u{e9}".repeat(1000));
+        assert!(wide.error_detail.is_some_and(|d| d.len() <= MAX_ERROR_DETAIL_BYTES));
         assert_eq!(DialReply::failed_because(DialError::Unreachable, " \n").error_detail, None);
     }
 

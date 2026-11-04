@@ -1,3 +1,4 @@
+import Darwin
 package import Foundation
 import CmuxNextCompat
 
@@ -120,13 +121,29 @@ package final class ChildProcess: Sendable {
         }
     }
 
-    /// `url` emptied and opened for writing, owner only (its folder too when this makes it); nil when it cannot be.
+    /// `url` opened to append, owner only, never through a symlink (its folder made owner only when missing);
+    /// nil when it cannot be. It starts empty unless a running link holds the folder's `link.lock`: a classic
+    /// `cmux link serve` that is still running (it outlives the app) keeps writing this same `link.log`, and its
+    /// lines are the ones that say why the Native child then could not start.
     private static func openLog(_ url: URL) -> FileHandle? {
-        let manager = FileManager.default
-        try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true,
-                                     attributes: [.posixPermissions: 0o700])
-        guard manager.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return nil }
-        return try? FileHandle(forWritingTo: url)
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true,
+                                                 attributes: [.posixPermissions: 0o700])
+        let empty = !linkLockHeld(folder.appendingPathComponent("link.lock", isDirectory: false))
+        let flags = O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC | (empty ? O_TRUNC : 0)
+        let fd = Darwin.open(url.path, flags, 0o600)
+        guard fd >= 0 else { return nil }
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    }
+
+    /// True while another process holds `lock` (the link's single-instance flock).
+    private static func linkLockHeld(_ lock: URL) -> Bool {
+        let fd = Darwin.open(lock.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return false }
+        defer { Darwin.close(fd) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return errno == EWOULDBLOCK }
+        flock(fd, LOCK_UN)
+        return false
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }

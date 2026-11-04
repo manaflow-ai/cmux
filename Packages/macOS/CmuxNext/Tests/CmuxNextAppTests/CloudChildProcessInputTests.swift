@@ -45,4 +45,27 @@ import Testing
         let mode = try FileManager.default.attributesOfItem(atPath: log.path)[.posixPermissions] as? NSNumber
         #expect(mode?.intValue == 0o600)
     }
+
+    @Test func aLogARunningLinkHoldsIsAppendedToNotEmptied() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cc-stderr-held-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let log = folder.appendingPathComponent("link.log")
+        try Data("classic-line\n".utf8).write(to: log)
+        // A running classic link holds link.lock (its single-instance flock); this test plays that link.
+        let lock = Darwin.open(folder.appendingPathComponent("link.lock").path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        #expect(lock >= 0)
+        defer { Darwin.close(lock) }
+        #expect(flock(lock, LOCK_EX | LOCK_NB) == 0)
+        let process = ChildProcess(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo native-line >&2"],
+                                   environment: [:], stderrLog: log)
+        try process.start()
+        #expect(await process.waitForExit() == 0)
+        let want = "classic-line\nnative-line\n"
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (try? String(contentsOf: log, encoding: .utf8)) != want, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try String(contentsOf: log, encoding: .utf8) == want)
+    }
 }

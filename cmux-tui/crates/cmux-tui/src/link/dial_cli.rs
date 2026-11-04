@@ -72,8 +72,8 @@ impl Failure {
             "path_state": PathState::Unreachable,
             "relay_available": cmux_link::dial::RELAY_AVAILABLE,
         });
-        if let Some(detail) = detail {
-            value["error_detail"] = json!(detail);
+        if let (Some(detail), Some(fields)) = (detail, value.as_object_mut()) {
+            fields.insert("error_detail".into(), json!(detail));
         }
         line(&value)
     }

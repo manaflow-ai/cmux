@@ -102,15 +102,21 @@ impl From<DialCode> for Refusal {
     }
 }
 
-/// The longest `error_detail` kept: one display line.
-const MAX_DETAIL_CHARS: usize = 300;
+/// The longest `error_detail` kept, in bytes: one display line.
+const MAX_DETAIL_BYTES: usize = 300;
 
-/// The link's `error_detail`, one line of at most [`MAX_DETAIL_CHARS`]
-/// printable characters; None when it is absent or empty.
+/// The link's `error_detail`, one line of at most [`MAX_DETAIL_BYTES`]
+/// (cut on a character boundary, control characters dropped); None when it
+/// is absent or empty.
 pub fn clip_detail(text: &str) -> Option<String> {
-    let line: String =
-        text.chars().filter(|c| !c.is_control()).take(MAX_DETAIL_CHARS).collect::<String>();
-    let line = line.trim();
+    let mut kept = String::new();
+    for c in text.chars().filter(|c| !c.is_control()) {
+        if kept.len().saturating_add(c.len_utf8()) > MAX_DETAIL_BYTES {
+            break;
+        }
+        kept.push(c);
+    }
+    let line = kept.trim();
     (!line.is_empty()).then(|| line.to_owned())
 }
 
