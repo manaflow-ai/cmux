@@ -38,6 +38,8 @@ export default defineConfig({
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
       "src/agent-session/acpmux/icons/cmuxIconsCustom.json",
+      // Gallery-only output of scripts/icons/build_pack.py.
+      "src/agent-session/acpmux/icons/nekoCandidate.json",
       // scripts/agent-icons/generate.py --check owns these bytes.
       "src/agent-session/shared/agentBrands.generated.ts",
       // Build output of scripts/pages/gen-design-scale.mjs.

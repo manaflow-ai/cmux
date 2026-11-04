@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-04",
+  "candidates": [
+    {
+      "id": "noto-emoji",
+      "repository": "https://github.com/googlefonts/noto-emoji",
+      "commit": "99701e07d3d1fe1bdbcdb14964547f0fd592966f",
+      "license": "Apache-2.0 (2D SVG artwork)",
+      "files": {
+        "asset": {
+          "path": "noto-emoji/cat.svg",
+          "sourcePath": "2D/svg/emoji_u1f431.svg",
+          "sha256": "fbb19611e927d40ff0188f5d4da8457e8d83faeb18a3adc66d91cb5ef17f2f1c",
+          "bytes": 3625
+        },
+        "license": {
+          "path": "noto-emoji/LICENSE.txt",
+          "sourcePath": "2D/svg/LICENSE",
+          "sha256": "611ceab36dae96644ca84e8ace6873821790192bf6f73b0d0624a21b24b4b332",
+          "bytes": 574
+        },
+        "readme": {
+          "path": "noto-emoji/README.md",
+          "sourcePath": "README.md",
+          "sha256": "1ae0343308fe8c7e6e679cd12688df7586aa87df286be19d8bb2969b8abcac64",
+          "bytes": 2495
+        },
+        "licenseFull": {
+          "path": "noto-emoji/APACHE-2.0.txt",
+          "sourcePath": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+          "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+          "bytes": 11358,
+          "scope": "canonical Apache License 2.0 text referenced by 2D/svg/LICENSE"
+        }
+      }
+    },
+    {
+      "id": "fluent-emoji",
+      "repository": "https://github.com/microsoft/fluentui-emoji",
+      "commit": "1ffb34c752ecf5d402f04cfb4b392c77f57c54bc",
+      "license": "MIT (repository; artwork terms in repository license)",
+      "files": {
+        "asset": {
+          "path": "fluent-emoji/cat-flat.svg",
+          "sourcePath": "assets/Cat/Flat/cat_flat.svg",
+          "sha256": "59f5401062509f4d0fb310817ce9a9656724c6c924a4d42f2a33ac6bb0964602",
+          "bytes": 3210
+        },
+        "license": {
+          "path": "fluent-emoji/LICENSE.txt",
+          "sourcePath": "LICENSE",
+          "sha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+          "bytes": 1141
+        },
+        "readme": {
+          "path": "fluent-emoji/README.md",
+          "sourcePath": "README.md",
+          "sha256": "3843d1e6eab6f56dbbad90f0e35eafd2f09ab35dec888388d3a49f50350f6d0f",
+          "bytes": 792
+        }
+      }
+    },
+    {
+      "id": "lucide",
+      "repository": "https://github.com/lucide-icons/lucide",
+      "commit": "1980e3d59b0fa1a2aeb566d5902b25ee98204001",
+      "license": "ISC (icon source; see repository license)",
+      "files": {
+        "asset": {
+          "path": "lucide/cat.svg",
+          "sourcePath": "icons/cat.svg",
+          "sha256": "aa8dacc2b7db300a4137da7a7b0e2b4983061d45ef8bfff2c8078796b97e7518",
+          "bytes": 537
+        },
+        "license": {
+          "path": "lucide/LICENSE.txt",
+          "sourcePath": "LICENSE",
+          "sha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+          "bytes": 3208
+        },
+        "readme": {
+          "path": "lucide/README.md",
+          "sourcePath": "README.md",
+          "sha256": "9146a8ffbe9ba54b1c75357a265f1a57be96dfeb7d4ca1d0579a84e787babe52",
+          "bytes": 8712
+        }
+      }
+    }
+  ]
+}

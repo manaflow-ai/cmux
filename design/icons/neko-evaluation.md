@@ -1,44 +1,66 @@
-# Neko icon family: licence and quality rounds
+# Neko: license evidence and art rounds
 
-Leo asked for an optional neko family and set the bar clearly: “well i guess it's a future hill
-climbing thing... but we just want the GOOD ones”. This round keeps the family opt-in and only ships
-drawings that preserve the shared 1x/2x line weight, spacing and light/dark contrast.
+Leo asked for optional neko icons and clarified: “well i guess it's a future hill climbing thing...
+but we just want the GOOD ones”. No candidate in this change is enabled as an app theme. The reserved
+`neko` identifier and gallery are plumbing for the next round, not a claim that the theme is finished.
 
-The earlier `teamleaderleo/idlesse` and `teamleaderleo/ourchival` attempts were not available in this
-lane's authorized checkout or reference attachments. The evaluation therefore does not invent a taste
-brief for them; it uses the checked-in icon spec's cat rule (one small natural cue, never on status,
-error, destructive or security marks) and Leo's explicit quality bar. The next art round should add
-those references before proposing more fill-ins.
+## Taste evidence
 
-## Rounds
+The earlier attempts were read from their actual repositories. These are observations from code and
+history, **not quotations of Leo's earlier prompts**:
 
-| Round | Set | Coverage | Action row | Spinner/status | 1x/2x light + dark judgement | Decision |
-| --- | --- | ---: | ---: | ---: | --- | --- |
-| 0 | Shared cmux pack | 0/331 neko drawings | 0/6 | shared token | 10/10 baseline; no neko cue | Comparison baseline |
-| 1 | Existing authored Cat accents | 38/331 (11.5%) | 0/6 | 0/1, 0/6 | 8.4/10; coherent where the noun has a natural frame or tail, too sparse for an action theme | Gallery only |
-| 2 | Neko curated (Cat accents + authored `copy` and `pin`) | 40/331 (12.1%) | 2/6 | 0/1, 0/6 | 8.7/10 at 1x and 2x in light and dark; cues stay on frame/top edges and do not alter semantics | Shipped as the optional family |
-| 3 | Fluent System Icons (MIT), Lucide (ISC), Fluent Emoji (MIT), oneko.js (MIT) | 0/6 neko drawings | varies | varies | 5.5–7.6/10: useful coverage, but no single set matches cmux's line family and Neko cues | Not shipped; retain as hill-climb candidates |
+- Ourchival at `f37fc53c2f78`: `apps/web/app/CatIcon.tsx` describes “Small, decorative companions to
+  text labels. No font or image requests.” Its 24-unit, 1.5-stroke drawings keep recognizable noun
+  silhouettes and use small warm-colored ear/tail accents. `BrandMark.tsx` uses the complete cat
+  mascot separately, at 56px.
+- Idlesse at `4f8556cba5a1`: `Sources/Harness/HomeWindowController.swift` says “A dedicated small-size
+  mark keeps the cat legible in the footer.” Its 17pt `cat.fill` sits in a dedicated brand control.
+  Commit `879a6214a8100fb77777797bf983456081f0501d` reverts the richer app-icon redesigns (#169/#170).
+  The rejected `scripts/generate-icon.swift` combined a wallpaper window, cat silhouette and glint.
+- Inference: preserve action recognition and small-size clarity; use restrained, noun-specific cues.
+  A good mascot does not automatically make a good copy/retry/speak glyph.
 
-The gallery entry `agent-pane.neko-icon-family` shows every round in light and dark. Round 2 is the
-current pick; the action row keeps Retry, Speak and More on the shared tokens until matching drawings
-clear the same comparison. The working spinner remains the settled `status.running` geometry and is
-shown beside the Neko action row so a DEV capture exercises both surfaces without introducing a
-mismatched status mark.
+The private reference `chatgpt/live/transcript-worked-for-branch-menu` shows a restrained monochrome
+action row with consistent visual weight. It was inspected privately; private captures are not copied
+into this public repository.
 
-## Candidate licence survey
+## Round 1
 
-Each licence below was checked in the repository's actual licence file on 2026-11-04. No candidate
-artwork is copied into cmux in this round.
+Gallery: `agent-pane.neko-icon-family`, `{noto,fluent,lucide,authored}-{light,dark}`.
+Capture harness: `scripts/gallery-matrix/neko.ts`, actual device scale factors 1 and 2, 16 CSS px action
+samples. Every variant includes default shared tokens and the actual transcript components. The latter
+are identified separately until the shared icon pass migrates them; this gallery does not claim to
+have changed the real action row.
 
-| Repository | Actual file | Licence | Action/status coverage | Result |
-| --- | --- | --- | --- | --- |
-| [microsoft/fluentui-emoji](https://github.com/microsoft/fluentui-emoji/blob/main/LICENSE) | `LICENSE` | MIT | Cat artwork, no shared copy/retry/speak/bookmark/more/spinner family | Candidate for a later coloured set |
-| [microsoft/fluentui-system-icons](https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE) | `LICENSE` | MIT | Broad action and status coverage, no neko treatment | Useful geometry reference, not shipped as Neko |
-| [lucide-icons/lucide](https://github.com/lucide-icons/lucide/blob/main/LICENSE) | `LICENSE` | ISC | Broad line action/status coverage and loader, no neko treatment | Useful geometry reference, not shipped as Neko |
-| [adryd325/oneko.js](https://github.com/adryd325/oneko.js/blob/main/LICENSE) | `LICENSE` | MIT | Animated desktop cat sprite only; no action/status map | Not an icon family |
-| [googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji/blob/main/LICENSE) | `LICENSE` | OFL-1.1 | Cat glyphs, no action/status map | Excluded by the allowed licence list |
-| [samuelmaddock/nekos-best](https://github.com/samuelmaddock/nekos-best) | no root `LICENSE` at the checked branch | unverified | Image API, not a glyph map | Excluded until a licence is verifiable |
+Coverage counts **neko-specific semantic drawings**, not ordinary default fallbacks. Required sample:
+copy, retry, speak, bookmark, pin, more (6); working spinner (1); success/error (2).
 
-Generated Neko geometry is authored in `scripts/icons/build_pack.py`; it is not copied third-party
-artwork. If a later round vendors one of the candidates, its complete licence and attribution must be
-added to the generated notices before that artwork is enabled.
+| Candidate | Actions | Spinner | Status | Visual score | Release decision |
+| --- | ---: | ---: | ---: | --- | --- |
+| Noto Emoji cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
+| Fluent Emoji flat cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
+| Lucide cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
+| cmux Cat + copy/pin fill-ins | 2/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
+
+The previous draft's numeric taste ratings were not backed by reviewed 1x/2x captures and are withdrawn.
+A visual round rates action recognition, stroke/size consistency, light/dark contrast, and the restrained
+cat treatment above (0–2 each, /8 total). Coverage remains a separate score; a high visual score for a
+cat mascot cannot compensate for missing semantic actions.
+
+## License survey
+
+`neko-candidates/manifest.json` pins upstream commits, exact source paths, byte counts and SHA-256
+hashes. The actual upstream license files accompany the three representative gallery assets. The
+full relevant license texts are also in the generated third-party notices.
+
+| Set | License scope verified | Coverage and suitability |
+| --- | --- | --- |
+| Noto Emoji | `2D/svg/LICENSE`: Apache-2.0, Google copyright. The repository's font OFL is not the SVG license. | Cat expressions/silhouettes; no copy/retry/speak/bookmark/more or working spinner family. |
+| Fluent Emoji | Root `LICENSE`: MIT, Microsoft copyright. | Cat expressions and full-color artwork; no coherent semantic action set. |
+| Lucide | Root `LICENSE`: ISC; listed Feather-derived icons additionally carry MIT. `cat` is ISC. | Broad ordinary action, status and loader coverage; only a generic cat glyph, no neko action variants. |
+| Existing cmux Cat | First-party authored SVGs in `design/icons/source/`. | 36 eligible noun accents plus two experimental action fill-ins. Status/privacy variants excluded. |
+| oneko.js / sprite lineage | Audit pending; no sprite copied. | Desktop cat animation alone does not cover semantic actions. A script's MIT license is insufficient proof for inherited sprite artwork. |
+
+The first-party fill-ins are recorded in `scripts/icons/build_pack.py` and generated into
+`nekoCandidate.json`, imported only by the gallery. They are not derived from the surveyed third-party
+sets. `neko-candidates/NOTICE.md` records the representative artwork and modifications.

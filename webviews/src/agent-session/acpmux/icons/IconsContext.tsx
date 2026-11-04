@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from "react";
-import { bundledIconPack, customIconPack, documentIconFamily, nekoIconPack, subscribeIconFamily } from "./iconPack";
+import { bundledIconPack, customIconPack, documentIconFamily, subscribeIconFamily } from "./iconPack";
 import type { IconAccent, IconPack } from "./types";
 
 export interface IconsValue {
@@ -34,12 +34,7 @@ export function useIcons(): IconsValue {
   const value = useContext(IconsContext);
   const family = useDocumentIconFamily();
   return useMemo(
-    () => {
-      if (value.pack !== bundledIconPack) return value;
-      if (family === "custom") return { ...value, pack: customIconPack };
-      if (family === "neko") return { ...value, pack: nekoIconPack };
-      return value;
-    },
+    () => (family === "custom" && value.pack === bundledIconPack ? { ...value, pack: customIconPack } : value),
     [value, family],
   );
 }

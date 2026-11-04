@@ -32,10 +32,9 @@ notches on a frame top, a tail curl on a line end, a sleeper z, paw dots. 1-2 sh
 where it is natural and legible; most icons should NOT get one (aim for 15-25% of a batch). Never on
 status, security, permission-denied, error or destructive icons.
 
-The optional Neko family follows this same rule. It overlays only reviewed Cat drawings and natural
-action fill-ins, then falls back to the shared pack for every other token. A theme is not a reason to
-put ears on a status mark, spinner, error, destructive action or security icon. Round scores and the
-licensed-set survey live in `design/icons/neko-evaluation.md`.
+Neko candidates are compared in `agent-pane.neko-icon-family` before being offered as a theme.
+Gallery-only artwork must not enter the production icon map. The candidate survey and rounds live
+in `design/icons/neko-evaluation.md`; a round records coverage separately from visual quality.
 
 ## Consistency rules (the inventory found these drawn many ways; there is ONE icon each now)
 - close = x (two 1.5 strokes, 6..18), used for tab close, dismiss, field clear (field.clear may be x in a

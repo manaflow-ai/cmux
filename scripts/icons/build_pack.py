@@ -46,17 +46,20 @@ OUTPUTS = {
     "pack_web": WEB / "cmuxIcons.json",
     "pack_custom_native": NATIVE / "Resources" / "cmux-icons-custom.json",
     "pack_custom_web": WEB / "cmuxIconsCustom.json",
-    "pack_neko_native": NATIVE / "Resources" / "cmux-icons-neko.json",
-    "pack_neko_web": WEB / "cmuxIconsNeko.json",
+    "pack_neko_web": WEB / "nekoCandidate.json",
 }
 # Neko is deliberately conservative. The icon spec allows a cat cue only when it is natural;
 # adding the same ears to every action or status glyph produces the mismatched set Leo rejected.
 # These two action drawings are the only generated fill-ins in this round, both on a frame/top edge
-# where ears remain legible at 1x and 2x. Status, error, destructive and security marks stay unchanged.
+# for gallery evaluation only. These drawings have NOT passed the quality bar.
+# Status, error, destructive and security marks stay unchanged.
 NEKO_FILL_INS = {
     "action.copy": "M5.5 4.5V2.25L7.5 4M13.5 4.5V2.25L11.5 4",
     "action.pin": "M9 3.5V1.5L11 3.5M15 3.5V1.5L13 3.5",
 }
+# Existing Cat accents include two drawings that are valid for the general Cat accent but violate
+# the Neko family contract: status marks and security/privacy marks stay semantic and unadorned.
+NEKO_EXCLUDED = {"state.idle", "browser.incognito"}
 NUM = re.compile(r"-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
 ARITY = {"M": 2, "L": 2, "H": 1, "V": 1, "C": 6, "S": 4, "Q": 4, "T": 2, "A": 7, "Z": 0}
 DENSE_SOLID = re.compile(r"^(status|state|task\.status)\.|\.dot$")
@@ -506,9 +509,9 @@ def build():
         for icon in json.loads(path.read_text())["icons"]:
             source_icons[icon["name"]] = icon
     for name, icon in source_icons.items():
-        if icon.get("cat"):
+        if name not in NEKO_EXCLUDED and icon.get("cat"):
             neko[name] = {"line": layers(icon["cat"]), "solid": layers(icon["solid"])}
-        elif name in NEKO_FILL_INS:
+        elif name not in NEKO_EXCLUDED and name in NEKO_FILL_INS:
             ears = NEKO_FILL_INS[name]
             neko_svg = icon["line"].replace("</svg>", f"<path class='accent' stroke='var(--accent)' d='{ears}'/></svg>")
             neko_solid_svg = icon["solid"].replace("</svg>", f"<path class='accent' stroke='var(--accent)' d='{ears}'/></svg>")
@@ -520,7 +523,6 @@ def build():
         "pack_web": pack_text,
         "pack_custom_native": custom_text,
         "pack_custom_web": custom_text,
-        "pack_neko_native": neko_text,
         "pack_neko_web": neko_text,
         "catalog_native": json.dumps({"icons": catalog}, indent=1, ensure_ascii=False) + "\n",
         "names_swift": swift,
