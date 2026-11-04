@@ -1933,6 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // built-in defaults.
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
+        } else if !isRunningUnderXCTest {
+            // Still load local overrides into the off-main snapshot that
+            // `ChiefSettings.isAvailable` reads before session restore.
+            _ = CmuxFeatureFlags.shared
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -4331,6 +4335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        // A snapshot saved with Chief on carries its Home; with Chief off, drop it.
+        ChiefHomeNavigation.removeHome(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
