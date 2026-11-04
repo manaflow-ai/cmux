@@ -143,6 +143,22 @@ impl std::fmt::Debug for HostAttachment {
     }
 }
 
+/// Where a terminal's interactive input goes without the terminal's runtime lock (R-DAEMON-STATE stage S1 step 6):
+/// the writer of one host connection, shared with its attachment. The terminal publishes the route of its current
+/// connection whenever the connection changes (`surface::input_port`).
+#[derive(Clone)]
+pub(crate) struct HostInputRoute {
+    writer: Arc<Mutex<HostStream>>,
+    protocol_version: u16,
+}
+
+impl HostInputRoute {
+    /// One frame on the route's connection, as `HostAttachment::send` writes it.
+    pub(crate) fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
+        send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+}
+
 /// One frame on a daemon-to-host connection's writer.
 pub(crate) fn send_host_frame(
     writer: &Mutex<HostStream>,
@@ -174,6 +190,11 @@ impl HostAttachment {
 
     pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
         send_host_frame(&self.writer, self.protocol_version, kind, payload)
+    }
+
+    /// The route the terminal's input port writes this connection's interactive input on.
+    pub(crate) fn input_route(&self) -> HostInputRoute {
+        HostInputRoute { writer: self.writer.clone(), protocol_version: self.protocol_version }
     }
 
     pub(crate) fn begin_input_confirmed(
