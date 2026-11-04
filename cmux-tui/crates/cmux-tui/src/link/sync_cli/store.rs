@@ -2,7 +2,7 @@
 //! `/v1/sync/blobs`, the signed-in person's own blobs in Cloudflare R2).
 //!
 //! With a store configured ([`configure`]: `--store` and the cmux credential
-//! on stdin) and a machine that serves `blob-fetch-v1`, a push does not send
+//! on stdin) and a machine that serves `blob-fetch-v2`, a push does not send
 //! the bytes of the files it writes over the link. It splits each file into
 //! blobs (a small file is one blob, its SHA-256; a large one is cut by
 //! content-defined chunking, [`chunks`], so an edit changes only the blobs
@@ -76,7 +76,7 @@ fn configured() -> Option<&'static Config> {
     CONFIG.get()
 }
 
-/// Whether the machine at `socket` serves `blob-fetch-v1`: a fetch job of an
+/// Whether the machine at `socket` serves `blob-fetch-v2`: a fetch job of an
 /// earlier push may still be running there.
 pub(super) fn fetch_served(socket: &std::path::Path) -> bool {
     super::super::machine_gate::identify(socket).is_some_and(|identity| {

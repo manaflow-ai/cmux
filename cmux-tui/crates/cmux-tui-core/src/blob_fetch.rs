@@ -1,4 +1,4 @@
-//! `blob-fetch-v1`: a Cloud machine fetches the files of a `cmux link sync
+//! `blob-fetch-v2`: a Cloud machine fetches the files of a `cmux link sync
 //! push` from its owner's content-addressed store (cmux-platform
 //! `/v1/sync/blobs`, Cloudflare R2) instead of receiving every byte over the
 //! link. The Mac uploads only the blobs the store lacks, then uploads a plan
@@ -24,7 +24,7 @@
 //! receiver-driven transfer (the side that writes asks for what it lacks).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -35,9 +35,11 @@ use sha2::{Digest as _, Sha256};
 use crate::fs_ops::{FsError, PendingWrite, Roots, WriteMode};
 
 /// The capability that carries the `blob.fetch.*` ops.
-pub const BLOB_FETCH_CAPABILITY: &str = "blob-fetch-v1";
+/// `v2`: `v1`, which only pre-release builds served, had no
+/// `blob.fetch.cancel`; a Mac treats a `v1` machine as serving no store.
+pub const BLOB_FETCH_CAPABILITY: &str = "blob-fetch-v2";
 
-/// The ops of `blob-fetch-v1`, exactly. The link's remote gate admits these
+/// The ops of `blob-fetch-v2`, exactly. The link's remote gate admits these
 /// beside the `fs-v1` ops.
 pub const BLOB_FETCH_COMMANDS: [&str; 3] =
     ["blob.fetch.start", "blob.fetch.status", "blob.fetch.cancel"];
@@ -54,8 +56,9 @@ const TRIES: u32 = 4;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// Finished jobs kept for `blob.fetch.status`.
 const KEPT_FINISHED: usize = 32;
-/// At most this many fetch jobs run at once; a start past it is refused
-/// (`blob.busy`) and the Mac copies over the link instead.
+/// At most this many fetch workers live at once, a cancelled one counting
+/// until its thread ends; a start past it is refused (`blob.busy`) and the
+/// Mac copies over the link instead.
 const MAX_RUNNING: usize = 4;
 /// Paths named in a status answer's `failed` list (the rest are counted).
 const LISTED_FAILURES: usize = 200;
@@ -331,6 +334,23 @@ impl Job {
     }
 }
 
+/// One live fetch thread in [`BlobFetchService::alive`], for as long as it
+/// is held (dropped when the thread ends, or with it when it never starts).
+struct Alive(Arc<AtomicUsize>);
+
+impl Alive {
+    fn enter(count: &Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self(count.clone())
+    }
+}
+
+impl Drop for Alive {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// The jobs of this daemon.
 pub struct BlobFetchService {
     roots: Roots,
@@ -338,6 +358,8 @@ pub struct BlobFetchService {
     /// Held across a job's cancelled check and its commit, so a cancel that
     /// takes it once knows no cancelled job commits after it.
     commits: Arc<Mutex<()>>,
+    /// Fetch threads not yet ended, cancelled ones included.
+    alive: Arc<AtomicUsize>,
 }
 
 #[derive(Default)]
@@ -350,7 +372,12 @@ struct Jobs {
 impl BlobFetchService {
     #[must_use]
     pub fn new(roots: Roots) -> Self {
-        Self { roots, jobs: Mutex::new(Jobs::default()), commits: Arc::new(Mutex::new(())) }
+        Self {
+            roots,
+            jobs: Mutex::new(Jobs::default()),
+            commits: Arc::new(Mutex::new(())),
+            alive: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     fn start(&self, request: &Value) -> Result<Value, Refusal> {
@@ -372,14 +399,7 @@ impl BlobFetchService {
         // An earlier job under the same folder may still write: it stops
         // before this one starts, whatever its plan.
         self.cancel_overlapping(&jobs, &target);
-        let running = jobs
-            .by_id
-            .values()
-            .filter(|job| {
-                job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
-            })
-            .count();
-        if running >= MAX_RUNNING {
+        if self.alive.load(Ordering::SeqCst) >= MAX_RUNNING {
             return Err(Refusal {
                 code: "blob.busy",
                 message: format!("{MAX_RUNNING} store fetches are running already"),
@@ -407,7 +427,9 @@ impl BlobFetchService {
         let commits = self.commits.clone();
         let (plan, plan_size) = (params.plan, params.plan_size);
         let running = job.clone();
+        let alive = Alive::enter(&self.alive);
         let spawned = std::thread::Builder::new().name("blob-fetch".into()).spawn(move || {
+            let _alive = alive;
             let result = run(&roots, &store, &plan, plan_size, &running, &commits);
             // A cancelled job already reads as failed (`blob.superseded`).
             running.update(|status| match result {

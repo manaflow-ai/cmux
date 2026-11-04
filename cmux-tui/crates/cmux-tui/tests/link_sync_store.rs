@@ -129,7 +129,11 @@ fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
 /// `socket`. Returns the bytes the Mac sent it over the link, and a count of
 /// `blob.fetch.start` answers still to lose: such a start runs its job, then
 /// the connection closes with no answer.
-fn serve_machine(socket: &Path, home: &Path) -> (&'static AtomicU64, &'static AtomicU64) {
+fn serve_machine(
+    socket: &Path,
+    home: &Path,
+    capability: &'static str,
+) -> (&'static AtomicU64, &'static AtomicU64) {
     let listener = UnixListener::bind(socket).unwrap();
     let roots = Roots::new([home.to_path_buf()]);
     let fs: &'static FsService = Box::leak(Box::new(FsService::new(roots.clone())));
@@ -149,8 +153,14 @@ fn serve_machine(socket: &Path, home: &Path) -> (&'static AtomicU64, &'static At
                     let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
                     let reply = if cmd == "identify" {
                         json!({"id": id, "ok": true, "data": {
-                            "capabilities": ["fs-v1", blob_fetch::BLOB_FETCH_CAPABILITY],
+                            "capabilities": ["fs-v1", capability],
                             "build_id": "machine-build", "session_id": "machine"}})
+                    } else if capability != blob_fetch::BLOB_FETCH_CAPABILITY
+                        && cmd.starts_with("blob.fetch.")
+                    {
+                        // A pre-release `blob-fetch-v1` daemon: no cancel.
+                        json!({"id": id, "ok": false, "error": "unknown blob.fetch op",
+                               "error_code": "blob.bad_request"})
                     } else if blob_fetch::frame_command(&line).is_some() {
                         let answer = blob_fetch::answer_line(Some(fetch), true, &line);
                         if cmd == "blob.fetch.start"
@@ -238,11 +248,15 @@ struct Machine {
 }
 
 fn machine(root: &Path, name: &str) -> Machine {
+    machine_serving(root, name, blob_fetch::BLOB_FETCH_CAPABILITY)
+}
+
+fn machine_serving(root: &Path, name: &str, capability: &'static str) -> Machine {
     let home = root.join(name);
     std::fs::create_dir_all(home.join("work")).unwrap();
     let sockets = tempfile::Builder::new().prefix("cs").tempdir_in("/tmp").unwrap();
     let socket = sockets.path().join("fs.sock");
-    let (sent, lose_starts) = serve_machine(&socket, &home);
+    let (sent, lose_starts) = serve_machine(&socket, &home, capability);
     Machine { home, socket, sent, lose_starts, _sockets: sockets }
 }
 
@@ -454,4 +468,24 @@ fn a_lost_fetch_start_answer_fails_the_push_and_the_next_push_fences_its_job() {
     let again = push(&machine, &repo, Some(&origin), &store);
     assert_eq!(again.summary["store"]["used"], true, "{}", again.summary);
     same_tree(&repo, &machine.home.join("work/app"));
+}
+
+#[test]
+fn a_machine_with_the_pre_release_capability_gets_a_plain_link_copy() {
+    let root = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(root.path()).unwrap();
+    let repo = root.join("app");
+    std::fs::create_dir_all(repo.join("assets")).unwrap();
+    std::fs::write(repo.join("assets/big.bin"), noise(6, 2 * 1024 * 1024)).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "first"]);
+    let (origin, store) = serve_store();
+    let old = machine_serving(&root, "old", "blob-fetch-v1");
+    for origin in [None, Some(origin.as_str())] {
+        let pushed = push(&old, &repo, origin, &store);
+        assert_ne!(pushed.summary["store"]["used"], true, "{}", pushed.summary);
+        same_tree(&repo, &old.home.join("work/app"));
+    }
+    assert_eq!(store.uploaded.load(Ordering::SeqCst), 0);
 }
