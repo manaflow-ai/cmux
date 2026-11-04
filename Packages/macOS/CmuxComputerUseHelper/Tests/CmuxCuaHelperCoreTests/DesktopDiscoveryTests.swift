@@ -87,7 +87,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1))) func boundedAnswersOutsideTheOwnersAppsOnly() async throws {
-        let owner = Data(#"{"version":3,"resources":{"apps":[{"bundle_id":"com.apple.TextEdit"}],"desktop":{"display":false}},"allow":{"tools":["list_windows"]}}"#.utf8)
+        let owner = Data(#"{"version":3,"resources":{"apps":[{"bundle_id":"com.apple.TextEdit"}],"desktop":{"display":false}},"allow":{"tools":["list_apps","list_windows"]}}"#.utf8)
         let fixture = try SessionFixture(mode: .bounded, ownerManifest: owner)
         defer { fixture.cleanUp() }
         let session = try fixture.sessions.openSession()
@@ -96,6 +96,17 @@ import Testing
         #expect(fixture.driver.created()[0].session.invoked.isEmpty)
         _ = try await session.invoke(name: "list_windows", arguments: Data(#"{"pid":102}"#.utf8))
         #expect(fixture.driver.created()[0].session.invoked == ["list_windows"], "the owner's app: upstream answers")
+        session.close()
+    }
+
+    /// Review 3 #2: a bounded owner that does not allow a discovery tool keeps it upstream.
+    @Test(.timeLimit(.minutes(1))) func boundedLeavesADiscoveryToolTheOwnerDidNotAllowUpstream() async throws {
+        let owner = Data(#"{"version":3,"resources":{"apps":[],"desktop":{"display":false}},"allow":{"tools":["click"]}}"#.utf8)
+        let fixture = try SessionFixture(mode: .bounded, ownerManifest: owner)
+        defer { fixture.cleanUp() }
+        let session = try fixture.sessions.openSession()
+        _ = try? await session.invoke(name: "list_apps", arguments: Data("{}".utf8))
+        #expect(fixture.driver.created()[0].session.invoked == ["list_apps"], "upstream decides (and refuses)")
         session.close()
     }
 
@@ -110,8 +121,10 @@ import Testing
     }
 
     @Test func ownerManifestFactsReadAppsAndDisplay() {
-        let facts = OwnerManifestFacts(data: Data(#"{"resources":{"apps":[{"bundle_id":"COM.Apple.TextEdit"}]}}"#.utf8))
-        #expect(facts == OwnerManifestFacts(bundleIDs: ["com.apple.textedit"], display: false))
+        let facts = OwnerManifestFacts(data: Data(#"{"resources":{"apps":[{"bundle_id":"COM.Apple.TextEdit"}]},"allow":{"tools":["list_apps","click"]}}"#.utf8))
+        #expect(facts == OwnerManifestFacts(bundleIDs: ["com.apple.textedit"], display: false, tools: ["list_apps", "click"]))
+        let noTools = OwnerManifestFacts(data: Data(#"{"resources":{"apps":[]}}"#.utf8))
+        #expect(noTools?.tools.isEmpty == true, "no allow.tools: the worker answers no discovery")
         #expect(OwnerManifestFacts(data: Data("version: 3\n".utf8)) == nil, "YAML the worker cannot read: upstream decides")
     }
 

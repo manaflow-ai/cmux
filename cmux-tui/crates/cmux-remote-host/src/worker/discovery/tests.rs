@@ -237,3 +237,18 @@ fn a_bounded_owner_manifest_lists_the_tools_discovery_may_answer() {
     assert_eq!(crate::worker::tools_of_manifest(&narrow), vec!["click".to_owned()]);
     assert!(crate::worker::tools_of_manifest(&json!({"version": 3})).is_empty());
 }
+
+/// A window the worker's list does not have (one it dropped: no trustworthy pid, such as a
+/// forwarded one) stays unresolved, in every mode; upstream's `_NET_WM_PID` is never asked
+/// for it (review 3 re-review #1).
+#[tokio::test]
+async fn a_window_the_list_dropped_is_never_resolved_through_upstream() {
+    for mode in [Mode::Ask, Mode::Standard] {
+        let (worker, upstream) = worker_with(mode, listed(), "dropped-window").await;
+        let session = worker.open_session("s1");
+        let error = worker.call(&session, "click", json!({"window_id": 77_777, "x": 1, "y": 1})).await.unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("target_unresolved"), "{mode:?}: {error:?}");
+        assert!(upstream_tools(&upstream).is_empty(), "{mode:?}: upstream was asked: {:?}", upstream_tools(&upstream));
+        session.close();
+    }
+}

@@ -60,13 +60,30 @@ import Testing
     }
 
     /// Review 3 #4: an allowed browser never navigates to cmux.
-    @Test(arguments: ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box"])
+    @Test(arguments: ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box", "c\tmux://x", "\u{1}cmux:x", "cm\nux:x"])
     func browserNavigateToCmuxIsRefused(url: String) async throws {
         _ = try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
             .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"https://example.com"}"#.utf8))
         await #expect(throws: ToolError.self) {
             try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
                 .check(name: "browser_navigate", arguments: Data(#"{"pid":102,"url":"\#(url)"}"#.utf8))
+        }
+    }
+
+    /// A batch step that navigates never opens cmux (review 3 re-review #4).
+    @Test func aBatchStepNeverNavigatesToCmux() async {
+        await #expect(throws: ToolError.self) {
+            try await CuaTargetGuard(policy: CuaTargetPolicy(), resolver: Resolver())
+                .check(name: "run_steps", arguments: Data(#"{"pid":102,"window_id":9001,"steps":[{"tool":"browser_navigate","args":{"url":"cmux://workspace/1"}}]}"#.utf8))
+        }
+    }
+
+    @Test func aCmuxSchemeIsReadAsABrowserReadsIt() {
+        for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r"] {
+            #expect(CuaTargetGuard.opensCmux(url), "\(url)")
+        }
+        for url in ["https://cmux.dev", "about:blank", "notcmux:x", "file:///tmp/cmux"] {
+            #expect(!CuaTargetGuard.opensCmux(url), "\(url)")
         }
     }
 

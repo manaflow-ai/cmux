@@ -289,18 +289,23 @@ impl TargetResolver for LiveResolver<'_> {
     }
 
     async fn app_for_window(&self, window_id: u32) -> Option<Target> {
-        // The worker's own window list first: under ask and bounded upstream refuses an unscoped list.
+        // The worker's own window list: under ask and bounded upstream refuses an unscoped list,
+        // and a window the list dropped (no trustworthy pid, such as a forwarded one) must stay
+        // unresolved rather than take upstream's `_NET_WM_PID` (review 3 re-review #1).
         let discovery = Arc::clone(&self.worker.discovery);
         let listed = tokio::task::spawn_blocking(move || discovery::pid_of_window(&*discovery, u64::from(window_id)))
             .await
-            .ok()
-            .flatten();
-        if let Some(pid) = listed {
-            return self.app_for_pid(pid).await;
+            .ok()?;
+        match listed {
+            Ok(Some(pid)) => self.app_for_pid(pid).await,
+            Ok(None) => None,
+            // No window list on this machine (Wayland, an OS without one): upstream's own.
+            Err(_) => {
+                let handle = self.worker.handle(self.session).await.ok()?;
+                let windows = handle.call("list_windows", json!({})).await.ok()?;
+                target_of_pid(pid_of_window(&windows, u64::from(window_id))?)
+            }
         }
-        let handle = self.worker.handle(self.session).await.ok()?;
-        let windows = handle.call("list_windows", json!({})).await.ok()?;
-        target_of_pid(pid_of_window(&windows, u64::from(window_id))?)
     }
 
     async fn app_named(&self, name: &str) -> Option<Target> {

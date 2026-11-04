@@ -210,8 +210,9 @@ final class AgentSession: AgentSessionServing {
 
     /// The discovery call the worker answers itself (D21), or nil when
     /// upstream answers: always under standard and unrestricted, under
-    /// bounded when the owner's manifest grants the display or cannot be
-    /// read, and for `list_windows` of an app this session may use.
+    /// bounded when the owner's manifest grants the display, cannot be read
+    /// or does not allow the tool (`allow.tools`), and for `list_windows` of
+    /// an app this session may use.
     private func discoveryCall(name: String, arguments: Data, targets: [CuaTargetIdentity]) -> DesktopDiscovery.Call? {
         guard name == "list_apps" || name == "list_windows" else { return nil }
         let granted: (CuaTargetIdentity) -> Bool

@@ -7,9 +7,10 @@
 //! executable, pid and window id. No window title, no icon, no pixels; those
 //! come from upstream once the person allowed the app.
 //!
-//! - Linux X11: `_NET_CLIENT_LIST` on the root window, `_NET_WM_PID` (else
-//!   the X Resource extension's client pid) per window, `/proc/<pid>/exe`.
-//!   Never `WM_NAME` or `_NET_WM_NAME`.
+//! - Linux X11: `_NET_CLIENT_LIST` on the root window; per window the X
+//!   server's own record of the client's pid (X Resource extension) first,
+//!   else `_NET_WM_PID` only when `WM_CLIENT_MACHINE` is this host; then
+//!   `/proc/<pid>/exe`. Never `WM_NAME` or `_NET_WM_NAME`.
 //! - Linux Wayland: no window list exists for a client; apps are this user's
 //!   processes with a display in their environment, one per executable.
 //! - Windows: `EnumWindows` (visible, unowned, not tool windows),
@@ -159,11 +160,15 @@ pub fn list_windows(enumerator: &dyn Enumerator, allow_terminals: &[String], pid
     mcp(text, json!({"windows": entries, "titles": TITLES_HIDDEN, "source": "cmux"}))
 }
 
-/// The pid owning `window_id`, from the worker's own window list.
-pub fn pid_of_window(enumerator: &dyn Enumerator, window_id: u64) -> Option<u32> {
+/// The pid owning `window_id`, from the worker's own window list: `Ok(None)` when the
+/// list has no such window (a window it dropped, such as a forwarded one, stays
+/// unresolved), `Err` only when this machine has no window list at all.
+pub fn pid_of_window(enumerator: &dyn Enumerator, window_id: u64) -> Result<Option<u32>, String> {
     match enumerator.windows() {
-        Windows::Listed(windows) => windows.into_iter().find(|window| window.window_id == window_id).map(|window| window.pid),
-        Windows::Unavailable(_) => None,
+        Windows::Listed(windows) => {
+            Ok(windows.into_iter().find(|window| window.window_id == window_id).map(|window| window.pid))
+        }
+        Windows::Unavailable(reason) => Err(reason),
     }
 }
 
@@ -303,7 +308,8 @@ mod platform {
             let mut windows = Vec::new();
             for window in clients {
                 // The X server's own record of the connection's pid first: a client cannot
-                // write it, and a remote (ssh -X) client has none.
+                // write it. A forwarded (ssh -X) window's connection is the local ssh process,
+                // which is on the never-allowed list.
                 let server = {
                     let spec = ClientIdSpec { client: window, mask: ClientIdMask::LOCAL_CLIENT_PID };
                     connection

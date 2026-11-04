@@ -171,6 +171,10 @@ struct CuaTargetGuard: Sendable {
             if let object = value as? [String: Any] {
                 if let tool = object["tool"] as? String { try checkDispatch(tool) }
                 for tool in object.keys { try checkDispatch(tool) }
+                // A nested browser_navigate (any step's `url`) never opens cmux either.
+                if let url = object["url"] as? String, Self.opensCmux(url) {
+                    throw ToolError("Computer use is not allowed to use cmux for safety reasons.")
+                }
                 for key in ["app", "window"] {
                     if let selector = object[key], !(selector is NSNull) {
                         throw ToolError("Computer use batches must name each window by pid and window_id, not by `\(key)`. Use list_windows first.")
@@ -231,11 +235,19 @@ struct CuaTargetGuard: Sendable {
         return result
     }
 
-    /// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`).
+    /// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`), read as a browser reads it
+    /// (the URL Standard): leading and trailing C0 controls and spaces stripped, every ASCII tab
+    /// and newline removed, the scheme case-insensitive.
     static func opensCmux(_ url: String) -> Bool {
-        let parts = url.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        let scalars = Array(url.unicodeScalars)
+        let isC0OrSpace: (Unicode.Scalar) -> Bool = { $0.value <= 0x20 }
+        guard let first = scalars.firstIndex(where: { !isC0OrSpace($0) }),
+              let last = scalars.lastIndex(where: { !isC0OrSpace($0) }) else { return false }
+        var cleaned = String.UnicodeScalarView()
+        for scalar in scalars[first...last] where !["\t", "\n", "\r"].contains(scalar) { cleaned.append(scalar) }
+        let parts = String(cleaned).split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2 else { return false }
-        let scheme = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
+        let scheme = parts[0].lowercased()
         return scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+")
     }
 

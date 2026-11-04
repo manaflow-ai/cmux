@@ -33,7 +33,7 @@ const TERMINALS: &[&str] = &[
     "mate-terminal", "urxvt", "st", "ghostty", "windowsterminal", "wt", "openconsole", "conhost", "cmd", "powershell",
     "pwsh", "powershell_ise", "mintty", "bash", "sh", "zsh", "fish", "guake", "yakuake", "tilda", "terminology",
     "qterminal", "tabby", "hyper", "rio", "warp", "warp-terminal", "dash", "ksh", "tcsh", "csh", "nu", "tmux", "screen",
-    "cool-retro-term", "sakura", "termite", "contour", "wave", "waveterm",
+    "cool-retro-term", "sakura", "termite", "contour", "wave", "waveterm", "ssh", "mosh-client", "et", "putty",
 ];
 
 /// The executable's comparable name: its file name, lower case, no `.exe`.

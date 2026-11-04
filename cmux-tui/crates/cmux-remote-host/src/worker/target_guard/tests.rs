@@ -381,9 +381,31 @@ async fn unknown_selector_keys_are_refused_per_tool() {
 /// Review 3 #4: a browser the session may use never navigates to cmux.
 #[tokio::test]
 async fn browser_navigate_refuses_cmux_urls() {
-    for url in ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box"] {
+    for url in ["cmux://workspace/1", "CMUX-dev:open", " cmux+ssh://box", "c\\tmux://x", "\\u0001cmux:x", "cm\\nux:x"] {
         let error = run("browser_navigate", &format!(r#"{{"pid":102,"url":"{url}"}}"#)).await.unwrap_err();
         assert!(error.contains("cmux"), "{url}: {error}");
     }
     assert_eq!(passes("browser_navigate", r#"{"pid":102,"url":"https://example.com"}"#).await, vec![gedit()]);
+}
+
+/// A batch step that navigates never opens cmux (review 3 re-review #4).
+#[tokio::test]
+async fn a_batch_step_never_navigates_to_cmux() {
+    let error = run(
+        "run_steps",
+        r#"{"pid":102,"window_id":9001,"steps":[{"tool":"browser_navigate","args":{"url":"cmux://workspace/1"}}]}"#,
+    )
+    .await
+    .unwrap_err();
+    assert!(error.contains("cmux"), "{error}");
+}
+
+#[test]
+fn a_cmux_scheme_is_read_as_a_browser_reads_it() {
+    for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r"] {
+        assert!(super::opens_cmux(url), "{url:?}");
+    }
+    for url in ["https://cmux.dev", "about:blank", "notcmux:x", "file:///tmp/cmux"] {
+        assert!(!super::opens_cmux(url), "{url:?}");
+    }
 }

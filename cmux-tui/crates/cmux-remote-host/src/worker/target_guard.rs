@@ -160,10 +160,14 @@ fn check_selector_keys(tool: &str, object: &Map<String, Value>) -> Result<(), Ca
     }
 }
 
-/// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`).
-fn opens_cmux(url: &str) -> bool {
-    url.split_once(':').is_some_and(|(scheme, _)| {
-        let scheme = scheme.trim().to_ascii_lowercase();
+/// Whether `url` opens cmux (`cmux:`, `cmux-…:`, `cmux+…:`), read as a browser reads it
+/// (the URL Standard): leading and trailing C0 controls and spaces stripped, every ASCII
+/// tab and newline removed, the scheme case-insensitive.
+pub(crate) fn opens_cmux(url: &str) -> bool {
+    let cleaned: String =
+        url.trim_matches(|c: char| c <= ' ').chars().filter(|c| !matches!(c, '\t' | '\n' | '\r')).collect();
+    cleaned.split_once(':').is_some_and(|(scheme, _)| {
+        let scheme = scheme.to_ascii_lowercase();
         scheme == "cmux" || scheme.starts_with("cmux-") || scheme.starts_with("cmux+")
     })
 }
@@ -348,6 +352,10 @@ impl Guard<'_> {
                             "tool_refused",
                             "Computer Use does not launch apps inside a batch: call launch_app on its own first",
                         ));
+                    }
+                    // A nested browser_navigate (any step's `url`) never opens cmux either.
+                    if present(object, "url").and_then(Value::as_str).is_some_and(opens_cmux) {
+                        return Err(cmux_refused());
                     }
                     for key in ["app", "window"] {
                         if present(object, key).is_some() {
