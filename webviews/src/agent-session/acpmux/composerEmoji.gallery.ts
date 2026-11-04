@@ -76,6 +76,7 @@ export default agentPaneEntry({
     "no-trigger": variant("Play: a time (10:30) and a URL open no menu.", async (ctx) => {
       await ctx.focus({ selector: PROMPT });
       await ctx.type("Meet at 10:30 on https://example.com");
+      // fixed-wait: a menu that never opens sends no signal; the assertion is that none shows after a beat.
       await new Promise((resolve) => setTimeout(resolve, 200));
       if (ctx.document.querySelector(ROW)) throw new Error("a time or URL opened the emoji menu");
     }),
