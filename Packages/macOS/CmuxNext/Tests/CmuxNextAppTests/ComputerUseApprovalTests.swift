@@ -430,7 +430,9 @@ struct ComputerUseApprovalTests {
         #expect(spec.lines.joined().contains("api-server"))
         #expect(spec.lines.joined().contains(Self.client))
         #expect(spec.icon == Data([1, 2]))
-        #expect(spec.buttons.map(\.id) == ["deny", "always", "session", "once"])
+        // One per line, narrowest grant first, Deny last (a row of four dropped Deny).
+        #expect(spec.buttons.map(\.id) == ["once", "session", "always", "deny"])
+        #expect(spec.buttonLayout == .column)
         #expect(spec.cancelButton?.id == "deny")
         #expect(spec.lines.contains("com.apple.Safari"))
         // No key grants: Return presses nothing, no allow has a Command key.
