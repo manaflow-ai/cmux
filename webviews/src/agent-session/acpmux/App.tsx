@@ -8597,6 +8597,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sandbox.setMode(mode);
     },
   };
+  /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
+  /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
+  /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
+  const composerModeRows = {
+    mode: sandboxModeRows.mode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+        if ("cwd" in folder) void pickFolder(callNative, folder.cwd, () => undefined);
+      }
+      sandboxModeRows.onMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
@@ -14284,7 +14297,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
+            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
