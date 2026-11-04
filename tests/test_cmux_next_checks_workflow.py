@@ -776,7 +776,8 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertEqual(comment["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertEqual(comment["env"]["GH_READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
         minted = [("push-attribution", mint)]
-        for job_id in ("fast-tier", "swift-test", "generated-files", "release-compile"):
+        # fast-tier stays secret-free (test_fast_tier_reads_next_bucket_publicly_and_never_saves).
+        for job_id in ("swift-test", "generated-files", "release-compile"):
             job_steps = jobs[job_id]["steps"]
             ids = [step.get("id") for step in job_steps]
             token = job_steps[ids.index("reuse-token")]
@@ -1239,8 +1240,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
         # The nightly-next requests read LINUX_RUNNER (Blacksmith Linux, never GitHub-hosted).
-        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "portable-placement", "release-compile", "request-nightly-next",
+        self.assertEqual(sorted(checked), ["checks", "cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files", "path_route",
+                                           "release-compile", "request-nightly-next",
                                            "swift-canary", "swift-test", "web-bundles"])
 
 
@@ -2374,6 +2375,26 @@ def evaluate(expression: str, context: dict):
         "format": lambda template, *values: re.sub(r"\{(\d+)\}", lambda match: str(values[int(match.group(1))]), template),
     }
     return eval(text, {"__builtins__": {}}, names)  # noqa: S307 - this repository's workflow, not input
+
+
+class PortablePlacementBootstrapAdmission(unittest.TestCase):
+    def test_stale_fleet_label_cannot_block_the_router_before_placement_runs(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
+        bootstrap = jobs["portable-placement"]["runs-on"]
+        for fleet in ("", "cmux-fleet-linux-x64", "stale-fleet-label"):
+            for attempt, overflow, expected in ((1, "", "ubuntu-24.04"),
+                                                (1, "1", "ubuntu-24.04"),
+                                                (2, "", "blacksmith-8vcpu-ubuntu-2404"),
+                                                (2, "1", "blacksmith-16vcpu-ubuntu-2404")):
+                with self.subTest(fleet=fleet, attempt=attempt, overflow=overflow):
+                    context = {"github.repository_owner": "manaflow-ai",
+                               "github.event_name": "pull_request",
+                               "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux",
+                               "github.repository": "manaflow-ai/cmux",
+                               "github.run_attempt": attempt,
+                               "vars.LINUX_RUNNER": fleet,
+                               "vars.CI_CLOUD_OVERFLOW_SAVED": overflow}
+                    self.assertEqual(evaluate(bootstrap, context), expected)
 
 
 class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
