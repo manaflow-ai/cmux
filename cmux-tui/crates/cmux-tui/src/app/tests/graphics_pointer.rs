@@ -1187,8 +1187,9 @@ fn motion_failure_preserves_pty_drag_for_the_physical_release() {
 
 #[test]
 fn rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe() {
-    let mux = Mux::new("motion-enqueue-rollback-test", SurfaceOptions::default());
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    // A quiet program (`test_mux`), as every other mouse test: the default login shell's
+    // startup output can reset the mouse modes written below before the first motion.
+    let (mux, surface) = test_mux("motion-enqueue-rollback-test", None);
     surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
     let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
     let mut app = test_app(Session::Local(mux.clone()));
@@ -1216,8 +1217,9 @@ fn rejected_motion_enqueue_rolls_back_mouse_encoder_dedupe() {
 
 #[test]
 fn evicted_known_undelivered_motion_allows_same_cell_retry() {
-    let mux = Mux::new("motion-cancel-rollback-test", SurfaceOptions::default());
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    // A quiet program (`test_mux`), as every other mouse test: the default login shell's
+    // startup output can reset the mouse modes written below before the first motion.
+    let (mux, surface) = test_mux("motion-cancel-rollback-test", None);
     surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1003h\x1b[?1006h"));
     let handle = SurfaceHandle::Local(surface.clone(), mux.clone());
     let mut app = test_app(Session::Local(mux.clone()));
