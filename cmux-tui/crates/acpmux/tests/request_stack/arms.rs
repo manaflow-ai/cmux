@@ -150,6 +150,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ("_acpmux/host_notice", Run(json!({"text": "test notice"}))),
         ("_acpmux/peer_snapshot", Run(json!({"sessionId": "nopeer/x1"}))),
         ("_acpmux/place", Run(json!({}))),
+        ("_acpmux/peer_snapshots_clear", Run(json!({}))),
         ("_acpmux/directories", Run(json!({"cwd": "$CWD"}))),
         ("_acpmux/models", Run(json!({}))),
         ("catalog.get", Run(json!({}))),
@@ -167,6 +168,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (method::MUX_PRESETS, Run(json!({"name": "p1", "set": {"harness": "fake"}}))),
         (method::MUX_INFO, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SESSION_FILES, Run(json!({"sessionId": "$S"}))),
+        (method::MUX_CONTEXT, Run(json!({"sessionId": "$S"}))),
+        // `text: null` clears the user override this hub never set: the saved config is unchanged.
+        (
+            method::MUX_CONTEXT_OVERRIDE,
+            Run(json!({"sessionId": "$S", "scope": "user", "text": null})),
+        ),
         (method::MUX_WAIT, Run(json!({"sessions": ["$S"], "until": ["ready"], "timeoutMs": 2000}))),
         (method::MUX_WATCH_ADD, Run(json!({"to": "$S", "sessions": ["nosuch"]}))),
         (method::MUX_WATCH_LS, Run(json!({}))),
@@ -376,6 +383,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_AGENT_PAIR_RESUME,
             Any(json!({"sessionId": "$S"}), "a connection that is not the person is refused"),
+        ),
+        (
+            method::MUX_AGENT_HOLD,
+            Any(
+                json!({"sessionId": "$S", "held": false}),
+                "a connection that is not the person is refused",
+            ),
         ),
         (
             method::MUX_RETRY,
