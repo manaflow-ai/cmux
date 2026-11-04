@@ -124,7 +124,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
-    let wrap_up = if tools.iter().any(|t| t["name"] == WRAP_UP) { WRAP_UP_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
+        WRAP_UP_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -593,8 +597,12 @@ fn exec_mode(
                             record.set("idempotency_key", json!(key));
                         }
                         // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok && name == WRAP_UP && answered["value"].is_object() {
-                            record.set("shown", answered["value"].clone());
+                        if ok
+                            && name == WRAP_UP
+                            && let Some(shown) =
+                                answered.get("value").filter(|value| value.is_object())
+                        {
+                            record.set("shown", shown.clone());
                         }
                         records.push(record);
                     }
