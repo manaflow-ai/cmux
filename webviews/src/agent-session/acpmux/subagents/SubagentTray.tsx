@@ -95,7 +95,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
-import { attentionFirst } from "./trayAttention";
+import { attentionFirst, runningCount } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
@@ -812,16 +812,6 @@ export const SubagentTray = memo(function SubagentTray({
     );
   }
 });
-
-/// How many lines run now: the count on a tucked tray's grabber. A line that waits, on the person or
-/// for a run slot (`waitsForSlot`), does not run; the grabber's dot says the first.
-function runningCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {
-  return items.filter((item) => {
-    if (item.kind === "agent") return subagentStatus(item.agent, waiting) !== "waiting";
-    if (item.kind === "session") return item.session.state === "running" && !item.session.waitsForSlot;
-    return true;
-  }).length;
-}
 
 /// How many lines wait on the person: the dot on a tucked tray's grabber.
 function waitingCount(items: readonly TrayItem[], waiting: ReadonlySet<string>): number {

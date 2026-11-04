@@ -12,7 +12,7 @@ import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/suba
 import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { attentionFirst, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";
+import { attentionFirst, runningCount, type TrayCard } from "../src/agent-session/acpmux/subagents/trayAttention";
 
 setPaneLanguage("en");
 const t = (key: Parameters<typeof translate>[0], values?: Parameters<typeof translate>[1]) =>
@@ -133,4 +133,24 @@ test("a chat queued for a slot keeps its place; one waiting on the person leads"
   const ordered = attentionFirst(items, [], new Set()).map((card) => card.item.id);
   expect(ordered[0]).toBe("w");
   expect(ordered.indexOf("q")).toBeGreaterThan(ordered.indexOf("a"));
+});
+
+// The tucked grabber's count says what runs: not what waits on the person or for a slot, and a chat
+// acpmux retries counts, as a retrying subagent does.
+test("the tucked count is what runs: waiting and slot-queued lines are out, a retrying chat is in", () => {
+  const items = trayItems(
+    [agent("a", { background: true, startedAt: 3_000 })],
+    [],
+    [
+      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", waitsForSlot: true },
+      { subsession: true, sessionId: "w", title: "Asks", state: "waiting" },
+      { subsession: true, sessionId: "r", title: "Retrying", state: "failed", retry: { attempt: 2, of: 4 } },
+      { subsession: true, sessionId: "s", title: "Runs", state: "running" },
+    ],
+    false,
+  );
+  const ids = items.map((item) => item.id);
+  for (const id of ["a", "q", "w", "r", "s"]) expect(ids).toContain(id);
+  expect(runningCount(items, new Set())).toBe(3);
+  expect(runningCount(items, new Set(["a"]))).toBe(2);
 });
