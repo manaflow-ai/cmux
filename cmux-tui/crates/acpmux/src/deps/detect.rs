@@ -180,6 +180,21 @@ fn cache_bases() -> Vec<PathBuf> {
     bases
 }
 
+/// The install that runs after a restore, when the tool can be told to use
+/// only what is cached (`--offline`); None to run the normal install.
+pub fn offline_install(ecosystem: Ecosystem, install: &[String]) -> Option<Vec<String>> {
+    let mut argv: Vec<String> =
+        install.iter().filter(|a| *a != "--prefer-offline").cloned().collect();
+    match ecosystem {
+        Ecosystem::Cargo | Ecosystem::Uv | Ecosystem::Npm | Ecosystem::Pnpm => {
+            argv.push("--offline".into());
+            Some(argv)
+        }
+        // A restored node_modules leaves bun and yarn nearly nothing to do.
+        Ecosystem::Bun | Ecosystem::Yarn => None,
+    }
+}
+
 pub fn plan(project: &Project) -> Option<Plan> {
     plan_of(project).filter(|plan| !too_broad(plan))
 }
@@ -303,6 +318,23 @@ pub(crate) fn key_of(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offline_after_a_restore() {
+        let argv = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            offline_install(Ecosystem::Cargo, &argv(&["cargo", "fetch", "--locked"])),
+            Some(argv(&["cargo", "fetch", "--locked", "--offline"]))
+        );
+        assert_eq!(
+            offline_install(
+                Ecosystem::Npm,
+                &argv(&["npm", "ci", "--prefer-offline", "--no-audit"])
+            ),
+            Some(argv(&["npm", "ci", "--no-audit", "--offline"]))
+        );
+        assert_eq!(offline_install(Ecosystem::Bun, &argv(&["bun", "install"])), None);
+    }
 
     #[test]
     fn detects_one_js_manager_and_the_others_beside_it() {
