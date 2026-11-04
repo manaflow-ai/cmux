@@ -273,6 +273,36 @@ fn a_folder_replaced_outside_the_store_keeps_its_own_metadata() {
     );
 }
 
+/// The same swap, then a kill before any checkpoint: the replay must not write the old folder's
+/// journaled image into the folder that replaced it.
+#[test]
+fn a_replay_never_writes_an_image_into_a_folder_replaced_since() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(59);
+    let store = open(home.path(), &journal);
+    store.save(&meta(CHAT, "old", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "old-renamed", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join(CHAT), sessions.join(format!(".{CHAT}.replacement-backup")))
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::create_dir(sessions.join(CHAT)).unwrap_or_else(|e| panic!("{e}"));
+    let transferred =
+        serde_json::to_vec_pretty(&meta(CHAT, "transferred", 0)).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(sessions.join(CHAT).join("session.json"), transferred)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    let store = open(home.path(), &killed);
+    let name = store.load(CHAT).unwrap_or_else(|e| panic!("{e:#}")).map(|meta| meta.name);
+    assert_eq!(
+        name.as_deref(),
+        Some("transferred"),
+        "the replay wrote the old image into the new folder"
+    );
+}
+
 /// `session_dir` hands the chat's folder to code that reads its files directly: its
 /// `session.json` is current then.
 #[test]
@@ -297,7 +327,8 @@ fn flush_session_writes_the_chats_metadata() {
     let store = open(home.path(), &journal);
     store.save(&meta(CHAT, "before", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     store.flush().unwrap_or_else(|e| panic!("{e:#}"));
-    store.save(&meta(CHAT, "after", 0)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.save(&meta(CHAT, "after", 1)).unwrap_or_else(|e| panic!("{e:#}"));
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
     store.flush_session(CHAT).unwrap_or_else(|e| panic!("{e:#}"));
     let on_disk = session_json(home.path(), CHAT).map(|value| value["name"].clone());
     assert_eq!(on_disk, Some(json!("after")), "flush_session left the metadata in memory");
