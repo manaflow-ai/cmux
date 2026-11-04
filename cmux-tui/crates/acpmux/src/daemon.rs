@@ -21,6 +21,8 @@ use lock::{
 };
 mod running;
 pub use running::connect_running;
+mod snapshot_clear;
+pub(crate) use snapshot_clear::clear_peer_snapshots;
 mod router_owner;
 #[cfg(unix)]
 pub(crate) use router_owner::open_router_owner;
@@ -37,6 +39,10 @@ pub(crate) mod login_session;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_handoff;
+// Counts this daemon's chats at work toward the Cloud machine's activity (idle pause).
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_activity;
 mod handover;
 mod home_watch;
 mod notify;
@@ -44,6 +50,12 @@ pub(crate) mod owner_exit;
 mod persist_retry;
 #[cfg(unix)]
 mod socket_rebind;
+mod stop_causes;
+#[cfg(unix)]
+use stop_causes::next_signal;
+use stop_causes::{AbortOnDrop, store_asks_to_stop};
+#[cfg(unix)]
+pub(crate) mod term_sender;
 pub(crate) mod unused_exit;
 #[cfg(windows)]
 mod windows;
@@ -65,6 +77,9 @@ pub struct DaemonOptions {
     pub dev_origins: Vec<String>,
     /// `--dev`: a development launch (see `dev_origins_permitted`).
     pub dev: bool,
+    /// `--take-over`: this daemon is the home's supervised owner (the systemd unit); it takes
+    /// the home over from another daemon that serves the same socket ([`take_over_holder`]).
+    pub take_over: bool,
 }
 
 /// The daemon's panic log, `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log):
@@ -189,7 +204,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = std::env::set_current_dir(home());
     exe_path::check_run(opts.ready_fd)?;
     let lock = home().join("daemon.lock");
-    let _lock_file = match acquire_daemon_lock(&lock).await {
+    let _lock_file = match acquire_daemon_lock(&lock, opts.take_over).await {
         Ok(lock) => lock,
         Err(e) => {
             // The command that started this daemon waits for the holder (`connect`).
@@ -397,6 +412,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
+    // A copied machine's first start settles what the logs left open as stopped
+    // (`hub/clone_boot.rs`); read before any log is.
+    let cloned = hub.take_clone_marker(&home()).is_some();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
@@ -405,8 +423,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Messages `send --no-wait` handed over (`hub/outbox.rs`): saved beside the sessions, and
     // what a restart left undelivered goes on.
     if !memory_store {
+        // A copy's first start delivers none of them: the machine it was copied from does. Its
+        // outbox is set aside (kept for a look, never read again) and this one starts empty.
+        if cloned {
+            let path = home().join("outbox.json");
+            if let Err(e) = std::fs::rename(&path, home().join("outbox.json.clone-boot"))
+                && e.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!("copied machine's outbox not set aside: {e}");
+            }
+        }
         let pending = hub.outbox.open(&home().join("outbox.json"));
-        crate::server::outbox::resume(&hub, pending);
+        // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
+        // none of it is this machine's to deliver.
+        if !cloned {
+            crate::server::outbox::resume(&hub, pending);
+        }
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
@@ -563,7 +595,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
-        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
@@ -646,10 +685,12 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 hub.adopt_agent_hosts().await;
                 hub.settle_unadopted().await;
             }
+            hub.recover_workflows().await;
             {
                 let hub = hub.clone();
                 tokio::spawn(async move {
                     hub.load_logs_async().await;
+                    hub.finish_clone_boot(&home());
                     // Once every log is read: a pass reads only chats whose log is loaded.
                     let _worker = hub.retention_worker();
                 });
@@ -658,19 +699,27 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
-            // An agent the previous daemon left, started from a profile changed since, restarts
-            // on the new one between turns (`hub/profile_respawn.rs`).
-            hub.spawn_profile_respawns();
+            // An agent the previous daemon left, started from a profile changed since or running
+            // from a binary that an update moved, restarts on the profile and binary installed now,
+            // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
+            hub.spawn_startup_respawns();
             // Until shutdown aborts this task, on every path (a signal too).
             hub.run_after_startup().await;
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
+    // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
+    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
 
     #[cfg(all(unix, feature = "tailnet"))]
     let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
+    // The store asks for a restart when it cannot go on safely (`Store::stop_reason`): a frozen
+    // event journal checkpoint, whose logs only the next start's replay writes again.
+    let mut store_stop = std::pin::pin!(store_asks_to_stop(hub.store.stop_reason()));
     let shutdown = async {
         // Every stop names its cause in the log (`app_orphan` and `unused` name their own).
         #[cfg(unix)]
@@ -682,11 +731,21 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 // Supervisors use SIGTERM for updates and permanent stops alike. Advertise
                 // handoff: a stopped service causes one immediate retry, then normal backoff.
                 _ = next_signal(term.as_mut()) => {
-                    tracing::warn!("stopping: SIGTERM (a restart handoff)");
+                    match term_sender::settled().await {
+                        Some(pid) => tracing::warn!(
+                            "stopping: SIGTERM from {} (a restart handoff)",
+                            term_sender::describe(pid)
+                        ),
+                        None => tracing::warn!("stopping: SIGTERM (a restart handoff)"),
+                    }
                     hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
                 },
                 _ = next_signal(int.as_mut()) => tracing::warn!("stopping: SIGINT"),
                 _ = hub.shutdown.notified() => tracing::warn!("stopping: a client asked it to"),
+                // A restart handoff: the next start repairs what the store could not.
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -740,6 +799,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             tokio::select! {
                 _ = ctrl_c => {},
                 _ = hub.shutdown.notified() => {},
+                () = &mut store_stop => {
+                    hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+                },
                 // No build of its app is left to adopt its agents, so they end with it. An app
                 // that only quit or was updated keeps them, as its Quit does
                 // (`daemon/app_orphan.rs`).
@@ -881,26 +943,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
         let _ = std::fs::remove_file(socket_path());
-    }
-}
-
-/// Aborts a task when dropped.
-struct AbortOnDrop(tokio::task::AbortHandle);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
-}
-
-/// The next delivery of a registered signal; never, if registration failed.
-#[cfg(unix)]
-async fn next_signal(stream: Option<&mut tokio::signal::unix::Signal>) {
-    match stream {
-        Some(stream) => {
-            stream.recv().await;
-        }
-        None => std::future::pending::<()>().await,
     }
 }
 
@@ -1195,13 +1237,31 @@ fn managed_by_acpmux_unit() -> bool {
     false
 }
 
-async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
+/// Take this home's lock. The unit's daemon (`--take-over`, or a daemon in the
+/// `acpmux.service` cgroup) first asks a holder that serves this same socket to hand over
+/// ([`take_over_holder`]), then waits for the lock: a client can start a detached daemon in the
+/// seconds between a shutdown and the unit's restart (chief-sub-a524, 2026-11-03), and waiting
+/// alone would end in a lock refusal and leave the unit failed while that daemon serves the home
+/// outside it. A `--take-over` start whose holder serves another socket is refused at once.
+async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<DaemonLock> {
+    let supervised = take_over || managed_by_acpmux_unit();
+    let mut asked = false;
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
-            Err(error)
-                if managed_by_acpmux_unit() && error.downcast_ref::<LockHeld>().is_some() =>
-            {
+            Err(error) if supervised && error.downcast_ref::<LockHeld>().is_some() => {
+                #[cfg(unix)]
+                let ours =
+                    lock::holder_socket(path).is_some_and(|held| same_path(&held, &socket_path()));
+                #[cfg(not(unix))]
+                let ours = false;
+                if take_over && !ours {
+                    return Err(error);
+                }
+                if ours && !asked {
+                    asked = true;
+                    take_over_holder(&socket_path()).await;
+                }
                 if !wait_for_lock_release(path.to_owned(), Duration::from_secs(60)).await {
                     return Err(error);
                 }
@@ -1209,6 +1269,53 @@ async fn acquire_daemon_lock(path: &std::path::Path) -> Result<DaemonLock> {
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Ask the daemon at `socket` to hand this home over: `_acpmux/shutdown` with its agents kept,
+/// as `acpmux daemon shutdown` sends it, once its status names this home and socket. Best
+/// effort: a holder that does not answer, or one that is already stopping, is waited out by the
+/// caller.
+async fn take_over_holder(socket: &std::path::Path) {
+    let Ok(Ok(client)) =
+        tokio::time::timeout(Duration::from_secs(5), crate::client::Client::connect(socket)).await
+    else {
+        return;
+    };
+    let status = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})),
+    )
+    .await;
+    let Ok(Ok(status)) = status else { return };
+    let same = |key: &str, want: &std::path::Path| {
+        status
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|got| same_path(std::path::Path::new(got), want))
+    };
+    if !same("home", &home()) || !same("socket", socket) {
+        return;
+    }
+    tracing::info!(
+        pid = status.get("pid").and_then(serde_json::Value::as_u64),
+        "another daemon of this home serves its socket; asking it to hand over"
+    );
+    let _ = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.request(crate::rpc::method::MUX_SHUTDOWN, serde_json::json!({})),
+    )
+    .await;
+}
+
+/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
+/// its canonical folder).
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    fn canonical(path: &std::path::Path) -> Option<std::path::PathBuf> {
+        std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+    }
+    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
 }
 
 fn random_token() -> Result<String> {

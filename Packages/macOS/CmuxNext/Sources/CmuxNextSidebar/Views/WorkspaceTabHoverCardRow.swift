@@ -5,7 +5,9 @@ import CmuxNextIcons
 
 /// One tab in the workspace hover card's tab list, laid out by frame on the card's grid
 /// (Lawrence msg 19245: "alignment here looks bad"): its icon on the card's icon column, its title and
-/// detail line on the card's text column, its trailing text and status mark at the end. The row reaches
+/// detail line on the card's text column, its status mark right after the title on the title's line, its
+/// trailing text at the end, and on hover a ✕ there that closes the tab (Leo 2026-11-02: "YOU SHOULD BE ABLE
+/// TO CLOSE THESE TABS FROM THE HOVER PREVIEW" / "PLUS THE PLACEMENT LOOKS LIKE SHIT"). The row reaches
 /// `fillOutset` past both edges of the list, so its hover fill has room around the icon while the icon
 /// stays on the column.
 @MainActor
@@ -15,6 +17,10 @@ final class WorkspaceTabHoverCardRow: NSView {
 
     private let style: WorkspaceTabHoverCardStyle
     private let icon = NSImageView()
+    /// The tab's favicon as the sidebar's favicon style draws it (the one favicon path, `SidebarFaviconRenditions`).
+    private let faviconRenditions = SidebarFaviconRenditions()
+    /// The favicon shown, drawn again when the theme or the favicon style changes.
+    private var favicon: SidebarFavicon?
     private let title = ChromeLabel(labelWithString: "")
     /// The muted line: place, state and time (`WorkspaceTabHoverCardLine`).
     private let detail = ChromeLabel(labelWithString: "")
@@ -22,10 +28,21 @@ final class WorkspaceTabHoverCardRow: NSView {
     private let activity = StatusIndicatorView()
     /// The unread dot, on the status mark's place when the tab has no status of its own.
     private let unreadDot = NSView()
+    /// Closes the tab; shown while the row is hovered, on the trailing slot.
+    let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { 9 }, label: Strings.hoverCardCloseTab)
     private var tracking: NSTrackingArea?
-    private var isHovered = false { didSet { paint() } }
+    /// Set by the pointer (and by the gallery, to show the ✕).
+    var isHovered = false {
+        didSet {
+            guard isHovered != oldValue else { return }
+            paint()
+            updateCloseButton()
+        }
+    }
     var isKeyboardSelected = false { didSet { paint() } }
     var onRelease: (() -> Void)?
+    /// The ✕ was pressed: close this row's tab (the card stays open).
+    var onClose: (() -> Void)? { didSet { updateCloseButton() } }
     private var pressed = false
     private var pressedTabID: TabID?
     private(set) var reportedLine = ""
@@ -43,16 +60,19 @@ final class WorkspaceTabHoverCardRow: NSView {
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
         icon.imageScaling = .scaleProportionallyDown
-        title.font = Typography.body
         title.lineBreakMode = .byTruncatingTail
-        detail.font = Typography.caption
-        // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): only the place shortens.
-        detail.lineBreakMode = .byClipping
-        trailingLabel.font = Typography.system(.monospacedDigit, size: Typography.caption.pointSize, weight: .regular)
+        // The line fits itself (`WorkspaceTabHoverCardLine.detail(fitting:font:)`): the place shortens first, and
+        // a line still too long ends in an ellipsis, never cut off at the card's edge.
+        detail.lineBreakMode = .byTruncatingTail
         activity.tracksWindowOcclusion = true
         unreadDot.wantsLayer = true
         unreadDot.isHidden = true
-        for view in [icon, title, detail, trailingLabel, activity, unreadDot] { addSubview(view) }
+        closeButton.showsLabelToolTip = false
+        // The card's panel never becomes key: the first click on the ✕ must close, as the row's own click selects.
+        closeButton.takesFirstClick = true
+        closeButton.isHidden = true
+        closeButton.onPress = { [weak self] in self?.onClose?() }
+        for view in [icon, title, detail, trailingLabel, activity, unreadDot, closeButton] { addSubview(view) }
         addTrackingArea()
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
@@ -64,13 +84,23 @@ final class WorkspaceTabHoverCardRow: NSView {
     func configure(_ tab: SidebarTab, now: Date, machine: SidebarMachine? = nil) {
         let sameTab = currentTabID == tab.id
         currentTabID = tab.id
+        // The same tab configured again (the card shown again for its workspace) keeps its hover state, so
+        // nothing on the row redraws.
         if !sameTab {
             pressed = false
             pressedTabID = nil
+            isHovered = false
         }
-        isHovered = false
+        // The card's text at the sidebar's density and text size, taken again on every configure (the rows are reused).
+        let card = WorkspaceHoverCardView.tokens
+        title.font = Typography.system(.default, size: card.titleSize, weight: .regular)
+        detail.font = Typography.system(.default, size: card.captionSize, weight: .regular)
+        trailingLabel.font = Typography.system(.monospacedDigit, size: card.captionSize, weight: .regular)
         let side = WorkspaceHoverCardView.iconSize
-        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
+        favicon = tab.favicon
+        icon.image = tab.favicon.map(faviconImage)
+            // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
+            ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
             ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
             ?? NSImage.icon(tab.kind.icon, size: side)
         let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)
@@ -95,18 +125,24 @@ final class WorkspaceTabHoverCardRow: NSView {
         needsLayout = true
     }
 
+    /// The title's font and the icon's frame, as drawn (tests).
+    var titleFont: NSFont? { title.font }
+    var iconFrame: CGRect { icon.frame }
+
     /// The width the row needs to show its title and its whole detail line, fill outsets included.
     var preferredWidth: CGFloat {
         let outset = Self.fillOutset
-        let text = style.twoLines
-            ? max(title.naturalSize.width, detailWidth(line?.detail ?? ""))
-            : title.naturalSize.width + Metrics.space3 + detailWidth(line?.detail ?? "")
+        let text = title.naturalSize.width + Metrics.space3 + detailWidth(line?.detail ?? "")
         let trailing = trailingLabel.isHidden ? 0 : trailingLabel.naturalSize.width + Metrics.space3
-        return ceil(2 * outset + WorkspaceHoverCardView.textInset + text + trailing + Metrics.space2 + Metrics.smallIconSize)
+        // The status mark after the title, and the trailing slot the ✕ (or the unread dot) takes.
+        let mark = activity.showsGlyph ? Metrics.space2 + Metrics.smallIconSize : 0
+        let titleLine = title.naturalSize.width + mark
+        let lines = style.twoLines ? max(titleLine, detailWidth(line?.detail ?? "")) : text + mark
+        return ceil(2 * outset + WorkspaceHoverCardView.textInset + lines + trailing + Metrics.space2 + Metrics.smallIconSize)
     }
 
     private func detailWidth(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: detail.font ?? Typography.caption]).width) + 2 * detail.alignmentRectInsets.left
+        ceil((text as NSString).size(withAttributes: [.font: detail.font ?? Typography.system(.default, size: WorkspaceHoverCardView.tokens.captionSize, weight: .regular)]).width) + 2 * detail.alignmentRectInsets.left
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -130,7 +166,7 @@ final class WorkspaceTabHoverCardRow: NSView {
             : ((bounds.height - titleSize.height) / 2).rounded()
         // The middle of the title's capitals: the icon, the status mark and the trailing text center on it.
         let capMiddle = titleTop + title.firstBaselineOffsetFromTop - (title.font?.capHeight ?? 0) / 2
-        // The trailing column: the status mark at the end, its text left of it.
+        // The trailing slot at the end (the unread dot, or the ✕ on hover), its text left of it.
         let markX = bounds.width - outset - mark
         var textEnd = markX - Metrics.space2
         if !trailingLabel.isHidden {
@@ -142,18 +178,21 @@ final class WorkspaceTabHoverCardRow: NSView {
             textEnd = x + pad - Metrics.space3
         }
         icon.frame = CGRect(x: outset, y: (capMiddle - side / 2).rounded(), width: side, height: side)
-        activity.frame = CGRect(x: markX, y: (capMiddle - mark / 2).rounded(), width: mark, height: mark)
+        closeButton.frame = CGRect(x: markX, y: (capMiddle - mark / 2).rounded(), width: mark, height: mark)
         let dot = Metrics.space3
         unreadDot.frame = CGRect(x: markX + (mark - dot) / 2, y: (capMiddle - dot / 2).rounded(), width: dot, height: dot)
         unreadDot.layer?.cornerRadius = dot / 2
         let textWidth = max(0, textEnd - textX)
+        // The status mark sits right after the title, centred on its capitals; the title gives it room.
+        let showsMark = activity.showsGlyph
+        let markRoom = showsMark ? Metrics.space2 + mark : 0
         if let line, let font = detail.font {
             let room = style.twoLines ? textWidth : max(0, textWidth - min(titleSize.width, textWidth * 2 / 3) - Metrics.space3)
             detail.stringValue = line.detail(fitting: room, font: font)
         }
         let detailSize = detail.naturalSize
         if style.twoLines {
-            title.frame = CGRect(x: textX - titlePad, y: titleTop, width: min(titleSize.width, textWidth + 2 * titlePad),
+            title.frame = CGRect(x: textX - titlePad, y: titleTop, width: min(titleSize.width, max(0, textWidth - markRoom) + 2 * titlePad),
                                  height: titleSize.height)
             detail.frame = CGRect(x: textX - detailPad, y: titleTop + titleSize.height,
                                   width: min(detailSize.width, textWidth + 2 * detailPad), height: detailSize.height)
@@ -162,13 +201,14 @@ final class WorkspaceTabHoverCardRow: NSView {
             // thirds of the line when both do not fit.
             let gap = Metrics.space3
             let wantedTitle = titleSize.width - 2 * titlePad, wantedDetail = detailSize.width - 2 * detailPad
-            let titleWidth = max(0, min(wantedTitle, max(textWidth * 2 / 3, textWidth - wantedDetail - gap)))
+            let titleWidth = max(0, min(wantedTitle, max(textWidth * 2 / 3, textWidth - wantedDetail - gap) - markRoom))
             title.frame = CGRect(x: textX - titlePad, y: titleTop, width: titleWidth + 2 * titlePad, height: titleSize.height)
-            let detailX = textX + titleWidth + gap
+            let detailX = textX + titleWidth + markRoom + gap
             let baseline = titleTop + title.firstBaselineOffsetFromTop
             detail.frame = CGRect(x: detailX - detailPad, y: (baseline - detail.firstBaselineOffsetFromTop).rounded(),
                                   width: max(0, min(detailSize.width, textEnd - detailX + 2 * detailPad)), height: detailSize.height)
         }
+        activity.frame = CGRect(x: title.frame.maxX - titlePad + Metrics.space2, y: (capMiddle - mark / 2).rounded(), width: mark, height: mark)
     }
 
     func applyColors() {
@@ -177,10 +217,22 @@ final class WorkspaceTabHoverCardRow: NSView {
             // Secondary, the token the card's facts use: tertiary washed the paths out on dark glass.
             detail.textColor = style.tintsState ? Self.stateTone(state) ?? Palette.textSecondary : Palette.textSecondary
             trailingLabel.textColor = Palette.textSecondary
-            icon.contentTintColor = Palette.textSecondary
+            // A low-contrast mono favicon draws in the card's label colour (Lawrence msg 19869); a glyph in the secondary ink.
+            if let favicon { icon.image = faviconImage(favicon) }
+            icon.contentTintColor = favicon == nil ? Palette.textSecondary : Palette.textPrimary
             unreadDot.layer?.backgroundColor = Palette.statusUnread.cgColor
         }
         paint()
+    }
+
+    /// `favicon` as the sidebar's favicon style draws it on the card (its glass over the window background), in this
+    /// row's theme. Its bitmap is made once per image and style and kept.
+    private func faviconImage(_ favicon: SidebarFavicon) -> NSImage {
+        faviconRenditions.onStyleChange = { [weak self] in self?.applyColors() }
+        return performWithTheme {
+            faviconRenditions.drawing(favicon, side: WorkspaceHoverCardView.iconSize, scale: window?.backingScaleFactor ?? 2,
+                                      ground: SidebarFaviconRenditions.groundLuminance(Palette.windowBackground)).image
+        }
     }
 
     /// A needs-you or failed tab's status color (the sidebar's status colors); nil otherwise.
@@ -198,6 +250,12 @@ final class WorkspaceTabHoverCardRow: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
+
+    /// The ✕ shows on the hovered row in the trailing slot, over the unread dot.
+    private func updateCloseButton() {
+        closeButton.isHidden = !isHovered || onClose == nil
+        unreadDot.alphaValue = closeButton.isHidden ? 1 : 0
+    }
     override func mouseExited(with event: NSEvent) { isHovered = false }
     override func mouseDown(with event: NSEvent) {
         pressed = true
@@ -205,7 +263,11 @@ final class WorkspaceTabHoverCardRow: NSView {
         paint()
     }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        // The ✕ takes its own click; anywhere else the row is one button.
+        return hit === closeButton || hit.isDescendant(of: closeButton) ? hit : self
+    }
     override func accessibilityPerformPress() -> Bool { onRelease?(); return onRelease != nil }
     override func mouseUp(with event: NSEvent) {
         defer { pressed = false; paint() }

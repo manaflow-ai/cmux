@@ -444,10 +444,16 @@ fn test_stream_id(index: u64) -> StreamPublicId {
         .expect("test stream id uses the public wire format")
 }
 
-fn active_clear_lanes_across_connections(request_count: usize, retained_bytes: usize) -> usize {
+/// How many clear-history requests run at once across two connections that share one admission budget; `lock_free`
+/// picks the budget's arm (R-DAEMON-STATE stage S1: atomics on, the mutex counts off).
+fn active_clear_lanes_across_connections(
+    request_count: usize,
+    retained_bytes: usize,
+    lock_free: bool,
+) -> usize {
     let mux = test_mux();
     let writer = test_writer();
-    let admission = Arc::new(ServerSurfaceOperationAdmission::default());
+    let admission = Arc::new(ServerSurfaceOperationAdmission::new(lock_free));
     let schedulers = [
         Arc::new(ConnectionSurfaceScheduler::new(admission.clone())),
         Arc::new(ConnectionSurfaceScheduler::new(admission)),
@@ -536,11 +542,14 @@ mod detach_and_browser;
 mod event_shape_tests;
 mod host_size_policy;
 mod identify_and_protocol;
+mod identify_before_queue;
 mod incognito_orphans;
 mod incognito_remote;
 mod input_lane;
 mod layout_receipts_shutdown;
 mod outbound_and_scheduler;
+mod rds_input_lane;
+mod read_barrier;
 mod resource_attach;
 mod resource_waits;
 mod session_streams;
@@ -548,6 +557,7 @@ mod sizing;
 mod socket_and_render;
 mod subscribe_scroll_on_attach;
 mod test_socket_path;
+mod tree_selection_deltas;
 mod view_leases;
 mod wire_commands;
 mod workspace_checklist_capability;

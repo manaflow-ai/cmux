@@ -5,6 +5,7 @@
 //! the `cmux-vnc` crate; this module parses the command, resolves the
 //! address, asks for credentials and runs the viewer.
 
+mod input_spool;
 mod keys;
 mod kitty;
 mod layout;

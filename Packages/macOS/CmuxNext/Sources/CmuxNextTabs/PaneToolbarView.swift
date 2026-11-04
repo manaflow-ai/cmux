@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextIcons
 
 /// A pinned action's button (`tabs.toolbarButtons`): its symbol, its title and key in the tooltip.
 public struct PaneToolbarItem: Equatable, Sendable {
@@ -61,6 +62,12 @@ public final class PaneToolbarView: NSView {
     public private(set) var nativeItems: [PaneTabRowTool] = []
     public private(set) var nativeButtons: [TitlebarBandButton] = []
     private var nativeMoreTool: PaneTabRowTool?
+#if DEBUG
+    /// Test-only presenter hook. The production wrapper (the button's onMenuOpenChange HoverReveal hold) remains
+    /// installed; this replaces only the blocking AppKit popup at its center.
+    var nativeMenuPresenterOverride: (@MainActor (NSMenu, TitlebarBandButton) -> Void)?
+    var nativeMenuPresentationObserver: ((NSMenu) -> Void)?
+#endif
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let moreButton = OverflowButton(label: Strings.paneMore)
     /// The tab bar's tracking area (``refreshCorner()``) reports the pointer.
@@ -157,6 +164,15 @@ public final class PaneToolbarView: NSView {
         }
     }
 
+    /// A cmux pack icon name the web side sends where no SF Symbol fits (the Session Info toggle's
+    /// two-row `view.list.short`, Leo 2026-11-04: "make our session info button 2 rows too"); nil
+    /// leaves an SF Symbol name to TitlebarBandButton, so the other tools keep their symbols.
+    private static func packGlyph(_ name: String, _ side: CGFloat) -> NSImage? {
+        guard NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil else { return nil }
+        let icon = IconName(name)
+        return IconPack.bundled.drawing(for: icon) == nil ? nil : NSImage.icon(icon, size: side)
+    }
+
     private func setNativeButtons(_ items: [PaneTabRowTool]) {
         nativeButtons.forEach { reveal.remove($0); $0.removeFromSuperview() }
         nativeMoreTool = items.first(where: { $0.id == "chat-menu" })
@@ -168,6 +184,7 @@ public final class PaneToolbarView: NSView {
         nativeItems = buttonItems
         nativeButtons = buttonItems.enumerated().map { index, item in
             let button = TitlebarBandButton(symbol: item.symbol, text: item.text)
+            button.customImage = Self.packGlyph
             button.tag = index
             button.setAccessibilityLabel(item.label)
             button.setAccessibilityIdentifier("cmux.pane.native-toolbar.\(item.id)")
@@ -182,6 +199,17 @@ public final class PaneToolbarView: NSView {
                 button.target = self
                 button.action = #selector(pressNative(_:))
                 button.pressMenu = { [weak self] in self?.menu(for: item) }
+#if DEBUG
+                let present = button.presentMenu
+                button.presentMenu = { [weak self] menu, source in
+                    self?.nativeMenuPresentationObserver?(menu)
+                    if let override = self?.nativeMenuPresenterOverride {
+                        override(menu, source)
+                    } else {
+                        present(menu, source)
+                    }
+                }
+#endif
             }
             if !item.contextMenu.isEmpty {
                 button.menuProvider = { [weak self] in self?.contextMenu(for: item) }
@@ -331,7 +359,7 @@ public final class PaneToolbarView: NSView {
         let allButtons = buttons + nativeButtons
         let count = max(shownCount, reservedCount)
         guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
-        let inset = Self.edgeInset(height: PaneChromeMetrics.current.resolvedStripHeight(scale: 2))
+        let inset = Self.trailingGap
         let buttonWidth = allButtons.reduce(CGFloat.zero) { $0 + $1.preferredWidth }
         let reservedWidth = CGFloat(max(0, count - allButtons.count)) * TitlebarBandButton.side
         let gaps = CGFloat(max(count - 1, 0)) * Metrics.space1 / 2
@@ -355,10 +383,10 @@ public final class PaneToolbarView: NSView {
         // Creation actions remain in the + menu. Fold their buttons away together when the
         // pane caps this toolbar's width, keeping pins in their trailing slots. Pins that also
         // cannot fit return to the more menu instead of overlapping the remaining controls.
-        let requiredWidth = y + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
+        let requiredWidth = Self.trailingGap + widths.reduce(0, +) + CGFloat(max(0, allButtons.count - 1)) * gap
             + CGFloat(trailingSlot) * (side + gap)
         let creationFits = requiredWidth <= bounds.width
-        var cursor = bounds.width - y - CGFloat(trailingSlot) * (side + gap)
+        var cursor = bounds.width - Self.trailingGap - CGFloat(trailingSlot) * (side + gap)
         for index in allButtons.indices.reversed() {
             let button = allButtons[index]
             let available = max(0, cursor)
@@ -379,9 +407,13 @@ public final class PaneToolbarView: NSView {
     /// opacity, so the glyph and its hit target stay aligned throughout the fade.
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
-        let inset = Self.edgeInset(height: bounds.height)
-        return NSRect(x: max(0, bounds.width - inset - side), y: inset, width: side, height: side)
+        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: Self.edgeInset(height: bounds.height),
+                      width: side, height: side)
     }
+
+    /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
+    /// above the browser toolbar's ⋮ (`Metrics.paneTrailingControlCenter`, Lawrence msg 19627).
+    static var trailingGap: CGFloat { max(0, Metrics.paneTrailingControlCenter - TitlebarBandButton.side / 2) }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.

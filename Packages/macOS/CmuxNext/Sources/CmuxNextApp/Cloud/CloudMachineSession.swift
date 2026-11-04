@@ -5,6 +5,7 @@ import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
+import os
 import CmuxNextWakeups
 
 /// One Cloud machine: its `/api/vm` record, its link, and the daemon
@@ -30,7 +31,7 @@ final class CloudMachineSession {
     /// The last Cloud start's harness login decision here: its summary for `cloud.machines`, its team skip for the chat's card.
     @ObservationIgnored var harnessLogin: CloudHarnessLoginDecision?
     /// This Mac's own daemon identity: an app link socket that leads back to
-    /// it is refused after the handshake (`CloudAppLinks.checkNotLocal`).
+    /// it is refused after the handshake (`DaemonIdentity.checkNotLocal(local:)`, CmuxNextCloud).
     @ObservationIgnored private let localIdentity: @MainActor () -> DaemonIdentity?
     /// Why the app link ended (localized), until the next connect. Nil
     /// while connected or connecting, and always nil for the legacy link.
@@ -39,10 +40,17 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var linkEndedDetail: String?
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
+    /// The list read an ended app link starts; its ``CloudLinkEndRead/confirming`` is
+    /// ``CloudMachineStageInput/linkEndConfirming``, false once it answers or a connect starts.
+    @ObservationIgnored let linkEndRead = CloudLinkEndRead()
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
     private(set) var linkPhase: CloudLinkPhase = .idle
+    /// The legacy link's last start failure, with the step it stopped at (``CloudLinkStartError``);
+    /// nil once a start comes up, and always nil for the app link. A wait on the machine ends at once
+    /// on a ``CloudLinkStartError/definitive`` one and says the step either way.
+    private(set) var legacyLinkFailure: CloudLinkStartError?
     /// The ticket of the app link's live connect; nil while none is live.
     @ObservationIgnored private var appTicket: UInt64?
     /// An app-link connect hop is queued or running.
@@ -92,6 +100,8 @@ final class CloudMachineSession {
     /// Why the last attach's resume failed (localized), until the next attach.
     /// For an app link, a click's connect on a paused machine is its resume.
     private(set) var resumeFailure: String?
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.link")
 
     /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     convenience init(machine: CloudMachine, link: CloudMachineLink, mainWork: MainWorkScheduler) {
@@ -150,12 +160,18 @@ final class CloudMachineSession {
     /// click never drops a healthy connection, and only a click starts a
     /// paused machine (`cloud.machine.connect` starts it).
     func connect(origin: CloudLinkOrigin = .script) {
-        guard !disconnected, !machine.shownStatus.isChanging else { return }
+        guard !disconnected, !machine.shownStatus.isChanging else {
+            if appLink == nil { Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (\(self.disconnected ? "disconnected" : "changing: \(self.machine.shownStatus.rawValue)", privacy: .public))") }
+            return
+        }
         if appLink != nil {
             guard machine.status.isLive || origin == .user, !appConnecting, appTicket == nil || linkEnded != nil else { return }
             appConnecting = true
         } else {
-            guard machine.status.isLive else { return }
+            guard machine.status.isLive else {
+                Self.logger.notice("legacy connect \(self.machineID, privacy: .public): skipped (status \(self.machine.status.rawValue, privacy: .public))")
+                return
+            }
         }
         connects += 1
         // A resume that failed earlier says nothing about this connect.
@@ -177,11 +193,13 @@ final class CloudMachineSession {
             guard let link else { return }
             await link.resume()
             guard !disconnected, machine.status.isLive, !machine.shownStatus.isChanging else {
+                Self.logger.notice("legacy connect \(self.machineID, privacy: .public): dropped after its hop (status \(self.machine.shownStatus.rawValue, privacy: .public))")
                 noteMutationInterruption()
                 return
             }
             // A link start that a pause overtook changes nothing (`noteLink`).
             let suspendsBefore = suspends
+            Self.logger.notice("legacy connect \(self.machineID, privacy: .public): daemon \(self.daemon.isStarting ? "already starting" : "start", privacy: .public)")
             daemon.start(remote: { [weak self] in
                 await self?.noteLinkStarting(since: suspendsBefore)
                 do {
@@ -189,7 +207,9 @@ final class CloudMachineSession {
                     await self?.noteLink(.up, since: suspendsBefore)
                     return path
                 } catch {
-                    if !(error is CancellationError) { await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore) }
+                    if !(error is CancellationError) {
+                        await self?.noteLink(.failed(CloudStrings.errorText(error)), since: suspendsBefore, failure: error as? CloudLinkStartError)
+                    }
                     throw error
                 }
             })
@@ -207,7 +227,13 @@ final class CloudMachineSession {
     func attach(origin: CloudLinkOrigin = .user) {
         guard !machine.shownStatus.isChanging else { return }
         if appLink != nil { return connect(origin: origin) }
-        guard machine.shownStatus == .paused, !resuming, !disconnected, let resumer else { return }
+        // A live legacy machine with no connection: its link may be waiting out a backoff after a
+        // failed start (or never started); the attach retries it now instead of doing nothing.
+        if machine.shownStatus != .paused {
+            if machine.status.isLive, daemon.connection == nil, !disconnected { retryNow() }
+            return
+        }
+        guard !resuming, !disconnected, let resumer else { return }
         resuming = true
         resumeFailure = nil
         // task-owner: one resume per attach; a second attach while it runs waits on it
@@ -250,6 +276,8 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         linkEnded = nil
         linkDropped = false
+        // A new connect is this link's answer: the ended link's list read no longer holds it.
+        linkEndRead.confirming = false
         resumeFailure = nil
         noteLinkStarting()
         let suspendsBefore = suspends
@@ -300,7 +328,7 @@ final class CloudMachineSession {
             }
         }, requiredCapabilities: DaemonCapability.nativeRemoteRequired, admit: { [weak self] identity in
             do {
-                try CloudAppLinks.checkNotLocal(remote: identity, local: localIdentity())
+                try identity.checkNotLocal(local: localIdentity())
             } catch {
                 self?.endAppLink(error, ticket: ticket.id)
                 throw error
@@ -341,22 +369,21 @@ final class CloudMachineSession {
     }
 
     /// "Disconnected, click to connect": no connection until the next connect.
-    /// Reads the machine list again (at most every 30 s), as a legacy link's
+    /// Reads the machine list again (``CloudLinkEndRead``), as a legacy link's
     /// failure does (`noteLink`): the idle auto-pause may have parked the
     /// machine behind the app, and the record then reads paused, not failed.
     private func showEnded(_ error: any Error) {
         CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
-        linkEndedDetail = String(describing: error)
+        linkEndedDetail = daemon.endedDetail(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        if let refresher {
-            // task-owner: one throttled list read; the reconcile it runs updates this record
-            Task { await refresher(false) }
-        }
+        guard let refresher else { return }
+        linkEndRead.ended(dropped: appLink != nil && linkDropped, paused: machine.status == .paused, connects: connects,
+                          connectsNow: { [weak self] in self?.connects }, read: refresher)
     }
 
     /// A link start began. A previous start's failure stays shown until a
@@ -372,9 +399,10 @@ final class CloudMachineSession {
     /// moved since it began) changes nothing, so a late failure cannot turn
     /// a paused machine into Failed. A failure reads the machine list again
     /// (at most every 30 s): the machine may have been paused behind the app.
-    private func noteLink(_ phase: CloudLinkPhase, since suspendsBefore: Int) {
+    private func noteLink(_ phase: CloudLinkPhase, since suspendsBefore: Int, failure: CloudLinkStartError? = nil) {
         guard !disconnected, suspends == suspendsBefore else { return }
         linkPhase = phase
+        if case .up = phase { legacyLinkFailure = nil } else if let failure { legacyLinkFailure = failure }
         if case .failed = phase, let refresher {
             // task-owner: one throttled list read; the reconcile it runs updates this record
             Task { await refresher(false) }
@@ -389,11 +417,7 @@ final class CloudMachineSession {
     /// models it paused: the session keeps its live status, pause reason and
     /// running start, and takes the record's other fields.
     func listed(_ record: CloudMachine, connectsAtRead: Int) {
-        var accepted = record
-        if machine.status.isLive, !record.status.isLive, connects != connectsAtRead {
-            (accepted.status, accepted.pauseReason, accepted.runningSince) = (machine.status, machine.pauseReason, machine.runningSince)
-        }
-        applyRecord(accepted)
+        applyRecord(record.listed(over: machine, connectedSinceRead: connects != connectsAtRead))
     }
 
     /// Reads the record again before an attach decides, when it may be
@@ -404,8 +428,10 @@ final class CloudMachineSession {
     /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
     func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
         guard appLink != nil, machine.status != .running, let refresher else { return }
-        for attempt in 1...60 {
+        for attempt in 1...80 {
             do { try await pause(attempt) } catch { return }
+            // A read elsewhere (the change tracker's, the list's) may have seen it run during the pause.
+            if machine.status == .running { return }
             await refresher(true)
             guard machine.status != .running, machine.status.isLive || machine.shownStatus.isChanging, !Task.isCancelled else { return }
         }
@@ -432,7 +458,7 @@ final class CloudMachineSession {
         return CloudMachineStageInput(creation: nil, machineStatus: machine.shownStatus, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
                                       pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure, changeFailure: machine.lastChangeFailure?.text,
-                                      linkDropped: linkDropped)
+                                      linkDropped: linkDropped, linkEndConfirming: linkEndRead.confirming)
     }
 
     /// Where the machine is on its way to a usable daemon.
@@ -466,6 +492,14 @@ final class CloudMachineSession {
         retryNow()
     }
 
+    /// A new wait for this machine (a start, a move, its Retry) begins: a legacy link failure from an
+    /// earlier attempt is not this attempt's answer, so it is cleared and the link dialed again now.
+    func beginLegacyAttempt() {
+        guard link != nil, legacyLinkFailure != nil else { return }
+        legacyLinkFailure = nil
+        if machine.status.isLive { retryNow() }
+    }
+
     /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,
     /// else connect an app link, wake a legacy daemon that is starting, or connect it again.
     func retryNow() {
@@ -481,11 +515,11 @@ final class CloudMachineSession {
     }
 
     /// After `cmux link machine update` ran here (``CloudMachineUpdates``): connect to the daemon
-    /// it left. A legacy link's waiting connect is woken. An app link: ``afterUpdate(restarted:linkEnded:connected:connecting:)``.
+    /// it left. A legacy link's waiting connect is woken. An app link: ``CloudLinkAfterUpdate``.
     func reconnectAfterUpdate(restarted: Bool) {
         guard appLink != nil else { return daemon.retryWake.fire() }
-        switch Self.afterUpdate(restarted: restarted, linkEnded: linkEnded != nil, connected: daemon.connection != nil,
-                                connecting: appConnecting) {
+        switch CloudLinkAfterUpdate(restarted: restarted, linkEnded: linkEnded != nil, connected: daemon.connection != nil,
+                                    connecting: appConnecting) {
         case .connect(let dropTicket):
             if dropTicket { appTicket = nil }
             connect()
@@ -517,26 +551,6 @@ final class CloudMachineSession {
         guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
         try await daemon.waitForReadySnapshot()
         guard await appLink.isConnected(machine: connectionMachine, generation: generation) else { throw DaemonError.notConnected }
-    }
-
-    /// What an app link does after an update.
-    nonisolated enum AfterUpdate: Equatable, Sendable {
-        /// Connect; `dropTicket` first lets it run over the current connect's ticket.
-        case connect(dropTicket: Bool)
-        /// A connect hop runs (maybe to the old daemon): connect afresh once it ends.
-        case connectAfterHop
-    }
-
-    /// The daemon may have restarted (`restarted`): a connection the app still holds is to the old
-    /// daemon, and its drop may reach the app after the CLI answered (each has its own carrier
-    /// connection). Its ticket goes now, so that late drop is an old ticket's and changes nothing,
-    /// and a fresh connect runs (after a hop in flight). Nothing restarted: a healthy connection
-    /// stays (a connect with a live ticket does nothing); an ended link connects again, and so does
-    /// a refused daemon's (no connection): that connect waits for an event, and its next ask of the
-    /// socket would only end the link.
-    nonisolated static func afterUpdate(restarted: Bool, linkEnded: Bool, connected: Bool, connecting: Bool) -> AfterUpdate {
-        if restarted { return connecting ? .connectAfterHop : .connect(dropTicket: true) }
-        return .connect(dropTicket: !linkEnded && !connected && !connecting)
     }
 
     /// A `cloud.link.changed` for this machine (app link only).

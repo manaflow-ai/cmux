@@ -38,9 +38,8 @@ import { retryUploadLater, UPLOAD_AUTO_RETRIES } from "./uploadRetry";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
-import { callChipHost } from "../chips/host";
 import { isVideoAttachment, isVideoName, useVideoInfo, useVideoReading } from "./videoAttachments";
-import { VideoAttachmentTile } from "./VideoAttachmentTile";
+import { useAttachedVideoPlayer, VideoAttachmentTile } from "./VideoAttachmentTile";
 import { FileAttachment } from "../FileAttachment";
 import { TextAttachmentCard } from "./TextAttachmentCard";
 
@@ -1172,6 +1171,7 @@ export function AttachmentChip({
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const videoReading = useVideoReading(attachment.id);
+  const videoPlayer = useAttachedVideoPlayer(attachment.path, attachment.name);
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
   const image = isImage && !broken;
   const source = image ? `data:${attachment.mimeType};base64,${attachment.data}` : undefined;
@@ -1340,22 +1340,28 @@ export function AttachmentChip({
       />,
     );
   }
-  // A video goes as its path too, with its poster and length once the host read them; a click plays it.
-  // One the host could not read (or never asked: a chat on another machine) keeps the square with
-  // its play glyph and no poster; Quick Look still plays it from its path.
+  // A video goes as its path too, with its poster and length once the host read them; a click plays it
+  // in the pane, streamed from its path (VideoAttachmentTile.tsx useAttachedVideoPlayer). One the host
+  // could not read (or never asked: a chat on another machine) keeps the square with its play glyph
+  // and no poster; Quick Look still plays it from its path when the pane may not.
   if (isVideoAttachment(attachment)) {
-    const play = () => void callChipHost("video.quickLook", { src: attachment.path });
-    return menu(
-      videoReading ? undefined : play,
-      <VideoAttachmentTile
-        name={attachment.name}
-        title={withSourceLabel(attachment.name, from)}
-        video={attachment.video}
-        reading={!attachment.video && videoReading}
-        remove={remove}
-        onPlay={play}
-      />,
-      t("media.play"),
+    const play = videoPlayer.play;
+    return (
+      <>
+        {menu(
+          videoReading ? undefined : play,
+          <VideoAttachmentTile
+            name={attachment.name}
+            title={withSourceLabel(attachment.name, from)}
+            video={attachment.video}
+            reading={!attachment.video && videoReading}
+            remove={remove}
+            onPlay={play}
+          />,
+          t("media.play"),
+        )}
+        {videoPlayer.viewer}
+      </>
     );
   }
   return menu(

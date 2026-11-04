@@ -109,6 +109,8 @@ public actor AgentSessionAttachClient {
         var settings = false
         /// `agent-session-login-v1`.
         var login = false
+        /// `agent-session-content-v1`.
+        var content = false
     }
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
@@ -343,10 +345,32 @@ public actor AgentSessionAttachClient {
             json: ["authorization": proof], waitForTurn: wait)
     }
 
+    /// Ordered ACP blocks; the owning daemon pins their session and validates their shape.
+    public func prompt(id: String, content: Data) async throws -> Data {
+        try await prompt(id: id, content: content, cloudTurn: nil)
+    }
+
     /// A capability is ephemeral request data only: no reconnect or retry after submission.
-    public func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data {
-        let transport = try await liveTransport()
-        return try await call("agent-session-prompt", ["prompt_id": id, "text": text], json: ["cloud_turn": cloudTurn], on: transport)
+    public func prompt(id: String, content: Data, cloudTurn: Data) async throws -> Data {
+        try await prompt(id: id, content: content, cloudTurn: Optional(cloudTurn))
+    }
+
+    private func prompt(id: String, content: Data, cloudTurn: Data?) async throws -> Data {
+        let (transport, served) = try await liveConnection()
+        var json: [String: Data?] = [:]
+        if let cloudTurn { json["cloud_turn"] = cloudTurn }
+        guard served.content else {
+            // Older daemons still accept pasted text as plain text. Never discard media to
+            // make a prompt fit the legacy contract, and never send a field they would refuse.
+            guard let blocks = try JSONSerialization.jsonObject(with: content) as? [[String: Any]],
+                  !blocks.isEmpty, blocks.allSatisfy({ $0["type"] as? String == "text" && $0["text"] is String }) else {
+                throw AgentSessionAttachError(code: "agent_session.content_unsupported", message: "Update cmux on that machine to send attachments.")
+            }
+            let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
+            return try await call("agent-session-prompt", ["prompt_id": id, "text": text], json: json, on: transport)
+        }
+        json["content"] = content
+        return try await call("agent-session-prompt", ["prompt_id": id], json: json, on: transport)
     }
 
     public func cancel() async throws {
@@ -649,7 +673,8 @@ public actor AgentSessionAttachClient {
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
-                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue))
+                            login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),
+                            content: identity.supports(DaemonCapability.agentSessionContent.rawValue))
             _ = try await DaemonConnection.perform(
                 // `agent-session-presence-v1` echoed: the daemon then streams presence (an app
                 // from before it would end its attachment on an event it does not know).

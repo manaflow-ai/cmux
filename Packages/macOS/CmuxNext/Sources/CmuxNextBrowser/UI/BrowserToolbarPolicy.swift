@@ -70,7 +70,8 @@ public nonisolated struct BrowserToolbarPolicy {
             return BrowserToolbarButtonState(icon: .browserToolbarDevtools, label: hinted(Strings.toolbarDevTools),
                                              isActive: facts.devToolsOpen)
         case .overflow:
-            return BrowserToolbarButtonState(icon: .browserToolbarMore, label: Strings.toolbarMore)
+            // The app's one ⋮ (`OverflowButton.glyph`), as on the tab bar above it (Lawrence msg 19627).
+            return BrowserToolbarButtonState(icon: .actionMoreVertical, label: Strings.toolbarMore) // chrome-icons: allow one ⋮ glyph for the pane's tab bar and toolbar rows (Lawrence msg 19627)
         }
     }
 }

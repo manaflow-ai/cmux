@@ -8,10 +8,10 @@
   overflow: hidden;
   border-radius: 50%;
   font-family: var(--cv-font);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   line-height: 1;
   letter-spacing: 0;
-  color: var(--agent-page-bg, #fff);
+  color: var(--acpmux-base, var(--agent-accent-text, Canvas));
   user-select: none;
 }
 .cv-face > img {
@@ -20,14 +20,14 @@
   object-fit: cover;
 }
 
-/* The author over a prompt: the bubble's trailing edge, the size of "From the Chief". */
+/* The author over a prompt: the bubble's trailing edge, the size of "Sent from <Chief>". */
 .cv-author {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
-  margin-bottom: 4px;
-  padding-right: 4px;
+  gap: var(--ds-space-1);
+  margin-bottom: var(--ds-space-1);
+  padding-right: var(--ds-space-1);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 18px;
@@ -39,15 +39,15 @@
   display: inline-flex;
   vertical-align: bottom;
   max-width: 40%;
-  margin: 0 6px 0 0;
+  margin: 0 var(--ds-space-2) 0 0;
   padding: 0;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .cv-author__name {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 .cv-author__name--hidden,
 .cv-typing__words--hidden,
@@ -73,7 +73,7 @@
 .cv-presence__person {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .cv-presence[data-look="stack"] .cv-presence__person + .cv-presence__person {
   margin-left: -6px;
@@ -82,10 +82,10 @@
   box-shadow: 0 0 0 1.5px var(--agent-page-bg, transparent);
 }
 .cv-presence[data-look="names"] {
-  gap: 8px;
+  gap: var(--ds-space-2);
 }
 .cv-presence__more {
-  margin-left: 4px;
+  margin-left: var(--ds-space-1);
 }
 
 /* Who is typing, over the composer, on the composer card's edge (the column's gutter). */
@@ -93,10 +93,10 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   min-height: 20px;
   margin: 0 var(--cv-inset, 0px);
-  padding: 0 12px 4px;
+  padding: 0 var(--ds-space-3) var(--ds-space-1);
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
@@ -117,7 +117,7 @@
 .cv-typing__dots {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-1);
 }
 .cv-typing__dots > i {
   width: 4px;
@@ -151,8 +151,8 @@
 .cv-answered-by {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 8px;
+  gap: var(--ds-space-1);
+  margin-left: var(--ds-space-2);
 }
 
 /* A guest's held message (QueuedMessageCard.tsx, design/chat-multiplayer.md): Approve, the primary
@@ -170,7 +170,7 @@
   box-sizing: border-box;
   height: var(--ds-control-icon);
   padding-inline: var(--ds-space-2);
-  border-radius: 5px;
+  border-radius: var(--ds-radius-control);
   font-size: var(--text-control);
   line-height: var(--ds-control-icon);
   letter-spacing: var(--text-control--letter-spacing);
@@ -178,7 +178,7 @@
   cursor: default;
 }
 .cv-held__approve {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
   color: var(--agent-accent);
 }
 .cv-held__decline {
@@ -206,7 +206,7 @@
 .cv-held[data-held]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 2px;
-  border-radius: 8px;
+  border-radius: var(--ds-radius-popup);
 }
 /* Its Approve and Decline (or its ⋯, the `menu` look) are how the owner answers: always shown in
    the line's action slot (IncomingMessageCard.tsx, DisclosureRow `actions`), never only on hover. */
@@ -242,12 +242,12 @@
   white-space: nowrap;
 }
 .acpmux-quick-item.cv-held__primary {
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 /* The `bar` look: the two buttons under the message, in from the icon column as the card is. */
 .cv-held__bar {
   display: flex;
-  margin: 0 0 var(--ds-space-1) 22px;
+  margin: 0 0 var(--ds-space-1) var(--ds-space-5);
 }
 
 /* A declined guest message: one quiet line that opens to its text on a click. */

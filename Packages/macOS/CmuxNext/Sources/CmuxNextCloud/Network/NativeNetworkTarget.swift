@@ -16,7 +16,7 @@ public struct NativeNetworkTarget: Equatable, Sendable {
               reply.project.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || "_-".contains($0)) }),
               context.user == "user_" + Self.digest("stack:\(reply.project):\(context.account)"),
               team == "team_" + Self.digest("stack-team:\(reply.project):\(reply.tenant)") || team == "team_" + Self.digest("personal:\(context.user)")
-        else { throw NativeDeviceEnrollmentError.invalidIdentity }
+        else { throw NativeDeviceEnrollmentError.identity() }
         guard let supplied = URL(string: reply.origin) else { throw NativeDeviceEnrollmentError.invalidScope }
         origin = try NativeDeviceScope.canonicalOrigin(supplied)
         guard origin.absoluteString == reply.origin, Self.isMeshCIDR(reply.ipv4_cidr) else { throw NativeDeviceEnrollmentError.invalidScope }

@@ -49,6 +49,10 @@
       "scope": "storage:local",
       "class": "mutation"
     },
+    "automation.audit.list": {
+      "scope": "automation:read",
+      "class": "read"
+    },
     "automation.create": {
       "scope": "automation:write",
       "class": "mutation"
@@ -60,6 +64,10 @@
     "automation.get": {
       "scope": "automation:read",
       "class": "read"
+    },
+    "automation.import": {
+      "scope": "automation:write",
+      "class": "mutation"
     },
     "automation.list": {
       "scope": "automation:read",
@@ -76,6 +84,18 @@
     "automation.settings.get": {
       "scope": "automation:read",
       "class": "read"
+    },
+    "automation.teleport.abort": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.teleport.begin": {
+      "scope": "automation:write",
+      "class": "mutation"
+    },
+    "automation.teleport.complete": {
+      "scope": "automation:write",
+      "class": "mutation"
     },
     "automation.update": {
       "scope": "automation:write",
@@ -1799,6 +1819,10 @@
     },
     "title.set": {
       "scope": "title:write",
+      "class": "mutation"
+    },
+    "toast.show": {
+      "scope": "none",
       "class": "mutation"
     },
     "usage_app.cycle_variant": {

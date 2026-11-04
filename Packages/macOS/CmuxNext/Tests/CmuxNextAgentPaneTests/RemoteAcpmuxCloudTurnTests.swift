@@ -34,7 +34,7 @@ import Testing
             return try JSONSerialization.data(withJSONObject: prepared)
         }
         func abandonCloudTurn(id: String, scope: Data) async throws { calls.withLock { $0.append("abandon") } }
-        func prompt(id: String, text: String, cloudTurn: Data) async throws -> Data {
+        func prompt(id: String, content: Data, cloudTurn: Data) async throws -> Data {
             #expect(String(decoding: cloudTurn, as: UTF8.self) == "scoped-capability")
             calls.withLock { $0.append("fenced") }
             if submissionFails { throw CancellationError() }

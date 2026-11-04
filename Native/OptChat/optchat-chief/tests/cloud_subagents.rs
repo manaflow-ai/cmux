@@ -323,7 +323,15 @@ fn control_cloud_sets_the_default_peer_at_run_time() {
     let specs = subs(&h);
     let cloud_one = &specs[specs.len() - 2];
     assert_eq!(cloud_one.0.peer.as_deref(), Some("cloud2"));
-    assert_eq!(cloud_one.0.cwd, PathBuf::from("/home/agent/work"));
+    assert!(
+        cloud_one.0.cwd.as_os_str().is_empty(),
+        "the peer chooses a scratch folder inside its webRoots"
+    );
+    assert!(
+        cloud_one.1.contains(r#"worktree add \"$PWD\"/"#),
+        "{}",
+        cloud_one.1
+    );
     assert!(
         cloud_one.1.contains("SUBAGENT SYSTEM TEXT"),
         "{}",
@@ -373,7 +381,11 @@ fn set_cloud(h: &mut Harness, sp: &Arc<Spawner>, peers: &str) {
         })
     })
     .unwrap();
-    assert!(set.starts_with("outcome: done."), "{set}");
+    // A noop: the saved state of a restarted Chief has this choice already.
+    assert!(
+        set.starts_with("outcome: done.") || set.starts_with("outcome: noop."),
+        "{set}"
+    );
 }
 
 /// B4: with several peers, each subagent goes to the peer with the fewest
@@ -461,6 +473,11 @@ fn an_idle_cloud_vm_is_paused_once_and_resumed_for_the_next_subagent() {
         "paused once: {calls:?}"
     );
 
+    // A paused VM drops its peer connection until resume brings it back.
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "cloud1", "connected": false, "health": {"os": "linux"}}]
+    }));
     let a = sp.clone();
     run(&mut h, move || a.spawn(vec!["two".into()], None)).unwrap();
     let calls = vms.calls.lock().unwrap().clone();
@@ -1018,6 +1035,451 @@ fn per_agent(h: &mut Harness, vms: &Arc<PerAgentVms>) -> Arc<Spawner> {
 
 fn calls_of(vms: &PerAgentVms) -> Vec<String> {
     vms.calls.lock().unwrap().clone()
+}
+
+#[test]
+fn hello_ios_stays_here_and_hello_web_uses_cloud_with_a_reason() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || {
+        sp.spawn(
+            vec![
+                "build a hello iOS view".into(),
+                "build a hello web page".into(),
+            ],
+            None,
+        )
+    })
+    .unwrap();
+    let specs = subs(&h);
+    assert_eq!(specs[0].0.peer, None, "iOS needs a Mac: {answer}");
+    assert_eq!(specs[1].0.peer.as_deref(), Some("chief-sub-a2"));
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a1:")
+            && line.contains("on this Mac:")
+            && line.contains("needs a Mac")),
+        "{answer}"
+    );
+    assert!(
+        answer.lines().any(|line| line.starts_with("- a2:")
+            && line.contains("on cloud:")
+            && line.contains("Cloud")),
+        "{answer}"
+    );
+}
+
+#[test]
+fn spawn_here_and_mac_are_local_aliases_and_unknown_places_list_choices() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h, Some(cloud()));
+    for place in ["here", "mac"] {
+        let a = sp.clone();
+        let answer = run(&mut h, move || {
+            a.spawn_placed(vec!["hello web".into()], None, None, Some(place.into()))
+        })
+        .unwrap();
+        assert_eq!(subs(&h).last().unwrap().0.peer, None, "{answer}");
+    }
+    let error = run(&mut h, move || {
+        sp.spawn_placed(vec!["hello".into()], None, None, Some("moon".into()))
+    })
+    .unwrap_err();
+    for choice in ["here", "local", "mac", "cloud"] {
+        assert!(error.contains(choice), "{error}");
+    }
+}
+
+#[test]
+fn paired_mac_takes_ios_work_from_a_busy_mac_or_a_linux_chief() {
+    for os in ["macos", "linux"] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(
+                serde_json::json!({"here": {"os": os, "pressure": {"ok": false}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 2}}]}),
+            );
+            a.peer_catalogs.insert("mini".into(), catalog());
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}]}),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn(
+                vec![
+                    "build a hello iOS view".into(),
+                    "build a hello web page".into(),
+                ],
+                None,
+            )
+        })
+        .unwrap();
+        for (spec, _) in subs(&h) {
+            assert_eq!(spec.peer.as_deref(), Some("mini"), "{answer}");
+            assert!(
+                spec.cwd.as_os_str().is_empty(),
+                "paired daemon chooses native scratch: {spec:?}"
+            );
+        }
+        assert!(
+            answer
+                .lines()
+                .filter(|l| l.starts_with("- a"))
+                .all(|l| l.contains("on mini:")),
+            "{answer}"
+        );
+    }
+}
+
+#[test]
+fn cached_signed_out_default_harness_still_attempts_launch() {
+    for auth in ["signedOut", "expired"] {
+        for on_peer in [false, true] {
+            let mut h = Harness::new(default_script());
+            h.agents.hold(true);
+            {
+                let mut agents = h.agents.inner.lock().unwrap();
+                let machine = if on_peer { "cloud1" } else { "here" };
+                agents.peer_catalogs.insert("cloud1".into(), catalog());
+                agents.harness_health.insert(
+                    machine.into(),
+                    serde_json::json!({
+                        "harnesses": [{"id": "claude", "auth": auth}]
+                    }),
+                );
+            }
+            let sp = spawner(&h, on_peer.then(cloud));
+            let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+            let specs = subs(&h);
+            assert_eq!(specs.len(), 1, "cached {auth}, peer {on_peer}: {answer}");
+            assert_eq!(specs[0].0.harness, "claude", "{answer}");
+            assert!(answer.contains("Started a1"), "{answer}");
+        }
+    }
+}
+
+#[test]
+fn disconnected_saved_cloud_peers_are_not_available_but_the_pool_can_provision() {
+    for connected in [false, true] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+            "here": {"os": "macos", "pressure": {"ok": true}},
+            "peers": [{"name": "cloud1", "connected": connected, "health": {"os": "linux", "pressure": {"ok": true}}}]
+        }));
+        let sp = spawner(&h, None);
+        set_cloud(&mut h, &sp, "cloud1");
+        let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+        assert_eq!(
+            subs(&h)[0].0.peer.as_deref(),
+            connected.then_some("cloud1"),
+            "{answer}"
+        );
+    }
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "chief-sub-a1", "connected": false, "health": {"os": "linux"}}]
+    }));
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let answer = run(&mut h, move || sp.spawn(vec!["hello web".into()], None)).unwrap();
+    assert_eq!(
+        subs(&h)[0].0.peer.as_deref(),
+        Some("chief-sub-a1"),
+        "{answer}"
+    );
+    assert!(
+        calls_of(&vms)
+            .iter()
+            .any(|call| call.starts_with("provision chief-sub-a1"))
+    );
+}
+
+#[test]
+fn saved_cloud_load_balancing_uses_only_connected_peers() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [
+            {"name": "offline", "connected": false, "health": {"os": "linux"}},
+            {"name": "online", "connected": true, "health": {"os": "linux"}}
+        ]
+    }));
+    let sp = spawner(&h, None);
+    set_cloud(&mut h, &sp, "offline,online");
+    let answer = run(&mut h, move || {
+        sp.spawn(vec!["hello web".into(), "another web task".into()], None)
+    })
+    .unwrap();
+    for (spec, _) in subs(&h) {
+        assert_eq!(spec.peer.as_deref(), Some("online"), "{answer}");
+    }
+}
+
+#[test]
+fn older_cloud_daemon_keeps_the_configured_cloud_harness() {
+    // An old peer either refuses scoped metadata (no catalog in this fake)
+    // or answers without harness rows. Neither proves a signed-out login.
+    for old_answer in [None, Some(serde_json::json!({"peer": "chief-sub-a1"}))] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        if let Some(answer) = old_answer {
+            h.agents
+                .inner
+                .lock()
+                .unwrap()
+                .peer_catalogs
+                .insert("chief-sub-a1".into(), answer);
+        }
+        let vms = Arc::new(PerAgentVms::default());
+        let sp = Arc::new(
+            Arc::try_unwrap(spawner(
+                &h,
+                Some(CloudPlacement {
+                    peer: optchat_chief::subagents::PER_AGENT.into(),
+                    harness: "codex".into(),
+                    ..cloud()
+                }),
+            ))
+            .ok()
+            .unwrap()
+            .with_cloud_vms(Some(vms.clone())),
+        );
+        h.brain.set_cloud_vms(Some(vms), Duration::from_secs(3600));
+        set_cloud(&mut h, &sp, optchat_chief::subagents::PER_AGENT);
+        let answer = run(&mut h, move || {
+            sp.spawn(vec!["build a hello web page".into()], None)
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.peer.as_deref(), Some("chief-sub-a1"));
+        assert_eq!(specs[0].0.harness, "codex", "{answer}");
+        assert!(!answer.contains("using default"), "{answer}");
+    }
+}
+
+#[test]
+fn a_paired_agent_gets_the_chiefs_subagent_instructions() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_cloud_text("CHIEF SUBAGENT INSTRUCTIONS: report the result to Chief".into()),
+    );
+    h.agents.inner.lock().unwrap().machine_status = Some(serde_json::json!({
+        "here": {"os": "macos", "pressure": {"ok": true}},
+        "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}}}]
+    }));
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["build a hello iOS view".into()],
+            Some("/Users/owner/Projects/docs-worktrees/lane".into()),
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    let prompts = subs(&h);
+    assert_eq!(prompts.len(), 1, "{answer}");
+    assert!(
+        prompts[0].1.contains("CHIEF SUBAGENT INSTRUCTIONS"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(prompts[0].1.contains("build a hello iOS view"));
+    assert!(prompts[0].0.cwd.as_os_str().is_empty());
+    assert!(
+        prompts[0]
+            .1
+            .contains("/Users/owner/Projects/docs-worktrees/lane")
+    );
+    assert!(prompts[0].1.contains("repo `docs`"));
+    assert!(!prompts[0].1.contains("not on the user's Mac"));
+}
+
+#[test]
+fn remote_launch_uses_the_resolved_profile_whose_login_was_checked() {
+    for (profile, row) in [
+        (
+            "my-direct-login",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "argv": ["/usr/local/bin/claude"]
+            }),
+        ),
+        // remote_guard::after removes argv/env and leaves picker metadata.
+        (
+            "claude",
+            serde_json::json!({
+                "kind": "claude-stdio", "family": "claude", "hasArgs": true,
+                "hasEnv": false, "hasModelsCommand": false, "hasSessions": false
+            }),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "peer": "mini", "harnesses": {profile: row}
+                }),
+            );
+            a.harness_health.insert(
+                "mini".into(),
+                serde_json::json!({
+                    "harnesses": [{"id": profile, "auth": "signedIn"}]
+                }),
+            );
+        }
+        let sp = spawner(&h, None);
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        })
+        .unwrap();
+        let specs = subs(&h);
+        assert_eq!(specs.len(), 1, "{answer}");
+        assert_eq!(specs[0].0.harness, profile, "{answer}");
+    }
+}
+
+#[test]
+fn known_peer_catalog_refusals_prevent_session_creation() {
+    for (requested, harnesses) in [
+        (
+            "claude",
+            serde_json::json!({"claude-sr": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude-sr",
+            serde_json::json!({"claude": {"kind": "claude-stdio", "family": "claude"}}),
+        ),
+        (
+            "claude",
+            serde_json::json!({
+                "one": {"kind": "claude-stdio", "family": "claude"},
+                "two": {"kind": "claude-stdio", "family": "claude"}
+            }),
+        ),
+        ("claude", serde_json::json!({"claude": {"kind": "acp"}})),
+        (
+            "chief",
+            serde_json::json!({"chief": {"kind": "acp", "family": "chief"}}),
+        ),
+        (
+            "legacy",
+            serde_json::json!({"legacy": {"kind": "acp", "family": "claude"}}),
+        ),
+    ] {
+        let mut h = Harness::new(default_script());
+        h.agents.hold(true);
+        {
+            let mut a = h.agents.inner.lock().unwrap();
+            a.machine_status = Some(serde_json::json!({"here": {"os": "macos"},
+                "peers": [{"name": "mini", "connected": true, "health": {"os": "macos"}}]}));
+            a.peer_catalogs.insert(
+                "mini".into(),
+                serde_json::json!({"peer": "mini", "harnesses": harnesses}),
+            );
+        }
+        let sp = Spawner::new(
+            h.chat.clone(),
+            h.agents.clone(),
+            SubagentSettings {
+                harness: requested.into(),
+                policy: "approve-all".into(),
+                model: None,
+                effort: None,
+                preset: None,
+                cwd: h.dir.path().join("subagent"),
+                prefix: "optchat-sub-h0me".into(),
+                parent: optchat_chief::brain::PARENT.into(),
+                claude_md: None,
+            },
+            h.tx.clone(),
+            Arc::new(|_: &str| {}),
+        );
+        let answer = run(&mut h, move || {
+            sp.spawn_placed(
+                vec!["build a hello iOS view".into()],
+                None,
+                None,
+                Some("mini".into()),
+            )
+        });
+        assert!(
+            subs(&h).is_empty(),
+            "{requested} must not launch: {answer:?}"
+        );
+        assert!(answer.unwrap().contains("did not start"));
+    }
+}
+
+#[test]
+fn chosen_peer_login_blocks_an_automatic_harness_switch() {
+    use optchat_chief::acpmux::Family;
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    {
+        let mut a = h.agents.inner.lock().unwrap();
+        a.machine_status = Some(
+            serde_json::json!({"here": {"os": "macos", "pressure": {"ok": true}}, "peers": [{"name": "mini", "connected": true, "health": {"os": "macos", "pressure": {"ok": true}, "liveSessions": 0}}]}),
+        );
+        a.peer_catalogs.insert("mini".into(), catalog());
+        a.harness_health.insert("mini".into(), serde_json::json!({"harnesses": [{"id": "claude", "auth": "signedIn"}, {"id": "codex", "auth": "signedOut"}]}));
+    }
+    let engine = h.dir.path().join("engine.json");
+    optchat_chief::engine::save(
+        &engine,
+        &optchat_chief::engine::EngineChoice {
+            subagent_routing: Some("auto".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let sp = Arc::new(
+        Arc::try_unwrap(spawner(&h, None))
+            .ok()
+            .unwrap()
+            .with_engine_file(Some(engine))
+            .with_families(std::collections::BTreeMap::from([
+                ("claude".into(), Family::Claude),
+                ("codex".into(), Family::Codex),
+            ])),
+    );
+    let answer = run(&mut h, move || {
+        sp.spawn_placed(
+            vec!["implement a hello web page".into()],
+            None,
+            None,
+            Some("mini".into()),
+        )
+    })
+    .unwrap();
+    assert_eq!(subs(&h)[0].0.harness, "claude", "{answer}");
+    assert_eq!(subs(&h)[0].0.peer.as_deref(), Some("mini"));
+    assert!(
+        answer.contains("codex unavailable") && answer.contains("using default claude"),
+        "{answer}"
+    );
 }
 
 /// `control cloud freestyle`: each subagent gets its own VM (its peer is
@@ -1728,4 +2190,84 @@ fn no_cloud_vm_auto_pauses_by_default() {
         "{:?}",
         calls_of(&own)
     );
+}
+
+/// A Chief that restarts or moves to another Mac (the same saved state)
+/// still knows which cloud VMs it paused: a tell to a finished subagent
+/// there resumes its VM first, instead of sending into a paused VM.
+#[test]
+fn a_restarted_chief_resumes_a_vm_it_paused_before_a_tell() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()));
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+
+    // The saved state in a new home: the Chief after a restart or a move.
+    let state = h.brain.state().clone();
+    let dir = tempfile::tempdir().unwrap();
+    optchat_chief::state::StateFile::new(&dir.path().join("host.json"))
+        .save(&state)
+        .unwrap();
+    let owner = h.owner.clone();
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "one more thing"));
+    assert!(
+        calls_of(&vms).contains(&"resume chief-sub-a1".to_owned()),
+        "no resume after the restart: {:?}, told {told:?}",
+        calls_of(&vms)
+    );
+}
+
+/// A Chief on a Mac without the pool tool cannot resume a paused VM: a tell
+/// there is refused and names the missing tool, never sent into the VM.
+#[test]
+fn a_tell_to_a_paused_vm_without_the_pool_tool_names_the_tool() {
+    use optchat_chief::brain::Input;
+    let mut h = Harness::new(default_script());
+    auto_pause_on(&mut h);
+    h.agents.hold(true);
+    let vms = Arc::new(PerAgentVms::default());
+    let sp = per_agent(&mut h, &vms);
+    let a = sp.clone();
+    run(&mut h, move || a.spawn(vec!["Design doc".into()], None)).unwrap();
+    h.brain.step(Input::SubagentFailed {
+        id: "a1".into(),
+        error: "ended".into(),
+    });
+    let until = Instant::now() + Duration::from_secs(5);
+    while !calls_of(&vms).contains(&"pause chief-sub-a1".to_owned()) && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(50)) {
+        h.brain.step(input);
+    }
+    h.brain.set_cloud_vms(
+        Some(Arc::new(optchat_chief::cloud_vms::CommandVms {
+            file: h.dir.path().join("no-such-vm-cmd"),
+        })),
+        Duration::from_secs(3600),
+    );
+    let a = sp.clone();
+    let told = format!("{:?}", run(&mut h, move || a.tell("a1", "one more thing")));
+    assert!(told.contains("pool tool"), "{told}");
 }

@@ -119,7 +119,7 @@ if [ -n "$update_job" ]; then
   update_args="--update-to $(printf '%q' "$update_app")"
   echo "update: $commit -> $update_commit ($update_app)"
 fi
-scp -q "$driver" ${RJ_DRIVER_FILES:-} "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_update.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
+scp -q "$driver" ${RJ_DRIVER_FILES:-} "$here/restore-journey.py" "$here/build_names.py" "$here/rj_rows.py" "$here/rj_update.py" "$here/launch_shift.py" "$here/rj_fake_cli_agent.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }

@@ -1345,6 +1345,10 @@ class Controller:
             return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
         if job is None:
             return {name}
+        if why := base_red_excuse.test_reds.lost_runner(job):
+            # A lost runner is infra, not a verdict (test_reds.lost_runner): keyed by this job's id, never a base red,
+            # and named so, since a re-run decides it.
+            return {f"{name}: infra, not a verdict (job {job_id}: {why}; re-run it)"}
         log = self.job_log(job_id)
         if log is None or not log.strip():
             # A test job's unreadable or empty log: nothing can show it is the base's, so it is this job's
@@ -1766,10 +1770,23 @@ class Controller:
         def finished(items: list[dict]) -> list[dict]:
             return [item for item in items if item.get("head_branch") == BASE and item.get("status") == "completed"]
 
-        base = finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+        def coalesced(item: dict) -> bool:
+            """A push run cmux-next-web.yml's coalescing left without web checks (web_coalesce.py): replaced while
+            pending (cancelled), or yielded to a newer push after its wait (success, its checks skipped), and no job
+            but `coalesce` gave a verdict. Its jobs are read first: a run cancelled by hand after a job passed or
+            failed is still the base's verdict."""
+            if item.get("event") != "push" or item.get("conclusion") not in ("cancelled", "success"):
+                return False
+            jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{item['id']}/jobs?per_page=100&filter=latest")["jobs"]
+            return all(job.get("name") == "coalesce" or (job.get("conclusion") or "") in ("cancelled", "skipped")
+                       for job in jobs)
+
+        # A coalesced run is no verdict for its commit: the newest run on an ancestor stands in.
+        base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"head_sha={base_sha}&per_page=20"))
+                     if not coalesced(item)), [])
         if not base:
-            base = [item for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=20"))
-                    if self.is_ancestor(item["head_sha"], base_sha)][:1]
+            base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
+                         if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
         inherited = set(self.failed_jobs(base[0]["id"], detail=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)
