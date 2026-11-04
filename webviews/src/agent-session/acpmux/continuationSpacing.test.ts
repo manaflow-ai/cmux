@@ -23,7 +23,11 @@ const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxR
   ...fields,
 });
 const answer = row("answer", "assistant", { text: "Done." });
-const footer = row("footer", "turnSummary", { text: "Done.", durationMs: 1000, status: "completed" });
+const footer = row("footer", "turnSummary", {
+  text: "Done.",
+  durationMs: 1000,
+  status: "completed",
+});
 const hidden = row("hidden", "user", { incoming: { kind: "hidden" } });
 
 // A reply's footer is a row of its own, as ChatGPT's (design/transcript-spacing.md "Reply footer";
@@ -34,7 +38,9 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
   for (const next of [
     row("reply", "assistant", { text: "Next." }),
     row("prompt", "user", { text: "Next." }),
-    row("peer", "user", { incoming: { kind: "message", message: { name: "peer", text: "Report", raw: "Report" } } }),
+    row("peer", "user", {
+      incoming: { kind: "message", message: { name: "peer", text: "Report", raw: "Report" } },
+    }),
   ]) {
     const rows = [answer, footer, hidden, next];
     const layout = layoutConversation(rows, 720);
@@ -64,9 +70,12 @@ test("incremental placement matches fresh placement when a continuation becomes 
   const continued = layoutConversation(next, 720, undefined, undefined, known, { rows, layout });
   expect(continued).toEqual(layoutConversation(next, 720));
   const changed = [...rows, row("next", "user", { text: "Next task." })];
-  expect(layoutConversation(changed, 720, undefined, undefined, known, { rows: next, layout: continued })).toEqual(
-    layoutConversation(changed, 720),
-  );
+  expect(
+    layoutConversation(changed, 720, undefined, undefined, known, {
+      rows: next,
+      layout: continued,
+    }),
+  ).toEqual(layoutConversation(changed, 720));
 });
 
 test("failure and Continue controls remain content; a reply's footer is a row of its own", () => {
@@ -90,7 +99,9 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
   g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  g.getComputedStyle = () => ({
+    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
+  });
   try {
     const rows = [
       { id: "a", version: 1, at: 0, kind: "assistant", text: "One." },
@@ -104,7 +115,10 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     const atLarger = placeRows(estimate, heightAt, { layout: atOne, kept: 2 });
     expect(atLarger.tops[1]! - atLarger.tops[0]!).toBe(20 + 30);
     expect(atLarger.scale).toBe(1.25);
-    const relaid = layoutConversation(rows, 720, undefined, undefined, undefined, { rows, layout: estimate });
+    const relaid = layoutConversation(rows, 720, undefined, undefined, undefined, {
+      rows,
+      layout: estimate,
+    });
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
@@ -120,7 +134,9 @@ test("estimated grid rows follow the Interface Size", () => {
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
   g.document ??= { documentElement: {} };
-  g.getComputedStyle = () => ({ getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : "") });
+  g.getComputedStyle = () => ({
+    getPropertyValue: (name: string) => (name === "--cmux-interface-scale" ? scale : ""),
+  });
   try {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
@@ -154,10 +170,22 @@ test("estimated grid rows follow the Interface Size", () => {
 
 test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
   const run = row("run", "activity", {
-    items: [{ kind: "tool", text: "", tool: { id: "c", title: "ls", kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id: "c", title: "ls", kind: "execute", status: "completed" },
+      },
+    ],
   } as Partial<AcpmuxRow>);
   const next = row("next", "activity", {
-    items: [{ kind: "tool", text: "", tool: { id: "d", title: "cat x", kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id: "d", title: "cat x", kind: "execute", status: "completed" },
+      },
+    ],
   } as Partial<AcpmuxRow>);
   const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
   const layout = layoutConversation([run, next, live], 720);
@@ -187,9 +215,18 @@ test("a run and the reply's prose sit the run gap apart, either way", () => {
 test("a finished work disclosure shares the activity rhythm when closed or opened", () => {
   const worked = row("worked", "worked", { durationMs: 17_000 });
   const run = row("run", "activity", {
-    items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "ls",
+        tool: { id: "t", title: "ls", kind: "execute", status: "completed" },
+      },
+    ],
   });
-  for (const rows of [[worked, answer], [worked, run, answer]]) {
+  for (const rows of [
+    [worked, answer],
+    [worked, run, answer],
+  ]) {
     const layout = layoutConversation(rows, 720);
     expect(layout.heights[0]).toBe(22);
     const replyIndex = rows.length - 1;
@@ -214,7 +251,13 @@ test("status rows and step rows in a row sit flush", () => {
       background: { id: "bg", trigger: "scheduled", running: false, quiet: true },
     }),
     row("run", "activity", {
-      items: [{ kind: "tool", text: "ls", tool: { id: "t", title: "ls", kind: "execute", status: "completed" } }],
+      items: [
+        {
+          kind: "tool",
+          text: "ls",
+          tool: { id: "t", title: "ls", kind: "execute", status: "completed" },
+        },
+      ],
     }),
     row("compact", "compaction", { compaction: { state: "running" } }),
   ];
