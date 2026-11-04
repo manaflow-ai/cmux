@@ -145,12 +145,13 @@ number it states and still remove something the person relied on.
   `Frames:` line for each content kind it touches (terminal, page, agent chat, tab strip,
   divider): what the person sees in each frame of the motion, before and after, in plain words.
 - **Name any content that stops following its pane** in those words ("the page does not move
-  during the spring; it takes its new size once after the landing"), and wait for the
-  requester's OK before landing.
+  during the spring; it takes its new size once after the landing"), and keep a `HOLD:` line
+  in the description until the requester accepts it.
 - **Dropped refreshes alone never accept a visual fix.** #32635 cut a key resize's drops from
   4-8 to 0-1 per press by holding terminal and page content at their start size through the
-  spring. Its body described the mechanism, no reader saw "the content no longer moves", and it
-  was found in use: the tab bar moved smoothly while terminals and pages stood still.
+  spring. Its body described the mechanism and never said "the content no longer moves", so no
+  reviewer saw a loss to refuse. It was found in use: the tab bar moved smoothly while terminals
+  and pages stood still.
 
 ## Smaller groups
 
