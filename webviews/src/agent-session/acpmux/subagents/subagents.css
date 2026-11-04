@@ -340,19 +340,19 @@ button.cv-subagent > :last-child {
 .acpmux-agent-identity[data-identity-look="badge"]::after {
   content: "";
   position: absolute;
-  width: 4px;
-  height: 4px;
-  inset-inline-end: -2px;
-  bottom: -1px;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+  inset-inline-end: 0;
+  bottom: 0;
   border-radius: 50%;
   background: var(--agent-tone-ink);
 }
 .acpmux-agent-identity[data-identity-look="marker"]::before {
   content: "";
-  width: 2px;
-  height: 12px;
-  margin-inline-end: 4px;
-  border-radius: 1px;
+  width: var(--cmux-hairline);
+  height: var(--ds-space-3);
+  margin-inline-end: var(--ds-space-1);
+  border-radius: var(--ds-radius-sm);
   background: var(--agent-tone-ink);
 }
 .cv-subagent[data-agent-tone] .cv-subagent__name {
