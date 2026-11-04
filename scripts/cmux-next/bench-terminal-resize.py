@@ -26,8 +26,10 @@ missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's di
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
 G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
-agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json. Exit 0 always (a bench,
-not a gate); the summary says what to compare.
+agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json; the summary says what to
+compare. Exits non-zero, after writing the report, when a layout measured nothing (terminal_resize_verdict.py:
+a layout error, a drag in which no terminal resized, no frame was counted or no terminal drew, a split action
+that resized no terminal): such zeros are not a result.
 """
 import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
 

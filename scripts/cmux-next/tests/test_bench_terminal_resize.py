@@ -67,6 +67,14 @@ class FreshState(unittest.TestCase):
         self.assertTrue((tags / "split-spring.bench-prev/tui/run-2").exists())
         self.assertFalse((tags / "split-spring.bench-prev/tui/run-1").exists())
 
+    def test_a_shipped_channels_state_never_moves(self):
+        tags = self.base / "tags"
+        for channel in ("nightly", "rc", "staging", "cmux-next"):
+            write(tags / channel / "tui/sessions/mine.json", "mine")
+            bl.start_fresh_state(channel)
+            self.assertEqual((tags / channel / "tui/sessions/mine.json").read_text(), "mine", f"{channel}'s state moved")
+            self.assertFalse((tags / f"{channel}.bench-prev").exists())
+
     def test_no_state_is_no_change(self):
         bl.start_fresh_state("split-spring")
         self.assertFalse((self.base / "tags").exists())
@@ -96,7 +104,10 @@ class Verdict(unittest.TestCase):
         self.assertTrue(verdict.problems({"layout": "light", "rounds": [drag_round(drawn=0)]}))
 
     def test_a_layout_error_or_no_round_fails(self):
-        self.assertTrue(verdict.problems({"layout": "light", "error": "no vertical divider"}))
+        # An error fails even with measured rounds, and in a layout with no resize to check.
+        found = verdict.problems({"layout": "light", "error": "no vertical divider", "rounds": [drag_round()]})
+        self.assertEqual(found, ["light: no vertical divider"])
+        self.assertEqual(verdict.problems({"layout": "idle-cursor", "error": "no terminal"}), ["idle-cursor: no terminal"])
         self.assertTrue(verdict.problems({"layout": "stress", "rounds": []}))
 
     def test_split_resize_that_resized_nothing_fails(self):

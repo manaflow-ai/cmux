@@ -191,6 +191,10 @@ def account_home():
         return os.path.expanduser("~")
 
 
+# Tags whose `tags/<tag>` folder holds a shipped channel's own state (BuildIdentity+AppNames.swift): never moved.
+SHIPPED_STATE_TAGS = frozenset({"nightly", "rc", "staging", "cmux-next"})
+
+
 def tag_state_root(tag):
     """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
     daemonStateDirectory's parent; its `tui` holds the daemon's saved sessions and their workspaces).
@@ -203,7 +207,12 @@ def start_fresh_state(tag):
     """An empty saved session for `tag`'s next launch (2026-10-24: STRESS refused "the app already has 60 workspaces",
     restored from an earlier run on that host; again on cmux22 2026-11-04 through bench-terminal-resize.py). The tag's
     state moves aside to `<root>.bench-prev` (one kept, the older one removed); no other tag's state is touched. Call it
-    only while no process of the tag runs: its state must not be in use."""
+    only while no process of the tag runs: its state must not be in use. A shipped channel's tag (``SHIPPED_STATE_TAGS``:
+    NIGHTLY and the others keep their daemon's state under `tags/<channel>`) is never moved: a bench of such a bundle
+    would move the person's own sessions."""
+    if tag in SHIPPED_STATE_TAGS:
+        note(f"bench-launch: {tag} is a shipped channel's state: it stays (no empty session for this run)")
+        return
     root = tag_state_root(tag)
     if not os.path.lexists(root):
         return

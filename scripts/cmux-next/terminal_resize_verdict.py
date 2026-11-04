@@ -23,7 +23,8 @@ def problems(result):
     if not rounds:
         return [f"{layout}: no round ran"]
     if layout in SPLIT_LAYOUTS:
-        return [f"{layout} round {index}: the split resized no terminal"
+        # Each entry is one split action (a round runs several).
+        return [f"{layout} action {index} ({entry.get('action', '?')}): the split resized no terminal"
                 for index, entry in enumerate(rounds, 1) if not entry.get("resized_terminals")]
     found = []
     for index, entry in enumerate(rounds, 1):
