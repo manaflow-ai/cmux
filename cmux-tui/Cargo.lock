@@ -31,6 +31,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-tailnet",
  "cmux-unix-socket",
+ "cmux-vault-egress",
  "cmux-wg",
  "cmux-worktree-care",
  "crossterm",
@@ -1205,7 +1206,9 @@ name = "cmux-git"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "wait-timeout",
 ]
 
@@ -1284,6 +1287,15 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-journal"
+version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "libc",
+ "tempfile",
 ]
 
 [[package]]
@@ -1459,6 +1471,22 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
+]
+
+[[package]]
+name = "cmux-rd-host"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "cmux-encode",
+ "cmux-rd-core",
+ "cmux-rd-engine",
+ "cmux-rd-link",
+ "cmux-rd-proto",
+ "libc",
+ "serde",
+ "serde_json",
+ "x11rb",
 ]
 
 [[package]]
@@ -1735,6 +1763,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-config",
  "cmux-conversation",
+ "cmux-git",
  "cmux-holder",
  "cmux-host",
  "cmux-json",
@@ -1742,6 +1771,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
+ "cmux-rd-host",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-server",
@@ -1961,6 +1991,7 @@ dependencies = [
  "anyhow",
  "base64",
  "cmux-link",
+ "cmux-tui-util",
  "getrandom 0.3.4",
 ]
 
@@ -1972,6 +2003,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1990,6 +2022,27 @@ dependencies = [
 [[package]]
 name = "cmux-url-input"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-vault-egress"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bytes",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
+ "rustls",
+ "rustls-native-certs",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "tracing-subscriber",
+ "zeroize",
+]
 
 [[package]]
 name = "cmux-view-rows"
@@ -3076,6 +3129,16 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
+]
+
+[[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
 ]
 
 [[package]]
@@ -8353,6 +8416,23 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "x11rb"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a8885a854a8bfdf87a301e53e41b17c5f8f33639903131338b997b1eb614f44"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol",
+]
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acf4d1bc32aa46eec18caa634ec3cf4c05bfa151f12b93b510b15190f69a1ca8"
 
 [[package]]
 name = "x25519-dalek"

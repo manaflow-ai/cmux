@@ -521,8 +521,10 @@ FOLLOW-UPS (MACHINE_ID and SESSION_ID from the answer)
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp wait SESSION_ID --timeout 20'
   cmux cloud exec --target machine:MACHINE_ID --command 'cmux-tui acp last SESSION_ID'
 
-Run from an agent chat, the app first asks the person with a card in that
-chat (Start, Not now); `cmux agents dialog list` lists it.
+Run from an agent chat, it starts at once, as from a terminal: no card asks
+the person. Only when they turned off cloud.agentsStartWithoutAsking does the
+app ask first with a card in that chat (Start, Not now); `cmux agents dialog
+list` lists it.
 ";
 
 /// The new spelling of a hidden old verb.

@@ -1195,7 +1195,8 @@ describe("the tray tells the truth", () => {
       }),
     );
     try {
-      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · cmux-ci run"]);
+      // The tray names the cmux-ci step by its rule, its setup's substitution before it (commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · Fleet run"]);
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
       expect(root.textContent).not.toContain("HEAD);");
       expect(root.textContent).not.toContain("--class");
@@ -1272,7 +1273,8 @@ describe("the tray tells the truth", () => {
       { open: true },
     );
     try {
-      expect(names(liveLines(root))).toEqual(["Start the dev server", "nice bun test"]);
+      // The tray names a command without a description in words (session-info/commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["Start the dev server", "Running tests"]);
       // The whole command stays one hover away.
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(
         "cd ~/Projects/cmux && bun run dev",

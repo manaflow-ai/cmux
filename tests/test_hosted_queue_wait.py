@@ -85,6 +85,15 @@ class Wiring(unittest.TestCase):
                 route = JOBS[name]["runs-on"]
                 self.assertIn(term, route)
                 self.assertLess(route.index(term), route.index("github.run_attempt == 1 && 'ubuntu-24.04'"))
+        # The report/bookkeeping jobs also leave a slow hosted start on this attempt;
+        # they keep the nightly-only mini preference ahead of the same fallback.
+        for name in ("visual-gate-nightly-verdict", "report-visual-gate-nightly",
+                     "nightly-identity-legacy-published", "report-nightly-failure",
+                     "close-nightly-failure-issue"):
+            with self.subTest(job=name):
+                route = JOBS[name]["runs-on"]
+                self.assertIn(term, route)
+                self.assertLess(route.index(term), route.index("github.run_attempt == 1 && 'ubuntu-24.04'"))
         self.assertIn("(github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') "
                       "&& fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04'", JOBS["sentry-dsyms-nightly"]["runs-on"])
         for owner, name in (("decide", "decide"), ("pick-nightly-sign-runner", "pick-nightly-sign-runner")):

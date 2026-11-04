@@ -125,6 +125,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     public func closeScreen(_ screen: MacScreen, in workspace: Workspace) async throws {
         try await backend(workspace.macID).closeScreen(screen, in: workspace)
     }
+    public func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab {
+        try await backend(workspace.macID).duplicateScreen(screen, in: workspace)
+    }
 
     // MARK: WorkspacePaneBackend
 
@@ -161,6 +164,15 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
         try await backend(workspace.macID).moveTab(tab, toPane: pane, in: workspace)
+    }
+    public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).setSplitRatio(split, to: ratio, in: workspace)
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewDock edge: DockEdge, in workspace: Workspace) async throws {
+        try await backend(workspace.macID).moveTab(tab, toNewDock: edge, in: workspace)
+    }
+    public func movePaneToNewWorkspace(_ pane: Int, in workspace: Workspace) async throws -> Workspace {
+        try await backend(workspace.macID).movePaneToNewWorkspace(pane, in: workspace)
     }
     public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
         try await backend(workspace.macID).forkAgentChat(tab, to: destination, in: workspace)
@@ -234,6 +246,9 @@ public final class MultiMacWorkspaceBackend: WorkspaceCreationBackend, Workspace
     }
     public func moveToNewGroup(_ workspace: Workspace, name: String, color: WorkspaceColor) async throws {
         try await backend(workspace.macID).moveToNewGroup(workspace, name: name, color: color)
+    }
+    public func createGroup(named name: String, color: WorkspaceColor, on macID: String) async throws -> MacWorkspaceGroup {
+        try await backend(macID).createGroup(named: name, color: color, on: macID)
     }
     public func updateGroup(_ group: MacWorkspaceGroup, on macID: String, name: String?, color: WorkspaceColor?, collapsed: Bool?) async throws {
         try await backend(macID).updateGroup(group, on: macID, name: name, color: color, collapsed: collapsed)

@@ -155,6 +155,51 @@ fn hold_workspace_registry(mux: &Arc<Mux>, hold: &dyn Fn()) {
     hold();
 }
 
+fn hold_link_peers(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    let _held = mux.remote_relay().peers.lock().unwrap_or_else(|e| e.into_inner());
+    hold();
+}
+
+fn hold_proxy_authors(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.control_clients.agent_sessions.hold_proxy_authors_for_test(hold);
+}
+
+fn hold_creating_inputs(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    mux.hold_creating_inputs_for_test(hold);
+}
+
+/// A terminal another creation names, still being created (`terminal-input-while-creating-v1`).
+const CREATING_TERMINAL: &str = "000000000000000000000000c4ea7e01";
+/// A terminal nobody creates: a reader asks about it under the creating-input lock.
+const OTHER_TERMINAL: &str = "000000000000000000000000c4ea7e02";
+
+/// While another terminal is being created, one thread holds the session lock and another asks about a terminal
+/// under the creating-input lock. The old path looked up the live terminal under that lock, so the reader waited
+/// for the session lock while it held the creating-input lock, and a key behind it waited too.
+fn hold_session_behind_a_creating_input_reader(mux: &Arc<Mux>, hold: &dyn Fn()) {
+    let generation =
+        mux.begin_creating_input(CREATING_TERMINAL).expect("no live terminal has the id");
+    let mut reader = None;
+    mux.with_state(|_| {
+        let asking = mux.clone();
+        let asked = std::thread::spawn(move || asking.knows_terminal_input_target(OTHER_TERMINAL));
+        // Until the reader holds the creating-input lock (the old path waits under it) or has its answer.
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !asked.is_finished()
+            && !mux.creating_inputs_held_for_test()
+            && Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        reader = Some(asked);
+        hold();
+    });
+    if let Some(reader) = reader {
+        let _ = reader.join();
+    }
+    mux.finish_creating_input(CREATING_TERMINAL, generation, Some("test"));
+}
+
 /// How long two keys took to reach their PTY while another thread held one lock (the later key's arrival from the
 /// first key's submit; `Duration::MAX` when a key never arrived), on a connection that `connection` is.
 fn key_wait_while_held(connection: &TypingConnection, index: usize, holder: Holder) -> Duration {
@@ -249,6 +294,37 @@ fn a_key_waits_for_no_surface_admission_lock() {
     let name = "surface admission (ServerSurfaceOperationAdmission)";
     assert_old_path_waits_for(name, hold_surface_admission);
     assert_keys_wait_for_none(&[(name, hold_surface_admission as Holder)]);
+}
+
+/// Stage S1 step 2: the key line asks whether its connection has a link peer record (the remote-client check and the
+/// request's actor) and whether it is a host proxy's link for a teammate. It reads both from published values, never
+/// through the link peers lock (every remote bind, disconnect and revocation sweep holds it) or the proxy authors lock
+/// (every proxy bind and every client's disconnect holds it).
+#[test]
+fn a_key_waits_for_neither_the_link_peers_nor_the_proxy_authors_lock() {
+    let peers = "link peers (RemoteRelayState.peers)";
+    let authors = "host proxy authors (AgentSessions.proxy_authors)";
+    assert_old_path_waits_for(peers, hold_link_peers);
+    assert_old_path_waits_for(authors, hold_proxy_authors);
+    assert_keys_wait_for_none(&[
+        (peers, hold_link_peers as Holder),
+        (authors, hold_proxy_authors as Holder),
+    ]);
+}
+
+/// Stage S1 step 4: a key asks whether creating input of its terminal must go first. With no terminal being created
+/// it reads an atomic count and takes no lock; with one, the creating-input lock is a leaf: no holder waits under it
+/// for the session lock (its live-terminal lookups read the published routes).
+#[test]
+fn a_key_waits_for_no_creating_input_lock() {
+    let creating = "creating input (CreatingInputs.terminals)";
+    let behind = "session (Mux.state) behind a creating-input reader";
+    assert_old_path_waits_for(creating, hold_creating_inputs);
+    assert_old_path_waits_for(behind, hold_session_behind_a_creating_input_reader);
+    assert_keys_wait_for_none(&[
+        (creating, hold_creating_inputs as Holder),
+        (behind, hold_session_behind_a_creating_input_reader as Holder),
+    ]);
 }
 
 /// #31940 and TYPING FIX 2 took these two off the key; this keeps them off on the stage's new path.

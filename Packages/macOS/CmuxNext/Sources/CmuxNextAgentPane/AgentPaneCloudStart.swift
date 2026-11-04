@@ -206,27 +206,28 @@ struct AgentPaneHandOff {
         guard AgentPaneCloudAttachments(start.attachments) != nil else {
             return AgentPaneReply.failure(code: "cloud_attachments", message: "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud.")
         }
-        // The page names the folder, and its whole tree is copied off this Mac: it must be one of
-        // the pane's own folders (AcpmuxPathPolicy's roots, by canonical path and by components),
-        // never home or above it, as for a chat that starts here. Nil: the App uses the tab's folder.
+        // The page names the folder the composer shows as the chat's, and the Send's gesture (`held`)
+        // is the person's pick of it, as a typed folder's is for a chat that starts here
+        // (AgentPaneTransport `grantTypedFolders`): it need not be one of the tab's roots. The folder,
+        // the Git working copy that holds it and that copy's git folders (history, refs) are copied
+        // off this Mac, so each must be a real folder that is never home or above it. Leo, on a Cloud
+        // start of a folder inside a Git working copy refused as "This folder isn't open in this
+        // tab": "what's this". Nil: the App uses the tab's folder.
         var start = start
         start.uploadRoot = nil
         if let cwd = start.cwd {
-            guard let folder = await Self.folderInScope(cwd, transport: model.transport) else {
+            let home = model.transport.homeFolder
+            guard let folder = await Self.copyableFolder(cwd, home: home) else {
                 return AgentPaneModel.transportFailure(.pathOutsideRoots)
             }
-            // What is copied is the Git working copy that holds the folder: it must be in scope too,
-            // so a grant of /repo/project never uploads /repo, its siblings and its history.
             let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
             if root != folder {
-                let checked = await Self.folderInScope(root, transport: model.transport)
+                let checked = await Self.copyableFolder(root, home: home)
                 guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
             }
-            // Its git folders are copied too (history, refs): a `.git` file or `commondir` that names a
-            // repository outside the pane's roots never uploads it.
             let gitFolders = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.gitFolders(of: root) }.value
             for gitFolder in gitFolders {
-                let checked = await Self.folderInScope(gitFolder, transport: model.transport)
+                let checked = await Self.copyableFolder(gitFolder, home: home)
                 guard checked != nil else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
             }
             start.cwd = folder
@@ -241,21 +242,13 @@ struct AgentPaneHandOff {
         }
     }
 
-    /// `cwd` canonical when it is a folder under one of the pane's roots and not the home folder
-    /// or above it; nil otherwise. The roots are the pane's own (never home or above it) and the
-    /// folders the person added or picked, as given. Never the New Tab page's scan and open folders
-    /// (`gestureRoots`) by the Send's gesture alone: a folder there becomes a root only once the
-    /// person picks it, and this send copies the folder off this Mac.
-    static func folderInScope(_ cwd: String, transport: AgentPaneTransport) async -> String? {
-        let roots = transport.roots(), granted = transport.addedRoots
-        let home = transport.homeFolder
-        return await Task.detached(priority: .userInitiated) { () -> String? in
-            guard let folder = AcpmuxPathPolicy.canonical(cwd), AcpmuxPathPolicy.isDirectory(folder) else { return nil }
-            let canonicalHome = home.flatMap(AcpmuxPathPolicy.canonical)
-            guard !AgentHome.isHomeOrAbove(folder, home: canonicalHome) else { return nil }
-            let own = roots.compactMap(AcpmuxPathPolicy.canonical).filter { !AgentHome.isHomeOrAbove($0, home: canonicalHome) }
-            let allowed = own + granted.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
-            return allowed.contains { AcpmuxPathPolicy.contains(root: $0, path: folder) } ? folder : nil
+    /// `path` canonical when it is a real folder that is not the home folder or above it; nil
+    /// otherwise. A Cloud start copies such a folder only on the Send's own gesture (`held`).
+    nonisolated static func copyableFolder(_ path: String, home: String?) async -> String? {
+        await Task.detached(priority: .userInitiated) { () -> String? in
+            guard let folder = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(folder) else { return nil }
+            guard !AgentHome.isHomeOrAbove(folder, home: home.flatMap(AcpmuxPathPolicy.canonical)) else { return nil }
+            return folder
         }.value
     }
 

@@ -38,6 +38,9 @@ final class CloudMachineSession {
     @ObservationIgnored private(set) var linkEndedDetail: String?
     /// The ended link went down or was revoked, not refused (``CloudLinkError/isDrop(_:)``).
     private(set) var linkDropped = false
+    /// The app link ended and one forced machine list read is learning whether a pause ended it
+    /// (``CloudMachineStageInput/linkEndConfirming``); false once it answers or a connect starts.
+    var linkEndConfirming = false
     /// The link as this session's endpoint calls see it (cx-lu8f): starting,
     /// up, or the last start's failure. Drives the booting and connecting
     /// stages; never set from elapsed time.
@@ -269,6 +272,8 @@ final class CloudMachineSession {
         daemon.shutdownConnection()
         linkEnded = nil
         linkDropped = false
+        // A new connect is this link's answer: the ended link's list read no longer holds it.
+        linkEndConfirming = false
         resumeFailure = nil
         noteLinkStarting()
         let suspendsBefore = suspends
@@ -366,10 +371,23 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        if let refresher {
-            // task-owner: one throttled list read; the reconcile it runs updates this record
-            Task { await refresher(false) }
+        guard let refresher else { return }
+        if appLink != nil, linkDropped, machine.status != .paused, !linkEndConfirming {
+            // A pause ends the app link before the list says paused (the idle pause, and soon the
+            // pause between tool calls): read the list now, past the 30 s throttle, once per ended
+            // link, and read as on its way until it answers, so a pause never flashes "Disconnected".
+            linkEndConfirming = true
+            let connectsAtEnd = connects
+            // task-owner: one forced list read per ended link; the reconcile it runs updates this record
+            Task { [weak self] in
+                await refresher(true)
+                // Only this ended link's read clears it; a connect since then already did.
+                if let self, self.connects == connectsAtEnd { self.linkEndConfirming = false }
+            }
+            return
         }
+        // task-owner: one throttled list read; the reconcile it runs updates this record
+        Task { await refresher(false) }
     }
 
     /// A link start began. A previous start's failure stays shown until a
@@ -418,8 +436,10 @@ final class CloudMachineSession {
     /// pace until it runs or stops being live, so the connect after it dials a machine that is up.
     func untilRunning(pause: @MainActor (_ attempt: Int) async throws -> Void) async {
         guard appLink != nil, machine.status != .running, let refresher else { return }
-        for attempt in 1...60 {
+        for attempt in 1...80 {
             do { try await pause(attempt) } catch { return }
+            // A read elsewhere (the change tracker's, the list's) may have seen it run during the pause.
+            if machine.status == .running { return }
             await refresher(true)
             guard machine.status != .running, machine.status.isLive || machine.shownStatus.isChanging, !Task.isCancelled else { return }
         }
@@ -446,7 +466,7 @@ final class CloudMachineSession {
         return CloudMachineStageInput(creation: nil, machineStatus: machine.shownStatus, link: linkPhase, daemonConnected: connected,
                                       daemonLoaded: daemon.store.isLoaded, daemonFailure: daemonFailure, linkEnded: linkEnded,
                                       pauseReason: machine.pauseReason, resuming: resuming, resumeFailure: resumeFailure, changeFailure: machine.lastChangeFailure?.text,
-                                      linkDropped: linkDropped)
+                                      linkDropped: linkDropped, linkEndConfirming: linkEndConfirming)
     }
 
     /// Where the machine is on its way to a usable daemon.
