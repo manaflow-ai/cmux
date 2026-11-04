@@ -89,17 +89,22 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   };
   // The host sizes the popover or the card slot to the content; 0 while there is nothing.
   // A scrolling card (the popover) reports its whole content, not the part the page view shows.
-  let reported = -1;
+  // A short popover (`.wn-pop-brief`, no change list) also reports its own width, so the host is as
+  // wide as its lines (Leo 2026-11-03: "stretched out wasted space"); 0 fills the host's width.
+  let reported = "";
   const sizer = new ResizeObserver(() => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
     const height = Math.ceil(Math.max(root.getBoundingClientRect().height, card?.scrollHeight ?? 0));
-    if (height === reported) return;
-    reported = height;
-    call(SurfaceOps.size, { height });
+    const width = card?.classList.contains("wn-pop-brief") ? Math.ceil(card.getBoundingClientRect().width) : 0;
+    const key = `${height}x${width}`;
+    if (key === reported) return;
+    reported = key;
+    call(SurfaceOps.size, { height, width });
   });
   sizer.observe(root);
   const observeCard = () => {
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
+    if (card) sizer.observe(card);
     for (const child of card?.children ?? []) sizer.observe(child);
   };
   if (!client) return;

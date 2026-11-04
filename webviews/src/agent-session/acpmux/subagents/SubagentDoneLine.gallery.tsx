@@ -11,10 +11,17 @@
 // "Subagent" (Leo, 2026-11-03, on a capture where a finished subagent row read "Subagent"). The
 // chat's reply to a subagent's end sits under its line on the stack's grid, and the next row keeps
 // the one row pitch: four looks of that reply are compared, "grid" the pick.
+//
+// A finished line with a report (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
+// richer"): the report variants compare how the line offers it (doneReport.experiment.ts), the
+// chevron that opens it under the line (the pick), a two-line preview with Show more, and the line
+// that only opens the agent's view.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
+import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import type { Subagent } from "./subagentFold";
+import { doneReportLook, type DoneReportLook } from "./doneReport.experiment";
 
 type Look = "fill" | "cap60" | "before";
 /// How the chat's reply sits under the line: on the grid (the pick), as a folded note with the run
@@ -22,7 +29,8 @@ type Look = "fill" | "cap60" | "before";
 type ReplyLook = "grid" | "note" | "quote" | "before";
 /** `pane`: the column's width in CSS px, for the narrow pane. `subsession`: the line is a
  * sub-session's with no task, whose chat is titled. `reply`: the chat's reply to its end, and a
- * following line under it. */
+ * following line under it. `report`: the first line's final report. `arm`: the report look a
+ * variant pins; unset, the experiment's arm (the compare view). */
 type Props = {
   names: string[];
   look?: Look;
@@ -31,18 +39,40 @@ type Props = {
   subsession?: boolean;
   reply?: string;
   replyLook?: ReplyLook;
+  report?: string;
+  arm?: DoneReportLook;
 };
 
 const CHILD_ID = "optchat-5e2a91c4b7d0-3f";
 const CHILD_TITLE = "Audit the retry banner flicker";
 const REPLY = "The reviewer found one race in the banner's timer; I'll fix it next.";
 
+const REPORT = `Found the drift: the settings schema generator reads \`defaults.json\` before the MDM overlay is applied, so three keys ship with stale defaults.
+
+- \`sidebar.compact\` defaults to \`false\` in the docs but \`true\` in the app
+- \`terminal.bell\` is missing from the MDM profile export
+- the golden files were regenerated from the stale read
+
+Fixed the read order in \`gen-schema.ts\`, regenerated the golden files and the docs page, and added a test that compares the generator's output with the app's defaults. All 214 settings tests pass.`;
+
+const openReport: Play = async (ctx) => {
+  await ctx.click({ selector: ".cv-subagent-done__disclose" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done__report") !== null);
+};
+
 const LONG =
   "Fix defaults-snapshot drift in the settings schema generator, its golden files, the docs page, the MDM profile export and every test that reads them";
 const ERROR = "503: no non-exhausted claude accounts available after four retries on the capacity route, giving up";
 const SHORT = "Explore";
 
-const done = (name: string, index: number, failed = false, subsession = false, reply?: string): AcpmuxRow => {
+const done = (
+  name: string,
+  index: number,
+  failed = false,
+  subsession = false,
+  reply?: string,
+  report?: string,
+): AcpmuxRow => {
   const agent: Subagent = {
     id: subsession ? `${CHILD_ID}/start-${index}` : `agent-done-${index}`,
     parent: null,
@@ -54,6 +84,7 @@ const done = (name: string, index: number, failed = false, subsession = false, r
     ...(failed && { error: ERROR }),
     startedAt: minutesAgo(12),
     endedAt: minutesAgo(10.6),
+    ...(report && !failed && { result: report }),
   };
   return {
     id: `done-${index}`,
@@ -75,9 +106,23 @@ export default componentEntry<Props>({
   covers: [
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx#SubagentDoneLine",
     "agent-session/acpmux/conversation/ReactionMark.tsx#ReactionReply",
+    "agent-session/acpmux/subagents/doneReport.experiment.ts",
   ],
+  experiment: {
+    definition: doneReportLook,
+    // Only the disclosure arm has the chevron to click; the other arms show their resting state.
+    script: [
+      {
+        name: "Open the report",
+        run: async (ctx) => {
+          if (ctx.document.querySelector(".cv-subagent-done__disclose"))
+            await ctx.click({ selector: ".cv-subagent-done__disclose" });
+        },
+      },
+    ],
+  },
   load: async () => {
-    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { SubagentDoneLine, DoneReportLookContext } = await import("./SubagentDoneLine");
     const { SubagentNavContext } = await import("./SubagentGroup");
     const { SubsessionContext, SubsessionStore } = await import("./subsessions");
     // The sub-session's own chat, titled, as the session list has it.
@@ -95,23 +140,44 @@ export default componentEntry<Props>({
       } as unknown as import("../sessionList").AcpmuxSessionEntry,
     ]);
     const subsessions = { store, open: () => undefined };
-    return function GallerySubagentDone({ names, look = "fill", pane, failed, subsession, reply, replyLook }: Props) {
+    return function GallerySubagentDone({
+      names,
+      look = "fill",
+      pane,
+      failed,
+      subsession,
+      reply,
+      replyLook,
+      report,
+      arm,
+    }: Props) {
       return (
         <SubsessionContext.Provider value={subsessions}>
           <SubagentNavContext.Provider value={() => undefined}>
-            <main
-              className="acpmux-shell subagent-done-gallery"
-              data-subagent-done-gallery
-              data-look={look}
-              data-reply-look={replyLook}
-              style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
-            >
-              {names.map((name, index) => (
-                <section key={index} className="acpmux-row">
-                  <SubagentDoneLine row={done(name, index, failed, subsession, index === 0 ? reply : undefined)} />
-                </section>
-              ))}
-            </main>
+            <DoneReportLookContext.Provider value={arm}>
+              <main
+                className="acpmux-shell subagent-done-gallery"
+                data-subagent-done-gallery
+                data-look={look}
+                data-reply-look={replyLook}
+                style={{ padding: "16px", flexDirection: "column", gap: "0", ...(pane ? { width: `${pane}px` } : {}) }}
+              >
+                {names.map((name, index) => (
+                  <section key={index} className="acpmux-row">
+                    <SubagentDoneLine
+                      row={done(
+                        name,
+                        index,
+                        failed,
+                        subsession,
+                        index === 0 ? reply : undefined,
+                        index === 0 ? report : undefined,
+                      )}
+                    />
+                  </section>
+                ))}
+              </main>
+            </DoneReportLookContext.Provider>
           </SubagentNavContext.Provider>
         </SubsessionContext.Provider>
       );
@@ -168,6 +234,32 @@ export default componentEntry<Props>({
     "reply-before": {
       note: "Before (cmux#33283): 4px over and 6px under the reply, which the row's estimate never counted.",
       props: { names: [SHORT, "Push relay"], reply: REPLY, replyLook: "before" },
+    },
+    "report-collapsed": {
+      note: "A finished agent with a multi-paragraph report, collapsed: the chevron right after the words opens it; the line opens the agent's view.",
+      height: 120,
+      props: { names: ["Fix defaults-snapshot drift"], report: REPORT, arm: "disclosure" },
+    },
+    "report-open": {
+      note: "The same line, its report opened under it in the transcript's Markdown, capped at 240px and scrolling past it.",
+      height: 360,
+      props: { names: ["Fix defaults-snapshot drift"], report: REPORT, arm: "disclosure" },
+      play: openReport,
+    },
+    "arm-disclosure": {
+      note: "Arm disclosure (the pick): a chevron after the words opens the report; a line with no report keeps its plain mark.",
+      height: 140,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "disclosure" },
+    },
+    "arm-preview": {
+      note: "Arm preview: the report's first two lines always under the line, with Show more.",
+      height: 220,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "preview" },
+    },
+    "arm-view": {
+      note: "Arm view (before): the line only opens the agent's view; the report is there.",
+      height: 120,
+      props: { names: ["Fix defaults-snapshot drift", SHORT], report: REPORT, arm: "view" },
     },
   },
 });
