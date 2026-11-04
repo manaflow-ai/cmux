@@ -227,14 +227,21 @@ pub(crate) struct PortOrder(Arc<PortShared>);
 
 impl PortOrder {
     /// Queues the viewer-size frame `kind` (`ViewerSize`, `ReleaseViewer`) behind the frames the port holds and
-    /// returns true; false when the port holds none (or closed, or waits for a reconnect): the caller writes it
-    /// directly then, as no frame of the port is ahead of it. Nothing waits, so a size sent on a key's turn under
-    /// the sizing lock never waits for the port (#35082 review 1, item 4). A newer size replaces a queued one that
-    /// is still the last frame (nothing between them), so sizes cannot pile up behind a stalled port.
+    /// returns true; false when the port holds none or closed: the caller writes it directly then, as no frame of the
+    /// port is ahead of it. Nothing waits, so a size sent on a key's turn under the sizing lock never waits for the
+    /// port (#35082 review 1, item 4). A newer size replaces a queued one that is still the last frame (nothing
+    /// between them), so sizes cannot pile up behind a stalled port.
+    ///
+    /// It queues while the writer waits for a reconnect too (#35375 review): the port's frames, a size queued before
+    /// the loss among them, go to the new connection after the install, so a size written directly instead would go
+    /// to the lost connection and the stale queued one would be the new host's last. Queued, the newest size (or
+    /// release) is the last size frame the new host reads. The order barrier skips during that wait because its
+    /// callers hold the runtime lock the install needs; this never waits, so that reason does not apply.
     pub(crate) fn enqueue_after_pending(&self, kind: MessageKind, bytes: &[u8]) -> bool {
         let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
-        // Frames pending means the writer runs: it took a frame it has not finished, or one is queued.
-        if state.closed || state.reconnecting || state.finished >= state.accepted {
+        // Frames pending means the writer runs: it took a frame it has not finished (it may wait for a reconnect),
+        // or one is queued.
+        if state.closed || state.finished >= state.accepted {
             return false;
         }
         if let Some(last) = state.frames.back_mut().filter(|frame| frame.control) {

@@ -1281,6 +1281,85 @@ fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
     );
 }
 
+/// A viewer size of 97x31 queued on the input port behind a key its writer took, and then that writer waiting for a
+/// reconnect (the route it writes on is dead).
+#[cfg(unix)]
+fn a_size_queued_then_a_reconnect_wait(surface: &Surface, pty: &PtySurface) {
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    surface.resize(97, 31).expect("the first viewer size was sent");
+    assert_eq!(
+        pty.input_port.queued_frames_for_test(),
+        1,
+        "the first viewer size waits on the port behind the key"
+    );
+    pty.input_route.store(Some(Arc::new(dead_host_route())));
+    drop(resume);
+    wait_until("the port's writer waits for a reconnect", || {
+        pty.input_port.reconnecting_for_test()
+    });
+}
+
+/// The size frames `host` reads until it reads nothing for 500 ms: a `ViewerSize` as its columns and rows, a
+/// `ReleaseViewer` as `None`.
+#[cfg(unix)]
+fn size_frames_until_quiet(host: &mut std::os::unix::net::UnixStream) -> Vec<Option<(u16, u16)>> {
+    frames_until_quiet(host, Duration::from_millis(500))
+        .into_iter()
+        .filter_map(|frame| match frame.kind {
+            MessageKind::ViewerSize => {
+                let [cols_low, cols_high, rows_low, rows_high]: [u8; 4] =
+                    frame.payload.as_slice().try_into().expect("a viewer size is 4 bytes");
+                Some(Some((
+                    u16::from_le_bytes([cols_low, cols_high]),
+                    u16::from_le_bytes([rows_low, rows_high]),
+                )))
+            }
+            MessageKind::ReleaseViewer => Some(None),
+            _ => None,
+        })
+        .collect()
+}
+
+/// R-DAEMON-STATE S1.6c (#35375 review): a viewer size sent while the input port waits for a reconnect goes on the
+/// port too, in place of the size it queued before the loss, so the new connection's last size is the newest. Written
+/// directly, it went to the lost connection, and the stale queued size reached the new host after the install: the
+/// host kept 97x31 while the daemon's lease said 100x30, and a later send of 100x30 wrote nothing.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_sent_during_a_reconnect_wait_is_the_new_hosts_last_size() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-size-reconnect", true);
+    let pty = surface.as_pty().expect("a terminal");
+    a_size_queued_then_a_reconnect_wait(&surface, pty);
+    surface.resize(100, 30).expect("the newer viewer size was sent");
+    let mut replacement_host = install_replacement(pty);
+    let sizes = size_frames_until_quiet(&mut replacement_host);
+    assert_eq!(
+        sizes.last(),
+        Some(&Some((100, 30))),
+        "the new host's last viewer size is not the newest lease: {sizes:?}"
+    );
+}
+
+/// The release form of the case above: a release during the reconnect wait must be the new host's last size frame,
+/// or the host keeps a lease the daemon released (and a later release writes nothing).
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_release_during_a_reconnect_wait_is_the_new_hosts_last_size_frame() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-release-reconnect", true);
+    let pty = surface.as_pty().expect("a terminal");
+    a_size_queued_then_a_reconnect_wait(&surface, pty);
+    surface.release_viewer_size().expect("the release was sent");
+    let mut replacement_host = install_replacement(pty);
+    let sizes = size_frames_until_quiet(&mut replacement_host);
+    assert_eq!(
+        sizes.last(),
+        Some(&None),
+        "the new host's last size frame is not the release: {sizes:?}"
+    );
+}
+
 /// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 3): a write whose frame the port's writer took and then lost (the
 /// writer panicked during its write) may have reached the host, so its error says so, as a timeout during the write
 /// does; the creating-input flush must not give those bytes back.

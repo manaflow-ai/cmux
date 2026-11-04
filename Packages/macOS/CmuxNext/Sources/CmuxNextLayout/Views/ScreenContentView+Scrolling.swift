@@ -19,7 +19,11 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        defer { leadIfPending() }
+        // The camera this change sets decides which of its closing panes show (FRAME OWNER S3d), before its first frame.
+        defer {
+            settleClosing()
+            leadIfPending()
+        }
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
