@@ -54,7 +54,8 @@ test("labels each effective part and token total, expanding exact text", async (
   await renderViewer(container);
   expect(container.querySelector(".acpmux-context-viewer__heading")?.textContent).toContain("12 tokens");
   expect(container.querySelectorAll("[data-part-id]")).toHaveLength(2);
-  expect(container.textContent).toContain("Claude Code · 7 tokens");
+  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__source')?.textContent).toBe("Claude Code");
+  expect(container.querySelector('[data-part-id="base"] .acpmux-context-part__tokens')?.textContent).toBe("7 tokens");
   expect(container.textContent).not.toContain("Read first and work concurrently.");
   await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="base"] button')!.click());
   expect(container.textContent).toContain("Read first and work concurrently.");
@@ -64,7 +65,7 @@ test("labels each effective part and token total, expanding exact text", async (
 test("saves an editable cmux part with the selected project scope", async () => {
   const container = installDom();
   const saved: { id: string; text: string; scope: ContextOverrideScope }[] = [];
-  await renderViewer(container, (part, text, scope) => saved.push({ id: part.id, text, scope }));
+  await renderViewer(container, (part, text, scope) => { saved.push({ id: part.id, text, scope }); });
   await act(async () => container.querySelector<HTMLButtonElement>('[data-part-id="cmux"] button')!.click());
   const editor = container.querySelector<HTMLTextAreaElement>('[data-part-id="cmux"] textarea')!;
   await act(async () => {
@@ -80,4 +81,3 @@ test("saves an editable cmux part with the selected project scope", async () => 
   expect(saved).toEqual([{ id: "cmux", text: "Prefer concurrent reads.", scope: "project" }]);
   expect(container.textContent).toContain("Saved for the next session");
 });
-

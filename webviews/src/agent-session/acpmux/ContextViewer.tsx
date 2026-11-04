@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import "./contextViewer.css";
 
 /** A single component of the effective harness context.
@@ -48,7 +48,7 @@ function PartRow({ part, onSaveOverride, onResetOverride }: Pick<ContextViewerPr
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string>();
   const dirty = draft !== part.text;
-  const detailsId = `context-part-${part.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const detailsId = useId();
 
   const save = async () => {
     if (!onSaveOverride || !dirty || saving) return;
@@ -162,10 +162,9 @@ export function ContextViewer({
       {!loading && !error && parts.length === 0 && <p className="acpmux-context-viewer__state">No context was sent.</p>}
       {!loading && !error && parts.length > 0 && (
         <div className="acpmux-context-viewer__parts">
-          {parts.map((part) => <PartRow key={part.id} part={part} onSaveOverride={onSaveOverride} onResetOverride={onResetOverride} />)}
+          {parts.map((part) => <PartRow key={`${sessionId ?? "context"}:${part.id}`} part={part} onSaveOverride={onSaveOverride} onResetOverride={onResetOverride} />)}
         </div>
       )}
     </section>
   );
 }
-
