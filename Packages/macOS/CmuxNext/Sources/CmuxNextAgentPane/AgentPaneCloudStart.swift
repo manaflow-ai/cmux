@@ -80,7 +80,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// The git folders `cmux link sync push` copies with the working copy at `root` (its objects and
     /// refs): `root/.git` when it is a folder, else the folder a `.git` file names (`gitdir: X`, a
     /// linked worktree or `--separate-git-dir`), plus the common folder that one's `commondir` names.
-    /// Each may lie outside `root`, so the send checks them against the pane's roots too. Empty
+    /// Each may lie outside `root`, so the send checks each the way it checks the folder. Empty
     /// outside git. Reads the disk.
     public nonisolated static func gitFolders(of root: String) -> [String] {
         let dotGit = (root as NSString).appendingPathComponent(".git")
@@ -192,7 +192,8 @@ struct AgentPaneHandOff {
     /// an attachment Cloud can't take, a pane that can't start one, the send line or another hand-off
     /// still out (`held`), and the tab's one Sandboxed send (`AgentPaneSandboxRuns.refusal`). The page
     /// keeps the same list (webviews cloudStartProgress.ts `REFUSED_HERE`).
-    nonisolated static let refusedHereCodes: Set<String> = ["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent"]
+    nonisolated static let refusedHereCodes: Set<String> = ["cloud_attachments", "unsupported", "unavailable_now", "sandbox_busy", "sandbox_spent",
+                                                             "cloud_folder_missing", "cloud_folder_home", "cloud_folder_secret"]
 
     /// The reply's code when this pane refused the start itself; nil for a success or the App's own failure.
     nonisolated static func refusedHere(_ reply: [String: Any]) -> String? {
@@ -217,18 +218,22 @@ struct AgentPaneHandOff {
         start.uploadRoot = nil
         if let cwd = start.cwd {
             let home = model.transport.homeFolder
-            guard let folder = await Self.copyableFolder(cwd, home: home) else {
-                return AgentPaneModel.transportFailure(.pathOutsideRoots)
+            let folder: String
+            switch await Self.copyableFolder(cwd, home: home) {
+            case .success(let checked): folder = checked
+            case .failure(let refusal): return refusal.reply
             }
             let root = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.uploadRoot(of: folder) }.value
             if root != folder {
-                let checked = await Self.copyableFolder(root, home: home)
-                guard checked == root else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+                switch await Self.copyableFolder(root, home: home) {
+                case .success(let checked) where checked == root: break
+                case .success: return AgentPaneCloudFolderRefusal.missing.reply
+                case .failure(let refusal): return refusal.reply
+                }
             }
             let gitFolders = await Task.detached(priority: .userInitiated) { AgentPaneCloudStart.gitFolders(of: root) }.value
             for gitFolder in gitFolders {
-                let checked = await Self.copyableFolder(gitFolder, home: home)
-                guard checked != nil else { return AgentPaneModel.transportFailure(.pathOutsideRoots) }
+                if case .failure(let refusal) = await Self.copyableFolder(gitFolder, home: home) { return refusal.reply }
             }
             start.cwd = folder
             start.uploadRoot = root
@@ -242,13 +247,18 @@ struct AgentPaneHandOff {
         }
     }
 
-    /// `path` canonical when it is a real folder that is not the home folder or above it; nil
-    /// otherwise. A Cloud start copies such a folder only on the Send's own gesture (`held`).
-    nonisolated static func copyableFolder(_ path: String, home: String?) async -> String? {
-        await Task.detached(priority: .userInitiated) { () -> String? in
-            guard let folder = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(folder) else { return nil }
-            guard !AgentHome.isHomeOrAbove(folder, home: home.flatMap(AcpmuxPathPolicy.canonical)) else { return nil }
-            return folder
+    /// `path` canonical when it is a real folder that is not the home folder or above it, and neither
+    /// is nor holds one of home's credential folders (``AgentPaneCloudFolderRefusal/secretFolders``);
+    /// the refusal otherwise. A Cloud start copies such a folder only on the Send's own gesture (`held`).
+    nonisolated static func copyableFolder(_ path: String, home: String?) async -> Result<String, AgentPaneCloudFolderRefusal> {
+        await Task.detached(priority: .userInitiated) { () -> Result<String, AgentPaneCloudFolderRefusal> in
+            guard let folder = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(folder) else { return .failure(.missing) }
+            let canonicalHome = home.map { AcpmuxPathPolicy.canonical($0) ?? ($0 as NSString).standardizingPath }
+            guard !AgentHome.isHomeOrAbove(folder, home: canonicalHome) else { return .failure(.homeOrAbove) }
+            if let canonicalHome, let secret = AgentPaneCloudFolderRefusal.secretFolder(of: folder, home: canonicalHome) {
+                return .failure(.secret("~/" + secret))
+            }
+            return .success(folder)
         }.value
     }
 
@@ -266,6 +276,46 @@ struct AgentPaneHandOff {
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
         return await body(replacements)
+    }
+}
+
+/// Why a Cloud start refused its folder on this Mac, before anything was copied: each has its own
+/// code, and the page its own words (webviews `cloudStartProgress.ts` `cloudRefusalText`).
+nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
+    /// Not a folder on this Mac (gone, or a file).
+    case missing
+    /// The home folder or a folder above it.
+    case homeOrAbove
+    /// A credential folder under home, or a folder that holds one: its `~/` spelling.
+    case secret(String)
+
+    /// Home's folders of keys and credentials, relative to home, that a Cloud copy never takes, nor a
+    /// folder holding one (`~/.config` holds gcloud's). cmux-tui's `link/access_cli.rs` `SECRET_FOLDERS`
+    /// keeps the like list for a shared folder's files. `Library` holds Keychains.
+    static let secretFolders = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library"]
+
+    /// The first of ``secretFolders`` that `folder` (canonical) is in or holds, by path components; nil
+    /// for none. Reads no disk: a credential folder need not exist to be refused.
+    static func secretFolder(of folder: String, home: String) -> String? {
+        secretFolders.first { relative in
+            // By case too: this Mac's disk does not tell `~/.SSH` from `~/.ssh`.
+            let secret = (home as NSString).appendingPathComponent(relative).lowercased(), folder = folder.lowercased()
+            return AcpmuxPathPolicy.contains(root: secret, path: folder) || AcpmuxPathPolicy.contains(root: folder, path: secret)
+        }
+    }
+
+    var code: String {
+        switch self {
+        case .missing: "cloud_folder_missing"
+        case .homeOrAbove: "cloud_folder_home"
+        case .secret: "cloud_folder_secret"
+        }
+    }
+
+    /// The reply: the secret's message is the folder's `~/` spelling, which the page's words name.
+    var reply: [String: Any] {
+        if case .secret(let folder) = self { return AgentPaneReply.failure(code: code, message: folder) }
+        return AgentPaneReply.failure(code: code, message: code)
     }
 }
 
