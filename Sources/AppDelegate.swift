@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+    private(set) lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel
@@ -14574,11 +14574,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.isNotificationsPopoverShown()
     }
 
-    /// The ids of the rows the open notifications popover numbered, in order.
-    func notificationsPopoverDrawnRowIds() -> [UUID] {
-        titlebarAccessoryController.notificationsPopoverRows.ids
-    }
-
     /// Forwards to `notificationNavigation` (the extracted
     /// `NotificationNavigationCoordinator`). The nil-store guard and the
     /// `#if DEBUG` UI-test recorder stay here because they read app-target state
@@ -16259,7 +16254,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Numeric shortcuts for visible workspace rows (9 = last visible row). Always consume a matching
         // digit so Ghostty's goto_tab fallback cannot create a new window for an out-of-bounds index.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
-            if openNotificationsPopoverRow(forDigit: digit) { return true }
+            if openNotificationsPopoverRow(forDigit: digit, event: event) { return true }
             if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG

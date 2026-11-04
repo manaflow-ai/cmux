@@ -1964,19 +1964,22 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
-    private let notificationsPopoverRows: NotificationsPopoverDrawnRows
+    /// The rows the shown popover numbered. Each opening gets its own, so a closing popover's
+    /// teardown can't clear the rows of the one that replaced it.
+    private var notificationsPopoverRows = NotificationsPopoverDrawnRows()
+    /// Handed to the popover's root so its `@LiveSetting`s read the user's values, not defaults.
+    private let settingsRuntime: SettingsRuntime?
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
     init(
         notificationStore: TerminalNotificationStore,
         settingsRuntime: SettingsRuntime?,
-        layoutModel: TitlebarControlsLayoutModel,
-        notificationsPopoverRows: NotificationsPopoverDrawnRows? = nil
+        layoutModel: TitlebarControlsLayoutModel
     ) {
         let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
-        self.notificationsPopoverRows = notificationsPopoverRows ?? NotificationsPopoverDrawnRows()
+        self.settingsRuntime = settingsRuntime
         self.layoutModel = layoutModel
         let prepareOriginatingAction: () -> AppDelegate.MainWindowContext? = { [weak containerView] in
             guard let appDelegate = AppDelegate.shared,
@@ -2262,11 +2265,13 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         let windowIdentifier = ObjectIdentifier(window)
+        let drawnRows = NotificationsPopoverDrawnRows()
+        notificationsPopoverRows = drawnRows
         // Recreate content view each time to avoid stale observers when popover is hidden
         let hostingController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: notificationStore,
-                drawnRows: notificationsPopoverRows,
+                drawnRows: drawnRows,
                 onDismiss: { [weak notificationsPopover] in
                     notificationsPopover?.performClose(nil)
                 },
@@ -2275,6 +2280,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .environment(\.settingsRuntime, settingsRuntime)
             .cmuxAccentColorEnvironment()
         )
         hostingController.view.wantsLayer = true
@@ -2296,6 +2302,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             let anchorRect = anchorView.convert(anchorView.bounds, to: anchorContentView)
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
+                drawnRows.anchorWindowNumber = anchorContentView.window?.windowNumber
                 notificationsPopover.show(relativeTo: anchorRect, of: anchorContentView, preferredEdge: .maxY)
                 postNotificationsPopoverVisibilityDidChange(
                     isShown: true,
@@ -2311,6 +2318,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             let anchorRect = anchorView.convert(anchorView.bounds, to: contentView)
             if !anchorRect.isEmpty {
                 notificationsPopover.animates = animated
+                drawnRows.anchorWindowNumber = window.windowNumber
                 notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
                 postNotificationsPopoverVisibilityDidChange(
                     isShown: true,
@@ -2325,11 +2333,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let bounds = contentView.bounds
         let anchorRect = NSRect(x: 12, y: bounds.maxY - 8, width: 1, height: 1)
         notificationsPopover.animates = animated
+        drawnRows.anchorWindowNumber = window.windowNumber
         notificationsPopover.show(relativeTo: anchorRect, of: contentView, preferredEdge: .maxY)
         postNotificationsPopoverVisibilityDidChange(
             isShown: true,
             source: notificationsPopover,
             windowNumber: window.windowNumber
+        )
+    }
+
+    /// The rows this controller's popover numbered, when it is shown over the window numbered
+    /// `windowNumber` (or that window is the popover's own); nil otherwise.
+    func shownNotificationsPopoverRowIds(forWindowNumber windowNumber: Int) -> [UUID]? {
+        notificationsPopoverRows.idsIfShown(
+            by: notificationsPopover,
+            forWindowNumber: windowNumber
         )
     }
 
@@ -2388,9 +2406,8 @@ final class UpdateTitlebarAccessoryController {
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
-    /// The rows the open notifications popover numbered, shared by every popover this
-    /// controller shows (one is up at a time).
-    let notificationsPopoverRows = NotificationsPopoverDrawnRows()
+    /// The rows the detached popover numbered; each controls controller keeps its own.
+    private var detachedNotificationsPopoverRows = NotificationsPopoverDrawnRows()
 
     init(
         updateLog: UpdateLogStore,
@@ -2596,8 +2613,7 @@ final class UpdateTitlebarAccessoryController {
             let controls = TitlebarControlsAccessoryViewController(
                 notificationStore: TerminalNotificationStore.shared,
                 settingsRuntime: settingsRuntime,
-                layoutModel: layoutModel,
-                notificationsPopoverRows: notificationsPopoverRows
+                layoutModel: layoutModel
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -2766,10 +2782,13 @@ final class UpdateTitlebarAccessoryController {
         popover.behavior = .semitransient
         popover.animates = animated
         popover.delegate = delegate
+        let drawnRows = NotificationsPopoverDrawnRows()
+        drawnRows.anchorWindowNumber = window.windowNumber
+        detachedNotificationsPopoverRows = drawnRows
         popover.contentViewController = NSHostingController(
             rootView: NotificationsPopoverView(
                 notificationStore: TerminalNotificationStore.shared,
-                drawnRows: notificationsPopoverRows,
+                drawnRows: drawnRows,
                 onDismiss: { [weak popover] in
                     popover?.performClose(nil)
                 },
@@ -2778,6 +2797,7 @@ final class UpdateTitlebarAccessoryController {
                     openPhoneForwardingSettings(in: NSApp.windows.first { ObjectIdentifier($0) == windowIdentifier })
                 }
             )
+            .environment(\.settingsRuntime, settingsRuntime)
             .cmuxAccentColorEnvironment()
         )
 
@@ -2794,6 +2814,21 @@ final class UpdateTitlebarAccessoryController {
             source: popover,
             windowNumber: window.windowNumber
         )
+    }
+
+    /// The rows the notifications popover shown over the window numbered `windowNumber`
+    /// numbered, in order, or nil when no popover is shown there.
+    func shownNotificationsPopoverRowIds(forWindowNumber windowNumber: Int) -> [UUID]? {
+        if let popover = detachedNotificationsPopover,
+           let ids = detachedNotificationsPopoverRows.idsIfShown(by: popover, forWindowNumber: windowNumber) {
+            return ids
+        }
+        for controller in controlsControllers.allObjects {
+            if let ids = controller.shownNotificationsPopoverRowIds(forWindowNumber: windowNumber) {
+                return ids
+            }
+        }
+        return nil
     }
 
     func isNotificationsPopoverShown() -> Bool {

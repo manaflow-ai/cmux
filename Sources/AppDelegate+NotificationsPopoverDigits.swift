@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNotifications
 import Foundation
 
@@ -8,12 +9,17 @@ extension AppDelegate {
     /// still counts, so it does not fall through and switch workspaces behind the popover.
     ///
     /// The digit picks among the rows the popover drew, so it opens the notification it labelled
-    /// even when one has arrived or gone since, and does nothing if that one is gone.
-    func openNotificationsPopoverRow(forDigit digit: Int) -> Bool {
-        guard isNotificationsPopoverShown(), let notificationStore else { return false }
+    /// even when one has arrived or gone since, and does nothing if that one is gone. Only the
+    /// popover over the event's window takes it; another window's digits switch its workspaces.
+    func openNotificationsPopoverRow(forDigit digit: Int, event: NSEvent) -> Bool {
+        guard let window = event.window ?? NSApp.keyWindow,
+              let displayed = titlebarAccessoryController.shownNotificationsPopoverRowIds(
+                  forWindowNumber: window.windowNumber
+              ),
+              let notificationStore else { return false }
         if let notification = NotificationListShortcutDigit.item(
             forDigit: digit,
-            displayed: notificationsPopoverDrawnRowIds(),
+            displayed: displayed,
             current: notificationStore.notifications,
             id: \.id
         ) {

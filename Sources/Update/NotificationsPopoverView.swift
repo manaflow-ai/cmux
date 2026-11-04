@@ -15,6 +15,27 @@ import SwiftUI
 @MainActor
 final class NotificationsPopoverDrawnRows {
     var ids: [UUID] = []
+    /// The number of the window the popover hangs from. A digit pressed in another window
+    /// belongs to that window's workspaces, not to this popover.
+    var anchorWindowNumber: Int?
+
+    /// ``ids`` when `popover` is shown over the window numbered `windowNumber`, or that window
+    /// is the popover's own; nil otherwise.
+    func idsIfShown(by popover: NSPopover, forWindowNumber windowNumber: Int) -> [UUID]? {
+        ids(
+            forWindowNumber: windowNumber,
+            isShown: popover.isShown,
+            popoverWindowNumber: popover.contentViewController?.view.window?.windowNumber
+        )
+    }
+
+    /// ``ids`` when a shown popover belongs to the window numbered `windowNumber`: the one it
+    /// hangs from, or its own; nil otherwise.
+    func ids(forWindowNumber windowNumber: Int, isShown: Bool, popoverWindowNumber: Int?) -> [UUID]? {
+        guard isShown else { return nil }
+        guard windowNumber == anchorWindowNumber || windowNumber == popoverWindowNumber else { return nil }
+        return ids
+    }
 }
 
 struct NotificationsPopoverView: View {
@@ -59,7 +80,8 @@ struct NotificationsPopoverView: View {
         }
         .onAppear {
             refreshWorkspaceTitles()
-            rowShortcutHintMonitor.setHostWindow(NSApp.keyWindow)
+            let anchorWindow = drawnRows.anchorWindowNumber.flatMap { NSApp.window(withWindowNumber: $0) }
+            rowShortcutHintMonitor.setHostWindow(anchorWindow ?? NSApp.keyWindow)
             if showModifierHoldHints { rowShortcutHintMonitor.start() }
         }
         .onDisappear {
