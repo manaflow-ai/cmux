@@ -47,6 +47,52 @@ Flags: `--case <ids>`, `--cases <files>`, `--samples <n>` (default 2),
 `--concurrency <n>` (default 4), `--max-steps <n>` (20), `--effort <level>`,
 `--cli <cmux binary>` (default: cmux NIGHTLY's), `--baseline <results.jsonl>`.
 
+### Prompt-guidance A/B
+
+Use the same fixed cases, model, surface, samples and catalog for both arms. The
+`--prompt-arm baseline` arm leaves the current cmux instructions unchanged. The
+`--prompt-arm guidance` arm replaces the trailing duplicated asking rule in the
+synthetic MCP instructions with the compact rule and appends the canonical
+early/concurrent-work guidance. Real CLI runs append guidance through the Claude
+preset or Codex developer instruction field. Those runs leave the MCP rule from the
+selected product binary unchanged. Use the same binary in both arms.
+
+```sh
+bun tests/tool-evals/run.mjs --model claude-sonnet-5-5 --surface code \
+  --cases tests/tool-evals/cases/discovery.ndjson --samples 5 --prompt-arm baseline \
+  --out artifacts/tool-evals/guidance-baseline
+bun tests/tool-evals/run.mjs --model claude-sonnet-5-5 --surface code \
+  --cases tests/tool-evals/cases/discovery.ndjson --samples 5 --prompt-arm guidance \
+  --out artifacts/tool-evals/guidance-candidate
+```
+
+Each row records `tool_calls`, `tool_turns`, `parallel_tool_turns`,
+`parallel_share`, `first_read_ms`, success, wall seconds and input/output/cache
+tokens. A tool turn is one model response containing one or more calls; a parallel
+turn has at least two calls in that response. Codex app-server groups overlapping
+`item/started` tool events into the same turn. Report paired medians and success;
+do not infer a speedup from a single arm or from historical runs.
+
+For early reads and background work without an app build, run the standalone
+captured-Claude harness against fixed synthetic repository fixtures:
+
+```sh
+cmux-ci test --setup webviews --artifact /tmp/prompt-behavior -- \
+  bun tests/tool-evals/prompt-behavior.mjs --samples 3
+```
+
+It alternates arm order for each paired task/sample. It uses the captured Claude
+Code system prompt and native Read/Bash schemas; the baseline contains the source
+ASKING_RULE, and the candidate contains the compact rule plus concurrency guidance.
+The three tasks cover independent config reads, cross-file contract comparison,
+and a test command with independent release-note reads. Results are deterministic
+fixtures with a 250ms read and 2s command delay; no generated shell runs. A task
+passes only when the model reads every named file, collects its test output, and
+reports the required facts. `manifest.json` records the prompts, hashes and estimate
+method; `results.jsonl`, per-sample transcripts and `summary.json` record measured
+model usage and behavior. Report this as a synthetic prompt-behavior eval, not as
+live app or Codex verification. The model endpoint must be reachable from the worker.
+
 `--overlay <file.json>` swaps text without a rebuild, for hill-climbing copy:
 `{ "instructions": "...", "exec": "...", "tools": { "pane_split": "..." } }`. It changes
 what the model is told up front (server instructions, the `cmux_exec` description, and
