@@ -57,6 +57,26 @@ struct CloudAppLinkRedialTests {
         #expect(!redial.lastEndRedialable, "a start's wait does not redial a revoke either")
     }
 
+    @Test func eachRedialReadsTheRecordFirst() async {
+        let redial = CloudAppLinkRedial(backoff: Self.fast)
+        var steps: [String] = []
+        let (done, finish) = AsyncStream.makeStream(of: Void.self)
+        #expect(redial.ended(Self.drop, read: { force in steps.append(force ? "forced read" : "read") }) {
+            steps.append("redial")
+            finish.yield()
+        })
+        for await _ in done { break }
+        #expect(steps == ["forced read", "redial"])
+    }
+
+    @Test func aMachineNotBoundYetIsRedialableAndOtherRefusalsAreNot() {
+        #expect(CloudLinkError.isRedialable(CloudLinkError.failed(code: "cloud.machine.not_bound", message: "still provisioning")))
+        #expect(CloudLinkError.isRedialable(CloudLinkError.failed(code: "cmux.cloud.not_bound", message: "")))
+        #expect(!CloudLinkError.isRedialable(CloudLinkError.failed(code: "auth.forbidden", message: "")))
+        #expect(!CloudLinkError.isRedialable(CloudLinkError.revoked(reason: "x")))
+        #expect(!CloudLinkError.isRedialable(CloudLinkError.helperNotRunning(reason: "")))
+    }
+
     @Test func aRedialsFailedConnectGoesOnButARevokeEndsIt() {
         let redial = CloudAppLinkRedial(backoff: Self.fast)
         #expect(redial.ended(Self.drop) {})

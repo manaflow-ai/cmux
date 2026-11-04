@@ -40,7 +40,8 @@ public struct CloudWait {
             redial()
             if await holds(within: min(backoff.next(), left), until: condition) { return true }
         }
-        return condition()
+        // The deadline passed or the wait was cancelled: a change racing either is not this wait's answer.
+        return false
     }
 
     /// Waits within `limit` for a link to come up: nil once `connected`, else `failure`, or `deadline`

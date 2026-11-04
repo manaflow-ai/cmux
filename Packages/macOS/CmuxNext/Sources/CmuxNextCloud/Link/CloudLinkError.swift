@@ -54,14 +54,19 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
         }
     }
 
-    /// An end a redial can help: the link dropped, or the machine's carrier was not up yet. A revoke or a
-    /// refusal is the server's answer, and a failed check this Mac's: dialing again changes neither.
+    /// An end a redial can help: the link dropped, the machine's carrier was not up yet, or the machine was not
+    /// bound yet (still provisioning, hq#7060). A revoke or another refusal is the server's answer, and a failed
+    /// check this Mac's: dialing again changes neither.
     public static func isRedialable(_ error: any Error) -> Bool {
         switch error as? CloudLinkError {
         case .disconnected?, .notUp?: true
+        case .failed(let code, _)?: notBoundCodes.contains(code)
         default: false
         }
     }
+
+    /// The machine has no bound host yet: it still provisions (the Cloud API's and the app server's spelling).
+    static let notBoundCodes: Set<String> = ["cloud.machine.not_bound", "cmux.cloud.not_bound"]
 
     /// The command that closes an ``openDirectory(path:parent:)``: the socket
     /// folder to owner-only, a parent to not writable by others.

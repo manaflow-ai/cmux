@@ -35,12 +35,15 @@ public final class CloudAppLinkRedial {
     public func up() { upSince = clock.now }
 
     /// The link ended with `error`: schedules `redial` after the next delay and returns true, or returns false when no
-    /// redial follows. Only a `live` machine's link (running, not removed) redials. An end a redial can help
+    /// redial follows. Only a `live` machine's link (running, not removed) redials, and `read` (a forced read of the
+    /// machine's record) runs before each: the idle auto-pause may have parked the machine behind the app, and a
+    /// connect to a parked machine would start it. An end a redial can help
     /// (``CloudLinkError/isRedialable(_:)``) starts the redials; once they started, any end but a revoke goes on with
     /// them (a redial's connect can fail while the machine still comes up). A revoke is the server's answer, never
     /// redialed. Past `tries` ends in a row none follows until a click or a healthy connection.
     @discardableResult
-    public func ended(_ error: any Error, live: Bool = true, redial: @escaping @MainActor () -> Void) -> Bool {
+    public func ended(_ error: any Error, live: Bool = true, read: (@MainActor (_ force: Bool) async -> Void)? = nil,
+                      redial: @escaping @MainActor () -> Void) -> Bool {
         if let upSince, upSince.duration(to: clock.now) >= healthy { startOver() }
         upSince = nil
         let revoked = if case CloudLinkError.revoked = error { true } else { false }
@@ -58,6 +61,8 @@ public final class CloudAppLinkRedial {
         pending = Task { [weak self] in
             // wakeup-allow: one backoff delay before a bounded redial of a dropped link
             try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            await read?(true)
             guard !Task.isCancelled else { return }
             self?.pending = nil
             redial()

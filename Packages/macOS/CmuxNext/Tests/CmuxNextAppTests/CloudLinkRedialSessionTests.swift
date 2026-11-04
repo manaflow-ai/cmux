@@ -58,6 +58,27 @@ struct CloudLinkRedialSessionTests {
         #expect(dials.refused == 1, "a revoked link was dialed \(dials.refused) times")
     }
 
+    /// The idle auto-pause parked the machine behind the app, and its link dropped while the app's record still read
+    /// running: the background redial reads the record first and never dials, so it never starts the parked machine.
+    @Test func aDropsRedialReadsTheRecordFirstAndNeverStartsAParkedMachine() async {
+        let dials = Dials()
+        let session = Self.session(LateReceiverResolver(refusing: .max, dials: dials))
+        defer { session.disconnect() }
+        var reads = 0
+        session.refresher = { [weak session] _ in
+            reads += 1
+            guard let session else { return }
+            var parked = session.machine
+            parked.status = .paused
+            parked.pauseReason = .idle
+            session.applyRecord(parked)
+        }
+        session.connect()
+        #expect(!(await CloudWait.holds(within: .seconds(4)) { dials.refused > 1 }), "a parked machine was dialed again")
+        #expect(reads >= 1)
+        #expect(session.machine.status == .paused)
+    }
+
     /// A paused machine's ended link is never dialed again on its own: only a click starts a paused machine.
     @Test func aPausedMachineIsNotDialedAgain() async {
         let dials = Dials()

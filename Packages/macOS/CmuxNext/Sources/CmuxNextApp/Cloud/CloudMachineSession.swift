@@ -374,7 +374,8 @@ final class CloudMachineSession {
         linkEnded = message
         linkDropped = CloudLinkError.isDrop(error)
         linkPhase = .failed(message)
-        dropRedial.ended(error, live: !disconnected && machine.status == .running) { [weak self] in self?.redialIfEnded() }
+        dropRedial.ended(error, live: !disconnected && machine.status == .running, read: refresher) { [weak self] in // as a script: never starts a parked machine
+            if self?.linkEnded != nil, self?.machine.status == .running { self?.connect() } }
         guard let refresher else { return }
         linkEndRead.ended(dropped: appLink != nil && linkDropped, paused: machine.status == .paused, connects: connects,
                           connectsNow: { [weak self] in self?.connects }, read: refresher)
@@ -495,14 +496,12 @@ final class CloudMachineSession {
             legacyLinkFailure = nil
             if machine.status.isLive { retryNow() }
         }
-        return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: redialIfEnded) { [daemon] in
+        return await CloudWait.holds(within: limit, redialing: CloudWait.startRedial, redial: {
+            let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
+            if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
+        }) { [daemon] in
             self.resumeFailure != nil || self.legacyLinkFailure?.definitive == true || (daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil)
         }
-    }
-
-    private func redialIfEnded() {
-        let appEnd = appLink != nil && linkEnded != nil && dropRedial.lastEndRedialable && machine.status == .running
-        if appEnd || (link != nil && legacyLinkFailure != nil && machine.status.isLive) { retryNow() }
     }
 
     /// Retry on the record as it stands (the caller just read it): resume a paused legacy machine,
@@ -548,6 +547,7 @@ final class CloudMachineSession {
 
     func disconnect() {
         disconnected = true
+        dropRedial.cancel()
         linkPhase = .idle
         connectHop?.cancel()
         daemon.shutdownConnection()
