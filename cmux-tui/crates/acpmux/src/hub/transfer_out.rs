@@ -583,7 +583,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
         let current = require_valid_epoch(session)?;
-        check_epoch(current, epoch)?;
+        require_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         // Committed already (by the source's own watch, or a retried commit). A stopped chat
         // is closed before its move, so the mark is where it went, not its status.
@@ -653,7 +653,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let dir = transfers_dir().join(transfer_id);
         let current = require_valid_epoch(session)?;
-        check_epoch(current, epoch)?;
+        require_epoch(current, epoch)?;
         Self::moving_as(session, transfer_id)?;
         if session.meta().moved_to.is_some() {
             return Err(transfer_error(

@@ -69,14 +69,22 @@ impl Hub {
     /// Epochs live in transfer events rather than session metadata so old stores remain readable.
     pub(super) fn restore_ownership_epoch(&self, session: &Session) -> anyhow::Result<()> {
         let mut epoch = 0;
+        let mut malformed = false;
         self.store.scan_kinds_strict(
             &session.id,
             &["transfer_out", "transferred", "transferred_in", "transfer_aborted"],
             &mut |record| {
-                epoch = epoch.max(record.msg.get("epoch").and_then(Value::as_u64).unwrap_or(0));
+                if let Some(value) = record.msg.get("epoch") {
+                    if let Some(value) = value.as_u64() {
+                        epoch = epoch.max(value);
+                    } else {
+                        malformed = true;
+                    }
+                }
                 true
             },
         )?;
+        anyhow::ensure!(!malformed, "transfer event contains a malformed ownership epoch");
         session.restore_ownership_epoch(epoch);
         Ok(())
     }

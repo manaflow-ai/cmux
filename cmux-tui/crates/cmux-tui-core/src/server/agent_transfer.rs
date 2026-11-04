@@ -906,10 +906,14 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         }
         params
     };
+    let manifest_epoch = |manifest: &Value| -> Result<u64, Failure> {
+        let Some(value) = manifest.get("epoch") else { return Ok(0) };
+        value.as_u64().ok_or(Refusal::BadRequest.into())
+    };
     let transfers = &mux.agent_transfers;
     match prepared {
         Prepared::Receive { manifest, guard, cwd, moved } => {
-            let epoch = manifest.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+            let epoch = manifest_epoch(&manifest)?;
             let params = json!({"manifest": manifest, "guard": guard});
             let answer = call("_acpmux/transfer_receive", params, CALL_TIMEOUT)?;
             let receive_id = answer.field("receiveId").as_str().filter(|id| is_plain_id(id));
@@ -967,7 +971,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 .filter(|id| is_plain_id(id))
                 .ok_or(Refusal::Refused)?
                 .to_owned();
-            let epoch = manifest.get("epoch").and_then(Value::as_u64).unwrap_or(0);
+            let epoch = manifest_epoch(&manifest)?;
             let files = match scrub_bundle(&call, &transfer_id, epoch, &mut manifest) {
                 Ok(files) => files,
                 Err(failure) => {
