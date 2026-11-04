@@ -126,7 +126,7 @@ mod tests {
     #[test]
     fn an_empty_line_is_a_line() {
         let mut splitter = LineSplitter::default();
-        assert_eq!(splitter.push(b"\n\n"), vec![Vec::new(), Vec::new()]);
+        assert_eq!(splitter.push(b"\n\n"), vec![Vec::<u8>::new(), Vec::new()]);
     }
 
     #[test]
