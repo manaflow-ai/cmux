@@ -618,6 +618,18 @@ while True:
                                                ("sidecar", "3599", False))}
             with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
                 f.write(json.dumps(pids))
+        # FAKE_CLAUDE_RUN_USER_MCP=<file>: the harness starts each stdio server its user config
+        # ($CLAUDE_CONFIG_DIR/.claude.json mcpServers) names, as Claude Code does, and writes their
+        # pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_RUN_USER_MCP"):
+            import subprocess
+            with open(os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".claude.json")) as f:
+                servers = json.load(f).get("mcpServers") or {}
+            pids = [subprocess.Popen([s["command"], *s.get("args", [])], stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for s in servers.values()]
+            with open(os.environ["FAKE_CLAUDE_RUN_USER_MCP"], "w") as f:
+                f.write("".join(f"{pid}\n" for pid in pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
@@ -1140,6 +1152,14 @@ while True:
                 for word in ("one ", "two ", "three "):
                     send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                           "delta": {"type": "text_delta", "text": req + " " + word}}})
+        # "api-retry-probe": the model gateway fails twice (Claude Code's system/api_retry
+        # lines) before the request goes through and the reply streams.
+        if said.strip() == "api-retry-probe":
+            for attempt in (1, 2):
+                send({"type": "system", "subtype": "api_retry", "attempt": attempt, "max_retries": 10,
+                      "retry_delay_ms": 10, "error_status": 503, "error": "server_error"})
+            send({"type": "stream_event", "event": {"type": "message_start",
+                  "message": {"id": "msg_retry", "model": "fake"}}})
         # "todo-probe": the turn writes its todo list with Claude Code's TodoWrite tool.
         if said.strip() == "todo-probe":
             send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_todo", "name": "TodoWrite",

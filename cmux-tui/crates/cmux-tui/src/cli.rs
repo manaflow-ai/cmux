@@ -1203,6 +1203,7 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        "workflow" => Cow::Borrowed(workflow::HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     });
     docs::append_scope_help(scope, text)

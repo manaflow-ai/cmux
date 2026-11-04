@@ -694,6 +694,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
+    // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
+    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
@@ -1285,7 +1287,7 @@ async fn take_over_holder(socket: &std::path::Path) {
         return;
     }
     tracing::info!(
-        pid = status["pid"].as_u64(),
+        pid = status.get("pid").and_then(serde_json::Value::as_u64),
         "another daemon of this home serves its socket; asking it to hand over"
     );
     let _ = tokio::time::timeout(

@@ -17,28 +17,11 @@ extension ScreenContentView {
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             // At rest (a user pan holds the camera, so hasMotion leaves it out): what a close retired goes now.
-            context.releaseRetired(of: screenID)
+            releaseClosing()
             return false
         }
-        var moving = false
-        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
-        // The panes and dividers are one motion: none settles on its own (an edge with a shorter
-        // travel would snap frames before the others and change the gap beside it); they all land
-        // in the frame the last one comes within a quarter point of rest.
-        for key in Array(paneFrames.keys) {
-            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            if paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                 alphaParameters: appear) == true { moving = true }
-        }
-        for key in Array(dividerFrames.keys) {
-            if dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) == true { moving = true }
-        }
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
-            for key in Array(paneFrames.keys) { paneFrames[key]?.snapGeometry() }
-            for key in Array(dividerFrames.keys) { dividerFrames[key]?.snapGeometry() }
-        } else {
-            moving = true
-        }
+        let frameSpring = policy.spring(motionState.frameSpring)
+        var moving = advancePaneAndDividerSprings(dt, policy: policy)
         // A close's camera shift (strip and rows) stays on the close spring until it rests, not only while
         // the panes move: closing the last column moves no pane, and a switch to the scroll spring
         // when the panes land changes the curve mid-motion (Lawrence 2026-10-20).
@@ -64,9 +47,40 @@ extension ScreenContentView {
         // resizes content live again unless another key press holds it.
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
-        if !moving { context.releaseRetired(of: screenID) }
+        if !moving { releaseClosing() }
         return moving
     }
+    /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
+    /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
+    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
+    /// True while any of them still moves.
+    func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
+        var moving = false
+        let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
+        // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
+        // `Dictionary.subscript._modify`, whose coroutine frame the runtime allocates on the heap, one per spring.
+        let panes = Array(paneFrames.keys), dividers = Array(dividerFrames.keys)
+        for key in panes {
+            guard var frame = paneFrames[key] else { continue }
+            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
+            if frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                      alphaParameters: appear) { moving = true }
+            paneFrames[key] = frame
+        }
+        for key in dividers {
+            guard var frame = dividerFrames[key] else { continue }
+            if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
+            dividerFrames[key] = frame
+        }
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+            for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
+            for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
+        } else {
+            moving = true
+        }
+        return moving
+    }
+
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
     /// each row column's, in the change that starts them, once `syncScroll` placed the camera: the
     /// frame that drops the closed pane already shows its neighbours covering some of its space,
@@ -77,11 +91,16 @@ extension ScreenContentView {
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
         for key in Array(paneFrames.keys) {
+            guard var frame = paneFrames[key] else { continue }
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
-            _ = paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
-                                                  alphaParameters: appear)
+            _ = frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token), alphaParameters: appear)
+            paneFrames[key] = frame
         }
-        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
+        for key in Array(dividerFrames.keys) {
+            guard var frame = dividerFrames[key] else { continue }
+            _ = frame.advanceUnsettled(dt, parameters: frameSpring)
+            dividerFrames[key] = frame
+        }
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
@@ -212,6 +231,10 @@ extension ScreenContentView {
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
+        // The panes a close took out, each with its own ground on what its neighbours have not covered (FRAME OWNER S3c).
+        let closing = presentClosingPanes(strip: strip, scale: scale)
+        clips += closing.hosts
+        if closing.changed { changed = true }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
         if zoomMotion.pane != zooming {
             ensureStacking()
