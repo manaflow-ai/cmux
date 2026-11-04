@@ -105,15 +105,14 @@ impl Dir {
         Ok(Some(out))
     }
 
-    /// Creates the new, empty file `name` in this folder for writing (`AlreadyExists` if taken).
-    pub(super) fn create(&self, name: &str) -> io::Result<File> {
+    /// Creates the new, empty file `name` in this folder for writing (`AlreadyExists` if taken),
+    /// with permission bits `mode` (less the umask).
+    pub(super) fn create(&self, name: &str, mode: libc::c_uint) -> io::Result<File> {
         let c = cstr(name.as_bytes())?;
         let flags =
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC;
         // SAFETY: a valid folder fd and a NUL-terminated name; the mode is a plain int.
-        let fd = check(unsafe {
-            libc::openat(self.0.as_raw_fd(), c.as_ptr(), flags, 0o666 as libc::c_uint)
-        })?;
+        let fd = check(unsafe { libc::openat(self.0.as_raw_fd(), c.as_ptr(), flags, mode) })?;
         // SAFETY: as in `adopt`.
         Ok(unsafe { File::from_raw_fd(fd) })
     }

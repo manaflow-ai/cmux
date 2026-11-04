@@ -810,3 +810,42 @@ fn the_flag_is_off_by_default_and_round_trips() {
     let off: crate::config::Config = serde_json::from_value(off).unwrap();
     assert!(!off.write_journal.enabled);
 }
+
+#[cfg(unix)]
+#[test]
+fn a_replacement_is_staged_no_more_readable_than_the_file_it_replaces() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture(&[("secret.txt", "one"), ("run.sh", "echo one")]);
+    let set = |n: &str, m: u32| {
+        std::fs::set_permissions(f.machine_root.join(n), std::fs::Permissions::from_mode(m))
+            .unwrap();
+    };
+    set("secret.txt", 0o600);
+    set("run.sh", 0o755);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "secret.txt", Some("two"), 1).unwrap());
+    journaled(write_text(&mut j, &f.replica, "run.sh", Some("echo two"), 2).unwrap());
+    let root = f.machine_root.clone();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    // The staged copy, with the agent's bytes already in it, before it takes the file's place.
+    let fs = DirMachineFs::new(&f.machine_root).with_hook(move |stage| {
+        if stage == "staged" {
+            for e in std::fs::read_dir(&root).unwrap() {
+                let e = e.unwrap();
+                let name = e.file_name().to_string_lossy().into_owned();
+                if name.starts_with(STAGING_PREFIX) {
+                    let mode = e.metadata().unwrap().permissions().mode() & 0o7777;
+                    log.lock().unwrap().push(mode);
+                }
+            }
+        }
+    });
+    let report = flush(&mut j, &fs).unwrap();
+    assert!(report.conflicts.is_empty(), "{report:?}");
+    assert_eq!(*seen.lock().unwrap(), vec![0o600, 0o755]);
+    let mode =
+        |n: &str| std::fs::metadata(f.machine_root.join(n)).unwrap().permissions().mode() & 0o7777;
+    assert_eq!((mode("secret.txt"), mode("run.sh")), (0o600, 0o755));
+    assert_eq!(machine_text(&f, "secret.txt").as_deref(), Some("two"));
+}

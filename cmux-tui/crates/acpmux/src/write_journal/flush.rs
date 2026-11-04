@@ -156,6 +156,14 @@ mod dir_impl {
         }
     }
 
+    /// Syncs every folder from the file's up to the root. An applied entry is cleared from the
+    /// journal next, so the folders on its way must survive a power loss too: a retry after a
+    /// flush that died between making a folder and syncing its parent opens that folder without
+    /// making it.
+    fn durable(chain: &[Dir]) -> io::Result<()> {
+        chain.iter().rev().try_for_each(Dir::sync)
+    }
+
     fn is(dir: &Dir, name: &str, expected: &Version) -> bool {
         // A link, a folder or an unreadable file there is never the expected version.
         matches!(dir.read(name), Ok(b) if Version::of(b.as_deref()) == *expected)
@@ -210,31 +218,42 @@ mod dir_impl {
             bytes: &[u8],
             expected: &Version,
         ) -> io::Result<Mutation> {
-            let Some((dir, name)) = self.folder(path, true)? else {
+            let Some((chain, name)) = self.walk(path, true)? else {
                 return Err(io::Error::other(format!("{path}: its folder could not be made")));
             };
+            let Some(dir) = chain.last() else {
+                return Err(io::Error::other(format!("{path}: no folder")));
+            };
             let tmp = staging(seq);
-            let mut file = dir.create(&tmp)?;
-            let staged = file.write_all(bytes).and_then(|()| file.sync_data());
+            let new = *expected == Version::Absent;
+            // A new file gets the default mode, the one it ends up with anyway. A replacement is
+            // staged owner-only and given the old file's mode (an executable script stays
+            // executable) before any bytes go in, so the staged copy is never readable by more
+            // people than the file it replaces.
+            let mut file = dir.create(&tmp, if new { 0o666 } else { 0o600 })?;
+            let staged = (|| {
+                if !new && let Some(mode) = dir.mode(&name)? {
+                    use std::os::unix::fs::PermissionsExt;
+                    file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+                }
+                file.write_all(bytes)?;
+                file.sync_all()
+            })();
             if let Err(e) = staged {
                 let _ = dir.unlink(&tmp);
                 return Err(e);
             }
+            self.at("staged");
             let ours = Version::of(Some(bytes));
-            if *expected == Version::Absent {
+            if new {
                 // A second name for the new file, never over one created in the meantime.
                 let linked = dir.link_noclobber(&tmp, &name);
                 dir.unlink(&tmp)?;
                 return match linked {
-                    Ok(()) => dir.sync().map(|()| Mutation::Applied),
+                    Ok(()) => durable(&chain).map(|()| Mutation::Applied),
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(Mutation::Changed),
                     Err(e) => Err(e),
                 };
-            }
-            // Keep the old file's permissions (an executable script stays executable).
-            if let Ok(Some(mode)) = dir.mode(&name) {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = file.set_permissions(std::fs::Permissions::from_mode(mode));
             }
             if let Err(e) = dir.exchange(&tmp, &name) {
                 dir.unlink(&tmp)?;
@@ -246,22 +265,23 @@ mod dir_impl {
             }
             self.at("swapped");
             // `tmp` now names what was there. Anything but the expected version goes back.
-            if !is(&dir, &tmp, expected) {
+            if !is(dir, &tmp, expected) {
                 dir.exchange(&tmp, &name)?;
-                settle(&dir, &tmp, &ours, &name, seq, path)?;
+                settle(dir, &tmp, &ours, &name, seq, path)?;
                 return Ok(Mutation::Changed);
             }
             dir.unlink(&tmp)?;
             // The entry is cleared from the journal after this returns: the swap must survive a
             // power loss first.
-            dir.sync()?;
+            durable(&chain)?;
             Ok(Mutation::Applied)
         }
 
         fn remove(&self, seq: u64, path: &str, expected: &Version) -> io::Result<Mutation> {
             let absent =
                 if *expected == Version::Absent { Mutation::Applied } else { Mutation::Changed };
-            let Some((dir, name)) = self.folder(path, false)? else { return Ok(absent) };
+            let Some((chain, name)) = self.walk(path, false)? else { return Ok(absent) };
+            let Some(dir) = chain.last() else { return Ok(absent) };
             let aside = aside(seq);
             match dir.rename_noreplace(&name, &aside) {
                 Ok(()) => {}
@@ -269,19 +289,19 @@ mod dir_impl {
                 Err(e) => return Err(e),
             }
             self.at("aside");
-            if !is(&dir, &aside, expected) {
+            if !is(dir, &aside, expected) {
                 match dir.rename_noreplace(&aside, &name) {
                     Ok(()) => dir.sync()?,
                     // Saved again in the meantime: both versions stay.
                     Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                        keep(&dir, &aside, &name, seq, path)?;
+                        keep(dir, &aside, &name, seq, path)?;
                     }
                     Err(e) => return Err(e),
                 }
                 return Ok(Mutation::Changed);
             }
             dir.unlink(&aside)?;
-            dir.sync()?;
+            durable(&chain)?;
             Ok(Mutation::Applied)
         }
 
@@ -335,7 +355,7 @@ mod dir_impl {
             {
                 f.sync_all()?;
             }
-            chain.iter().rev().try_for_each(Dir::sync)
+            durable(&chain)
         }
     }
 }
