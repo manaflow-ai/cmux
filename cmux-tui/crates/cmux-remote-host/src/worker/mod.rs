@@ -64,8 +64,6 @@ const ASK_TTL_SECONDS: u64 = 8 * 3600;
 const IDLE_TTL_SECONDS: u64 = 30 * 60;
 /// Upstream's longest session (bounded boxes set up once use it).
 const MAX_TTL_SECONDS: u64 = 24 * 3600;
-/// Red commit only: discovery off, so the new tests fail.
-const RED_STUB: bool = true;
 const OUTSIDE_MANIFEST: &str = "bounded_resource_outside_manifest";
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -294,7 +292,7 @@ impl TargetResolver for LiveResolver<'_> {
             .await
             .ok()
             .flatten();
-        if let Some(pid) = listed.filter(|_| !RED_STUB) {
+        if let Some(pid) = listed {
             return self.app_for_pid(pid).await;
         }
         let handle = self.worker.handle(self.session).await.ok()?;
@@ -583,9 +581,6 @@ impl Worker {
         arguments: &Value,
         targets: &[Target],
     ) -> Option<Result<Value, CallError>> {
-        if RED_STUB {
-            return None;
-        }
         if tool != "list_apps" && tool != "list_windows" {
             return None;
         }

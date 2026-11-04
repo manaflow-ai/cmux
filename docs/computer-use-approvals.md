@@ -75,6 +75,55 @@ force with `pending_reload` while the file differs.
   writes a new manifest (0600, private directory) and replaces the session
   handle between calls.
 
+## Discovery before approval
+
+The pinned driver classes `list_apps` and `list_windows` as private desktop
+observation (R2). An `ask` session's manifest has `desktop.display: false`, so
+upstream refuses both without a pid, and with the pid of an app outside the
+manifest (`bounded_resource_outside_manifest`). An agent could then never find
+a target and reach the question below. So the worker answers these calls
+itself, with metadata only (decision D21; trust note on cmux#13742):
+
+| Call | Under `ask`, and `bounded` outside the owner's apps | Otherwise |
+| --- | --- | --- |
+| `list_apps` with no target | the worker: each app with a window, `{pid, name, bundle_id \| executable, running}` | upstream |
+| `list_windows` with no `pid` | the worker: `{window_id, pid, app_name, bundle_id \| executable}` per window | upstream |
+| `list_windows {pid}` of an app this session may not use | the worker, that pid's windows only | upstream |
+| `list_windows {pid}` of an app this session may use, and every other tool | upstream, unchanged (titles included) | upstream |
+
+- No window title, icon, frame, position, screenshot or accessibility tree.
+  The result has upstream's shape (MCP `content` text plus
+  `structuredContent`), with `"titles": "hidden until you are allowed to use the app"`
+  and `"source": "cmux"`; the text tells the agent to call the tool it needs
+  with the app's pid, which asks the person.
+- Never-allowed apps (Rules: cmux, Cua, password managers, login and
+  security UI, system settings, terminals the owner did not allow) are left
+  out entirely. A `list_windows {pid}` of one is refused `target_refused`, as
+  any call on it.
+- Discovery never asks the person, never runs the driver, and never grants
+  anything: titles, pixels and input still need the per-app answer.
+- `bounded`: when the owner's manifest grants `resources.desktop.display:
+  true`, upstream answers discovery; "the owner's apps" are its
+  `resources.apps` plus this session's grants and the saved list. On macOS a
+  manifest that is not JSON leaves discovery to upstream.
+- `standard` and `unrestricted`: unchanged; upstream answers (the mode
+  permits display observation).
+- The worker also resolves a call's `window_id` through its own window list,
+  so a call that names only a window reaches the question for its app.
+
+How each OS is listed, reading no title:
+
+| OS | Windows | Apps |
+| --- | --- | --- |
+| macOS | `CGWindowListCopyWindowInfo`, layer 0, `kCGWindowOwnerPID` and `kCGWindowNumber` only (never `kCGWindowName`) | the window owners' `NSRunningApplication` with activation policy regular (no process list) |
+| Linux X11 | `_NET_CLIENT_LIST` on the root window, each window's `_NET_WM_PID` (else the X Resource extension's client pid); never `WM_NAME` / `_NET_WM_NAME` | the window owners, `/proc/<pid>/exe` |
+| Linux Wayland | none: a Wayland client cannot list other clients' windows; `list_windows` returns `windows: []` with `windows_unavailable` | this user's processes with `WAYLAND_DISPLAY` or `DISPLAY` in their environment, one per executable |
+| Windows | `EnumWindows`: visible, unowned, not `WS_EX_TOOLWINDOW`; `GetWindowThreadProcessId` (never `GetWindowText`) | the window owners, `QueryFullProcessImageNameW` |
+
+What an agent learns before any approval: which regular apps run and how many
+windows each has, not what is in them. The documented limit stands: an agent
+that runs arbitrary code as the same user can list processes itself.
+
 ## The approval question
 
 When a call targets an app outside the session's manifest, the worker

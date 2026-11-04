@@ -134,9 +134,6 @@ public final class ComputerUseSessions: AgentSessionProviding {
 
 /// One admitted connection's agent session.
 final class AgentSession: AgentSessionServing {
-    /// Red commit only: discovery off, so the new tests fail.
-    static let redStub = true
-
     /// One upstream handle, destroyed when the last call using it ends
     /// after it is replaced, or when the session closes.
     final class Handle: Sendable {
@@ -216,7 +213,7 @@ final class AgentSession: AgentSessionServing {
     /// bounded when the owner's manifest grants the display or cannot be
     /// read, and for `list_windows` of an app this session may use.
     private func discoveryCall(name: String, arguments: Data, targets: [CuaTargetIdentity]) -> DesktopDiscovery.Call? {
-        guard !Self.redStub, name == "list_apps" || name == "list_windows" else { return nil }
+        guard name == "list_apps" || name == "list_windows" else { return nil }
         let granted: (CuaTargetIdentity) -> Bool
         switch owner.configuration.mode {
         case .ask:
