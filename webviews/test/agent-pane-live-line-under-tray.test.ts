@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { ServerWebSocket } from "bun";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -267,6 +268,7 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
     events.splice(0, events.length, ...settled);
     Object.assign(session, { status: "ready", turn: null });
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await drawn(page).waitFor();
     const phases: Phase[] = [
@@ -326,7 +328,8 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
         await page.evaluate(() => {
           const misses: string[] = [];
           (window as unknown as { __misses: string[] }).__misses = misses;
-          const frame = () => {
+          // Every painted frame, from here to the reply.
+          window.cmuxAfterPaint(() => {
             const line = document.querySelector(".acpmux-row--below .cv-worked--live");
             const stack = document.querySelector(".acpmux-main > .acpmux-dock")?.getBoundingClientRect();
             const box = line?.getBoundingClientRect();
@@ -338,13 +341,12 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
                   ? `under the stack (${Math.round(box.bottom)} > ${Math.round(stack.top)})`
                   : undefined;
             if (miss && misses.at(-1) !== miss) misses.push(miss);
-            requestAnimationFrame(frame);
-          };
-          requestAnimationFrame(frame);
+          });
         });
       }
-      // Past the line's quiet hold (Thinking.tsx QUIET_MS) and a few frames.
-      await page.waitForTimeout(1500);
+      // The line must hold through the phase, past its quiet hold (Thinking.tsx QUIET_MS), with the
+      // per-frame sampler watching; no event marks "the phase has settled and stayed".
+      await page.waitForTimeout(1500); // fixed-wait: the line has to hold for a stretch, not reach a state
       const line = await liveLine(page);
       seen[name] = line;
       expect({ phase: name, present: line.present, quiet: "quiet" in line ? line.quiet : undefined }).toEqual({
