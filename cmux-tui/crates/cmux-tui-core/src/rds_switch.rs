@@ -8,19 +8,36 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Stage S1, the input lane: a connection's lines and the person's keys read the published facts of
 /// the session's connections and its routing tables, never through a shared lock.
-/// On by default (S1.7); `CMUX_TUI_RDS_INPUT=0` keeps the old path, the fallback for one nightly before S1.8 deletes
-/// it with this switch.
+/// On by default (S1.7); `CMUX_TUI_RDS_INPUT=0` (or `false`, `off`, `no`) keeps the old path, the fallback for one
+/// nightly before S1.8 deletes it with this switch.
 pub(crate) struct InputLaneSwitch(AtomicBool);
 
 impl InputLaneSwitch {
-    /// The switch as the daemon's environment sets it.
+    /// The switch as the daemon's environment sets it. The first one a process reads is logged, so a daemon's log
+    /// says which path its keys take.
     pub(crate) fn from_env() -> Self {
-        Self::from_value(std::env::var("CMUX_TUI_RDS_INPUT").ok().as_deref())
+        let value = std::env::var("CMUX_TUI_RDS_INPUT").ok();
+        let switch = Self::from_value(value.as_deref());
+        static LOGGED: std::sync::Once = std::sync::Once::new();
+        LOGGED.call_once(|| {
+            let state = if switch.on() { "on" } else { "off (the old path)" };
+            match &value {
+                Some(value) => {
+                    eprintln!("cmux-tui: input lane {state}, CMUX_TUI_RDS_INPUT={value:?}")
+                }
+                None => eprintln!("cmux-tui: input lane {state}, CMUX_TUI_RDS_INPUT unset"),
+            }
+        });
+        switch
     }
 
-    /// The switch for a value of `CMUX_TUI_RDS_INPUT` (`None`: unset): on unless the value is `0`.
+    /// The switch for a value of `CMUX_TUI_RDS_INPUT` (`None`: unset): on unless the value is `0`, `false`, `off` or
+    /// `no` (any case, spaces ignored).
     fn from_value(value: Option<&str>) -> Self {
-        Self(AtomicBool::new(value != Some("0")))
+        let off = value.map(str::trim).is_some_and(|value| {
+            ["0", "false", "off", "no"].iter().any(|off| value.eq_ignore_ascii_case(off))
+        });
+        Self(AtomicBool::new(!off))
     }
 
     /// Whether stage S1 is on for this mux.
