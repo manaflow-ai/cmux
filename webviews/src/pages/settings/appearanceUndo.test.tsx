@@ -213,6 +213,25 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
     expect(rows.get("appearance.backgroundBlur")?.value).toBe("glass");
   });
 
+  test("a slider moved while another step runs is the page's own: Restore puts it back", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.backgroundOpacity": 0.5 } },
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    // A long step (as Use Museum Art's download) still running when the person moves Opacity.
+    const art = page.store.trackAppearance(["appearance.background"], async () => {
+      await gate;
+      return page!.store.set("appearance.background", "daily");
+    });
+    await run(() => page!.store.set("appearance.backgroundOpacity", 0.7));
+    release();
+    await run(() => art);
+    await run(() => page!.store.restoreAppearanceOpened());
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.value).toBe(0.5);
+  });
+
   test("other parts of Appearance record their own steps through trackAppearance", async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await run(() =>
@@ -227,6 +246,24 @@ describe("Appearance's floating Undo, Redo and Reset", () => {
 
 describe("Appearance's presets", () => {
   const frosted = APPEARANCE_PRESETS.find((preset) => preset.id === "frosted")!;
+
+  test("a preset leaves a managed surface alone and stays undoable", async () => {
+    const sidebar = "appearance.surfaces.sidebar.opacity";
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: {
+        values: { [sidebar]: 0.2 },
+        managed: { [sidebar]: { value: 0.2, source: "profile", reason: "Set by your organization's profile" } },
+      },
+    });
+    await run(() => page!.store.set("appearance.background", "daily"));
+    expect(await run(() => page!.store.applyAppearancePreset(frosted))).toBe(true);
+    // The preset's step is offered, and the step below it survives.
+    expect(page.store.appearanceUndoStep()?.label).toContain("Frosted");
+    await run(() => page!.store.undoAppearance());
+    expect(page.store.getSnapshot().rows.get("appearance.backgroundOpacity")?.customized).toBe(false);
+    expect(page.store.appearanceUndoStep()).not.toBeNull();
+  });
 
   test("a preset sets Opacity and Material and puts every surface back on the window, as one step", async () => {
     page = await renderPage({

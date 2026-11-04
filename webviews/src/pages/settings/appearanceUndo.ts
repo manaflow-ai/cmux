@@ -32,6 +32,18 @@ const LINKED: Readonly<Record<string, readonly string[]>> = {
   "appearance.backgroundBlur": ["appearance.backgroundOpacity"],
 };
 
+/** The linked keys writing `target` would also change, by the host's rule
+ * (`WindowBackgroundSetting.linkedEdits`): setting Opacity while Material is unset names a
+ * Material; resetting Opacity may remove a set Material; resetting Material removes a set Opacity. */
+export function linkedWriteKeys(state: SettingsState, target: KeyState): string[] {
+  const partners = LINKED[target.key] ?? [];
+  return partners.filter((partner) => {
+    const customized = state.rows.get(partner)?.customized ?? false;
+    if (target.key === "appearance.backgroundOpacity") return target.customized ? !customized : customized;
+    return !target.customized && customized;
+  });
+}
+
 /** Whether a write to `key` is an appearance change. */
 export function tracksAppearance(key: string): boolean {
   return trackedKeys().has(key);

@@ -7,7 +7,7 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
-import { AppearanceHistory, diff, targetId, type HistoryEntry, type TargetState } from "./appearanceHistory";
+import { AppearanceHistory, diff, sameState, targetId, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
   appearanceKeys,
@@ -16,6 +16,7 @@ import {
   captureThemes,
   changeLabel,
   currentState,
+  linkedWriteKeys,
   showsStates,
   tracksAppearance,
   withLinked,
@@ -812,14 +813,20 @@ export class SettingsStore {
     work: () => Promise<T>,
     options: { label?: string; themes?: boolean } = {},
   ): Promise<T> {
-    // A step inside a step (a preset's writes, the Theme pane's rotation) is part of the outer one.
-    if (this.tracking > 0) return work();
     const linked = withLinked(keys);
     const read = () => [
       ...captureKeys(this.getSnapshot(), linked),
       ...(options.themes ? captureThemes(this.getSnapshot()) : []),
     ];
     const before = read();
+    // A step inside a step (a preset's writes, the Theme pane's rotation) is part of the outer one.
+    // A step that only overlaps another (a slider moved while an art download runs) also lands
+    // here: it records no step of its own, but what it changed is still the page's own (#29881).
+    if (this.tracking > 0) {
+      const result = await work();
+      this.noteSeen(diff(before, read()).map((change) => change.after));
+      return result;
+    }
     this.tracking += 1;
     let result: T;
     try {
@@ -919,10 +926,22 @@ export class SettingsStore {
   private restorableOpened(): TargetState[] {
     if (!this.appearanceOpened) return [];
     const state = this.getSnapshot();
-    return this.appearanceOpened.filter((target) => {
-      const seen = this.appearanceSeen.get(targetId(target));
-      return seen === undefined || showsStates(state, [seen]);
-    });
+    const changedElsewhere = new Set(
+      this.appearanceOpened
+        .filter((target) => {
+          const seen = this.appearanceSeen.get(targetId(target));
+          return seen !== undefined && !showsStates(state, [seen]);
+        })
+        .map(targetId),
+    );
+    // A key whose write would also change a linked key (setting Opacity names an unset Material)
+    // is left too when that linked key was changed elsewhere: writing it would overwrite that value.
+    return this.appearanceOpened.filter(
+      (target) =>
+        !changedElsewhere.has(targetId(target)) &&
+        (target.kind !== "setting" ||
+          linkedWriteKeys(state, target).every((key) => !changedElsewhere.has(`setting:${key}`))),
+    );
   }
 
   /** Whether Restore How It Was would change anything. */
@@ -969,7 +988,16 @@ export class SettingsStore {
     const changes = diff(current, [...targets]);
     if (changes.length === 0) return true;
     const ok = await this.applyAppearance(changes.map((change) => change.after));
-    this.appearance.record({ label, changes });
+    // What landed, not what was asked: a refused write leaves its target as it was, and a step
+    // recording it would never be offered (its target never shows the recorded state).
+    const landed = diff(
+      changes.map((change) => change.before),
+      changes.flatMap((change) => {
+        const now = currentState(this.getSnapshot(), change.after);
+        return now && sameState(now, change.after) ? [now] : [];
+      }),
+    );
+    if (landed.length > 0) this.appearance.record({ label, changes: landed });
     return ok;
   }
 
@@ -999,15 +1027,23 @@ export class SettingsStore {
       }
     }
     if (themes) await this.refreshHost();
+    // Only targets that show what was written: a value another writer set in between, or a stale
+    // host read, is not the page's own.
     const state = this.getSnapshot();
-    this.noteSeen(states.flatMap((target) => currentState(state, target) ?? []));
+    this.noteSeen(
+      states.flatMap((target) => {
+        const now = currentState(state, target);
+        return now && sameState(now, target) ? [now] : [];
+      }),
+    );
     return ok;
   }
 
   async resetAll(): Promise<WriteResult> {
+    const before = captureAppearance(this.getSnapshot());
     const result = await this.write({ kind: "resetAll" });
-    // The page's own change: Restore How It Was may put these keys back.
-    if (result.ok) this.noteSeen(captureAppearance(this.getSnapshot()));
+    // The page's own change, only what it changed: Restore How It Was may put these back.
+    if (result.ok) this.noteSeen(diff(before, captureAppearance(this.getSnapshot())).map((change) => change.after));
     return result;
   }
 
