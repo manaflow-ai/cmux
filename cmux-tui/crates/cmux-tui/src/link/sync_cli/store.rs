@@ -91,11 +91,12 @@ pub(super) fn usable(fetch_served: bool) -> bool {
 }
 
 /// What earlier fetch jobs under a folder left: the jobs, and each file they
-/// wrote, by its path there, with the revision that write left.
+/// wrote, by its path there, with every revision those writes left (two
+/// jobs may have written one path; the machine's current file says which).
 #[derive(Default)]
 pub(super) struct Left {
     pub jobs: Vec<String>,
-    pub written: BTreeMap<String, String>,
+    pub written: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// Cancels every fetch job still running under `remote_root` on the machine,
@@ -111,9 +112,20 @@ pub(super) fn fence(remote: &mut Remote, remote_root: &str) -> anyhow::Result<Le
     let mut left = Left::default();
     for job in answer.get("jobs").and_then(Value::as_array).into_iter().flatten() {
         let Some(job) = job.as_str() else { continue };
-        written_by(remote, job, &mut left.written)
-            .context("cannot read what the machine's earlier store fetch wrote")?;
-        left.jobs.push(job.to_owned());
+        let read = written_by(remote, job, &mut |path, revision| {
+            left.written.entry(path).or_default().insert(revision);
+        });
+        match read {
+            Ok(()) => left.jobs.push(job.to_owned()),
+            // Retired since the cancel answered: nothing left to read.
+            Err(error)
+                if error
+                    .downcast_ref::<super::remote::FsRefusal>()
+                    .is_some_and(|refusal| refusal.code == "blob.no_job") => {}
+            Err(error) => {
+                return Err(error.context("cannot read what the machine's earlier store fetch wrote"));
+            }
+        }
     }
     Ok(left)
 }
@@ -130,7 +142,7 @@ pub(super) fn forget(remote: &mut Remote, jobs: &[String]) {
 fn written_by(
     remote: &mut Remote,
     job: &str,
-    into: &mut BTreeMap<String, String>,
+    into: &mut dyn FnMut(String, String),
 ) -> anyhow::Result<()> {
     let mut from = 0u64;
     loop {
@@ -142,7 +154,7 @@ fn written_by(
                 entry.get("path").and_then(Value::as_str),
                 entry.get("revision").and_then(Value::as_str),
             ) {
-                into.insert(path.to_owned(), revision.to_owned());
+                into(path.to_owned(), revision.to_owned());
             }
         }
         from += entries.len() as u64;
@@ -447,7 +459,9 @@ pub(super) fn send(
         }
         bail!("the machine's fetch failed ({code}): {error}");
     }
-    written_by(remote, &job, &mut sent.written)
+    written_by(remote, &job, &mut |path, revision| {
+        sent.written.insert(path, revision);
+    })
         .context("cannot read what the machine's fetch wrote")?;
     Ok(sent)
 }

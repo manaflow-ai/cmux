@@ -483,6 +483,15 @@ fn a_lost_fetch_start_answer_fails_the_push_and_the_next_push_fences_its_job() {
 
 #[test]
 fn a_file_only_a_failed_pushs_fetch_wrote_goes_once_the_tree_drops_it() {
+    stray_after_failed_push(false);
+}
+
+#[test]
+fn a_fetched_file_the_machine_changed_since_stays_when_the_tree_drops_it() {
+    stray_after_failed_push(true);
+}
+
+fn stray_after_failed_push(edit_on_machine: bool) {
     let root = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(root.path()).unwrap();
     let repo = root.join("app");
@@ -504,11 +513,21 @@ fn a_file_only_a_failed_pushs_fetch_wrote_goes_once_the_tree_drops_it() {
         assert!(Instant::now() < deadline, "the fetch never wrote");
         std::thread::sleep(Duration::from_millis(20));
     }
-    // The next push's tree has no such file: it goes from the machine.
+    if edit_on_machine {
+        // Give the edit a revision of its own.
+        std::thread::sleep(Duration::from_millis(1100));
+        std::fs::write(&stray, b"edited on the machine").unwrap();
+    }
+    // The next push's tree has no such file: it goes from the machine,
+    // unless the machine changed it since the fetch wrote it.
     git(&repo, &["rm", "-q", "assets/big.bin"]);
     git(&repo, &["commit", "-q", "-m", "drop"]);
     push(&machine, &repo, Some(&origin), &store);
-    assert!(!stray.exists(), "the fetched file stayed");
+    if edit_on_machine {
+        assert_eq!(std::fs::read(&stray).unwrap(), b"edited on the machine");
+    } else {
+        assert!(!stray.exists(), "the fetched file stayed");
+    }
     same_tree(&repo, &machine.home.join("work/app"));
 }
 

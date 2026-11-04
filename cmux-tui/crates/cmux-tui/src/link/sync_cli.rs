@@ -629,25 +629,29 @@ fn push_inner(
     // parts) names nothing this push made: it is dropped, never deleted.
     previous.files.retain(|relative, _| plain_relative(relative));
     previous.links.retain(|relative, _| plain_relative(relative));
+    let mut listings = Listings::default();
     // A file an earlier store fetch wrote may be in no manifest (its push
-    // failed after the fetch wrote): it counts as this push's, at the
-    // revision the fetch left, so one gone from the tree is deleted below and
-    // one still in it is rewritten. One the manifest has at that revision is
-    // already recorded.
+    // failed after the fetch wrote). One the machine still has as that fetch
+    // left it counts as this push's, so one gone from the tree is deleted
+    // below and one still in it is rewritten. One the manifest has at a
+    // revision a fetch left is already recorded; one changed since (a later
+    // link write, or the machine's own edit) is not taken over.
     let prefix = format!("{remote_root}/");
-    for (path, revision) in &left.written {
+    for (path, revisions) in &left.written {
         let Some(relative) = path.strip_prefix(&prefix) else { continue };
         if !plain_relative(relative)
-            || previous.files.get(relative).is_some_and(|pushed| &pushed.revision == revision)
+            || previous.files.get(relative).is_some_and(|pushed| revisions.contains(&pushed.revision))
         {
             continue;
         }
-        previous.files.insert(
-            relative.to_owned(),
-            Pushed { sha256: String::new(), permissions: 0, revision: revision.clone() },
-        );
+        let Some(current) = listings.revision(&mut remote, path)? else { continue };
+        if revisions.contains(&current) {
+            previous.files.insert(
+                relative.to_owned(),
+                Pushed { sha256: String::new(), permissions: 0, revision: current },
+            );
+        }
     }
-    let mut listings = Listings::default();
     let mut links = LinkSync::default();
 
     // Deletes first, so a file that became a folder (or the reverse) is out

@@ -465,11 +465,11 @@ impl BlobFetchService {
             .and_then(Value::as_str)
             .ok_or_else(|| Refusal::bad_request("target is required"))?;
         let target = checked_target(target)?;
-        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
-        let cancelled = self.cancel_overlapping(&jobs, &target);
-        drop(jobs);
+        // Retired first, so each job this answer names is still kept.
         self.retire_finished();
-        let (cancelled, kept) = cancelled;
+        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let (cancelled, kept) = self.cancel_overlapping(&jobs, &target);
+        drop(jobs);
         Ok(json!({ "cancelled": cancelled, "jobs": kept }))
     }
 
@@ -696,15 +696,14 @@ async fn write_file(
     if hex(&whole.finalize()) != file.sha256 {
         return Err(("blob.digest_mismatch", format!("{} did not match its hash", file.path)));
     }
-    // Checked and committed under one lock: a cancel that returned has seen
-    // this commit end, or this job sees the cancel and writes nothing.
-    let entry = {
-        let _commit = commits.lock().unwrap_or_else(PoisonError::into_inner);
-        if job.cancelled.load(Ordering::SeqCst) {
-            return Err(superseded());
-        }
-        pending.commit().map_err(fs)?
-    };
+    // Checked, committed and recorded under one lock: a cancel that returned
+    // has seen this commit and its record, or this job sees the cancel and
+    // writes nothing.
+    let _commit = commits.lock().unwrap_or_else(PoisonError::into_inner);
+    if job.cancelled.load(Ordering::SeqCst) {
+        return Err(superseded());
+    }
+    let entry = pending.commit().map_err(fs)?;
     let revision = entry.revision.unwrap_or_default();
     job.written.lock().unwrap_or_else(PoisonError::into_inner).push((file.path.clone(), revision));
     Ok(())
