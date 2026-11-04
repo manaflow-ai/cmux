@@ -46,6 +46,29 @@ const INPUT_PORT_BYTE_CAPACITY: usize = 2 * (MAX_FRAME_PAYLOAD + PORT_FRAME_COST
 const INPUT_PORT_IDLE_EXIT: Duration = Duration::from_secs(30);
 /// The writer's stack: it formats and writes one frame at a time.
 const INPUT_PORT_STACK_BYTES: usize = 256 * 1024;
+/// The longest a write that waits for its frame ([`InputReply::Written`]) waits for the terminal's input port: one
+/// reconnect wait for the queue ahead of it, a few blocked socket writes, and slack.
+pub(super) const INPUT_WRITE_REPLY_WAIT: Duration = Duration::from_secs(15);
+
+/// The error inside a write's error when its wait ended while the port's writer was writing it: the bytes may still
+/// reach the program, so a caller that gives input back must not give these back.
+#[derive(Debug)]
+pub(crate) struct InputMayBeWritten;
+
+impl std::fmt::Display for InputMayBeWritten {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "terminal input may have been written: the wait ended during its write to the terminal's host",
+        )
+    }
+}
+
+impl std::error::Error for InputMayBeWritten {}
+
+/// Whether `error` is the error of a write that may still reach the program ([`InputMayBeWritten`]).
+pub(crate) fn input_may_be_written(error: &std::io::Error) -> bool {
+    error.get_ref().is_some_and(|inner| inner.is::<InputMayBeWritten>())
+}
 
 /// Where a hosted terminal's interactive input goes, published without the runtime lock.
 pub(crate) enum InputRoute {
@@ -129,6 +152,11 @@ struct PortState {
     /// Tests: the writer waits here before it writes each frame.
     #[cfg(test)]
     paused: Option<std::sync::mpsc::Receiver<()>>,
+    /// Tests: [`INPUT_WRITE_REPLY_WAIT`] and [`HOST_INPUT_RECONNECT_WAIT`] for this port.
+    #[cfg(test)]
+    reply_wait: Option<Duration>,
+    #[cfg(test)]
+    reconnect_wait: Option<Duration>,
 }
 
 #[derive(Default)]
@@ -235,6 +263,58 @@ impl InputPort {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
         resume
     }
+
+    /// How long a write that waits for its frame waits ([`INPUT_WRITE_REPLY_WAIT`]).
+    pub(crate) fn reply_wait(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(wait) =
+            self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).reply_wait
+        {
+            return wait;
+        }
+        INPUT_WRITE_REPLY_WAIT
+    }
+
+    /// Tests: [`Self::reply_wait`] for this port.
+    #[cfg(test)]
+    pub(crate) fn set_reply_wait_for_test(&self, wait: Duration) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).reply_wait = Some(wait);
+    }
+
+    /// Tests: the reconnect wait ([`HOST_INPUT_RECONNECT_WAIT`]) for this port.
+    #[cfg(test)]
+    pub(crate) fn set_reconnect_wait_for_test(&self, wait: Duration) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnect_wait =
+            Some(wait);
+    }
+
+    /// Tests: whether the writer waits for a reconnect now.
+    #[cfg(test)]
+    pub(crate) fn reconnecting_for_test(&self) -> bool {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnecting
+    }
+
+    /// Tests: the frames the port took so far.
+    #[cfg(test)]
+    pub(crate) fn accepted_for_test(&self) -> u64 {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).accepted
+    }
+
+    /// Tests: the frames still queued (not yet taken by the writer).
+    #[cfg(test)]
+    pub(crate) fn queued_frames_for_test(&self) -> usize {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).frames.len()
+    }
+}
+
+/// The reconnect wait of `shared`'s port ([`HOST_INPUT_RECONNECT_WAIT`] unless a test set one).
+fn reconnect_wait(shared: &PortShared) -> Duration {
+    #[cfg(test)]
+    if let Some(wait) = shared.state.lock().unwrap_or_else(PoisonError::into_inner).reconnect_wait {
+        return wait;
+    }
+    let _ = shared;
+    HOST_INPUT_RECONNECT_WAIT
 }
 
 /// One frame of the port finished (written, failed or dropped): barriers waiting for it may go.
@@ -393,7 +473,7 @@ fn write_with_reconnect(
         };
         let error = first_error.take().unwrap_or(error);
         let deadline = *reconnect_until.get_or_insert_with(|| {
-            Instant::now().checked_add(HOST_INPUT_RECONNECT_WAIT).unwrap_or_else(Instant::now)
+            Instant::now().checked_add(reconnect_wait(shared)).unwrap_or_else(Instant::now)
         });
         let state = TerminalHostConnectionState::from_u8(
             runtime.host_connection_state.load(Ordering::Acquire),

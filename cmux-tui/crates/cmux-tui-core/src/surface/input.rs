@@ -12,12 +12,6 @@ use super::*;
 /// the terminal's input port waits instead (`surface::input_port`).
 pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
-/// The longest a write that waits for its frame ([`InputReply::Written`]) waits for the terminal's input port: one
-/// reconnect wait for the queue ahead of it, a few blocked socket writes, and slack. Past it the write answers an
-/// error and the bytes may still be written.
-#[cfg(any(unix, windows))]
-const INPUT_WRITE_REPLY_WAIT: Duration = Duration::from_secs(15);
-
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
@@ -116,7 +110,7 @@ impl Surface {
                     pty.input_port
                         .enqueue(&pty.terminal, kind, bytes, Some(done))
                         .map_err(std::io::Error::from)
-                        .and_then(|()| match written.recv_timeout(INPUT_WRITE_REPLY_WAIT) {
+                        .and_then(|()| match written.recv_timeout(pty.input_port.reply_wait()) {
                             Ok(result) => result,
                             Err(RecvTimeoutError::Timeout) => Err(std::io::Error::new(
                                 std::io::ErrorKind::TimedOut,
