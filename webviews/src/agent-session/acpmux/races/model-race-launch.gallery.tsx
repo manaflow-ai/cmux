@@ -20,6 +20,7 @@ const props: ComponentProps<typeof RacePanel> = {
   ],
   client: fixtureRaceClient(raceFixture),
   onClose: () => undefined,
+  onOpenSession: () => undefined,
 };
 const start: Play = async (ctx) => {
   await ctx.type("Improve the empty state", { role: "textbox", name: "Task" });

@@ -10,6 +10,7 @@ const props = (race: RaceRecord): ComponentProps<typeof RaceCompareView> => ({
   raceId: race.id,
   initialRace: race,
   client: fixtureRaceClient(race),
+  onOpenSession: () => undefined,
 });
 export default componentEntry<ComponentProps<typeof RaceCompareView>>({
   id: "agent-pane.model-race",

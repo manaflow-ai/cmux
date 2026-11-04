@@ -95,6 +95,28 @@ test("comparison shows real replies and reviewer winner without manufactured bui
   expect(html).not.toContain("Tests passed");
 });
 
+test("only a completed winner opens its daemon-provided chat", async () => {
+  const container = mount();
+  const opened: string[] = [];
+  const render = (race: RaceRecord) =>
+    root!.render(
+      <RaceCompareView
+        parent={race.parent}
+        raceId={race.id}
+        initialRace={race}
+        client={fixtureRaceClient(race)}
+        onOpenSession={(id) => opened.push(id)}
+      />,
+    );
+  await act(async () => render(raceFixture));
+  const buttons = [...container.querySelectorAll("button")];
+  expect(buttons.map((button) => button.textContent)).toEqual(["Open chat"]);
+  await act(async () => buttons[0]!.click());
+  expect(opened).toEqual(["winner-demo"]);
+  await act(async () => render({ ...raceFixture, state: "reviewing" }));
+  expect(container.textContent).not.toContain("Open chat");
+});
+
 test("live event wins over delayed get and cleanup removes subscription", async () => {
   const container = mount();
   let resolve!: (race: RaceRecord) => void;

@@ -7,11 +7,13 @@ export function RaceCompareView({
   raceId,
   client,
   initialRace,
+  onOpenSession,
 }: {
   parent: string;
   raceId: string;
   client: RaceClient;
   initialRace?: RaceRecord;
+  onOpenSession?: (sessionId: string) => void;
 }) {
   const t = useT();
   const [race, setRace] = useState(initialRace);
@@ -74,6 +76,14 @@ export function RaceCompareView({
                   {candidate.target.harness} · {candidate.target.model}
                 </h3>
                 <p>{candidate.id === current.winnerId ? t("race.winner") : t(`race.${candidate.state}`)}</p>
+                {current.state === "completed" &&
+                  candidate.id === current.winnerId &&
+                  candidate.sessionId &&
+                  onOpenSession && (
+                    <button type="button" onClick={() => onOpenSession(candidate.sessionId!)}>
+                      {t("subsession.openChat")}
+                    </button>
+                  )}
                 {candidate.error && <p role="alert">{candidate.error}</p>}
                 <pre>{candidate.reply ?? t("race.noReply")}</pre>
                 {candidate.cwd && candidate.state !== "discarded" && (

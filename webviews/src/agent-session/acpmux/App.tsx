@@ -9714,7 +9714,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ) => {
     const composer = closing ? undefined : composerHandle.current;
     // The chips the shown chat's composer keeps, which its kept chips are now (keptAttachments.ts).
-    const shownChips = closing ? (composerHandle.current?.wakeState().attachments ?? []) : undefined;
+    const shownChips = closing
+      ? (composerHandle.current?.wakeState().attachments ?? raceWake.current?.attachments ?? [])
+      : undefined;
     const where = whereHeldGoes(entries, snapshot.sessionId, Boolean(composer));
     const writes: Promise<unknown>[] = [];
     // `restore` puts what comes back first: the last one goes in first, so they read in order;
@@ -11960,7 +11962,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
             const anchor = transcriptAnchor.current?.();
-            const composer = composerHandle.current?.wakeState();
+            const composer = composerHandle.current?.wakeState() ?? raceWake.current;
             const attachments = [...chips, ...(composer?.attachments ?? [])];
             return {
               ...composer,
@@ -15055,6 +15057,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     parent={raceParent}
                     catalog={snapshot.catalog}
                     client={directClient.current}
+                    onOpenSession={openOfferChat}
                     onClose={() => {
                       pendingWake.current = raceWake.current ?? pendingWake.current;
                       raceWake.current = undefined;

@@ -10,11 +10,13 @@ export function RacePanel({
   catalog,
   client,
   onClose,
+  onOpenSession,
 }: {
   parent: string;
   catalog: AcpmuxSnapshot["catalog"];
   client: RaceClient;
   onClose(): void;
+  onOpenSession?: (sessionId: string) => void;
 }) {
   const t = useT();
   const choices = useMemo(() => raceChoices(catalog), [catalog]);
@@ -63,7 +65,14 @@ export function RacePanel({
           <button type="button" onClick={() => setOpened(undefined)}>
             {t("race.new")}
           </button>
-          <RaceCompareView key={opened.id} parent={parent} raceId={opened.id} initialRace={opened} client={client} />
+          <RaceCompareView
+            key={opened.id}
+            parent={parent}
+            raceId={opened.id}
+            initialRace={opened}
+            client={client}
+            onOpenSession={onOpenSession}
+          />
         </>
       ) : (
         <>
