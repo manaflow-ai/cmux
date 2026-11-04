@@ -8,8 +8,6 @@ X-RateLimit-Resource/Used/Remaining/Reset headers, and the script's file name. I
 another header, a body or a token. It makes no request, and nothing it does can raise into the
 caller. A sitecustomize this one shadows (Ubuntu's apport hook) still runs.
 """
-from __future__ import annotations
-
 import os
 import sys
 

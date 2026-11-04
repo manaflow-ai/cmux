@@ -35,7 +35,8 @@ _api_call_log_setup() {
     case $_api_call_log_fd2 in pipe:*) sink="/proc/$$/fd/2"; export API_CALL_LOG_PIPE="$_api_call_log_fd2" ;; esac
     [ -s "$dir/pending.log" ] && _api_call_log_flush="$dir/pending.log"
     export API_CALL_LOG_DIR="$dir" API_CALL_LOG_SINK="$sink"
-    export PATH="$dir/bin:$PATH"
+    # Only where gh is installed: a shim on a machine with no gh would turn `command -v gh` true.
+    if command -v gh >/dev/null 2>&1; then export PATH="$dir/bin:$PATH"; fi
     export PYTHONPATH="$dir/py${PYTHONPATH:+:$PYTHONPATH}"
     export BASH_ENV="$dir/env.sh"
     return 0
