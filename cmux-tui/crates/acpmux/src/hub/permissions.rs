@@ -312,10 +312,10 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "plan" if m.family.as_deref() == Some("claude") => {
-                if let Some(goal) = crate::goal::GoalState::from_plan_update(update) {
-                    m.goal = Some(goal);
-                    goal_write = true;
-                }
+                m.goal = crate::goal::GoalState::from_plan_update(update);
+                // Claude emits an empty plan when the loop is cleared. Do not
+                // leave a completed goal banner behind after that update.
+                goal_write = true;
             }
             "current_mode_update" => {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving

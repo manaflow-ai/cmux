@@ -156,7 +156,12 @@ pub struct GoalState {
     pub token_budget: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_used: Option<u64>,
-    #[serde(default, alias = "timeUsedSeconds", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "timeUsedSeconds",
+        alias = "elapsedSeconds",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub elapsed_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<Value>,
@@ -223,6 +228,12 @@ impl GoalState {
             .map(str::trim)
             .filter(|content| !content.is_empty())?
             .to_owned();
+        let stalled = entries.iter().any(|entry| {
+            matches!(
+                entry.get("status").and_then(Value::as_str),
+                Some("blocked" | "stalled" | "failed" | "cancelled")
+            )
+        });
         let complete = entries.iter().all(|entry| {
             matches!(
                 entry.get("status").and_then(Value::as_str),
@@ -231,7 +242,13 @@ impl GoalState {
         });
         Some(Self {
             objective,
-            status: if complete { GoalStatus::Done } else { GoalStatus::Running },
+            status: if stalled {
+                GoalStatus::Stalled
+            } else if complete {
+                GoalStatus::Done
+            } else {
+                GoalStatus::Running
+            },
             provider: GoalProvider::Claude,
             steps: Some(entries.clone()),
             token_budget: None,
@@ -312,5 +329,11 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(done.lifecycle(), "done");
+        let stalled = GoalState::from_plan_update(&json!({
+            "sessionUpdate": "plan",
+            "entries": [{"content": "Run the check", "status": "blocked"}]
+        }))
+        .unwrap();
+        assert_eq!(stalled.lifecycle(), "stalled");
     }
 }
