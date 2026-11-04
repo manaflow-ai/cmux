@@ -66,8 +66,10 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     ///   - searchOpen: The search field edits or holds a query.
     ///   - windowControls: The traffic lights over the band (see the other initializer).
     ///   - filterOn: A filter is on (Unread): its chip row goes under the search row and the list under it.
-    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, filterOn: Bool) {
-        self.init(width: width, searchOpen: searchOpen, windowControls: windowControls)
+    ///   - metrics: The header's sizes at the sidebar's density and text size.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, filterOn: Bool,
+         metrics: HomeSidebarHeaderMetrics = .standard) {
+        self.init(width: width, searchOpen: searchOpen, windowControls: windowControls, metrics: metrics)
         guard filterOn, !buttonsCovered else { return }
         let inset = compact ? Self.edge : Self.inset
         filterChip = CGRect(x: inset, y: listTop, width: max(0, max(0, width) - 2 * inset), height: Self.chipHeight)
@@ -82,7 +84,8 @@ public struct HomeSidebarHeaderLayout: Equatable, Sendable {
     ///   - searchOpen: The search field edits or holds a query.
     ///   - windowControls: The traffic lights (and the titlebar accessory after them) where they
     ///     lie over the header's band, in its flipped coordinates; nil when the list is clear of them.
-    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil) {
+    ///   - metrics: The header's sizes at the sidebar's density and text size.
+    init(width: CGFloat, searchOpen: Bool, windowControls: CGRect? = nil, metrics: HomeSidebarHeaderMetrics = .standard) {
         let width = max(0, width)
         let y = ((Self.band - Self.side) / 2).rounded()
         compact = Self.isCompact(width: width)
