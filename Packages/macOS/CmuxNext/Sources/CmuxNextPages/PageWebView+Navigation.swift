@@ -4,7 +4,6 @@ import CmuxNextWakeups
 @MainActor
 extension PageWebView {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        crash.webKitCommitted(in: webView.contentProcessID)
         documentCommitted()
     }
 

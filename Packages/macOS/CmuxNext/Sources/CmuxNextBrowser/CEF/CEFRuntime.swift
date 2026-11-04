@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
-import CmuxNextSignposts
 import CmuxNextWakeups
 import Foundation
 import os
@@ -150,7 +149,6 @@ final class CEFRuntime {
     var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     let crashLog = BrowserCrashLog()  // recent renderer and helper process failures (`debug.crashes`)
     var helperExits = CEFHelperExitMetric()  // where `cef.helper_exit` samples go (a test sets its own store)
-    var rendererStability = RendererStability()  // where pages' hangs go as stability events (the App sets its reporting one)
     /// Watches helper exits (GPU, utility, extension renderers) from start.
     var childMonitor: CEFChildProcessMonitor?
     private(set) lazy var helperExitReports = CEFHelperExitReports(crashLog: crashLog)  // each helper's one end, with its pid

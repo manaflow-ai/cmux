@@ -1,4 +1,3 @@
-import CmuxNextSignposts
 public import Foundation
 
 /// Input to `BrowserTabStateMachine`. Engines translate their native
@@ -243,14 +242,5 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         guard security == .secure else { return security }
         if certificateBypassed { return .broken }
         return hasOnlySecureContent ? .secure : .mixedContent
-    }
-}
-
-extension BrowserTabStateMachine {
-    /// How the "Page unresponsive" state that `old` showed ended in `new`.
-    static func unresponsiveEnd(from old: BrowserTabState, to new: BrowserTabState) -> RendererStability.UnresponsiveEnd {
-        if new.processExit != nil, old.processExit == nil { return .processEnded }
-        if new.phase == .provisional, new.activeNavigation != old.activeNavigation { return .navigated }
-        return .responsive
     }
 }

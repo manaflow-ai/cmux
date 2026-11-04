@@ -7,7 +7,6 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextMemory
 import CmuxNextSettings
-import CmuxNextSignposts
 import CmuxNextWakeups
 import Observation
 
@@ -200,7 +199,6 @@ extension AppServices {
                                           .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
-                                                                                  stability: rendererStability,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
     }
@@ -222,14 +220,13 @@ extension AppServices {
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
-    /// built, before CefInitialize can run: the crash log's writer and helper-exit events, the renderer stability events,
+    /// built, before CefInitialize can run: the crash log's writer and helper-exit events,
     /// the run marker's and Sentry's signal handlers (Chromium resets them at start), the assistive-client switch of
     /// Chromium's accessibility trees; then `routes`.
-    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter, stability: RendererStability,
+    static func chromiumEngineHook(crashRecovery: CrashRecoveryService, reporter: CrashReporter,
                                    routes: @escaping (CEFEngine) -> Void) -> (CEFEngine) -> Void {
         { engine in
             crashRecovery.observe(engine.crashLog, reporter: reporter)
-            engine.rendererStability = stability
             AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: reporter)
             (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
             routes(engine)

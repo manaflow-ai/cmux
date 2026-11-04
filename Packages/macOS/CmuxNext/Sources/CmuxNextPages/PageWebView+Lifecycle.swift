@@ -145,7 +145,6 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        crash.webKitContentEnded()
         contentProcessTerminated()
     }
 

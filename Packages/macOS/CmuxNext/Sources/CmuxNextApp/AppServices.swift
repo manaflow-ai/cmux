@@ -176,17 +176,7 @@ final class AppServices {
         ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
         : .ahead)
     /// The agent page WebKit warm-up.
-    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat, stability: rendererStability)
-    /// WebKit content-process ends and Chromium page hangs as stability events: one for the
-    /// app, so its rate limit sees every surface; its reports go to crash reporting on that module's own lane.
-    private(set) lazy var rendererStability: RendererStability = {
-        let sentry = RendererStabilityReporter(reporter: crashReporting.reporter)
-        return RendererStability { report in
-            sentry.send(RendererStabilityEvent(kind: report.kind.rawValue, engine: report.engine.rawValue, surface: report.surface.name,
-                                               count: report.count, unresponsiveMilliseconds: report.unresponsiveMilliseconds,
-                                               ending: report.ending?.rawValue))
-        }
-    }()
+    private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
     /// tunable's only reader) as the local override, read at each page; the warm-up and every agent pane share it.
     private(set) lazy var agentChromiumChat: @MainActor () -> Bool = { [features = self.features] in
@@ -492,7 +482,6 @@ final class AppServices {
             processGroups: makeWebProcessGroups(), startsPagesAtFirstShow: features.isEnabled(.pageRendererAtFirstShow),
             hoverFrameInput: hoverFrameInput, retirer: PageRetirer(deadlines: mainDeadlines))
         host.scriptFrames = pageScriptFrame
-        host.rendererStability = rendererStability
         host.bundleReloadsOnShow = features.isEnabled(.webUpdateReloadOnShow)
         // A page that shows with files a swap replaced reloads at the web updates' safe point.
         host.bundleSafePoint = WebUpdates.shared
@@ -827,7 +816,6 @@ final class AppServices {
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
-        cache.webKit.rendererStability = rendererStability
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
         pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
         pages.showsStandIns = self.features.isEnabled(.pageStandIn)

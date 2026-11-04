@@ -5,7 +5,6 @@ import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
-import CmuxNextSignposts
 @testable import CmuxNextSettings
 import Foundation
 import CmuxNextWakeups
@@ -142,11 +141,10 @@ import Testing
                                                  mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reporter = AppCrashReporting(environment: AppEnvironment.current([:])).reporter
         var routed: [ObjectIdentifier] = []
-        let stability = RendererStability()
         let fixture = Self.engine()
         let slot = ChromiumEngineSlot(stores: fixture.stores, waitDeadlines: fixture.waitDeadlines, source: CEFRuntimeSource(layout: nil),
                                       make: { CEFEngine(source: $2, stores: $0, signInCallbacks: CEFSignInCallbacks(), waitDeadlines: $1, input: InputEventTap()) },
-                                      engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: reporter, stability: stability,
+                                      engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: reporter,
                                                                                       routes: { routed.append(ObjectIdentifier($0)) }),
                                       stop: { _ in })
         Self.clearRuntimeHandlers()
@@ -154,7 +152,6 @@ import Testing
         let engine = slot.engine
         #expect(CEFRuntime.shared.onStartFailed != nil, "keepSignalHandlers ran as the engine was built, before CefInitialize can run")
         #expect(CEFRuntime.shared.onReady != nil)
-        #expect(engine.rendererStability === stability, "Chromium's page hangs go to the app's stability events (p09-observability-108)")
         #expect(routed == [ObjectIdentifier(engine)], "then the window routes")
     }
 
