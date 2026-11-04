@@ -195,6 +195,11 @@ def frame(k, variant):
         late = a_width(max(k - 2, 0), variant) + DIV_PX
         draw_page(img, late, W - late)
         img[:, int(round(b_x)):int(round(late))] = GREEN
+    if variant == "neighbour-gap" and 20 <= k <= 25:
+        # B's page has a band of the shell across row 180 (B's own defect: its content is missing there). On that
+        # row the shell runs on from A's right edge through the divider into B: the run past A's edge is B's, not a
+        # gap of A (FRAME OWNER's 3a: the row divider of the next column crossing a pane's line).
+        img[ROWS[1] - 3:ROWS[1] + 4, int(round(b_x)):] = MAGENTA
     if variant == "wide-ground" and 20 <= k <= 25:
         # B shows only the terminal ground (an empty terminal, as pane_2dabe in base03f6 px-window-resize-4-s1 frame 167),
         # over the divider band too: A's ground strip and B's area are one cyan run to the window's edge.
@@ -295,7 +300,8 @@ class JudgePixelTests(unittest.TestCase):
         cls.reports = {v: jp.judge(build(cls.tmp, v, v)) for v in ("clean", "lag1", "gap2", "hidden", "spring", "spring-slow", "cut",
                                                                     "backdrop", "strip", "strip-lag", "pill-lag", "d4-cover", "glyph",
                                                                     "samefill", "cue", "held", "reduce-drag", "reduce-keys",
-                                                                    "strip-touch", "strip-scrolled", "wide-ground")}
+                                                                    "strip-touch", "strip-scrolled", "wide-ground",
+                                                                    "neighbour-gap")}
 
     @classmethod
     def tearDownClass(cls):
@@ -552,6 +558,17 @@ class JudgePixelTests(unittest.TestCase):
         self.assertNotIn("gap", [f["check"] for f in r["findings"]])
         self.assertNotIn("hidden ring", [f["check"] for f in r["findings"]])
         self.assertIn("divider cue", [f["check"] for f in r["info"]])
+
+    def test_the_shell_past_the_divider_is_the_neighbours_not_a_gap(self):
+        # 3a (FRAME OWNER): a pane's gap is measured to its pane edge and the divider band to the next pane, never
+        # into that pane; there the shell is the next pane's (its content missing), on its own side of the line.
+        r = self.reports["neighbour-gap"]
+        a_hi = side(r, "p0", "row@180", "hi")
+        self.assertEqual(a_hi["max_gap_px"], 0.0)
+        self.assertNotIn(("gap", "p0 (tui) hi on row@180"), [(f["check"], f["where"]) for f in r["findings"]])
+        self.assertEqual(side(r, "p0", "row@110", "hi")["max_gap_px"], 0.0)
+        b = side(r, "p1", "row@180", "lo")
+        self.assertEqual(b["not_found_ranges"], "20-25")
 
     def test_held_content_shows_the_shell_inside_its_pane(self):
         r = self.reports["held"]

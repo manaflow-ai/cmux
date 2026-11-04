@@ -186,6 +186,23 @@
      ]
     }
    ]
+  },
+  {
+   "id": "3a-reduce-row-drag-p0-gap-row845-is-the-neighbours-divider",
+   "film": "px-77e9a45-120x2/px-row-drag-3r-s1r-reduce",
+   "why": "FRAME OWNER REFACTOR (agent pixel-perfect, 2026-11-03, judge_pixel item 3a): a FALSE POSITIVE of judge_pixel v7 (c22403233dd7), which reports 'gap | p0 (tui) hi on row@845 | shell visible up to 14 px past rest' (frames 229, 231, 518, 519). Row y=845 is where the moving p1/p2 row divider crosses, so the extra shell beyond p0's right edge is the neighbour column's row gap, not p0's. R-HARNESS read the stored film: in those frames row 845 shows the shell from p0's right edge (x=1568) to the window's right edge (x=2722), which is the p1|p2 divider band; the right column's panes and that divider all start at x=785 pt (1570 px), 2 px past p0's edge, which is p0's gap at rest.",
+   "expect": [
+    {
+     "judge": "judge_pixel",
+     "pixel_row": {
+      "label": "p0",
+      "side": "hi",
+      "line": "row@845",
+      "what": "pane"
+     },
+     "absent_finding": "gap"
+    }
+   ]
   }
  ]
 }
