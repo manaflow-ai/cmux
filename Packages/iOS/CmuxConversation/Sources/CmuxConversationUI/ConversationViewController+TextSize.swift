@@ -35,7 +35,7 @@ extension ConversationViewController {
     func themeTextSizeDidChange() {
         guard isViewLoaded else { return }
         guard ConversationTextSizeOwners.sameSize(ConversationTheme.textSizeTraits, themeTextSizeTraits) else { return }
-        if composer.textView.font?.pointSize != ConversationTheme.bodyFont.pointSize { composer.applyScaledFonts() }
+        if composer.textView.font != ConversationTheme.bodyFont { composer.applyScaledFonts() }
         header.applyScaledFonts()
         relayoutForTextMetrics()
     }
