@@ -534,6 +534,18 @@ OWNED_EVERY_ATTEMPT_PATHS = frozenset({
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+# Lightweight workflows whose placement job chooses a fresh fleet or owned
+# route for otherwise paid Linux jobs. Their later bot attempts are eligible
+# for the placement-only failover below.
+PORTABLE_LIGHT_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/cmux-next-fast-gates.yml",
+    ".github/workflows/pr-checks.yml",
+    ".github/workflows/web-validation.yml",
+})
+# These workflows have no owned job on their first attempt, so they are not
+# part of SIDE_WORKFLOW_PATHS or WATCHED_WORKFLOW_PATHS. Their later attempts
+# can still carry paid fallback jobs, which the sweeper must discover.
+SIDE_RESCUE_WORKFLOW_PATHS = frozenset((*SIDE_WORKFLOW_PATHS, *PORTABLE_LIGHT_WORKFLOW_PATHS))
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -2026,7 +2038,7 @@ class GitHub:
             for run in runs:
                 finished = parse_time(run.get("updated_at"))
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
-                if entry[0] and entry not in found and run.get("path") in SIDE_WORKFLOW_PATHS and not (
+                if entry[0] and entry not in found and run.get("path") in SIDE_RESCUE_WORKFLOW_PATHS and not (
                         since is not None and finished is not None and finished < since) \
                         and not created_before(run, oldest):
                     found.append(entry)
@@ -2055,7 +2067,7 @@ class GitHub:
             for run in runs:
                 entry = (int(run.get("id") or 0), int(run.get("run_attempt") or 0))
                 path = str(run.get("path") or "")
-                if entry[0] and entry not in found and path in SIDE_WORKFLOW_PATHS \
+                if entry[0] and entry not in found and path in SIDE_RESCUE_WORKFLOW_PATHS \
                         and (path != CMUX_NEXT_WORKFLOW_PATH or run.get("event") == "push") \
                         and not never_fails_over(path, run.get("event"), run.get("name"), run.get("display_title")) \
                         and not created_before(run, oldest):
@@ -2471,7 +2483,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if path == NIGHTLY_WORKFLOW_PATH:
         return nightly_target(run, repository)
     side = path in SIDE_WORKFLOW_PATHS
-    if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS and not side:
+    portable = path in PORTABLE_LIGHT_WORKFLOW_PATHS
+    if path != CI_WORKFLOW_PATH and path not in DISPATCH_WORKFLOW_PATHS and not side and not portable:
         return (f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}, {NIGHTLY_WORKFLOW_PATH}, "
                 f"a side-lane workflow or one of {', '.join(DISPATCH_WORKFLOW_PATHS)}")
     e2e = path in DISPATCH_WORKFLOW_PATHS
@@ -2484,7 +2497,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     kit_push = path == IOS_KIT_WORKFLOW_PATH and run.get("event") == "push"
     expected = "workflow_dispatch" if e2e else "pull_request"
     # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
-    side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
+    side_trusted = (side or portable) and run.get("event") in TRUSTED_SIDE_EVENTS
     if run.get("event") != expected and not on_main and not ios_pull and not kit_push and not side_trusted:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
@@ -2512,7 +2525,7 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started,
+                  e2e=e2e, side=side or portable, path=str(path), attempt_started_at=attempt_started,
                   event=str(run.get("event") or ""), name=str(run.get("name") or ""),
                   display_title=str(run.get("display_title") or ""))
 
@@ -2636,9 +2649,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job (cloud-machine-tests) appears once its Linux gate ends.
-            if any(job_pool(job) for job in jobs):
+            if any(job_pool(job) or target.path in PORTABLE_LIGHT_WORKFLOW_PATHS and portable_route(job)
+                   for job in jobs):
                 on_persistent = True
-                log("a side-lane job asked for a persistent pool")
+                log("a side-lane job asked for a persistent pool" if target.path not in PORTABLE_LIGHT_WORKFLOW_PATHS
+                    else "a portable light job asked for a paid fallback route")
             elif target.late_owned_jobs and target.attempt > SIGN_RESCUE_LAST_ATTEMPT and nightly_build_off_owned(
                     jobs, target.attempt_started_at):
                 # Nothing left to rescue on this attempt: its signing stalls are not rescued past
@@ -2750,7 +2765,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 look.action == "refused" and bool(decided_failures(jobs, target.attempt_started_at)))
             if offer and (target.pr_number or push_tip_failover(target)) and not finished \
                     and (failover_at is None or seen_at >= failover_at) \
-                    and any(mac_route(job) and waiting_for_runner(job)
+                    and any(failover_route(target, job) and waiting_for_runner(job)
                             and queued_seconds(job, seen_at, first_seen.get(job.get("id"))) >= UNSTARTED_STALL_SECONDS
                             for job in jobs):
                 failover_at = seen_at + dt.timedelta(seconds=FAILOVER_LOOK_SECONDS)
@@ -2944,6 +2959,10 @@ OWNED_WAIT_FLOOR_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
 # A Blacksmith macOS label a workflow names, and a retry route a picker job computes (ci.yml's
 # macos_pr_retry_runner, test-ios.yml's retry_runs_on), which may be any picker label.
 BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
+# Portable placement also rescues the paid Linux fallbacks used by the light
+# status jobs. Keep the macOS helper above narrow for signing and existing
+# queue policy; this predicate is only used by the portable failover.
+BLACKSMITH_PORTABLE_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-(?:ubuntu|linux)-[0-9]+(?:-[a-z0-9]+)*")
 PICKED_RETRY = re.compile(r"\boutputs\.[A-Za-z0-9_-]*retry[A-Za-z0-9_-]*")
 
 
@@ -3705,6 +3724,8 @@ def job_started(job: Mapping[str, Any]) -> bool:
 # routes afresh, and every finished job outside it keeps its result.
 CMUX_NEXT_PLACEMENT_KEY = "macos-placement"
 CMUX_NEXT_PLACEMENT_JOB = "cmux-next macOS placement"
+PORTABLE_PLACEMENT_KEY = "portable-placement"
+PORTABLE_PLACEMENT_JOB = "portable light placement"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3714,6 +3735,9 @@ class PlacementRerun:
     job_id: int  # this attempt's CMUX_NEXT_PLACEMENT_JOB
     below: frozenset[str]  # the workflow jobs that need it, directly or through others
     patterns: tuple[tuple[str, re.Pattern[str]], ...]  # each workflow job's API names (_job_name_pattern())
+    placement_key: str = CMUX_NEXT_PLACEMENT_KEY
+    placement_job: str = CMUX_NEXT_PLACEMENT_JOB
+    route_proof: str = ""
 
     def keys(self, job: Mapping[str, Any]) -> set[str]:
         name = str(job.get("name") or "")
@@ -3737,7 +3761,11 @@ class PlacementRerun:
         return bool(found) and found <= self.below
 
 
-def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]) -> tuple[PlacementRerun | None, str]:
+def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]], *,
+                   placement_key: str = CMUX_NEXT_PLACEMENT_KEY,
+                   placement_job: str = CMUX_NEXT_PLACEMENT_JOB,
+                   attempt_started_at: dt.datetime | None = None,
+                   portable: bool = False) -> tuple[PlacementRerun | None, str]:
     """(the placement re-run, why) for a cmux-next pull request run's open-head failover, or (None, why) when the
     workflow file at the head cannot show it (unread, unparsable, no CMUX_NEXT_PLACEMENT_KEY job) or the attempt has
     no single finished, successful placement job with an id. With None the failover keeps the full re-run rule."""
@@ -3748,26 +3776,50 @@ def placement_rerun(workflow_text: str | None, jobs: Sequence[Mapping[str, Any]]
     except Exception as error:  # noqa: BLE001 - an unreadable file keeps the full re-run rule
         return None, f"the workflow file could not be read ({type(error).__name__})"
     spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
-    if CMUX_NEXT_PLACEMENT_KEY not in spec:
-        return None, f"the workflow has no {CMUX_NEXT_PLACEMENT_KEY} job"
+    if placement_key not in spec:
+        return None, f"the workflow has no {placement_key} job"
     needs: dict[str, set[str]] = {}
     for key, job in spec.items():
         wanted = job.get("needs") or []
         needs[key] = {str(item) for item in ([wanted] if isinstance(wanted, str) else wanted)} & set(spec)
     below: set[str] = set()
-    frontier = {CMUX_NEXT_PLACEMENT_KEY}
+    frontier = {placement_key}
     while frontier:
         frontier = {child for child, parents in needs.items() if parents & frontier and child not in below}
         below |= frontier
     patterns = tuple((key, _job_name_pattern(key, job)) for key, job in spec.items())
-    placement = _job_name_pattern(CMUX_NEXT_PLACEMENT_KEY, spec[CMUX_NEXT_PLACEMENT_KEY])
+    placement = _job_name_pattern(placement_key, spec[placement_key])
     found = [job for job in jobs if placement.fullmatch(str(job.get("name") or ""))]
     if len(found) != 1 or found[0].get("id") is None:
-        return None, f"this attempt has no single {CMUX_NEXT_PLACEMENT_JOB} job"
+        return None, f"this attempt has no single {placement_job} job"
     if found[0].get("status") != "completed" or found[0].get("conclusion") != "success":
-        return None, f"{CMUX_NEXT_PLACEMENT_JOB} has not succeeded"
-    return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns), \
-        f"{CMUX_NEXT_PLACEMENT_JOB} and the {len(below)} jobs that need it"
+        return None, f"{placement_job} has not succeeded"
+    if portable:
+        # A carried placement result belongs to an earlier attempt and would
+        # replay its old paid route. A current attempt boundary and a start
+        # timestamp are required before this failover can cancel anything.
+        started = parse_time(found[0].get("started_at"))
+        if attempt_started_at is None or started is None or started < attempt_started_at:
+            return None, f"{placement_job} is carried or has no current-attempt start"
+        # The dependent runs-on expressions must consume placement outputs and
+        # retain a paid fallback. This is the static half of the route proof;
+        # the placement script's current-attempt live census supplies the
+        # dynamic half when the job is re-run.
+        output_ref = re.compile(rf"needs\.{re.escape(placement_key)}\.outputs\.(?:linux|mini)_(?:runner|jobs)")
+        output_jobs = [spec[key] for key in below if isinstance(spec.get(key), Mapping)
+                       and output_ref.search(str(spec[key].get("runs-on") or ""))]
+        paid = [job for job in jobs if str(job.get("status") or "") != "completed"
+                and portable_route(job) and job.get("name") != placement_job
+                and any(key in below for key, pattern in patterns if pattern.fullmatch(str(job.get("name") or "")))]
+        if not output_jobs or not paid:
+            return None, "the portable placement graph has no paid fallback with a placement output"
+        route_proof = (f"{len(paid)} paid fallback job(s) consume {placement_job} outputs; "
+                       "the current-attempt placement rerun refreshes the live route")
+        return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns,
+                              placement_key, placement_job, route_proof), \
+            f"{placement_job} and the {len(below)} jobs that need it ({route_proof})"
+    return PlacementRerun(int(found[0]["id"]), frozenset(below), patterns, placement_key, placement_job), \
+        f"{placement_job} and the {len(below)} jobs that need it"
 
 
 def failover_loses(job: Mapping[str, Any], plan: PlacementRerun | None) -> bool:
@@ -3794,11 +3846,25 @@ def failover_loses(job: Mapping[str, Any], plan: PlacementRerun | None) -> bool:
 
 def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[float], None],
                   log: Callable[[str], None]) -> PlacementRerun | None:
-    """The placement re-run for a cmux-next pull request run's first attempt (placement_rerun()), or None: another
-    workflow, a later attempt (the placement runs again on the bot's attempt 2 only) or a file that cannot show it,
-    when the failover keeps the full re-run and its rule that nothing has finished."""
-    if target.path != CMUX_NEXT_WORKFLOW_PATH or target.attempt != 1 or not (
-            target.pr_number or push_tip_failover(target)):
+    """The placement-only rerun for a supported workflow, or ``None``.
+
+    cmux-next keeps its original first-attempt plan. Portable light workflows
+    are deliberately narrower: only a same-repository pull-request later
+    attempt that is not a full rerun may use the plan, and its placement job
+    must be proven current before the run can be cancelled.
+    """
+    portable = target.path in PORTABLE_LIGHT_WORKFLOW_PATHS
+    cmux_next = target.path == CMUX_NEXT_WORKFLOW_PATH
+    if portable:
+        if not target.pr_number or target.event not in ("", "pull_request") or target.attempt <= 1 \
+                or target.full_rerun:
+            return None
+        key, name = PORTABLE_PLACEMENT_KEY, PORTABLE_PLACEMENT_JOB
+    elif cmux_next:
+        if target.attempt != 1 or not (target.pr_number or push_tip_failover(target)):
+            return None
+        key, name = CMUX_NEXT_PLACEMENT_KEY, CMUX_NEXT_PLACEMENT_JOB
+    else:
         return None
     reader = getattr(api, "workflow_file", None)
     if reader is None:
@@ -3808,7 +3874,8 @@ def failover_plan(api: GitHub, target: Target, jobs: Sequence[Mapping[str, Any]]
     except READ_ERRORS as error:
         log(f"could not read {target.path} at {target.head_sha[:12]} ({error}); the failover re-runs every job")
         return None
-    plan, why = placement_rerun(text, jobs)
+    plan, why = placement_rerun(text, jobs, placement_key=key, placement_job=name,
+                                attempt_started_at=target.attempt_started_at, portable=portable)
     if plan is None:
         log(f"no placement re-run: {why}; the failover keeps the full re-run")
     return plan
@@ -3863,6 +3930,20 @@ def mac_route(job: Mapping[str, Any]) -> str | None:
         return owned
     return next((str(label) for label in job.get("labels") or () if BLACKSMITH_MACOS_LABEL.fullmatch(str(label))),
                 None)
+
+
+def portable_route(job: Mapping[str, Any]) -> str | None:
+    """The route a portable light job is waiting on, including paid Linux fallbacks."""
+    owned = job_pool(job)
+    if owned:
+        return owned
+    return next((str(label) for label in job.get("labels") or ()
+                 if BLACKSMITH_PORTABLE_LABEL.fullmatch(str(label))), None)
+
+
+def failover_route(target: "Target", job: Mapping[str, Any]) -> str | None:
+    """The queue label that the open-head failover may move for this target."""
+    return portable_route(job) if target.path in PORTABLE_LIGHT_WORKFLOW_PATHS else mac_route(job)
 
 
 def unstarted_failover(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
@@ -3959,7 +4040,8 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
             log(f"run {target.run_id} lists {len(jobs)} jobs, maybe more; the open head keeps the run")
             return NO_FAILOVER
         at = now()
-        waiting = [(job, str(mac_route(job))) for job in jobs if waiting_for_runner(job) and mac_route(job)]
+        waiting = [(job, str(failover_route(target, job))) for job in jobs
+                   if waiting_for_runner(job) and failover_route(target, job)]
         for job, _ in waiting:
             if parse_time(job.get("created_at")) is None:
                 # No created_at to date it: this look is the earliest proof it was queued.
@@ -3997,7 +4079,7 @@ def open_head_failover(api: GitHub, target: Target, *, now: Callable[[], dt.date
                 return Failover(f"no job of attempt {target.attempt} is running ({len(jobs) - 1} of {len(jobs)} "
                                 f"finished), and {stuck}", settled=True, only_job=int(left[0]["id"]))
             done = (f"no job of attempt {target.attempt} has started" if plan is None else
-                    f"no job a re-run of {CMUX_NEXT_PLACEMENT_JOB} would repeat has run")
+                    f"no job a re-run of {plan.placement_job} would repeat has run")
             return Failover(f"{done}, and {stuck}", plan)
         if look == 2:
             return NO_FAILOVER
@@ -4016,11 +4098,12 @@ def failover_receipt(api: GitHub, target: Target, why: str, sleep: Callable[[flo
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
     except Exception:  # noqa: BLE001 - the receipt never stops the failover
         jobs = []
-    queued = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs
+    queued = sorted(f"{job.get('name')} on {failover_route(target, job) or 'linux'}" for job in jobs
                     if not failover_loses(job, plan) and job.get("status") != "completed")
-    placed = sorted(str(job.get("name")) for job in jobs if str(job.get("name") or "") in PLACEMENT_JOBS
+    placement_names = {plan.placement_job} if plan is not None else PLACEMENT_JOBS
+    placed = sorted(str(job.get("name")) for job in jobs if str(job.get("name") or "") in placement_names
                     and job.get("conclusion") == "success" and (plan is None or plan.reruns(job)))
-    how = "re-run in full" if plan is None else f"re-run from {CMUX_NEXT_PLACEMENT_JOB}"
+    how = "re-run in full" if plan is None else f"re-run from {plan.placement_job}"
     kept = "" if plan is None else "; finished jobs kept: " + (", ".join(sorted(
         str(job.get("name")) for job in jobs if job.get("status") == "completed"
         and job.get("conclusion") != "skipped" and not plan.reruns(job))) or "none")
@@ -4029,7 +4112,7 @@ def failover_receipt(api: GitHub, target: Target, why: str, sleep: Callable[[flo
             f"placement jobs repeated: {', '.join(placed) or 'none'}{kept}")
     if settled:
         # The settled-sibling failover: the finished jobs keep their results, and only what waited runs again.
-        waiting = sorted(f"{job.get('name')} on {mac_route(job) or 'linux'}" for job in jobs
+        waiting = sorted(f"{job.get('name')} on {failover_route(target, job) or 'linux'}" for job in jobs
                          if job.get("status") != "completed")
         done = sum(1 for job in jobs if job.get("status") == "completed")
         line = (f"run {target.run_id} attempt {target.attempt} of PR #{target.pr_number} at {target.head_sha[:12]}: "
@@ -4354,7 +4437,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         before_cancel = settled_guard(api, target, sleep, log, before_cancel, found.only_job)
     elif failover:
         log(f"{OPEN_HEAD_FAILOVER}: {failover}; cancelling run {target.run_id} to re-run "
-            + ("every job" if plan is None else f"{CMUX_NEXT_PLACEMENT_JOB} and the jobs that need it")
+            + ("every job" if plan is None else f"{plan.placement_job} and the jobs that need it")
             + " at its head")
         receipt = failover_receipt(api, target, failover, sleep, log, plan)
         # The placement runs again and checks the routes afresh (a re-run of failed jobs would keep its old
@@ -4524,10 +4607,10 @@ def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.dateti
             # Refused (GitHub declines a job it cannot re-run): no fallback. A re-run of every job would repeat the
             # finished Linux jobs, a red check included, that the placement failover keeps; the run stays as GitHub
             # has it.
-            return (f"not re-run: GitHub refused the re-run of {CMUX_NEXT_PLACEMENT_JOB} (job {placement.job_id}) "
+            return (f"not re-run: GitHub refused the re-run of {placement.placement_job} (job {placement.job_id}) "
                     f"of run {target.run_id} ({error.code}); its finished jobs keep their results")
-        return (f"re-ran {CMUX_NEXT_PLACEMENT_JOB} of run {target.run_id} and every job that needs it; attempt "
-                f"{target.attempt + 1} places its Mac jobs afresh and keeps every other finished job")
+        return (f"re-ran {placement.placement_job} of run {target.run_id} and every job that needs it; attempt "
+                f"{target.attempt + 1} refreshes its live route and keeps every other finished job")
     api.rerun(target.run_id, target.attempt + 1)
     if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
@@ -5004,6 +5087,11 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     decide, the picker's and then late-placement's.
     """
     attempt = int(run.get("run_attempt") or 0)
+    if run.get("path") in PORTABLE_LIGHT_WORKFLOW_PATHS and attempt <= 1:
+        # Attempt 1 is handled by the portable workflow's own placement and
+        # hosted-light rescue. This sweeper only owns later paid fallback
+        # attempts, where placement can be refreshed safely.
+        return "portable placement attempt 1 is not a sweeper target"
     if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":

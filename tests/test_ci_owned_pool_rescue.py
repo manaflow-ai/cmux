@@ -7105,6 +7105,29 @@ jobs:
 SIDE_STD = "glaeda-side-std-xcode-26.6"
 
 
+# The portable workflows share this small placement graph. The paid fallback
+# remains in each dependent expression, while a successful placement job can
+# send the job to a fresh fleet or mini route on a later attempt.
+PORTABLE_PLACEMENT_FIXTURE = """
+on: pull_request
+jobs:
+  portable-placement:
+    name: portable light placement
+    runs-on: ubuntu-24.04
+    steps: [{run: "true"}]
+  resolve:
+    name: resolve head and base
+    needs: portable-placement
+    runs-on: ${{ needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.mini_runner || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps: [{run: "true"}]
+  post:
+    name: post light status
+    needs: [portable-placement, resolve]
+    runs-on: ${{ needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.mini_runner || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps: [{run: "true"}]
+"""
+
+
 def finished(name, conclusion, *, labels=("blacksmith-4vcpu-ubuntu-2404",), runner="bs-linux", job_id=None):
     found = job(name, status="completed", labels=list(labels), runner=runner if conclusion != "skipped" else "")
     found["conclusion"] = conclusion
@@ -7651,6 +7674,84 @@ class OpenHeadPlacementRerun(unittest.TestCase):
         offers = api.snapshot_reads
         self.assertGreater(offers, 1)
         self.assertLessEqual(offers, target.watch_limit // rescue.FAILOVER_LOOK_SECONDS + 2)
+
+
+class OpenHeadPortablePlacementRerun(unittest.TestCase):
+    """Later portable-placement attempts move paid light jobs after a fresh placement."""
+
+    PLACEMENT_ID = 77
+
+    def jobs(self, _seconds=0, *, started_at=None):
+        placement = finished(rescue.PORTABLE_PLACEMENT_JOB, "success",
+                             labels=("blacksmith-2vcpu-ubuntu-2404",), runner="bs-linux",
+                             job_id=self.PLACEMENT_ID)
+        placement["started_at"] = stamp(10 if started_at is None else started_at)
+        resolve = job("resolve head and base", labels=["blacksmith-4vcpu-ubuntu-2404"], created=-240)
+        resolve["id"] = 78
+        post = job("post light status", labels=["blacksmith-4vcpu-ubuntu-2404"], created=-240)
+        post["id"] = 79
+        return [placement, resolve, post]
+
+    def world(self, *, started_at=None, full_rerun=False):
+        clock = Clock()
+        jobs = lambda seconds: self.jobs(seconds, started_at=started_at)
+        api = FakeAPI(clock, jobs, workflow=PORTABLE_PLACEMENT_FIXTURE,
+                      rerun_jobs=jobs,
+                      snapshot=lambda seconds: {"generated_at": stamp(seconds),
+                                                "pools": {"blacksmith-4vcpu-ubuntu-2404": {
+                                                    "queued": 40, "running": 0,
+                                                    "oldest_queued_minutes": 42}}})
+        api.attempt = 2
+        target = rescue.Target(run_id=RUN_ID, attempt=2, head_sha=HEAD, pr_number=27800,
+                               path=".github/workflows/pr-checks.yml", side=True,
+                               event="pull_request", full_rerun=full_rerun,
+                               attempt_started_at=START)
+        return clock, api, target
+
+    def test_paid_linux_fallback_is_a_portable_failover_route(self):
+        self.assertEqual(rescue.portable_route({"labels": ["blacksmith-4vcpu-ubuntu-2404"]}),
+                         "blacksmith-4vcpu-ubuntu-2404")
+
+    def test_later_attempt_reruns_only_portable_placement_subtree(self):
+        clock, api, target = self.world(started_at=10)
+        plan = rescue.failover_plan(api, target, self.jobs(started_at=10), clock.sleep, lambda _: None)
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan.job_id, self.PLACEMENT_ID)
+        self.assertEqual(plan.placement_job, rescue.PORTABLE_PLACEMENT_JOB)
+        self.assertEqual(plan.below, {"resolve", "post"})
+        self.assertIn("paid fallback", plan.route_proof)
+
+    def test_open_head_failover_sees_a_stalled_paid_linux_label(self):
+        clock, api, target = self.world(started_at=10)
+        found = rescue.open_head_failover(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.assertTrue(found)
+        self.assertIsNotNone(found.plan)
+        self.assertIn("blacksmith-4vcpu-ubuntu-2404", found.why)
+
+    def test_stale_or_carried_placement_fails_closed(self):
+        clock, api, target = self.world(started_at=-10)
+        plan = rescue.failover_plan(api, target, self.jobs(started_at=-10), clock.sleep, lambda _: None)
+        self.assertIsNone(plan)
+
+    def test_full_rerun_and_first_attempt_never_use_later_attempt_plan(self):
+        for full_rerun, attempt in ((True, 2), (False, 1)):
+            with self.subTest(full_rerun=full_rerun, attempt=attempt):
+                clock, api, target = self.world(started_at=10, full_rerun=full_rerun)
+                target = dataclasses.replace(target, attempt=attempt)
+                self.assertIsNone(rescue.failover_plan(api, target, self.jobs(started_at=10),
+                                                       clock.sleep, lambda _: None))
+
+    def test_sweeper_ignores_first_attempt_until_a_paid_retry_exists(self):
+        run = {
+            "id": RUN_ID,
+            "path": ".github/workflows/pr-checks.yml",
+            "event": "pull_request",
+            "run_attempt": 1,
+            "head_sha": HEAD,
+            "head_repository": {"full_name": "manaflow-ai/cmux"},
+            "pull_requests": [{"number": 27800}],
+        }
+        self.assertIn("attempt 1", rescue.sweep_target(run, "manaflow-ai/cmux", late=False))
 
 
 class Budget(unittest.TestCase):
