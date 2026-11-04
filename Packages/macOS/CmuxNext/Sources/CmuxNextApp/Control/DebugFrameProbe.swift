@@ -133,11 +133,6 @@ final class DebugFrameProbe {
         }
     }
 
-    private static func percentile(_ sorted: [Double], _ p: Double) -> Double {
-        guard !sorted.isEmpty else { return 0 }
-        return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
-    }
-
     private func stats(raw: Bool) -> JSONValue {
         let sorted = intervals.sorted()
         let work = busy.sorted()
@@ -146,9 +141,9 @@ final class DebugFrameProbe {
             "running": .bool(client.isActive),
             "frames": JSONValue(sorted.count),
             "refresh_ms": .number(expected * 1_000),
-            "p50_ms": .number(Self.percentile(sorted, 0.5)),
-            "p95_ms": .number(Self.percentile(sorted, 0.95)),
-            "p99_ms": .number(Self.percentile(sorted, 0.99)),
+            "p50_ms": .number(sorted.sortedPercentile(0.5)),
+            "p95_ms": .number(sorted.sortedPercentile(0.95)),
+            "p99_ms": .number(sorted.sortedPercentile(0.99)),
             "max_ms": .number(sorted.last ?? 0),
             "over_16_7_ms": JSONValue(sorted.filter { $0 > budget }.count),
             // Missed vsyncs: intervals longer than 1.5 refresh periods.
@@ -156,8 +151,8 @@ final class DebugFrameProbe {
             // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
             "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
             // The main thread's busy ms per frame; over 8.33 ms misses a 120 Hz vsync.
-            "main_p50_ms": .number(Self.percentile(work, 0.5)),
-            "main_p95_ms": .number(Self.percentile(work, 0.95)),
+            "main_p50_ms": .number(work.sortedPercentile(0.5)),
+            "main_p95_ms": .number(work.sortedPercentile(0.95)),
             "main_max_ms": .number(work.last ?? 0),
             "main_total_ms": .number(busy.reduce(0, +)),
             "main_over_8_3_ms": JSONValue(work.filter { $0 > 1_000.0 / 120.0 }.count),
