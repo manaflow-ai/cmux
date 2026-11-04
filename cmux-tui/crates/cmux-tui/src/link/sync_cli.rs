@@ -537,10 +537,14 @@ fn push_inner(
             summary.unchanged += 1;
             next.files.insert(relative.clone(), pushed.clone());
         } else {
+            // What is at the target now, from its folder's listing (one
+            // `fs.list` per folder instead of one `fs.stat` per file: on a
+            // link of tens of ms each round trip is most of a small file).
+            let in_the_way = listings.kind(&mut remote, &target)?;
             if made.insert(parent.to_string()) {
                 remote.mkdir_all(parent)?;
             }
-            let revision = write(&mut remote, &target, file)?;
+            let revision = write_known(&mut remote, &target, file, in_the_way.as_deref())?;
             summary.written += 1;
             summary.bytes += bytes;
             next.files.insert(
@@ -600,9 +604,14 @@ fn save_partway(
 /// Writes `file` to `target`. An empty folder in the way (left by a folder
 /// that became a file) is removed first; a folder with anything in it stays
 /// and the write fails.
-fn write(remote: &mut Remote, target: &str, file: &LocalFile) -> anyhow::Result<String> {
+fn write_known(
+    remote: &mut Remote,
+    target: &str,
+    file: &LocalFile,
+    kind: Option<&str>,
+) -> anyhow::Result<String> {
     let mut ignored = || {};
-    write_with_progress(remote, target, file, &mut ignored)
+    write_over(remote, target, file, kind, &mut ignored)
 }
 
 fn write_with_progress(
@@ -611,9 +620,19 @@ fn write_with_progress(
     file: &LocalFile,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<String> {
-    if remote.kind(target)?.as_deref() == Some("dir")
-        && remote.list(target)?.is_some_and(|entries| entries.is_empty())
-    {
+    let kind = remote.kind(target)?;
+    write_over(remote, target, file, kind.as_deref(), progress)
+}
+
+/// [`write_with_progress`] where `kind` is what is at `target` now.
+fn write_over(
+    remote: &mut Remote,
+    target: &str,
+    file: &LocalFile,
+    kind: Option<&str>,
+    progress: &mut dyn FnMut(),
+) -> anyhow::Result<String> {
+    if kind == Some("dir") && remote.list(target)?.is_some_and(|entries| entries.is_empty()) {
         remote.delete(&[target.to_string()])?;
     }
     let mut reader = open(file)?;
@@ -633,16 +652,25 @@ impl Listings {
     /// The revision of the file at `target`; None when it is missing or not
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .entry(remote, target)?
+            .filter(|entry| entry.kind == "file")
+            .and_then(|entry| entry.revision))
+    }
+
+    /// The kind of what is at `target` (`file`, `dir`, ...); None when
+    /// nothing is there.
+    fn kind(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.entry(remote, target)?.map(|entry| entry.kind))
+    }
+
+    fn entry(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<RemoteEntry>> {
         let (parent, name) = remote::split(target)?;
         if !self.0.contains_key(parent) {
             let listing = remote.list(parent)?;
             self.0.insert(parent.to_string(), listing);
         }
-        Ok(self.0[parent]
-            .as_ref()
-            .and_then(|entries| entries.get(name))
-            .filter(|entry| entry.kind == "file")
-            .and_then(|entry| entry.revision.clone()))
+        Ok(self.0.get(parent).and_then(Option::as_ref).and_then(|entries| entries.get(name)).cloned())
     }
 
     fn clear(&mut self) {
