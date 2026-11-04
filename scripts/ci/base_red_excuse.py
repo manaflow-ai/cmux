@@ -410,6 +410,13 @@ def mask_shas(text: str) -> str:
     return SHA.sub(lambda match: (match.group(1) or "") + "<sha>", text)
 
 
+def normalise_error(text: str) -> str:
+    """An error line as compared with the base's: the annotation prefix dropped, commit shas, run-to-run tokens
+    (test_reds.volatile: run-named temp dirs, the runner's checkout root, times) and then
+    every number masked, so the same red on two runs is one line and a different red is not."""
+    return re.sub(r"\d+", "#", test_reds.volatile(mask_shas(text.replace("##[error]", "").strip())))
+
+
 def lines_of(log: str) -> list[str]:
     """The text of each `job<TAB>step<TAB>stamp text` line of `gh run view --log`."""
     found = []
@@ -440,7 +447,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
                  and SUMMARY_FAILURE.search(text)))
                 and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text)
                 and not SUCCESS_DIAGNOSTIC.search(text)):
-            errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
+            errors.add(normalise_error(text))
     return steps, tests, errors
 
 
@@ -1162,8 +1169,7 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
         result = test_reds.read("\n".join(by_step.get(step, [])))
         if not result.failed or result.crashes or result.truncated or result.failed - known.keys():
             return False
-    def normalized(text):
-        return re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip()))
+    normalized = normalise_error
     diagnostics = set()
     for observed in test_reds.observations(head_log):
         if observed["outcome"] != "fail":
