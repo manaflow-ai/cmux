@@ -159,3 +159,32 @@ async fn the_running_update_carries_the_calls_description() {
         _ => true,
     }));
 }
+
+/// A Monitor call runs its command in the background, and Claude's task events for it carry only its
+/// description: the running update names its command and its description, so the tray never reads
+/// the description ("hold") as the command.
+#[tokio::test]
+async fn a_monitor_call_keeps_its_command_and_description() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&json!({"type": "assistant", "message": {"content": [{"type": "tool_use",
+        "id": "toolu_bg", "name": "Monitor", "input": {"command": "sleep 840; echo t",
+        "description": "hold", "timeout_ms": 900000, "persistent": "false"}}]}}))
+        .await;
+    let out = t
+        .inbound(&json!({"type": "system", "subtype": "task_started", "task_id": "b7x",
+            "tool_use_id": "toolu_bg", "task_type": "local_bash", "description": "hold"}))
+        .await;
+    let running = out
+        .iter()
+        .find_map(|m| match m {
+            Message::Notification { params: Some(p), .. }
+                if p.pointer("/update/state") == Some(&json!("running")) =>
+            {
+                Some(p["update"].clone())
+            }
+            _ => None,
+        })
+        .expect("a running update");
+    assert_eq!(running["command"], json!("sleep 840; echo t"));
+    assert_eq!(running["description"], json!("hold"));
+}
