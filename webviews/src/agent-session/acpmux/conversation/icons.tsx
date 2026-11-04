@@ -95,10 +95,13 @@ export const ImageIcon = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two squares, as Claude Code desktop's Copy (Leo, 2026-11-04: "symbol shape bad"): the front one
+ * top left, whole; the one behind lower right, its corner under the front one hidden. 12 of ink in
+ * the 16 box with a small radius, so it reads as squares rather than two rounded blobs. */
 export const Copy = (p: CvIconProps) => (
   <Svg {...p}>
-    <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />
-    <path d="M10.75 5.25V4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2v4.25a2 2 0 0 0 2 2h.75" />
+    <rect x="2.25" y="2.25" width="8.25" height="8.25" rx="1.5" />
+    <path d="M10.5 5.5h1.75c.69 0 1.25.56 1.25 1.25v5.5c0 .69-.56 1.25-1.25 1.25h-5.5c-.69 0-1.25-.56-1.25-1.25V10.5" />
   </Svg>
 );
 
@@ -208,11 +211,12 @@ export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
   </Svg>
 );
 
-/** A speaker with sound waves: Read aloud. */
+/** A speaker with one sound wave, as Claude Code desktop's Read aloud (Leo, 2026-11-04: "symbol
+ * shape bad"): a short box, a cone the full 12 of ink tall, one shallow wave beside it. */
 export const Speaker = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
-    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+    <path d="M2 6.5c0-.41.34-.75.75-.75H5L10.25 2.5v11L5 10.25H2.75A.75.75 0 0 1 2 9.5Z" />
+    <path d="M12.75 5.25a4 4 0 0 1 0 5.5" />
   </Svg>
 );
 

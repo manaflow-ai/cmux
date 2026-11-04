@@ -180,6 +180,7 @@ export function ThreadMinimap({
   columnWidth = width,
   placed,
   change,
+  topInset = 0,
 }: {
   rows: readonly AcpmuxRow[];
   /// The chat's prompts older than `rows` (VirtualTranscript `earlier`): ticks from the first frame.
@@ -220,8 +221,13 @@ export function ThreadMinimap({
   /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
+  /// CSS pixels of the scroller's top a floating tab row covers (VirtualTranscript `topInset`): a jump lands
+  /// its prompt LANDING_OFFSET below the row, not under it.
+  topInset?: number;
 }) {
   const t = useT();
+  const topInsetNow = useRef(topInset);
+  topInsetNow.current = topInset;
   const earlierRows = earlier;
   /// The full-height map (ScrollMap.tsx), the compact Codex rail below, or none (`off`: the turn
   /// steps below still run), read once per pane. The Chat Minimap setting
@@ -396,21 +402,27 @@ export function ThreadMinimap({
   /// index (`earlier`) give every prompt its tick from the first frame, so the box is full height and
   /// centered once, and history paging in neither grows nor re-centres it (Leo, 2026-11-03: "mostly i
   /// just don't like it when the thing shifts and whatnot trying to center itself").
-  /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
+  /// One height for a fixed arm; the others are never shorter than the prompts on screen (railHeight).
+  const heightConfig = railHeightConfig(heightArm);
   const boxRail = railHeight(
     turns.length,
     windowHeight,
     boxHeight,
     boxFoot,
     onScreen.last - onScreen.first + 1,
-    railHeightConfig(heightArm),
+    heightConfig,
   );
-  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
   /// The bottom stack's top as it is now (VirtualTranscript `railBox.live`): the rail's foot and the
   /// card's both stay above it, so the two never disagree on where the view ends.
   const liveFoot = railBox?.live ?? boxFoot ?? viewportHeight;
-  /// The list's own height: the whole box, less what a stack grown since rest takes (railClearHeight).
-  const height = railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
+  /// A fixed rail neither moves nor changes height when the stack grows (Leo, 2026-11-04: "the height
+  /// of the left scroll rail should never be affected by anything"; 2026-11-03: "i just don't like it
+  /// when the thing shifts"): a stack tall enough to reach it lays over its foot. The other arms keep
+  /// their top and shorten from the foot (railClearHeight).
+  const boxTop = railTopAt(boxRail, boxHeight, boxFoot);
+  const height = heightConfig.fixed
+    ? boxRail
+    : railClearHeight(boxRail, boxTop, boxHeight, boxFoot ?? boxHeight, liveFoot);
   /// Where the list's first row draws in the view.
   const railTop = boxTop;
   // The compact rail is pinned to the pane's left edge. It never follows the centered transcript or
@@ -764,7 +776,7 @@ export function ThreadMinimap({
             const box = targetRow()?.getBoundingClientRect();
             // Not drawn yet, or no layout to measure (a hidden pane).
             if (!box || box.height === 0) return undefined;
-            return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
+            return box.top - node.getBoundingClientRect().top - LANDING_OFFSET - topInsetNow.current;
           },
           SETTLE_FRAMES,
           { explicit: true },
@@ -1506,6 +1518,15 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
+  /// Each drawn row's spoken label, by its prompt, as last built. Every row the pointer crosses
+  /// renders the list, and each drawn row (about 115 on a tall rail) built its label again through
+  /// `t`, for the few rows the hover changes (Leo, 2026-11-04: "hovering across the session rail gets
+  /// a bit laggy ... it needs to get faster"). A row whose place, count and mark are unchanged keeps
+  /// it; a change of language starts over.
+  const labels = useMemo(
+    () => (void t, new WeakMap<MinimapTickRow, { index: number; count: number; marked: boolean; label: string }>()),
+    [t],
+  );
   // An entrance belongs to a logical prompt, not each virtualized DOM mount. Only
   // prompts appended later enter. Initial history paints at its final geometry, as it does on
   // subsequent virtualized mounts. Prepending history introduces no animation.
@@ -1546,8 +1567,29 @@ const TickList = memo(function TickList({
   if (ticks.length > next) drawn.push(<Spacer key={`gap-${next}`} rows={ticks.length - next} />);
   return drawn;
 
+  function labelOf(tick: MinimapTickRow, index: number, marked: boolean): string {
+    const kept = labels.get(tick);
+    if (kept && kept.index === index && kept.count === ticks.length && kept.marked === marked) return kept.label;
+    const label =
+      tick.from !== undefined
+        ? t("minimap.tickFrom", {
+            index: index + 1,
+            count: ticks.length,
+            name: tick.from,
+            prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
+          })
+        : t(marked ? "minimap.tickBookmarked" : "minimap.tick", {
+            index: index + 1,
+            count: ticks.length,
+            prompt: tick.prompt,
+          });
+    labels.set(tick, { index, count: ticks.length, marked, label });
+    return label;
+  }
+
   function tickAt(index: number) {
     const tick = ticks.at(index)!;
+    const marked = marks.has(tick);
     // A list item that names its place among every prompt, drawn or not; it draws no box.
     return (
       <li key={tick.key} className="acpmux-minimap__entry" aria-posinset={index + 1} aria-setsize={ticks.length}>
@@ -1559,23 +1601,10 @@ const TickList = memo(function TickList({
           progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
           active={index === active}
           current={index >= first && index <= last}
-          marked={marks.has(tick)}
+          marked={marked}
           incoming={tick.from !== undefined}
           describedBy={described === index ? cardId : undefined}
-          label={
-            tick.from !== undefined
-              ? t("minimap.tickFrom", {
-                  index: index + 1,
-                  count: ticks.length,
-                  name: tick.from,
-                  prompt: tick.members ? foldedTitle(t, tick.members.length) : tick.prompt,
-                })
-              : t(marks.has(tick) ? "minimap.tickBookmarked" : "minimap.tick", {
-                  index: index + 1,
-                  count: ticks.length,
-                  prompt: tick.prompt,
-                })
-          }
+          label={labelOf(tick, index, marked)}
           actions={actions}
         />
       </li>

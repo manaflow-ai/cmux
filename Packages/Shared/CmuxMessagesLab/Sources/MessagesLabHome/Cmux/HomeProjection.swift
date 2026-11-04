@@ -105,6 +105,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var shownSummary: ConversationSummary? { core.summary }
     var aliases: [IdempotencyKey: ID] { core.aliases }
     private(set) var hasOlder = false
+    /// The chat's first page has settled (the store read it, and one pass applied it after): until then
+    /// every change installs at once at the newest message, with no receive motion (the user, 2026-11-03:
+    /// switching chats showed each one scroll to its bottom).
+    private var opened = false
     /// An older page was asked for and has not come yet (one ask per page).
     private var olderRequested = false
     private var reportedRead: Seq = 0
@@ -242,7 +246,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
         passStep("title", &mark)
-        let diff = core.step(items: items, summary: summary)
+        let opening = !opened
+        if !homeStore.isLoadingTranscript(conversation) { opened = true }
+        let diff = core.step(items: items, summary: summary, opening: opening)
         passStep("diff", &mark)
         let streamed = core.streams(streams, state: store.state)
         passStep("streams", &mark)
@@ -990,13 +996,15 @@ struct ProjectionCore {
     }
 
     /// The actions from the shown snapshot to this one.
-    mutating func step(items: [TranscriptItem], summary new: ConversationSummary?) -> HomeDiff {
+    /// - Parameter opening: The chat's first page has not settled yet (``HomeProjection``): new rows install
+    ///   in one rebuild, not as animated receives.
+    mutating func step(items: [TranscriptItem], summary new: ConversationSummary?, opening: Bool = false) -> HomeDiff {
         // The shown snapshot again (a streamed token, typing, the activity line): nothing to diff.
         // Mapping every row again cost 3.5 ms per token at 60 rows on the main thread, which a
         // drag over the field waits for (DragWhileStreamingTests).
         if items == shown, new == summary { return HomeDiff() }
         var d = HomeDiff.plan(old: shown, new: items, oldSummary: summary, newSummary: new, aliases: aliases, me: me, media: media, links: links,
-                              handOff: streamingTurns)
+                              handOff: streamingTurns, opening: opening)
         // An agent that sent through my CLI appeared (or its last message left the window): its name and avatar
         // are in the participants before its message arrives (HomeAgentSender).
         if HomeAgentSender.all(in: items, me: me) != HomeAgentSender.all(in: shown, me: me) {
