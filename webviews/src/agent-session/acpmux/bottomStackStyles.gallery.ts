@@ -5,7 +5,7 @@
 // test/agent-pane-bottom-stack-edges.test.ts measures every card's left and right edge and the
 // gaps between them here.
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
-import { assistant, chat, row, session, SESSION_ID, summary, user } from "../../gallery/fixtures/acpmux";
+import { assistant, chat, row, session, SESSION_ID, user } from "../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../gallery/clock";
 import type { PlayContext } from "../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";

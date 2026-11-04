@@ -8221,18 +8221,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     };
   }, [hunkDecisions]);
-  // Address on a review thread (cx-ncc.77.3) settles once acpmux took its prompt: chat.send
-  // itself settles when the turn ends, which could be long after, and a turn that fails later
-  // was still sent. Until acpmux connects nothing takes a prompt.
-  const addressThread = useCallback(
-    (prompt: string) =>
-      window.cmuxAcpmuxActions?.["chat.send"]
-        ? new Promise<void>((resolve, reject) => {
-            callNative("chat.send", { text: prompt, accepted: () => resolve() }).then(() => resolve(), reject);
-          })
-        : Promise.reject(new Error(translate("error.notOpen"))),
-    [],
-  );
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
   useEffect(() => setStatusCardOpen(false), [snapshot.sessionId]);
