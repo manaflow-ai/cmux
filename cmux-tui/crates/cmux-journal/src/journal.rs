@@ -194,6 +194,9 @@ pub struct Journal {
     shared: Arc<Shared>,
     storage: Arc<dyn Storage>,
     dir: PathBuf,
+    /// This journal's id, in every segment's header: kept across opens and retirements while one
+    /// segment is left, new for a journal made from nothing ([`Journal::journal_id`]).
+    journal_id: u64,
     writer: Option<std::thread::JoinHandle<()>>,
     /// Held as long as the writer may write; released after the writer is joined.
     _lock: Box<dyn StorageLock>,
@@ -240,14 +243,21 @@ impl Journal {
         });
         let report = recovered.report;
         let lock = recovered.lock;
+        let journal_id = recovered.writer.journal_id;
         let writer =
             Writer::new(shared.clone(), Arc::clone(&storage), dir.to_path_buf(), recovered.writer);
         let handle = std::thread::Builder::new()
             .name("cmux-journal-writer".into())
             .spawn(move || writer.run())
             .map_err(|error| OpenError::Io { what: "writer thread".into(), error })?;
-        let journal =
-            Self { shared, storage, dir: dir.to_path_buf(), writer: Some(handle), _lock: lock };
+        let journal = Self {
+            shared,
+            storage,
+            dir: dir.to_path_buf(),
+            journal_id,
+            writer: Some(handle),
+            _lock: lock,
+        };
         Ok((journal, report))
     }
 
@@ -285,6 +295,13 @@ impl Journal {
             return Err(AppendError::TooLarge);
         }
         self.shared.lock().admits(&self.shared.config, format::record_len(payload_len))
+    }
+
+    /// This journal's id (never 0). LSNs are unique only within one id: a journal made again from
+    /// nothing (its folder removed) starts another id and may give out LSNs an older one gave. A
+    /// caller that keeps an LSN outside the journal keeps the id beside it.
+    pub fn journal_id(&self) -> u64 {
+        self.journal_id
     }
 
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel
