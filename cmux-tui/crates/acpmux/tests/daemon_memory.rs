@@ -361,8 +361,8 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
 /// harness and its fixture stay identical. The environment remains hermetic and denies agents.
 ///
 /// This restores 200 worked-chat metadata records, half with the durable hibernation mark.
-/// It reuses the Chief fixture's catalog sizes (four tools and five selects), replacing only
-/// the model select's choices with three actual model ids. Selections vary by chat, so sharing
+/// It uses the built-in Claude translator's actual option and mode catalogs, with four tools
+/// and varied model/effort/mode selections. Sharing
 /// a catalog must not merge their current values. No live harness, large transcript, or tool
 /// output is simulated: RSS is the daemon's own resident memory, including allocator retention
 /// after detail/list requests, not the total process tree or a claimed heap-allocation count.
@@ -379,7 +379,7 @@ fn idle_session_resident_memory_benchmark() {
         format!("01a15906-0000-7000-8000-{i:012}")
     }
 
-    fn metadata(i: u64) -> Value {
+    fn metadata(i: u64, catalogs: &[(Value, Value)]) -> Value {
         let models = [
             ("claude-opus-5-5", "Claude Opus 5.5"),
             ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
@@ -387,26 +387,20 @@ fn idle_session_resident_memory_benchmark() {
         ];
         let selected = models[i as usize % models.len()].0;
         let mut meta = chief_meta(&id(i), "idle", AT);
-        meta["configOptions"][0]["options"] = json!(models.iter().map(|(id, name)| {
-            json!({"name": name, "value": id})
-        }).collect::<Vec<_>>());
-        meta["configOptions"][0]["currentValue"] = json!(selected);
-        for option in 1..5 {
-            meta["configOptions"][option]["currentValue"] =
-                json!(format!("v{option}-{}", (i + option as u64) % 21));
-        }
+        let (options, modes) = &catalogs[i as usize % catalogs.len()];
+        meta["configOptions"] = options.clone();
         meta["models"] = json!({
             "availableModels": models.iter().map(|(id, name)| {
                 json!({"modelId": id, "name": name})
             }).collect::<Vec<_>>(),
             "currentModelId": selected,
         });
-        meta["modes"]["currentModeId"] = json!(if i.is_multiple_of(3) { "plan" } else { "default" });
+        meta["modes"] = modes.clone();
         meta["hibernatedMs"] = json!(if i.is_multiple_of(2) { AT + 5_000 } else { 0 });
         meta
     }
 
-    fn sample(repeat: usize, chats: u64) -> (u64, u64) {
+    fn sample(repeat: usize, chats: u64, catalogs: &[(Value, Value)]) -> (u64, u64) {
         let dir = scratch(&format!("idle-resident-{repeat}-{chats}"));
         let home = dir.join("home");
         private_dir(&home);
@@ -415,7 +409,7 @@ fn idle_session_resident_memory_benchmark() {
             write_session(&home, &id(i), "idle", true);
             private_file(
                 &home.join("sessions").join(id(i)).join("session.json"),
-                &metadata(i).to_string(),
+                &metadata(i, catalogs).to_string(),
             );
         }
         let daemon = Daemon::start(&dir, &home);
@@ -426,7 +420,7 @@ fn idle_session_resident_memory_benchmark() {
             // Ready precedes deferred log loading. Info waits for this chat's log;
             // it does not open the chat on screen or wake a hibernated harness.
             let detail = rpc.call("_acpmux/info", json!({"sessionId": id(i)}));
-            let expected = metadata(i);
+            let expected = metadata(i, catalogs);
             assert_eq!(detail["sessionId"], id(i));
             assert_eq!(detail["logsLoading"], false);
             assert_eq!(detail["status"], "idle");
@@ -458,6 +452,22 @@ fn idle_session_resident_memory_benchmark() {
         (loaded_rss, listed_rss)
     }
 
+    // Use production catalogs rather than multiplying synthetic select choices. Building
+    // fixtures happens in this test process, never in the daemon whose RSS is measured.
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let catalogs = runtime.block_on(async {
+        let mut catalogs = Vec::new();
+        for i in 0..21 {
+            let translator = acpmux::claude_stdio::Translator::new(
+                id(i),
+                if i.is_multiple_of(3) { "plan" } else { "default" },
+                ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"][i as usize % 3],
+                ["low", "medium", "high", "xhigh"][i as usize % 4],
+            );
+            catalogs.push((translator.config_options_value().await, translator.modes_value().await));
+        }
+        catalogs
+    });
     let mut empty_rss = [0u64; REPEATS];
     let mut full_rss = [0u64; REPEATS];
     let mut per_session = [0i64; REPEATS];
@@ -466,7 +476,7 @@ fn idle_session_resident_memory_benchmark() {
         // Alternate pair order so startup/host drift does not always favor one size.
         let sizes = if repeat % 2 == 0 { [0, CHATS] } else { [CHATS, 0] };
         for chats in sizes {
-            let (loaded_rss, listed_rss) = sample(repeat, chats);
+            let (loaded_rss, listed_rss) = sample(repeat, chats, &catalogs);
             if chats == 0 {
                 empty_rss[repeat] = listed_rss;
             } else {
