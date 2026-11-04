@@ -1164,6 +1164,10 @@ pub struct Config {
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine_wake: Option<MachineWakeConfig>,
+    /// The read replica and write journal for paused machines (`crate::write_journal`). Off
+    /// unless `writeJournal.enabled` is true; off changes nothing.
+    #[serde(default, skip_serializing_if = "WriteJournalConfig::is_default")]
+    pub write_journal: WriteJournalConfig,
     #[serde(default, alias = "defaultAgent")]
     pub default_harness: Option<String>,
     /// More login-shell variables agents get, beyond the allow-list
@@ -1403,6 +1407,20 @@ pub struct MachineWakeConfig {
     pub base_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+}
+
+/// `writeJournal` in config.json: off by default; new, and not yet a default anyone asked for.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteJournalConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl WriteJournalConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
 }
 
 impl Config {
