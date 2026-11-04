@@ -40,6 +40,29 @@ import Testing
         #expect(workspace.bonsplitController.tab(tabId)?.title == "OC | New agent title")
     }
 
+    @Test func manualWorkspaceRenameFollowsFocusedSplitWithoutRenamingSiblings() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let first = try #require(workspace.focusedPanelId)
+        let second = try #require(workspace.newTerminalSplit(from: first, orientation: .horizontal, focus: false))
+        let third = try #require(workspace.newTerminalSplit(from: second.id, orientation: .vertical, focus: false))
+        workspace.updatePanelTitle(panelId: first, title: "OC | Old agent title")
+        workspace.updatePanelTitle(panelId: second.id, title: "Logs")
+        workspace.updatePanelTitle(panelId: third.id, title: "Tests")
+        let tab = try #require(workspace.surfaceIdFromPanelId(first))
+
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "r2"))
+        #expect(workspace.bonsplitController.tab(tab)?.title == "r2")
+        #expect(workspace.panelTitle(panelId: second.id) == "Logs")
+        #expect(workspace.panelTitle(panelId: third.id) == "Tests")
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "r3"))
+        #expect(workspace.bonsplitController.tab(tab)?.title == "r3")
+        workspace.updatePanelTitle(panelId: first, title: "OC | New agent title")
+        #expect(workspace.bonsplitController.tab(tab)?.title == "r3")
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: nil))
+        #expect(workspace.bonsplitController.tab(tab)?.title == "OC | New agent title")
+    }
+
     @Test func workspaceRenameLeavesMultiTabNamesIndependent() throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let workspace = try #require(manager.selectedWorkspace)
