@@ -68,13 +68,19 @@ def fetch_app(digest: str, cache_root: Path) -> Path:
         return apps[0]
     shutil.rmtree(folder, ignore_errors=True)
     (folder / "x").mkdir(parents=True)
-    with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{hexd}/url", timeout=60) as reply:
-        url = json.load(reply).get("url") or ""
-    if not re.fullmatch(r"https://[^\s\"']+", url):
-        raise SystemExit(f"idle-cpu: the controller gave no download URL for {hexd[:12]}")
     archive = folder / "app.zip"
-    # The URL is short-lived and signed: never printed.
-    subprocess.run(["curl", "-fsS", "--retry", "3", "-o", str(archive), url], check=True, timeout=1800)
+    url = ""
+    try:
+        with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{hexd}/url", timeout=60) as reply:
+            url = json.load(reply).get("url") or ""
+    except (OSError, ValueError):
+        url = ""
+    # The signed URL is a short-lived read capability: never printed. Without one, the controller serves it.
+    fetched = bool(re.fullmatch(r"https://[^\s\"']+", url)) and subprocess.run(
+        ["curl", "-fsS", "--retry", "3", "-o", str(archive), url], timeout=1800).returncode == 0
+    if not fetched:
+        subprocess.run(["curl", "-fsS", "--retry", "3", "-o", str(archive),
+                        f"{CONTROLLER}/v1/artifacts/sha256:{hexd}"], check=True, timeout=1800)
     digest_now = hashlib.sha256()
     with open(archive, "rb") as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b""):
@@ -115,17 +121,18 @@ def measure(app_pid: int, bundle: str, windows: int, window: float) -> list[dict
     for index in range(windows + 1):
         if index:
             time.sleep(window)  # the measured idle window: no call into the app or its processes
-        marks.append({pid: (bench_memory.usage(pid), switches(pid)) for pid in procs})
+        marks.append((time.monotonic(), {pid: (bench_memory.usage(pid), switches(pid)) for pid in procs}))
     rows = []
     for pid, (kind, cmd) in procs.items():
         per = []
-        for before, after in zip(marks, marks[1:]):
+        for (t0, before), (t1, after) in zip(marks, marks[1:]):
             (u0, c0), (u1, c1) = before.get(pid, (None, None)), after.get(pid, (None, None))
             if u0 is None or u1 is None:
                 continue
-            per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / window, 3),
-                        "wakeups_per_s": round((u1[4] - u0[4]) / window, 2),
-                        "switches_per_s": round((c1 - c0) / window, 2) if c0 is not None and c1 is not None else None})
+            span = max(t1 - t0, 1e-3)
+            per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
+                        "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
         def mid(key):
@@ -190,15 +197,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budget-wakeups", type=float, default=1.0, help="wakeups per second per daemon process")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    if args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0:
+        parser.error("--windows must be >= 1, --window > 0, --minutes and --chats >= 0")
     out = Path(args.out) if args.out else None
     if out:
         out.mkdir(parents=True, exist_ok=True)
     cache = Path(os.environ.get("CI_SHARED_CACHE_DIR") or "/tmp") / "idle-cpu-apps"
     cache.mkdir(parents=True, exist_ok=True)
-    app_source = fetch_app(args.artifact, cache) if args.artifact else Path(args.app)
+    try:
+        app_source = fetch_app(args.artifact, cache) if args.artifact else Path(args.app)
+    except (SystemExit, OSError, ValueError, subprocess.SubprocessError) as error:
+        log(f"IDLE-CPU-VERDICT cannot-run the build could not be fetched: {error}")
+        return 3
     result: dict = {"minutes": args.minutes, "window_s": args.window, "windows": args.windows, "chats": args.chats,
                     "host": os.uname().nodename, "artifact": args.artifact}
-    verdict = {"status": 3}
+    verdict = {"status": 3, "why": "the launch did not reach the idle period"}
 
     def after_render(process, socket_path, env, app, out_dir, report):
         bundle = str(app)
@@ -209,12 +222,15 @@ def main(argv: list[str] | None = None) -> int:
             for index in range(args.chats):
                 made += chats.open(index) is not None
             log(f"idle-cpu: {made} of {args.chats} chats made, their first turn answered")
+            if made < args.chats:
+                verdict.update(status=3, why=f"only {made} of {args.chats} chats were made")
+                return []
         result["chats_made"] = made
         log(f"idle-cpu: idle {args.minutes:g} min from now, no call into the app")
         time.sleep(args.minutes * 60)  # the idle period itself
         if process.poll() is not None:
-            verdict["status"] = 3
-            return [f"the app exited during the idle period (status {process.returncode})"]
+            verdict.update(status=1, why=f"the app exited during the idle period (status {process.returncode})")
+            return [verdict["why"]]
         rows = measure(process.pid, bundle, args.windows, args.window)
         result["processes"] = rows
         for row in rows:
@@ -235,6 +251,14 @@ def main(argv: list[str] | None = None) -> int:
             for row in rows:
                 if SAMPLE_KINDS.match(row["kind"]) or row["cpu_pct"] > args.budget_cpu:
                     sample(row["pid"], row["kind"], out)
+        # The bundle's acpmux daemon: `acpmux daemon run`, or the same daemon inside cmux-tui (`cmux acp daemon run`).
+        acp = [row for row in rows if row["kind"].startswith("acpmux-daemon") or " acp daemon run" in row["command"]]
+        tui = [row for row in rows if row["kind"].startswith("tui-daemon") and " acp " not in row["command"]]
+        if not acp or not tui:
+            verdict.update(status=3, why="no " + " and no ".join(
+                name for name, found in (("acpmux daemon", acp), ("cmux-tui daemon", tui)) if not found)
+                + " of the bundle was measured")
+            return []
         over = [row for row in rows if DAEMON_KINDS.match(row["kind"])
                 and (row["cpu_pct"] > args.budget_cpu or row["wakeups_per_s"] > args.budget_wakeups)]
         result["over_budget"] = [{k: row[k] for k in ("kind", "pid", "cpu_pct", "wakeups_per_s")} for row in over]
@@ -242,13 +266,19 @@ def main(argv: list[str] | None = None) -> int:
         return []
 
     smoke.AFTER_RENDER = after_render
-    status = smoke.main(["--app", str(app_source), "--seconds", "5", "--startup-timeout", "180",
-                         *(["--out", str(out / "launch")] if out else [])])
-    if status != 0 and verdict["status"] != 1:
-        verdict["status"] = 3
+    try:
+        status = smoke.main(["--app", str(app_source), "--seconds", "5", "--startup-timeout", "180",
+                             *(["--out", str(out / "launch")] if out else [])])
+    except (SystemExit, OSError, ValueError, subprocess.SubprocessError) as error:
+        verdict.update(status=3, why=f"{type(error).__name__}: {error}")
+        status = 3
+    if status != 0 and verdict["status"] == 0:
+        verdict.update(status=3, why=f"the launch smoke exited {status}")
     over = result.get("over_budget") or []
     word = {0: "pass", 1: "fail"}.get(verdict["status"], "cannot-run")
     detail = "; ".join(f"{r['kind']} pid {r['pid']} cpu {r['cpu_pct']}% wakeups {r['wakeups_per_s']}/s" for r in over)
+    if verdict["status"] != 0 and not detail:
+        detail = verdict.get("why", "")
     log(f"IDLE-CPU-VERDICT {word} minutes={args.minutes:g} chats={result.get('chats_made', 0)} "
         f"budget cpu<={args.budget_cpu}% wakeups<={args.budget_wakeups}/s per daemon process"
         + (f": {detail}" if detail else ""))

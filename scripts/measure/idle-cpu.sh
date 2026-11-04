@@ -6,7 +6,7 @@
 #     --script scripts/measure/idle-cpu.sh --ref SHA --arg=artifact=sha256:HEX \
 #     [--arg=minutes=10] [--arg=window=60] [--arg=windows=3] [--arg=chats=0] [--arg=sample=1] \
 #     [--arg=budget_cpu=1.0] [--arg=budget_wakeups=1.0] --artifact .build/idle-cpu/report.tgz --timeout 3600
-# On a fleet host, scripts/cmux-next/idle-cpu-run.sh makes this step for a build job or tag through the
+# On a fleet host, scripts/cmux-next/idle-cpu-run.py makes this step for a build job or tag through the
 # mini scheduler. Output: IDLE-CPU lines and IDLE-CPU-VERDICT. Exit 0 within budget, 1 over, 3 not run.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -28,6 +28,8 @@ done
 for n in "$minutes" "$window" "$windows" "$chats" "$budget_cpu" "$budget_wakeups"; do
   [[ "$n" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "idle-cpu.sh: $n is not a number" >&2; exit 2; }
 done
+[[ "$windows" =~ ^[1-9][0-9]*$ ]] || { echo "idle-cpu.sh: windows= must be a whole number >= 1" >&2; exit 2; }
+[[ "$window" =~ ^0*([.]0*)?$ ]] && { echo "idle-cpu.sh: window= must be > 0" >&2; exit 2; }
 out="$PWD/.build/idle-cpu"
 rm -rf "$out" && mkdir -p "$out"
 echo "IDLE-CPU-MACHINE host=$(hostname -s) macos=$(sw_vers -productVersion) sha=$(git rev-parse HEAD) load=\"$(uptime | sed 's/.*load averages*: //')\""

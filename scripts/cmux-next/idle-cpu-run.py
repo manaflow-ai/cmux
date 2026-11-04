@@ -33,7 +33,7 @@ from pathlib import Path
 QUEUE = Path(os.environ.get("MSCHED_DIR", "/work/wt/chrome-parity-design/mini-queue"))
 BUILDER_LOG = Path(os.environ.get("IDLE_CPU_BUILDER_LOG", "/work/wt/chrome-parity-design/feat-dogfood-builder.log"))
 CI = os.path.expanduser("~/.local/bin/cmux-ci")
-MINIS = ("cmux17", "cmux18", "cmux19", "cmux21", "cmux22", "cmux23", "cmux24")
+MINIS = ("cmux18", "cmux19", "cmux21", "cmux22", "cmux23", "cmux24")
 SCRIPT = "scripts/measure/idle-cpu.sh"
 VERDICT = Path(__file__).resolve().parent / "idle_cpu_verdict.py"
 
@@ -90,6 +90,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--label", default="")
     ap.add_argument("--wait", action="store_true")
     a = ap.parse_args(argv)
+    if a.windows < 1 or a.window <= 0 or a.minutes < 0 or a.chats < 0:
+        print("idle-cpu-run: --windows >= 1, --window > 0, --minutes and --chats >= 0", file=sys.stderr)
+        return 2
     if a.mini and a.mini not in MINIS:
         print(f"idle-cpu-run: --mini must be one of {', '.join(MINIS)}", file=sys.stderr)
         return 2
@@ -106,7 +109,6 @@ def main(argv: list[str] | None = None) -> int:
         "owner": "IDLE CPU" + (f" agent {a.agent_id}" if a.agent_id else ""),
         "kind": "bench", "recur": "once", "priority": 6, "minutes": minutes_total, "ref": ref,
         "minis": [a.mini] if a.mini else list(MINIS),
-        "min_free_gib": 10,
         "cmux_ci_args": ["--measurement", "--label", "measure", "--label", "gui-session-v1",
                          "--script", SCRIPT, f"--arg=artifact={build['artifact']}", f"--arg=minutes={a.minutes:g}",
                          f"--arg=chats={a.chats}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}",
