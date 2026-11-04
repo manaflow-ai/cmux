@@ -2,7 +2,7 @@
  "id": "browser-no-renderer-crash",
  "priority": "P0",
  "title": "Browser pages and an extension load with no renderer crash: 3 local pages (JIT-heavy JS, a big DOM, a cross-site frame) draw in Chromium tabs and the built-in uBlock Origin runs, with no Chromium helper crash and no crash notice",
- "why": "cmux-ad m7 2 (CHROME LATEST). The CEF 156 pin 953dc952763 (cef-156.0.15-cmux.43) started renderer and extension processes from the plain Helper.app, signed without allow-jit: under the hardened runtime V8 could not reserve its code range and every page and extension process died about 0.6 s after start (SIGTRAP; uBlock Origin has crashed). #34904 (e1869abf57c) fixed it. Dogfood build 363e39f2 (bd14c57f74f7) has the pin and not the fix; it passed every P0 journey, because none loaded a page. This journey makes a CEF bump that crashes pages red before it reaches Lawrence. A fleet build is signed ad hoc without the hardened runtime, where V8 needs no allow-jit, so the crash does not show there: the journey first signs this lease's copy of the Chromium helpers with the hardened runtime, each with the entitlements the build gave it (read from the build's unpacked artifact in the journeys cache: capture-host's deep ad hoc re-sign of the lease's copy drops them), plus disable-library-validation, which stands in for the shipped Team ID, and relaunches, so pages run as in a shipped build. The pages come from a local server in a cmux terminal (127.0.0.1 and localhost, no outside network). The crash state is the app's own: debug.crashes (CEFRuntime+Crashes: the CEF renderer callback and the kqueue child-exit monitor) and each page's own script finishing (its title in debug.cef devtools).",
+ "why": "cmux-ad m7 2 (CHROME LATEST). The CEF 156 pin 953dc952763 (cef-156.0.15-cmux.43) started renderer and extension processes from the plain Helper.app, signed without allow-jit: under the hardened runtime V8 could not reserve its code range and every page and extension process died about 0.6 s after start (SIGTRAP; uBlock Origin has crashed). #34904 (e1869abf57c) fixed it. Dogfood build 363e39f2 (bd14c57f74f7) has the pin and not the fix; it passed every P0 journey, because none loaded a page. This journey makes a CEF bump that crashes pages red before it reaches Lawrence. A fleet build is signed ad hoc without the hardened runtime, where V8 needs no allow-jit, so the crash does not show there: the journey first signs this lease's copy of the Chromium helpers with the hardened runtime, each with the entitlements the build gave it (read from the build's unpacked artifact in the journeys cache: capture-host's deep ad hoc re-sign of the lease's copy drops them), plus disable-library-validation, which stands in for the shipped Team ID, and relaunches, so pages run as in a shipped build. The pages come from a local server in a cmux terminal (127.0.0.1 and localhost, no outside network). The crash state is the app's own: debug.crashes (CEFRuntime+Crashes: the CEF renderer callback and the kqueue child-exit monitor) and each page's own script finishing (its title, debug.cef devtools.0.title).",
  "source": "cmux-ad m7 2, STATUS 11229; #34904",
  "budget_seconds": 240,
  "steps": [
@@ -322,7 +322,7 @@
     {
      "app_rpc": {
       "method": "debug.cef",
-      "path": "devtools",
+      "path": "devtools.0.title",
       "contains": "jr-cefjit heavy ok"
      }
     },
@@ -354,7 +354,7 @@
     {
      "app_rpc": {
       "method": "debug.cef",
-      "path": "devtools",
+      "path": "devtools.0.title",
       "contains": "jr-cefjit dom ok"
      }
     },
@@ -386,7 +386,7 @@
     {
      "app_rpc": {
       "method": "debug.cef",
-      "path": "devtools",
+      "path": "devtools.0.title",
       "contains": "jr-cefjit frame ok"
      }
     },
@@ -406,7 +406,7 @@
     {
      "app_rpc": {
       "method": "debug.cef",
-      "path": "devtools",
+      "path": "devtools.0.title",
       "contains": "jr-cefjit frame ok http://localhost:47923"
      }
     }
@@ -478,7 +478,7 @@
     {
      "app_rpc": {
       "method": "debug.cef",
-      "path": "devtools",
+      "path": "devtools.0.title",
       "contains": "jr-cefjit frame ok"
      }
     },
