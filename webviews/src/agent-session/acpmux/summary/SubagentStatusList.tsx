@@ -13,7 +13,7 @@ import { AgentLine } from "../subagents/AgentLine";
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, STATE_LABEL, SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
+import { elapsed, running, STATE_LABEL, SubagentHarnessContext, ticking, useNow } from "../subagents/SubagentGroup";
 import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
@@ -181,7 +181,7 @@ export function SubagentStatusList({
 }) {
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
-  const now = useNow(agents.some(running));
+  const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +

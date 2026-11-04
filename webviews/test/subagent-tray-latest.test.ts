@@ -8,7 +8,7 @@ import { setPaneLanguage, translate } from "../src/agent-session/acpmux/i18n";
 import { awaitsOwnWork, SUBAGENTS, type Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { finishedTrayItems, trayItems, withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { lastSaidLine, latestLine } from "../src/agent-session/acpmux/subagents/trayDetail";
-import { elapsed } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { elapsed, groupElapsed, ticking } from "../src/agent-session/acpmux/subagents/SubagentGroup";
 import { subagentStatus, subagentStateText } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -38,6 +38,12 @@ test("an interim end leaves the agent waiting on its own work, until a final rep
   // Its clock keeps going.
   expect(elapsed(waiting, 65_000)).toBe(64_000);
   expect(elapsed({ ...waiting, reaction: undefined }, 65_000)).toBe(4_000);
+  // So do its group's time and the clocks that tick for it (the card, the Session Info list).
+  const done = agent("d", { state: "completed", endedAt: 6_000 });
+  expect(ticking(waiting)).toBe(true);
+  expect(ticking(done)).toBe(false);
+  expect(groupElapsed([waiting, done], 65_000)).toBe(64_000);
+  expect(groupElapsed([{ ...waiting, reaction: undefined }, done], 65_000)).toBe(5_000);
 });
 
 test("the tray lists it with the running work, and the transcript keeps no finished line for it yet", () => {

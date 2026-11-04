@@ -62,12 +62,12 @@ const scene = (agents: Subagent[]) =>
     summary(2.4, { status: "completed", durationMs: 30_000, toolCount: 4 }),
   ]);
 
-const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+// A lone line has no header (SubagentTray.tsx `headed`): open the header only where there is one.
 const expanded = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => head(ctx));
-  if (!ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"))
-    await ctx.click({ selector: ".acpmux-running-tray__head" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+  const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
+  if (head && head.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
 };
 
 export default agentPaneEntry({

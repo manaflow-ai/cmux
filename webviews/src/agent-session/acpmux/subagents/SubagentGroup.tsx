@@ -50,11 +50,15 @@ export const STATE_LABEL = {
 export const elapsed = (agent: Subagent, now: number) =>
   Math.max(0, (awaitsOwnWork(agent) ? now : (agent.endedAt ?? now)) - agent.startedAt);
 
+/// Whether a subagent's clock still runs: running, or waiting on background work of its own.
+export const ticking = (agent: Subagent) => running(agent) || awaitsOwnWork(agent);
+
 /// The group's time: from its first start to its last end, or to `now` while one runs.
 export function groupElapsed(agents: readonly Subagent[], now: number): number {
   if (agents.length === 0) return 0;
   const start = Math.min(...agents.map((agent) => agent.startedAt));
-  const end = agents.some(running) ? now : Math.max(...agents.map((agent) => agent.endedAt ?? agent.startedAt));
+  // One waiting on background work of its own still counts: its time keeps going (`elapsed`).
+  const end = agents.some(ticking) ? now : Math.max(...agents.map((agent) => agent.endedAt ?? agent.startedAt));
   return Math.max(0, end - start);
 }
 
@@ -127,8 +131,7 @@ export function SubagentGroupHeader({
   const t = useT();
   const language = usePaneLanguage();
   const agents = row.subagents ?? [];
-  const live = agents.some(running);
-  const now = useNow(live);
+  const now = useNow(agents.some(ticking));
   const controls = expanded ? agents.map((agent) => `${row.id}:${agent.id}`).join(" ") : undefined;
   return (
     <button type="button" className="cv-subagents" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
