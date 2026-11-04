@@ -120,11 +120,12 @@ describe("a trusted job", () => {
     expect((await create(t, await t.githubToken({ ...CLAIMS, job_workflow_ref: WORKFLOW }))).status).toBe(201);
   });
 
-  it("refuses a VM costing more than maxUsdPerHour / maxVms, so concurrent creates stay within the budget", async () => {
-    const t = await harness({ ciTrust: JSON.stringify([{ ...ROW, maxVms: 2, maxUsdPerHour: 1 }]) });
+  it("may not choose its VM's size, so its spend is maxVms VMs of the default or image size", async () => {
+    const t = await harness();
     const token = await t.githubToken(CLAIMS);
-    const response = await create(t, token, { resources: { vcpus: 16, memoryMib: 8192 } });
-    expect(response.status).toBe(429);
+    for (const resources of [{ vcpus: 16, memoryMib: 8192 }, { vcpus: 2, memoryMib: 49152 }, { diskMib: 65536 }]) {
+      expect((await create(t, token, { resources })).status, JSON.stringify(resources)).toBe(403);
+    }
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)).toHaveLength(0);
     expect((await create(t, token)).status).toBe(201);
   });

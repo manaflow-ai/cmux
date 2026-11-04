@@ -42,22 +42,14 @@ export const withAgentLabels = (principal: Principal, requested: CreateVmRequest
  * stop: a smaller run cap it asks for stands, no cap or a longer one becomes the cap, and auto-delete is always 0.
  */
 /**
- * A caller on a run cap (a CI trust row) creates only VMs of at most maxUsdPerHour / maxVms each. Its team quota is
- * maxVms and the tenant ledger admits creates atomically, so even concurrent creates stay within the dollar budget,
- * which the read-then-create check in agentBudgetAllows alone cannot promise.
+ * A caller on a run cap (a CI trust row) creates VMs only at the default or image size: it cannot ask for resources,
+ * and it cannot resize (resize.ts). Its spend is then at most maxVms VMs of a size the operator chose, and the team
+ * quota (maxVms) is admitted atomically, so concurrent creates cannot pass the read-then-create budget check together.
  */
 export const ciSizeAllowed = (principal: Principal, size: SizeRequest | undefined) =>
-  Effect.gen(function* () {
-    const budget = principal.agent;
-    if (principal.maxRunSeconds === undefined || budget === undefined) return;
-    const next = sizeOfCreate(size);
-    const perVm = budget.maxUsdPerHour / budget.maxVms;
-    if (estimatedUsdPerHour(next.vcpus, next.memoryMib) > perVm + 1e-9) {
-      return yield* Effect.fail(
-        new QuotaExceeded({ message: `A CI job's VM may cost at most ${perVm.toFixed(2)} USD/h; ask for a smaller size`, budget: "agent_usd_per_hour" }),
-      );
-    }
-  });
+  principal.maxRunSeconds !== undefined && size !== undefined
+    ? Effect.fail(new Forbidden({ message: "A CI job creates VMs at the default or image size; omit resources" }))
+    : Effect.void;
 
 export const withRunCap = (principal: Principal, requested: CreateVmRequest): CreateVmRequest => {
   const cap = principal.maxRunSeconds;
