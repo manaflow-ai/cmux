@@ -197,6 +197,10 @@ jobs:
           # Full commit history without blobs, for the merge base below.
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       - name: Require exact checkout
         env:

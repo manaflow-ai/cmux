@@ -115,7 +115,7 @@ const stackResized = (height: number) =>
     for (const { callback, self } of observers) callback([], self);
   });
 
-test("a composer that grows over the view, or a tray that opens in the stack, leaves the rail's box as it was", async () => {
+test("a composer that grows over the view, or a tray that opens in the stack, keeps the rail's top and only lifts its foot above the stack", async () => {
   stack = 120;
   const root = createRoot(document.getElementById("root")!);
   const dock = document.getElementById("dock")!;
@@ -135,13 +135,23 @@ test("a composer that grows over the view, or a tray that opens in the stack, le
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("120px");
     const rest = railBox();
     expect(Number.parseFloat(rest.height)).toBeGreaterThan(0);
-    // Three more composer lines, then a background-task bar on top of them.
+    // Three more composer lines, then a background-task bar on top of them. The rail keeps its top
+    // and inset; only its foot rises, and only as far as the grown stack reaches past it, so no tick
+    // runs under the composer (Leo, 2026-11-03: "this left scroll rail prob goes a little bit too far
+    // down now"): the stack's top less the bottom fade's clearance (model.ts railRoom, 18 + 4 px).
+    const footAbove = (stackHeight: number) => {
+      const box = railBox();
+      expect({ left: box.left, top: box.top }).toEqual({ left: rest.left, top: rest.top });
+      const bottom = Number.parseFloat(box.top) + Number.parseFloat(box.height);
+      expect(bottom).toBeLessThanOrEqual(VIEWPORT - stackHeight - 22);
+      expect(bottom).toBeGreaterThan(VIEWPORT - stackHeight - 22 - 1);
+    };
     await stackResized(188);
     expect(scroller.style.getPropertyValue("--acpmux-dock-space")).toBe("188px");
-    expect(railBox()).toEqual(rest);
+    footAbove(188);
     await stackResized(236);
-    expect(railBox()).toEqual(rest);
-    // Back to rest: still the same box.
+    footAbove(236);
+    // Back to rest: the same box.
     await stackResized(120);
     expect(railBox()).toEqual(rest);
   } finally {
