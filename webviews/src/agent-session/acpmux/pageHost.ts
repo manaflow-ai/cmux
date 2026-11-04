@@ -73,8 +73,7 @@ export async function callPageHost<T>(
         userMessage: error.message,
         details: { protocol: error.code },
       });
-    if (error.code.startsWith("cmux.protocol."))
-      throw new NativeError({ userMessage: error.message });
+    if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
     const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
     throw new NativeError({
       code: error.code,

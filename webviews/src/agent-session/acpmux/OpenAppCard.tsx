@@ -10,11 +10,7 @@ type Props = {
   onOpen?: (port: number) => Promise<unknown> | unknown;
 };
 
-export function OpenAppCard({
-  enabled = true,
-  ports: suppliedPorts,
-  onOpen,
-}: Props): React.ReactNode {
+export function OpenAppCard({ enabled = true, ports: suppliedPorts, onOpen }: Props): React.ReactNode {
   const t = useT();
   const livePorts = useCloudPreviewPorts();
   const ports = suppliedPorts ?? livePorts;
@@ -39,10 +35,7 @@ export function OpenAppCard({
         <div className="acpmux-open-app-card" key={app.port}>
           <div className="acpmux-open-app-card__copy">
             <strong>{t("cloudPreview.openApp")}</strong>
-            <span
-              className={errors[app.port] ? "acpmux-open-app-card__error" : undefined}
-              title={errors[app.port]}
-            >
+            <span className={errors[app.port] ? "acpmux-open-app-card__error" : undefined} title={errors[app.port]}>
               {errors[app.port] || (
                 <>
                   {t("cloudPreview.port", { port: app.port })}
@@ -67,9 +60,7 @@ export function OpenAppCard({
               <span
                 key={state}
                 className="acpmux-open-app-card__button-label"
-                aria-hidden={
-                  state !== (opening === app.port ? "opening" : errors[app.port] ? "retry" : "open")
-                }
+                aria-hidden={state !== (opening === app.port ? "opening" : errors[app.port] ? "retry" : "open")}
               >
                 {label}
               </span>
