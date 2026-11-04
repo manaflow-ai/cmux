@@ -113,6 +113,7 @@ MOVE_EPS_PX = 0.01
 STILL_SAMPLES = 3           # a motion ends after this many still samples
 REST_FALLBACK = 5           # frames used for rest values when nothing rests before the first motion
 DIVIDER_RECT_CHECK = "divider rect not centred on its panes' gap"
+CLOCK_NOT_FOUND_NOTE = " (clock not found: a lag in motion can be one refresh off)"
 CLOCK_OFFSETS = (-1, 0, 1)  # the clock's offsets fitted per film (refreshes later than the fixed clock: + is later)
 CLOCK_MIN_FRAMES = 4        # a track votes for the clock with at least this many moving frames that tell offsets apart
 SPRING_T0_STEPS = 41        # t0 grid points (coarse, then as many again around the best)
@@ -1061,6 +1062,11 @@ def judge(base, all_frames=False):
     report["info"].insert(0, {"check": "clock", "where": "film", "detail": f"offset {offset:+d} ({clock['status']}): "
                                                                           f"{clock['why']}"})
     if clock["offset"] is None:
+        # Every finding read from the film's frames was judged on the fixed clock (3d.1): it says so. A trace row's
+        # finding (on trace) does not depend on the clock.
+        for f in report["findings"]:
+            if not f["where"].endswith(" on trace"):
+                f["detail"] += CLOCK_NOT_FOUND_NOTE
         report["findings"].insert(0, {"check": "clock not found", "where": "film",
                                       "detail": f"{clock['why']}: judged on the fixed clock, so a lag or a deviation in "
                                                 "motion can be one refresh off (at rest the clock does not matter)"})
@@ -1366,7 +1372,10 @@ def markdown(reports):
     for r in reports:
         fx = r.get("fixture") or {}
         speed = "Reduce Motion" if fx.get("reduce") else f"x{fx.get('speed')}"
-        lines.append(f"### {r['case']} ({speed}, input {fx.get('input')}, page backdrop {fx.get('page_backdrop')})")
+        clock = r.get("clock") or {}
+        mark = ("clock not found: lags in motion can be one refresh off" if clock.get("offset") is None and clock else
+                f"clock {clock['offset']:+d} ({clock.get('status')})" if clock else "clock: not fitted")
+        lines.append(f"### {r['case']} ({speed}, input {fx.get('input')}, page backdrop {fx.get('page_backdrop')}; {mark})")
         lines.append("")
         if not r.get("summary"):
             lines.append("; ".join(r["notes"]))
