@@ -17,7 +17,8 @@ export const contextRingLook = defineExperiment({
     },
     arc: {
       label: "Faint track, round ends",
-      description: "Before: Claude desktop's faint 30% track under a round-ended arc; at about 70% and up it reads as a spinner.",
+      description:
+        "Before: Claude desktop's faint 30% track under a round-ended arc; at about 70% and up it reads as a spinner.",
     },
     percent: {
       label: "Ring + percent",

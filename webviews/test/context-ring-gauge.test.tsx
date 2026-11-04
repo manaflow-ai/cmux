@@ -73,7 +73,8 @@ for (const share of [0.25, 0.68, 0.95]) {
 test("the ring is static: no animation or transition on its arc", async () => {
   const { svg } = await ring(0.68 * 200_000);
   expect(svg.querySelector("animate, animateTransform")).toBeNull();
-  for (const circle of svg.querySelectorAll("circle")) expect(circle.getAttribute("style") ?? "").not.toMatch(/anim|transition/);
+  for (const circle of svg.querySelectorAll("circle"))
+    expect(circle.getAttribute("style") ?? "").not.toMatch(/anim|transition/);
 });
 
 test("before usage is known the ring is the inert track alone", async () => {

@@ -1404,13 +1404,6 @@ export function isPlan(modeId: string): boolean {
 const TABBABLE =
   'a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])';
 
-/// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
-/// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
-/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
-/// Details ›, which opens Session Info's Context section. A click pins the card until a press
-/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
-/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
-/// (contextCard.css).
 /// The context ring's looks (experiment `context-ring-look`), in the ring's 14-unit viewBox.
 const CONTEXT_RING_LOOKS: Record<
   "track" | "arc" | "percent" | "fill-quiet",
@@ -1430,6 +1423,13 @@ const CONTEXT_RING_LOOKS: Record<
   },
 };
 
+/// How much of the context window the session has used, as a neutral ring that fills. Resting the pointer
+/// on it, or focusing it, shows the context card with no click (ContextCard.tsx; Leo 2026-10-21,
+/// after Claude's and Codex's): the share and tokens used, the window as a stacked bar, and
+/// Details ›, which opens Session Info's Context section. A click pins the card until a press
+/// outside; Escape closes it however it opened. Tab from the ring moves into the card's buttons,
+/// and Tab past them goes on to what follows the ring. The ring itself never takes a hover pill
+/// (contextCard.css).
 export function ContextRing({
   used,
   size,
