@@ -308,6 +308,7 @@ jobs:
   # The Cloud journey (scripts/cmux-next/cloud-journey.ts) against this PR's preview Worker: create a machine,
   # start an agent, chat, connect, sync, pause, resume, delete. Its step table is the job summary, and a red step is
   # this PR's red. The agent test account's pair lives in cmux-next-cloud-journey; without it the job notes the skip.
+  # The chat runs on the shared model stub (tests/fixtures/model-stub) with a made-up login: no Claude secret.
   journey-preview:
     needs: [preview]
     if: always() && needs.preview.result == 'success'
@@ -318,7 +319,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next
+          sparse-checkout: |
+            scripts/cmux-next
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -327,6 +331,7 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          JOURNEY_MODEL: stub
           TARGET: preview-${{ github.event.pull_request.number }}
         run: bash scripts/cmux-next/cloud-journey-ci.sh
 
@@ -582,7 +587,6 @@ jobs:
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub

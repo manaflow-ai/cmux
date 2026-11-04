@@ -384,6 +384,29 @@ export function loginPrograms(installerSwift: string, provider: "claude" | "code
   };
 }
 
+/** What the preflight checks, one by one, for a refusal's message: the kind record, the image's launchers, the exec user. */
+export const PREFLIGHT_PROBE =
+  `printf 'vm-kind=%s agent-auth.sh=%s user=%s' "$(head -c 64 /etc/cmux/vm-kind 2>/dev/null | tr -d '[:space:]')" ` +
+  `"$([ -f /etc/cmux/agent-auth.sh ] && echo yes || echo no)" "$(id -un)"`;
+
+/**
+ * Run the preflight until it passes or `budgetMs` runs out. On a VM API machine nothing writes /etc/cmux/vm-kind
+ * at create: the guest's cmux-host writes it once it is bound (record_owner_kind), which can land after the
+ * machine reads running and takes its first exec. A refusal that outlasts the budget names the failing check.
+ */
+export async function waitPreflight(exec: Exec, program: string, kinds: string, budgetMs = 90_000, pauseMs = 3_000, pause = sleep): Promise<{ waitedMs: number; tries: number }> {
+  const t0 = Date.now();
+  for (let tries = 1; ; tries++) {
+    const pre = await exec(program);
+    if (pre.code === 0) return { waitedMs: Date.now() - t0, tries };
+    if (Date.now() - t0 + pauseMs >= budgetMs) {
+      const seen = await exec(PREFLIGHT_PROBE).then((r) => r.stdout.trim(), (error) => `probe failed: ${(error as Error).message}`);
+      throw new Error(`preflight exit ${pre.code} after ${tries} tries in ${Math.round((Date.now() - t0) / 1000)} s: not an ${kinds} machine with the image's launchers (${seen})`);
+    }
+    await pause(pauseMs);
+  }
+}
+
 /** CloudCredentialTransfer.validate: what the app accepts as a login to copy, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
@@ -723,8 +746,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // On a team machine the journey is its creator and copies as a DEV or nightly build does (Release copies
         // only to an owner machine).
         const programs = loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), provider, Boolean(team));
-        const pre = await exec(programs.preflight);
-        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an ${team ? "owner or team" : "owner"} machine with the image's launchers`);
+        const pre = await waitPreflight(exec, programs.preflight, team ? "owner or team" : "owner");
         const folder = "/home/cmux/.cmux/credential-transfer";
         const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
         if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
@@ -741,7 +763,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         const own = await exec(`. /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login ${provider} && echo own-login`);
         if (!own.stdout.includes("own-login")) throw new Error(`installed, but the image's launcher does not see an own ${provider} login`);
-        return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
+        const waited = pre.tries > 1 ? ` (preflight passed on try ${pre.tries}, after ${Math.round(pre.waitedMs / 1000)} s)` : "";
+        return { value: null, detail: `the person's own login, written by the app's installer; the launcher picks it${waited}` };
       });
     }
 
