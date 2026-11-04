@@ -44,11 +44,13 @@
   font-variant-numeric: tabular-nums;
   line-height: var(--acpmux-grabber-pill-height);
   opacity: 0;
-  transition: opacity var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
+  /* The transcript's hover-reveal fade (conversation.css --cv-actions-*): out at once, in after a beat. */
+  transition: opacity var(--cv-actions-out, 80ms) var(--cv-actions-ease, ease-out);
 }
 .acpmux-tray-grabber:is(:hover, :focus-visible) > .acpmux-tray-grabber__pill,
 .acpmux-tray-grabber[data-live] > .acpmux-tray-grabber__pill {
   opacity: 1;
+  transition: opacity var(--cv-actions-in, 120ms) var(--cv-actions-ease, ease-out) var(--cv-actions-in-delay, 100ms);
 }
 .acpmux-tray-grabber:hover {
   color: var(--agent-text);

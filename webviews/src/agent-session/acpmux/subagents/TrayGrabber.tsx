@@ -63,6 +63,7 @@ export function TrayGrabber({
       onClick={(event: MouseEvent<HTMLButtonElement>) => onToggle(event.altKey)}
     >
       <span className="acpmux-tray-grabber__pill" aria-hidden="true">
+        {/* icon-scale-allow: the pill is 8 to 12px tall, so its chevron is the 10px caption glyph */}
         <Icon name="disclosure.expanded" size={10} row />
         {tucked && running > 0 && <span className="acpmux-tray-grabber__count">{running}</span>}
         {tucked && waiting > 0 && <span className="acpmux-tray-grabber__dot" />}
