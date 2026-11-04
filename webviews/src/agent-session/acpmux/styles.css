@@ -139,8 +139,11 @@
    Keep the composer's action rows pressable at every edge (composer-chip-press.test.ts probes all
    four row edges) by moving the visible edge fade onto pointer-transparent overlays. */
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
-  -webkit-mask-image:none!important;
-  mask-image:none!important;
+  /* Keep a computed mask for the shared edge-fade contract, but make the mask fully opaque.
+     WebKit includes mask alpha in hit testing; the pointer-transparent sticky overlays below
+     provide the visible fade without making a row's trailing edge unpressable. */
+  -webkit-mask-image:linear-gradient(#000,#000);
+  mask-image:linear-gradient(#000,#000);
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{
@@ -173,6 +176,16 @@
 }
 :root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::before,
 :root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade::after{opacity:0}
+@media (prefers-reduced-transparency:reduce){
+  .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+    -webkit-mask-image:none;
+    mask-image:none;
+  }
+}
+:root[data-reduce-transparency] .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade:is([data-fade-top],[data-fade-bottom]){
+  -webkit-mask-image:none;
+  mask-image:none;
+}
 /* It opens over the project and machine pills above New Tab's box: a denser tint than a plain popup's
    60% (still glass, under the menus' 0.9 ceiling), so under the blur they read as frost, not text. */
 .acpmux-composer-plus .acpmux-menu.ui-glass,.acpmux-menu.acpmux-composer-plus.ui-glass{--glass-tint:color-mix(in srgb,var(--glass-surface) 86%,transparent)}
