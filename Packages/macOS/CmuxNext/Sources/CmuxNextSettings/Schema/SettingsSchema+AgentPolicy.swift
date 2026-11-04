@@ -101,6 +101,8 @@ extension SettingsSchema {
         "layout.minimumPaneWidth",
         "layout.minimumPaneHeight",
         "appearance.theme",
+        // Cosmetic icon preference; the reserved Neko value currently falls back to default artwork.
+        "appearance.iconTheme",
         "appearance.appTheme",
         "appearance.accent",
         "appearance.highlightColor", // the app's one selected-text color (looks only)

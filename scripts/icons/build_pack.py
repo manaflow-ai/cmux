@@ -49,7 +49,7 @@ OUTPUTS = {
     "pack_neko_web": WEB / "nekoCandidate.json",
 }
 # Neko is deliberately conservative. The icon spec allows a cat cue only when it is natural;
-# adding the same ears to every action or status glyph produces the mismatched set Leo rejected.
+# repeated ears are a candidate to evaluate, not evidence of a finished semantic icon family.
 # These two action drawings are the only generated fill-ins in this round, both on a frame/top edge
 # for gallery evaluation only. These drawings have NOT passed the quality bar.
 # Status, error, destructive and security marks stay unchanged.

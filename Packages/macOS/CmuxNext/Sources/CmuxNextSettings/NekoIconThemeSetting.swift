@@ -39,7 +39,9 @@ public nonisolated struct NekoIconThemeSetting: Sendable {
             configPath, section: .appearance, group: group,
             title: SettingsText.keyed("settings.appearance.iconTheme", "Icon Theme"),
             help: SettingsText.keyed("settings.appearance.iconTheme.help", "The icon drawings used by cmux."),
-            kind: .choice(NekoIconTheme.allCases.map { SettingChoice($0.rawValue, $0 == .neko ? "Neko" : "Default") }),
+            kind: .choice(NekoIconTheme.allCases.map {
+                SettingChoice($0.rawValue, $0 == .neko ? "Neko" : SettingsText.keyed("settings.choice.default", "Default"))
+            }),
             default: .string(fallback.rawValue),
             keywords: ["icons", "icon", "theme", "neko", "cat"]
         ).hiddenFromSettingsPage("reserved until the Neko artwork passes light/dark 1x/2x review")

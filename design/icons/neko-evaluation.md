@@ -37,15 +37,35 @@ copy, retry, speak, bookmark, pin, more (6); working spinner (1); success/error 
 
 | Candidate | Actions | Spinner | Status | Visual score | Release decision |
 | --- | ---: | ---: | ---: | --- | --- |
-| Noto Emoji cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
-| Fluent Emoji flat cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
-| Lucide cat | 0/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
-| cmux Cat + copy/pin fill-ins | 2/6 | 0/1 | 0/2 | Pending capture review | Gallery only |
+| Noto Emoji cat | 0/6 | 0/1 | 0/2 | 2/8 (0, 0, 2, 0) | Gallery only |
+| Fluent Emoji flat cat | 0/6 | 0/1 | 0/2 | 1/8 (0, 0, 1, 0) | Gallery only |
+| Lucide cat | 0/6 | 0/1 | 0/2 | 4/8 (0, 1, 2, 1) | Gallery only |
+| cmux Cat + copy/pin fill-ins | 2/6 | 0/1 | 0/2 | 5/8 (2, 1, 2, 0) | Gallery only |
 
 The previous draft's numeric taste ratings were not backed by reviewed 1x/2x captures and are withdrawn.
 A visual round rates action recognition, stroke/size consistency, light/dark contrast, and the restrained
 cat treatment above (0–2 each, /8 total). Coverage remains a separate score; a high visual score for a
 cat mascot cannot compensate for missing semantic actions.
+
+All 16 captures from [run 41780806887](https://github.com/manaflow-ai/cmux/actions/runs/41780806887)
+at `7f35260a7a7a7691090fa1e8bb74684ddecf1e76` were inspected at their native device scale.
+The scores above are subjective comparison judgments, not measured usability results. Tuple order is
+recognition, stroke/size consistency, contrast, restrained cat treatment. The authored score applies
+only to its two changed action drawings, not the unchanged fallbacks.
+
+- Noto reads clearly as a cat in both themes, but its filled colored face is much heavier than the
+  adjacent utility glyphs. It communicates none of the required actions.
+- Fluent's full-body cat has tiny legs and pale details at 16px, particularly on light backgrounds.
+  The silhouette is a mascot, not an action. Increasing device scale does not fix the mismatch.
+- Lucide is the closest licensed starting point: clean monochrome geometry in both themes. Its
+  face still has more visual mass than the default row and cannot substitute for semantic actions.
+- The authored copy/pin retain recognizable action shapes, but the purple ear strokes look like
+  small ticks at 1x and added noise at 2x. Repeating ears is weaker than Ourchival's noun-specific
+  treatment. They fail the small-size clarity inferred from Idlesse.
+
+**Round decision:** release none. Preserve the default icons and hide the reserved setting. Next art
+round should explore noun-specific, monochrome line treatments based on the licensed Lucide geometry,
+with copy/retry/speak and a true working spinner developed together before expanding the pack.
 
 ## License survey
 

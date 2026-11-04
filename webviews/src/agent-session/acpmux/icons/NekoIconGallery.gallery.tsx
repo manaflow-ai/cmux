@@ -59,20 +59,20 @@ function TokenRow({ experimental = false }: { experimental?: boolean }) {
         {samples.map(([name, label]) => (
           <span key={name} style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
             <Icon name={name} size={16} />
-            <span style={{ fontSize: 10 }}>{label}</span>
+            <span style={{ fontSize: "var(--text-caption)" }}>{label}</span>
           </span>
         ))}
         <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
           <Spinner size={16} loading />
-          <span style={{ fontSize: 10 }}>Working</span>
+          <span style={{ fontSize: "var(--text-caption)" }}>Working</span>
         </span>
         <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
           <Check size={16} />
-          <span style={{ fontSize: 10 }}>Success</span>
+          <span style={{ fontSize: "var(--text-caption)" }}>Success</span>
         </span>
         <span style={{ display: "grid", justifyItems: "center", gap: 8, width: 44 }}>
           <AlertCircle size={16} />
-          <span style={{ fontSize: 10 }}>Error</span>
+          <span style={{ fontSize: "var(--text-caption)" }}>Error</span>
         </span>
       </div>
     </IconsProvider>
@@ -101,16 +101,20 @@ function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" 
       }
     >
       <div>
-        <strong style={{ fontSize: 15 }}>{art.title} beside cmux default</strong>
-        <div style={{ fontSize: 12, marginTop: 6 }}>{art.license} · Gallery only · Actual 16 CSS px glyphs</div>
+        <strong style={{ fontSize: "var(--text-body)" }}>{art.title} beside cmux default</strong>
+        <div style={{ fontSize: "var(--text-detail)", marginTop: 8 }}>
+          {art.license} · Gallery only · Actual 16 CSS px glyphs
+        </div>
       </div>
       <div style={{ display: "grid", gap: 12 }}>
-        <span style={{ fontSize: 12 }}>Default shared tokens</span>
+        <span style={{ fontSize: "var(--text-detail)" }}>Default shared tokens</span>
         <TokenRow />
       </div>
       {set === "authored" ? (
         <div style={{ display: "grid", gap: 12 }}>
-          <span style={{ fontSize: 12 }}>Candidate · 2/6 actions · 0/1 spinner · 0/2 status marks</span>
+          <span style={{ fontSize: "var(--text-detail)" }}>
+            Candidate · 2/6 actions · 0/1 spinner · 0/2 status marks
+          </span>
           <TokenRow experimental />
         </div>
       ) : (
@@ -124,19 +128,19 @@ function NekoIconGallery({ mode = "light", set = "authored" }: { mode?: "light" 
                 height={size}
                 style={{ filter: set === "lucide" && dark ? "invert(1)" : undefined }}
               />
-              <span style={{ fontSize: 10 }}>{size} px</span>
+              <span style={{ fontSize: "var(--text-caption)" }}>{size} px</span>
             </div>
           ))}
-          <span style={{ fontSize: 12 }}>
+          <span style={{ fontSize: "var(--text-detail)" }}>
             0/6 neko actions · 0/1 spinner · 0/2 status marks
             <br />
             Missing glyphs are not replaced with cat faces.
           </span>
         </div>
       )}
-      <div style={{ fontSize: 12, maxWidth: 570, lineHeight: 1.5 }}>{art.note}</div>
+      <div style={{ fontSize: "var(--text-detail)", maxWidth: 570, lineHeight: 1.5 }}>{art.note}</div>
       <div style={{ borderTop: "1px solid currentColor", paddingTop: 12, display: "grid", gap: 12 }}>
-        <span style={{ fontSize: 11 }}>
+        <span style={{ fontSize: "var(--text-caption)" }}>
           Actual transcript components (baseline; migration owned by the shared icon pass)
         </span>
         <div style={{ display: "flex", gap: 16 }}>
@@ -161,8 +165,8 @@ export default componentEntry({
   covers: ["agent-session/acpmux/icons/Icon.tsx#Icon", "agent-session/acpmux/conversation/icons.tsx"],
   load: async () => NekoIconGallery,
   variants: Object.fromEntries(
-    Object.keys(sets).flatMap((set) =>
-      ["light", "dark"].map((mode) => [
+    (Object.keys(sets) as SetName[]).flatMap((set) =>
+      (["light", "dark"] as const).map((mode) => [
         `${set}-${mode}`,
         {
           note: "Round 1: unapproved candidate, beside default; see neko-evaluation.md for capture-based verdict.",

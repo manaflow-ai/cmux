@@ -44993,6 +44993,28 @@
         }
       }
     },
+    "settings.appearance.iconTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Icon Theme"
+          }
+        }
+      }
+    },
+    "settings.appearance.iconTheme.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The icon drawings used by cmux."
+          }
+        }
+      }
+    },
     "settings.appearance.theme": {
       "extractionState": "manual",
       "localizations": {
