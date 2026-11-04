@@ -31,6 +31,10 @@ Use `acpmux race show RACE --parent CHAT` to read the replies, paths and decisio
 a successful review; their worktrees remain recoverable under normal retention. A failed
 review keeps the candidates available for inspection.
 
+Racing is available by default. To disable new races for a daemon, start it with
+`ACPMUX_DISABLE_RACES=1`; existing results remain readable and running races can still be
+stopped. Win rates count completed, reviewer-decided races, once per model per race.
+
 ## Talk to one
 
 | Task | Command |
