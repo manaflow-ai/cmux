@@ -14,6 +14,16 @@ public struct LayoutHandleMap: Sendable, Equatable {
 
     public init() {}
 
+    /// Whether `intent`'s command can go to the daemon now (`LayoutModel.sendsNow`): its split has a handle, its column's
+    /// pane a handle of a pane the daemon made (a stand-in's names nothing there).
+    public func sendsNow(_ intent: LayoutIntent) -> Bool {
+        switch intent {
+        case let .setSplitRatio(split, _, _, _): splits[split] != nil
+        case let .setColumnWidth(_, anyPane, _, _, _): panes[anyPane].map { !ProvisionalPane.isStandIn($0) } ?? false
+        default: true
+        }
+    }
+
     mutating func addPane(_ id: LayoutPaneID, handle: DaemonPaneID) {
         panes[id] = handle
         paneIDs[handle] = id

@@ -1171,7 +1171,7 @@ interface CmuxGlobal {
     /** `notification.ack` (mutation, scope `notification:write`) */
     ack: CmuxOp<{ machine?: string; session?: string; client_id: string; notifications: Array<string /* notification_… */>; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationAckResult>>
     /** `notification.clear` (mutation, scope `notification:write`) */
-    clear: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationClearResult>>
+    clear: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; notification_id?: string /* notification_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationClearResult>>
     /** `notification.create` (mutation, scope `notification:write`) */
     create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; desktop?: boolean; reply?: boolean; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
