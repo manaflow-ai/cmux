@@ -309,7 +309,7 @@ mod tests {
         append_snapshot(Some(&captured), &mut blocks);
         assert_eq!(blocks.len(), 2);
         let block = &blocks[1];
-        assert!(crate::prompt_context::is_context(&block));
+        assert!(crate::prompt_context::is_context(block));
         assert!(crate::prompt_context::is_context_text(block["text"].as_str().unwrap()));
         assert_eq!(estimated_tokens("12345678"), 2);
     }
