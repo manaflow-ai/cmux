@@ -42,6 +42,9 @@ public final class HomeStore {
     /// Who has each conversation open (``HomeEvent/presence(_:viewing:)``), cleared with the
     /// connection as typing is; a conversation nobody has open has no entry.
     public internal(set) var viewing: [ConversationID: Set<ParticipantID>] = [:]
+    /// Conversations whose running Chief run is in a tool (``HomeLiveActivity/isTool``): the list's
+    /// rows read it, so it changes only when a run moves between the model and a tool, never per token.
+    @ObservationIgnored var toolRuns: Set<ConversationID> = []
     /// The running agent reply of each conversation, while it is written.
     public internal(set) var drafts: [ConversationID: HomeTurnDraft] = [:]
     @ObservationIgnored var draftBook = HomeDraftBook()
@@ -381,7 +384,7 @@ public final class HomeStore {
     /// notifies every observer of `rows` even when nothing changed. Rows are not in the client
     /// cache, so a rebuild writes nothing (the mirror and the log schedule their own writes).
     func rebuildRows() {
-        let next = mirror.inboxRows(log: log, typing: Set(typing.keys))
+        let next = mirror.inboxRows(log: log, typing: Set(typing.keys), tools: toolRuns)
         if next != rows { rows = next }
     }
 }
