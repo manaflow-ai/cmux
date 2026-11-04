@@ -118,3 +118,19 @@ test("a failed chat acpmux is retrying keeps its place; one that stays failed le
   const ordered = ids(attentionFirst(items, [], new Set()));
   expect(ordered.indexOf("r")).toBeGreaterThan(ordered.indexOf("a"));
 });
+
+// A chat queued for a concurrency slot reads "waiting" but waits on cmux, not on the person.
+test("a chat queued for a slot keeps its place; one waiting on the person leads", () => {
+  const items = trayItems(
+    [agent("a", { background: true, startedAt: 3_000 })],
+    [],
+    [
+      { subsession: true, sessionId: "q", title: "Queued", state: "waiting", slot: true },
+      { subsession: true, sessionId: "w", title: "Asks", state: "waiting" },
+    ],
+    false,
+  );
+  const ordered = attentionFirst(items, [], new Set()).map((card) => card.item.id);
+  expect(ordered[0]).toBe("w");
+  expect(ordered.indexOf("q")).toBeGreaterThan(ordered.indexOf("a"));
+});
