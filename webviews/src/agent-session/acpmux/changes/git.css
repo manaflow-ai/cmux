@@ -22,7 +22,7 @@
 .acpmux-git-form-row > .acpmux-git-secondary{margin-inline-start:auto}
 .acpmux-git-scope-hint{display:grid;flex:1;min-width:120px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--agent-page-bg));color:var(--agent-page-bg)}
+.acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--acpmux-base,var(--cmux-diff-solid-bg)));color:var(--acpmux-base,var(--cmux-diff-solid-bg))}
 .acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}
 .acpmux-git-primary:disabled,.acpmux-git-secondary:disabled{opacity:.5}

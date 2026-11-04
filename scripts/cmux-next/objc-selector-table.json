@@ -929,6 +929,12 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSView call:prepareContent/1": {
+   "26.5.2": true,
+   "26.7": true,
+   "27.0": true,
+   "27.0.1": true
+  },
   "NSView call:quickLook/1": {
    "26.5.2": true,
    "26.7": true,
