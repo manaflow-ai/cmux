@@ -34,7 +34,8 @@ for line in sys.stdin:
         send({"id": rid, "result": {}})
     elif method == "session/prompt":
         count += 1
-        text = "".join(block.get("text", "") for block in params.get("prompt", []))
+        text = "".join(block.get("text", "") for block in params.get("prompt", [])
+                       if not (block.get("_meta") or {}).get("acpmux", {}).get("context"))
         first = first or text
         if first in ("route-failure", "route-failure-schema") and "alternate" not in sys.argv:
             send({"id": rid, "error": {"code": -32000, "message": "workflow route unavailable",

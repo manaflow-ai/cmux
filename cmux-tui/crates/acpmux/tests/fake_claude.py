@@ -746,7 +746,12 @@ while True:
         if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
-        said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # Fixture commands model the person's request. Context blocks remain in the
+        # wire message and replay above, but must not change exact command matches.
+        said = "".join(b.get("text", "") for b in content if isinstance(b, dict)
+                       and not b.get("text", "").startswith(("<cmux-default-context>",
+                                                              "<cmux-user-context>",
+                                                              "<cmux-project-context>")))
         # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
         if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
             send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
