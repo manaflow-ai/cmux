@@ -208,12 +208,17 @@ export default componentEntry<Props>({
       play: scopeOnce,
     },
     "bypass-still-asks": {
-      note: 'Leo 2026-11-04: "a temporary one-time sort of ask for, like if for whatever reason there\'s the bypass permissions, it doesn\'t bypass every single thing". Shipped: in Bypass permissions an ask Claude Code still raises says under its title that the mode doesn\'t cover it and Allow once lets it run this time only.',
+      note: "Leo 2026-11-04: \"a temporary one-time sort of ask for, like if for whatever reason there's the bypass permissions, it doesn't bypass every single thing\". Shipped: in Bypass permissions an ask Claude Code still raises says under its title that the mode doesn't cover it and Allow once lets it run this time only.",
       props: { permission: stillAsks, harness: "claude", fullAccessMode: "Bypass permissions" },
     },
     "bypass-still-asks-callout": {
       note: "One-time line variant B: the line in an inset tinted box.",
-      props: { permission: stillAsks, harness: "claude", fullAccessMode: "Bypass permissions", oneTimeStyle: "callout" },
+      props: {
+        permission: stillAsks,
+        harness: "claude",
+        fullAccessMode: "Bypass permissions",
+        oneTimeStyle: "callout",
+      },
     },
     "bypass-still-asks-pill": {
       note: "One-time line variant C: the line as a small outlined pill.",

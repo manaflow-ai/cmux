@@ -468,7 +468,11 @@ test("in the chat's highest mode an ask that still comes says the mode doesn't c
   await denyOnly.unmount();
 
   // An answered ask (a record) draws no line.
-  const answered = await mount({ ...stillAsks, permissionId: "answered", pending: false }, "claude", "Bypass permissions");
+  const answered = await mount(
+    { ...stillAsks, permissionId: "answered", pending: false },
+    "claude",
+    "Bypass permissions",
+  );
   expect(line(answered.host)).toHaveLength(0);
   await answered.unmount();
 });
