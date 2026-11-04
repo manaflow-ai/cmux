@@ -23,7 +23,7 @@ extension WindowController {
     }
 
     func hideRightSidebar() {
-        if let view = rightSidebarView, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+        if let view = rightSidebarView, view.holdsKeyboard {
             view.handKeyboardToWindow() // the keyboard goes back to the focused pane's content before the view hides
             if let pane = content?.layoutModel.focusedPane?.rawValue { focus.send(.focusPane(pane, source: .programmatic)) }
         }
