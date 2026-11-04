@@ -78,9 +78,7 @@ export default agentPaneEntry({
     "thinking-again": {
       note: "The call is done and the agent thinks again: the line keeps going.",
       play: lineInSight,
-      snapshot: phase([
-        activity([thought("Looking at what ran"), log("completed"), thought("Now the reasons")], 0.05),
-      ]),
+      snapshot: phase([activity([thought("Looking at what ran"), log("completed"), thought("Now the reasons")], 0.05)]),
     },
     "tray-open": {
       note: "The reader opens the tray while the turn runs: the room under the line takes it, so the line stands over it.",

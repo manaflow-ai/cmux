@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { ServerWebSocket } from "bun";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -59,26 +60,36 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
         sessionUpdate: "tool_call_update",
         toolCallId: call,
         status: "completed",
-        content: [{ type: "content", content: { type: "text", text: `Command running in background with ID: ${task}` } }],
+        content: [
+          { type: "content", content: { type: "text", text: `Command running in background with ID: ${task}` } },
+        ],
       }),
     ],
   ];
   // Earlier turns fill more than the view, so it follows the latest row at the bottom, over the
   // stack; the last of them started a command in the background and ended; the command runs on.
-  const filler: Step[] = Array.from({ length: 12 }, (_, turn) => [
-    ["mux", "user_message", { text: `Look at part ${turn + 1}`, promptId: `f${turn}`, turnId: `ft${turn}` }],
-    ["mux", "turn_started", { turnId: `ft${turn}`, promptId: `f${turn}` }],
-    [
-      "in",
-      "agent_message_chunk",
-      update({
-        sessionUpdate: "agent_message_chunk",
-        content: { type: "text", text: `Part ${turn + 1} reads well. `.repeat(12) },
-      }),
-    ],
-    ["mux", "turn_end", { turnId: `ft${turn}`, stopReason: "end_turn" }],
-    ["mux", "turn_result", { turnId: `ft${turn}`, promptId: `f${turn}`, status: "completed", stopReason: "end_turn" }],
-  ] as Step[]).flat();
+  const filler: Step[] = Array.from(
+    { length: 12 },
+    (_, turn) =>
+      [
+        ["mux", "user_message", { text: `Look at part ${turn + 1}`, promptId: `f${turn}`, turnId: `ft${turn}` }],
+        ["mux", "turn_started", { turnId: `ft${turn}`, promptId: `f${turn}` }],
+        [
+          "in",
+          "agent_message_chunk",
+          update({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: `Part ${turn + 1} reads well. `.repeat(12) },
+          }),
+        ],
+        ["mux", "turn_end", { turnId: `ft${turn}`, stopReason: "end_turn" }],
+        [
+          "mux",
+          "turn_result",
+          { turnId: `ft${turn}`, promptId: `f${turn}`, status: "completed", stopReason: "end_turn" },
+        ],
+      ] as Step[],
+  ).flat();
   const history: Step[] = [
     ...filler,
     ["mux", "user_message", { text: "Start the dev server and keep it running", promptId: "p1", turnId: "t1" }],
@@ -118,7 +129,14 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
     state,
     ...fields,
   });
-  const running = { turnId: "t2", promptId: "p2", startedAt: Date.now(), client: "cmux", prompt: "Why so slow", turnSeq: 0 };
+  const running = {
+    turnId: "t2",
+    promptId: "p2",
+    startedAt: Date.now(),
+    client: "cmux",
+    prompt: "Why so slow",
+    turnSeq: 0,
+  };
   const session: Record<string, unknown> = {
     sessionId: CHAT,
     cwd: "/home/dev/app",
@@ -256,7 +274,11 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
     });
 
   const thought = (text: string) =>
-    ["in", "agent_thought_chunk", update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } })] as Step;
+    [
+      "in",
+      "agent_thought_chunk",
+      update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }),
+    ] as Step;
 
   type Phase = [name: string, step: (page: Page) => unknown];
   /// The reader opens or folds the running tray (its header's disclosure).
@@ -267,6 +289,7 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
     events.splice(0, events.length, ...settled);
     Object.assign(session, { status: "ready", turn: null });
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    await installPaintedFrames(page);
     await page.goto(url());
     await drawn(page).waitFor();
     const phases: Phase[] = [
@@ -326,7 +349,8 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
         await page.evaluate(() => {
           const misses: string[] = [];
           (window as unknown as { __misses: string[] }).__misses = misses;
-          const frame = () => {
+          // Every painted frame, from here to the reply.
+          window.cmuxAfterPaint(() => {
             const line = document.querySelector(".acpmux-row--below .cv-worked--live");
             const stack = document.querySelector(".acpmux-main > .acpmux-dock")?.getBoundingClientRect();
             const box = line?.getBoundingClientRect();
@@ -338,13 +362,12 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
                   ? `under the stack (${Math.round(box.bottom)} > ${Math.round(stack.top)})`
                   : undefined;
             if (miss && misses.at(-1) !== miss) misses.push(miss);
-            requestAnimationFrame(frame);
-          };
-          requestAnimationFrame(frame);
+          });
         });
       }
-      // Past the line's quiet hold (Thinking.tsx QUIET_MS) and a few frames.
-      await page.waitForTimeout(1500);
+      // The line must hold through the phase, past its quiet hold (Thinking.tsx QUIET_MS), with the
+      // per-frame sampler watching; no event marks "the phase has settled and stayed".
+      await page.waitForTimeout(1500); // fixed-wait: the line has to hold for a stretch, not reach a state
       const line = await liveLine(page);
       seen[name] = line;
       expect({ phase: name, present: line.present, quiet: "quiet" in line ? line.quiet : undefined }).toEqual({
@@ -352,7 +375,11 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
         present: true,
         quiet: false,
       });
-      expect({ phase: name, aboveStack: "aboveStack" in line && line.aboveStack, hit: "hit" in line && line.hit }).toEqual({
+      expect({
+        phase: name,
+        aboveStack: "aboveStack" in line && line.aboveStack,
+        hit: "hit" in line && line.hit,
+      }).toEqual({
         phase: name,
         aboveStack: true,
         hit: true,
@@ -372,7 +399,13 @@ await requireBrowserLane("agent-pane-live-line-under-tray.test.ts", async () => 
   test("the live line stays drawn and in sight while acpmux's registry lists the command and its card updates", async () => {
     // The tray shows the command before the send (the registry says it runs), and the turn's
     // commands come and go in it while the turn runs, each with the chat's summary sent again.
-    const watch = { ...devProcess("running"), id: `${CHAT}/b0`, toolCallId: "bg0", command: watcher, description: "Watch the styles" };
+    const watch = {
+      ...devProcess("running"),
+      id: `${CHAT}/b0`,
+      toolCallId: "bg0",
+      command: watcher,
+      description: "Watch the styles",
+    };
     processes = [devProcess("running"), watch];
     const second = {
       id: `${CHAT}/b2`,
