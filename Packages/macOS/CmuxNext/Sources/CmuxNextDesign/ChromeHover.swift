@@ -6,8 +6,9 @@ public import CmuxNextDesignTokens
 /// controls (sidebar rows and buttons, tab strip buttons, onboarding rows):
 /// a theme-token fill one tonal step per state (`hoverFill`, then
 /// `selectionFill`, then `pressedFill`; a hover over a resting fill takes
-/// `raisedHoverFill`) and a `focusRing` outline, faded as
-/// `fade(to:pressed:)` says. The fill is its own sublayer, drawn
+/// `raisedHoverFill`), faded as `fade(to:pressed:)` says. Keyboard focus
+/// takes the hover fill, never an outline (#34473: a filled highlight as in
+/// ChatGPT's toolbar and menus, no bordered ring). The fill is its own sublayer, drawn
 /// `outset` beyond the view's bounds, so nothing moves or resizes when it
 /// shows (plans/cmux-next/motion.md). A view that draws its own content
 /// (a button's title) uses its backing layer's background instead, which
@@ -67,12 +68,13 @@ public final class ChromeHover {
 
     /// The fill's color for a state, from theme tokens; `rest` when idle
     /// (a tile's faint fill), nil for no fill. Pressed wins over selected,
-    /// selected over hovered. Focus is an outline, never a fill. A hover over a
-    /// resting fill takes `raisedHoverFill`, so it still shows a change.
+    /// selected over hovered. Keyboard focus shows the hover fill (also in calm
+    /// mode: it is not a pointer hover). A hover over a resting fill takes
+    /// `raisedHoverFill`, so it still shows a change.
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
         if state.selected { return Palette.selectionFill }
-        if state.lit { return rest == nil ? Palette.hoverFill : raisedHoverFill }
+        if state.lit || state.focused { return rest == nil ? Palette.hoverFill : raisedHoverFill }
         // Calm mode (`ui.calm`): the pointer paints no hover fill.
         guard state.hovering, DesignSettings.shared.showsHoverFills else { return rest }
         return rest == nil ? Palette.hoverFill : raisedHoverFill
@@ -174,10 +176,6 @@ public final class ChromeHover {
         view.performWithTheme {
             // `paint` eases from the color at alpha 0, so the first hover fades in too.
             Self.paint(fill, Self.fillColor(state), animated: animated, pressed: state.pressed)
-            Motion.feedback.transaction(nil) {
-                fill.borderColor = Palette.focusRing.cgColor
-                fill.borderWidth = state.focused ? Metrics.lineWidth(1.5) : 0
-            }
         }
     }
 }
