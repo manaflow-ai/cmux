@@ -49,6 +49,7 @@ mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
 mod terminal_moves;
+mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
 mod view_close_replay;
