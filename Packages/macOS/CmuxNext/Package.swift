@@ -228,10 +228,6 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `presented_userdata`. CmuxNextTerminal reads, hides and purges frames through the first two
 ///   (`GhosttyFrameSource`), reads no layer contents, and takes each presented frame as its contents mark
 ///   (`ghosttySurfacePresented`).
-/// - GHOSTTY_PRESENT_NEVER_WAITS: `ghostty_surface_present_host_frame` never waits and orders its frame
-///   against the renderer's by one sequence, and `ghostty_surface_render_counters_s` ends with
-///   `host_superseded_presents` (ghostty-next cp/p03-rendering-084, not in 723c4ab93):
-///   `TerminalHostFramePresenter` calls it ahead of each commit with a resized terminal.
 /// - GHOSTTY_LOCK_WAIT: `ghostty_surface_set_lock_wait_callback` (ghostty-next cp/p04-input-078, not in
 ///   723c4ab93): `GhosttyLockWaitSignpost` records `ghostty.lock_wait` in Debug and bench builds.
 /// - GHOSTTY_EXTERNAL_VSYNC: external vsync (ghostty-next cp/p03-rendering-082 7436f3b9a, not in 723c4ab93): the
@@ -258,7 +254,6 @@ let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasTraceHook = false
 let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
-let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitHasLockWait = false
 let ghosttyNextKitHasExternalVSync = false
 let ghosttyNextKitHasExternalCursor = false
@@ -267,7 +262,6 @@ let ghosttyNextKitCapabilities: [SwiftSetting] =
     + (ghosttyNextKitHasTraceHook ? [.define("GHOSTTY_TRACE_HOOK")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
-    + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
     + (ghosttyNextKitHasLockWait ? [.define("GHOSTTY_LOCK_WAIT")] : [])
     + (ghosttyNextKitHasExternalVSync ? [.define("GHOSTTY_EXTERNAL_VSYNC")] : [])
     + (ghosttyNextKitHasExternalCursor ? [.define("GHOSTTY_EXTERNAL_CURSOR")] : [])

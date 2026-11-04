@@ -114,8 +114,6 @@ public final class GhosttyRuntime {
     /// Energy Saver's edges to libghostty (``followEnergySaver(on:)``); nil before that call, and always
     /// for a GhosttyNextKit pin without `ghostty_app_set_energy_saver`.
     private var energySaver: GhosttyEnergySaver?
-    /// Puts resized terminals' drawn frames into their size's commit; nil: they land when drawn.
-    public var hostFramePresenter: TerminalHostFramePresenter?
 
     /// Runs `ghostty_init` when `main` did not (tests); the app starts at ``start(with:)``. The app has one
     /// runtime, ``shared``; a test makes its own only to check one that never started.

@@ -157,24 +157,20 @@ public struct TerminalRenderCounters: Sendable, Equatable {
     /// Host-sized display passes of a new size (ghostty-integration-DESIGN.md G1): frames the main
     /// thread drew itself (the first frame), frames the renderer thread drew at the new size with
     /// reflowed text and the present put in its own commit, and presents that kept the last frame
-    /// because the new one was not drawn yet (it lands when drawn; since p03-rendering-084 nothing waits).
+    /// because the new one was not drawn yet (it lands when drawn).
     public var hostDisplayPasses: UInt64 = 0
-    /// `ghostty_surface_present_host_frame` calls (``TerminalHostFramePresenter``, before each commit).
+    /// `ghostty_surface_present_host_frame` calls.
     public var hostPresentCalls: UInt64 = 0
     public var hostMainDraws: UInt64 = 0
     public var hostFreshPresents: UInt64 = 0
     public var hostLatePresents: UInt64 = 0
-    /// Presents whose frame was older than one the renderer had committed to show: nothing changed
-    /// (Ghostty's frame sequence; 0 with a pin before it).
-    public var hostSupersededPresents: UInt64 = 0
 
     /// Every counter by its `debug.surfaces` name.
     public var byName: [String: UInt64] {
         ["frames": frames, "cell_rebuilds": cellRebuilds, "blend_frames": blendFrames, "frame_updates": frameUpdates,
          "full_palette": fullPalette, "full_config": fullConfig, "full_font": fullFont, "full_other": fullOther,
          "full_swap": fullSwap, "full_resize": fullResize, "host_display_passes": hostDisplayPasses, "host_present_calls": hostPresentCalls, "host_main_draws": hostMainDraws,
-         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents,
-         "host_superseded_presents": hostSupersededPresents]
+         "host_fresh_presents": hostFreshPresents, "host_late_presents": hostLatePresents]
     }
 }
 
@@ -189,8 +185,5 @@ extension TerminalRenderCounters {
                   hostDisplayPasses: counters.host_display_passes, hostPresentCalls: counters.host_present_calls,
                   hostMainDraws: counters.host_main_draws, hostFreshPresents: counters.host_fresh_presents,
                   hostLatePresents: counters.host_late_presents)
-        #if GHOSTTY_PRESENT_NEVER_WAITS
-        hostSupersededPresents = counters.host_superseded_presents
-        #endif
     }
 }
