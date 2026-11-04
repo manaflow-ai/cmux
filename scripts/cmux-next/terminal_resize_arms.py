@@ -42,7 +42,7 @@ def summaries(rounds):
     and the presses in which a terminal got more than one (the lead's rule: at most one grid per press)."""
     out = {}
     for entry in rounds:
-        if entry.get("error"):
+        if entry.get("error") or entry.get("sampled"):
             continue
         arm = out.setdefault(label(entry.get("arm")), {"rounds": 0, "frames": 0, "missed": 0, "intervals": [], "main": [],
                                                          "motion": [], "max_grids_per_press": 0, "presses_over_one_grid": 0})

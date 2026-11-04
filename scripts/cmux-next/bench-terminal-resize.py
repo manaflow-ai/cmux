@@ -76,6 +76,9 @@ parser.add_argument("--probe-pt", type=float, default=40.0, help="how far the dr
 parser.add_argument("--key-repeat", type=int, default=1, help="presses of each key per round (keys layouts)")
 parser.add_argument("--key-gap-ms", type=float, default=33.0, help="between repeated presses of one key")
 parser.add_argument("--key-settle-s", type=float, default=0.6, help="after the last press of a key")
+parser.add_argument("--sample", action="store_true",
+                    help="keys layouts: one extra round per arm under /usr/bin/sample (1 ms); its main-thread top of stack goes "
+                         "in the report as `sample_top` (the round is marked `sampled` and left out of the arms' numbers)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 APP = (opts.app or "").rstrip("/")
@@ -337,13 +340,27 @@ def measure(name):
                    "divider": {"x": round(x0, 1), "height": round(height, 1), "vertical_dividers": len(dividers)}})
 
 
+def sample_top(path, lines=40):
+    """The main thread's heaviest frames from a `/usr/bin/sample` file: the "Sort by top of stack" list."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError as error:
+        return [f"no sample: {error}"]
+    marker = text.find("Sort by top of stack")
+    if marker < 0:
+        return [f"no top-of-stack list in the sample ({len(text)} bytes)"]
+    return [line.rstrip() for line in text[marker:].splitlines()[1:lines + 1] if line.strip()]
+
+
 def measure_keys(name):
     """Ctrl-Shift-L then Ctrl-Shift-H on the focused pane, per round and arm (see the module docstring)."""
     refresh_ms = refresh_period()
     plan = [action for action in ("resizePaneRight", "resizePaneLeft") for _ in range(max(1, opts.key_repeat))]
     rounds = []
-    for index in range(opts.rounds):
-        for arm in arms.order(index, opts.ab):
+    schedule = [(index, arm, False) for index in range(opts.rounds) for arm in arms.order(index, opts.ab)]
+    if opts.sample:
+        schedule += [(opts.rounds, arm, True) for arm in arms.order(0, opts.ab)]
+    for index, arm, sampled in schedule:
             entry = {"arm": arm} if opts.ab else {}
             problem = set_arm(arm)
             if problem:
@@ -352,6 +369,13 @@ def measure_keys(name):
             before = surfaces()
             rpc("debug.terminal_display", {"action": "start"})
             rpc("debug.frames", {"action": "start"})
+            sampler = None
+            if sampled:
+                path = os.path.join(opts.out, f"sample-{name}-{arms.label(arm)}.txt")
+                seconds = max(2, int(len(plan) * opts.key_gap_ms / 1000 + opts.key_settle_s * 2 + 1))
+                sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-file", path],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+                time.sleep(0.3)  # bench script: sample attaches before the first press
             presses = []
             for number, action in enumerate(plan):
                 last = number + 1 == len(plan) or plan[number + 1] != action
@@ -372,6 +396,13 @@ def measure_keys(name):
                 presses.append(press)
             frames = rpc("debug.frames", {"action": "stop", "raw": True}) or {}
             display = rpc("debug.terminal_display", {"action": "stop"}) or {}
+            if sampler is not None:
+                try:
+                    sampler.wait(timeout=60)
+                except subprocess.TimeoutExpired:
+                    sampler.kill()
+                entry["sampled"] = True
+                entry["sample_top"] = sample_top(path)
             if entry.get("error"):
                 rounds.append(entry)
                 continue
@@ -382,9 +413,11 @@ def measure_keys(name):
                           "interval_ms": arms.distribution(raw["intervals_ms"]), "main_ms": arms.distribution(raw["main_ms"]),
                           "motion_main_ms": arms.distribution(raw["motion_main_ms"]), "raw": raw, "presses": presses,
                           "display": display, "counters": counter_delta(before, after), "unsettled_after": unsettled(after)})
+            # A held key that reaches the split's limit is refused there, as a person's is: recorded, not an error (each
+            # round still needs resized terminals, terminal_resize_verdict).
             refused = [press["refused"] for press in presses if press.get("refused")]
             if refused:
-                entry["error"] = f"{len(refused)} of {len(presses)} presses refused: {refused[0]}"
+                entry["refused_presses"] = len(refused)
             rounds.append(entry)
     return finish({"layout": name, "refresh_ms": refresh_ms, "plan": plan, "key_gap_ms": opts.key_gap_ms,
                    "key_settle_s": opts.key_settle_s, "rounds": rounds})
