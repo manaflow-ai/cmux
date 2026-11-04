@@ -63,15 +63,34 @@ fn a_key_while_another_writer_holds_the_connection_goes_to_the_port() {
     let pty = surface.as_pty().expect("a terminal");
     let writer = connection_writer(pty);
     let held = writer.lock().unwrap();
-    let started = Instant::now();
-    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
-    let took = started.elapsed();
+    // The key goes from another thread: a key that waited for the held writer would otherwise deadlock this test.
+    let took = std::thread::scope(|scope| {
+        let keyed = scope.spawn(|| {
+            let started = Instant::now();
+            surface
+                .write_bytes_replying(b"k", InputReply::Accepted)
+                .expect("the port took the key");
+            started.elapsed()
+        });
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !keyed.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let returned = keyed.is_finished();
+        if returned {
+            wait_until("the port's writer took the key", || {
+                pty.input_port.queued_frames_for_test() == 0
+            });
+        }
+        drop(held);
+        let took = keyed.join().unwrap();
+        assert!(returned, "the key waited {took:?} for the writer another client held");
+        took
+    });
     assert!(
         took < Duration::from_millis(100),
         "the key waited {took:?} for the writer another client held"
     );
-    wait_until("the port's writer took the key", || pty.input_port.queued_frames_for_test() == 0);
-    drop(held);
     assert_eq!(
         input_frames(&mut host, Duration::from_millis(300)),
         [b"k".to_vec()],
@@ -150,12 +169,14 @@ fn keys_keep_their_order_between_the_inline_write_and_the_ports_writer() {
         resume.send(()).unwrap();
         written.join().unwrap().expect("the script's write");
     });
-    wait_until("the port is idle", || pty.input_port.queued_frames_for_test() == 0);
+    wait_until("the port is idle", || pty.input_port.idle_for_test());
     drop(resume);
+    // The writer is held again: a "3" that went to the port's writer would wait there and miss the read below.
+    let _held_again = pty.input_port.pause_writes_for_test();
     surface.write_bytes_replying(b"3", InputReply::Accepted).expect("the last key");
     assert_eq!(
         input_frames(&mut host, Duration::from_millis(300)),
         [b"1".to_vec(), b"w".to_vec(), b"2".to_vec(), b"3".to_vec()],
-        "the keys and the write reached the host in another order or more than once"
+        "the keys and the write reached the host in another order, more than once, or \"3\" did not go inline"
     );
 }

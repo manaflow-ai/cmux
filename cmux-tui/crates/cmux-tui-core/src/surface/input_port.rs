@@ -554,6 +554,13 @@ impl InputPort {
     pub(crate) fn queued_frames_for_test(&self) -> usize {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).frames.len()
     }
+
+    /// Tests: the port holds no frame and is writing none (the next key may go inline).
+    #[cfg(test)]
+    pub(crate) fn idle_for_test(&self) -> bool {
+        let state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.frames.is_empty() && state.finished >= state.accepted
+    }
 }
 
 /// The reconnect wait of the port whose locked `state` the caller holds ([`HOST_INPUT_RECONNECT_WAIT`] unless a test
