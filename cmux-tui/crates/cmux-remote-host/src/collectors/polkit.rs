@@ -10,8 +10,13 @@
 //! the person's user, the same uid as the agents, so an owner annotation for
 //! that uid would also let an agent pass details of its own. The dialog
 //! therefore cannot name the agent or the app; the person reads those in
-//! `cmux computer-use approvals pending` or on the phone. Unverified on a real
-//! desktop session (GNOME and KDE agents) until a run there.
+//! `cmux computer-use approvals pending`, which marks the question whose
+//! dialog is on screen (`on_screen`), or on the phone. So that the mark is
+//! unambiguous the host shows one dialog at a time ([`crate::approver::Dialog`]):
+//! automatic prompts wait their turn, `computer_use.approvals.prompt` is
+//! refused while one is up, and a question that ends closes its dialog
+//! (`CancelCheckAuthorization`) and ignores a late answer. Unverified on a
+//! real desktop session (GNOME and KDE agents) until a run there.
 
 use std::collections::HashMap;
 

@@ -8,6 +8,18 @@
 //!   words, and each resolved app must pass the never-allowed list
 //!   ([`crate::policy::refusal`]). A window owned by another pid than the
 //!   call's `pid` is checked too.
+//! - `launch_app` is rewritten to launch the executable resolved here
+//!   (Windows: `path`; Linux: `name` as an absolute path), so upstream never
+//!   resolves the agent's name a second time (the Swift guard sets
+//!   `bundle_id`). Its other launch selectors (`launch_path`, `path`,
+//!   `aumid`), which upstream prefers over `name`, are refused, as are its
+//!   `urls`: a `cmux:`, `cmux-…:` or `cmux+…:` URL as on macOS, and any other
+//!   because upstream opens URLs in whichever app handles them (Linux opens
+//!   them instead of the named app), which this guard cannot check.
+//! - Each tool may carry only the selector keys this guard knows for it
+//!   ([`selector_keys_for`]); another selector-like key (`launch_path`,
+//!   `path`, `aumid`, `name`, `urls`, `url`, `tab_id`, `target_id`) is refused
+//!   until reviewed, so a new upstream selector cannot pass unresolved.
 //! - Upstream's loose name selectors (`app`, `window`) and unknown `scope`s or
 //!   typed `target` kinds are refused: the guard cannot repeat their matching.
 //! - Desktop input (`scope: desktop`, typed desktop targets) needs an explicit
@@ -15,7 +27,8 @@
 //! - `run_script` and `replay_trajectory` run tools from content the guard
 //!   cannot see and are refused; `run_steps` / `run_actions` are walked step by
 //!   step (a step with no target of its own inherits the batch's pid and
-//!   window, as upstream's `batch_tools.rs` does).
+//!   window, as upstream's `batch_tools.rs` does). A `launch_app` step, or a
+//!   launch selector anywhere in a batch, is refused: launch it on its own.
 
 use async_trait::async_trait;
 use serde_json::{Map, Value};
@@ -33,10 +46,13 @@ pub trait TargetResolver: Send + Sync {
     async fn app_for_bundle_id(&self, bundle_id: &str) -> Option<Target>;
 }
 
-/// The apps one call targets, distinct, in the order the call names them.
+/// The apps one call targets, distinct, in the order the call names them,
+/// and the arguments to run it with (`launch_app` rewritten to the resolved
+/// executable; every other call unchanged).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Checked {
     pub targets: Vec<Target>,
+    pub arguments: Value,
 }
 
 impl Checked {
@@ -70,6 +86,26 @@ const DESKTOP_INPUT_TOOLS: [&str; 10] = [
 const STEP_TARGET_KEYS: [&str; 9] =
     ["pid", "window_id", "target", "scope", "app", "window", "bundle_id", "app_bundle_id", "app_name"];
 const MAX_DEPTH: usize = 16;
+/// Keys upstream (cua-driver-rs v0.34.0) reads to choose an app, window, tab
+/// or launch target beyond the ones [`Guard::check_targets`] resolves.
+const SELECTOR_KEYS: [&str; 8] = ["launch_path", "path", "aumid", "name", "urls", "url", "tab_id", "target_id"];
+/// Launch selectors refused anywhere in a batch.
+const BATCH_REFUSED_KEYS: [&str; 3] = ["launch_path", "aumid", "urls"];
+
+/// The [`SELECTOR_KEYS`] a tool may carry. `launch_app`'s `name` is resolved
+/// and its `urls` checked here; the rest only choose inside an app the call
+/// already targets (a drag's point `path`, a browser tab of its pid, a
+/// browser profile name). Every other tool carries none.
+pub fn selector_keys_for(tool: &str) -> &'static [&'static str] {
+    match tool {
+        "launch_app" => &["name", "urls"],
+        "parallel_mouse_drag" => &["path"],
+        "browser_navigate" => &["url"],
+        "browser_pointer" => &["tab_id", "target_id"],
+        "browser_prepare" => &["name"],
+        _ => &[],
+    }
+}
 
 /// Whether `tool` runs nested steps.
 pub fn is_batch(tool: &str) -> bool {
@@ -88,21 +124,83 @@ pub async fn check(
     };
     check_dispatch(tool)?;
     let guard = Guard { resolver, allow_terminals };
-    let mut checked = Checked::default();
+    let mut checked = Checked { targets: Vec::new(), arguments: arguments.clone() };
     if is_batch(tool) {
         guard.check_batch(object, &mut checked).await?;
         return Ok(checked);
     }
+    check_selector_keys(tool, object)?;
     guard.check_targets(object, Some(tool), &mut checked).await?;
-    let name_keys: &[&str] = if tool == "launch_app" { &["name", "app_name"] } else { &["app_name"] };
-    for key in name_keys {
-        if let Some(value) = present(object, key) {
-            let reference = value.as_str().filter(|text| !text.is_empty()).ok_or_else(|| unresolved(key))?;
-            let app = resolver.app_named(reference).await;
-            guard.admit(app, reference, &mut checked)?;
-        }
+    if tool == "launch_app" {
+        check_urls(object)?;
+        let launched = guard.check_launch(object, &mut checked).await?;
+        checked.arguments = Value::Object(rewrite_launch(object, &launched, cfg!(windows))?);
+        return Ok(checked);
+    }
+    if let Some(value) = present(object, "app_name") {
+        let reference = value.as_str().filter(|text| !text.is_empty()).ok_or_else(|| unresolved("app_name"))?;
+        let app = resolver.app_named(reference).await;
+        guard.admit(app, reference, &mut checked)?;
     }
     Ok(checked)
+}
+
+/// Refuses a selector key `tool` may not carry ([`selector_keys_for`]).
+fn check_selector_keys(tool: &str, object: &Map<String, Value>) -> Result<(), CallError> {
+    let allowed = selector_keys_for(tool);
+    match SELECTOR_KEYS.iter().find(|key| present(object, key).is_some() && !allowed.contains(key)) {
+        Some(key) => Err(CallError::new(
+            "target_unsupported",
+            format!("Computer Use cannot check `{key}` on {tool}: name the app by pid and window_id (list_apps, list_windows)"),
+        )),
+        None => Ok(()),
+    }
+}
+
+/// `launch_app`'s `urls`: the Swift guard's `cmux:`, `cmux-…:`, `cmux+…:`
+/// refusal, then every other URL (opened in an app this guard cannot resolve).
+fn check_urls(object: &Map<String, Value>) -> Result<(), CallError> {
+    let Some(urls) = present(object, "urls") else { return Ok(()) };
+    let urls = urls.as_array().ok_or_else(|| CallError::new("bad_request", "launch_app urls must be a list of strings"))?;
+    for url in urls {
+        let url = url.as_str().ok_or_else(|| CallError::new("bad_request", "launch_app urls must be a list of strings"))?;
+        if let Some((scheme, _)) = url.split_once(':') {
+            let scheme = scheme.to_ascii_lowercase();
+            if scheme == "cmux" || scheme.starts_with("cmux-") || scheme.starts_with("cmux+") {
+                return Err(CallError::new("target_refused", "Computer Use is not allowed to use cmux for safety reasons"));
+            }
+        }
+    }
+    if urls.is_empty() {
+        return Ok(());
+    }
+    Err(CallError::new(
+        "target_unsupported",
+        "Computer Use cannot check which app opens launch_app urls: launch the app by name, then open the URL in it",
+    ))
+}
+
+/// The arguments that launch exactly `launched` (an absolute executable).
+/// Windows: `path`, which upstream prefers over `name`; Linux: `name`, which
+/// upstream runs as a command split at whitespace, so a path with whitespace
+/// cannot be launched exactly and is refused.
+fn rewrite_launch(object: &Map<String, Value>, launched: &Target, windows: bool) -> Result<Map<String, Value>, CallError> {
+    let executable = launched.executable.clone().ok_or_else(|| unresolved(&launched.name))?;
+    let mut rewritten = object.clone();
+    rewritten.remove("app_name");
+    if windows {
+        rewritten.remove("name");
+        rewritten.insert("path".into(), Value::from(executable));
+    } else {
+        if executable.contains(char::is_whitespace) {
+            return Err(CallError::new(
+                "target_unsupported",
+                format!("Computer Use cannot launch {executable} exactly (its path has a space): launch it another way"),
+            ));
+        }
+        rewritten.insert("name".into(), Value::from(executable));
+    }
+    Ok(rewritten)
 }
 
 struct Guard<'a> {
@@ -111,6 +209,32 @@ struct Guard<'a> {
 }
 
 impl Guard<'_> {
+    /// `launch_app`'s app: `name` and `app_name` (both checked; they must be
+    /// one app), never `launch_path`, `path` or `aumid`.
+    async fn check_launch(&self, object: &Map<String, Value>, checked: &mut Checked) -> Result<Target, CallError> {
+        for key in ["launch_path", "path", "aumid"] {
+            if present(object, key).is_some() {
+                return Err(CallError::new(
+                    "target_unsupported",
+                    format!("Computer Use cannot check launch_app's `{key}`: give the app's name"),
+                ));
+            }
+        }
+        let mut launched: Option<Target> = None;
+        for key in ["name", "app_name"] {
+            let Some(value) = present(object, key) else { continue };
+            let reference = value.as_str().filter(|text| !text.is_empty()).ok_or_else(|| unresolved(key))?;
+            let app = self.resolver.app_named(reference).await;
+            self.admit(app.clone(), reference, checked)?;
+            let app = app.ok_or_else(|| unresolved(reference))?;
+            if launched.as_ref().is_some_and(|known| known.key() != app.key()) {
+                return Err(CallError::new("bad_request", "launch_app's name and app_name name different apps"));
+            }
+            launched = Some(app);
+        }
+        launched.ok_or_else(|| CallError::new("target_unresolved", "launch_app needs the app's name"))
+    }
+
     /// Refuses an unresolved or never-allowed app; records an allowed one.
     fn admit(&self, app: Option<Target>, reference: &str, checked: &mut Checked) -> Result<(), CallError> {
         let app = app.ok_or_else(|| unresolved(reference))?;
@@ -195,6 +319,14 @@ impl Guard<'_> {
                     }
                     for key in object.keys() {
                         check_dispatch(key)?;
+                    }
+                    let launches = object.get("tool").and_then(Value::as_str) == Some("launch_app")
+                        || object.contains_key("launch_app");
+                    if launches || BATCH_REFUSED_KEYS.iter().any(|key| present(object, key).is_some()) {
+                        return Err(CallError::new(
+                            "tool_refused",
+                            "Computer Use does not launch apps inside a batch: call launch_app on its own first",
+                        ));
                     }
                     for key in ["app", "window"] {
                         if present(object, key).is_some() {

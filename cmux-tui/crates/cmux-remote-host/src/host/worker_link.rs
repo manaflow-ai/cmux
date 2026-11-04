@@ -118,6 +118,16 @@ impl WorkerLink {
         }
     }
 
+    /// Tests: a running worker of `generation` whose control lines arrive here.
+    #[cfg(test)]
+    pub(super) fn attach_for_test(&self, generation: u64) -> mpsc::UnboundedReceiver<Value> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let mut state = lock(&self.state);
+        state.generation = generation;
+        state.to_worker = Some(sender);
+        receiver
+    }
+
     async fn supervise(&self, core: &Arc<HostCore>) {
         let mut wanted = self.wanted.subscribe();
         let mut delay = FIRST_DELAY;
@@ -180,7 +190,9 @@ impl WorkerLink {
         for (name, value) in crate::worker::DRIVER_ENV {
             command.env(name, value);
         }
-        if let Ok(config) = crate::config::load() {
+        // The config in force (the host's one reading; `computer_use.reload` changes it).
+        let config = core.config();
+        if let Ok(config) = &*config {
             for (name, value) in config.driver_environment() {
                 command.env(name, value);
             }
@@ -233,6 +245,7 @@ impl WorkerLink {
             "client": core.client(),
             "acpmux_socket": core.bootstrap.acpmux_socket.as_ref().map(|socket| socket.display().to_string()),
             "machine": crate::platform::machine_name(),
+            "config": crate::config::snapshot_value(&config),
         }));
         drop(sender);
         core.status_changed();
@@ -267,14 +280,19 @@ impl WorkerLink {
         restart_requested
     }
 
-    fn dispatch(&self, core: &Arc<HostCore>, generation: u64, secret: &[u8], pid: u32, message: Value) {
+    pub(super) fn dispatch(&self, core: &Arc<HostCore>, generation: u64, secret: &[u8], pid: u32, message: Value) {
         match message.get("type").and_then(Value::as_str).unwrap_or_default() {
             "ready" => {
                 let socket = message.get("socket").and_then(Value::as_str).unwrap_or_default().to_owned();
                 lock(&self.state).ready = Some(message.clone());
                 core.publish_endpoint(&socket, secret, pid);
-                let apps: Vec<Value> = core.saved_apps().iter().map(crate::approval::Target::app_entry).collect();
-                self.send_to_generation(generation, json!({"type": "approved_apps", "apps": apps}));
+                {
+                    // Read and sent under the saved list's lock: a revoke or an Always
+                    // that changes the file after this read reaches the worker after it.
+                    let _saved = lock(&core.saved_lock);
+                    let apps: Vec<Value> = core.saved_apps().iter().map(crate::approval::Target::app_entry).collect();
+                    self.send_to_generation(generation, json!({"type": "approved_apps", "apps": apps}));
+                }
                 for daemon in core.acpmux_daemons() {
                     self.send_to_generation(
                         generation,

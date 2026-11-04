@@ -44,12 +44,76 @@ pub trait RemoteApprover: Send + Sync {
 /// confirms: the automatic prompt offers [`Decision::Session`];
 /// `computer_use.approvals.prompt` re-opens it with `once` or `session`, never
 /// `always` (any local caller reaches that method; Always is chosen on the
-/// phone or Mac). A dismissed prompt answers `deny`; `None` means the
-/// collector could not ask (no agent, no Hello) and the others keep waiting.
+/// phone or Mac). A dismissed polkit dialog answers `deny`; `None` means
+/// nobody answered here (no agent, no Hello, a Hello dialog the person
+/// closed) and the others keep waiting. Dropping the future closes the dialog.
 #[async_trait]
 pub trait LocalCollector: Send + Sync {
     fn name(&self) -> &'static str;
     async fn ask(&self, request: &ApprovalRequest, offered: Decision) -> Option<ApproverDecision>;
+}
+
+/// The local collector's dialog, one on screen at a time: polkit and Hello
+/// show fixed or short text, so the person must be able to tell which
+/// question the dialog in front of them answers
+/// (`computer_use.approvals.pending` marks it `on_screen`).
+#[derive(Default)]
+pub struct Dialog {
+    /// Held while a dialog is up; automatic prompts wait for it in order.
+    turn: tokio::sync::Mutex<()>,
+    /// The digest of the question on screen.
+    showing: std::sync::Mutex<Option<String>>,
+}
+
+/// A dialog is already on screen.
+#[derive(Debug, PartialEq, Eq)]
+pub struct DialogBusy;
+
+impl Dialog {
+    /// The digest of the question whose dialog is on screen.
+    pub fn showing(&self) -> Option<String> {
+        self.showing.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    /// Shows the dialog once the one on screen (if any) is gone.
+    pub async fn ask_in_turn(
+        &self,
+        local: &dyn LocalCollector,
+        request: &ApprovalRequest,
+        offered: Decision,
+    ) -> Option<ApproverDecision> {
+        let _turn = self.turn.lock().await;
+        let _shown = Shown::new(self, &request.digest);
+        local.ask(request, offered).await
+    }
+
+    /// Shows the dialog now, or refuses while another is on screen or waiting.
+    pub async fn ask_now(
+        &self,
+        local: &dyn LocalCollector,
+        request: &ApprovalRequest,
+        offered: Decision,
+    ) -> Result<Option<ApproverDecision>, DialogBusy> {
+        let Ok(_turn) = self.turn.try_lock() else { return Err(DialogBusy) };
+        let _shown = Shown::new(self, &request.digest);
+        Ok(local.ask(request, offered).await)
+    }
+}
+
+/// Marks a question on screen until the dialog is gone (answered or dropped).
+struct Shown<'a>(&'a Dialog);
+
+impl<'a> Shown<'a> {
+    fn new(dialog: &'a Dialog, digest: &str) -> Self {
+        *dialog.showing.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(digest.to_owned());
+        Self(dialog)
+    }
+}
+
+impl Drop for Shown<'_> {
+    fn drop(&mut self) {
+        *self.0.showing.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
 }
 
 /// The collectors this machine has.
@@ -57,12 +121,14 @@ pub trait LocalCollector: Send + Sync {
 pub struct Collectors {
     pub local: Option<Arc<dyn LocalCollector>>,
     pub remote: Option<Arc<dyn RemoteApprover>>,
+    /// The local collector's dialog, shared by every question.
+    pub dialog: Arc<Dialog>,
 }
 
 impl Collectors {
     /// The machine's local collector, when it has a desktop session that can show one.
     pub fn detect() -> Self {
-        Self { local: local_collector(), remote: None }
+        Self { local: local_collector(), remote: None, dialog: Arc::default() }
     }
 
     pub fn names(&self) -> Vec<String> {
@@ -86,7 +152,7 @@ impl Collectors {
         type Asking<'a> = Pin<Box<dyn Future<Output = Option<ApproverDecision>> + Send + 'a>>;
         let mut asking: Vec<Asking<'_>> = Vec::new();
         if let Some(local) = &self.local {
-            asking.push(Box::pin(local.ask(request, Decision::Session)));
+            asking.push(Box::pin(self.dialog.ask_in_turn(local.as_ref(), request, Decision::Session)));
         }
         if let Some(remote) = &self.remote {
             asking.push(Box::pin(remote.ask(request)));
@@ -199,6 +265,7 @@ mod tests {
         let collectors = Collectors {
             local: Some(Arc::new(Fixed(Some(wrong), "polkit"))),
             remote: Some(Arc::new(Hub(Some(right.clone())))),
+            dialog: Arc::default(),
         };
         assert_eq!(collectors.ask(&request).await, Some(right));
     }
@@ -206,7 +273,7 @@ mod tests {
     #[tokio::test]
     async fn no_collector_is_no_answer() {
         assert_eq!(Collectors::default().ask(&request()).await, None);
-        let silent = Collectors { local: Some(Arc::new(Fixed(None, "polkit"))), remote: None };
+        let silent = Collectors { local: Some(Arc::new(Fixed(None, "polkit"))), remote: None, dialog: Arc::default() };
         assert_eq!(silent.ask(&request()).await, None);
     }
 }

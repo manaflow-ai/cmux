@@ -5,7 +5,8 @@
 //! Its stdin and stdout are the host's control lines (EOF stops it):
 //!
 //! ```text
-//! host -> worker  {"type":"configure","socket":S,"secret":HEX,"acpmux_hashes":[HEX],"client":C,"machine":M,"state_dir":D}
+//! host -> worker  {"type":"configure","socket":S,"secret":HEX,"acpmux_hashes":[HEX],"client":C,"machine":M,
+//!                  "config":{"config":{...}}|{"error":TEXT}}   (the host's reading of the owner's config)
 //!                 {"type":"register_acpmux","pid":N,"start":N}
 //!                 {"type":"app_approval","id":N,"ok":true,"decision":D,"digest":HEX,"via":V} | {"type":"app_approval","id":N,"ok":false}
 //!                 {"type":"approved_apps","apps":[{"bundle_id"|"executable","name"}]}
@@ -510,6 +511,8 @@ impl Worker {
             ));
         }
         let once = self.gate_all(session, &checked.targets, tool).await?;
+        // The checked arguments: `launch_app` runs the executable the guard resolved.
+        let arguments = checked.arguments.clone();
         let result = self.call_with(session, &once, tool, &arguments).await;
         // Upstream resolved a target the arguments did not name: ask about it, then retry once.
         // Never for a batch: its earlier steps already ran, and every app it names was asked
@@ -807,7 +810,12 @@ async fn configure(message: &Value, layout_dir: &Path, state_dir: &Path, to_host
         .map(|hashes| hashes.iter().filter_map(Value::as_str).map(str::to_ascii_lowercase).collect())
         .unwrap_or_default();
     let text = |key: &str| message.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let config = crate::config::load();
+    // The host's reading of the owner's config (one reading for the host, its
+    // device hub collector and this worker; `computer_use.reload` makes a new one).
+    let config = match message.get("config") {
+        Some(snapshot) => crate::config::snapshot_of(snapshot),
+        None => crate::config::load(),
+    };
     let manifest_dir = state_dir.join("manifests");
     crate::platform::make_private_dir(&manifest_dir)?;
     let worker = Arc::new_cyclic(|weak: &std::sync::Weak<Worker>| {

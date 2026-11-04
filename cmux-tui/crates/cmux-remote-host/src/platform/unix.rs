@@ -52,6 +52,13 @@ pub fn peer_of(stream: &LocalStream) -> Option<(bool, u32)> {
     Some((credentials.uid() == my_uid(), pid))
 }
 
+/// Whether the peer of an accepted socket is root, by the credentials the
+/// kernel took when it connected (`SO_PEERCRED`, unchanged by a later exec):
+/// `cmux computer-use setup` asking for a reload after it wrote the config.
+pub fn peer_privileged(stream: &LocalStream) -> bool {
+    stream.peer_cred().is_ok_and(|credentials| credentials.uid() == 0)
+}
+
 /// The process listening on a Unix socket: connect and read the peer pid.
 /// Used for the daemon (the supervisor's peer must be the process serving the
 /// daemon socket) and for acpmux daemons.
