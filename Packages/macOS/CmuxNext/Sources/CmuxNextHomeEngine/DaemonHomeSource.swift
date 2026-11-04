@@ -12,6 +12,8 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     private struct State {
         var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
         var connection: DaemonConnection?
+        /// Where the agents of this owner's Chief are read (``agentSessions(_:of:)``); nil before a connection.
+        var agents: HomeAgentSessionReader?
         var lastEvent: [HomeEvent] = []
         /// An inbox read runs (`rereadInbox`); another is due after it.
         var inboxRead = false
@@ -40,8 +42,16 @@ public nonisolated final class DaemonHomeSource: HomeSource {
 
     /// A new connection (or none): the stream restarts with `.connection`
     /// and, when online, the full inbox.
-    public func connectionChanged(_ connection: DaemonConnection?) {
-        state.withLock { $0.connection = connection }
+    /// - Parameters:
+    ///   - connection: The owner's connection; nil when it went away.
+    ///   - chiefHome: The home of the Chief whose conversations this owner holds: its spawn records and
+    ///     acpmux say where its agents run.
+    public func connectionChanged(_ connection: DaemonConnection?, chiefHome: ChiefHome? = nil) {
+        let agents = chiefHome.map { HomeAgentSessionReader(home: $0) }
+        state.withLock {
+            $0.connection = connection
+            $0.agents = agents
+        }
         guard connection != nil else {
             publish(.connection(.offline(since: Date())))
             return
@@ -50,6 +60,13 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         // The same serial read as an event's reread, so an older reply never
         // replaces a newer inbox (the Chief conversation created meanwhile).
         rereadInbox()
+    }
+
+    /// Where the Chief's agents `peers` run now (its spawn records and acpmux, ``HomeAgentSessionReader``);
+    /// none before the owner connected with its Chief home.
+    public func agentSessions(_ peers: [String], of conversation: ConversationID) async -> [HomeAgentSessionRef] {
+        guard let agents = state.withLock({ $0.agents }) else { return [] }
+        return await agents.read(peers)
     }
 
     public func publish(_ event: HomeEvent) {
