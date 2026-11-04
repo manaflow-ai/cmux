@@ -68,6 +68,9 @@ class StepDetection(unittest.TestCase):
                                 "run": "import subprocess\nsubprocess.run(['gh', 'api', 'x'])\n"}))
         heredoc = "python3 - <<'PY'\nimport subprocess\nsubprocess.run(['gh', 'api', 'x'])\nPY\n"
         self.assertTrue(spends({"run": heredoc, "env": {"GH_TOKEN": OWN}}))
+        # A workflow-level `defaults.run.shell: python` makes the step Python too.
+        self.assertTrue(spends({"env": {"GH_TOKEN": OWN}, "run": "import subprocess\nsubprocess.run(['gh', 'api', 'x'])\n"},
+                               {}, {"defaults": {"run": {"shell": "python"}}}))
 
     def test_github_script(self):
         script = {"uses": "actions/github-script@v7", "with": {"script": "await github.rest.pulls.get({})"}}
@@ -92,7 +95,9 @@ class StepDetection(unittest.TestCase):
 
 class Lint(unittest.TestCase):
     def tree(self, workflow: str, budget: dict) -> tuple[Path, Path]:
-        tmp = Path(tempfile.mkdtemp())
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        tmp = Path(holder.name)
         (tmp / ".github" / "workflows").mkdir(parents=True)
         (tmp / ".github" / "workflows" / "w.yml").write_text(textwrap.dedent(workflow))
         (tmp / ".github" / "github-token-budget.json").write_text(json.dumps({"steps": budget}))
@@ -145,6 +150,7 @@ class Lint(unittest.TestCase):
         code, out = self.run_main(workflows, budget)
         self.assertEqual(code, 0)
         self.assertIn("::warning title=GITHUB_TOKEN budget::the budget lint could not run", out)
+        self.assertEqual(len([l for l in out.splitlines() if "could not run" in l]), 1)
 
 
 class Repository(unittest.TestCase):

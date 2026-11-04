@@ -126,7 +126,8 @@ def run_spends(step: dict, job: dict, workflow: dict, scripts: Scripts) -> bool:
     script = str(step.get("run", "") or "")
     if not script:
         return False
-    shell = str(step.get("shell") or (job.get("defaults") or {}).get("run", {}).get("shell") or "")
+    shell = str(step.get("shell") or ((job.get("defaults") or {}).get("run") or {}).get("shell")
+                or ((workflow.get("defaults") or {}).get("run") or {}).get("shell") or "")
     if shell.startswith("python"):
         calls, runs = python_calls(script), []
     else:
@@ -182,13 +183,17 @@ def compare(found: list[str], budget: dict[str, str]) -> tuple[list[str], list[s
     return [s for s in found if s not in budget], sorted(k for k in budget if k not in set(found))
 
 
+def escape(text: str) -> str:
+    """A workflow command's message data: %, CR and LF escaped."""
+    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def warning(step: str, budget_file: str) -> str:
     workflow = step.split(": ", 1)[0]
     text = (f"{step} calls the GitHub API with the repository GITHUB_TOKEN (1,000 requests an hour shared by "
             f"every workflow) and has no line in {budget_file}. Add one with a reason and its calls per run, "
             "or read it from git, the event payload or an App token instead.")
-    text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return f"::warning file=.github/workflows/{workflow},title=GITHUB_TOKEN budget::{text}"
+    return f"::warning file=.github/workflows/{workflow},title=GITHUB_TOKEN budget::{escape(text)}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -200,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         budget = load_budget(args.budget)
         found = spending_steps(args.workflows)
     except Exception as error:  # noqa: BLE001 - warn-only: a broken lint never fails the job
-        print(f"::warning title=GITHUB_TOKEN budget::the budget lint could not run: {str(error)[:200]}")
+        print(f"::warning title=GITHUB_TOKEN budget::{escape(f'the budget lint could not run: {str(error)[:200]}')}")
         return 0
     try:
         shown = args.budget.resolve().relative_to(ROOT).as_posix()
