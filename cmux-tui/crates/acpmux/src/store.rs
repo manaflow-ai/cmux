@@ -318,6 +318,12 @@ pub struct SessionMeta {
     /// and `resolve` follows it there (`hub/locate.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<Value>,
+    /// How many times the chat moved to another daemon: each move raises it by one on both
+    /// ends (the source's commit, the target's import, `hub/transfer.rs`), so a client that
+    /// follows the chat by its session id (Home's agent pane) re-attaches where the higher one
+    /// says it went. 0 for a chat that never moved.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub move_epoch: u64,
     /// The profile whose Claude store (its CLAUDE_CONFIG_DIR) holds the current Claude
     /// conversation: the one that started or forked it. A respawn on another profile (a failover)
     /// resumes only when that profile's store has the conversation, else starts fresh (E1).

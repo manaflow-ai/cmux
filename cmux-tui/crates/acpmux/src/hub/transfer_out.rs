@@ -461,12 +461,17 @@ impl Hub {
             meta.composer_draft = None;
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
+            meta.move_epoch += 1;
         }
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
         self.save_meta_answered(session)?;
-        self.append(session, "mux", "transferred", json!({"transferId": transfer_id, "to": to}));
+        // The new place and the higher epoch in one record: a client that follows the chat
+        // re-attaches there (`plans/cmux-next/home-agent-pills-DESIGN.md`, Identity).
+        let epoch = session.meta().move_epoch;
+        let record = json!({"transferId": transfer_id, "to": to, "moveEpoch": epoch});
+        self.append(session, "mux", "transferred", record);
         self.kill(session, false).await?;
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "committed": true}))

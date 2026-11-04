@@ -153,6 +153,13 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub moved_to: Option<Value>,
+    /// How many times the chat moved to another daemon (`acpmux session move`). Each move
+    /// raises it by one, here and where it went, and the move's `transferred` record carries the
+    /// new one with the new place: a client that follows the chat re-attaches where the higher
+    /// one says. Absent when it never moved, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    #[schemars(default)]
+    pub move_epoch: u64,
     /// The family of a conversation another app runs that this chat only shows; null otherwise.
     pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
@@ -822,4 +829,9 @@ pub struct SessionChanged {
     /// The peer a remote session runs on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+}
+
+/// A count that is 0 is left out of the wire form (`SessionSummary::move_epoch`).
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }

@@ -206,6 +206,11 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // It lives here now, whatever the daemon it came from had recorded.
         meta.moved_to = None;
+        // A move raises its epoch, as the source's commit does: both ends say the same one. A
+        // plain `session import` of a bundle is a copy, not a move.
+        if live {
+            meta.move_epoch += 1;
+        }
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
@@ -285,7 +290,7 @@ impl Hub {
             &session,
             "mux",
             "imported",
-            json!({"from": bundle, "nativeRestored": restored}),
+            json!({"from": bundle, "nativeRestored": restored, "moveEpoch": meta.move_epoch}),
             None,
             None,
         );
