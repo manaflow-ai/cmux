@@ -215,14 +215,14 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // this session with its caller token, on this daemon's socket only.
     assert_eq!(upstreams[4]["args"], json!(["subsession-mcp"]), "{upstreams}");
     let sub_env = upstreams[4]["env"].to_string();
-    for key in ["ACPMUX_MCP_SESSION", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(sub_env.contains(key), "{key}: {upstreams}");
     }
     assert!(sub_env.contains(&id), "{upstreams}");
     // The forum tools (`forum_mcp.rs`) act as this session the same way.
     assert_eq!(upstreams[5]["args"], json!(["forum-mcp"]), "{upstreams}");
     let forum_env = upstreams[5]["env"].to_string();
-    for key in ["ACPMUX_MCP_SESSION", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(forum_env.contains(key), "{key}: {upstreams}");
     }
     assert!(forum_env.contains(&id), "{upstreams}");
@@ -230,7 +230,7 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     // the same way, so a message it sends is this session's, never the person's.
     assert_eq!(upstreams[6]["args"], json!(["acpmux-mcp"]), "{upstreams}");
     let lanes_env = upstreams[6]["env"].to_string();
-    for key in ["ACPMUX_MCP_SESSION", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
+    for key in ["ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN", "ACPMUX_SESSION_TOKEN_SOCKET"] {
         assert!(lanes_env.contains(key), "{key}: {upstreams}");
     }
     assert!(lanes_env.contains(&id), "{upstreams}");
