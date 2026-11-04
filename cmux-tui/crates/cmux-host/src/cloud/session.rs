@@ -622,34 +622,43 @@ mod tests {
     fn acpmux_phases_reach_the_report_and_a_phase_change_is_reported() {
         use super::super::wire::ACTIVITY_PHASES_CAPABILITY;
         let mut s = session();
+        // Every report goes and is applied at once.
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
         let start = s.start(0);
-        s.answered(&start[0], &ok(), 0, 0.5);
-        s.activity_stream(true, 0);
+        send(&mut s, start, 0);
+        let r = s.activity_stream(true, 0);
+        send(&mut s, r, 0);
         let phases_cap = |s: &Session| {
             s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_PHASES_CAPABILITY)
         };
-        s.line(&acp_from("/a.sock", 0), 20_000);
+        let r = s.line(&acp_from("/a.sock", 0), 20_000).0;
+        send(&mut s, r, 20_000);
         assert!(!phases_cap(&s), "an acpmux that sends no phases");
 
-        let r = s.line(&acp_phases("/a.sock", &[("model-wait", 30_000)]), 30_000).0;
+        let r = s.line(&acp_phases("/a.sock", &[("model-wait", 31_000)]), 31_000).0;
+        let r = send(&mut s, r, 31_000);
         assert!(phases_cap(&s));
         assert_eq!(r.len(), 1, "the count changed: one report");
         assert_eq!(
             r[0].params["activity"]["phases"],
-            json!({"relayed": false, "turns": [{"phase": "model-wait", "since": 30_000,
+            json!({"relayed": false, "turns": [{"phase": "model-wait", "since": 31_000,
                 "processes": 0, "attached": false}]})
         );
-        s.answered(&r[0], &ok(), 30_000, 0.5);
 
         // The same count, now running a tool: a report (past the 10 s window).
-        let (mut r, _) = s.line(&acp_phases("/a.sock", &[("tool", 45_000)]), 45_000);
-        r.extend(s.fire(45_000));
+        let r = s.line(&acp_phases("/a.sock", &[("tool", 45_000)]), 45_000).0;
+        let r = send(&mut s, r, 45_000);
         assert_eq!(r.len(), 1, "a phase change is reported");
         assert_eq!(r[0].params["activity"]["phases"]["turns"][0]["phase"], "tool");
-        s.answered(&r[0], &ok(), 45_000, 0.5);
         // An unchanged renewal is not.
-        let (r, _) = s.line(&acp_phases("/a.sock", &[("tool", 45_000)]), 65_000);
-        assert!(r.is_empty() && s.fire(65_000).is_empty(), "a renewal that changes nothing");
+        let r = s.line(&acp_phases("/a.sock", &[("tool", 45_000)]), 65_000).0;
+        assert!(send(&mut s, r, 65_000).is_empty(), "a renewal that changes nothing");
 
         // A second daemon without phases: the machine's phases are unknown.
         s.line(&acp_from("/b.sock", 0), 70_000);
