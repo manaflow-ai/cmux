@@ -36,8 +36,9 @@ public struct ChiefRoute: Hashable, Sendable {
 /// The header's avatar and name push Chief's info (``ChiefSettingsView``)
 /// on the same stack, as Messages pushes contact details from the
 /// conversation header: a back chevron and the system swipe back return to
-/// the conversation. The trailing button is Invite to cmux
-/// (``ChiefInvite``): the share sheet with a note and the public cmux link.
+/// the conversation. The trailing button is Chief's page menu: Invite to
+/// cmux (``ChiefInvite``, the share sheet with a note and the public cmux
+/// link) and the Chief zoom (``ChiefTextZoom``).
 public struct ChiefConversationScreen: View {
     let session: ChiefSession
     let compose: ChiefComposer?
@@ -106,11 +107,11 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "mobile.chief.serviceSubtitle", defaultValue: "Runs your agents", bundle: .module),
-            // The header's trailing button is Invite to cmux (the share sheet).
-            trailingSymbol: ChiefInvite.symbol,
+            // The header's trailing button is Chief's page menu (Invite to cmux, the zoom).
+            trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
-                actionAccessibilityLabel: ChiefInvite.actionTitle,
+                actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
             )
@@ -166,6 +167,12 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // A conversation of the Mac's Home list has no composer: no Forward
         // button there (it did nothing when tapped).
         conversation.onForward = compose.map { compose in { draft in compose.present(forwarding: draft) } }
+        // Reply with Selection (the Mac's `home.replyToSelection`): the reply to that
+        // message opens with the selected words quoted, then whatever was typed.
+        conversation.onReplyWithSelection = { [weak conversation] reply in
+            guard let conversation else { return }
+            ChiefPageMenu.replyWithSelection(reply, in: conversation)
+        }
     }
 }
 
@@ -213,6 +220,7 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         }
         installSendGate()
         observeAvailability()
+        installPageMenu()
     }
 
     // MARK: Chief unavailable (full verify D2, D3)
