@@ -170,7 +170,7 @@ impl ConnectInfoSource for DirectSource {
             .request(
                 "/v1/read",
                 serde_json::json!({
-                    "op":"cloud.machine.connect_info", "params":{"machine":host}
+                    "op":"cloud.machine.connect_info", "params":{"host":host}
                 }),
             )
             .await?;
