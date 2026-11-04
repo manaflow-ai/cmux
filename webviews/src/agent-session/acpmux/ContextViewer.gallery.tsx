@@ -64,6 +64,14 @@ const baseline: Props = {
   onResetOverride: () => undefined,
 };
 
+const presetPlay: Play = async (ctx) => {
+  const select = ctx.document.querySelector<HTMLSelectElement>('select[aria-label="Part"]');
+  if (!select) throw new Error("editable preset selector did not open");
+  select.value = "cmux-system-prompt";
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  await ctx.waitFor(() => ctx.document.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea")?.value === "Read the project guide first.");
+};
+
 const editPlay: Play = async (ctx) => {
   const editor = ctx.document.querySelector<HTMLTextAreaElement>("[data-context-editor] textarea");
   if (!editor) throw new Error("editable cmux guidance part did not open");
@@ -99,6 +107,7 @@ export default componentEntry<Props>({
       play: editPlay,
     },
     "preset-prompt": {
+      play: presetPlay,
       note: "A local Claude preset exposes its cmux-owned system prompt as an independently editable part.",
       props: {
         ...baseline,

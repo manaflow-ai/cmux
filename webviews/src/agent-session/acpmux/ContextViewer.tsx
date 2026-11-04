@@ -186,7 +186,12 @@ function NextSessionEditor({
               aria-label={t("context.editPart")}
               value={partId}
               disabled={saving}
-              onChange={(event) => setPartId(event.target.value)}
+              onChange={(event) => {
+                const id = event.target.value;
+                setPartId(id);
+                const part = (id && currentSettings.parts?.[id]) || currentSettings;
+                setScope(part.project !== null ? "project" : "user");
+              }}
             >
               <option value="">{t("context.guidance")}</option>
               {Object.entries(currentSettings.parts).map(([id, part]) => (
