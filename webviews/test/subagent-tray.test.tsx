@@ -1178,6 +1178,46 @@ describe("the tray tells the truth", () => {
     expect([after.action, after.actionShell]).toEqual(["find the bug", undefined]);
   });
 
+  test("a shell substitution gets a readable work title and keeps the raw command in its tooltip", async () => {
+    const raw =
+      "SHA=$(git rev-parse HEAD); cmux-ci run --class light --key glyph-parity-${SHA:0:12} --ref $SHA --script scripts/check-glyphs.sh";
+    const entry = command("checks", { command: raw });
+    expect(commandLabel(entry)).toBe("git rev-parse HEAD · cmux-ci run");
+    expect(commandLabel({ ...entry, description: "Check the glyphs on the fleet" })).toBe(
+      "Check the glyphs on the fleet",
+    );
+    const { root, done } = await render(
+      createElement(SubagentTray, {
+        items: trayItems([], [entry], NONE, true),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · cmux-ci run"]);
+      expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
+      expect(root.textContent).not.toContain("HEAD);");
+      expect(root.textContent).not.toContain("--class");
+    } finally {
+      await done();
+    }
+  });
+
+  test("substitutions stay whole and their executed work never disappears as setup", () => {
+    const labels = [
+      ["A=$(touch marker); bun test", "touch marker · bun test"],
+      ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
+      ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
+      ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · printf · bun test"],
+      ["export A=$(git rev-parse HEAD); bun test", "git rev-parse HEAD · bun test"],
+      ["cd /tmp && A=$(git rev-parse HEAD); /opt/bin/cmux-ci run --ref $A", "git rev-parse HEAD · cmux-ci run"],
+      ["A='$(not executed)'; bun test", "bun test"],
+      ["echo '$(not executed)'", "echo '$(not executed)'"],
+    ];
+    for (const [raw, label] of labels) expect(commandLabel(command("case", { command: raw! }))).toBe(label);
+  });
+
   test("a command shows its description, else the command without its cd and env prefixes", async () => {
     const tool = (id: string, input: Record<string, unknown>) => ({
       id,
