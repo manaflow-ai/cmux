@@ -41,19 +41,38 @@ enum Line {
 /// error, never silently dropped.
 pub struct FileJournalStore {
     dir: PathBuf,
+    /// The folder's own link in its parent is durable (synced once, after creating it).
+    dir_durable: std::sync::atomic::AtomicBool,
     /// Appends and rewrites of one store are serialized; one machine has one writer.
     lock: Mutex<()>,
 }
 
 impl FileJournalStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into(), lock: Mutex::new(()) }
+        Self {
+            dir: dir.into(),
+            dir_durable: std::sync::atomic::AtomicBool::new(false),
+            lock: Mutex::new(()),
+        }
     }
 
     /// The file for `machine`: its name hex-encoded, so any machine id is one safe file name.
     pub fn path_for(&self, machine: &str) -> PathBuf {
         let name: String = machine.bytes().map(|b| format!("{b:02x}")).collect();
         self.dir.join(format!("{name}.jsonl"))
+    }
+
+    /// Creates the folder and makes its link in its parent durable, once per store.
+    fn ensure_dir(&self) -> io::Result<()> {
+        use std::sync::atomic::Ordering;
+        std::fs::create_dir_all(&self.dir)?;
+        if !self.dir_durable.load(Ordering::SeqCst) {
+            if let Some(parent) = self.dir.parent().filter(|p| !p.as_os_str().is_empty()) {
+                sync_dir(parent)?;
+            }
+            self.dir_durable.store(true, Ordering::SeqCst);
+        }
+        Ok(())
     }
 
     fn guard(&self) -> std::sync::MutexGuard<'_, ()> {
@@ -107,16 +126,17 @@ impl JournalStore for FileJournalStore {
 
     fn append(&self, machine: &str, entry: &Entry) -> io::Result<()> {
         let _g = self.guard();
-        std::fs::create_dir_all(&self.dir)?;
+        self.ensure_dir()?;
         let path = self.path_for(machine);
         drop_torn_tail(&path)?;
-        let created = !path.exists();
         let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
         let before = file.metadata()?.len();
         let written = file
             .write_all(line_of(&Line::Entry(entry.clone()))?.as_bytes())
             .and_then(|()| file.sync_data())
-            .and_then(|()| if created { sync_dir(&self.dir) } else { Ok(()) });
+            // Always the folder too: the file may be new, or the replacement an earlier
+            // `clear_through` renamed into place may not have reached the disk yet.
+            .and_then(|()| sync_dir(&self.dir));
         if let Err(e) = written {
             // The caller reports this write as failed, so it must not come back on the next load:
             // cut the file back to where it was. If even that fails, the journal refuses further
@@ -129,7 +149,7 @@ impl JournalStore for FileJournalStore {
 
     fn clear_through(&self, machine: &str, seq: u64) -> io::Result<()> {
         let _g = self.guard();
-        std::fs::create_dir_all(&self.dir)?;
+        self.ensure_dir()?;
         let path = self.path_for(machine);
         let state = read_lines(&path)?;
         let through = state.cleared_through.max(seq);

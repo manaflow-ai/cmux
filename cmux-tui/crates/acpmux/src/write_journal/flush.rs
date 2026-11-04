@@ -24,6 +24,10 @@ pub trait MachineFs {
     fn write(&self, path: &str, bytes: &[u8]) -> io::Result<()>;
     /// Remove the file; an absent file is not an error.
     fn remove(&self, path: &str) -> io::Result<()>;
+    /// Make the file's current state (its bytes, or its absence) survive a power loss, with every
+    /// folder on the way to it. `write` and `remove` already do this; the flush calls it for an
+    /// entry an earlier flush applied, whose own sync may not have finished.
+    fn make_durable(&self, path: &str) -> io::Result<()>;
 }
 
 /// [`MachineFs`] over a local folder: what runs on the machine itself, and the test double.
@@ -50,6 +54,22 @@ impl DirMachineFs {
         }
         Ok(at)
     }
+
+    /// Syncs every folder from `full`'s parent up to the root, so each link on the way (a folder
+    /// just created, a rename, a remove) is durable.
+    fn sync_parents(&self, full: &std::path::Path) -> io::Result<()> {
+        let mut dir = full.parent();
+        while let Some(d) = dir {
+            if std::fs::symlink_metadata(d).is_ok() {
+                super::store::sync_dir(d)?;
+            }
+            if d == self.root.as_path() || !d.starts_with(&self.root) {
+                break;
+            }
+            dir = d.parent();
+        }
+        Ok(())
+    }
 }
 
 impl MachineFs for DirMachineFs {
@@ -73,9 +93,9 @@ impl MachineFs for DirMachineFs {
             let _ = std::fs::set_permissions(tmp.path(), m.permissions());
         }
         tmp.persist(&full).map_err(|e| e.error)?;
-        // The entry is cleared from the journal after this returns, so the rename must survive
-        // a power loss first.
-        super::store::sync_dir(&dir)
+        // The entry is cleared from the journal after this returns, so the rename, and any
+        // folder just created for it, must survive a power loss first.
+        self.sync_parents(&full)
     }
 
     fn remove(&self, path: &str) -> io::Result<()> {
@@ -83,8 +103,18 @@ impl MachineFs for DirMachineFs {
         match std::fs::remove_file(&full) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
-            Ok(()) => super::store::sync_dir(full.parent().unwrap_or(self.root.as_path())),
+            Ok(()) => self.sync_parents(&full),
         }
+    }
+
+    fn make_durable(&self, path: &str) -> io::Result<()> {
+        let full = self.resolve(path)?;
+        match std::fs::File::open(&full) {
+            Ok(f) => f.sync_all()?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+        self.sync_parents(&full)
     }
 }
 
@@ -178,6 +208,9 @@ fn apply(
     let now = machine.read(&entry.path)?;
     let found = Version::of(now.as_deref());
     if already_applied(entries, &found) {
+        // An earlier flush got this far but may have died before its sync: sync now, before the
+        // entry is cleared.
+        machine.make_durable(&entry.path)?;
         *already = true;
         return Ok(None);
     }

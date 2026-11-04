@@ -394,6 +394,46 @@ impl MachineFs for Failing<'_> {
     fn remove(&self, path: &str) -> std::io::Result<()> {
         self.inner.remove(path)
     }
+    fn make_durable(&self, path: &str) -> std::io::Result<()> {
+        self.inner.make_durable(path)
+    }
+}
+
+/// Records which paths the flush made durable without writing them.
+struct Recording<'a> {
+    inner: &'a DirMachineFs,
+    synced: std::sync::Mutex<Vec<String>>,
+}
+
+impl MachineFs for Recording<'_> {
+    fn read(&self, path: &str) -> std::io::Result<Option<Vec<u8>>> {
+        self.inner.read(path)
+    }
+    fn write(&self, path: &str, bytes: &[u8]) -> std::io::Result<()> {
+        self.inner.write(path, bytes)
+    }
+    fn remove(&self, path: &str) -> std::io::Result<()> {
+        self.inner.remove(path)
+    }
+    fn make_durable(&self, path: &str) -> std::io::Result<()> {
+        self.synced.lock().unwrap().push(path.to_owned());
+        self.inner.make_durable(path)
+    }
+}
+
+#[test]
+fn an_entry_found_already_applied_is_made_durable_before_it_is_cleared() {
+    let f = fixture(&[("a.txt", "one")]);
+    let mut j = open(&f);
+    journaled(write_text(&mut j, &f.replica, "a.txt", Some("two"), 1).unwrap());
+    journaled(write_text(&mut j, &f.replica, "deep/new/b.txt", Some("b"), 2).unwrap());
+    std::fs::write(f.machine_root.join("a.txt"), "two").unwrap();
+    let machine = Recording { inner: &f.machine, synced: std::sync::Mutex::new(Vec::new()) };
+    let report = flush(&mut j, &machine).unwrap();
+    assert_eq!(report.already, vec![1]);
+    assert_eq!(report.applied, vec![2]);
+    assert_eq!(*machine.synced.lock().unwrap(), vec!["a.txt".to_owned()]);
+    assert_eq!(machine_text(&f, "deep/new/b.txt").as_deref(), Some("b"));
 }
 
 #[test]
