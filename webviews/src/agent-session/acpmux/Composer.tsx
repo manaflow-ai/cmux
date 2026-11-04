@@ -342,7 +342,7 @@ type Props = {
   onTyping?(text: string, sessionId?: string): void;
   /// The person edited the prompt, in any chat (one with no session yet too): the pane wakes a
   /// paused Cloud machine as they type (cloudWake.ts `cloudTypingWakes`).
-  onEdit?(text: string): void;
+  onPromptEdit?(text: string): void;
   /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
    * counts it taken (`suggestion_gate.rs`). */
   onSuggestionTaken?(): void;
@@ -471,7 +471,7 @@ export function Composer({
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
-  onEdit,
+  onPromptEdit,
   onSuggestionTaken,
   keptAttachments,
   onImportFile,
@@ -1925,7 +1925,7 @@ export function Composer({
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
-    if (value.trim()) onEdit?.(value);
+    if (value.trim()) onPromptEdit?.(value);
   };
   promptCaret.current = setCaret;
   promptKeyDown.current = (event) => {
