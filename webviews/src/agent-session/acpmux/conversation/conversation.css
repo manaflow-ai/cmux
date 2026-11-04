@@ -3143,7 +3143,7 @@ button.cv-video-frames__frame:focus-visible {
   border-top: 0;
 }
 .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
-  visibility: hidden;
+  visibility: visible;
   color: var(--cv-text-muted);
 }
 .cv-steps > .cv-step > .cv-tool {
@@ -3154,6 +3154,7 @@ button.cv-video-frames__frame:focus-visible {
 }
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   color: var(--cv-text-muted);
+  opacity: 1;
 }
 
 /* The comparison gallery keeps the earlier Claude desktop treatment available without making it
@@ -3192,7 +3193,7 @@ button.cv-video-frames__frame:focus-visible {
    reveals the chevron: a step's words and glyph keep their tone under the pointer, as a lone tool
    row's do (#20330: tool rows "no longer change on hover"; agent-pane-step-rows.test.ts). */
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
-  opacity: 0;
+  opacity: 1;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
 }
 .cv-steps > .cv-step > .cv-tool:is(

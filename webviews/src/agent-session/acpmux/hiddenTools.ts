@@ -18,7 +18,23 @@ export function isPlumbingCall(update: any): boolean {
 /// work in the turn summary. Presentation filters the same call from the visible step list.
 export function isCompletedPlumbingTool(tool: any): boolean {
   const name = tool?.provenance?.claudeTool ?? tool?.provenance?.claudeCodeToolName;
-  return tool?.status === "completed" && typeof name === "string" && PLUMBING_TOOLS.has(name) && tool.title === name;
+  if (
+    tool?.status !== "completed" ||
+    typeof name !== "string" ||
+    !PLUMBING_TOOLS.has(name) ||
+    tool.title !== name
+  )
+    return false;
+  // A discovery call that reports an error remains visible and counts as work. Keep this
+  // predicate aligned with the presentation projection in mcpPresentation.ts.
+  if (
+    (tool.exitCode ?? 0) !== 0 ||
+    /(?:"(?:isError|error)"\s*:\s*(?!(?:false|null|0)\s*[,}])\S|"(?:success|ok)"\s*:\s*(?:false|0)\b|"(?:status|state)"\s*:\s*"(?:error|failed|cancelled|canceled)"|^\s*(?:error|failed|unable|unavailable|cancelled|canceled)(?:\s+by\s+user)?\b)/im.test(
+      tool.output ?? "",
+    )
+  )
+    return false;
+  return true;
 }
 
 /// Whether an ACP tool call or update is Muse Code's own todo tool, whose list the cmux-muse-acp

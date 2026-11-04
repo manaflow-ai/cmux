@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { childRows } from "./subagents/childRows";
 import { SubagentFold } from "./subagents/subagentFold";
 import { visibleToolItems } from "./conversation/mcpPresentation";
+import { isCompletedPlumbingTool } from "./hiddenTools";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -215,6 +216,19 @@ test("a turn of ToolSearch, Read and Bash draws Read and Bash, and counts two ca
   expect(only.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual([
     "Loading the tools. Loaded.",
   ]);
+});
+
+test("a completed discovery error stays visible and counts as work", () => {
+  const errored = {
+    title: "ToolSearch",
+    status: "completed",
+    provenance: { claudeTool: "ToolSearch" },
+    output: '{"isError":true,"message":"deferred tools unavailable"}',
+  };
+  expect(isCompletedPlumbingTool(errored)).toBe(false);
+  expect(
+    visibleToolItems([{ kind: "tool", text: "ToolSearch", tool: errored } as never])?.length,
+  ).toBe(1);
 });
 
 test("a hidden call's result on a page without its call draws no row named by its id", async () => {
