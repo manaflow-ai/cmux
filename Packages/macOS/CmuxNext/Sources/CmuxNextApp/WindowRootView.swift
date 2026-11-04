@@ -11,11 +11,11 @@ import Observation
 /// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
 /// lights then sit over the top-left tab strip), and the workspace layout
 /// beside it. `window.titlebar`
-/// "minimal" (the default) has no titlebar strip: the layout reaches the
+/// "minimal" has no titlebar strip: the layout reaches the
 /// window's top edge, the traffic lights sit in the top row (the sidebar
 /// header, or with the sidebar hidden the top-left tab strip, which starts
 /// after them), and that row's empty space moves the window. "standard"
-/// adds a compact titlebar across the content column with the workspace
+/// (the default) adds a compact titlebar across the content column with the workspace
 /// name. Every surface is the one surface token
 /// (`Palette.surfaceBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams. In a

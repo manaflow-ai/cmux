@@ -255,6 +255,15 @@ impl Translator {
                         {
                             out.push(upd(plan));
                         }
+                        // Claude Code 2.1 keeps it with TaskCreate and TaskUpdate
+                        // instead: each call lands on its result (`task_plan.rs`). The
+                        // list is the main session's; a subagent's tasks stay its own.
+                        if main_line
+                            && super::task_plan::TaskPlan::follows(name)
+                            && let Some(id) = c.get("id").and_then(Value::as_str)
+                        {
+                            self.task_plan.lock().await.call(name, id, &input);
+                        }
                         // Every shell, so one moved to the background later
                         // keeps its command (cx-ncc.84).
                         if name == "Bash"
@@ -265,6 +274,12 @@ impl Translator {
                             let shell = BackgroundShell {
                                 sid: sid.clone(),
                                 command: command.to_owned(),
+                                description: input
+                                    .get("description")
+                                    .and_then(Value::as_str)
+                                    .map(str::trim)
+                                    .filter(|d| !d.is_empty())
+                                    .map(str::to_owned),
                                 task: None,
                                 background: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
@@ -422,6 +437,14 @@ impl Translator {
                             "status": if is_err { "failed" } else { "completed" },
                             "content": content,
                         })));
+                        // A task call's result redraws the task list (`task_plan.rs`).
+                        if let Some(plan) = self.task_plan.lock().await.result(
+                            tool,
+                            is_err,
+                            line.get("tool_use_result"),
+                        ) {
+                            out.push(upd(plan));
+                        }
                         if let Some(update) = self.workflow_launched(tool, is_err, line).await {
                             out.push(upd(update));
                         }
@@ -962,6 +985,7 @@ impl Translator {
                 let shell = shells.entry(tool.clone()).or_insert_with(|| BackgroundShell {
                     sid: sid.to_owned(),
                     command: text("description").unwrap_or("").to_owned(),
+                    description: None,
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
@@ -1318,13 +1342,19 @@ pub(super) fn summary_exit_code(summary: &str) -> Option<i64> {
 
 /// A `background_task_update` for one shell.
 fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> Value {
-    json!({
+    let mut update = json!({
         "sessionUpdate": "background_task_update",
         "taskId": shell.task.as_deref().unwrap_or(""),
         "toolCallId": tool,
         "command": shell.command,
         "state": state,
-    })
+    });
+    // The call's own words for it, so a client that never loaded the call
+    // (an older page, a peer) still names it by them.
+    if let Some(description) = &shell.description {
+        update.set("description", json!(description));
+    }
+    update
 }
 
 /// The `running` update of a shell Claude runs in the background now, once

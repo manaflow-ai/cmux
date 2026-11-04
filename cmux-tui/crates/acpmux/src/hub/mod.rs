@@ -273,6 +273,7 @@ mod web_control;
 mod web_token;
 mod work_below;
 pub(crate) mod worktree_care;
+mod wrap_up_offer;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;
