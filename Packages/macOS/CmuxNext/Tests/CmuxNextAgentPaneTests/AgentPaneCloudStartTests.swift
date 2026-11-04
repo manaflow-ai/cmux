@@ -97,6 +97,9 @@ struct AgentPaneCloudStartTests {
         ]])
         let reply = await model.respond(to: request)
         #expect(reply["ok"] as? Bool == false)
+        let error = reply["error"] as? [String: Any]
+        #expect(error?["code"] as? String == "cloud_chat_already_started")
+        #expect(error?["userMessage"] as? String == "A chat opened while you were signing in. This prompt was not sent to Cloud.")
         #expect(starts.seen.isEmpty)
         #expect(model.transport.replacements.beginSandbox())
     }

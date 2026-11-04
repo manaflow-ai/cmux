@@ -121,10 +121,12 @@ export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message
 /// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
 /// resumes it once. Concurrent clicks share one browser callback, and a later click after a
 /// successful callback cannot send the prompt a second time.
-export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): () => Promise<boolean> {
+export type CloudSignInRetry = (() => Promise<boolean>) & { reset: () => void };
+
+export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): CloudSignInRetry {
   let inFlight: Promise<boolean> | undefined;
   let resumed = false;
-  return () => {
+  const retry = (() => {
     if (resumed) return Promise.resolve(false);
     if (inFlight) return inFlight;
     const started = resume();
@@ -140,7 +142,11 @@ export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | u
         inFlight = undefined;
       });
     return inFlight;
+  }) as CloudSignInRetry;
+  retry.reset = () => {
+    resumed = false;
   };
+  return retry;
 }
 
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
@@ -309,7 +315,7 @@ export function cloudStartKeys(
 
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
-  return !answer.ok && answer.code === "cloud_start_failed";
+  return !answer.ok && ["cloud_start_failed", "cloud_chat_already_started"].includes(answer.code);
 }
 
 /// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was

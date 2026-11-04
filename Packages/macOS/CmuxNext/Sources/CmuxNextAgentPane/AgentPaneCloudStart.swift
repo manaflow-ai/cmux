@@ -246,6 +246,15 @@ struct AgentPaneHandOff {
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
                 }
+                // Browser auth can take minutes. Another send may have adopted this pane while
+                // it was open; never start Cloud over that chat or consume its preserved prompt.
+                guard model.sessionId == nil else {
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(
+                        code: "cloud_chat_already_started",
+                        message: "A chat opened while you were signing in. This prompt was not sent to Cloud."
+                    )
+                }
             }
             let reply = await run(start)
             // A chat that started on the machine keeps the hold: this pane never starts one too,

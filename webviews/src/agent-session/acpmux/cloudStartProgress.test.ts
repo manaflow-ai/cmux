@@ -61,6 +61,21 @@ test("the start's answer: an opened chat clears the card, a failure keeps it wit
   expect(cloudStartEnded(undefined, "k-1", { ok: true })).toBeUndefined();
 });
 
+test("a chat opened during sign-in keeps its specific recovery message", () => {
+  expect(
+    cloudStartEnded(begun(), "k-1", {
+      ok: false,
+      code: "cloud_chat_already_started",
+      message: "A chat opened while you were signing in. This prompt was not sent to Cloud.",
+    }),
+  ).toEqual({
+    ...begun(),
+    state: "failed",
+    code: "cloud_chat_already_started",
+    message: "A chat opened while you were signing in. This prompt was not sent to Cloud.",
+  });
+});
+
 test("a start with no project carries home, and the agent's name for the opening step", () => {
   expect(cloudStartBegun("k", "hi", undefined, "Claude Code", true)).toEqual({
     key: "k",

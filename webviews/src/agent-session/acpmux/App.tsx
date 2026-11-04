@@ -8798,6 +8798,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       setCloudStartsEnded((count) => count + 1);
       if (cloudRunsHere(answer)) {
         // The cap card's Run on This Mac: the prompt still in the composer goes to a chat here once the mode is.
+        cloudSignInRetry.reset();
         setCloudStart((current) => (current?.key === key ? undefined : current));
         runModePicked.current = true;
         runHereSend.current = true;
@@ -8826,12 +8827,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     sandboxWake.current = undefined;
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    cloudSignInRetry.reset();
     setCloudStart(undefined);
     cloudSignInSend.current = () => undefined;
   }, [snapshot.sessionId, newTabGeneration]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") {
+      cloudSignInRetry.reset();
       setCloudStart((current) => (current?.state === "failed" ? undefined : current));
       cloudSignInSend.current = () => undefined;
     }
