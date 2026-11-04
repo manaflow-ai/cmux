@@ -406,7 +406,7 @@ test("the pane builds its Cloud start from grantedCloudStart and hands every Clo
   expect(source).toMatch(
     /const \[startCloud\] = useState\(\(\) => grantedCloudStart\(callNative, cloudFolderGrant\)\);/,
   );
-  expect(source).toMatch(/cloudFolderGrant\.granting\(folder\.cwd, pickFolder\(callNative, folder\.cwd/);
+  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
   expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
   expect(source).not.toMatch(/oneCloudStart\(/);
 });
