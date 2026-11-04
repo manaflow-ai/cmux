@@ -97,6 +97,7 @@ pub mod media_read;
 mod mesh_rows;
 pub(crate) mod native_history;
 pub(crate) mod result_image_files;
+pub use result_image_files::save as save_tool_result_image;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;

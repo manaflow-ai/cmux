@@ -898,7 +898,7 @@ impl<B: Backend> Server<B> {
         if name == code_mode::EXEC {
             // One tool list per script, for its docs searches.
             let mut tools = None;
-            let mut images = Vec::new();
+            let mut images = code_mode::Images::new();
             self.call_cap = Some(self.script_limits.total);
             self.call_deadline = Some(Instant::now() + self.script_limits.total);
             let answered = code_mode::exec(&arguments, self.script_limits, &mut |request| {
@@ -910,7 +910,7 @@ impl<B: Backend> Server<B> {
                 tool_error(envelope(v2_tools::invalid(message), "not_run", None))
             });
             if let Some(content) = result["content"].as_array_mut() {
-                content.extend(images);
+                content.extend(images.content);
             }
             return Ok(result);
         }
@@ -1232,7 +1232,7 @@ impl<B: Backend> Server<B> {
         &mut self,
         request: code_mode::Request,
         tools: &mut Option<Vec<Value>>,
-        images: &mut Vec<Value>,
+        images: &mut code_mode::Images,
     ) -> Value {
         match request {
             code_mode::Request::ActivityStart { .. } | code_mode::Request::ActivityWait { .. } => {

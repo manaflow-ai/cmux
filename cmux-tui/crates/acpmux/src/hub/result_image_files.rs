@@ -83,8 +83,8 @@ fn chunks(data: &str) -> impl Iterator<Item = Result<Vec<u8>>> + '_ {
     })
 }
 
-/// Transcript adoption already runs on a blocking worker.
-pub(crate) fn save(session: &str, data: &str, mime: &str) -> Result<PathBuf> {
+/// Synchronous callers (transcript adoption and code-mode MCP) run on a blocking worker.
+pub fn save(session: &str, data: &str, mime: &str) -> Result<PathBuf> {
     let mut target = Target::open(root(session).context("invalid image session")?)?;
     let file = target.file.as_mut().context("image file is closed")?;
     let mut hash = Sha256::new();
