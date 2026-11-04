@@ -1,5 +1,6 @@
 public import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextWakeups
 public import Foundation
 
 /// Only a native, target/team-scoped confirmation may call this. A repeat reuses the explicit
@@ -53,7 +54,12 @@ public import Foundation
     /// How many times the first guest check runs while the kind record is missing, ``Effects/pause`` apart
     /// (3 s: about 90 s, the journey's `waitPreflight` budget).
     static let guestCheckTries = 30
-    @Sendable nonisolated static func guestCheckPause() async throws { try await Task.sleep(for: .seconds(3)) }
+    /// No event says the guest has bound, so the checks are spaced as retries after a failure.
+    @Sendable nonisolated static func guestCheckPause() async throws {
+        var backoff = Backoff(initial: .seconds(3), maximum: .seconds(3), multiplier: 1)
+        // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
+        try await backoff.wait(owner: "cloud-credential-transfer.guest-bind")
+    }
 
     /// The guest-kind line of the chat restart after this transfer (the app's credential recovery):
     /// the kinds the transfer installs on, an owner guest, or with ``allowsCreatorTeamGuest`` (DEV and
