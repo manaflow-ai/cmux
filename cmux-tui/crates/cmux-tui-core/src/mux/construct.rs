@@ -343,7 +343,7 @@ impl Mux {
             agent_hook_children: Mutex::new(HashMap::new()),
             agent_prompts: Mutex::new(agent_prompts::AgentTexts::default()),
             agent_roster: Mutex::new(agent_roster),
-            agent_roster_fold: Mutex::default(),
+            agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
@@ -453,6 +453,8 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        // The agent roster's one owner: every fold and snapshot save runs there.
+        mux.start_agent_roster_worker()?;
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

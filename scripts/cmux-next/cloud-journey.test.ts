@@ -1,8 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { cliExecWithFallback, nativeProofSkip, oidcSignIn, waitPreflight, PREFLIGHT_PROBE } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
+    const calls: Array<{ method: string; url: string; auth: string }> = [];
+    const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
+      calls.push({ method, url, auth: headers.authorization ?? "" });
+      if (url.startsWith("https://gh.example/token")) return { status: 200, body: { value: "gh-oidc-jwt-value" } };
+      return { status: 200, body: { access_token: "stack-access-value", user: "user_x", session_expires_at: "2026-11-04T18:00:00.000Z" } };
+    };
+    const secrets: string[] = [];
+    const s = await oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/token?x=1", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-bearer" }, secrets, fake as never);
+    expect(s).toEqual({ token: "stack-access-value", user: "user_x", expiresAt: "2026-11-04T18:00:00.000Z" });
+    expect(calls[0]).toEqual({ method: "GET", url: "https://gh.example/token?x=1&audience=https%3A%2F%2Fcloud-api.cmux.dev", auth: "bearer request-bearer" });
+    expect(calls[1]).toEqual({ method: "POST", url: "https://cloud-api.cmux.dev/v1/auth/github-actions", auth: "Bearer gh-oidc-jwt-value" });
+    expect(secrets).toEqual(["request-bearer", "gh-oidc-jwt-value", "stack-access-value"]);
+    // What the journey renders goes through scrub with that list: none of the three survives.
+    const rendered = scrub(`GET bearer request-bearer -> gh-oidc-jwt-value; session stack-access-value`, secrets);
+    for (const v of secrets) expect(rendered).not.toContain(v);
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
+    const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+  });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
     expect(resolveBackend("prod")).toEqual({ name: "prod", api: "https://cloud-api.cmux.dev", stack: "prod" });
@@ -79,5 +100,47 @@ describe("cloud journey", () => {
     expect(validLogin("claude", auth)).toBe(false);
     expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
     expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
+  });
+});
+
+describe("cloud journey: link_token on a Native machine", () => {
+  const refusal = (code: string, reason?: string) => ({ ok: false, error: { code, message: "m", ...(reason ? { details: { reason } } : {}) } });
+  test("skips only a refusal for want of a Native device enrollment", () => {
+    for (const reason of ["host_missing", "host_unconfirmed", "proof_missing"])
+      expect(nativeProofSkip(refusal("auth.forbidden", reason))).toContain(`needs a Native device proof (app-only): link_token refused ${reason}`);
+  });
+  test("keeps every other answer red", () => {
+    expect(nativeProofSkip(refusal("auth.forbidden"))).toBeNull(); // an older backend names no check
+    expect(nativeProofSkip(refusal("auth.forbidden", "vm_services"))).toBeNull();
+    expect(nativeProofSkip(refusal("auth.forbidden", "host_grant"))).toBeNull();
+    expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
+    expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
+    expect(nativeProofSkip(undefined)).toBeNull();
+  });
+  test("the login preflight waits for the guest's bind, then names the failing check", async () => {
+    const noPause = async () => {};
+    let calls = 0;
+    const late = async (command: string) => ({ code: command === "pre" && ++calls >= 3 ? 0 : 1, stdout: "", stderr: "" });
+    expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
+    const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
+    await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+});
+
+describe("cloud journey: exec on a VM API machine", () => {
+  test("falls back to the machine exec route once the CLI answers cloud.provider.unsupported", async () => {
+    const calls: string[] = [];
+    const cli = async (c: string) => (calls.push(`cli ${c}`), { code: 1, stdout: "", stderr: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" });
+    const direct = async (c: string) => (calls.push(`direct ${c}`), { code: 0, stdout: "ok", stderr: "" });
+    const journey = { meta: {} as Record<string, string> };
+    const exec = cliExecWithFallback(cli, direct, journey);
+    expect((await exec("a")).stdout).toBe("ok");
+    expect((await exec("b")).stdout).toBe("ok");
+    expect(calls).toEqual(["cli a", "direct a", "direct b"]);
+    expect(journey.meta.exec_route).toContain("CLI gap");
+  });
+  test("keeps every other CLI failure as the step's own", async () => {
+    const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
+    expect((await exec("a")).code).toBe(2);
   });
 });
