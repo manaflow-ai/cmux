@@ -52,6 +52,7 @@ struct CloudAppLinkRedialTests {
         #expect(!redial.isPending)
         redial.cancel()
         #expect(redial.ended(Self.drop) {}, "a click starts the count over")
+        redial.cancel()
     }
 
     @Test func aRevokeOrARefusalAloneIsNeverRedialed() {
@@ -115,6 +116,7 @@ struct CloudAppLinkRedialTests {
         redial.up()
         clock.advance(by: .milliseconds(50))
         #expect(redial.ended(Self.drop) {}, "a drop after a healthy connection redials again")
+        redial.cancel()
     }
 
     @Test func aCancelStopsThePendingRedial() async throws {
@@ -125,10 +127,13 @@ struct CloudAppLinkRedialTests {
         try await clock.waitForSleeper()
         redial.cancel()
         #expect(!redial.isPending)
-        // A later redial on the same clock fires; the cancelled one never does, however far the clock moves.
+        // Far past its deadline: the cancelled redial's sleep ends, and it still never fires.
+        clock.advance(by: .seconds(60))
+        // A later redial on the same clock fires once its own sleep is due; the cancelled one ran its course before it.
         let (fired, fire) = AsyncStream.makeStream(of: Void.self)
         #expect(redial.ended(Self.drop) { fire.yield() })
-        clock.advance(by: .seconds(60))
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(10))
         for await _ in fired { break }
         #expect(cancelled == 0, "the cancelled redial fired")
     }
