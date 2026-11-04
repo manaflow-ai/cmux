@@ -11,11 +11,11 @@ import Observation
 /// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
 /// lights then sit over the top-left tab strip), and the workspace layout
 /// beside it. `window.titlebar`
-/// "minimal" has no titlebar strip: the layout reaches the
+/// "minimal" (the default) has no titlebar strip: the layout reaches the
 /// window's top edge, the traffic lights sit in the top row (the sidebar
 /// header, or with the sidebar hidden the top-left tab strip, which starts
 /// after them), and that row's empty space moves the window. "standard"
-/// (the default) adds a compact titlebar across the content column with the workspace
+/// adds a compact titlebar across the content column with the workspace
 /// name. Every surface is the one surface token
 /// (`Palette.surfaceBackground`), so sidebar, titlebar, tab strip and
 /// terminal read as one sheet with no panel edges or seams. In a
@@ -50,6 +50,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
+    private var titleLeadingReserve: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
@@ -151,6 +152,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
+        let titleLeadingReserve = titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset)
         mainPaneEdges = [contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
                          contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)]
         NSLayoutConstraint.activate([
@@ -160,7 +162,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             titleHeight,
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
-            titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
+            titleLeadingReserve,
         ] + mainPaneEdges)
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
@@ -170,11 +172,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidePins = SidebarSide.pins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
+        self.titleLeadingReserve = titleLeadingReserve
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
+                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
@@ -218,6 +223,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
+        titleLeadingReserve?.constant = Metrics.trafficLightInset
         titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
@@ -299,15 +305,17 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
-        let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
+        let fullBand = CGRect(x: lightsMaxX + Metrics.space3, y: midY - bandHeight / 2,
+                              width: TitlebarToolbarBand.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
-                                   width: bandWidth, height: bandHeight)
+        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
+                                                              width: fullBand.width * presence, height: bandHeight),
+                                                       scale: window?.backingScaleFactor ?? 1)
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
+        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
@@ -380,8 +388,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
-           !window.makeFirstResponder(nil) {
+        if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)

@@ -144,9 +144,10 @@ extension ScreenContentView {
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
-    /// column) keeps going (M3). Reduce Motion snaps every frame.
+    /// only a frame the gesture retargets snaps (its retargeted edges move with their targets, `SharedEdgeMotion`, S2B): a
+    /// spring already running elsewhere (a close landing in another column) keeps going (M3). Reduce Motion snaps all.
     func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
+        guard !SharedEdgeMotion.place(&frame, at: target, animated: animated, on: self) else { return }
         let retargeted = frame.targetRect != target
         frame.setTarget(target, alpha: 1)
         if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
@@ -194,14 +195,23 @@ extension ScreenContentView {
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
                 .pixelEdges(scale)
             let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
-            if host.restOffset != restOffset { host.restOffset = restOffset }
+            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
+            let springing = frame.rect != frame.targetRect
+            // A key hold begins in the press's first tick (S1B), which may step far (a late tick): the host picks the edges it
+            // holds on from its rest offset against the frame it shows now, not the stepped one (Codex review of #34380).
+            let startsKeyHold = springing && holdsContentForKeyResize && !host.isOnLayoutSpring
+            let shownOffset = CGVector(dx: rest.minX - host.frame.minX, dy: rest.minY - host.frame.minY)
+            if startsKeyHold, host.restOffset != shownOffset { host.restOffset = shownOffset }
             // A new rest size (a split's new pane has none before its first one) on a running spring.
             let restChanged = host.restSize != rest.size
             if host.restSize != rest.size { host.restSize = rest.size }
-            // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
-            let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
+            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
+            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
+            let announcesFirst = restChanged && springing && holdsContentForKeyResize
+            if announcesFirst { host.announceRest() }
+            if host.restOffset != restOffset { host.restOffset = restOffset }
             if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
@@ -220,7 +230,7 @@ extension ScreenContentView {
             }
             // A spring that starts or retargets (a press during the motion) to a new size: the content
             // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing { host.announceRest() }
+            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
@@ -300,7 +310,6 @@ extension ScreenContentView {
         covered.compactMap { pane in context.hosts[pane].flatMap { $0.superview === self ? $0 : nil } }
     }
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
-    var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
 }
 
 extension CGRect {

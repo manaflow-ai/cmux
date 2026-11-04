@@ -88,8 +88,8 @@ export const CONTEXT_LABELS = {
 /// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Another machine) | Machine,
 ///   the machine control only while the pick is another machine. Cloud has none: it gives the
 ///   workspace its own new machine (design/composer.md rule 18).
-/// - `where-machine-always`: the same, the machine control always shown (This Mac's own name with
-///   its live dot; New machine for Cloud).
+/// - `where-machine-always`: the same, the machine control also shown on This Mac (its own name
+///   with its live dot); never for Cloud.
 /// - `cloud-toggle` (ChatGPT Work): Project | Machine (This Mac first), and a cloud toggle at the
 ///   strip's end asking "Where should this chat run?" (This Mac, Cloud).
 /// - `combined`: one control for both, This Mac and Cloud, the machines behind Machines….
@@ -507,6 +507,8 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
+      if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
@@ -579,7 +581,11 @@ export function ComposerContext({
   };
   const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   // The new chat's extra folders on the picked machine (a pick of the chat's own folder is never one).
-  const extraShown = extraFolders && !readOnly ? draftFolders(extraFolders.draft, selectedComputer) : undefined;
+  // A Cloud or Sandboxed start carries none (cmux#34403), so those modes offer no Add folder… or +N.
+  const extraShown =
+    extraFolders && !readOnly && !cloudPicked && !sandboxPicked
+      ? draftFolders(extraFolders.draft, selectedComputer)
+      : undefined;
   const extra: ExtraFolderRows | undefined =
     extraFolders && extraShown
       ? {
@@ -615,7 +621,7 @@ export function ComposerContext({
     closeOnTrustAsk,
     ...(environmentFace ? { faceStyle: environmentFace } : {}),
   };
-  // Where it runs: Cloud (a new machine, or one of the account's Cloud machines), Sandboxed, another
+  // Where it runs: Cloud (the person's machine or a new one, or one picked in Machines…), Sandboxed, another
   // machine (the person's own, SSH), or this Mac. Each machine sits under where it runs, so the Where
   // chip never contradicts the chip beside it.
   const pickedOff = selectedComputer !== "local" && !savedPick;
@@ -649,14 +655,18 @@ export function ComposerContext({
     ) : (
       <EnvironmentIcon kind="local" />
     );
-  // The third chip: which Cloud machine while Cloud is the pick; which machine while another machine
-  // is (or Another machine was just picked); in `where-machine-always` the machine chip on this Mac too.
-  const cloudChipShown = layout !== "combined" && layout !== "cloud-toggle" && cloudSide;
+  // The third chip: which machine while another machine is the pick (or Another machine was just
+  // picked); in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
+  // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
+  // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
+  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". Only a
+  // Cloud machine picked by name (Machines…) gets the machine chip, naming it, with no New machine.
+  const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
   const machineShown =
     layout === "where-machine"
-      ? offMac || savedPick !== undefined || (machineAsked && !cloudSide && !sandboxPicked)
+      ? offMac || savedPick !== undefined || cloudMachinePicked || (machineAsked && !cloudSide && !sandboxPicked)
       : layout === "where-machine-always"
-        ? !cloudSide && !sandboxPicked
+        ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
         : true;
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
@@ -877,22 +887,10 @@ export function ComposerContext({
                     face={machineFace}
                     rows="machines"
                     includeLocal={layout === "where-machine-always"}
-                    ownOnly
+                    ownOnly={!cloudMachinePicked}
                     digits={false}
                     setupMenu={false}
                     {...(machineRequest !== undefined ? { openRequest: machineRequest } : {})}
-                  />
-                )}
-                {cloudChipShown && (
-                  <EnvironmentPicker
-                    {...pickerProps}
-                    label={t(CONTEXT_LABELS.machine)}
-                    menu="Machine"
-                    value={machineValue}
-                    face={machineFace}
-                    rows="cloud"
-                    digits={false}
-                    setupMenu={false}
                   />
                 )}
               </>
