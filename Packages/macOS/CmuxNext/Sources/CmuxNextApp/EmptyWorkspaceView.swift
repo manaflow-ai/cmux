@@ -43,7 +43,7 @@ final class EmptyWorkspaceView: NSView, TitlebarPressDeciding {
 
     private func build() {
         let art = artLabel
-        art.font = .monospacedSystemFont(ofSize: 17, weight: .medium)
+        art.font = Typography.system(.monospaced, size: Typography.title.pointSize, weight: TypeScale.emphasis)
         art.alignment = .center
         art.lineBreakMode = .byClipping
         art.setAccessibilityLabel("cmux")
