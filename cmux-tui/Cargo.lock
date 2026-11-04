@@ -1782,6 +1782,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
+ "unicode-normalization",
  "unicode-segmentation",
  "unicode-width",
  "url",
