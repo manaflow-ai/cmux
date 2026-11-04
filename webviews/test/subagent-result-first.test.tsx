@@ -51,9 +51,8 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
-const { childView, SUBAGENT_RESULT, subagentReport } = await import(
-  "../src/agent-session/acpmux/subagents/subagentRows"
-);
+const { childView, SUBAGENT_RESULT, subagentReport } =
+  await import("../src/agent-session/acpmux/subagents/subagentRows");
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
 afterAll(() => {
@@ -77,7 +76,13 @@ const agent = (fields: Partial<Subagent> = {}): Subagent => ({
   result: "The retry timer is armed before the old socket closes.",
   ...fields,
 });
-const group = (worker: Subagent): AcpmuxRow => ({ id: "group", kind: SUBAGENTS, version: 1, at: START, subagents: [worker] });
+const group = (worker: Subagent): AcpmuxRow => ({
+  id: "group",
+  kind: SUBAGENTS,
+  version: 1,
+  at: START,
+  subagents: [worker],
+});
 const transcript: AcpmuxRow[] = [
   { id: "prompt", kind: "user", version: 1, at: START, text: "Find why reconnect fires twice." },
   { id: "reply", kind: "assistant", version: 1, at: START + 90_000, text: "Transcript reply text." },
@@ -138,7 +143,9 @@ test("a finished subagent shows Done, its duration and its report above the tran
 });
 
 test("a failed subagent says Failed with its error, the red on the mark only", async () => {
-  const { root } = await draw(agent({ state: "failed", endedAt: START + 41_000, result: undefined, error: "API error." }));
+  const { root } = await draw(
+    agent({ state: "failed", endedAt: START + 41_000, result: undefined, error: "API error." }),
+  );
   try {
     const head = document.querySelector<HTMLElement>(".cv-subagent-result")!;
     expect(head.dataset.state).toBe("failed");
