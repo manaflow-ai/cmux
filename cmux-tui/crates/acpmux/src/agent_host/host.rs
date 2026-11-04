@@ -1268,10 +1268,8 @@ pub(crate) const SIGNALS_LOG: &str = "agent-host-signals.log";
 /// sender when the kernel named one. Best effort: a failed write changes nothing.
 fn note_term(log: &Path, session: &str, sender: Option<i32>) {
     use std::io::Write as _;
-    let from = sender.map_or_else(
-        || "an unknown sender".to_owned(),
-        crate::daemon::term_sender::describe,
-    );
+    let from =
+        sender.map_or_else(|| "an unknown sender".to_owned(), crate::daemon::term_sender::describe);
     let line = format!(
         "{} agent host {} (session {session}) stopping: SIGTERM from {from}\n",
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),

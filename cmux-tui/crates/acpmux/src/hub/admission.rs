@@ -626,7 +626,8 @@ mod tests {
                 && message.contains("cap of 3")
                 && message.contains("lanes.max_lanes of cmux16 in /r/fleet-registry.json")
                 && message.contains("started anyway")
-                && message.contains("`acpmux new --machine auto` (placed on big-red: 31 GB RAM free)"),
+                && message
+                    .contains("`acpmux new --machine auto` (placed on big-red: 31 GB RAM free)"),
             "the warning names the count, the cap, where it comes from and a host with room: {message}"
         );
         assert!(cap.warning(true, true, None).contains("No connected host has room"));
