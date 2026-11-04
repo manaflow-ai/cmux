@@ -518,7 +518,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
              .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
-             .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
+             .agentSessionAttach, .agentSessionFork, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionStartVMKind, .agentSessionStartModel, .agentSessionTrustVMKind,
              .agentSessionChildren, .agentSessionPresence, .pageTabs,
              .pageTabRoute, .appScreens,

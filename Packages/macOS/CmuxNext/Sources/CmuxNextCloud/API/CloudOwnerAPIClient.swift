@@ -174,7 +174,12 @@ public struct CloudOwnerAPIClient: Sendable {
         }
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await withDeadline(timeout, label: "POST /v1/workspaces/\(workspace)/\(action)") { try await session.data(for: request) } }
+        do {
+            let session = session, prepared = request
+            (data, response) = try await withDeadline(timeout, label: "POST /v1/workspaces/\(workspace)/\(action)") {
+                try await session.data(for: prepared)
+            }
+        }
         catch is DeadlineExceeded { throw CloudAPIError.timedOut("/v1/workspaces/\(workspace)/\(action)") }
         catch let error as URLError where error.code == .timedOut { throw CloudAPIError.timedOut("/v1/workspaces/\(workspace)/\(action)") }
         catch { throw CloudAPIError.transport(error.localizedDescription) }
