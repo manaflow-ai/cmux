@@ -115,6 +115,10 @@ on:
         description: migrate-production only, inspect, plan and rehearse; change nothing on production (false applies)
         type: boolean
         default: true
+      skip_rehearsal:
+        description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (for a token without the restore-backup scope); every other check still runs
+        type: boolean
+        default: false
 
 concurrency:
   # A label event for any other label gets a group of its own, so it never
@@ -784,6 +788,7 @@ jobs:
         working-directory: scripts/cmux-next/release
         env:
           MODE: ${{ inputs.dry_run && 'dry-run' || 'migrate' }}
+          CMUX_VM_SKIP_REHEARSAL: ${{ inputs.skip_rehearsal && 'true' || 'false' }}
           PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
           PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
@@ -794,7 +799,7 @@ jobs:
           # Shell (unexported) copies: the cleanup below unsets every exported variable not in `keep`.
           mode="$MODE"
           tools="$(dirname "$PSCALE_BIN"):$(dirname "$(command -v bun)"):$(dirname "$(command -v node)")${VERCEL_BIN_DIR:+:$VERCEL_BIN_DIR}"
-          keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
+          keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR CMUX_VM_SKIP_REHEARSAL PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
           (
             for v in $(compgen -e); do
               case "$keep" in *" $v "*) ;; *) unset "$v" 2>/dev/null || true ;; esac
