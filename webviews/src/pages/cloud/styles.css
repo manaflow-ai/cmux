@@ -726,7 +726,7 @@ select {
 .cloud-preview-share-status {
   flex: 1 0 100%;
   color: var(--cloud-text-2);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .cloud-browser-refused {

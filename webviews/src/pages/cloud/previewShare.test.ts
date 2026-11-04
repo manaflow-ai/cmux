@@ -10,7 +10,9 @@ describe("Cloud preview share action", () => {
     expect(shared?.linkId).toBe("mock-link-0001");
     expect(shared?.url).toBe("https://preview.example/vm_sample/3000?cmux_share=mock");
     expect(provider.clipboard).toBe(shared?.url);
-    const createCall = provider.calls.find((call) => call.params && (call.params as Record<string, unknown>).action === "cloudPreviewShare");
+    const createCall = provider.calls.find(
+      (call) => call.params && (call.params as Record<string, unknown>).action === "cloudPreviewShare",
+    );
     expect(createCall).toBeDefined();
     expect((createCall!.params as Record<string, unknown>).target).toBe("machine:vm_sample");
     expect(await revokePreviewShare(provider, "vm_sample", 3000, shared!.linkId)).toBe(true);
@@ -49,7 +51,10 @@ describe("Cloud preview share action", () => {
     expect((calls[0].params as Record<string, unknown>).target).toBe("machine:vm_sample");
     expect(await revokePreviewShare(client, "vm_sample", 3000, "nested-link")).toBe(true);
 
-    const malformed: PageClient = { ...client, call: async <R>() => ({ ran: true, result: { confirmed: true, copied: false } }) as R };
+    const malformed: PageClient = {
+      ...client,
+      call: async <R>() => ({ ran: true, result: { confirmed: true, copied: false } }) as R,
+    };
     expect(await createPreviewShare(malformed, "vm_sample", 3000)).toBeUndefined();
   });
 
@@ -58,8 +63,12 @@ describe("Cloud preview share action", () => {
       async call<R>(): Promise<R> {
         return { ran: true, result: { confirmed: true, revoked: false } } as R;
       },
-      async subscribe() { return () => {}; },
-      handle() { return () => {}; },
+      async subscribe() {
+        return () => {};
+      },
+      handle() {
+        return () => {};
+      },
     };
     expect(await revokePreviewShare(client, "vm_sample", 3000, "gone-link")).toBe(true);
   });

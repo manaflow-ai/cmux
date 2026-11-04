@@ -50,7 +50,11 @@ function validShare(result: PreviewShareResult | undefined, machine: string, por
  * action names. The native action creates/copies the secret URL; the page only
  * keeps it long enough to render Revoke.
  */
-export async function createPreviewShare(client: PageClient, machine: string, port: number): Promise<PreviewShare | undefined> {
+export async function createPreviewShare(
+  client: PageClient,
+  machine: string,
+  port: number,
+): Promise<PreviewShare | undefined> {
   const reply = await client.call<ActionReply | null>(ACTION_RUN, {
     action: CloudActions.previewShare,
     target: `machine:${machine}`,
@@ -60,7 +64,12 @@ export async function createPreviewShare(client: PageClient, machine: string, po
 }
 
 /** Revokes a previously-created link. */
-export async function revokePreviewShare(client: PageClient, machine: string, port: number, linkId: string): Promise<boolean> {
+export async function revokePreviewShare(
+  client: PageClient,
+  machine: string,
+  port: number,
+  linkId: string,
+): Promise<boolean> {
   const reply = await client.call<ActionReply | null>(ACTION_RUN, {
     action: CloudActions.previewRevoke,
     target: `machine:${machine}`,

@@ -89,7 +89,8 @@ export class DetailReader {
   async load(machine: string | undefined): Promise<void> {
     const generation = ++this.generation;
     const previous = this.host.get();
-    if (previous?.machine && previous.sharedPreviews) this.sharedByMachine.set(previous.machine, previous.sharedPreviews);
+    if (previous?.machine && previous.sharedPreviews)
+      this.sharedByMachine.set(previous.machine, previous.sharedPreviews);
     this.portChanges.clear();
     if (!machine || !this.client) {
       this.portActions.clear();
@@ -97,7 +98,12 @@ export class DetailReader {
       return;
     }
     const portRevision = this.portRevision;
-    this.host.set({ machine, loading: true, sharedPreviews: this.sharedByMachine.get(machine), pendingPorts: this.pendingPorts(machine) });
+    this.host.set({
+      machine,
+      loading: true,
+      sharedPreviews: this.sharedByMachine.get(machine),
+      pendingPorts: this.pendingPorts(machine),
+    });
     const results = await Promise.allSettled(SECTIONS.map((section) => this.read(section, machine)));
     if (generation !== this.generation) return;
     // Keep what Browse, a forward or Open in browser wrote while the sections were read.
@@ -299,7 +305,13 @@ export class DetailReader {
       // A parked mutation may finish after A → B → A loaded a list from before
       // the effect. Its old answer is discarded, but the current selection must
       // reconcile with the host before the pending guard is released.
-      if (generation !== this.generation && action !== "browser" && action !== "share" && action !== "revoke" && this.host.get()?.machine === machine)
+      if (
+        generation !== this.generation &&
+        action !== "browser" &&
+        action !== "share" &&
+        action !== "revoke" &&
+        this.host.get()?.machine === machine
+      )
         await this.reload("ports", port);
       return accepted && generation === this.generation;
     } catch (error) {

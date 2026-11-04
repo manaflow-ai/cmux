@@ -561,7 +561,11 @@ export class MockCloudProvider implements PageClient {
       const machine = targetMachine(p, args);
       const port = Number(args.port);
       const key = `${machine}:${port}`;
-      const link = { linkId: `mock-link-${String(this.previewLinks.size + 1).padStart(4, "0")}`, url: `https://preview.example/${machine}/${port}?cmux_share=mock`, expiresAt: Date.now() + 86_400_000 };
+      const link = {
+        linkId: `mock-link-${String(this.previewLinks.size + 1).padStart(4, "0")}`,
+        url: `https://preview.example/${machine}/${port}?cmux_share=mock`,
+        expiresAt: Date.now() + 86_400_000,
+      };
       this.previewLinks.set(key, link);
       this.clipboard = link.url;
       return { confirmed: true, machine_id: machine, port, ...link };

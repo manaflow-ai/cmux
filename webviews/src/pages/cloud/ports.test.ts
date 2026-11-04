@@ -66,7 +66,14 @@ async function fixture() {
       if (op === ACTION_RUN && params.action === CloudActions.previewShare) {
         const args = params.args as Record<string, unknown>;
         const machine = String(params.target).slice("machine:".length);
-        return { confirmed: true, machine_id: machine, port: Number(args.port), linkId: "link-3000", url: "https://preview.example/link-3000", expiresAt: 1_999_999_999_999 } as R;
+        return {
+          confirmed: true,
+          machine_id: machine,
+          port: Number(args.port),
+          linkId: "link-3000",
+          url: "https://preview.example/link-3000",
+          expiresAt: 1_999_999_999_999,
+        } as R;
       }
       if (op === ACTION_RUN && params.action === CloudActions.previewRevoke)
         return { confirmed: true, revoked: true } as R;
@@ -190,7 +197,11 @@ describe("Cloud port action boundaries", () => {
   test("share creates and copies the link, then revoke removes it from the port", async () => {
     const f = await fixture();
     expect(await f.reader.sharePreview("a", 3000)).toBe(true);
-    expect(f.get().sharedPreviews?.[3000]).toEqual({ linkId: "link-3000", url: "https://preview.example/link-3000", expiresAt: 1_999_999_999_999 });
+    expect(f.get().sharedPreviews?.[3000]).toEqual({
+      linkId: "link-3000",
+      url: "https://preview.example/link-3000",
+      expiresAt: 1_999_999_999_999,
+    });
     const share = f.calls.find((call) => call.op === ACTION_RUN && call.params.action === CloudActions.previewShare);
     expect(share?.params.args).toEqual({ port: 3000 });
     expect(share?.params.target).toBe("machine:a");
