@@ -250,7 +250,8 @@ mod tests {
 
     #[test]
     fn host_patterns_follow_the_contract() {
-        for ok in ["api.github.com", "*.example.com", "a.b:8443", "x1.io", "xn--bcher-kva.example"] {
+        for ok in ["api.github.com", "*.example.com", "a.b:8443", "x1.io", "xn--bcher-kva.example"]
+        {
             assert!(HostPattern::parse(ok).is_some(), "{ok}");
         }
         for bad in [
@@ -275,7 +276,10 @@ mod tests {
         ] {
             assert!(HostPattern::parse(bad).is_none(), "{bad}");
         }
-        assert_eq!(HostPattern::parse("*.example.com:8443").unwrap().to_string(), "*.example.com:8443");
+        assert_eq!(
+            HostPattern::parse("*.example.com:8443").unwrap().to_string(),
+            "*.example.com:8443"
+        );
         assert_eq!(HostPattern::parse("api.github.com:443").unwrap().to_string(), "api.github.com");
     }
 
@@ -293,17 +297,27 @@ mod tests {
     #[test]
     fn a_placeholder_is_replaced_only_toward_a_host_its_secret_allows() {
         let p = policy();
-        let (out, names) =
-            p.substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "api.github.com", 443).unwrap();
+        let (out, names) = p
+            .substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "api.github.com", 443)
+            .unwrap();
         assert_eq!(out.as_str(), "Bearer ghp_real");
         assert_eq!(names, ["GITHUB_TOKEN"]);
         // Another host, another port, or a secret with no hosts: untouched.
-        assert!(p.substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "evil.test", 443).is_none());
-        assert!(p.substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "api.github.com", 8443).is_none());
+        assert!(
+            p.substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "evil.test", 443).is_none()
+        );
+        assert!(
+            p.substitute_header("Bearer cmux-secret://GITHUB_TOKEN", "api.github.com", 8443)
+                .is_none()
+        );
         assert!(p.substitute_header("cmux-secret://NOWHERE", "api.github.com", 443).is_none());
         // A host one secret allows does not open another secret to it.
         let (out, names) = p
-            .substitute_header("cmux-secret://WILD cmux-secret://GITHUB_TOKEN", "a.example.com", 8443)
+            .substitute_header(
+                "cmux-secret://WILD cmux-secret://GITHUB_TOKEN",
+                "a.example.com",
+                8443,
+            )
             .unwrap();
         assert_eq!(out.as_str(), "wild-real cmux-secret://GITHUB_TOKEN");
         assert_eq!(names, ["WILD"]);
@@ -329,7 +343,8 @@ mod tests {
     #[test]
     fn basic_credentials_are_rewritten_inside_the_encoding() {
         let engine = base64::engine::general_purpose::STANDARD;
-        let header = format!("Basic {}", engine.encode("x-access-token:cmux-secret://GITHUB_TOKEN"));
+        let header =
+            format!("Basic {}", engine.encode("x-access-token:cmux-secret://GITHUB_TOKEN"));
         let (out, names) = policy().substitute_header(&header, "github.com", 443).unwrap();
         assert_eq!(out.as_str(), format!("Basic {}", engine.encode("x-access-token:ghp_real")));
         assert_eq!(names, ["GITHUB_TOKEN"]);

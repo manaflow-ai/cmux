@@ -172,7 +172,10 @@ impl State {
         self.env
             .iter()
             .map(|(name, r)| {
-                let delivery = r.proxy.as_ref().map_or("env".to_owned(), |h| format!("proxy[{}]", h.join(" ")));
+                let delivery = r
+                    .proxy
+                    .as_ref()
+                    .map_or("env".to_owned(), |h| format!("proxy[{}]", h.join(" ")));
                 format!("{name}={}:{}:{}:{delivery}", r.revision, r.fingerprint, r.credential)
             })
             .collect::<Vec<_>>()

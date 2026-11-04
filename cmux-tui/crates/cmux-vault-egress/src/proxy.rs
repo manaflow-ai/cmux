@@ -59,7 +59,9 @@ pub fn upstream_tls_from_os() -> io::Result<Arc<rustls::ClientConfig>> {
 }
 
 /// A TLS client trusting `roots` only, HTTP/1.1.
-pub fn upstream_tls_with_roots(roots: rustls::RootCertStore) -> io::Result<Arc<rustls::ClientConfig>> {
+pub fn upstream_tls_with_roots(
+    roots: rustls::RootCertStore,
+) -> io::Result<Arc<rustls::ClientConfig>> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut config = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
@@ -83,7 +85,16 @@ pub async fn serve(listener: TcpListener, config: Arc<Config>) -> io::Result<()>
         let permit = slots.clone().acquire_owned().await.map_err(io::Error::other)?;
         let (stream, _) = match listener.accept().await {
             Ok(pair) => pair,
-            Err(e) if matches!(e.kind(), io::ErrorKind::ConnectionAborted | io::ErrorKind::ConnectionReset | io::ErrorKind::Interrupted) => continue,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::Interrupted
+                ) =>
+            {
+                continue;
+            }
             Err(e) if e.raw_os_error() == Some(24) || e.raw_os_error() == Some(23) => {
                 // Out of descriptors: wait and accept again.
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -128,9 +139,15 @@ fn target(req: &Request<Incoming>) -> Option<(String, u16)> {
     (!host.is_empty() && port != 0).then(|| (host.to_ascii_lowercase(), port))
 }
 
-async fn connect(req: Request<Incoming>, config: Arc<Config>) -> Result<Response<Body>, Infallible> {
+async fn connect(
+    req: Request<Incoming>,
+    config: Arc<Config>,
+) -> Result<Response<Body>, Infallible> {
     if req.method() != Method::CONNECT {
-        return Ok(status(StatusCode::METHOD_NOT_ALLOWED, "this proxy serves HTTPS CONNECT only\n"));
+        return Ok(status(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "this proxy serves HTTPS CONNECT only\n",
+        ));
     }
     let Some((host, port)) = target(&req) else {
         return Ok(status(StatusCode::BAD_REQUEST, "invalid CONNECT target\n"));
@@ -193,10 +210,11 @@ async fn open(resolver: &Resolver, host: &str, port: u16) -> Result<TcpStream, R
     let addrs: Vec<SocketAddr> = match resolver {
         Resolver::Fixed(map) => map.get(&(host.to_owned(), port)).copied().into_iter().collect(),
         Resolver::Dns => {
-            let found = tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
-                .await
-                .map_err(|_| Refused::Unreachable)?
-                .map_err(|_| Refused::Unreachable)?;
+            let found =
+                tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
+                    .await
+                    .map_err(|_| Refused::Unreachable)?
+                    .map_err(|_| Refused::Unreachable)?;
             let all: Vec<SocketAddr> = found.collect();
             if all.is_empty() {
                 return Err(Refused::Unreachable);
@@ -209,7 +227,9 @@ async fn open(resolver: &Resolver, host: &str, port: u16) -> Result<TcpStream, R
         }
     };
     for addr in addrs {
-        if let Ok(Ok(stream)) = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+        if let Ok(Ok(stream)) =
+            tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await
+        {
             let _ = stream.set_nodelay(true);
             return Ok(stream);
         }
@@ -244,9 +264,8 @@ async fn intercepted(
     let upstream_task = tokio::spawn(connection);
     let sender = Arc::new(Mutex::new(sender));
     let host = Arc::new(host);
-    let service = service_fn(move |req| {
-        forward(req, sender.clone(), host.clone(), port, config.clone())
-    });
+    let service =
+        service_fn(move |req| forward(req, sender.clone(), host.clone(), port, config.clone()));
     let served = hyper::server::conn::http1::Builder::new()
         .timer(TokioTimer::new())
         .header_read_timeout(HEADER_TIMEOUT)
@@ -278,7 +297,10 @@ async fn forward(
     let host_header = req.headers().get(header::HOST).and_then(|v| v.to_str().ok());
     let target_ok = req.uri().authority().is_none_or(|a| same_authority(a.as_str(), &host, port));
     if !host_header.is_some_and(|h| same_authority(h, &host, port)) || !target_ok {
-        return Ok(status(StatusCode::MISDIRECTED_REQUEST, "Host does not match the CONNECT target\n"));
+        return Ok(status(
+            StatusCode::MISDIRECTED_REQUEST,
+            "Host does not match the CONNECT target\n",
+        ));
     }
     let policy = (config.policy)();
     let mut used: Vec<String> = Vec::new();
@@ -307,7 +329,7 @@ async fn forward(
     drop(policy);
     // Headers can repeat: replace each rewritten value in place.
     for (name, old, new) in rewritten {
-        if let http::header::Entry::Occupied(mut entry) = req.headers_mut().entry(&name) {
+        if let header::Entry::Occupied(mut entry) = req.headers_mut().entry(&name) {
             for value in entry.iter_mut() {
                 if *value == old {
                     *value = new.clone();
@@ -334,7 +356,15 @@ mod tests {
 
     #[test]
     fn only_public_destinations() {
-        for bad in ["127.0.0.1:443", "169.254.169.254:80", "0.0.0.0:443", "[::1]:443", "[::ffff:127.0.0.1]:443", "224.0.0.1:443", "[fe80::1]:443"] {
+        for bad in [
+            "127.0.0.1:443",
+            "169.254.169.254:80",
+            "0.0.0.0:443",
+            "[::1]:443",
+            "[::ffff:127.0.0.1]:443",
+            "224.0.0.1:443",
+            "[fe80::1]:443",
+        ] {
             assert!(!public(&bad.parse().unwrap()), "{bad}");
         }
         for ok in ["140.82.112.6:443", "10.0.0.5:443", "[2606:4700::1111]:443"] {

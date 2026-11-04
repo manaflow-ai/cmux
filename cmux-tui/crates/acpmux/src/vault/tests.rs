@@ -353,7 +353,10 @@ async fn a_fake_hub_answers_200_403_and_401() {
     assert_eq!(env[0].revision, 7);
     assert_eq!(env[0].value.as_deref().map(String::as_str), Some(SECRET_A));
     let request = seen.await.unwrap();
-    assert!(request.starts_with("GET /v1/vault/machine?delivery=proxy.v1 HTTP/1.1\r\n"), "{request}");
+    assert!(
+        request.starts_with("GET /v1/vault/machine?delivery=proxy.v1 HTTP/1.1\r\n"),
+        "{request}"
+    );
     assert!(request.to_ascii_lowercase().contains(&format!("authorization: bearer {credential}")));
 
     let (hub, _) = fake_hub(403, body(json!({"error": {"code": "vault.not_granted"}}))).await;

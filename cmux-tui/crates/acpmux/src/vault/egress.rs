@@ -175,7 +175,8 @@ fn start(home: &Path) -> Result<Running, &'static str> {
         cmux_vault_egress::upstream_tls_from_os().map_err(|_| "vault.egress_no_roots")?;
     let (node_ca, bundle) = write_trust(&home.join("vault-egress"), authority.pem(), &inherited)
         .map_err(|_| "vault.egress_trust_files")?;
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "vault.egress_bind")?;
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|_| "vault.egress_bind")?;
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();
     let config = Arc::new(Config {
@@ -321,7 +322,8 @@ mod tests {
 
     #[test]
     fn a_proxy_that_did_not_start_still_withholds_the_value() {
-        let env = child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
+        let env =
+            child_env_with(vec![given("T", "secret", Some(&["x.example.com"]))], None, &|_| None);
         assert_eq!(env, vec![("T".to_owned(), "cmux-secret://T".to_owned())]);
     }
 
@@ -338,7 +340,10 @@ mod tests {
 
     #[test]
     fn no_proxy_keeps_what_the_launch_had() {
-        assert_eq!(no_proxy(Some(" corp.lan, localhost ,".into())), "corp.lan,localhost,127.0.0.1,::1,.cmux.internal");
+        assert_eq!(
+            no_proxy(Some(" corp.lan, localhost ,".into())),
+            "corp.lan,localhost,127.0.0.1,::1,.cmux.internal"
+        );
     }
 
     #[test]
@@ -357,9 +362,11 @@ mod tests {
     fn trust_files_extend_what_the_launch_trusted() {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().join("base.pem");
-        std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----").unwrap();
+        std::fs::write(&base, "-----BEGIN CERTIFICATE-----\nBASE\n-----END CERTIFICATE-----")
+            .unwrap();
         let node = dir.path().join("node.pem");
-        std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n").unwrap();
+        std::fs::write(&node, "-----BEGIN CERTIFICATE-----\nNODE\n-----END CERTIFICATE-----\n")
+            .unwrap();
         let (b, n) = (base.display().to_string(), node.display().to_string());
         let inherited = move |name: &str| match name {
             "SSL_CERT_FILE" => Some(b.clone()),
@@ -372,6 +379,9 @@ mod tests {
         let node_text = std::fs::read_to_string(node_ca).unwrap();
         assert!(node_text.contains("NODE") && node_text.ends_with(ca));
         let bundle_text = std::fs::read_to_string(bundle.unwrap()).unwrap();
-        assert!(bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE") && bundle_text.ends_with(ca));
+        assert!(
+            bundle_text.starts_with("-----BEGIN CERTIFICATE-----\nBASE")
+                && bundle_text.ends_with(ca)
+        );
     }
 }

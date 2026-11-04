@@ -75,7 +75,10 @@ impl Authority {
         Ok(config)
     }
 
-    fn leaf(&self, host: &str) -> Result<Arc<ServerConfig>, Box<dyn std::error::Error + Send + Sync>> {
+    fn leaf(
+        &self,
+        host: &str,
+    ) -> Result<Arc<ServerConfig>, Box<dyn std::error::Error + Send + Sync>> {
         let mut params = CertificateParams::new(vec![host.to_owned()])?;
         params.distinguished_name = name(host);
         params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
