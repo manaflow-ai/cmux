@@ -264,7 +264,7 @@ import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
 import { chatCloudMachine, cloudMachineRows, createStopWaiter } from "./cloudMachineMenu";
-import { cloudMachineAsleep, readUntilMoved, refreshCloudMachines, useCloudMachines } from "./cloudMachines";
+import { cloudMachineAsleep, readUntilMoved, refreshCloudMachines, useCloudMachines, type CloudMachine } from "./cloudMachines";
 import { usePeerCloudMachine } from "./peerCloudMachine";
 import { inThisVisit, useFolderTrustAsk, visitOf } from "./useFolderTrustAsk";
 import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type TrustHeldPrompt } from "./trustHeld";
@@ -6336,6 +6336,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
   const [cloudRepositoryAvailable, setCloudRepositoryAvailable] = useState(false);
   const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
+  // A fresh composer can select a paused Cloud machine before it has a session. Keep only that
+  // explicit picker choice; never guess a machine from the account inventory.
+  const cloudDraftMachineID = useRef<string | undefined>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
@@ -8731,7 +8734,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     setCloudStart(undefined);
-  }, [snapshot.sessionId, newTabGeneration]);
+    cloudDraftMachineID.current = undefined;
+    cloudTypingPrewarm.reset();
+  }, [snapshot.sessionId, newTabGeneration, cloudTypingPrewarm]);
   /// The person picked another place to run after a Cloud start failed: its card goes.
   useEffect(() => {
     if (sandbox.mode !== "cloud") setCloudStart((current) => (current?.state === "failed" ? undefined : current));
@@ -10828,6 +10833,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
+      // Do not let a stale Cloud identity from the previous handshake wake a different chat while
+      // this one is reconnecting. A successful reply below installs the new account-scoped identity.
+      setCloudChatIdentity(undefined);
+      setCloudMachineID(undefined);
+      cloudDraftMachineID.current = undefined;
+      cloudTypingPrewarm.reset();
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
@@ -13294,13 +13305,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const onCloudTyping = useCallback(
     (text: string, sessionId?: string) => {
-      postTyping(text, sessionId);
-      if (cloudChatIdentity && sessionId) {
-        cloudTypingPrewarm.typed(text, { machineID: cloudChatIdentity.id, sessionID: sessionId });
-      }
+      // Local chats still share this callback for multiplayer typing; only a durable session has a
+      // typing presence event. A Cloud identity may temporarily be missing its session during
+      // recovery, but its authenticated machine is still safe to wake.
+      if (sessionId) postTyping(text, sessionId);
+      if (!handshaken) return;
+      const machineID = cloudChatIdentity?.id ?? cloudDraftMachineID.current;
+      if (!machineID) return;
+      cloudTypingPrewarm.typed(text, { machineID, ...(sessionId ? { sessionID: sessionId } : {}) });
     },
-    [cloudChatIdentity, cloudTypingPrewarm],
+    [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
+  const onCloudMachinePicked = useCallback((machine: CloudMachine) => {
+    cloudDraftMachineID.current = machine.id;
+  }, []);
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -14047,6 +14065,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             draft={draft}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : onCloudTyping}
+            onCloudMachinePicked={quick ? undefined : onCloudMachinePicked}
             onSuggestionTaken={() => directClient.current?.takeSuggestion()}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={handleCmuxCommand}
@@ -14316,9 +14335,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             queueImage={readQueuedImage}
             onProject={chooseProject}
             // A machine with no folder known here: the new chat starts there, in its default folder.
-            onComputer={(computer) =>
-              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined)
-            }
+            onComputer={(computer) => {
+              // Switching away from an explicitly selected Cloud machine must not leave a stale
+              // draft target that a later keystroke could wake.
+              cloudDraftMachineID.current = undefined;
+              void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
+            }}
             // A chat on a Cloud machine whose first send has not run: another Cloud machine picked moves it
             // there and sends its first prompt again (cloudRepick.ts), instead of a new empty chat.
             {...(snapshot.summary?.hostKind === "cloud" && !quick

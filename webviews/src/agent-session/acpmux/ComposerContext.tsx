@@ -157,6 +157,7 @@ export function ComposerContext({
   onRepick,
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
+  onCloudMachinePicked,
   runMode,
   closeOnTrustAsk = false,
   showMachineLoadWarnings,
@@ -239,6 +240,8 @@ export function ComposerContext({
   cloudMachines?: readonly CloudMachine[];
   /// A pick of one acpmux does not list: it resumes (paused) or opens; by default through the app.
   onCloudMachine?(machine: CloudMachine): void;
+  /// Reports the selected account machine to the pane before its resume/open hint runs.
+  onCloudMachinePicked?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
   /// A trust question takes precedence over an open destination picker.
@@ -507,6 +510,7 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      onCloudMachinePicked?.(machine);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }

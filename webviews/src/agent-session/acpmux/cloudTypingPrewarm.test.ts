@@ -49,3 +49,10 @@ test("a native failure is isolated from typing", () => {
   });
   expect(() => prewarm.typed("x", { machineID: "cloud-a" })).not.toThrow();
 });
+
+test("fresh and missing-session drafts can wake an explicitly selected machine", () => {
+  const { prewarm, calls } = harness();
+  prewarm.typed("h", { machineID: "cloud-draft" });
+  prewarm.typed("he", { machineID: "cloud-draft" });
+  expect(calls).toEqual(["cloud-draft"]);
+});
