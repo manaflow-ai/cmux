@@ -13,6 +13,7 @@ import {
   selectedEvents,
   stepLabel,
   type ActivitySession,
+  type ActivityGroup,
   type ActivityState,
 } from "./model";
 import { native } from "./native";
@@ -91,7 +92,15 @@ function EventList({ state, dispatch }: { state: ActivityState; dispatch: (a: an
     </div>
   );
 }
-function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
+function Split({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
   const selected = Object.values(state.sessionsByMachine)
     .flat()
     .find((s) => s.id === state.selectedSessionID);
@@ -102,7 +111,7 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
     <div className="split">
       <aside>
         <div className="groups">
-          {groups(state).map((group) => (
+          {groups.map((group) => (
             <section key={group.id}>
               <h3>{group.name}</h3>
               {connectionText(group.connection, state.strings) && (
@@ -147,8 +156,16 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
     </div>
   );
 }
-function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
-  const sessions = groups(state).flatMap((g) => g.sessions);
+function Timeline({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
+  const sessions = groups.flatMap((g) => g.sessions);
   return (
     <div className="timeline">
       {sessions.map((session) => {
@@ -180,10 +197,18 @@ function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any
     </div>
   );
 }
-function Grid({ state, dispatch }: { state: ActivityState; dispatch: (a: any) => void }) {
+function Grid({
+  state,
+  dispatch,
+  groups,
+}: {
+  state: ActivityState;
+  dispatch: (a: any) => void;
+  groups: ActivityGroup[];
+}) {
   return (
     <div className="grid">
-      {groups(state)
+      {groups
         .flatMap((g) => g.sessions)
         .map((session) => {
           const latest = frameEvents(state.eventsBySession[session.id] ?? []).at(-1);
@@ -250,21 +275,25 @@ export function ActivityView({
   state,
   dispatch,
   error,
+  groups: projectedGroups,
   loadFrame = hostFrames,
 }: {
   state: ActivityState;
   dispatch: (a: any) => void;
   error?: string;
+  /** The App-level grouped projection, shared with the native follow subscription. */
+  groups?: ActivityGroup[];
   /** Where frames come from: the host by default; the gallery and tests pass their own. */
   loadFrame?: FrameLoader;
 }) {
+  const groupsForRender = projectedGroups ?? groups(state);
   const body =
     state.layout === "timeline" ? (
-      <Timeline state={state} dispatch={dispatch} />
+      <Timeline state={state} dispatch={dispatch} groups={groupsForRender} />
     ) : state.layout === "grid" ? (
-      <Grid state={state} dispatch={dispatch} />
+      <Grid state={state} dispatch={dispatch} groups={groupsForRender} />
     ) : (
-      <Split state={state} dispatch={dispatch} />
+      <Split state={state} dispatch={dispatch} groups={groupsForRender} />
     );
   const viewing =
     state.viewing && state.layout !== "split"

@@ -5,7 +5,7 @@ import { WorkflowCard } from "./WorkflowCard";
 import { WorkflowSummaries } from "./WorkflowSummary";
 import { createWorkflowAdapter } from "./foldWorkflows";
 import { realWorkflowFixture } from "../realWorkflowFixture";
-import { WorkflowTasks } from "../inspector/WorkflowTasks";
+import { WorkflowTasks } from "../session-info/WorkflowTasks";
 
 const pane = globalThis as { __cmuxPaneStrings?: Record<string, Record<string, string>> };
 pane.__cmuxPaneStrings ??= (await import("../generated/strings.json")).default;
@@ -87,7 +87,7 @@ test("the replay renders in the transcript card, Session Info tasks and summary"
   const summary = renderToStaticMarkup(<WorkflowSummaries workflows={[workflow!]} />);
   expect(text(card)).toContain("count-files-fixture Done Report 3/3 10s 84.1K tokens");
   expect(card).toContain('aria-valuemax="3" aria-valuenow="3"');
-  expect(text(tasks)).toContain("count-files-fixture 10s Workflow · Finished · 3 agents · 84k tokens");
+  expect(text(tasks)).toContain("count-files-fixture 10s Finished · 3 agents · 84k tokens");
   expect(text(tasks)).toContain("Count 2/2 Report 1/1");
   expect(text(summary)).toContain("count-files-fixture");
   expect(text(summary)).toContain("3/3");

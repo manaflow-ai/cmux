@@ -6,8 +6,9 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { type AcpmuxRow, type ConversationLayout } from "../model";
+import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
+import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
@@ -65,7 +66,7 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
-  layout: ConversationLayout;
+  layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
@@ -124,7 +125,7 @@ export function ScrollMap({
     const bar = thumb.current;
     if (!node || !bar) return;
     const { height: rail, total, viewportHeight: view, marks: all } = live.current;
-    const at = mapThumb(node.scrollTop, view, total, rail);
+    const at = mapThumb(layoutScrollTop(node), view, total, rail);
     bar.style.transform = `translateY(${at.top}px)`;
     bar.style.height = `${at.height}px`;
     const covered = marksIn(all, at.top, at.top + at.height);
@@ -171,19 +172,23 @@ export function ScrollMap({
       return;
     }
     const target = () =>
-      Math.min(
-        Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
-        Math.max(0, layout.totalHeight - node.clientHeight),
+      physicalScrollTop(
+        node,
+        Math.min(
+          Math.max(0, THREAD_PADDING_TOP + rowTop(layoutGeometry(layout), mark.row) - LANDING_OFFSET),
+          Math.max(0, layout.totalHeight - node.clientHeight),
+        ),
       );
-    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`).
-    animateScroll(node, target, 0, JUMP_CURVE);
+    // A click lands at once, as the compact rail's does (ThreadMinimap.tsx `jump`). An explicit
+    // request: it runs inside the hold that follows the reader's last input (userScroll.ts).
+    animateScroll(node, target, 0, JUMP_CURVE, undefined, undefined, { explicit: true });
   };
   /// Centers the view on rail point `y`, at once: a click on the track as a scrub does.
   const seek = (y: number) => {
     const node = scroller.current;
     if (!node) return;
     stopScroll(node);
-    node.scrollTop = scrollTopAt(y, height, layout.totalHeight, node.clientHeight);
+    node.scrollTop = physicalScrollTop(node, scrollTopAt(y, height, layout.totalHeight, node.clientHeight));
   };
   const point = (y: number) => {
     const at = keyOf(marks[markAt(marks, y) ?? -1]);
@@ -444,3 +449,7 @@ const Mark = memo(function Mark({
     </MinimapTick>
   );
 });
+
+/// A row's layout top, 0 past the placed rows (as an unplaced row's `tops[index] ?? 0`).
+const rowTop = (geometry: ReturnType<typeof layoutGeometry>, index: number) =>
+  index >= 0 && index < geometry.count ? geometry.topAt(index) : 0;

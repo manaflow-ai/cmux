@@ -30,7 +30,10 @@ const customized = setMockMenuLayout(base, "workspaceRow", {
     {
       key: "folder:more",
       items: [
-        { key: "folder:move", items: ["renameWorkspace", "palette.moveWorkspaceToTop", "palette.moveWorkspaceToBottom"] },
+        {
+          key: "folder:move",
+          items: ["renameWorkspace", "palette.moveWorkspaceToTop", "palette.moveWorkspaceToBottom"],
+        },
         "revealWorkspaceInFinder",
         { key: "folder:options", items: ["workspace.showResources"] },
       ],

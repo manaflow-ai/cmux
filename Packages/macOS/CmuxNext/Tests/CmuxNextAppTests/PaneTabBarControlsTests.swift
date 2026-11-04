@@ -6,6 +6,7 @@ import CmuxNextBridge
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import QuartzCore
 import Testing
@@ -14,7 +15,7 @@ import Testing
 /// tab-strip + is a plain one-click action; the chooser remains on hold/right-click. The pane top bar
 /// keeps only "⋮", whose menu holds the creation rows.
 /// Leo's "+ (v)" adds a separate pane-type chooser beside the pane's + without changing that plain-plus action.
-@MainActor @Suite(.serialized) struct PaneTabBarControlsTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct PaneTabBarControlsTests {
     private static func tree(_ surfaces: [UInt64]) -> DaemonTree {
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: surfaces.map { TabSnapshot(surface: SurfaceID(rawValue: $0), title: "~") })
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(PaneID(rawValue: 1)), panes: [pane])
@@ -33,6 +34,23 @@ import Testing
         #expect(toolbar.view.items.isEmpty, "the terminal and browser buttons repeat the + menu, which the ⋮ menu holds")
         #expect(toolbar.view.buttons.isEmpty)
         #expect(toolbar.view.hasMore, "the ⋮ stays for the pane's actions")
+    }
+
+    /// Relaunch (Leo 2026-11-04: "too many layout shifts/flicker renderings"): a restored pane's toolbar was empty at its
+    /// first layout (its items came on the observation's first turn), so the first frame gave the tab strip the whole
+    /// row and the next one took 27 pt back. The toolbar has its items, and its width, before any run-loop turn.
+    @Test func thePaneToolbarHasItsWidthBeforeTheFirstLayout() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let store = services.daemon.store
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: Self.tree([1]))
+        let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"w1","workspace_key":"w1"}"#.utf8))
+        let pane = PaneController(pane: model, daemon: services.daemon, layoutPaneID: LayoutPaneID(model.id), services: services, state: WindowState(record: record))
+        defer { pane.teardown() }
+        let toolbar = PaneToolbar(pane: pane) // no await: what the pane's first layout sees
+        #expect(toolbar.view.intrinsicContentSize.width > 0, "the toolbar reserves its slot before the first layout")
     }
 
     @Test func thePaneStripPlusIsAPlainButtonWithoutATypeMenuOnPress() throws {
@@ -55,7 +73,7 @@ import Testing
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
         window.orderFrontRegardless()
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.syncFromModel()
         let chooser = try #require(strip.accessibilityChildren()?.compactMap { $0 as? PaneTypeMenuButton }
             .first { $0.accessibilityIdentifier() == "cmux.tabs.newTabMenu" }, "pane types have their own visible chevron")
@@ -109,7 +127,7 @@ import Testing
         strip.frame = NSRect(x: 0, y: 0, width: 1000, height: 40)
         let window = NSWindow(contentRect: strip.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = strip
-        defer { window.orderOut(nil) }
+        defer { window.closeAfterTest() }
         strip.layoutSubtreeIfNeeded()
         let plus = try #require(strip.newTabButton.layer)
         let chooser = try #require(strip.newTabMenuButton.layer)
@@ -183,7 +201,10 @@ import Testing
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         let menu = NSMenu()
@@ -261,7 +282,10 @@ import Testing
     /// right-click menu still opens the chooser.
     @Test func theSidebarChevronHidesBeforeItReachesTheLeadingReserve() {
         _ = NSApplication.shared
-        let sidebar = SidebarView(model: SidebarModel(), design: DesignSettings())
+        // The chevron is opt-in (`sidebar.showNewWorkspaceChooser`, off by default since 2026-10-30).
+        let design = DesignSettings()
+        design.sidebarSections.showNewWorkspaceChooser = true
+        let sidebar = SidebarView(model: SidebarModel(), design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 280, height: 480)
         sidebar.layoutSubtreeIfNeeded()
         #expect(!sidebar.newWorkspaceOptionsButton.isHidden, "a roomy sidebar shows the chevron")

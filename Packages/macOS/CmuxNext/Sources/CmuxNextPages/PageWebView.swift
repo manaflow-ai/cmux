@@ -51,6 +51,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var nativeRects: [CGRect] = [] {
         didSet { if nativeRects != oldValue { applyNativeRects() } }
     }
+    /// Called after the page's effective visibility changes. Owners use this to revoke native
+    /// page proofs on hide/detach and rebind them after the Chromium document is visible again.
+    public var onVisibilityChanged: (@MainActor (Bool) -> Void)?
+    /// The Chromium host this page started in: told when its Chromium page attached
+    /// (``PageChromiumHosting/focusViewChanged(_:)``).
+    weak var chromiumFocusHost: (any PageChromiumHosting)?
+    /// The Chromium execution context behind the isolated question-key channel was destroyed.
+    /// Owners clear their cached binding and refresh it against the new document context.
+    public var onQuestionKeyChannelInvalidated: (@MainActor () -> Void)?
     /// The file of the last drag from outside that entered the Chromium page and that ``fileDrop``
     /// takes, with when it entered; the page's drop opens it once.
     var chromiumDragFile: (url: URL, at: Date)?
@@ -66,6 +75,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
+    /// How long ``callPageScript(_:arguments:)`` waits for a Chromium start still in flight before it
+    /// gives up and returns nil (on ``chromiumClock``): about a page script's own 5 s hook wait.
+    var chromiumScriptWait: Duration = .seconds(5)
     /// Makes Chromium pages; the app sets it once at startup (its composition root). Nil keeps every
     /// page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
@@ -73,7 +85,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    private(set) var fileChooser: PageOpenPanel?
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
@@ -118,6 +130,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
     /// button that calls ``reloadAfterCrashes()``).
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
+    /// A document finished loading in the page (either engine): the page lives, so a host that
+    /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
+    /// fallback can load the page again without the notice's Reload).
+    public var onDocumentLoaded: (@MainActor () -> Void)?
+    /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
+    /// pid); nil before any crash.
+    public internal(set) var lastTermination: PageTermination?
+    /// The last WebContent pid seen at a finished load: WebKit may report 0 for a process that ended.
+    var knownWebContentPid: Int32 = 0
     /// Whether a crashed page reloads by itself (up to ``PageCrashReloads/limit``). A host whose page
     /// holds the person's state (the agent chat: an open menu, the caret, an IME composition) sets it
     /// false: every crash shows its notice, and only its Reload button reloads.
@@ -137,16 +158,44 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
     /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
-    /// host opens): a real gesture page script can't make.
+    /// host opens): a real gesture page script can't make. In WebKit, with the drop's event in
+    /// dispatch; in Chromium, from the page's drop message, and only right after a native drop of
+    /// a drag the host saw enter (``PageChromiumEvent/filesDragged(_:)`` then
+    /// ``PageChromiumEvent/dragEnded(dropped:)``, within ``chromiumDropConfirmation``), its files
+    /// once, with that drop's event in ``droppedEvent``.
     public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
-        get { (webView as? PageWKWebView)?.onFilesDropped }
-        set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+        didSet { (webView as? PageWKWebView)?.onFilesDropped = onFilesDropped }
     }
-    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    /// Called with their file URLs when the person picks files in the page's file input
+    /// (``PageOpenPanel``, or the app's panel for a Chromium page), before the page gets them: a
+    /// pick page script can't make. A Chromium page answers its choosers itself only while it is set.
+    public var onFilesChosen: (@MainActor ([URL]) -> Void)? {
+        didSet {
+            fileChooser?.onChosen = onFilesChosen
+            chromiumSession?.page.setAnswersFileChooser(onFilesChosen != nil)
+        }
+    }
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before it pastes: in
+    /// WebKit from the view; in Chromium from its Cmd-V and our own menu's Paste
+    /// (``chromiumPasted()``), each with the person's event in dispatch.
     public var onPaste: (@MainActor () -> Void)? {
-        get { (webView as? PageWKWebView)?.onPaste }
-        set { (webView as? PageWKWebView)?.onPaste = newValue }
+        didSet { (webView as? PageWKWebView)?.onPaste = onPaste }
     }
+    /// The files of the last drag from outside that entered the Chromium page, with when it
+    /// entered; the page's drop reports them once (``onFilesDropped``).
+    var chromiumDragged: (urls: [URL], at: Date)?
+    /// While ``onFilesDropped`` runs for a Chromium page: when the drop's drag entered the page.
+    /// The page took the drop before the host hears of it, so a record of it is dated by the drag's
+    /// entry, before the page's gesture. Nil in WebKit, where the drop's event is in dispatch.
+    public internal(set) var droppedEnteredAt: Date?
+    /// The native drop of the Chromium page's current drag (``PageChromiumEvent/dragEnded(dropped:)``):
+    /// when it happened and the AppKit event in dispatch then. One use: the page's drop message
+    /// takes it. Page script cannot make one.
+    var chromiumDropConfirmed: (at: Date, event: NSEvent?)?
+    /// While ``onFilesDropped`` runs for a Chromium page: the AppKit event that was in dispatch at
+    /// the native drop (WebKit's drop has it in dispatch, as `NSApp.currentEvent`). A host checks
+    /// that it is the person's before it treats the drop as their gesture. Nil in WebKit.
+    public internal(set) var droppedEvent: NSEvent?
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
     /// gesture (a file page's "Open <path>?" sheet) records the value it used.
@@ -389,11 +438,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         }
     }
 
-    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n): a change of
-    /// the setting or of Reduce Motion pushes the theme again.
+    /// The theme carries the static status look (`data-status-indicators`, cx-sya4n) and the sidebar
+    /// cards' sizes (`--cmux-sidebar-card-*`): a change of the setting, of Reduce Motion or of the
+    /// sidebar's density or text size pushes the theme again.
     private func observeStatusLook() {
         statusLookObservation = Task { [weak self] in
-            for await _ in ObservationStream({ DesignSettings.shared.statusIndicator.animation }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.statusIndicator.animation, SidebarRowTokens.current.card) }) {
                 guard let self else { return }
                 self.applyTheme()
             }
@@ -415,7 +465,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     private func observeUIScale() {
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, DesignSettings.shared.interfaceScale, DesignSettings.shared.interfaceScaleEnabled) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.userScale) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -511,7 +561,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
-            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused")
+            logger.error("page \(self.descriptor.id, privacy: .public) message from an untrusted frame refused: main=\(message.isMainFrame, privacy: .public) url=\(message.frameURL?.absoluteString ?? "-", privacy: .public)")
             return nil
         }
         // The message conversion stays here: `handle` must start in the order the page posted, and
@@ -559,6 +609,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setChromiumVisibility(true)
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -570,13 +623,17 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Another tab took the pane: the page's popup ends.
     public override func viewDidHide() {
         super.viewDidHide()
+        chromiumSession?.questionKeys?.invalidate()
         popupHost?.dismiss()
         setChromiumVisibility(false)
+        onVisibilityChanged?(false)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
+        let visible = window != nil && !isHiddenOrHasHiddenAncestor
         setChromiumVisibility(true)
+        onVisibilityChanged?(visible)
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -587,6 +644,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        let visible = superview != nil && window != nil && !isHiddenOrHasHiddenAncestor
+        if !visible { chromiumSession?.questionKeys?.invalidate() }
+        onVisibilityChanged?(visible)
     }
 
     func applyTheme(force: Bool = false) {
@@ -603,9 +663,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
+    /// Built in this view's scope (`performWithTheme`): whether the window is see-through here
+    /// comes from that scope's picture and tint, not the app's. Built outside it, a workspace's
+    /// picture over an opaque theme painted the page solid, a black chat over the wallpaper (#28867).
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
-                 surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        performWithTheme {
+            // The app's Reduce Transparency state (the system setting unless Debug or a test pins it),
+            // as the window, pane and terminal backdrops read it.
+            WebTheme(themeTokens, reduceTransparency: ReduceTransparency.shared.isEnabled,
+                     surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
+        }
     }
 
     // MARK: WKNavigationDelegate

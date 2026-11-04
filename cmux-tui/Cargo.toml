@@ -18,10 +18,13 @@ resolver = "2"
 members = [
     "crates/acpmux",
     "crates/cmux-tailnet",
+    "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-history",
+    "crates/cmux-imessage",
     "crates/cmux-chat-index",
     "crates/cmux-cloud-cli",
+    "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-chief",
     "bindings/rust",
@@ -41,11 +44,14 @@ members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-journal",
     "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
+    "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
@@ -54,7 +60,6 @@ members = [
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
-    "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
@@ -64,9 +69,11 @@ members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -82,7 +89,9 @@ members = [
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-agent-pane-policy",
@@ -94,10 +103,14 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
-    "crates/cmux-kitty-media",
+    "crates/cmux-host-budget",
+    "crates/cmux-vault-egress",
+    "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 default-members = [
     "crates/acpmux",
+    "crates/acpmux-build-id",
     "crates/cmux-coderouter",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
@@ -117,10 +130,13 @@ default-members = [
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-journal",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
+    "crates/cmux-cloud-start-core",
+    "crates/cmux-cloud-config",
     "crates/cmux-pty",
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
@@ -132,9 +148,11 @@ default-members = [
     "crates/cmux-tui-machine-protocol",
     "crates/cmux-tui",
     "crates/cmux-wg",
+    "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
     "crates/cmux-tasks-core",
+    "crates/cmux-bookmarks-core",
     "crates/cmux-automations",
     "crates/cmux-feed-core",
     "crates/cmux-tasks",
@@ -150,7 +168,9 @@ default-members = [
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
     "crates/cmux-rd-link",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
+    "crates/cmux-mcp-connect",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
     "crates/cmux-link",
@@ -161,6 +181,9 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-host-budget",
+    "crates/cmux-url-input",
+    "crates/cmux-view-rows",
 ]
 exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
@@ -188,6 +211,8 @@ redundant_clone = "warn"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
+chrono = "0.4"
+chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }
@@ -198,10 +223,18 @@ cmux-git = { path = "crates/cmux-git" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-bookmarks-core = { path = "crates/cmux-bookmarks-core" }
+cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
+cmux-cloud-config = { path = "crates/cmux-cloud-config" }
+cmux-cloud-environment = { path = "crates/cmux-cloud-environment" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-panic-log = { path = "crates/cmux-panic-log" }
 cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
+cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-host-budget = { path = "crates/cmux-host-budget" }
+cmux-vault-egress = { path = "crates/cmux-vault-egress" }
+cmux-url-input = { path = "crates/cmux-url-input" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
@@ -210,7 +243,9 @@ cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
+cmux-imessage = { path = "crates/cmux-imessage" }
 cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
 cmux-tui-platform = { path = "crates/cmux-tui-platform" }
@@ -218,6 +253,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-journal = { path = "crates/cmux-journal" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
@@ -236,6 +272,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-vnc = { path = "crates/cmux-vnc" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
@@ -309,6 +346,8 @@ notify = "8"
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
+# One-load published snapshots (cmux-tui-core `published.rs`, R-DAEMON-STATE); already in the tree through iroh-dns.
+arc-swap = "1.9"
 wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
@@ -318,6 +357,7 @@ rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled
 # data only, no new transitive code.
 icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
+tar = "0.4"
 # XML parser for the SVG icon sanitizer (cmux-tui-core). Already in the graph
 # through plist at this version; no DTD support, MIT licensed.
 quick-xml = { version = "0.41", default-features = false }

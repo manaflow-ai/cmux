@@ -53,7 +53,7 @@ final class CEFHostView: NSView {
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         Self.registerMotionSampler()
         #endif
     }
@@ -141,6 +141,7 @@ final class CEFHostView: NSView {
         // The fork reads these first on every update of a shown page.
         let geometry = CEFHostGeometry(of: self)
         readGeometry = geometry
+        readPlacement = PlacementKey(of: self)
         return occlusionMemoValue(for: geometry).bridged
     }
 
@@ -157,6 +158,18 @@ final class CEFHostView: NSView {
 
     /// The pane's rounded clip, the column strip's clip and the window's corners, in this view.
     var pageClip: CGPath? { clipShape().path }
+
+    /// ``pageClip`` in window coordinates, the shape the page window's mask shows on screen; nil
+    /// when the page is a plain rectangle. A page clipped away entirely gets an empty path.
+    var pageClipInWindow: CGPath? {
+        guard let clip = pageClip else { return nil }
+        let origin = convert(NSPoint.zero, to: nil)
+        let unitX = convert(NSPoint(x: 1, y: 0), to: nil)
+        let unitY = convert(NSPoint(x: 0, y: 1), to: nil)
+        var toWindow = CGAffineTransform(a: unitX.x - origin.x, b: unitX.y - origin.y,
+                                         c: unitY.x - origin.x, d: unitY.y - origin.y, tx: origin.x, ty: origin.y)
+        return clip.copy(using: &toWindow)
+    }
 
     /// The last clip shape and what it was worked out from. The fork reads
     /// the clip and the occlusion rects on every geometry update, several
@@ -255,13 +268,15 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         readGeometry = nil
+        readPlacement = nil
         invalidateOcclusionMemo()
         // A resize-wait tunable edit made while out of a window applies (CEFResizeSyncDeadline).
         layerHosting.windowDidChange()
         guard let window else { return }
         windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] note in
             let force = note.userInfo?[browserPagesForceUpdateKey] as? Bool ?? false
-            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force) } // main-proof: observer on queue: .main
+            let geometryOnly = note.userInfo?[browserPagesGeometryOnlyKey] as? Bool ?? false
+            MainActor.assumeIsolated { self?.pagesNeedUpdate(force: force, geometryOnly: geometryOnly) } // main-proof: observer on queue: .main
         }
     }
 
@@ -276,8 +291,16 @@ final class CEFHostView: NSView {
     /// re-mask (Lawrence 2026-10-23: splits lag more with Chromium pages).
     /// `force`: a page window moved by something other than the fork must be
     /// put back over its host even though the host did not move.
-    func pagesNeedUpdate(force: Bool) {
+    /// `geometryOnly`: a layout motion frame that changed no clip shape (`browserPagesGeometryOnlyKey`); a page whose
+    /// ``PlacementKey`` is the one the fork last read works out no geometry then (O(moved pages) builds per frame).
+    func pagesNeedUpdate(force: Bool, geometryOnly: Bool = false) { // perf-hot: 0.05ms cef-geometry (every page, every motion frame)
+        let key = PlacementKey(of: self)
+        if geometryOnly, !force, readGeometry != nil, key == readPlacement {
+            Self.trackerStats.geometrySkips += 1
+            return
+        }
         let now = CEFHostGeometry(of: self)
+        readPlacement = key
         guard force || readGeometry != now else {
             Self.trackerStats.geometrySkips += 1
             return
@@ -286,12 +309,47 @@ final class CEFHostView: NSView {
         // The fork updates inside the post; a hidden or not yet created page reads nothing
         // there, so what it was told is recorded here (a still hidden page has nothing new).
         readGeometry = now
+        readPlacement = key
     }
+
+    /// The inputs of ``CEFHostGeometry`` that a layout motion frame can change without changing a clip shape: the
+    /// host's rect in its window, the window's frame and scale, the hidden state, the host's own occlusion and the
+    /// window's occluders over it. The clip inputs and the ancestors' visible rect change only with a clip shape (a
+    /// strip clip, corners, padding), whose requests carry no `geometryOnly` and work the geometry out in full.
+    struct PlacementKey: Equatable {
+        var inWindow: CGRect
+        var windowFrame: CGRect
+        var scale: CGFloat
+        var hidden: Bool
+        var occlusion: [CGRect]
+        var rounded: [CEFClipShape.RoundedRect]
+        var windowOcclusion: [CGRect]
+
+        init(of view: CEFHostView) {
+            let window = view.window
+            let inWindow = view.convert(view.bounds, to: nil)
+            self.inWindow = inWindow
+            windowFrame = window?.frame ?? .zero
+            scale = window?.backingScaleFactor ?? 0
+            hidden = view.isHiddenOrHasHiddenAncestor
+            occlusion = view.occlusionRects
+            rounded = view.roundedOcclusions
+            windowOcclusion = ((window as? any BrowserWindowOcclusionProviding)?.browserOcclusionRectsInWindow ?? []).compactMap { rect in
+                let shared = rect.intersection(inWindow)
+                return shared.isNull || shared.isEmpty ? nil : shared
+            }
+        }
+    }
+
+    /// The ``PlacementKey`` of the geometry the fork last read (or was told); nil when unknown.
+    private var readPlacement: PlacementKey?
 
     /// Tells the tracker about moves AppKit does not report (layer
     /// transforms, manual frame animation in an ancestor).
     func postGeometryChange() { // perf-hot: 0.2ms cef-geometry (each post makes the fork re-place one page window)
         invalidateOcclusionMemo()
+        // Something the key does not see may have changed (an own occlusion, a direct post): the next frame builds in full.
+        readPlacement = nil
         Self.trackerStats.geometryPosts += 1
         NotificationCenter.default.post(name: CEFHostView.geometryDidChange, object: self)
     }
@@ -309,19 +367,24 @@ final class CEFHostView: NSView {
 
 /// A CEF tab's `contentView`. All tabs of a pane share one Chromium window,
 /// so the container only borrows the pane's `CEFHostView` while it is in a
-/// window, and shows a snapshot while the tab is occluded.
+/// window.
 final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFollowing {
     weak var tab: CEFTab?
-    private let snapshotView = NSImageView()
-    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`); nil otherwise.
+    /// The page's size through a person's resize drag (`paneResizeGestureDidChange`) or a key resize's hold
+    /// (``holdPage(for:)``); nil otherwise.
     private(set) var heldPageSize: CGSize?
+    /// The edges a key resize's hold keeps the page on (FRAME OWNER S3); nil: a drag's top-leading corner.
+    var pageMotionHold: PaneMotionHold?
+    /// The key resize's hold keeps the page on the page area's top-left corner, as a drag does
+    /// (`BrowserResizeTunables.keyResizeTopLeft`, latched when the hold begins: a flip applies from the next hold).
+    var pageHoldTopLeft = false
+    /// The page windows told of a resize-sync drag (`BrowserDragResize.resizeSync`), to tell its end wherever the
+    /// page is by then; empty otherwise.
+    private(set) var syncedDragHostings: [CEFLayerHosting] = []
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        snapshotView.imageScaling = .scaleAxesIndependently
-        snapshotView.autoresizingMask = [.width, .height]
-        snapshotView.isHidden = true
     }
 
     @available(*, unavailable)
@@ -342,7 +405,11 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { dropHold() }
+        if window == nil {
+            dropHold()
+            // A container leaving the window (its tab closed or moved mid-drag) may never hear the drag's end.
+            endSyncedDrag()
+        }
         guard let tab else { return }
         tab.pageThemeDidChange()
         // A tab parked hidden in its pane (PaneContentView+Parking) shows
@@ -358,7 +425,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// shared host view go, as when it leaves the window, at no window move.
     override func viewDidHide() {
         super.viewDidHide()
-        dropHold()
+        dropHold(keepingKeyHold: true)
+        refreshSyncedDrag()
         tab?.contentDidDisappear()
     }
 
@@ -366,8 +434,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     override func viewDidUnhide() {
         super.viewDidUnhide()
         guard let tab, window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        refreshSyncedDrag()
         tab.pageThemeDidChange()
         tab.contentDidAppear(in: self)
+        resumePageHold()
     }
 
     override func layout() {
@@ -383,6 +453,8 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// The page (the pane's shared `CEFHostView` and the snapshot) takes
     /// the page frame; a docked DevTools and its divider take the rest.
     func layoutContent() {
+        // DevTools can open, close or change dock while the drag is already active.
+        refreshSyncedDrag()
         // DevTools docked, a side panel or a device fit came up mid-drag: they lay out as before.
         if heldPageSize != nil, !pageCanHold { dropHold() }
         let frames = tab?.devToolsController.frames(in: bounds)
@@ -414,9 +486,13 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab
             } else if fitPage == nil, let held = heldPageSize, subview === tab?.host.hostView {
-                // A resize drag: the page keeps its size at the page frame's top-left corner, and the
-                // pane clips it (`CEFClipShape` and the fork's visible rect read the held host).
-                frame = CGRect(x: frames.page.minX, y: frames.page.maxY - held.height, width: held.width, height: held.height)
+                // A resize drag, or a key hold (the interim browser contract, `pageHoldTopLeft`): the page keeps its size
+                // at the page frame's top-left corner, so it moves with the pane's leading and top edges (S3's key hold
+                // without it: on the pane edges that do not move). The pane clips it (`CEFClipShape` and the fork's
+                // visible rect read the held host), and the fork re-places its window with the host each motion frame
+                // (`CEFHostView.pagesNeedUpdate`).
+                let topLeft = PaneMotionHold(trailing: false, bottom: false)
+                frame = (pageHoldTopLeft ? topLeft : pageMotionHold ?? topLeft).producerFrame(held, in: frames.page)
             } else {
                 frame = fitPage ?? frames.page
             }
@@ -443,34 +519,93 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// frame, the pane clips it (top-left anchored, never stretched), and a pane grown past it shows
     /// the page's own background beside it. It lays out once when the drag lands. Only a plain page
     /// holds: a docked DevTools, a side panel or a device fit lay out as before.
+    ///
+    /// With `dragResize` at `resizeSync` (fork API 27) the page lays out live instead, and each page window over
+    /// the pane (the page's, a docked DevTools') holds every app frame of the drag and its landing for its frame at
+    /// the new size, up to a bounded deadline (`CEFLayerHosting.paneResizeDrag`).
     func paneResizeGestureDidChange(active: Bool) {
         guard active else {
-            guard heldPageSize != nil else { return }
+            endSyncedDrag()
+            // A key resize's page hold (FRAME OWNER S3) is its pane's to end, not the drag's.
+            guard heldPageSize != nil, pageMotionHold == nil else { return }
             dropHold()
             layoutContent()
             return
         }
-        guard BrowserResizeTunables.dragResize.value == .hold, heldPageSize == nil, window != nil, pageCanHold,
-              let tab else { return }
-        let size = tab.host.hostView.frame.size
-        guard size.width > 0, size.height > 0 else { return }
-        heldPageSize = size
+        if BrowserResizeTunables.dragResize.value == .resizeSync {
+            startSyncedDrag()
+            return
+        }
+        guard BrowserResizeTunables.dragResize.value == .hold else { return }
+        startPageHold()
+    }
+
+    /// The page keeps the size it has now; false when it cannot (not a plain page here, no size, out of a window).
+    @discardableResult
+    func startPageHold() -> Bool {
+        guard canStartPageHold, let tab else { return false }
+        heldPageSize = tab.host.hostView.frame.size
         // The held page is cut at this view's edges: its layer here, and the page window by the
         // fork's visible rect, which follows every ancestor whose layer masks to its bounds.
         layer?.masksToBounds = true
         // A see-through page (a cmux page) shows the pane under it, so its gap does too.
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
+        return true
     }
 
-    /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.
-    private var pageCanHold: Bool {
+    /// Every page window over this pane waits for its frame at each size of the drag: the pane's shared one from
+    /// every tab container (a tab switch mid-drag stays synced), a docked DevTools' only from the shown tab's (a
+    /// parked tab's DevTools window draws nothing, so it would only spend the wait).
+    private func startSyncedDrag() {
+        guard syncedDragHostings.isEmpty, window != nil, let tab else { return }
+        syncedDragHostings = [tab.host.hostView.layerHosting]
+        tab.host.hostView.layerHosting.paneResizeDrag(active: true)
+        refreshSyncedDrag()
+    }
+
+    /// Keeps the shared page's drag share, and lends a share only to DevTools currently docked over
+    /// this visible container. Reconcile before layout so newly shown DevTools waits at its first size.
+    private func refreshSyncedDrag() {
+        guard let page = syncedDragHostings.first else { return }
+        var hostings = [page]
+        if !isHiddenOrHasHiddenAncestor, let host = tab?.devToolsController.views?.host, host.superview === self, !host.isHidden {
+            hostings.append(host.layerHosting)
+        }
+        for hosting in syncedDragHostings where !hostings.contains(where: { $0 === hosting }) {
+            hosting.paneResizeDrag(active: false)
+        }
+        for hosting in hostings where !syncedDragHostings.contains(where: { $0 === hosting }) {
+            hosting.paneResizeDrag(active: true)
+        }
+        syncedDragHostings = hostings
+    }
+
+    /// Hands back this container's share of a resize-sync drag.
+    private func endSyncedDrag() {
+        let hostings = syncedDragHostings
+        syncedDragHostings = []
+        for hosting in hostings { hosting.paneResizeDrag(active: false) }
+    }
+
+    /// A page hold can begin now: none yet, in a window, a plain page with a size.
+    var canStartPageHold: Bool {
+        guard heldPageSize == nil, window != nil, pageCanHold, let size = tab?.host.hostView.frame.size else { return false }
+        return size.width > 0 && size.height > 0
+    }
+
+    /// A plain page shown here: no docked DevTools taking room, side panel or device fit, which place the page
+    /// themselves. Views kept hidden after an unreported DevTools open take no room (#32253): the page still holds.
+    var pageCanHold: Bool {
         guard let tab else { return false }
-        return tab.host.hostView.superview === self && tab.devToolsController.views == nil
+        return tab.host.hostView.superview === self && !tab.devToolsController.reservesRoom
+            && !(tab.devToolsController.deviceModeOn && tab.devToolsController.views != nil)
             && tab.sidePanel.state == nil && tab.deviceEmulation == nil
     }
 
-    /// Lets go of a held page size; the next layout gives the page its frame.
-    private func dropHold() {
+    /// Lets go of a held page size; the next layout gives the page its frame. `keepingKeyHold`: a key resize's hold stays
+    /// asked for, and the page holds again when it shows (`resumePageHold`).
+    func dropHold(keepingKeyHold: Bool = false) {
+        if !keepingKeyHold { pageMotionHold = nil }
         guard heldPageSize != nil else { return }
         heldPageSize = nil
         layer?.masksToBounds = false

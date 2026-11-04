@@ -24,7 +24,7 @@ impl HostedReader {
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
-        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
+        cmux_flow_trace::hop_on_traced("daemon.output.host", pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -125,16 +125,15 @@ impl HostedReader {
         surface.publish_pending_directory();
         surface.publish_pending_progress();
         pty.stream_progress.notify();
-        pty.request_frame(generation);
+        // Published by the frame lane, once per frame (FrameRequests).
+        if let Some((offset, at_bottom)) = scroll_changed {
+            pty.frame_requests.defer_scroll(offset, at_bottom);
+        }
+        pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()
         {
             mux.emit_terminal_title(surface.id, title.into());
-        }
-        if let Some((offset, at_bottom)) = scroll_changed
-            && let Some(mux) = mux.upgrade()
-        {
-            mux.emit_terminal_scroll(surface.id, offset, at_bottom);
         }
         if !terminal_notifications.is_empty()
             && let Some(mux) = mux.upgrade()

@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::goal::GoalState;
 use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,9 @@ mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
 pub use kind_index::INDEXED_KINDS;
+mod shared_value;
+mod text_index;
+pub use shared_value::SharedValue;
 
 /// One line in the session event log.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -106,6 +110,25 @@ pub struct WatchedTurn {
     pub answered: bool,
 }
 
+/// Daemon-validated edit boundary and durable fork request identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkBefore {
+    pub prompt_id: String,
+    pub request_id: String,
+    pub prompt_seq: u64,
+    pub through_seq: Option<u64>,
+    pub ready: bool,
+}
+
+/// Reserved before creating a child; retained even if the child is purged.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkRequest {
+    pub prompt_id: String,
+    pub child_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionMeta {
@@ -124,6 +147,12 @@ pub struct SessionMeta {
     /// it (`harness_argv` is the creation's). None before any start (#23322, review 36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn_argv: Option<Vec<String>>,
+    /// `HarnessProfile::launch_digest` of the profile its agent last started from: a profile
+    /// reload that changes it respawns the agent at its turn end, on the same conversation
+    /// (`hub/profile_respawn.rs`). Kept on disk, so an agent host the next daemon adopts is
+    /// judged too. None before any start, or for a start by an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_digest: Option<String>,
     /// Model family of the profile at creation (`claude`, `codex`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
@@ -135,6 +164,11 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_request: Option<String>,
     pub cwd: PathBuf,
+    /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
+    /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
+    /// canonical, each once, never `cwd` itself.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_directories: Vec<PathBuf>,
     #[serde(default)]
     pub agent_session_id: Option<String>,
     /// Claude Code can replace its native session id when a chat is forked. Keep ids this
@@ -143,6 +177,12 @@ pub struct SessionMeta {
     /// from transcript contents.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_agent_session_ids: Vec<String>,
+    /// Every native id this chat had before the current one, whatever its family, oldest first
+    /// and bounded (`RETIRED_AGENT_SESSION_IDS`). Not transcript authority: a Codex chat's
+    /// earlier native roots, which its older records still name, so a client folding them
+    /// (and the tap's `SubagentTree`) never reads an earlier root as one of its subagents.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_agent_session_ids: Vec<String>,
     /// Proven family of the current native id. Older/imported metadata is unknown and cannot
     /// authorize historical Claude reads when that id is retired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,10 +192,19 @@ pub struct SessionMeta {
     pub updated_at: u64,
     #[serde(default)]
     pub last_seq: u64,
+    /// The seq of the newest record `hub/paging.rs` `is_transcript` keeps (the summary's
+    /// `transcriptSeq`). 0 from an older daemon's `session.json`: no client compares across
+    /// that, since one bump past the value it read is all a client asks of it.
+    #[serde(default)]
+    pub transcript_seq: u64,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]
     pub fork_seq: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_before: Option<ForkBefore>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
     /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,7 +230,7 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode_set_by_cmux: Option<String>,
     #[serde(default)]
-    pub config_options: Option<Value>,
+    pub config_options: Option<SharedValue>,
     #[serde(default)]
     pub models: Option<Value>,
     #[serde(default)]
@@ -226,6 +275,15 @@ pub struct SessionMeta {
     /// sent after each turn; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_breakdown: Option<Value>,
+    /// Cmux-owned additions captured when this chat was created. Older chats have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_context: Option<Vec<crate::context_inventory::ContextPart>>,
+    /// A preset override selected at creation; later setting edits affect only new chats.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cmux_preset_prompt: Option<String>,
+    /// True only after a harness writer accepts the captured first-turn context.
+    #[serde(default)]
+    pub cmux_context_delivered: bool,
     /// The account's plan usage limits (`claude_stdio::usage_limits`), newest per window, from
     /// Claude Code's `rate_limit_event`; none from any other harness.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -236,8 +294,12 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<Value>,
+    #[serde(
+        default,
+        deserialize_with = "crate::goal::deserialize_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub goal: Option<GoalState>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -260,6 +322,10 @@ pub struct SessionMeta {
     /// before the restart, and the wake's log says how long it slept.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub hibernated_ms: u64,
+    /// What the idle census knew of its hosted harness's MCP servers, for the next daemon that
+    /// adopts that host (`hub/idle_census.rs`, `StoredLaunch`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_launch: Option<crate::hub::StoredLaunch>,
     /// Where the chat went when it moved to another daemon (`hub/transfer_out.rs` commit:
     /// `{host?, sessionId, cwd?, branch?, commit?, socket?}`). Set once, never cleared here: a
     /// moved chat takes no prompt and never starts its agent on this daemon again (one writer),
@@ -275,6 +341,10 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// An explicit login replaced this account's credentials after this turn. Kept separately
+    /// from history so replay and daemon upgrades do not revive an obsolete auth refusal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_change: Option<AuthChange>,
     /// Classified harness attempts, projected from turn results; old stores default empty.
     #[serde(default)]
     pub harness_failures: crate::session_liveness::HarnessFailures,
@@ -389,6 +459,15 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+}
+
+/// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
+/// not that the new credential works; the next turn supplies that evidence.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuthChange {
+    pub at: u64,
+    pub turn_id: Option<String>,
+    pub ended_at: Option<u64>,
 }
 
 /// Where a session sits in the tree of sessions that started each other
@@ -531,10 +610,21 @@ pub struct ToolRow {
     pub status: Option<String>,
 }
 
+/// How many earlier native ids a chat keeps (`SessionMeta::retired_agent_session_ids`).
+pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
+
 impl SessionMeta {
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {
+        if let Some(next) = next.as_ref() {
+            self.retired_agent_session_ids.retain(|id| id != next);
+        }
+        if let Some(previous) = self.agent_session_id.clone()
+            && next.as_ref() != Some(&previous)
+        {
+            self.retire_root(previous);
+        }
         if let Some(next) = next.as_ref().filter(|_| family == "claude") {
             self.previous_agent_session_ids.retain(|id| id != next);
         }
@@ -548,6 +638,29 @@ impl SessionMeta {
         }
         self.agent_session_id = next;
         self.agent_session_family = self.agent_session_id.as_ref().map(|_| family.to_owned());
+    }
+
+    /// Drop the native id without making it transcript authority: a chat that starts its agent
+    /// fresh (a guarded move with no agent file, `transfer_guard.rs`) keeps the old root only in
+    /// `retired_agent_session_ids`, since its acpmux history still names it. Never into
+    /// `previous_agent_session_ids`, which would let a Claude transcript read follow a file that
+    /// did not come with the chat.
+    pub fn retire_agent_session_id(&mut self) {
+        if let Some(previous) = self.agent_session_id.take() {
+            self.retire_root(previous);
+        }
+        self.agent_session_family = None;
+    }
+
+    /// Record an earlier root in `retired_agent_session_ids`: once, newest last, bounded.
+    fn retire_root(&mut self, previous: String) {
+        if self.retired_agent_session_ids.contains(&previous) {
+            return;
+        }
+        if self.retired_agent_session_ids.len() >= RETIRED_AGENT_SESSION_IDS {
+            self.retired_agent_session_ids.remove(0);
+        }
+        self.retired_agent_session_ids.push(previous);
     }
 
     /// Claude ids recorded for this chat: current first, then history from newest to oldest.
@@ -738,10 +851,30 @@ pub trait Store: Send + Sync {
     fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
         self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
     }
+    /// The log's messages (`session_search.rs`), oldest first. A file store reads each segment's
+    /// text copy (`store/text_index.rs`) and only the bytes appended past it.
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        let mut projector = crate::session_search::Projector::default();
+        self.scan_kinds(id, crate::session_search::KINDS, &mut |rec| {
+            projector.feed(&rec);
+            true
+        })?;
+        projector.entries.into_iter().for_each(visit);
+        Ok(())
+    }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
         Ok(())
     }
+    /// The daemon's shutdown is done: from now on every write is refused. It lets go of
+    /// `daemon.lock` before its process exits, so the next daemon may already read this store;
+    /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
+    /// way.
+    fn seal(&self) {}
     /// Close the session's log until it is next written (a closed session's).
     fn close_log(&self, _id: &str) {}
     /// Retention (`store/compact.rs`): the log's last `seq` when it was last compacted.
@@ -974,6 +1107,9 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// Read-held by every write, true once `seal` ran: a write either lands before the seal
+    /// returns or not at all.
+    sealed: std::sync::RwLock<bool>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1017,7 +1153,17 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            sealed: Default::default(),
         })
+    }
+
+    /// Held through a write; refused once the store is sealed (`Store::seal`).
+    fn writable(&self) -> Result<std::sync::RwLockReadGuard<'_, bool>> {
+        let sealed = self.sealed.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *sealed {
+            anyhow::bail!("the store is sealed: the daemon has shut down");
+        }
+        Ok(sealed)
     }
 
     fn dir(&self, id: &str) -> PathBuf {
@@ -1391,6 +1537,7 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
         write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
@@ -1413,6 +1560,7 @@ impl Store for LocalStore {
         // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
         // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
             && writers.open.len() >= OPEN_LOGS
@@ -1538,6 +1686,14 @@ impl Store for LocalStore {
         self.scan_kinds_in(id, kinds, true, visit)
     }
 
+    fn text_entries(
+        &self,
+        id: &str,
+        visit: &mut dyn FnMut(crate::session_search::Entry),
+    ) -> Result<()> {
+        self.text_entries_in(id, visit)
+    }
+
     /// Segments newest first, so a page from the end reads only the segments it
     /// needs however long the log is. A segment whose first record is at or past
     /// `before` holds nothing for the page and is skipped after one line.
@@ -1626,14 +1782,23 @@ impl Store for LocalStore {
     }
 
     fn stage_compaction(&self, id: &str, mode: CompactMode) -> Result<Option<Staged>> {
+        // Not under the seal: staging writes only copies beside the log, and a large log's
+        // stage would hold a shutdown's seal for as long as it reads (router review of #28503).
+        // The commit that puts them in place is sealed.
         LocalStore::stage_compaction(self, id, mode)
     }
 
     fn commit_compaction(&self, id: &str, staged: Staged) -> Result<bool> {
+        let _open = self.writable()?;
         LocalStore::commit_compaction(self, id, staged)
     }
 
+    fn seal(&self) {
+        *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
+    }
+
     fn delete(&self, id: &str) -> Result<()> {
+        let _open = self.writable()?;
         self.writers.lock_or_recover().open.remove(id);
         let dir = self.dir(id);
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
@@ -1849,7 +2014,8 @@ mod line_rev_tests;
 
 #[cfg(test)]
 mod agent_session_history_tests {
-    use super::{META_SCHEMA, SessionMeta};
+    use super::{META_SCHEMA, RETIRED_AGENT_SESSION_IDS, SessionMeta};
+    use crate::goal::{GoalState, GoalStatus};
     use serde_json::json;
 
     fn meta() -> SessionMeta {
@@ -1905,10 +2071,71 @@ mod agent_session_history_tests {
         }
     }
 
+    /// Dropping the id (a fresh start) retires it once, but never makes a Claude id transcript
+    /// authority.
+    #[test]
+    fn retiring_the_native_id_keeps_it_out_of_claude_history() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("claude-root".into()), "claude");
+        m.retire_agent_session_id();
+        m.retire_agent_session_id();
+        assert_eq!(m.agent_session_id, None);
+        assert_eq!(m.agent_session_family, None);
+        assert_eq!(m.retired_agent_session_ids, ["claude-root"]);
+        assert!(m.previous_agent_session_ids.is_empty());
+    }
+
     #[test]
     fn old_metadata_without_history_defaults_to_empty() {
         let m = meta();
         assert!(m.previous_agent_session_ids.is_empty());
+        assert!(m.retired_agent_session_ids.is_empty());
+    }
+
+    #[test]
+    fn goal_persistence_round_trip_keeps_quota_stop_reasons() {
+        for status in [GoalStatus::UsageLimited, GoalStatus::BudgetLimited] {
+            let mut m = meta();
+            m.goal = Some(GoalState {
+                objective: "Wait for quota".into(),
+                status: status.clone(),
+                provider: crate::goal::GoalProvider::Codex,
+                token_budget: None,
+                tokens_used: None,
+                elapsed_seconds: None,
+                created_at: None,
+                updated_at: None,
+                steps: None,
+                extra: Default::default(),
+            });
+            let encoded = serde_json::to_value(&m).unwrap();
+            assert_eq!(encoded["goal"]["status"], status.as_str());
+            let restored: SessionMeta = serde_json::from_value(encoded).unwrap();
+            assert_eq!(restored.goal.unwrap().status, status);
+        }
+    }
+
+    /// A Codex chat's earlier native roots stay known after a restart names a new one, so a
+    /// client folding its older records never reads one as a subagent; bounded, oldest first.
+    #[test]
+    fn every_earlier_native_id_is_kept_whatever_its_family() {
+        let mut m = meta();
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        m.set_agent_session_id(Some("root-2".into()), "non-claude");
+        m.set_agent_session_id(None, "non-claude");
+        m.set_agent_session_id(Some("root-3".into()), "non-claude");
+        assert_eq!(m.retired_agent_session_ids, ["root-1", "root-2"]);
+        // An id that comes back is current again, not retired.
+        m.set_agent_session_id(Some("root-1".into()), "non-claude");
+        assert_eq!(m.retired_agent_session_ids, ["root-2", "root-3"]);
+        let encoded = serde_json::to_value(&m).unwrap();
+        assert_eq!(encoded["retiredAgentSessionIds"], json!(["root-2", "root-3"]));
+        for n in 0..RETIRED_AGENT_SESSION_IDS + 4 {
+            m.set_agent_session_id(Some(format!("r{n}")), "non-claude");
+        }
+        assert_eq!(m.retired_agent_session_ids.len(), RETIRED_AGENT_SESSION_IDS);
+        assert_eq!(m.retired_agent_session_ids.last().map(String::as_str), Some("r34"));
     }
 }
 

@@ -10,6 +10,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTabs
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -86,6 +87,8 @@ final class AppControl {
         service.router.register(FeedControl.methods(services: services))
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
+        // `video.frames`: a video's numbers and frames for the agent tools `video_info` and `video_frames`.
+        service.router.register(VideoControl().methods())
         // `agent.acpmux`: the acpmux this app's chat tabs use (`cmux agents chat new`, #23026).
         let build = services.environment.build
         service.router.register([.agentAcpmux {
@@ -110,6 +113,10 @@ final class AppControl {
                 let services = await MainActor.run { services }
                 return try await ResourceControl.run(call.params, services: services)
             }.withDeadline(.fixed(ResourceControl.deadline)),
+            .async("renderers.list") { [weak services] call in // each Chromium renderer pid, its pages, their tabs
+                let services = await MainActor.run { services }
+                return try await ResourceControl.renderers(call.params, services: services)
+            }.withDeadline(.fixed(ResourceControl.renderersDeadline)),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -124,7 +131,7 @@ final class AppControl {
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
+        service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
@@ -175,9 +182,7 @@ final class AppControl {
                 DebugHints.watchMenus()
                 return .value(DebugHints.report(services.windowHints, params: call.params))
             },
-            .mainActor("debug.page_host_pool") { [weak services] call in
-                .value(DebugPageHostPool.handle(call.params, services: services))
-            },
+            .mainActor("debug.page_host_pool") { [weak services] call in .value(DebugPageHostPool.handle(call.params, services: services)) },
             // Focus model vs AppKit vs Ghostty per window (plans/cmux-next/focus.md); `deactivate` backgrounds the app first.
             .mainActor("debug.focus") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -222,6 +227,8 @@ final class AppControl {
                 if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services, params: call.params))
             },
+            // Repeating Core Animation loops and whether anyone can see them (hq#3716).
+            .mainActor("debug.loops") { call in .value(CmuxNextSettings.JSONValue(foundation: DebugLoops.report(limit: call.params["limit"]?.intValue ?? 50)) ?? .null) },
             // The one hover card: machine phase, card window, timer, monitor.
             // `{dismiss: true}` first dismisses the shown card as an app action would (live checks).
             .mainActor("debug.hover_cards") { [weak services] call in
@@ -253,7 +260,9 @@ final class AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames, work = services.work] call in
+                try await DebugWakeups.report(call.params, budgeted: budgeted, work: work)
+            },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
@@ -261,7 +270,7 @@ final class AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.dropSpareWindow() }
-                return .value(DebugCEF.report(services))
+                return DebugCEF.report(services)
             },
             // Remote localhost proxy: port, counters, recent outcomes.
             .mainActor("debug.remote-localhost") { [weak services] _ in
@@ -273,6 +282,11 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
             },
+            // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
+            .async("debug.cef_page_devtools") { [weak services] call in
+                guard let services else { return .null }
+                return await debugCEFPageDevTools(call.params, services)
+            }.withDeadline(.fixed(.seconds(30))),
             // Chromium process failures, restart state, crash reports.
             .mainActor("debug.crashes") { [weak services] _ in
                 guard let services else { return .value(.null) }
@@ -419,8 +433,8 @@ final class AppControl {
                 guard let services else { return .null }
                 do {
                     let result = try await BrowserRetirementProbe(engine: services.cache.cef).run { page in
-                        let entry = BrowserEntry(tab: page)
-                        return (entry, entry.chrome)
+                        let entry = BrowserEntry(tab: page), pane = BrowserPaneChrome()
+                        return ((entry, pane) as AnyObject, pane.bind(page, state: entry.state))
                     }
                     return .object(result.mapValues(JSONValue.bool))
                 } catch {
@@ -483,6 +497,11 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // A quit as a logout does (REOPEN VIDEO): {reason: "logout"}.
+            .mainActor("debug.app.terminate") { [weak services] call in
+                .value(services.map { $0.quit.origins.debugTerminate(reason: call.params["reason"]?.stringValue) { NSApplication.terminateFromRunLoop() } }
+                    .map { refusal in refusal.map { .object(["error": .string($0)]) } ?? .object(["terminating": .bool(true)]) } ?? .null)
             },
             // The burst bench's record: each press's outcome, refusals, terminal grids, echoes and redraws.
             // `status`: whether the burst is done (its keys posted, no create still asking the daemon, no
@@ -576,10 +595,27 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugSidebarNestedFixture.daemonUpdate(call.params, services: services))
             },
+            // Captures of an update handoff: `debug.terminal_state {state, surface?}` sets live terminal tabs'
+            // `terminal_state` (adopting, reconnecting, running, ...) as the daemon's push does; no daemon restart.
+            .mainActor("debug.terminal_state") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let name = call.params["state"]?.stringValue ?? "adopting"
+                guard let state = TerminalTabState(rawValue: name) else {
+                    return .value(["error": .string("unknown state"), "state": .string(name)])
+                }
+                let surface = call.params["surface"]?.intValue.map { SurfaceID(rawValue: UInt64($0)) }
+                let set = services.daemon.store.debugSetTerminalState(state, surface: surface)
+                return .value(["state": .string(name), "surfaces": .array(set.map { .number(Double($0.rawValue)) })])
+            },
             // Captures of a Cloud machine's menu: a fixture header and `cloudWorkspace`, with no machine, sign-in or network.
             .mainActor("debug.cloud_machine_fixture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugCloudMachineFixture.show(call.params, services: services))
+            },
+            .mainActor("debug.native_row_tools_fixture") { [weak services] call in
+                guard let services else { return .value(.null) }
+                let window = DebugWindowSnapshot.window(call.params.merging(["kind": .string("main")]) { current, _ in current }, services: services)
+                return .value(DebugNativeRowToolsFixture(overlay: DebugNativeRowToolsFixtureView.self).show(call.params, in: window))
             },
             // Captures of the workspace, tab and pane right-click menus and their folders (tour:object-menu-*).
             .mainActor("debug.object_menu") { [weak services] call in

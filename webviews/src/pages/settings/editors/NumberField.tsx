@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Input } from "../../../ui/Input";
 import { clamp, displayNumber, parseNumber, unitLabel } from "../format";
 import type { NumberRange } from "../schema";
 
@@ -38,12 +39,12 @@ export function NumberField({
       {/* The hidden copy of the shown text (or the placeholder) in the same grid cell sets the
           field's width, so a long default label ("Configurazione di Ghostty") is never cut. */}
       <span className="number-sizer" data-value={shown || placeholder}>
-        <input
+        <Input
           className="field number"
           data-inherited={draft === null && value === null && inherited !== null ? "" : undefined}
           type="text"
           inputMode="decimal"
-          size={1}
+          render={<input size={1} aria-labelledby={labelId} />}
           value={shown}
           placeholder={placeholder}
           disabled={disabled}

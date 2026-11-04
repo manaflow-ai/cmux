@@ -29,6 +29,9 @@ mod background_task;
 // Claude's Agent tool as a subagent session, which shares these helpers too.
 #[path = "claude_subagents.rs"]
 mod claude_subagents;
+// Claude Code's turns of its own, which the person did not start, which share these helpers too.
+#[path = "background_turns.rs"]
+mod background_turns;
 // Claude's "Allow for this session", which shares these helpers too.
 #[path = "claude_allow_always.rs"]
 mod claude_allow_always;
@@ -41,6 +44,9 @@ mod processes;
 #[cfg(unix)]
 #[path = "codex_processes.rs"]
 mod codex_processes;
+#[cfg(unix)]
+#[path = "codex_usage_limits.rs"]
+mod codex_usage_limits;
 // Claude's skills in the slash command list, which share these helpers too.
 #[path = "claude_skill_commands.rs"]
 mod claude_skill_commands;
@@ -55,6 +61,9 @@ mod turn_usage;
 // A fork of a chat whose turn runs, which shares these helpers too.
 #[path = "fork_running.rs"]
 mod fork_running;
+
+#[path = "fork_before.rs"]
+mod fork_before;
 
 const FORK_OP: &str = "acp.session.fork";
 

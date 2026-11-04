@@ -30,8 +30,14 @@ export function Breadcrumbs({ label, crumbs, onNavigate, separator, className, c
             className={cx("ui-crumb", crumbClassName)}
             tabIndex={-1}
             aria-current={index === crumbs.length - 1 ? "location" : undefined}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => onNavigate(crumb, index)}
+            onMouseDown={(event) => {
+              // Keep the search field focused for a primary press; preserve system context gestures.
+              if (event.button === 0 && !event.ctrlKey) event.preventDefault();
+            }}
+            onClick={(event) => {
+              if (event.button !== 0 || event.ctrlKey) return;
+              onNavigate(crumb, index);
+            }}
           >
             {crumb.label}
           </button>

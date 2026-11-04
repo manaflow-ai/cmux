@@ -40,6 +40,14 @@ public struct HomeSidebarItem: Hashable, Sendable, Identifiable {
     /// by its Chief's participant id, else its `defaultChiefAvatar`); nil
     /// draws the participant's initials.
     public var chiefAvatar: HomeChiefAvatar?
+    /// This row's Chief is working (its turn is running): its avatar shows thinking or a tool.
+    public var chiefIsWorking = false
+    /// This row's Chief's running turn is in a tool, not the model: its avatar shows the tool look.
+    public var chiefIsInTool = false
+    /// This row's Chief asked the person something still open: its avatar shows waiting on you.
+    public var chiefWaitsOnYou = false
+    /// A message to this row's Chief failed to send: its avatar shows the failed look.
+    public var chiefSendFailed = false
     /// A Chief that runs on another engine than the default: that engine's name
     /// ("UniiChat", "Codex"; ``ChiefBackend/badge(for:)``); nil otherwise.
     public var backendBadge: String?
@@ -76,6 +84,16 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// pinned tiles first, without muted ones: what Home's unread indicator outside the list
     /// (the sidebar's Home item, a Home tab, the Dock) counts. Read it from an unfiltered model.
     public var unreadConversations: [ConversationID] { (pinned + rows).filter { $0.unread && !$0.isMuted }.map(\.id) }
+
+    /// ``unreadConversations`` from the rows alone, with no search and no display work (time strings, people,
+    /// avatars): what Home's unread indicator outside the list reads, in the list's order (the pinned rows first,
+    /// the main Chief leading them).
+    public static func unreadConversations(pinned: [InboxRow], rest: [InboxRow], unreadMarks: Set<ConversationID>,
+                                           mainChief: ConversationID?) -> [ConversationID] {
+        var pinned = pinned
+        if let mainChief, let at = pinned.firstIndex(where: { $0.id == mainChief }) { pinned.insert(pinned.remove(at: at), at: 0) }
+        return (pinned + rest).filter { ($0.unread > 0 || unreadMarks.contains($0.id)) && !$0.summary.muted }.map(\.id)
+    }
 
     /// `unreadMarks`: conversations the user marked unread (Mark as Unread), shown unread until read.
     /// `chiefHarnesses`: each Chief's engine by participant id, for the rows' badges.
@@ -123,6 +141,10 @@ public struct HomeSidebarModel: Hashable, Sendable {
             if item.isChief {
                 let chief = row.summary.participants.first(where: \.isChief)?.id.rawValue
                 item.chiefAvatar = chief.flatMap { chiefAvatars[$0] } ?? defaultChiefAvatar
+                item.chiefIsWorking = row.isTyping
+                item.chiefIsInTool = row.isRunningTool
+                item.chiefWaitsOnYou = row.waitsOnPerson(me: me)
+                item.chiefSendFailed = row.hasFailedSend
                 item.backendBadge = ChiefBackend.badge(for: chief.flatMap { chiefHarnesses[$0] })
                 // The Chief's own name (renamed in its header or Settings), else the title the row has.
                 if let name = chiefNames[row.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != item.title {

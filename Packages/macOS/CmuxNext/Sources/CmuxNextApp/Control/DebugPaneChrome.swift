@@ -42,6 +42,8 @@ enum DebugPaneChrome {
                         ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .script))
                         ?? services.registry.title(for: PaneTabBarHandlers.toggle) ?? ""),
                     "tab_bar_choice": services.paneTabBars.choice(for: pane.paneKey).map(JSONValue.bool) ?? .null,
+                    // Vertical tabs (WorkspaceVerticalTabs): the list's frame, else null.
+                    "vertical_tabs": view.verticalTabs != nil ? (view.verticalList.map { rect(topLeft($0.convert($0.bounds, to: nil))) } ?? .null) : .null,
                     "tab_slots": .array(view.stripView.tabSlots.map { .array($0.map(JSONValue.number)) }), "tab_available": .number(view.stripView.tabAvailableWidth),
                 ]
                 if let pill {

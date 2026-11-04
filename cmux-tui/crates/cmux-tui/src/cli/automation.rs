@@ -16,10 +16,13 @@ use cmux_automations::{
     Automation, AutomationSpec, Body, CatchUp, Run, RunState, RunnerLock, Store, StoreError,
     Trigger, Zone, recover_orphans, start_manual, tick,
 };
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::OutputMode;
 use crate::localization::AutomationMessages;
+
+mod teleport;
 
 /// The runner never sleeps longer than this, so a new automation, a clock
 /// change or a wake from sleep is seen within a minute.
@@ -45,27 +48,121 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     if first != "automation" && first != "automations" {
         return None;
     }
+    // `automation show-page` is the app's `automations.show` (it opens the Automations page): the
+    // app action fallback runs it.
+    if rest.first().is_some_and(|verb| verb == "show-page") {
+        return None;
+    }
     let output = global.output;
-    Some(match dispatch(rest, output) {
+    Some(match dispatch(rest, &global, &Out::printing(output)) {
         Ok(code) => code,
-        Err(Failure::Usage(message)) => {
-            super::app::failure("usage.invalid", &format!("cmux: {message}"), output, 2)
-        }
-        Err(Failure::Store(StoreError::NotFound(q))) => super::app::failure(
-            "automation.not_found",
-            &format!("cmux: {}", StoreError::NotFound(q)),
-            output,
-            1,
-        ),
-        Err(Failure::Store(e)) => {
-            super::app::failure("automation.failed", &format!("cmux: {e}"), output, 1)
+        Err(failure) => {
+            let (code, message, exit) = failure.parts();
+            super::app::failure(code, &format!("cmux: {message}"), output, exit)
         }
     })
+}
+
+/// `cmux automation WORDS…` in this process, its JSON answer returned
+/// instead of printed: the MCP `automation_*` tools run the CLI's own verbs
+/// through it. `Err((error, outcome_unknown))`: `outcome_unknown` when a
+/// mutation may have applied (a transport failure after sending).
+pub(super) fn run_json(
+    global: &super::GlobalArgs,
+    words: &[String],
+) -> Result<Value, (Value, bool)> {
+    let out = Out::capturing();
+    let result = dispatch(words, global, &out);
+    let captured = out.take();
+    match (result, captured) {
+        (Err(failure), _) => {
+            let (code, message, _) = failure.parts();
+            Err((
+                json!({"code": code, "message": message, "details": {}, "retryable": false}),
+                false,
+            ))
+        }
+        (Ok(_), Some(answer)) => answer,
+        (Ok(0), None) => Ok(json!({})),
+        (Ok(exit), None) => Err((
+            json!({"code": "automation.failed", "message": format!("exit {exit}"), "details": {}, "retryable": false}),
+            false,
+        )),
+    }
+}
+
+/// Where a verb's answer goes: printed (the CLI), or kept for
+/// [`run_json`] (MCP). A capturing sink is JSON mode, so no verb prints
+/// human text into the MCP server's stdout.
+pub(super) struct Out {
+    pub(super) mode: OutputMode,
+    captured: Option<std::cell::RefCell<Option<CapturedResult>>>,
+}
+
+/// What `Out` holds while captured: the result, or the error value and whether
+/// it is a usage error.
+type CapturedResult = Result<Value, (Value, bool)>;
+
+impl Out {
+    pub(super) fn printing(mode: OutputMode) -> Out {
+        Out { mode, captured: None }
+    }
+
+    fn capturing() -> Out {
+        Out { mode: OutputMode::Json, captured: Some(std::cell::RefCell::new(None)) }
+    }
+
+    fn take(&self) -> Option<Result<Value, (Value, bool)>> {
+        self.captured.as_ref().and_then(|c| c.borrow_mut().take())
+    }
+
+    /// A verb's JSON answer.
+    pub(super) fn value(&self, v: &Value) {
+        match &self.captured {
+            Some(c) => *c.borrow_mut() = Some(Ok(v.clone())),
+            None => print_json(v),
+        }
+    }
+
+    /// A Cloud (or destination) refusal; the exit code.
+    pub(super) fn refusal(&self, error: &Value) -> i32 {
+        match &self.captured {
+            Some(c) => {
+                *c.borrow_mut() = Some(Err((error.clone(), false)));
+                cloud::refusal_exit(error)
+            }
+            None => cloud::print_refusal(error, self.mode),
+        }
+    }
+
+    /// A local or transport error; `unknown`: a mutation may have applied.
+    pub(super) fn error(&self, error: &Value, exit: i32, unknown: bool) -> i32 {
+        match &self.captured {
+            Some(c) => {
+                *c.borrow_mut() = Some(Err((error.clone(), unknown)));
+                exit
+            }
+            None => super::wire::print_local_error(error, self.mode, exit),
+        }
+    }
 }
 
 enum Failure {
     Usage(String),
     Store(StoreError),
+}
+
+impl Failure {
+    /// The error code, message and exit code.
+    fn parts(&self) -> (&'static str, String, i32) {
+        match self {
+            Failure::Usage(message) => ("usage.invalid", message.clone(), 2),
+            Failure::Store(e @ StoreError::NotFound(_)) => {
+                ("automation.not_found", e.to_string(), 1)
+            }
+            Failure::Store(e) => ("automation.failed", e.to_string(), 1),
+        }
+    }
 }
 
 impl From<StoreError> for Failure {
@@ -82,7 +179,29 @@ fn usage<T>(message: impl Into<String>) -> Result<T, Failure> {
 
 fn open_store() -> Result<Store, Failure> {
     let root = Store::default_root().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
-    Ok(Store::open(&root)?)
+    Ok(Store::open(&root)?.with_home(machine_home()))
+}
+
+/// `mac:<machine id>` from the state root's `machine-id` (read only, never
+/// made here), else `mac:local`.
+fn machine_home() -> String {
+    crate::feature_flags::state_root()
+        .and_then(|root| std::fs::read_to_string(root.join("machine-id")).ok())
+        .map(|text| text.trim().to_string())
+        .filter(|id| {
+            !id.is_empty()
+                && id.len() <= 128
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        })
+        .map(|id| format!("mac:{id}"))
+        .unwrap_or_else(|| cmux_automations::LOCAL_HOME.to_string())
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// `--name value` / `--name=value` options and boolean flags, in any order
@@ -127,6 +246,11 @@ impl Args {
         self.values.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
     }
 
+    /// Every value of a repeatable option, in order.
+    fn values_of(&self, name: &str) -> Vec<&str> {
+        self.values.iter().filter(|(n, _)| n == name).map(|(_, v)| v.as_str()).collect()
+    }
+
     fn flag(&self, name: &str) -> bool {
         self.flags.iter().any(|f| f == name)
     }
@@ -147,7 +271,34 @@ const SPEC_VALUED: &[&str] = &[
 ];
 const SPEC_FLAGS: &[&str] = &["hourly", "manual", "paused"];
 
-fn dispatch(args: &[String], output: OutputMode) -> Outcome {
+/// `--target local|cloud` anywhere in the words; `true` for cloud, and the words without it.
+fn take_target(args: &[String]) -> Result<(bool, Vec<String>), Failure> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut target = None;
+    let mut words = args.iter();
+    while let Some(arg) = words.next() {
+        if let Some(v) = arg.strip_prefix("--target=") {
+            target = Some(v.to_string());
+        } else if arg == "--target" {
+            target = Some(words.next().cloned().ok_or_else(|| {
+                Failure::Usage(messages().missing_value.replace("{flag}", "target"))
+            })?);
+        } else {
+            out.push(arg.clone());
+        }
+    }
+    match target.as_deref() {
+        None | Some("local" | "this-mac") => Ok((false, out)),
+        Some("cloud") => Ok((true, out)),
+        Some(other) => usage(messages().bad_target.replace("{value}", other)),
+    }
+}
+
+fn dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
+    let (cloud, args) = take_target(args)?;
+    if cloud {
+        return cloud_dispatch(&args, global, out);
+    }
     let Some((verb, rest)) = args.split_first() else {
         print!("{}", messages().usage);
         return Ok(0);
@@ -157,17 +308,19 @@ fn dispatch(args: &[String], output: OutputMode) -> Outcome {
             print!("{}", messages().usage);
             Ok(0)
         }
-        "create" | "new" | "add" => create(rest, output),
-        "list" | "ls" => list(rest, output),
-        "show" | "get" => show(rest, output),
-        "run" => run_now(rest, output),
-        "pause" => set_enabled(rest, false, output),
-        "resume" => set_enabled(rest, true, output),
-        "edit" | "update" => edit(rest, output),
-        "history" | "runs" => history(rest, output),
-        "logs" | "log" => logs(rest, output),
-        "delete" | "rm" => delete(rest, output),
-        "runner" => runner(rest, output),
+        "create" | "new" | "add" => create(rest, out),
+        "list" | "ls" => list(rest, out),
+        "show" | "get" => show(rest, out),
+        "run" => run_now(rest, out),
+        "pause" => set_enabled(rest, false, out),
+        "resume" => set_enabled(rest, true, out),
+        "edit" | "update" => edit(rest, out),
+        "history" | "runs" => history(rest, out),
+        "logs" | "log" => logs(rest, out),
+        "delete" | "rm" => delete(rest, out),
+        "teleport" | "move" => teleport::run(rest, global, out, false),
+        "import" => teleport::import(rest, out),
+        "runner" => runner(rest, out),
         "_exec" => exec(rest),
         other => usage(messages().unknown_verb.replace("{verb}", other)),
     }
@@ -366,7 +519,8 @@ fn runner_running(store: &Store) -> bool {
 
 // ------------------------------------------------------------- verbs
 
-fn create(args: &[String], output: OutputMode) -> Outcome {
+fn create(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
     let name = match (a.value("name"), a.words.as_slice()) {
         (Some(n), []) => n.to_string(),
@@ -405,7 +559,7 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
         if let Value::Object(map) = &mut v {
             map.insert("runner_running".into(), json!(runner));
         }
-        print_json(&v);
+        out.value(&v);
     } else if output != OutputMode::Quiet {
         println!(
             "{}",
@@ -425,20 +579,30 @@ fn create(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn list(args: &[String], output: OutputMode) -> Outcome {
+fn list(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     if let Some(extra) = a.words.first() {
         return usage(messages().unexpected_argument.replace("{value}", extra));
     }
     let store = open_store()?;
     let all = store.list()?;
+    let moved = store.moved(now_ms())?;
     if output == OutputMode::Json {
-        print_json(
-            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "runner_running": runner_running(&store) }),
+        out.value(
+            &json!({ "automations": all.iter().map(|x| automation_json(&store, x)).collect::<Vec<_>>(), "moved": moved, "runner_running": runner_running(&store) }),
         );
         return Ok(0);
     }
-    if all.is_empty() {
+    for t in &moved {
+        println!(
+            "{}  {:<28} {}",
+            t.id,
+            t.name,
+            messages().moved_row.replace("{to}", &t.moved_to).replace("{id}", &t.moved_id)
+        );
+    }
+    if all.is_empty() && moved.is_empty() {
         println!("{}", messages().none_yet);
         return Ok(0);
     }
@@ -471,13 +635,14 @@ fn list(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn show(args: &[String], output: OutputMode) -> Outcome {
+fn show(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let v = automation_json(&store, &x);
     if output == OutputMode::Json {
-        print_json(&v);
+        out.value(&v);
         return Ok(0);
     }
     println!("{} ({})", x.name, x.id);
@@ -513,7 +678,8 @@ fn show(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn run_now(args: &[String], output: OutputMode) -> Outcome {
+fn run_now(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &["key"], &["wait"])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
@@ -531,7 +697,7 @@ fn run_now(args: &[String], output: OutputMode) -> Outcome {
     }
     let record = store.run(&x.id, &run)?;
     if output == OutputMode::Json {
-        print_json(&serde_json::to_value(&record).unwrap_or(Value::Null));
+        out.value(&serde_json::to_value(&record).unwrap_or(Value::Null));
     } else if output != OutputMode::Quiet {
         let state = record.as_ref().map(state_label).unwrap_or_default();
         println!(
@@ -548,13 +714,14 @@ fn run_now(args: &[String], output: OutputMode) -> Outcome {
     Ok(if failed { 1 } else { 0 })
 }
 
-fn set_enabled(args: &[String], enabled: bool, output: OutputMode) -> Outcome {
+fn set_enabled(args: &[String], enabled: bool, out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     let x = store.set_enabled(&x.id, enabled, now())?;
     if output == OutputMode::Json {
-        print_json(&automation_json(&store, &x));
+        out.value(&automation_json(&store, &x));
     } else if output != OutputMode::Quiet {
         let line = if enabled { messages().resumed } else { messages().paused_done };
         println!("{}", line.replace("{name}", &x.name));
@@ -562,7 +729,8 @@ fn set_enabled(args: &[String], enabled: bool, output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn edit(args: &[String], output: OutputMode) -> Outcome {
+fn edit(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, SPEC_VALUED, SPEC_FLAGS)?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
@@ -609,7 +777,7 @@ fn edit(args: &[String], output: OutputMode) -> Outcome {
     }
     let x = store.update(&x.id, spec, now)?;
     if output == OutputMode::Json {
-        print_json(&automation_json(&store, &x));
+        out.value(&automation_json(&store, &x));
     } else if output != OutputMode::Quiet {
         println!(
             "{}",
@@ -622,7 +790,8 @@ fn edit(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn history(args: &[String], output: OutputMode) -> Outcome {
+fn history(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &["limit", "state"], &[])?;
     let store = open_store()?;
     let limit: usize = match a.value("limit") {
@@ -649,7 +818,7 @@ fn history(args: &[String], output: OutputMode) -> Outcome {
     });
     rows.truncate(limit);
     if output == OutputMode::Json {
-        print_json(&json!({ "runs": rows.iter().map(|(_, r)| r).collect::<Vec<_>>() }));
+        out.value(&json!({ "runs": rows.iter().map(|(_, r)| r).collect::<Vec<_>>() }));
         return Ok(0);
     }
     if rows.is_empty() {
@@ -667,7 +836,8 @@ fn history(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn logs(args: &[String], output: OutputMode) -> Outcome {
+fn logs(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &[])?;
     let word = a.one_word("RUN")?;
     let store = open_store()?;
@@ -690,7 +860,7 @@ fn logs(args: &[String], output: OutputMode) -> Outcome {
     let path = store.log_path(&automation, &run.id);
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     if output == OutputMode::Json {
-        print_json(&json!({ "run": run, "log_path": path, "log": text }));
+        out.value(&json!({ "run": run, "log_path": path, "log": text }));
     } else {
         let mut out = std::io::stdout().lock();
         let _ = out.write_all(text.as_bytes());
@@ -698,13 +868,15 @@ fn logs(args: &[String], output: OutputMode) -> Outcome {
     Ok(0)
 }
 
-fn delete(args: &[String], output: OutputMode) -> Outcome {
-    let a = Args::parse(args, &[], &[])?;
+fn delete(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
+    // `--yes`: scripts confirm up front; the CLI does not ask.
+    let a = Args::parse(args, &[], &["yes"])?;
     let store = open_store()?;
     let x = store.find(a.one_word("AUTOMATION")?)?;
     store.delete(&x.id)?;
     if output == OutputMode::Json {
-        print_json(&json!({ "deleted": x.id }));
+        out.value(&json!({ "deleted": x.id }));
     } else if output != OutputMode::Quiet {
         println!("{}", messages().deleted.replace("{name}", &x.name));
     }
@@ -724,17 +896,18 @@ fn exec(args: &[String]) -> Outcome {
     Ok(0)
 }
 
-fn runner(args: &[String], output: OutputMode) -> Outcome {
+fn runner(args: &[String], out: &Out) -> Outcome {
+    let output = out.mode;
     let a = Args::parse(args, &[], &["once"])?;
     match a.words.first().map(String::as_str) {
-        None => serve(a.flag("once"), output),
-        Some("install") => install(output),
-        Some("uninstall") => uninstall(output),
+        None => serve(a.flag("once"), out),
+        Some("install") => install(out),
+        Some("uninstall") => uninstall(out),
         Some("status") => {
             let store = open_store()?;
             let running = runner_running(&store);
             if output == OutputMode::Json {
-                print_json(
+                out.value(
                     &json!({ "running": running, "launchd_label": LAUNCHD_LABEL, "plist": plist_path() }),
                 );
             } else {
@@ -751,7 +924,8 @@ fn runner(args: &[String], output: OutputMode) -> Outcome {
 
 /// The runner loop: one tick, then sleep until the next due time (at most a
 /// minute). `--once` ticks once and exits.
-fn serve(once: bool, output: OutputMode) -> Outcome {
+fn serve(once: bool, out: &Out) -> Outcome {
+    let output = out.mode;
     let store = open_store()?;
     let Some(_lock) = RunnerLock::acquire(&store)? else {
         if output != OutputMode::Quiet {
@@ -762,6 +936,7 @@ fn serve(once: bool, output: OutputMode) -> Outcome {
     let mut exec = executor(&store)?;
     recover_orphans(&store, now(), &mut exec)?;
     loop {
+        let _ = store.prune_moved(now_ms());
         let report = tick(&store, now(), &mut exec)?;
         exec.reap();
         if output == OutputMode::Json {
@@ -786,7 +961,7 @@ fn serve(once: bool, output: OutputMode) -> Outcome {
         let next = store
             .list()?
             .iter()
-            .filter(|x| x.enabled)
+            .filter(|x| x.enabled && !x.fenced())
             .filter_map(|x| x.trigger.next_after(t).ok().flatten())
             .min()
             .unwrap_or(t + MAX_SLEEP.as_secs() as i64);
@@ -815,7 +990,8 @@ fn launchctl(args: &[&str]) -> bool {
 }
 
 /// A launchd agent that keeps `cmux automation runner` running for this user.
-fn install(output: OutputMode) -> Outcome {
+fn install(out: &Out) -> Outcome {
+    let output = out.mode;
     let store = open_store()?;
     let exe = std::env::current_exe().map_err(|e| Failure::Store(e.into()))?;
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
@@ -836,25 +1012,455 @@ fn install(output: OutputMode) -> Outcome {
     let _ = launchctl(&["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
     let ok = launchctl(&["bootstrap", &domain, &plist.to_string_lossy()]);
     if output == OutputMode::Json {
-        print_json(&json!({ "installed": ok, "plist": plist }));
+        out.value(&json!({ "installed": ok, "plist": plist }));
     } else if output != OutputMode::Quiet {
         println!("{}", if ok { messages().installed } else { messages().install_failed });
     }
     Ok(if ok { 0 } else { 1 })
 }
 
-fn uninstall(output: OutputMode) -> Outcome {
+fn uninstall(out: &Out) -> Outcome {
+    let output = out.mode;
     let plist = plist_path().ok_or_else(|| Failure::Usage(messages().no_home.into()))?;
     // SAFETY: as above.
     let domain = format!("gui/{}", unsafe { libc::getuid() });
     let _ = launchctl(&["bootout", &format!("{domain}/{LAUNCHD_LABEL}")]);
     let _ = std::fs::remove_file(&plist);
     if output == OutputMode::Json {
-        print_json(&json!({ "uninstalled": true }));
+        out.value(&json!({ "uninstalled": true }));
     } else if output != OutputMode::Quiet {
         println!("{}", messages().uninstalled);
     }
     Ok(0)
+}
+
+// ------------------------------------------------------------- cmux Cloud (--target cloud)
+
+use super::automation_cloud::{self as cloud, Answer, CloudSchedule};
+
+/// The Cloud schedule of `a`: cron presets in an IANA zone (default this
+/// Mac's), `--webhook`, or `--manual`. Intervals and one-shots run on this Mac only.
+fn cloud_schedule(a: &Args) -> Result<Option<CloudSchedule>, Failure> {
+    let tz = a.value("tz").map(str::to_string).unwrap_or_else(cloud::local_zone_name);
+    let cron = |expr: String| -> Result<Option<CloudSchedule>, Failure> {
+        cmux_automations::CronExpr::parse(&expr).map_err(Failure::Usage)?;
+        Ok(Some(CloudSchedule::Cron { expr, tz: tz.clone() }))
+    };
+    for local_only in ["every", "at", "in"] {
+        if a.value(local_only).is_some() {
+            return usage(messages().cloud_local_only.replace("{flag}", local_only));
+        }
+    }
+    let chosen =
+        ["daily", "weekdays", "weekly", "cron"].iter().filter(|f| a.value(f).is_some()).count()
+            + ["hourly", "manual", "webhook"].iter().filter(|f| a.flag(f)).count();
+    if chosen > 1 {
+        return usage(messages().one_schedule.replace("{flags}", "…"));
+    }
+    if a.flag("manual") {
+        return Ok(Some(CloudSchedule::Manual));
+    }
+    if a.flag("webhook") {
+        return Ok(Some(CloudSchedule::Webhook));
+    }
+    if a.flag("hourly") {
+        return cron("0 * * * *".into());
+    }
+    if let Some(v) = a.value("daily") {
+        let (h, m) = parse_clock(v)?;
+        return cron(format!("{m} {h} * * *"));
+    }
+    if let Some(v) = a.value("weekdays") {
+        let (h, m) = parse_clock(v)?;
+        return cron(format!("{m} {h} * * 1-5"));
+    }
+    if let Some(v) = a.value("weekly") {
+        let (day, clock) = v
+            .split_once([' ', '@'])
+            .ok_or_else(|| Failure::Usage(messages().bad_weekly.replace("{value}", v)))?;
+        let (h, m) = parse_clock(clock)?;
+        return cron(format!("{m} {h} * * {}", parse_weekday(day)?));
+    }
+    if let Some(v) = a.value("cron") {
+        return cron(v.to_string());
+    }
+    Ok(None)
+}
+
+/// Prints a Cloud answer; refusals go through `print_refusal`.
+fn cloud_out(answer: Result<Answer, Value>, out: &Out, human: impl FnOnce(&Value)) -> Outcome {
+    let output = out.mode;
+    match answer {
+        Ok(Answer::Value(v)) => {
+            if output == OutputMode::Json {
+                out.value(&v);
+            } else if output != OutputMode::Quiet {
+                human(&v);
+            }
+            Ok(0)
+        }
+        Ok(Answer::Refused(error)) => Ok(out.refusal(&error)),
+        Err(error) => Ok(out.error(&error, 3, true)),
+    }
+}
+
+fn cloud_row(v: &Value) -> String {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+    let schedule = v
+        .get("triggers")
+        .and_then(Value::as_array)
+        .and_then(|t| {
+            t.iter().find_map(|t| {
+                let spec = t.get("spec").unwrap_or(t);
+                match spec.get("type").and_then(Value::as_str) {
+                    Some("cron") => Some(format!(
+                        "cron {} ({})",
+                        spec.get("expr").and_then(Value::as_str).unwrap_or(""),
+                        spec.get("tz").and_then(Value::as_str).unwrap_or("")
+                    )),
+                    Some("webhook") => Some("webhook".to_string()),
+                    _ => None,
+                }
+            })
+        })
+        .unwrap_or_else(|| messages().manual_only.to_string());
+    let status = if v.get("enabled").and_then(Value::as_bool) == Some(true) {
+        messages().active
+    } else {
+        messages().paused
+    };
+    let next = v
+        .get("next_run_at")
+        .and_then(Value::as_i64)
+        .map(|ms| when(ms / 1000))
+        .unwrap_or_else(|| "-".into());
+    format!(
+        "{}  {:<28} {:<10} {:<34} {} {}",
+        s("id"),
+        s("name"),
+        status,
+        schedule,
+        messages().next_label,
+        next
+    )
+}
+
+/// `--private`/`--shared`, `--editor USER` (repeatable) and `--catch-up` on
+/// a Cloud create or update (docs/automations-teleport-teams.md, section 4).
+fn team_fields(a: &Args, params: &mut Value) -> Result<(), Failure> {
+    match (a.flag("private"), a.flag("shared")) {
+        (true, true) => return usage(messages().one_sharing),
+        (true, false) => params["sharing"] = json!("private"),
+        (false, true) => params["sharing"] = json!("team"),
+        (false, false) => {}
+    }
+    let editors = a.values_of("editor");
+    if !editors.is_empty() {
+        params["editors"] = json!(editors);
+    }
+    if let Some(c) = a.value("catch-up") {
+        params["catch_up"] = json!(parse_catch_up(c)?.name());
+    }
+    Ok(())
+}
+
+/// The Cloud automation `word` names: an `auto_` id, or a name from `automation.list`.
+fn cloud_find(
+    global: &super::GlobalArgs,
+    out: &Out,
+    word: &str,
+) -> Result<Result<String, Outcome>, Failure> {
+    if word.starts_with("auto_") && word.len() == 25 {
+        return Ok(Ok(word.to_string()));
+    }
+    match cloud::call(global, "automation.list", json!({"limit": 100}), None) {
+        Ok(Answer::Value(v)) => {
+            let found = v
+                .get("automations")
+                .and_then(Value::as_array)
+                .and_then(|all| {
+                    all.iter().find(|a| {
+                        a.get("name")
+                            .and_then(Value::as_str)
+                            .is_some_and(|n| n.eq_ignore_ascii_case(word))
+                    })
+                })
+                .and_then(|a| a.get("id").and_then(Value::as_str))
+                .map(str::to_string);
+            match found {
+                Some(id) => Ok(Ok(id)),
+                None => Err(Failure::Store(StoreError::NotFound(word.into()))),
+            }
+        }
+        other => Ok(Err(cloud_out(other, out, |_| {}))),
+    }
+}
+
+fn cloud_dispatch(args: &[String], global: &super::GlobalArgs, out: &Out) -> Outcome {
+    let Some((verb, rest)) = args.split_first() else {
+        print!("{}", messages().usage);
+        return Ok(0);
+    };
+    if verb == "teleport" || verb == "move" {
+        return teleport::run(rest, global, out, true);
+    }
+    let mut valued = SPEC_VALUED.to_vec();
+    valued.extend(["limit", "key", "editor"]);
+    let mut flags = SPEC_FLAGS.to_vec();
+    flags.extend(["webhook", "private", "shared", "yes"]);
+    let a = Args::parse(rest, &valued, &flags)?;
+    let target = |a: &Args| -> Result<Result<String, Outcome>, Failure> {
+        cloud_find(global, out, a.one_word("AUTOMATION")?)
+    };
+    match verb.as_str() {
+        "create" | "new" | "add" => {
+            let name = a
+                .value("name")
+                .map(str::to_string)
+                .or_else(|| a.words.first().cloned())
+                .ok_or_else(|| Failure::Usage(messages().missing_word.replace("{what}", "NAME")))?;
+            if a.value("command").is_some() {
+                return usage(messages().cloud_no_command);
+            }
+            let prompt =
+                a.value("prompt").ok_or_else(|| Failure::Usage(messages().need_body.into()))?;
+            let schedule = cloud_schedule(&a)?
+                .ok_or_else(|| Failure::Usage(messages().need_schedule.into()))?;
+            let chief = match cloud::call(global, "chief.list", json!({}), None) {
+                Ok(Answer::Value(v)) => cloud::default_chief(&v)
+                    .ok_or_else(|| Failure::Usage(messages().cloud_no_chief.into()))?,
+                other => return cloud_out(other, out, |_| {}),
+            };
+            let mut params =
+                cloud::create_params(&name, prompt, &schedule, &chief, a.flag("paused"));
+            team_fields(&a, &mut params)?;
+            cloud_out(
+                cloud::call(
+                    global,
+                    "automation.create",
+                    params,
+                    Some(cloud::key(global, "create")),
+                ),
+                out,
+                |v| {
+                    println!(
+                        "{}",
+                        messages()
+                            .cloud_created
+                            .replace("{name}", &name)
+                            .replace("{id}", v.get("id").and_then(Value::as_str).unwrap_or("?"))
+                    );
+                    println!("{}", cloud_row(v));
+                },
+            )
+        }
+        "list" | "ls" => cloud_out(
+            cloud::call(global, "automation.list", json!({"limit": 100}), None),
+            out,
+            |v| {
+                let all =
+                    v.get("automations").and_then(Value::as_array).cloned().unwrap_or_default();
+                if all.is_empty() {
+                    println!("{}", messages().none_yet);
+                }
+                for x in &all {
+                    println!("{}", cloud_row(x));
+                }
+            },
+        ),
+        "show" | "get" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(global, "automation.get", json!({"automation": id}), None),
+                out,
+                |v| println!("{}", cloud_row(v.get("automation").unwrap_or(v))),
+            ),
+            Err(done) => done,
+        },
+        "run" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.run",
+                    json!({"automation": id}),
+                    Some(
+                        a.value("key")
+                            .map(str::to_string)
+                            .unwrap_or_else(|| cloud::key(global, "run")),
+                    ),
+                ),
+                out,
+                |v| {
+                    let run = v
+                        .get("id")
+                        .or_else(|| v.get("run").and_then(|r| r.get("id")))
+                        .and_then(Value::as_str)
+                        .unwrap_or("?");
+                    println!("{}", messages().cloud_run_started.replace("{run}", run));
+                },
+            ),
+            Err(done) => done,
+        },
+        "pause" | "resume" => match target(&a)? {
+            Ok(id) => {
+                let enabled = verb == "resume";
+                cloud_out(
+                    cloud::call(
+                        global,
+                        "automation.update",
+                        json!({"automation": id, "enabled": enabled}),
+                        Some(cloud::key(global, verb)),
+                    ),
+                    out,
+                    |v| {
+                        let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
+                        println!(
+                            "{}",
+                            (if enabled { messages().resumed } else { messages().paused_done })
+                                .replace("{name}", name)
+                        );
+                    },
+                )
+            }
+            Err(done) => done,
+        },
+        "edit" | "update" => {
+            let unsupported = ["prompt", "command", "folder", "model", "timeout", "tz"]
+                .iter()
+                .chain(SCHEDULE_FLAGS)
+                .any(|f| a.value(f).is_some())
+                || ["hourly", "manual", "webhook"].iter().any(|f| a.flag(f));
+            if unsupported {
+                return usage(messages().cloud_edit_flags);
+            }
+            match target(&a)? {
+                Ok(id) => {
+                    let mut params = json!({"automation": id});
+                    if let Some(name) = a.value("name") {
+                        params.set("name", json!(name));
+                    }
+                    if a.flag("paused") {
+                        params.set("enabled", json!(false));
+                    }
+                    team_fields(&a, &mut params)?;
+                    cloud_out(
+                        cloud::call(
+                            global,
+                            "automation.update",
+                            params,
+                            Some(cloud::key(global, "update")),
+                        ),
+                        out,
+                        |v| {
+                            let name = v.get("name").and_then(Value::as_str).unwrap_or(&id);
+                            println!(
+                                "{}",
+                                messages().updated.replace("{name}", name).replace(
+                                    "{version}",
+                                    &v.get("version")
+                                        .map(Value::to_string)
+                                        .unwrap_or_else(|| "-".into())
+                                )
+                            );
+                        },
+                    )
+                }
+                Err(done) => done,
+            }
+        }
+        "audit" => {
+            let limit: u64 = match a.value("limit") {
+                Some(n) => n
+                    .parse()
+                    .map_err(|_| Failure::Usage(messages().bad_limit.replace("{value}", n)))?,
+                None => 50,
+            };
+            let mut params = json!({"limit": limit});
+            match a.words.as_slice() {
+                [] => {}
+                [_] => match target(&a)? {
+                    Ok(id) => {
+                        params.set("automation", json!(id));
+                    }
+                    Err(done) => return done,
+                },
+                [_, extra, ..] => {
+                    return usage(messages().unexpected_argument.replace("{value}", extra));
+                }
+            }
+            cloud_out(cloud::call(global, "automation.audit.list", params, None), out, |v| {
+                let entries =
+                    v.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
+                if entries.is_empty() {
+                    println!("{}", messages().audit_none);
+                }
+                for e in &entries {
+                    let s = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+                    let at = e
+                        .get("at")
+                        .and_then(Value::as_i64)
+                        .map(|ms| when(ms / 1000))
+                        .unwrap_or_default();
+                    println!(
+                        "{at}  {:<20} {:<10} {:<26} {}",
+                        s("actor"),
+                        s("op"),
+                        s("automation"),
+                        s("summary")
+                    );
+                }
+            })
+        }
+        "history" | "runs" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.runs.list",
+                    json!({"automation": id, "limit": 50}),
+                    None,
+                ),
+                out,
+                |v| {
+                    let runs = v.get("runs").and_then(Value::as_array).cloned().unwrap_or_default();
+                    if runs.is_empty() {
+                        println!("{}", messages().no_runs);
+                    }
+                    for r in &runs {
+                        let s =
+                            |k: &str| r.get(k).and_then(Value::as_str).unwrap_or("-").to_string();
+                        let at = r
+                            .get("created_at")
+                            .and_then(Value::as_i64)
+                            .map(|ms| when(ms / 1000))
+                            .unwrap_or_default();
+                        let reason = r
+                            .get("error")
+                            .and_then(|e| e.get("code"))
+                            .and_then(Value::as_str)
+                            .map(|c| format!(" ({c})"))
+                            .unwrap_or_default();
+                        println!("{}  {at}  {}{reason}", s("id"), s("state"));
+                    }
+                },
+            ),
+            Err(done) => done,
+        },
+        "delete" | "rm" => match target(&a)? {
+            Ok(id) => cloud_out(
+                cloud::call(
+                    global,
+                    "automation.delete",
+                    json!({"automation": id}),
+                    Some(cloud::key(global, "delete")),
+                ),
+                out,
+                |_| {
+                    println!("{}", messages().deleted_cloud.replace("{id}", &id));
+                },
+            ),
+            Err(done) => done,
+        },
+        other => usage(messages().cloud_unknown_verb.replace("{verb}", other)),
+    }
 }
 
 #[cfg(test)]
@@ -924,5 +1530,20 @@ mod tests {
         assert_eq!(parse_duration("45m").ok(), Some(2_700));
         assert_eq!(parse_duration("1d").ok(), Some(86_400));
         assert!(parse_duration("soon").is_err());
+    }
+
+    #[test]
+    fn target_is_taken_out_of_the_words_in_both_forms() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let taken = |w: &[&str]| take_target(&words(w)).ok();
+        assert_eq!(taken(&["list"]), Some((false, words(&["list"]))));
+        assert_eq!(
+            taken(&["list", "--target", "cloud", "--json"]),
+            Some((true, words(&["list", "--json"])))
+        );
+        assert_eq!(taken(&["--target=cloud", "list"]), Some((true, words(&["list"]))));
+        assert_eq!(taken(&["list", "--target", "this-mac"]), Some((false, words(&["list"]))));
+        assert!(matches!(take_target(&words(&["list", "--target"])), Err(Failure::Usage(_))));
+        assert!(matches!(take_target(&words(&["--target", "mars"])), Err(Failure::Usage(_))));
     }
 }

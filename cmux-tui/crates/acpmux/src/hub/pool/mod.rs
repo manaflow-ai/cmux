@@ -70,6 +70,12 @@ const RSS_TICK: Duration = Duration::from_secs(60);
 /// Most a `session/new` waits for a matching entry that is still starting
 /// before it starts cold.
 const CLAIM_WAIT: Duration = Duration::from_secs(15);
+/// The most a `session/new` on this daemon takes before it answers, success or failure: a claim
+/// wait, then the pooled start's three stages, each within `START_BUDGET` (`start.rs`). A peer
+/// forwarding a start waits longer than this (`peer_link::LinkTimings::start`), so a slow valid
+/// start answers there instead of being dropped while it completes here.
+pub(crate) const SESSION_NEW_BUDGET: Duration =
+    Duration::from_secs(CLAIM_WAIT.as_secs() + 3 * START_BUDGET.as_secs());
 /// How long an ended entry's host gets before it is ended by nonce proof.
 const END_GRACE: Duration = Duration::from_secs(2);
 /// Most a claimed entry's host may take to answer before the entry counts
@@ -324,6 +330,7 @@ impl Hub {
             system_prompt_sha256: sha,
             auth: format!("{:016x}", h.finish()),
             account,
+            machine: crate::login_env::machine_stamp(),
         };
         Ok(PoolSpec { key, spawn, draft: draft.clone() })
     }
@@ -348,7 +355,7 @@ impl Hub {
         let (cwd, _) = super::adoption::session_cwd(Some(cwd), None, &family, &[])?;
         let spawn_model = profile_takes_model_at_spawn(&r.profile)
             || r.defaults.env.values().any(|v| v.contains("${model}"));
-        let draft = super::resolve::draft_meta(super::resolve::Draft {
+        let mut draft = super::resolve::draft_meta(super::resolve::Draft {
             id: String::new(),
             agent: &r.agent,
             profile: &r.profile,
@@ -360,6 +367,8 @@ impl Hub {
             policy: r.defaults.policy,
             remote: false,
         });
+        draft.cmux_preset_prompt =
+            crate::context_inventory::preset_override(&draft, &*self.config.read().await);
         self.pool_spec_for(&draft, &r.profile, &r.defaults.env).await
     }
 
@@ -701,6 +710,14 @@ impl Hub {
                         self.pool_discard(vec![p]);
                         return None;
                     }
+                    // A delivery or revocation since its key was made (also
+                    // while this claim waited on its start): a cold start
+                    // reads the machine's secrets afresh.
+                    if p.key.machine != crate::login_env::machine_stamp() {
+                        tracing::info!(harness = %spec.key.harness, "pooled session discarded: the machine's delivered secrets changed");
+                        self.pool_discard(vec![p]);
+                        return None;
+                    }
                     // `stop_pool` may have drained the pool and the claims
                     // while the entry was out of both.
                     if self.pool.stopping.load(Ordering::SeqCst) {
@@ -792,6 +809,10 @@ impl Hub {
         session: &Arc<Session>,
         mut p: Pooled,
     ) -> anyhow::Result<(Arc<ChildAgent>, bool)> {
+        // As in `start_hosted`: the session's old host is gone, so a host this build could not
+        // speak to no longer counts, cleared before the pooled record goes live so no off push in
+        // between ends the pooled agent for it (#26337).
+        session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
             tokio::spawn(end_pooled(p));
             return Err(e);
@@ -872,6 +893,7 @@ impl Hub {
         }
         self.append(session, "mux", "pool_taken", json!({"rssBytes": p.rss}));
         self.set_status(session, SessionStatus::Ready);
+        self.note_launch(session, &child);
         self.save_meta(session);
         let meta_now = session.meta();
         self.remember_models(&meta_now.harness, &meta_now);

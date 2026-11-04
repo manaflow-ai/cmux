@@ -69,12 +69,12 @@ final class EmptyGroupRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        let x = SidebarStyle.columns(rowWidth: b.width).text(hasLeadingMark: false) - SidebarStyle.labelCellPadding
         // The + centers on the trailing column, where the header's chevron above it sits; the label ends left of it.
         let side = SidebarStyle.trailingSlotSide
         addButton.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: side)
         let end = addButton.isHidden ? b.width - Metrics.space2 : addButton.frame.minX - Metrics.space2
-        label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, end - x), height: h)
+        label.frame = NSRect(x: x, y: SidebarStyle.textY(label, centerY: b.midY), width: max(0, end - x), height: h)
     }
 
     override func updateLayer() {

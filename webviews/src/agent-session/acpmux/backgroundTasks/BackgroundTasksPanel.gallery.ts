@@ -3,7 +3,8 @@
 // the same name (Leo, 2026-10-29: "i like these tasks i like the order that things split on the right
 // i want that in cmux next"). The chat's ⋯ menu opens it in the chat's right column, docked under the
 // side panel when one is open: one block per agent, its time and stop button, "N tasks, M failed",
-// its running tasks with their own stop buttons, then "N finished". A click on an agent or a task
+// its running tasks with their own stop buttons, then "N finished", the agents under "Running N" and
+// "Finished N". The running tray's header opens it too (its panel button, trayOpen.experiment.ts). A click on an agent or a task
 // opens its transcript in place, from the snapshot, with nothing to wait for (Leo: "i also like the
 // way it just loads in the subagent stuff instantly :(").
 import { agentPaneEntry } from "../../../gallery/format";
@@ -13,6 +14,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENTS, type Subagent } from "../subagents/subagentFold";
 import { backgroundTasksLook } from "./backgroundTasksLook.experiment";
+import { BACKGROUND_PANE } from "./backgroundPane";
 
 const fence = (lang: string, code: string) => "```" + lang + "\n" + code + "\n```";
 
@@ -133,6 +135,45 @@ const openPanel = async (ctx: PlayContext) => {
   await ctx.click({ role: "menuitem", name: "Background tasks" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg"));
 };
+/// No ruled edge down the panel's left side and no rule under its header (Leo, 2026-11-03: "background
+/// tasks why is there this white border it's weird"). A side or bottom inset shadow is a drawn line.
+const noStrayEdges = (ctx: PlayContext) => {
+  const view = ctx.document.defaultView!;
+  const lines = (element: Element | null) =>
+    (element ? view.getComputedStyle(element).boxShadow : "none")
+      .split(/,(?![^(]*\))/)
+      .map((part) => part.trim())
+      .filter((part) => part !== "none" && part.includes("inset"));
+  const panel = ctx.document.querySelector(".acpmux-bg");
+  // Only a top rule (0 offset across, a positive offset down) may part a docked panel from the side panel.
+  const left = lines(panel).filter((part) => {
+    // A 2x webview resolves the hairline token to 0.5px; it is still only a top rule.
+    const offsets = part
+      .replace(/^.*?\)\s*/, "")
+      .match(/-?[\d.]+px/g)
+      ?.map(Number.parseFloat);
+    return !(offsets?.[0] === 0 && offsets[1] > 0 && offsets[2] === 0 && offsets[3] === 0);
+  });
+  if (left.length > 0) throw new Error(`the panel draws an edge of its own: ${left.join(", ")}`);
+  const head = lines(ctx.document.querySelector(".acpmux-bg__head"));
+  if (head.length > 0) throw new Error(`the panel's header draws a rule under it: ${head.join(", ")}`);
+};
+// The system migration keeps independent Stop slots on the compact control track.
+const systemControls = (ctx: PlayContext) => {
+  const view = ctx.document.defaultView!;
+  const panel = ctx.document.querySelector(".acpmux-bg")!;
+  const compact = Number.parseFloat(view.getComputedStyle(panel).getPropertyValue("--ds-control-compact"));
+  if (!Number.isFinite(compact)) throw new Error("the compact control token resolves to a length");
+  for (const slot of panel.querySelectorAll<HTMLElement>(".acpmux-bg__stop-slot")) {
+    const box = slot.getBoundingClientRect();
+    if (Math.abs(box.width - compact) > 0.5 || Math.abs(box.height - compact) > 0.5)
+      throw new Error("Stop's reserved slot stays on the compact control token");
+  }
+  for (const button of panel.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")) {
+    if (view.getComputedStyle(button).cursor !== "default")
+      throw new Error("Background tasks actions retain the native arrow cursor");
+  }
+};
 const openDocument = async (ctx: PlayContext) => {
   await ctx.click({ role: "button", name: "Open preview" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact"));
@@ -144,6 +185,7 @@ const docked = async (ctx: PlayContext) => {
   const panel = ctx.document.querySelector(".acpmux-bg")!.getBoundingClientRect();
   if (panel.top < side.bottom - 1) throw new Error("the panel docks under the side panel, never over it");
   if (Math.abs(panel.left - side.left) > 1) throw new Error("the panel shares the side panel's column");
+  noStrayEdges(ctx);
 };
 const drill = async (ctx: PlayContext) => {
   await openPanel(ctx);
@@ -182,10 +224,14 @@ export default agentPaneEntry({
   },
   variants: {
     closed: {
-      note: "Before it opens: the tray above the composer lists the running agents; the chat's ⋯ menu has Background tasks.",
+      note: "Before it opens: the tray above the composer, opened from its folded header, lists the running agents; the chat's ⋯ menu has Background tasks.",
       snapshot: snapshot(false),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray"));
+        // A headed tray starts folded (cmux#28875): open it, as the person does.
+        if (ctx.document.querySelector('.acpmux-running-tray__head[aria-expanded="false"]'))
+          await ctx.click({ selector: ".acpmux-running-tray__head" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__list .acpmux-agent-line"));
       },
     },
     docked: {
@@ -196,7 +242,61 @@ export default agentPaneEntry({
     alone: {
       note: "No side panel open: the panel is the chat's right column. The first running agent opens on its running task, then 11 finished, folded.",
       snapshot: snapshot(false),
-      play: openPanel,
+      play: async (ctx) => {
+        await openPanel(ctx);
+        noStrayEdges(ctx);
+        systemControls(ctx);
+      },
+    },
+    sections: {
+      note: "Claude Desktop's split: Running 2 then Finished 1, each heading folding its agents; an ended agent's line shows its duration; each agent's tasks under N tasks, failures in red.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await openPanel(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-bg__section[data-section="finished"]'));
+      },
+    },
+    "from-tray": {
+      note: "Opened from the running tray's panel button (SubagentTray.tsx), not the ⋯ menu: the same panel.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__open"));
+        await ctx.click({ selector: ".acpmux-running-tray__open" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg"));
+      },
+    },
+    "finished-transcript": {
+      note: "A finished agent opened from Finished: its transcript in place, with the back chevron to the list.",
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        await openPanel(ctx);
+        await ctx.click({ selector: `.acpmux-bg__group[data-group="agent:${AUDIT.id}"] .acpmux-bg__name` });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-bg__transcript [data-row-id]"));
+      },
+    },
+    tab: {
+      note: 'Its own tab in the chat\'s right column (backgroundPane.ts; Leo, 2026-11-03: "it should be opening up on the right pane as a tab instead of this"): the app reveals the reserved pane id, the panel fills the tab with Clear finished and no Expand or Close.',
+      snapshot: snapshot(false),
+      play: async (ctx) => {
+        const bridge = (
+          ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(value: string): void } }
+        ).cmuxAcpmuxBridge;
+        if (!bridge?.revealTurn) throw new Error("the page takes the app's reveal");
+        bridge.revealTurn(`subagent:${BACKGROUND_PANE}`);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-shell[data-background-pane] > .acpmux-bg"));
+        const shell = ctx.document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+        const panel = ctx.document.querySelector(".acpmux-bg")!.getBoundingClientRect();
+        if (Math.abs(panel.left - shell.left) > 1 || Math.abs(panel.right - shell.right) > 1)
+          throw new Error("the panel fills its tab's width");
+        if (ctx.document.querySelector(".acpmux-main")?.getClientRects().length)
+          throw new Error("the chat's own column is out of sight in the panel's tab");
+        const labels = [...ctx.document.querySelectorAll(".acpmux-bg__head button")].map((b) =>
+          b.getAttribute("aria-label"),
+        );
+        if (labels.includes("Expand") || labels.includes("Close"))
+          throw new Error("its own tab has no Expand or Close");
+        noStrayEdges(ctx);
+      },
     },
     finished: {
       note: "The finished tasks open, the latest first, each with how long it took; failures in red; Show more past eight.",

@@ -1,3 +1,5 @@
+import { userScrollIntent } from "./conversation/userScroll";
+
 /// cmux:// links the page copies (the deep links contract). The host hands over this build's URL
 /// scheme in the handshake (`linkScheme`, with the other bootstrap values); the page never hardcodes
 /// `cmux://`, so a tagged build copies links that open in itself.
@@ -40,7 +42,6 @@ export const REVEALED_TURN_MS = 1600;
 /// How long a link's turn is waited for before the page gives up quietly: the row renders once the
 /// session attaches, which a new tab's first connect can take a moment for.
 export const REVEAL_WAIT_MS = 5000;
-const REVEAL_POLL_MS = 100;
 
 /// The `revealTurn` value that scrolls to and highlights one message: the harness message id
 /// acpmux reports on the message's chunks (`agent_message_chunk.messageId`), which a
@@ -51,9 +52,8 @@ export const MESSAGE_REVEAL = "message:";
 export const revealedMessage = (value: string) =>
   value.startsWith(MESSAGE_REVEAL) ? value.slice(MESSAGE_REVEAL.length) || undefined : undefined;
 
-/// Scrolls `row` into view and marks it for a moment.
+/// Marks a row without moving the virtual transcript a second time.
 function markRow(row: HTMLElement): true {
-  row.scrollIntoView({ block: "center" });
   row.classList.add(REVEALED_TURN_CLASS);
   setTimeout(() => row.classList.remove(REVEALED_TURN_CLASS), REVEALED_TURN_MS);
   return true;
@@ -64,6 +64,7 @@ function markRow(row: HTMLElement): true {
 export function scrollToTurn(turnId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-turn-id]")) {
     if (row.dataset.turnId !== turnId) continue;
+    row.scrollIntoView({ block: "center" });
     return markRow(row);
   }
   return false;
@@ -75,71 +76,104 @@ export function scrollToTurn(turnId: string, root: ParentNode = document): boole
 export function scrollToRow(rowId: string, root: ParentNode = document): boolean {
   for (const row of root.querySelectorAll<HTMLElement>("[data-row-id]")) {
     if (row.dataset.rowId !== rowId && row.dataset.rowId !== `${rowId}:fold`) continue;
+    row.scrollIntoView({ block: "center" });
     return markRow(row);
   }
   return false;
 }
 
-/// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
-/// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
-/// Gives up quietly when it never mounts, or when `stale` says the row's chat is no longer the one
-/// on screen, leaving the view where it is. Returns the way to stop waiting, which is what keeps a
-/// later reveal's reader from being pulled back to this row. A reader who only scrolls away inside
-/// the wait is still taken to the row when it is drawn, as a reveal they asked for should.
+/// Pending reveals belong to one explicit request, and end on the reader's next input.
+function revealIntent(root: ParentNode) {
+  const node = (root as HTMLElement).closest?.(".acpmux-scroll") ?? root.querySelector<HTMLElement>(".acpmux-scroll");
+  return node ? userScrollIntent(node as HTMLElement) : undefined;
+}
+
+/// A pending reveal wakes only when rows change or mount, never on an interval.
+let retryReveal: (() => void) | undefined;
+export function notifyRevealRowsChanged(): void {
+  retryReveal?.();
+}
+
+function observeRows(root: ParentNode, changed: () => void): MutationObserver {
+  const node = root as Node;
+  const document = node.ownerDocument ?? (node as Document);
+  const Observer = document.defaultView?.MutationObserver ?? MutationObserver;
+  const observer = new Observer(changed);
+  observer.observe(node, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-row-id", "data-turn-id"],
+  });
+  return observer;
+}
+
+/// VirtualTranscript places the row from layout.tops before paint. Mounting only adds its highlight;
+/// it must never center the DOM row later, after the reader has already seen that placement.
 function markWhenDrawn(
   rowId: string,
   root: ParentNode,
-  {
-    waitMs = REVEAL_WAIT_MS,
-    pollMs = REVEAL_POLL_MS,
-    stale,
-  }: { waitMs?: number; pollMs?: number; stale?: () => boolean } = {},
+  { waitMs = REVEAL_WAIT_MS, stale }: { waitMs?: number; stale?: () => boolean } = {},
 ): () => void {
-  const deadline = Date.now() + waitMs;
+  let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const tick = () => {
-    timer = undefined;
-    if (stale?.() || scrollToRow(rowId, root) || Date.now() >= deadline) return;
-    timer = setTimeout(tick, pollMs);
+  let unsubscribe: (() => void) | undefined;
+  const stop = () => {
+    observer?.disconnect();
+    clearTimeout(timer);
+    unsubscribe?.();
   };
-  tick();
-  return () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
+  const attempt = () => {
+    if (stale?.()) return stop();
+    const row = root.querySelector<HTMLElement>(
+      `[data-row-id=${JSON.stringify(rowId)}], [data-row-id=${JSON.stringify(`${rowId}:fold`)}]`,
+    );
+    if (!row) return;
+    stop();
+    markRow(row);
   };
+  observer = observeRows(root, attempt);
+  timer = setTimeout(stop, waitMs);
+  unsubscribe = revealIntent(root)?.subscribe(stop);
+  attempt();
+  return stop;
 }
 
 let pendingReveal: (() => void) | undefined;
 /// The wait for a revealed row to be drawn, which outlives the reveal that asked for it.
 let pendingMark: (() => void) | undefined;
 
-/// Runs `attempt` now, then every `pollMs` until it succeeds or `waitMs` passes, giving up quietly.
-/// A later reveal replaces a pending one. Resolves whether it scrolled.
+/// Runs now and when rows change. A later request or manual input cancels the pending reveal.
 function revealWhenShown(
+  root: ParentNode,
   attempt: () => boolean,
-  { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
+  { waitMs = REVEAL_WAIT_MS }: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
   pendingReveal?.();
-  // An earlier reveal's row may still be waiting to be drawn; this one is the reader's now.
   pendingMark?.();
   pendingMark = undefined;
   return new Promise((resolve) => {
-    const deadline = Date.now() + waitMs;
+    let observer: MutationObserver | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe: (() => void) | undefined;
     const finish = (revealed: boolean) => {
-      if (timer !== undefined) clearTimeout(timer);
+      observer?.disconnect();
+      clearTimeout(timer);
+      unsubscribe?.();
+      if (retryReveal === check) retryReveal = undefined;
       if (pendingReveal === cancel) pendingReveal = undefined;
       resolve(revealed);
     };
     const cancel = () => finish(false);
-    const poll = () => {
-      timer = undefined;
+    const check = () => {
+      unsubscribe ??= revealIntent(root)?.subscribe(cancel);
       if (attempt()) finish(true);
-      else if (Date.now() >= deadline) finish(false);
-      else timer = setTimeout(poll, pollMs);
     };
     pendingReveal = cancel;
-    poll();
+    retryReveal = check;
+    observer = observeRows(root, check);
+    timer = setTimeout(cancel, waitMs);
+    check();
   });
 }
 
@@ -151,7 +185,7 @@ export function revealTurnWhenShown(
   root: ParentNode = document,
   options: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
-  return revealWhenShown(() => scrollToTurn(turnId, root), options);
+  return revealWhenShown(root, () => scrollToTurn(turnId, root), options);
 }
 
 /// Brings message `messageId`'s row in once the chat has it (a link's `message=<id>`): the
@@ -170,12 +204,16 @@ export function revealMessageWhenShown(
   options: { waitMs?: number; pollMs?: number; chat?: () => string | undefined } = {},
 ): Promise<boolean> {
   const { chat } = options;
-  return revealWhenShown(() => {
-    const rowId = show(messageId);
-    if (rowId === undefined) return false;
-    // The chat that answered with this row, read now that there is one.
-    const asked = chat?.();
-    pendingMark = markWhenDrawn(rowId, root, { ...options, stale: () => chat?.() !== asked });
-    return true;
-  }, options);
+  return revealWhenShown(
+    root,
+    () => {
+      const rowId = show(messageId);
+      if (rowId === undefined) return false;
+      // The chat that answered with this row, read now that there is one.
+      const asked = chat?.();
+      pendingMark = markWhenDrawn(rowId, root, { ...options, stale: () => chat?.() !== asked });
+      return true;
+    },
+    options,
+  );
 }

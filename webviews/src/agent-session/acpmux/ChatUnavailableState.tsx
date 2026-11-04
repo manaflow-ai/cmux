@@ -1,3 +1,4 @@
+import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
@@ -7,9 +8,11 @@ import { currentLanguage, useT } from "./i18n";
 /// new chat hero's type (EmptyState.tsx), it says which case it is. Deleted: Remove from Sidebar
 /// closes the tab. Its machine is not connected: the machine, when it was last seen, and Reconnect,
 /// which reads the machines and the chat list again (the chat opens once it is listed). Still
-/// connecting: only that, never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat
-/// isn't available""). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
-/// not routed to): "Can't find this chat", never "deleted". Every case keeps what MissingChat.tsx
+/// connecting (the grace, chatUnavailable.ts): nothing, an empty area where the chat opens once it
+/// is listed; never "unavailable" (Leo 2026-10-21: "second pic is weird has "this chat isn't
+/// available"") and no spinner or "Reconnecting…" (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT
+/// ON LOAD"). Not listed and never seen here (it may be deleted, or in an acpmux this tab is
+/// not routed to): "Can't find this chat", never "deleted". Every case but loading keeps what MissingChat.tsx
 /// offered (Lawrence, 86dec887282): the chat's short session id, so a person knows which chat it was,
 /// Resume from Transcript, which opens All Chats, where the chat's saved transcript resumes in a new
 /// session, and Close Tab (a deleted chat's is Remove from Sidebar).
@@ -25,6 +28,7 @@ export function ChatUnavailableState({
   onReconnect,
   onResume,
   onClose,
+  noteDelayMs = RESUME_NOTE_DELAY_MS,
 }: {
   unavailable: ChatUnavailable;
   /// The session the tab recorded (`missingSession`); its first 13 characters show under the detail.
@@ -40,8 +44,21 @@ export function ChatUnavailableState({
   onResume?(): void;
   /// Close Tab, on every case but deleted (Remove from Sidebar closes that one's tab).
   onClose?(): void;
+  /// How long a paused machine, and a resume, stay out of sight (afterDelay.ts); the gallery's
+  /// settled variants pass 0.
+  noteDelayMs?: number;
 }) {
   const t = useT();
+  // A pause is invisible at first, as a resume is (Leo, 2026-11-03: the wait "you mostly perceive as
+  // "thinking""): a machine that wakes within RESUME_NOTE_DELAY_MS never shows its card, and one
+  // resuming shows its spinner only past it. The spinner's slot is kept from the first frame, so it
+  // shifts nothing when it appears.
+  const pausedShown = useAfterDelay(unavailable.reason === "paused", noteDelayMs);
+  const resumeSlow = useAfterDelay(resuming, noteDelayMs);
+  // Still loading, or paused for less than the threshold: nothing shows, in the loading layout, until
+  // the chat opens or the wait goes on (then offline or paused, below).
+  if (unavailable.reason === "connecting" || (unavailable.reason === "paused" && !pausedShown))
+    return <div className="acpmux-empty acpmux-unavailable" data-unavailable="connecting" aria-busy="true" />;
   // A deleted chat names the machine acpmux had it on when the pane knows it, else the tab's machine;
   // one not connected names only the peer acpmux had it on, never this Mac's name (the handshake's
   // for a chat of this Mac); one not found here is not on the tab's machine.
@@ -75,8 +92,6 @@ export function ChatUnavailableState({
     // to (a Chief home's own), so the pane never says it was deleted.
     title = t("unavailable.notFound.title");
     detail = named ? t("unavailable.notFound.detailOn", { machine: named }) : t("unavailable.notFound.detail");
-  } else if (unavailable.reason === "connecting") {
-    title = `${t("header.reconnecting")}…`;
   } else {
     title = `${t("header.reconnecting")}…`;
     detail =
@@ -93,9 +108,11 @@ export function ChatUnavailableState({
     <div
       className="acpmux-empty acpmux-unavailable"
       data-unavailable={unavailable.reason}
-      role={unavailable.reason === "connecting" || unavailable.reason === "offline" ? "status" : "alert"}
+      // A paused machine is a calm state, never an alert (a resume is one click or one send away).
+      role={unavailable.reason === "offline" || unavailable.reason === "paused" ? "status" : "alert"}
+      data-enter="fade"
     >
-      {unavailable.reason === "connecting" || unavailable.reason === "offline" ? (
+      {unavailable.reason === "offline" ? (
         <Spinner size={28} loading className="acpmux-unavailable-spinner" />
       ) : (
         <svg
@@ -121,7 +138,17 @@ export function ChatUnavailableState({
       )}
       <h2 className="acpmux-empty-title acpmux-unavailable-title">{title}</h2>
       <div className="acpmux-unavailable-copy">
-        {resuming && <Spinner size={20} loading />}
+        {unavailable.reason === "paused" ? (
+          <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
+            {resumeSlow && (
+              <span className="acpmux-unavailable-progress-mark" data-enter="fade">
+                <Spinner size={20} loading />
+              </span>
+            )}
+          </span>
+        ) : (
+          resuming && <Spinner size={20} loading />
+        )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">
             {error}

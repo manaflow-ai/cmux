@@ -109,6 +109,39 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-side-tabs",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
             ),
+            // The composer's and Session Info's controls (AgentPageCommand): unavailable where the chat has none.
+            ActionDescriptor(
+                id: "agentPane.runInBackground",
+                title: String(localized: "action.agentPane.runInBackground", defaultValue: "Run in Background", bundle: .module),
+                keywords: ["agent", "chat", "background", "ctrl-b", "detach", "command", "subagent", "move"],
+                category: .agents, symbol: "arrow.down.to.line", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent run-in-background",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.toggleQueueing",
+                title: String(localized: "action.agentPane.toggleQueueing", defaultValue: "Toggle Prompt Queueing", bundle: .module),
+                keywords: ["agent", "chat", "queue", "queueing", "steer", "send", "prompt", "turn"],
+                category: .agents, symbol: "tray.full", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent toggle-queueing",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showSubagents",
+                title: String(localized: "action.agentPane.showSubagents", defaultValue: "Show Subagents in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "subagents", "agents", "session info", "children"],
+                category: .agents, symbol: "person.2", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-subagents",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.showBackgroundTasks",
+                title: String(localized: "action.agentPane.showBackgroundTasks", defaultValue: "Show Background Tasks in Session Info", bundle: .module),
+                keywords: ["agent", "chat", "background", "tasks", "commands", "servers", "session info"],
+                category: .agents, symbol: "gearshape", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane], cliName: "agent show-background-tasks",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .guiOnly)
+            ),
             ActionDescriptor(
                 id: "agentPane.toggleInspector",
                 title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Toggle Event Inspector", bundle: .module),
@@ -133,14 +166,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "scope", surfaces: [.palette, .keyboard, .contextMenu],
                 cliName: "agent toggle-ui-pointer",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
+                    // Web content only (the agent chat's HTML/React page): native menus never offer it.
                     ContextMenuPlacement(.agentChat, .inspect, 1, folder: .tools, label: "Inspect Element"),
-                    ContextMenuPlacement(.tab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.pane, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarSection, .inspect, 510, folder: .options, label: "Inspect Element"),
-                    ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
                 ])
             ),
             ActionDescriptor(
@@ -347,8 +374,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationTo",
-                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork to…", bundle: .module),
-                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.triangle.branch",
+                title: String(localized: "action.palette.forkAgentConversationTo", defaultValue: "Fork To…", bundle: .module),
+                keywords: ["agent", "fork"], category: .agents, symbol: "arrow.turn.up.right",
                 surfaces: [.contextMenu]
             ),
             ActionDescriptor(
@@ -379,6 +406,29 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["agent", "fork"], category: .agents, symbol: "rectangle.bottomhalf.inset.filled",
                 surfaces: [.palette, .contextMenu],
                 cliName: "agent fork-conversation-below"
+            ),
+            // u18673: a fork in a new strip column on either side of the chat's column, or a new row
+            // below it, as New Column Right / New Column Left / New Row open a terminal.
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnRight",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnRight", defaultValue: "Fork Conversation to New Column Right", bundle: .module),
+                keywords: ["agent", "fork", "column", "right"], category: .agents, symbol: "rectangle.split.3x1",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-right"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewColumnLeft",
+                title: String(localized: "action.palette.forkAgentConversationNewColumnLeft", defaultValue: "Fork Conversation to New Column Left", bundle: .module),
+                keywords: ["agent", "fork", "column", "left"], category: .agents, symbol: "rectangle.leftthird.inset.filled",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-column-left"
+            ),
+            ActionDescriptor(
+                id: "palette.forkAgentConversationNewRow",
+                title: String(localized: "action.palette.forkAgentConversationNewRow", defaultValue: "Fork Conversation to New Row", bundle: .module),
+                keywords: ["agent", "fork", "row", "below"], category: .agents, symbol: "rectangle.grid.1x2",
+                surfaces: [.palette, .contextMenu],
+                cliName: "agent fork-conversation-to-new-row"
             ),
             ActionDescriptor(
                 id: "palette.forkAgentConversationNewTab",
@@ -438,6 +488,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string),
                     ActionArgument(name: "name", title: String(localized: "argument.agent.workspaceName", defaultValue: "Workspace Name", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // The name a workspace with no `name` takes (an unnamed launch's session name); never a predecessor's.
+                    ActionArgument(name: "defaultName", title: String(localized: "argument.agent.workspaceDefaultName", defaultValue: "Default Workspace Name", bundle: .module),
+                                   kind: .string, isRequired: false),
                     ActionArgument(name: "key", title: String(localized: "argument.agent.workspaceKey", defaultValue: "Workspace Key", bundle: .module),
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
@@ -446,6 +499,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     // A group's name (made when missing), not a target: a launcher names it.
                     ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
+                    // `top`: first in the sidebar (below Home), over workspaces.newPlacement (#29875).
+                    ActionArgument(name: "placement", title: String(localized: "argument.agent.placement", defaultValue: "Placement", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
@@ -525,12 +581,24 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
             ),
+            // Roll Back Chief Move (chief-migration-DESIGN.md 4): this Mac's Chief answers here again and the
+            // target is marked moved back; the Teleport menu (the Home header's location chip, the Chief card)
+            // offers it while the Chief's home is marked moved.
+            ActionDescriptor(
+                id: "chief.moveRollback",
+                title: String(localized: "action.chief.moveRollback", defaultValue: "Roll Back Chief Move", bundle: .module),
+                keywords: ["chief", "move", "teleport", "rollback", "roll back", "undo", "back", "this mac", "cloud"],
+                category: .agents, symbol: "arrow.uturn.backward.circle", surfaces: [.palette],
+                destructive: true,
+                // `cmux chief move rollback` and the Chief's MCP `move {action: rollback}` run the same rollback.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)
+            ),
             // Import Memories… (chief-memory-import-DESIGN.md): finds what Claude Code, Codex, ChatGPT and claude.ai
             // exports left on this Mac and brings it into a Chief in the background (`optchat-chief memory
             // import-from` is the CLI). `chief` names a Cloud Chief to import into; `source` skips the question.
             ActionDescriptor(
                 id: "chief.importMemories",
-                title: String(localized: "action.chief.importMemories", defaultValue: "Import Memories…", bundle: .module),
+                title: String(localized: "action.chief.importMemories", defaultValue: "Bring Your History", bundle: .module),
                 keywords: ["chief", "memory", "memories", "import", "claude", "claude code", "codex", "chatgpt", "openai", "bring", "migrate", "onboard"],
                 category: .agents, symbol: "square.and.arrow.down", surfaces: [.palette],
                 arguments: [

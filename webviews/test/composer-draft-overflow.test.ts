@@ -1,9 +1,11 @@
-// cmux-web-test-timeout: 420
+// cmux-web-test-timeout: 480
 // The chat composer never overflows sideways and never loses its caret
 // (https://github.com/manaflow-ai/cmux/issues/28672): whatever is typed or pasted wraps inside the
 // prompt's text column, clear of + and the actions, the box grows with it up to its cap and then
 // scrolls inside, and the caret stays in view, also when the draft rewraps with no edit (Send takes
-// the mic's place on the first character, the pane narrows, the window gets shorter).
+// the mic's place on the first character, the pane narrows, the window gets shorter). Text typed up
+// to Send wraps before the actions: no glyph is ever painted under a button or its hover pill, also
+// after the box lost its measured inset (composerScrollLane.ts puts it back).
 //
 // Each case types or pastes into the gallery's chat composer the way a person does (real key
 // presses for spaces, Shift-Enter and Enter; a real paste event; Chromium's IME composition), then
@@ -181,7 +183,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
       surface: { name: "the composer with prompts queued", entry: "agent-pane.composer", variant: "queued" },
       widths: [300],
     },
-    // Codex's look: the actions in a row under the prompt.
+    // Codex's look: Claude's grid, the actions beside the prompt.
     { surface: { name: "Codex's composer", entry: "agent-pane.composer-look", variant: "codex-chat" }, widths: [300] },
   ];
 
@@ -298,7 +300,7 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
     test(`${engine}: a long multi-line paste stops at the cap and scrolls inside, its end in view`, async () => {
       const page = await open(engine, IDLE, 300);
       const start = await read(page);
-      // Under the chip's 20 lines and 2,000 characters (pastedText.ts): it goes in as text.
+      // Under the chip's 750 words and 10,000 characters (pastedText.ts): it goes in as text.
       const lines = Array.from({ length: 18 }, (_, index) => `line ${index + 1} ${"x".repeat(60)}`);
       await paste(page, lines.join("\n"));
       await page.waitForFunction(
@@ -388,5 +390,98 @@ await requireBrowserLane("composer-draft-overflow.test.ts", async () => {
         expect(committed.text).toBe(`${WORD}${"日本語".repeat(12)}`);
         await page.close();
       });
+  }
+
+  /** Starts a sampler that, after every painted frame, records the widest overlap (px) of a typed
+   *  glyph with any of the box's action buttons (whose hover and focus pills draw over the prompt). */
+  const watchButtonEdge = (page: Page) =>
+    page.evaluate((selector) => {
+      const w = window as unknown as { underButton: { px: number; note: string } };
+      w.underButton = { px: 0, note: "" };
+      const check = () => {
+        const field = document.querySelector<HTMLElement>(selector);
+        const box = field?.closest(".acpmux-composer-box");
+        if (!field || !box) return;
+        const visible = field.closest<HTMLElement>(".acpmux-md-field")!.getBoundingClientRect();
+        const buttons = [...box.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")]
+          .map((button) => ({ label: button.getAttribute("aria-label") ?? "", rect: button.getBoundingClientRect() }))
+          .filter(({ rect }) => rect.width > 0);
+        const walker = document.createTreeWalker(field, NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          const text = node as Text;
+          for (let index = 0; index < text.length; index++) {
+            if (/\s/.test(text.data[index]!)) continue;
+            const range = document.createRange();
+            range.setStart(text, index);
+            range.setEnd(text, index + 1);
+            for (const glyph of range.getClientRects()) {
+              if (glyph.width === 0 || glyph.bottom <= visible.top || glyph.top >= visible.bottom) continue;
+              for (const { label, rect } of buttons) {
+                const x = Math.min(glyph.right, rect.right) - Math.max(glyph.left, rect.left);
+                const y = Math.min(glyph.bottom, rect.bottom) - Math.max(glyph.top, rect.top);
+                if (x > 0.5 && y > 0.5 && x > w.underButton.px)
+                  w.underButton = { px: x, note: `${JSON.stringify(text.data[index])} under ${label}` };
+              }
+            }
+          }
+        }
+      };
+      // After every painted frame (`open` installed the painted-frame reader).
+      window.cmuxAfterPaint(check);
+    }, FIELD);
+  const underButton = (page: Page) =>
+    page.evaluate(() => (window as unknown as { underButton: { px: number; note: string } }).underButton);
+  /** Typing that runs up to the actions' edge: words, an unbroken run and a run of spaces. */
+  const typeToTheEdge = async (page: Page) => {
+    await page.keyboard.type("near the edge of the box the words keep going until they wrap ".repeat(2), { delay: 5 });
+    await page.keyboard.type("x".repeat(60), { delay: 5 });
+    for (let index = 0; index < 30; index++) await page.keyboard.press("Space");
+    await page.keyboard.type("tail", { delay: 5 });
+  };
+  const EDGE: { surface: Surface; width: number; params?: string }[] = [
+    { surface: IDLE, width: 260 },
+    { surface: IDLE, width: 420 },
+    {
+      surface: { name: "the composer while a turn runs", entry: "agent-pane.composer", variant: "working-steer" },
+      width: 300,
+    },
+    {
+      surface: { name: "the composer with prompts queued", entry: "agent-pane.composer", variant: "queued" },
+      width: 300,
+    },
+  ];
+
+  for (const [engine] of engines) {
+    for (const { surface, width } of EDGE)
+      test(`${engine}: ${surface.name} at ${width} px: text typed up to Send wraps, never under a button, with the pointer on Send`, async () => {
+        const page = await open(engine, surface, width);
+        // `open` focused the prompt with a click; the pointer then rests on the last action (Send, or
+        // the mic before there is a draft), so its hover pill shows while the text runs up to it.
+        const last = await page.locator(".acpmux-composer-box .acpmux-composer-actions button").last().boundingBox();
+        if (last) await page.mouse.move(last.x + last.width / 2, last.y + last.height / 2);
+        await watchButtonEdge(page);
+        await typeToTheEdge(page);
+        await read(page);
+        expect(await underButton(page)).toEqual({ px: 0, note: "" });
+        contained(await read(page), "typed to the edge");
+        await page.close();
+      });
+
+    test(`${engine}: the actions' inset comes back when the box loses it, while Stop and ↵ widen the actions`, async () => {
+      const page = await open(engine, EDGE[2]!.surface, 300);
+      await page.keyboard.type("steer");
+      await read(page);
+      // Another field leaving the same box clears the box's inset (composerScrollLane.ts cleanup);
+      // the CSS fallback is narrower than ↵, Stop and the mic.
+      await page.evaluate(() =>
+        document.querySelector<HTMLElement>(".acpmux-composer-box")!.style.removeProperty("--acpmux-actions-width"),
+      );
+      await watchButtonEdge(page);
+      await typeToTheEdge(page);
+      await read(page);
+      expect(await underButton(page)).toEqual({ px: 0, note: "" });
+      contained(await read(page), "after the inset was cleared");
+      await page.close();
+    });
   }
 });

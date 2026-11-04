@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
+import CmuxNextLayout
 import Foundation
 import Testing
 
@@ -89,13 +90,14 @@ struct CloudWorkspaceRestoreTests {
     /// time. They are never pruned because of connection state; only a machine that left the account
     /// takes its workspaces with it.
     @Test func aMachineLeftOnlyWhenTheAccountListSaysSo() {
-        #expect(!WindowManager.remoteMachineLeft(listed: false, accountListLoaded: false),
+        let loaded = CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedCurrentMachines: true)
+        let notLoaded = CloudMachineListFacts(isSignedIn: true, isRestoring: false, hasLoadedCurrentMachines: false)
+        let signedOut = CloudMachineListFacts(isSignedIn: false, isRestoring: false, hasLoadedCurrentMachines: false)
+        #expect(!notLoaded.machineLeft(listed: false) && !signedOut.machineLeft(listed: false),
                 "signed out or the list not loaded: the machine is only not connected")
-        #expect(!WindowManager.remoteMachineLeft(listed: true, accountListLoaded: true),
-                "listed with its feature turned off: not connected, not gone")
-        #expect(!WindowManager.remoteMachineLeft(listed: true, accountListLoaded: false))
-        #expect(WindowManager.remoteMachineLeft(listed: false, accountListLoaded: true),
-                "the signed-in account's loaded list does not have it: it left the account")
+        #expect(!loaded.machineLeft(listed: true), "listed with its feature turned off: not connected, not gone")
+        #expect(!notLoaded.machineLeft(listed: true))
+        #expect(loaded.machineLeft(listed: false), "the signed-in account's loaded list does not have it: it left the account")
     }
 
     @Test func aCloudWorkspaceSavedWhileSignedOutStaysAndWaitsForItsMachine() throws {

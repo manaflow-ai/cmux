@@ -22,6 +22,11 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         s.meta().agent_session_id,
         hub.started_at,
     ));
+    // A person's client shows it, here or through a peer's link (whose own subscriptions are
+    // hidden, `peer_forward.rs`): it may get a session recap (`hub/away_recap.rs`).
+    if !hidden {
+        hub.recap_person_shows(s);
+    }
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
     match subs.insert(s.id.clone(), opts) {
         // A peer's chat of the same raw id counted nothing here: this attachment is new.
@@ -128,6 +133,9 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
     if open(conn) {
         hub.presence.view(&s.id, &conn.id, &Who::of(author.as_ref()), visible)?;
     }
+    if author.is_none() && visible {
+        hub.recap_person_shows(&s);
+    }
     if author.is_none() && sub.hidden == visible {
         sub.hidden = !visible;
         // Under the lock, so a detach racing this one counts the same visibility.
@@ -159,7 +167,7 @@ pub(super) fn typing(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
 /// `_acpmux/markUnread {sessionId}` (cx-ncc.78): the person marks a chat unread; it stays so until
 /// a client shows it again after hiding it (`hub/seen.rs`).
 pub(super) fn mark_unread(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
-    hub.mark_unread(&*hub.resolve(session_key(params)?)?);
+    hub.mark_unread_answered(&*hub.resolve(session_key(params)?)?)?;
     Ok(json!({}))
 }
 

@@ -42,11 +42,13 @@ USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
     [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
-  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
+    --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal or --workspace clears every notification of the
-session; --workspace clears that workspace's rows and those of its terminals. `cmux
+clear without a scope clears every notification of the session;
+--workspace clears that workspace's rows and those of its terminals;
+--notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
@@ -141,6 +143,7 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed reopen --workspace <ws>
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
@@ -158,6 +161,17 @@ delete and clear remove groups permanently (and their terminal archives; the
 journals keep what they recorded); clear --since-ms removes only the groups
 closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
+";
+
+pub(super) const SPACE_HELP: &str = "\
+USAGE
+  cmux space list [--json]
+  cmux space new <name> [--json]
+  cmux space switch <name> [--json]
+  cmux space rename <old-name> <new-name> [--json]
+  cmux space move workspace <workspace> <space> [--json]
+  cmux space move tab <tab> <space> [--json]
+  cmux space close <name> [--json]
 ";
 
 pub(super) const GIT_HELP: &str = "\

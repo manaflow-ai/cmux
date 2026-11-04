@@ -64,7 +64,7 @@ changed `web/` files. `scripts/web-lint.sh --fix` autofixes what the tools can;
 commit the result. The hook comes with `scripts/install-git-hooks.sh` (run by
 `scripts/setup.sh`; one run covers every worktree of the clone). Skip it only with
 `CMUX_WEB_LINT_SKIP_REASON="<failing check> is red on base <sha>"`; the
-`web lint (fast)` job of cmux-next-web.yml still checks every feat-cmux-next push.
+`web lint (fast)` job of cmux-next-web-lint.yml still checks every feat-cmux-next push.
 A host that must not run heavy checks (a shared agent host) sets `CMUX_LOCAL_HEAVY_CHECKS=0`:
 the type-aware lint and type check (`vp lint`, `vp check`) are left to CI there; the rest still run.
 
@@ -203,13 +203,28 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported in the cmux-next iPhone app (`cmux-next-ios/`), with a row in
+[cmux-next-ios/verify/parity-mac.md](cmux-next-ios/verify/parity-mac.md). Two exceptions, each
+recorded there as "not from a phone" with its reason: Mac-only chrome (windows, menu bar, Dock),
+and anything a paired phone may not do under [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md)
+and "Remote CLI relay" below. A phone path that needs a new trust or security policy goes to
+https://github.com/manaflow-ai/cmux/issues/13742 with a recommendation first.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:
 
 - `ios/` or `Packages/iOS/`: [ios/AGENTS.md](ios/AGENTS.md).
+- Cloud backend code (control plane, VM API routes, provider drivers, billing,
+  entitlements, the NEXT Worker): new code goes to the private
+  manaflow-ai/cmux-platform repository, not here. Read
+  [skills/cmux-backend/SKILL.md](skills/cmux-backend/SKILL.md) first.
 - `web/` or any cmux Cloud database work: [web/AGENTS.md](web/AGENTS.md).
 - `cmux-tui/`: [cmux-tui/AGENTS.md](cmux-tui/AGENTS.md).
+- `cmux-next-ios/`: [cmux-next-ios/SECURITY.md](cmux-next-ios/SECURITY.md) and the parity rule above.
 
 ## Contributions and publication
 
@@ -277,7 +292,7 @@ enforces this.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
-- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+- A native UI change shows a real capture in its description (`pr-capture-check` warns otherwise; a missing capture never blocks a land, since Leo tries the build himself):
   `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
   real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
   the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
@@ -297,15 +312,17 @@ enforces this.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Disclose skipped verification on the PR.
+  first. A small change (a removal, a copy, CSS or token tweak, a fix confined to one
+  component) needs only that. A behavior change into `feat-cmux-next` that is not small gets
+  its review from a different model or a person. Disclose skipped verification on the PR.
   `main` is nightly: fix forward, do not revert.
-- On either branch, a PR merges when an independent review subagent passes it and it causes no
+- On either branch, a PR merges when its independent review (above) passes and it causes no
   red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
   Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
-  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
-  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
-  with `--override` or the API merge path. Into `feat-cmux-next`, the `ready-to-land`
-  label after your review is the hand-off (below). Follow
+  next nightly. Only the `risk:high` tier, the take-back hold (above), a `HOLD:` line or hold label, and
+  merge freezes hold a reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  with `--override` or the API merge path. Into `feat-cmux-next`, you merge the reviewed
+  head yourself (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
 - A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
@@ -320,13 +337,16 @@ enforces this.
   ([check progression](docs/contributor-verification.md#pr-check-progression)).
 - **Into `feat-cmux-next`, a PR lands when it is reviewed and causes no red of its own.** Base
   findings (above), flakes and pending checks never hold it; fixes found later go in follow-ups.
-  When your review subagent passes (and the risk tier's evidence is in the description), add the
-  `ready-to-land` label. A label older than the head's last push doesn't count: after any later
-  push, remove and add it again. `next-autoland` on Huge Blue then merges that exact head
-  (leo-workspace `tools/next_autoland.py`). It also requires `ci-status` to have run, a red
-  `risk evidence` or `merge freeze` keeps the PR out, and it reads the merge freezes again right
-  before merging. Don't wait for, rerun or fix base reds in your PR; a red it causes keeps it out
-  until you fix it. Don't merge with `gh-merge-green` here (`--revert` still works).
+  When your review passes (and the risk tier's evidence is in the description), merge it
+  yourself with a squash pinned to the reviewed head
+  (`gh pr merge N --squash --match-head-commit <full head sha>`). A `HOLD:` line in the description or a hold label keeps a reviewed PR from
+  landing. The `ready-to-land` label is only a fallback hand-off for a PR its owner can't land: a
+  label older than the head's last push doesn't count. `ci.yml`'s `ci-status` does not run here;
+  a red `risk evidence` or `merge freeze` keeps the PR out. A freeze can open after that check ran,
+  so right before you merge, run `scripts/ci/merge_freeze.py check --repo manaflow-ai/cmux --pr N --base feat-cmux-next`
+  and merge only on exit 0 (1 is frozen, 2 is unknown, which counts as frozen). Don't wait for, rerun or fix base
+  reds in your PR; a red it causes keeps it out until you fix it. Don't merge with
+  `gh-merge-green` here (`--revert` still works), and never with `--admin`.
 - **Into `main`, the normal merge path is `gh-merge-green`** and main's rulesets. It refuses a PR
   that touches a path an open `merge-freeze` issue freezes, or when the freeze state can't be read;
   only the freeze owner's `freeze-ok` label lets that PR through ([merge freezes](docs/ci/merge-freeze.md)).
@@ -397,16 +417,3 @@ execution, access to unowned objects and local-state exposure, and include the
 required policy tests and ID scoping. Unsafe local effects must be redesigned.
 Never allowlist terminal spawn/respawn without live verification that it executes
 on the remote host. An allowlist addition without this analysis blocks review.
-
-## Hand the person something to try
-
-End every implementation with something the person can run or see, not only a diff or a summary:
-
-- App changes: a tagged dev build named after the task ([tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md);
-  team agents build it on the fleet, see the hq link at the top), with its tag and how to open it
-  (`CMUX_TAG=<tag> scripts/cmux-debug-cli.sh`, or the team's Tag Opener link). Never a raw `.app` path or `file://` URL.
-- Web or webview changes: a preview URL. Visual changes: screenshots or a video.
-- Anything else: the test or run command that exercises the change.
-
-Say where it is and how to try it, with the exact steps and what the person should see. Check it works before
-handing off. If none could be produced, say why. Documentation-only changes need no build.

@@ -24,8 +24,8 @@ await requireBrowserLane("composer-alignment-measure.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const stageURL = (scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant: "claude-auto", theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`;
+  const stageURL = (scheme: string, variant: string) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant, theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -43,23 +43,24 @@ await requireBrowserLane("composer-alignment-measure.test.ts", async () => {
     await vite?.close();
   });
 
-  for (const width of [720, 420])
-    for (const scheme of ["light", "dark"])
-      test(`measure at ${width} px (${scheme})`, async () => {
-        const page = await browser!.newPage({ viewport: { width, height: 300 }, deviceScaleFactor: 2 });
-        await page.goto(stageURL(scheme));
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        await page.locator(".acpmux-composer-box .acpmux-md-placeholder").first().waitFor();
-        await page.evaluate(() => document.fonts.ready);
-        await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
-        const measured: ComposerAlignment = await page.evaluate(measureComposerAlignment);
-        const stem = `${width}-${scheme}`;
-        writeFileSync(path.join(outDir, `${stem}.json`), `${JSON.stringify(measured, null, 2)}\n`);
-        await page
-          .locator(".acpmux-composer")
-          .first()
-          .screenshot({ path: path.join(outDir, `${stem}.png`) });
-        console.log(JSON.stringify({ width, scheme, measured }));
-        await page.close();
-      });
+  for (const variant of ["claude-auto", "grid-running"])
+    for (const width of [720, 420])
+      for (const scheme of ["light", "dark"])
+        test(`measure ${variant} at ${width} px (${scheme})`, async () => {
+          const page = await browser!.newPage({ viewport: { width, height: 300 }, deviceScaleFactor: 2 });
+          await page.goto(stageURL(scheme, variant));
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".acpmux-composer-box .acpmux-md-placeholder").first().waitFor();
+          await page.evaluate(() => document.fonts.ready);
+          await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+          const measured: ComposerAlignment = await page.evaluate(measureComposerAlignment);
+          const stem = `${variant}-${width}-${scheme}`;
+          writeFileSync(path.join(outDir, `${stem}.json`), `${JSON.stringify(measured, null, 2)}\n`);
+          await page
+            .locator(".acpmux-composer")
+            .first()
+            .screenshot({ path: path.join(outDir, `${stem}.png`) });
+          console.log(JSON.stringify({ variant, width, scheme, measured }));
+          await page.close();
+        });
 });

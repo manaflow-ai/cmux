@@ -33,7 +33,10 @@ impl Mux {
             "tab.kept_layout.record",
             &fingerprint,
             None,
-            StateEffects::PRESENTATION,
+            // The raw tree shows a kept tab's record only once its terminal ended, and that end
+            // sends the tab's `tab-changed` (terminal_exit.rs): no `tree-changed` that makes every
+            // client read the whole tree for each parked workspace (#32408).
+            StateEffects::NOTES,
             |transaction, _| {
                 store::write_kept_tabs(transaction, tabs)?;
                 let ids = tabs.iter().map(|tab| tab.tab_id.clone()).collect::<Vec<_>>();

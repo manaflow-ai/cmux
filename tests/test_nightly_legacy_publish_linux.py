@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "scripts/ci"))
 import appcast_minimum_system_version as floor  # noqa: E402
 
 
-STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
+STEP_SCRIPT = re.compile(r"^(\s+run: )bash (?:-e )?(?:\.publish-tooling/)?(scripts/ci/nightly-steps/[A-Za-z0-9_.-]+\.sh)\s*$",
                          re.MULTILINE)
 
 
@@ -59,12 +59,12 @@ RFC_SIGNATURE = bytes.fromhex(
 
 
 class Workflow(unittest.TestCase):
-    def test_publish_runs_on_blacksmith_linux(self) -> None:
+    def test_publish_runs_on_github_hosted_linux(self) -> None:
         body = job("publish-nightly-identity-legacy")
         runs_on = re.search(r"^    runs-on: (.+)$", body, re.MULTILINE).group(1)
-        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}")
-        # It holds the Sparkle and R2 keys: never an owned host, never a Mac.
-        self.assertNotIn("LINUX_RUNNER", runs_on)
+        # It holds the Sparkle and R2 keys: never an owned host, never a Mac, and never Blacksmith
+        # (nightlies run only on our runners). GitHub-hosted Ubuntu is the ephemeral runner left.
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
 
     def test_publish_uses_no_apple_tool(self) -> None:
         body = job("publish-nightly-identity-legacy")

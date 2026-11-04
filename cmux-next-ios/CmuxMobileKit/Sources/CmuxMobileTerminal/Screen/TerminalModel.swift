@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileArtifacts
+public import CmuxMobileRealtime
 import CmuxMobileDesign
 import CmuxMobileTransport
 import Foundation
@@ -35,6 +36,9 @@ public final class TerminalModel {
 
     // Composer
     public var composerText = ""
+    /// Voice mode on this terminal's agent (set by the shell); the composer's
+    /// voice button shows only when there is one.
+    public var voiceSource: (any AgentVoiceSource)?
     var composerFocused = false
     /// Incremented to ask the composer field to take focus.
     var composerFocusRequest = 0
@@ -422,6 +426,17 @@ public final class TerminalModel {
         composerText = ""
     }
 
+    /// Voice mode's prompt: the user's words typed into the terminal with
+    /// Return, as the composer's send does, without touching the draft. Words
+    /// for a Mac that can't take them now are dropped, never queued (D5).
+    /// Returns false when nothing was typed.
+    @discardableResult
+    public func sendVoicePrompt(_ text: String) -> Bool {
+        guard connectionState.composerNotSentNotice == nil, let controller else { return false }
+        controller.surface.sendText(text, pressReturn: true, fullScreenApp: isTUI)
+        return true
+    }
+
     public func sendWithoutReturn() {
         guard composerMaySend() else { return }
         guard attachments.isEmpty else {
@@ -502,6 +517,15 @@ public final class TerminalModel {
     func clearAttachmentError() { attachmentError = nil }
 
     // MARK: Key bar
+
+    #if DEBUG
+    /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
+    public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
+        guard let surface = controller?.surface else { return }
+        surface.tapSticky(modifier)
+        sticky = surface.input.sticky
+    }
+    #endif
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }

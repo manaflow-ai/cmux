@@ -404,3 +404,80 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
     drop(registry);
     fs::remove_dir_all(root).unwrap();
 }
+
+/// The non-output read returns every other kind in sequence order, skips
+/// terminal output, pages by `limit`, and crosses windows longer than one
+/// page's span ([`JOURNAL_KIND_SEEK_WINDOW`]) without losing a record. It
+/// seeks per kind, so a page costs the records it covers, not every
+/// non-output entry the journal kept (5.6M on a nightly registry made each
+/// roster catch-up 5-8 s, and the app's requests timed out behind it).
+#[test]
+fn non_output_read_pages_every_other_kind_across_seek_windows() {
+    let registry = WorkspaceRegistry::in_memory("journal-non-output").unwrap();
+    let producer = JournalProducer { kind: "test".into(), id: "test".into() };
+    let subjects: Vec<JournalSubject> = Vec::new();
+    let payload = serde_json::json!({});
+    let kinds = ["agent.hook", "workspace.rename", "terminal.output", "zeta.kind"];
+    let total = JOURNAL_KIND_SEEK_WINDOW as usize * 2 + 300;
+    let mut expected = Vec::new();
+    {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        for index in 0..total {
+            // A long run of output in the middle: a whole window holds no other kind.
+            let kind = if (4_000..4_000 + JOURNAL_KIND_SEEK_WINDOW as usize + 500).contains(&index)
+            {
+                "terminal.output"
+            } else {
+                kinds[index % kinds.len()]
+            };
+            let content = (kind == "terminal.output").then_some(&b"x"[..]);
+            let event_id = format!("event_{index}");
+            let sequence = append_journal_record(
+                &tx,
+                &JournalAppend {
+                    event_id: &event_id,
+                    schema_version: 1,
+                    kind,
+                    class: JournalClass::Observation,
+                    replay: JournalReplayPolicy::Advisory,
+                    occurred_at_ms: 1,
+                    producer: &producer,
+                    authority: None,
+                    causation_id: None,
+                    correlation_id: None,
+                    causation_depth: 0,
+                    subjects: &subjects,
+                    sensitivity: JournalSensitivity::Metadata,
+                    payload: &payload,
+                    content,
+                    resource_revision: None,
+                    previous_resource_revision: None,
+                    actor: None,
+                },
+            )
+            .unwrap();
+            if kind != "terminal.output" {
+                expected.push(sequence);
+            }
+        }
+        tx.commit().unwrap();
+    }
+    let head = registry.session_journal_head().unwrap();
+    // The first appended record is not output; anything the registry wrote before it is not ours.
+    let start = expected[0] - 1;
+    let (mut cursor, mut seen) = (start, Vec::new());
+    while cursor < head {
+        let (records, reached) =
+            registry.session_journal_without_output_after(cursor, head, 512).unwrap();
+        assert!(reached > cursor, "each page makes progress");
+        assert!(records.len() <= 512);
+        assert!(records.iter().all(|record| record.kind != "terminal.output"));
+        assert!(
+            records.iter().all(|record| record.sequence > cursor && record.sequence <= reached)
+        );
+        seen.extend(records.iter().map(|record| record.sequence));
+        cursor = reached;
+    }
+    assert_eq!(seen, expected);
+}

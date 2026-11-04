@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture (a sample prompt, reply, workflow and agent names), not shipped UI.
 // A Claude workflow in the whole pane (Labs `workflowLabs`): its card where it started in the
 // transcript (WorkflowCard.tsx) and Session Info open beside it, whose Background tasks lists the
-// run's phases and agents (inspector/WorkflowTasks.tsx). Both read the same fold data: a
+// run's phases and agents (session-info/WorkflowTasks.tsx). Both read the same fold data: a
 // workflow's events fed through the real subagent fold (workflowFixture.ts).
 import { agentPaneEntry } from "../../../gallery/format";
 import { GALLERY_NOW } from "../../../gallery/clock";
@@ -41,7 +41,7 @@ const realPaneSnapshot = (running: boolean) => {
     { isWorking: running, title: "File count workflow" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default): it opens shown.
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });
@@ -55,19 +55,19 @@ export default agentPaneEntry({
   height: 720,
   covers: [
     "agent-session/acpmux/summary/WorkflowCard.tsx",
-    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/session-info/WorkflowTasks.tsx",
     "agent-session/acpmux/summary/foldWorkflows.ts",
   ],
   variants: {
     running: {
-      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Up next: Judge.",
+      note: "Labs: a workflow running. The transcript has its card where it started (demo-name-tournament, Workflow · 6 agents · 13s, a dot per agent). Session Info's Background tasks lists it: 1 running · 2 queued · 3 done · 185k tokens, Brainstorm 3 done, Critique open with Model: Opus 5.5 and punchy running beside two Queued, then Judge as a plain pending row.",
       snapshot: paneSnapshot("running"),
       native,
       workflowLabs: true,
       play: shown,
     },
     finished: {
-      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Workflow · Finished · 7 agents · 432k tokens, each phase N/N.",
+      note: "Labs: the same workflow finished. The card reads Workflow · 7 agents · 1m 20s with every dot filled; Background tasks reads Finished · 7 agents · 432k tokens, each phase N/N.",
       snapshot: paneSnapshot("finished"),
       native,
       workflowLabs: true,

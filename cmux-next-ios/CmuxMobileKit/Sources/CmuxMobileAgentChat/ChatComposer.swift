@@ -1,13 +1,14 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileRealtime
 import CmuxMobileTransport
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, mic, send/stop), attachment previews,
+/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -29,7 +30,13 @@ struct ChatComposer: View {
     var suggestionsCeiling: CGFloat?
     /// A Retry uses the same send path, including queue/steer and draft clearing.
     var retryCount = 0
+    /// The cmux commands this chat offers (`/status`, `/fork`, `/continue`), listed before the
+    /// agent's own, and what runs one when it is sent alone: nil when it ran, else the refusal
+    /// shown over the composer (the draft stays). Empty: none offered.
+    var cmuxCommands: [CmuxSlashCommand] = []
+    var runCmuxCommand: (@MainActor (CmuxSlashCommand, String) async -> String?)?
     @State private var showPhotos = false
+    private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -72,11 +79,13 @@ struct ChatComposer: View {
         .animation(.cmuxMobileSmooth, value: collapsed)
         .animation(.cmuxMobileSnappy, value: attachments)
         .filePreview($preview)
-        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
+        // Photos and videos, as the Mac's composer takes both (a video goes with its frames).
+        .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .any(of: [.images, .videos]))
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
                 attachments += files
+                for file in files { readVideo(file) }
                 if let refused { store.clientError = refused }
             }
         }
@@ -191,7 +200,8 @@ struct ChatComposer: View {
                 refused = "Couldn't read \(url.lastPathComponent)."
                 continue
             }
-            if size > inlineFileBytes {
+            // A video stays by its URL whatever its size: its frames are read from there.
+            if size > inlineFileBytes || AgentVideo.isVideoName(url.lastPathComponent) {
                 files.append(AgentAttachment(kind: .file, name: url.lastPathComponent, fileURL: url, byteCount: size))
                 continue
             }
@@ -238,9 +248,11 @@ struct ChatComposer: View {
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
-                // No mic button: iOS has no API to start keyboard dictation, and the
-                // keyboard's own mic dictates into this field (SPEC open decision).
-                primaryButton
+                // Voice mode instead of a dictation mic (the keyboard's own mic still
+                // dictates into the field): with no draft, the send circle is the voice
+                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                if primaryState == .empty || primaryState == .stop, voice.isAvailable { voiceButton }
+                if primaryState != .empty || !voice.isAvailable { primaryButton }
             }
             .padding(.horizontal, 8)
             .padding(.bottom, collapsed ? 6 : 8)
@@ -252,7 +264,7 @@ struct ChatComposer: View {
     }
 
     private var placeholder: String {
-        placeholderOverride ?? (store.turns.isEmpty ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
+        placeholderOverride ?? (!store.hasTurns ? "Ask \(store.summary.agentName)" : "Reply to \(store.summary.agentName)")
     }
 
     /// Expands the capsule, then focuses the field once it exists.
@@ -306,9 +318,9 @@ struct ChatComposer: View {
                         Label("Permission Mode", systemImage: "lock.shield")
                     }
                 }
-                if !store.availableCommands.isEmpty {
+                if !commands.isEmpty {
                     Menu {
-                        ForEach(store.availableCommands) { command in
+                        ForEach(commands) { command in
                             Button {
                                 text = "/\(command.name) "
                                 focus.wrappedValue = true
@@ -428,6 +440,29 @@ struct ChatComposer: View {
         return hasContent ? .send : .empty
     }
 
+    /// Voice mode on this chat: the agent's words read aloud, the user's
+    /// speech sent as prompts. On while it runs here; a tap ends it.
+    private var voiceButton: some View {
+        let source = AgentChatVoiceSource(store: store)
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(active ? Color.cmuxMobileOnAccent : Color.primary)
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .frame(width: 36, height: 36)
+                .background(active ? Color.cmuxMobileAccent : Color.cmuxMobileFill, in: .circle)
+                .padding(4)
+                .contentShape(.circle)
+                .padding(-4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("agentChat.composer.voice")
+    }
+
     private var primaryButton: some View {
         let state = primaryState
         return Button {
@@ -476,6 +511,20 @@ struct ChatComposer: View {
     }
 
     private func send(steer: Bool) {
+        // A cmux command typed alone runs here, as on the Mac; it is never sent to the agent.
+        // A cmux command is cmux's whether the menu offers it here or not (the Mac's
+        // `composerCommand`): one it can't run now is refused, never sent to the agent.
+        if let run = runCmuxCommand, let parsed = CmuxSlashCommand.parse(text) {
+            let typed = text
+            Task { @MainActor in
+                if let refusal = await run(parsed.command, parsed.args) {
+                    store.clientError = refusal
+                } else if text == typed {
+                    text = ""
+                }
+            }
+            return
+        }
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         text = ""
         attachments = []
@@ -503,11 +552,20 @@ struct ChatComposer: View {
         .scrollIndicators(.hidden)
     }
 
+    /// The cmux commands first, then the agent's, an agent command named as a cmux one left
+    /// out (the Mac's `mergedCommands`: cmux's runs).
+    private var commands: [ACPAvailableCommand] {
+        let own = cmuxCommands.map { ACPAvailableCommand(name: $0.name, description: $0.summary, hint: $0.hint) }
+        let names = Set(cmuxCommands.map(\.name))
+        return own + store.availableCommands.filter { !names.contains($0.name.lowercased()) }
+    }
+
     private var slashMatches: [ACPAvailableCommand] {
         guard text.hasPrefix("/"), !text.contains(" ") else { return [] }
         let query = text.dropFirst().lowercased()
-        let prefix = store.availableCommands.filter { $0.name.lowercased().hasPrefix(query) }
-        return prefix.isEmpty ? store.availableCommands.filter { $0.name.lowercased().contains(query) } : prefix
+        let commands = commands
+        let prefix = commands.filter { $0.name.lowercased().hasPrefix(query) }
+        return prefix.isEmpty ? commands.filter { $0.name.lowercased().contains(query) } : prefix
     }
 
     /// Every matching command, in a list as tall as its rows while they fit between the
@@ -579,8 +637,31 @@ struct ChatComposer: View {
         .padding(.horizontal, 12)
     }
 
+    /// A video file's frames, read off the main thread, put on its chip once read (a send before
+    /// then sends the video as its link alone, as the Mac does after its wait).
+    private func readVideo(_ attachment: AgentAttachment) {
+        guard attachment.kind == .file, attachment.video == nil, AgentVideo.isVideoName(attachment.name),
+              let url = attachment.fileURL else { return }
+        Task { @MainActor in
+            guard let video = await ComposerVideoReader.read(url),
+                  let index = attachments.firstIndex(where: { $0.id == attachment.id }) else { return }
+            attachments[index].video = video
+        }
+    }
+
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
+            if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
+                guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                    store.clientError = String(localized: "Couldn't read the video.")
+                    continue
+                }
+                let size = (try? movie.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                let attachment = AgentAttachment(kind: .file, name: movie.url.lastPathComponent, fileURL: movie.url, byteCount: size)
+                attachments.append(attachment)
+                readVideo(attachment)
+                continue
+            }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
             // HEIC and other formats agents do not accept go over as JPEG.
@@ -608,6 +689,9 @@ struct QueuedPromptsView: View {
 
     var body: some View {
         VStack(spacing: 4) {
+            if store.queuePaused {
+                pausedNote
+            }
             ForEach(Array(store.queue.enumerated()), id: \.element.id) { index, item in
                 row(item)
                     // The agent pane's queue actions (its wording), on a long press.
@@ -662,6 +746,32 @@ struct QueuedPromptsView: View {
         }
     }
 
+    /// The Mac's note over a paused queue (ComposerQueue.tsx): why it waits, and Resume, which
+    /// lets acpmux run the held messages (`_acpmux/queue_edit {op: resume}`).
+    private var pausedNote: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pause.circle.fill").font(.footnote).foregroundStyle(Color.cmuxMobileWarning)
+            Text(pausedText).font(.footnote.weight(.semibold)).lineLimit(2)
+            Spacer(minLength: 4)
+            Button("Resume", systemImage: "play.fill") { store.resumeQueue() }
+                .font(.footnote.weight(.semibold))
+                .buttonStyle(.plain)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("chat.queue.resume")
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 40)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var pausedText: String {
+        if store.queuePauseReason == "stop" { return String(localized: "Paused after Stop") }
+        guard let error = store.turns.last(where: { $0.status == .failed })?.errorText?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !error.isEmpty else { return String(localized: "Paused after an error") }
+        return String(localized: "Paused after an error: \(error)")
+    }
+
     private func row(_ item: QueuedPrompt) -> some View {
         Group {
                 HStack(spacing: 8) {
@@ -712,7 +822,8 @@ struct AttachmentThumb: View {
                         .frame(width: 56, height: 56)
                 } else {
                     HStack(spacing: 8) {
-                        Image(systemName: "doc.text").font(.title3)
+                        Image(systemName: AgentVideo.isVideoName(attachment.name) ? "film" : attachment.isPDF ? "doc.richtext" : "doc.text")
+                            .font(.title3)
                         Text(attachment.name).font(.footnote).lineLimit(2).frame(maxWidth: 110, alignment: .leading)
                     }
                     .padding(.horizontal, 12)

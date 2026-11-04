@@ -24,6 +24,7 @@ import Testing
 }
 
 #if os(iOS)
+import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
 
@@ -170,6 +171,23 @@ import SwiftUI
         #expect(source.tabs.count == count + 1)
     }
 
+    /// User report 2026-11-03: "how can i create a mac screen sharing tab in ios? … i dont see
+    /// screen sharing". Signed in, + offers Screen Sharing; it opens the Macs sheet, asks the
+    /// Mac for no tab and adds none. Signed out (no service), + has no such entry.
+    @Test func plusOffersScreenSharingWhenSignedIn() async throws {
+        let (_, source) = make()
+        #expect(!source.newTabOptions.contains { $0.title == "Screen Sharing" })
+        source.offersScreenSharing = true
+        #expect(source.newTabOptions.last?.title == "Screen Sharing")
+        let count = source.tabs.count
+        _ = await source.createTab(try #require(source.newTabOptions.first { $0.title == "Screen Sharing" }))
+        #expect(source.showingScreenSharing)
+        #expect(source.pendingTabTitle == nil)
+        #expect(source.tabs.count == count)
+        // The palette lists it too, as every + option.
+        #expect(source.paletteActions().contains { $0.id == "new.screen-sharing" })
+    }
+
     /// User report 2026-10-14: no browser tabs from the phone, with no word why (an older
     /// Mac that does not stream them). The entry stays, and a tap says why.
     @Test func aKindTheMacCantOpenStaysWithItsReason() async throws {
@@ -233,6 +251,36 @@ import SwiftUI
         for _ in 0..<100 where source.tabs.first?.id != order[1] { try? await Task.sleep(for: .milliseconds(10)) }
         #expect(source.tabs.first?.id == order[1])
         #expect(source.toastText?.hasPrefix("Couldn't move") == true)
+    }
+
+    /// A page's link that opens a new tab or window (`rb.open_tab`): a browser tab beside the
+    /// page, shown at once (a background tab stays behind with a toast); one the Mac refuses
+    /// says why and gives the page no tab. The browser page menu has Hard Reload and Open in
+    /// Safari only for a page that can do them.
+    @Test func aPageLinkOpensABrowserTabBesideIt() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .zero)
+        let (store, source) = make(backend: backend)
+        let count = source.tabs.count
+        let shown = RemoteBrowserOpenTab(request: 1, url: "https://example.com/next", disposition: .foregroundTab, userGesture: true)
+        let id = try #require(await source.openLinkTab(shown, from: "t-docs"))
+        #expect(source.tabs.count == count + 1)
+        #expect(store.workspace(id: "ws-cmux")?.tabs.last?.url?.absoluteString == "https://example.com/next")
+        #expect(source.activeTabID == id && source.openedTab == id && source.pendingTabTitle == nil)
+
+        source.activate("t-docs")
+        let behind = RemoteBrowserOpenTab(request: 2, url: "https://example.com/b", disposition: .backgroundTab, userGesture: true)
+        let other = try #require(await source.openLinkTab(behind, from: "t-docs"))
+        #expect(source.activeTabID == "t-docs" && other != id && source.toastText == "Opened in a new tab.")
+
+        backend.failNext = "no such pane"
+        #expect(await source.openLinkTab(shown, from: "t-docs") == nil)
+        #expect(source.tabs.count == count + 2)
+        #expect(source.toastText?.hasPrefix("Couldn't") == true)
+
+        let docs = try #require(source.tabs.first { $0.id == "t-docs" })
+        let rows = source.pageMenu(for: docs).flatMap { $0 }.map(\.title)
+        // A local web view (no Mac stream) has no Hard Reload; its web address opens in Safari.
+        #expect(rows.contains("Open in Safari") && !rows.contains("Hard Reload"))
     }
 
     /// Parity round 2: Move Tab to Workspace… and Move Tab to New Workspace (the Mac's titles).
@@ -616,8 +664,10 @@ import SwiftUI
         let kit = try #require(source.tabs.first { $0.id == "t-zsh" })
         let groups = source.pageMenu(for: kit)
         #expect(groups.first?.map(\.title) == ["Files and Links", "Paste"])
-        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces".
-        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Close Tab"]])
+        // Design/terminal P1: Back leaves the workspace, so no "All Workspaces". Command Palette…
+        // (#32570) leads the layout group, which has no Panes, Screens or Send Message here;
+        // Reveal in Workspaces List (the Mac's Reveal Workspace in Sidebar) has its own group.
+        #expect(groups.map { $0.map(\.title) } == [["Files and Links", "Paste"], ["Copy Directory"], ["Command Palette…"], ["Reveal in Workspaces List"], ["Close Tab"]])
         groups.first?.first?.action()
         #expect(content.performed == ["files"])
     }

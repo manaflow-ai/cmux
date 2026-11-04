@@ -75,6 +75,63 @@ static int is_security(const char *path) {
   return strcmp(base ? base + 1 : path, "security") == 0;
 }
 
+extern char **environ;
+
+/* SIP drops DYLD_* when it starts a platform program, and a #! script runs
+   under /bin/sh. A Mac with SIP off keeps it, and those arm64e programs
+   cannot load this arm64 dylib (dyld ends them: "incompatible
+   architecture"), so drop it for them here too; acpmux's own programs keep
+   it on every Mac. No malloc: the exec hooks run in a forked child. */
+static int under(const char *path, const char *dir) {
+  return strncmp(path, dir, strlen(dir)) == 0;
+}
+
+static int sip_strips(const char *path) {
+  if (!path) return 0;
+  if (under(path, "/bin/") || under(path, "/sbin/") || under(path, "/usr/bin/") ||
+      under(path, "/usr/sbin/") || under(path, "/usr/libexec/") || under(path, "/System/"))
+    return 1;
+  char head[2];
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return 0;
+  ssize_t n = read(fd, head, sizeof head);
+  close(fd);
+  return n == 2 && head[0] == '#' && head[1] == '!';
+}
+
+/* `file` found on PATH the way posix_spawnp and execvp find it (in buf). */
+static const char *on_path(const char *file, char *buf, size_t cap) {
+  if (!file || strchr(file, '/')) return file;
+  const char *p = getenv("PATH");
+  while (p && *p) {
+    const char *end = strchr(p, ':');
+    size_t len = end ? (size_t)(end - p) : strlen(p);
+    if (len + strlen(file) + 2 <= cap) {
+      memcpy(buf, p, len);
+      buf[len] = '/';
+      strcpy(buf + len + 1, file);
+      if (access(buf, X_OK) == 0) return buf;
+    }
+    if (!end) break;
+    p = end + 1;
+  }
+  return file;
+}
+
+#define ENV_CAP 1024
+/* envp without DYLD_INSERT_LIBRARIES, in out (ENV_CAP slots); envp itself
+   when it does not fit. */
+static char *const *drop_insert(char *const envp[], char **out) {
+  size_t k = 0;
+  for (size_t i = 0; envp && envp[i]; i++) {
+    if (strncmp(envp[i], "DYLD_INSERT_LIBRARIES=", 22) == 0) continue;
+    if (k + 1 >= ENV_CAP) return envp;
+    out[k++] = envp[i];
+  }
+  out[k] = NULL;
+  return out;
+}
+
 static size_t add(char *line, size_t n, size_t cap, const char *text) {
   while (text && *text && n + 2 < cap) line[n++] = *text++;
   return n;
@@ -102,7 +159,7 @@ __attribute__((constructor)) static void loaded(void) {
   const char *path = getenv("KEYCHAIN_CALL_LOG");
   if (path && strlen(path) < sizeof log_path) strcpy(log_path, path);
   /* Only this process: its children (platform arm64e programs such as
-     /bin/bash) cannot load this arm64 dylib. */
+     /bin/bash) cannot load this arm64 dylib; see sip_strips for the rest. */
   if (getenv("KEYCHAIN_LOG_SELF_ONLY")) unsetenv("DYLD_INSERT_LIBRARIES");
   fake_security = getenv("KEYCHAIN_FAKE_SECURITY") != NULL;
   put("loaded", getprogname(), NULL);
@@ -179,28 +236,41 @@ static int my_posix_spawn(pid_t *pid, const char *path, const posix_spawn_file_a
     const posix_spawnattr_t *at, char *const argv[], char *const envp[]) {
   put("spawn", path, argv);
   if (is_security(path)) return ENOENT;
-  return posix_spawn(pid, path, fa, at, argv, envp);
+  char *env[ENV_CAP];
+  return posix_spawn(pid, path, fa, at, argv, sip_strips(path) ? drop_insert(envp, env) : envp);
 }
 static int my_posix_spawnp(pid_t *pid, const char *file, const posix_spawn_file_actions_t *fa,
     const posix_spawnattr_t *at, char *const argv[], char *const envp[]) {
   put("spawn", file, argv);
   if (is_security(file)) return ENOENT;
-  return posix_spawnp(pid, file, fa, at, argv, envp);
+  char buf[1024], *env[ENV_CAP];
+  char *const *use = sip_strips(on_path(file, buf, sizeof buf)) ? drop_insert(envp, env) : envp;
+  return posix_spawnp(pid, file, fa, at, argv, use);
 }
 static int my_execve(const char *path, char *const argv[], char *const envp[]) {
   put("spawn", path, argv);
   if (is_security(path)) { errno = ENOENT; return -1; }
-  return execve(path, argv, envp);
+  char *env[ENV_CAP];
+  return execve(path, argv, sip_strips(path) ? drop_insert(envp, env) : envp);
 }
+/* execv and execvp read environ: point it at the trimmed copy, and back on failure. */
 static int my_execv(const char *path, char *const argv[]) {
   put("spawn", path, argv);
   if (is_security(path)) { errno = ENOENT; return -1; }
-  return execv(path, argv);
+  char **saved = environ, *env[ENV_CAP];
+  if (sip_strips(path)) environ = (char **)drop_insert(saved, env);
+  int r = execv(path, argv);
+  environ = saved;
+  return r;
 }
 static int my_execvp(const char *file, char *const argv[]) {
   put("spawn", file, argv);
   if (is_security(file)) { errno = ENOENT; return -1; }
-  return execvp(file, argv);
+  char buf[1024], **saved = environ, *env[ENV_CAP];
+  if (sip_strips(on_path(file, buf, sizeof buf))) environ = (char **)drop_insert(saved, env);
+  int r = execvp(file, argv);
+  environ = saved;
+  return r;
 }
 DYLD_INTERPOSE(my_posix_spawn, posix_spawn)
 DYLD_INTERPOSE(my_posix_spawnp, posix_spawnp)

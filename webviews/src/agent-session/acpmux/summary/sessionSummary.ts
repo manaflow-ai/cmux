@@ -19,8 +19,14 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp";
-export type SummarySource = { url?: string; label: string; kind?: SummarySourceKind };
+export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp" | "image";
+/// `image`: a pasted image's id in its prompt, and its bytes when the prompt carried them.
+export type SummarySource = {
+  url?: string;
+  label: string;
+  kind?: SummarySourceKind;
+  image?: { id: string; src?: string };
+};
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -96,6 +102,7 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
 const sourceKey = (source: SummarySource) => {
   const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  if (source.image) return `image:${source.image.id}`;
   return github
     ? `github:${github[1]!.toLowerCase()}/${github[2]!.toLowerCase()}#${github[3]}`
     : `${source.kind ?? "url"}:${source.url ?? source.label}`;
@@ -134,8 +141,8 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
-/// Read-only PR/issue references, tool sources and settled reply URLs in transcript encounter
-/// order; each appears once.
+/// Read-only PR/issue references, tool sources, settled reply URLs and the images the person
+/// pasted into their prompts, in transcript encounter order; each appears once.
 function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullRequest[]): SummarySource[] {
   const seen = new Map<string, { source: SummarySource; order: number; sequence: number }>();
   let sequence = 0;
@@ -179,6 +186,14 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     }
   };
   for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind === "user") {
+      // The person's own sent images only: another agent's or the Chief's prompt is not what they
+      // pasted, and a prompt that failed to send gave the agent nothing.
+      if (!row.untyped && !row.from && !row.failed)
+        for (const image of row.images ?? [])
+          add({ label: image.name ?? "", kind: "image", image: { id: image.id, src: image.src } }, rowIndex);
+      continue;
+    }
     if (row.kind === "assistant") {
       if (!row.streaming) addUrls(row.text ?? "", rowIndex);
       continue;
@@ -236,7 +251,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
-/// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
+/// The pull requests the chat opened.
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
   transcriptPullRequests(rows).filter((pr) => pr.opened && pr.kind !== "issue");
 
@@ -282,12 +297,22 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
 /// The chat's background shells, the ended ones too (the Background tasks panel lists them).
 export const transcriptBackgroundTasks = (rows: readonly AcpmuxRow[]) => backgroundTasks(rows, tools(rows));
 
+/// The background shells and the count of scheduled wakeups in `rows`, from one pass: what Session
+/// Info's Background tasks lists from a transcript (the palette's Show Background Tasks, App.tsx).
+export function transcriptBackground(rows: readonly AcpmuxRow[]): {
+  tasks: SummaryBackgroundTask[];
+  scheduled: number;
+} {
+  const all = tools(rows);
+  return { tasks: backgroundTasks(rows, all), scheduled: scheduled(all).length };
+}
+
 /// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
 export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
   transcriptBackgroundTasks(rows).filter((task) => task.state === "running");
 
 /// What the chat made. With `repository` (the chat folder's `owner/name`, or null when it has
-/// none), the Inspector's Changes: its pull requests include the ones the agent only named in a
+/// none), Session Info's Changes: its pull requests include the ones the agent only named in a
 /// reply, a bare `#N` in that repository among them; without it, only the ones it opened or touched.
 export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string | null, cwd?: string): SessionSummary {
   const producerRevision = transcriptSummaryVersion(rows);

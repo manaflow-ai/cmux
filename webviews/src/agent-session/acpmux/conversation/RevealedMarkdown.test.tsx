@@ -125,6 +125,38 @@ test("the newest words fade in, each word whole", () => {
   expect(container.querySelector(".cv-md")?.textContent?.startsWith("Hello there")).toBe(true);
 });
 
+test("words after a code span, a parenthesis or a line break still fade in", () => {
+  // Leo, 2026-11-03: "hey even u have that text fading in! i want that..." Any Markdown character in
+  // the newest text used to skip its fade.
+  for (const [before, after, fades] of [
+    ["Run `bun test` and", "Run `bun test` and then check the output", "and then check the output"],
+    ["It works (mostly", "It works (mostly and quickly now", "mostly and quickly now"],
+    ["First line.\nSecond", "First line.\nSecond line goes here", "Second line goes here"],
+  ] as const) {
+    root = createRoot(container);
+    render("", true);
+    render(before, true);
+    frames(0, 30);
+    render(after, true);
+    frames(30 * 16, 8);
+    const fresh = [...container.querySelectorAll(".cv-fresh")].map((span) => span.textContent ?? "").join("");
+    expect(fresh.length).toBeGreaterThan(0);
+    // The word held back while the first text waited (StreamReveal.stallMs) fades in first.
+    expect(fades.startsWith(fresh.trim())).toBe(true);
+    act(() => root?.unmount());
+  }
+});
+
+test("text inside an unclosed emphasis draws without a fade (the open run is closed for now, safeTail.ts)", () => {
+  root = createRoot(container);
+  render("", true);
+  render("This is **very", true);
+  frames(0, 30);
+  render("This is **very important stuff here", true);
+  frames(30 * 16, 8);
+  expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
+});
+
 test("fresh text expires with the host fade-in token", () => {
   dom!.window.document.documentElement.style.setProperty("--agent-motion-in", "1000ms");
   root = createRoot(container);
@@ -224,6 +256,102 @@ test("the last word shows once text stops arriving, while the reply still stream
   expect(seen.at(-1)).toBe("Let me check the");
   seen.push(...frames(30 * 16, 60));
   expect(seen.at(-1)).toBe("Let me check the tests.");
+});
+
+/// A stand-in for `prefers-reduced-motion: reduce` that a test turns on and off, as the system
+/// setting does while the app runs.
+function reducedMotionQuery(initial: boolean) {
+  const listeners = new Set<() => void>();
+  const query = {
+    matches: initial,
+    media: "(prefers-reduced-motion: reduce)",
+    addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+  };
+  Object.assign(dom!.window, { matchMedia: () => query });
+  return {
+    listeners,
+    set(on: boolean) {
+      query.matches = on;
+      act(() => {
+        for (const listener of listeners) listener();
+      });
+    },
+  };
+}
+
+/// Display frames whose cancel takes the frame back, as `cancelAnimationFrame` does. `frame(now)`
+/// runs the frames still pending and returns the reply's text.
+function cancellableFrames() {
+  const pending = new Map<number, (now: number) => void>();
+  let handles = 0;
+  revealFrames.request = (callback) => {
+    handles += 1;
+    pending.set(handles, callback);
+    return handles;
+  };
+  revealFrames.cancel = (handle) => void pending.delete(handle);
+  const frame = (now: number) => {
+    const due = [...pending.values()];
+    pending.clear();
+    act(() => {
+      for (const callback of due) callback(now);
+    });
+    return container.querySelector(".cv-md")?.textContent ?? "";
+  };
+  return { pending, frame };
+}
+
+// Reduce Motion turned on while a reply streams: the stylesheet follows at once, and so does the
+// reveal. The row shows all of the reply in that frame, its frame loop stops and no step is left
+// fading; text that arrives later shows whole, as in a row that mounted with Reduce Motion on.
+test("turning Reduce Motion on mid-reply shows the whole reply and stops the reveal", () => {
+  const motion = reducedMotionQuery(false);
+  const { pending, frame } = cancellableFrames();
+  const reply = LONG_REPLY.trim();
+  root = createRoot(container);
+  render("", true);
+  render(reply, true);
+  const paced = [frame(0), frame(16), frame(32)];
+  expect(paced.at(-1)!.length).toBeGreaterThan(0);
+  expect(paced.at(-1)!.length).toBeLessThan(reply.length);
+
+  motion.set(true);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(reply);
+  expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
+  expect(pending.size).toBe(0);
+
+  const more = `${reply} The release went out.`;
+  render(more, true);
+  expect(frame(48)).toBe(more);
+  expect(container.querySelectorAll(".cv-fresh").length).toBe(0);
+  expect(pending.size).toBe(0);
+
+  act(() => root!.unmount());
+  root = undefined;
+  expect(motion.listeners.size).toBe(0);
+});
+
+// Text can render and have its pending frame cancelled before the reveal reads it. Turning Reduce
+// Motion on there shows that text. Turning it off again must pace only what arrives after it,
+// never re-reveal from the reveal's older length: what shows never shrinks.
+test("Reduce Motion on then off before a frame keeps what shows when later text arrives", () => {
+  dom!.window.document.documentElement.dataset.streamWords = "off";
+  const motion = reducedMotionQuery(false);
+  const { frame } = cancellableFrames();
+  root = createRoot(container);
+  render("", true);
+  render("The checks on the merged head", true);
+  frame(0);
+  frame(16);
+  // Rendered, with its frame still pending when Reduce Motion turns on.
+  const shown = `${LONG_REPLY.trim()} and the notes are ready.`;
+  render(shown, true);
+  motion.set(true);
+  expect(container.querySelector(".cv-md")?.textContent).toBe(shown);
+  motion.set(false);
+  render(`${shown} The release went out.`, true);
+  for (let index = 0; index < 20; index++) expect(frame(32 + index * 16).length).toBeGreaterThanOrEqual(shown.length);
 });
 
 test("wordEdge ends at a whole word, keeps what shows, and lets a long word through", () => {

@@ -13,10 +13,14 @@ enum PageMenuCallout {
     }
 
     /// Runs main run loop passes (and lets main-actor jobs run between them) until `done` holds or
-    /// about five seconds pass: a test's main-actor job is not itself a run-loop pass, so a block
-    /// queued on the main run loop runs only in such a pass.
-    @MainActor static func drain(until done: () -> Bool) async {
-        for _ in 0..<500 where !done() {
+    /// `timeout` passes on a `ContinuousClock`: a test's main-actor job is not itself a run-loop pass,
+    /// so a block queued on the main run loop runs only in such a pass. The bound is time, not a pass
+    /// count, so a slow CI host gets the same wall-clock allowance as a fast one; the caller's
+    /// `#expect` on `done` reports a run that never got there.
+    @MainActor static func drain(timeout: Duration = .seconds(5), until done: () -> Bool) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !done(), clock.now < deadline {
             runPass()
             await Task.yield()
         }

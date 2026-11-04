@@ -12,11 +12,14 @@ enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
+        registry.bindEffect("accounts.githubConnect", requires: nil, effect: { _ in
+            try services.settingsWindow.show(section: .accounts)
+            return .applied(result: { await services.accounts.github.connectResult() })
+        })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)
             guard provider.reauthPlan != .none else { throw ActionFailure(message: AccountsAppStrings.nothingToSignIn) }
-            guard services.windows.active?.focusedPane != nil else { throw ActionFailure(message: AccountsAppStrings.noWindow) }
             registry.track(Task { @MainActor [model = services.accounts.model] in await model.performReauthenticate(provider).map { ActionWorkFailure($0) } })
         })
         registry.bind("accounts.connect", run: { invocation in

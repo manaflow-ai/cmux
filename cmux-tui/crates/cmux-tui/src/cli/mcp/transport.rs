@@ -47,7 +47,7 @@ pub(in crate::cli) struct CallFailure {
 }
 
 impl CallFailure {
-    pub(super) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
+    pub(in crate::cli) fn local(kind: FailureKind, code: &str, message: impl Into<String>) -> Self {
         Self {
             kind,
             error: json!({
@@ -109,7 +109,8 @@ pub(super) fn resource(
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     super::super::tab_capabilities::negotiate(&mut reader).map_err(|failure| match failure {
-        resolve::Failure::Resource(error) => {
+        // A local error in the resource shape (a server of another protocol) keeps its code.
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
             CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
         }
         resolve::Failure::Transport(message) => fail(NotRun, "transport.failed", message),
@@ -249,7 +250,7 @@ pub(super) fn session_events(
         return Ok(());
     }
     negotiated.map_err(|failure| match failure {
-        resolve::Failure::Resource(error) => {
+        resolve::Failure::Resource(error) | resolve::Failure::Local { error, .. } => {
             CallFailure { kind: NotRun, error, idempotency_key: None }
         }
         resolve::Failure::Transport(message) => local("transport.failed", message),

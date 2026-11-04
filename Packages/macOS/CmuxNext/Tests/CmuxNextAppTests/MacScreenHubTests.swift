@@ -857,8 +857,31 @@ struct MacScreenHubHostOrderTests {
 /// The host's approval prompt is visible every time, not only the first.
 @MainActor @Suite(.closesItsWindows)
 struct MacScreenApprovalPanelTests {
+    @Test(arguments: [false, true])
+    func settlingTheLastRequestClosesItsPanel(observerFirst: Bool) throws {
+        let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
+        let hub = testHub()
+        let request = SessionRequest(id: "settled", viewerId: "v1", viewerName: "Laptop", scope: .view)
+        prompt.update([request])
+        _ = try #require(prompt.panelFrame)
+        // decide() has removed the request from the hub. Its pending-request observer may
+        // run before the answer's settlement, or afterward; both must close the last panel.
+        if observerFirst { prompt.update(hub.pendingRequests) }
+        prompt.settle(request.id, hub: hub)
+        #expect(prompt.current == nil)
+        #expect(prompt.panelFrame == nil)
+        prompt.update(hub.pendingRequests)
+        #expect(prompt.panelFrame == nil)
+
+        // Closing drops the old panel; a later request still gets a usable replacement.
+        prompt.update([SessionRequest(id: "next", viewerId: "v1", viewerName: "Laptop", scope: .full)])
+        _ = try #require(prompt.panelFrame)
+    }
+
     @Test func everyPromptHasAVisibleFrame() throws {
         let prompt = MacScreenApprovalPrompt()
+        defer { prompt.update([]) }
         let first = SessionRequest(id: "s1", viewerId: "v1", viewerName: "Laptop", viewerKeyFingerprint: String(repeating: "ab", count: 32), scope: .view)
         let second = SessionRequest(id: "s2", viewerId: "v1", viewerName: "Laptop", scope: .full)
         prompt.update([first])
@@ -872,5 +895,68 @@ struct MacScreenApprovalPanelTests {
             if let screen = NSScreen.main ?? NSScreen.screens.first { #expect(screen.frame.intersects(frame)) }
         }
         prompt.update([])
+    }
+}
+
+/// The viewer picks the protocol with its offer: a WebRTC offer (the iPhone's
+/// Screen Sharing viewer) is served by the WebRTC host, never by cmux.rd/1.
+struct MacScreenRdHostRoutingTests {
+    /// Signals the test feeds, and what the host sent back.
+    nonisolated final class FedSignaling: ScreenSignaling, @unchecked Sendable {
+        let signals: [ScreenSignal]
+        private let lock = NSLock()
+        private var sentSignals: [ScreenSignal] = []
+        init(_ signals: [ScreenSignal]) { self.signals = signals }
+        func messages() -> AsyncThrowingStream<ScreenSignal, any Error> {
+            let signals = signals
+            return AsyncThrowingStream { continuation in
+                for signal in signals { continuation.yield(signal) }
+                continuation.finish()
+            }
+        }
+        func send(_ signal: ScreenSignal) async throws { lock.withLock { sentSignals.append(signal) } }
+        func iceServers() async throws -> [ICEServerConfig] { [] }
+        func close() {}
+        var endsSessionOnClose: Bool { true }
+        var sent: [ScreenSignal] { lock.withLock { sentSignals } }
+    }
+
+    nonisolated final class Received: @unchecked Sendable {
+        private let lock = NSLock()
+        private var items: [ScreenSignal] = []
+        func append(_ signal: ScreenSignal) { lock.withLock { items.append(signal) } }
+        var signals: [ScreenSignal] { lock.withLock { items } }
+    }
+
+    private let session = MacScreenRdHost.Session(id: "s1", name: "Studio", viewerID: "v1", viewOnly: false,
+                                                  servers: MacScreenRdServers([]))
+
+    @Test func aWebRTCOfferAndTheSignalsAfterItGoToTheWebRTCHost() async throws {
+        let offer = ScreenSignal.offer("v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\na=fingerprint:sha-256 AB:CD\r\n")
+        let candidate = ScreenSignal.candidate(ScreenICECandidate(candidate: "candidate:1 1 udp 1 10.0.0.2 5000 typ host",
+                                                                  sdpMid: "0", sdpMLineIndex: 0))
+        let received = Received()
+        let host = MacScreenRdHost(session: session) { signaling in
+            for try await signal in signaling.messages() { received.append(signal) }
+        }
+        let signaling = FedSignaling([offer, candidate, .bye])
+        try await host.serve(signaling)
+        #expect(received.signals == [offer, candidate, .bye])
+        #expect(!host.startedProcess, "no cmux.rd/1 host for a WebRTC viewer")
+    }
+
+    @Test func aCmuxRdOfferNeverReachesTheWebRTCHost() async throws {
+        var document = MacScreenRdDocument(key: String(repeating: "ab", count: 32))
+        document.maxFps = 60
+        let received = Received()
+        let host = MacScreenRdHost(session: session) { signaling in
+            for try await signal in signaling.messages() { received.append(signal) }
+        }
+        // No bundled cmux in the test runner: the rd host fails to start instead.
+        let failures = Received()
+        host.onEvent = { event in if case .sourceFailed = event { failures.append(.bye) } }
+        try await host.serve(FedSignaling([.offer(document.text), .bye]))
+        #expect(received.signals.isEmpty)
+        #expect(failures.signals.count == 1)
     }
 }
