@@ -4,9 +4,9 @@
 // question asked and answered (the answered QuestionCard), a plan of three steps, then a thought
 // and five shell steps under "Ran 5 commands", opened, and the prose after them. Drawn through the
 // real transcript (TurnRows.tsx, ToolGroupRow.tsx), so the step bodies and the question and plan
-// cards show here as they change. The arms are the opened group's looks
-// (`data-tool-steps-look`, conversation.css `.cv-steps`): shared (the transcript's default, no step
-// icons and no guide, Leo 2026-11-03), guide (the replaced cmux#32363 look), card, tree and zebra.
+// cards show here as they change. The shipped default is now the compact iOS-style sheet Leo
+// requested on 2026-11-04: each step has a kind icon, concise title and chevron into useful detail.
+// The gallery keeps the previous desktop organization arms for comparison: shared, guide, card, tree and zebra.
 import answeredCollapsed from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/answered-collapsed.json";
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -108,10 +108,10 @@ const openRun: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-steps"), { capMs: 10_000 });
 };
 
-const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra", note: string): AgentPaneVariant => ({
+const variant = (look: "shared" | "guide" | "card" | "tree" | "zebra" | "ios-sheet", note: string): AgentPaneVariant => ({
   note,
   snapshot: chat(turn(), { title: "Stop retrying client errors" }),
-  documentAttributes: { "tool-steps-look": look },
+  ...(look === "ios-sheet" ? {} : { documentAttributes: { "tool-steps-look": look } }),
   play: openRun,
 });
 
@@ -127,9 +127,13 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/toolGroups.ts",
   ],
   variants: {
+    "ios-sheet": variant(
+      "ios-sheet",
+      "Chosen default: a compact grouped sheet with a kind icon, concise step title and chevron into command/output, diff or capture detail.",
+    ),
     shared: variant(
       "shared",
-      "Chosen default, as Claude Code desktop lists a run: the steps under the run's line with no icons and no guide, their words on its text column; the thought's text flush under its label.",
+      "Desktop comparison: steps under the run's line with no icons and no guide, their words on its text column; the thought's text flush under its label.",
     ),
     guide: variant(
       "guide",

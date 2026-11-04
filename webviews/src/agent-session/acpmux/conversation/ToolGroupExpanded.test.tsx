@@ -111,6 +111,9 @@ for (const [kind, toolKind] of GROUP_KINDS.slice(1))
     const container = await render(<ToolGroupRow kind={kind} items={items} disclosureKey={`all-${kind}`} />);
     // One step row per call, each between the group's hairlines (ToolGroupRow.tsx Step).
     expect(container.querySelectorAll(".cv-steps > .cv-step > .cv-tool")).toHaveLength(items.length);
+    // The shipped sheet keeps a kind icon on every step, so readers can scan a mixed run before
+    // opening one row (Leo 2026-11-04, iOS-style grouped tool calls).
+    expect(container.querySelectorAll(".cv-steps > .cv-step > .cv-tool > .cv-tool__icon")).toHaveLength(items.length);
     expect(container.textContent).not.toMatch(/\+\d+ more/);
     for (const item of items) expect(container.textContent).toContain(item.text);
   });

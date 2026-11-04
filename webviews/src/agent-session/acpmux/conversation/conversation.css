@@ -3077,17 +3077,53 @@ button.cv-video-frames__frame:focus-visible {
   /* Where a step's under-line (a thought's text, a cause) starts. */
   --cv-step-text: var(--cv-tool-text-inset);
 }
-/* An opened run's steps draw as Claude Code desktop lists them (Leo, 2026-11-03: "i feel like
-   comparing claude code's to ours, we're not faithfully following how they're doing stuff"): no
-   icon on a step, its words still on the header's text column, and no guide line. The comparison
-   gallery's card/tree/zebra looks keep their own rules; `guide` is the replaced look (cmux#32363):
-   the steps' glyphs and a quiet guide between the icon and text columns, kept inside the
-   transcript row because paint containment clips any outside guide. */
-:root:not([data-tool-steps-look="card"]):not([data-tool-steps-look="tree"]):not([data-tool-steps-look="zebra"]):not([data-tool-steps-look="guide"])
-  .cv-steps
-  > .cv-step
-  > .cv-tool
-  > .cv-tool__icon {
+/* An opened run's steps use the compact iOS-style sheet Leo requested on 2026-11-04: each step
+   keeps its kind glyph, a readable title and a disclosure chevron. The detail stays one click
+   away, while ShellBlock, EditDiff and ToolImages keep the useful command, output tail, diff or
+   capture they already know how to present. The icons are visible in the shipped/default arm;
+   the older icon-free desktop comparison remains available as a gallery arm. */
+.cv-steps {
+  margin: 2px 0 6px;
+  border: var(--cmux-hairline, 0.5px) solid var(--cv-card-ring);
+  border-radius: 12px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--cv-card-fill) 72%, transparent);
+}
+.cv-steps > .cv-step {
+  padding: 4px 12px;
+}
+.cv-steps > .cv-step + .cv-step {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--cv-rule);
+}
+.cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
+  visibility: visible;
+  color: var(--cv-text-muted);
+}
+.cv-steps > .cv-step > .cv-tool {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool > :is(.cv-tool__text, .cv-command__text) {
+  color: var(--cv-text);
+}
+.cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  color: var(--cv-text-muted);
+}
+
+/* The comparison gallery keeps the earlier Claude desktop treatment available without making it
+   the product default. */
+:root[data-tool-steps-look="shared"] .cv-steps {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+:root[data-tool-steps-look="shared"] .cv-steps > .cv-step {
+  padding: 0;
+}
+:root[data-tool-steps-look="shared"] .cv-steps > .cv-step + .cv-step {
+  border-top: 0;
+}
+:root[data-tool-steps-look="shared"] .cv-steps > .cv-step > .cv-tool > .cv-tool__icon {
   visibility: hidden;
 }
 :root[data-tool-steps-look="guide"] .cv-tool-group.is-flat.cv-steps {
@@ -3108,6 +3144,11 @@ button.cv-video-frames__frame:focus-visible {
 .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
   opacity: 0;
   transition: opacity var(--cv-actions-out) var(--cv-actions-ease);
+}
+/* The shipped iOS-style sheet keeps the drill-in affordance visible so every step reads as
+   actionable at a glance. The comparison arms retain their hover-only chevrons below. */
+:root:not([data-tool-steps-look]) .cv-steps > .cv-step > .cv-tool > .cv-tool__chevron {
+  opacity: 1;
 }
 .cv-steps > .cv-step > .cv-tool:is(
   :hover,
