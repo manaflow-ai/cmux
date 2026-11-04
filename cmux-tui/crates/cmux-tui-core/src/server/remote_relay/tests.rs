@@ -120,7 +120,10 @@ fn cloud_mobile_frame_path_is_exact_and_owner_scoped() {
     assert_eq!(malformed["ok"], false);
 
     let context = json!({"id":5, "cmd":"agent-session-context", "surface":1, "op":"get"});
-    assert_eq!(send(&fixture.mux, owner, context.clone())["error_code"], "agent_session.unavailable");
+    assert_eq!(
+        send(&fixture.mux, owner, context.clone())["error_code"],
+        "agent_session.unavailable"
+    );
 
     let teammate = cloud_mobile(&fixture, "inst_teammate", "7");
     assert!(!fixture.mux.cloud_mobile_client(teammate));

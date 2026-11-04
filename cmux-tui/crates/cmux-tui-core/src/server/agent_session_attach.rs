@@ -17,8 +17,6 @@ use serde_json::{Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
-#[path = "agent_session_context.rs"]
-mod context;
 #[path = "agent_session_folders.rs"]
 mod agent_session_folders;
 #[path = "agent_session_link.rs"]
@@ -29,6 +27,8 @@ pub(super) mod agent_session_observe;
 pub(super) mod agent_session_start;
 #[path = "agent_session_trust.rs"]
 mod agent_session_trust;
+#[path = "agent_session_context.rs"]
+mod context;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
 use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};

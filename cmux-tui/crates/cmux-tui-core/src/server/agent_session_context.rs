@@ -6,8 +6,15 @@ use super::*;
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "lowercase", deny_unknown_fields)]
 pub(super) enum Params {
-    Get { surface: SurfaceId },
-    Set { surface: SurfaceId, scope: Scope, #[serde(default)] text: Option<String> },
+    Get {
+        surface: SurfaceId,
+    },
+    Set {
+        surface: SurfaceId,
+        scope: Scope,
+        #[serde(default)]
+        text: Option<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -35,7 +42,10 @@ pub(super) fn call(attachment: &Attachment, params: Params) -> Result<Value, Ref
                 Scope::Project => "project",
             };
             // acpmux derives the project directory from this session's metadata.
-            ("_acpmux/context_override", json!({"sessionId": session, "scope": scope, "text": text}))
+            (
+                "_acpmux/context_override",
+                json!({"sessionId": session, "scope": scope, "text": text}),
+            )
         }
     };
     attachment.link.call(method, params, CALL_TIMEOUT).map_err(Refusal::of)

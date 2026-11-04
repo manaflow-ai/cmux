@@ -37,11 +37,15 @@ fn session_context_reads_and_overrides_are_pinned_to_the_attachment() {
         if reply["ok"] != true {
             continue;
         }
-        assert_eq!(reply["data"], json!({
-            "sessionId":SESSION,
-            "parts":[{"source":"cmux", "text":"Read early.", "tokens":3}],
-            "overrides":{"scope":params["scope"], "text":params["text"]},
-        }), "the inventory is forwarded unchanged");
+        assert_eq!(
+            reply["data"],
+            json!({
+                "sessionId":SESSION,
+                "parts":[{"source":"cmux", "text":"Read early.", "tokens":3}],
+                "overrides":{"scope":params["scope"], "text":params["text"]},
+            }),
+            "the inventory is forwarded unchanged"
+        );
         let sent = fake.frame();
         assert_eq!(sent["method"], method);
         assert_eq!(sent["params"], params);
@@ -50,11 +54,15 @@ fn session_context_reads_and_overrides_are_pinned_to_the_attachment() {
     eprintln!("Context owner operations: {passed}/4");
     assert_eq!(passed, 4, "read, user edit, project edit and reset must all reach acpmux");
     assert_code(
-        &client.request(json!({"cmd":"agent-session-context", "surface":surface + 1000, "op":"get"})),
+        &client
+            .request(json!({"cmd":"agent-session-context", "surface":surface + 1000, "op":"get"})),
         "agent_session.not_attached",
     );
-    for extra in [json!({"sessionId":"other"}), json!({"cwd":"/another-project"}),
-                  json!({"_meta":{"origin":"local"}})] {
+    for extra in [
+        json!({"sessionId":"other"}),
+        json!({"cwd":"/another-project"}),
+        json!({"_meta":{"origin":"local"}}),
+    ] {
         let mut frame = json!({"cmd":"agent-session-context", "surface":surface, "op":"set",
                               "scope":"project", "text":"elsewhere"});
         frame.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
