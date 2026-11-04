@@ -59,6 +59,12 @@ pub struct Race {
     /// This is derived by the server from connection proof, never a request body field.
     #[serde(default)]
     pub owner_authorized: bool,
+    /// Cleanup remains retryable after a crash until every owned child is stopped.
+    #[serde(default)]
+    pub cleanup_pending: bool,
+    /// The reviewer session remains in the record for attribution after it is stopped.
+    #[serde(default)]
+    pub reviewer_cleanup_done: bool,
 }
 
 impl Race {
@@ -100,6 +106,31 @@ impl Hub {
                 change(race);
                 race.updated_at = now_ms();
             }
+            race.clone()
+        };
+        self.save_meta_answered(parent)?;
+        self.append(parent, "mux", "race", json!(race));
+        Ok(race)
+    }
+
+    /// Persist cleanup progress for a race whose public state remains `reviewing`
+    /// or `cancelled`. Unlike `race_update`, this intentionally also updates an
+    /// inactive race so a restart can resume exactly where a stop left off.
+    fn race_progress(
+        &self,
+        parent: &Session,
+        id: &str,
+        change: impl FnOnce(&mut Race),
+    ) -> Result<Race, RpcError> {
+        let race = {
+            let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let races = Arc::make_mut(&mut meta.races);
+            let race = races
+                .iter_mut()
+                .find(|r| r.id == id)
+                .ok_or_else(|| RpcError::invalid_params("race not found"))?;
+            change(race);
+            race.updated_at = now_ms();
             race.clone()
         };
         self.save_meta_answered(parent)?;
@@ -163,6 +194,8 @@ impl Hub {
             updated_at: now,
             local,
             owner_authorized,
+            cleanup_pending: false,
+            reviewer_cleanup_done: false,
         };
         {
             let mut meta = parent.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -181,7 +214,7 @@ impl Hub {
             let ids = parent.read_meta(|m| {
                 m.races
                     .iter()
-                    .filter(|r| r.active() || r.state == "cancelled")
+                    .filter(|r| race_needs_resume(r))
                     .map(|r| r.id.clone())
                     .collect::<Vec<_>>()
             });
@@ -242,6 +275,7 @@ impl Hub {
                 worktree: true,
                 local: race.local,
                 owner_authorized_race: race.owner_authorized,
+                race_id: Some(race.id.clone()),
                 ..Default::default()
             },
         ))
@@ -261,7 +295,13 @@ impl Hub {
         let mut events = self.subscribe(); // Before any start or state read; no missed completion.
         let race = self.race_get(parent, id)?;
         if race.state == "cancelled" {
-            self.race_cancel(parent, id).await?;
+            if race.cleanup_pending {
+                self.race_cancel(parent, id).await?;
+            }
+            return Ok(());
+        }
+        if race.state == "reviewing" && race.cleanup_pending && race.winner_id.is_some() {
+            self.finish_review_cleanup(parent, id).await?;
             return Ok(());
         }
         if !race.active() {
@@ -273,10 +313,18 @@ impl Hub {
                     let result = if recover {
                         self.race_child(parent, race, &c.id).map(|child| {
                             let turn = child.turn().map(|t| t.turn_id).or_else(|| child.read_meta(|m| m.last_turn.as_ref().and_then(|t| t["turnId"].as_str()).map(str::to_owned)));
+                            let after = child.meta().last_seq.saturating_sub(512);
+                            let events = self.events(&child.id, after, 512).unwrap_or_default();
+                            if !recovery_prompt_accepted(turn.as_deref(), child.queued() != 0, &events) {
+                                return Err(RpcError::internal(
+                                    "daemon restarted before this candidate prompt was accepted; worktree retained",
+                                ));
+                            }
                             let base = child.read_meta(|m| m.git_head.clone());
-                            (child, json!({"turnId": turn, "worktree": {"base": base}}))
+                            Ok((child, json!({"turnId": turn, "worktree": {"base": base}})))
                         }).ok_or_else(||
                             RpcError::internal("daemon restarted before this candidate start was recorded; no duplicate was started"))
+                        .and_then(|result| result)
                     } else {
                         self.race_launch(parent, &race, &c.id, &c.target, format!(
                             "{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.", race.prompt)).await
@@ -422,24 +470,19 @@ impl Hub {
                 }
                 let reply = self.last_reply_unbounded(&reviewer).unwrap_or_default();
                 let (winner, reason) = verdict(&race, &reply)?;
-                // Stop losers first. A cleanup failure never reports the race as completed.
-                for candidate in &race.candidates {
-                    if candidate.id != winner {
-                        if let Some(child_id) = candidate.session_id.as_deref() {
-                            let child = self.race_owned_child(parent, Some(child_id))?;
-                            self.subsession_stop(&child, true).await?;
-                        }
+                // Persist the verdict before closing anything. A crash during cleanup can then
+                // resume with the winner and reason instead of restoring an ambiguous review.
+                let intent = self.race_update(parent, id, |r| {
+                    if r.active() {
+                        r.winner_id = Some(winner.clone());
+                        r.reason = Some(reason.clone());
+                        r.cleanup_pending = true;
                     }
-                }
-                self.subsession_stop(&reviewer, true).await?;
-                // Cancellation can win while the loser/reviewer cleanup awaits. Re-read the
-                // durable state before recording a winner, and keep the transition guarded in
-                // the same lock as race cancellation.
-                let current = self.race_get(parent, id)?;
-                if !current.active() {
+                })?;
+                if !intent.active() {
                     return Ok(());
                 }
-                self.race_update(parent, id, |r| complete_race(r, &winner, &reason))?;
+                self.finish_review_cleanup(parent, id).await?;
                 return Ok(());
             }
             wait_transition(&mut events, &parent.id).await?;
@@ -456,6 +499,53 @@ impl Hub {
             return Err(RpcError::invalid_params("race child no longer belongs to its parent"));
         }
         Ok(child)
+    }
+
+    async fn finish_review_cleanup(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        id: &str,
+    ) -> Result<(), RpcError> {
+        let race = self.race_get(parent, id)?;
+        let Some(winner) = race.winner_id.clone() else {
+            return Err(RpcError::internal("race cleanup has no persisted winner"));
+        };
+        if race.state == "cancelled" {
+            return Ok(());
+        }
+        if race.state != "reviewing" || !race.cleanup_pending {
+            return Ok(());
+        }
+        for candidate in &race.candidates {
+            if candidate.id == winner || candidate.state == "discarded" {
+                continue;
+            }
+            if let Some(child_id) = candidate.session_id.as_deref() {
+                let child = self.race_owned_child(parent, Some(child_id))?;
+                self.subsession_stop(&child, true).await?;
+            } else if let Some(child) = self.race_child(parent, &race, &candidate.id) {
+                self.subsession_stop(&child, true).await?;
+            }
+            let candidate_id = candidate.id.clone();
+            self.race_progress(parent, id, |r| {
+                if let Some(candidate) = r.candidates.iter_mut().find(|c| c.id == candidate_id) {
+                    candidate.state = "discarded".into();
+                }
+            })?;
+        }
+        let race = self.race_get(parent, id)?;
+        if !race.reviewer_cleanup_done {
+            if let Some(reviewer_id) = race.reviewer_session_id.as_deref() {
+                let reviewer = self.race_owned_child(parent, Some(reviewer_id))?;
+                self.subsession_stop(&reviewer, true).await?;
+            } else if let Some(reviewer) = self.race_child(parent, &race, "review") {
+                self.subsession_stop(&reviewer, true).await?;
+            }
+            self.race_progress(parent, id, |r| r.reviewer_cleanup_done = true)?;
+        }
+        let reason = race.reason.clone().unwrap_or_default();
+        self.race_progress(parent, id, |r| complete_race(r, &winner, &reason))?;
+        Ok(())
     }
 
     pub async fn race_cancel(
@@ -475,13 +565,14 @@ impl Hub {
             if race.state != "completed" && race.state != "cancelled" {
                 race.state = "cancelled".into();
                 race.reason = Some("Cancelled; worktrees retained for recovery".into());
+                race.cleanup_pending = true;
                 race.updated_at = now_ms();
             }
             race.clone()
         };
         self.save_meta_answered(parent)?;
         self.append(parent, "mux", "race", json!(race));
-        if race.state == "cancelled" {
+        if race.state == "cancelled" && race.cleanup_pending {
             for candidate in
                 race.candidates.iter().map(|c| c.id.as_str()).chain(std::iter::once("review"))
             {
@@ -498,17 +589,42 @@ impl Hub {
                 let child = self.race_owned_child(parent, Some(child_id))?;
                 self.subsession_stop(&child, true).await?;
             }
+            let race = self.race_progress(parent, id, |r| r.cleanup_pending = false)?;
+            return Ok(json!(race));
         }
         Ok(json!(race))
     }
 }
 
 fn fail_race(race: &mut Race, error: &str) {
-    if !race.active() {
+    if !race.active() || race.cleanup_pending {
         return;
     }
     race.state = "failed".into();
     race.reason = Some(crate::secret_scan::mask(error));
+}
+
+fn race_needs_resume(race: &Race) -> bool {
+    race.active() || (race.state == "cancelled" && race.cleanup_pending)
+}
+
+fn recovery_prompt_accepted(
+    turn_id: Option<&str>,
+    queued: bool,
+    events: &[crate::store::EventRecord],
+) -> bool {
+    turn_id.is_some()
+        || queued
+        || events
+            .iter()
+            .rev()
+            .find(|event| {
+                matches!(
+                    event.kind.as_str(),
+                    "queued" | "turn_started" | "dequeued" | "queue_removed"
+                )
+            })
+            .is_some_and(|event| event.kind == "queued" || event.kind == "turn_started")
 }
 
 fn complete_race(race: &mut Race, winner: &str, reason: &str) {
@@ -516,6 +632,7 @@ fn complete_race(race: &mut Race, winner: &str, reason: &str) {
         return;
     }
     race.state = "completed".into();
+    race.cleanup_pending = false;
     race.winner_id = Some(winner.to_owned());
     race.reason = Some(reason.to_owned());
     for candidate in &mut race.candidates {
@@ -755,5 +872,30 @@ mod tests {
         fail_race(&mut cancelled, "review failed");
         assert_eq!(cancelled.state, "cancelled");
         assert_eq!(cancelled.reason, None);
+    }
+
+    #[test]
+    fn restart_resumes_only_unfinished_cancellation_cleanup() {
+        let mut historical = race();
+        historical.state = "cancelled".into();
+        assert!(!race_needs_resume(&historical));
+        historical.cleanup_pending = true;
+        assert!(race_needs_resume(&historical));
+    }
+
+    #[test]
+    fn restart_requires_an_accepted_or_queued_prompt() {
+        assert!(!recovery_prompt_accepted(None, false, &[]));
+        assert!(recovery_prompt_accepted(Some("turn"), false, &[]));
+        assert!(recovery_prompt_accepted(None, true, &[]));
+        let queued = crate::store::EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: "queued".into(),
+            msg: json!({}),
+            host_seq: None,
+        };
+        assert!(recovery_prompt_accepted(None, false, &[queued]));
     }
 }

@@ -1264,14 +1264,17 @@ mod reply_tests {
             }))
             .unwrap(),
         );
-        let update = |text: &str| {
+        hub.save_meta(&session);
+        let mut chunk_id = 0u64;
+        let mut update = |text: &str| {
+            chunk_id += 1;
             hub.append(
                 &session,
                 "in",
                 "agent_message_chunk",
                 json!({
                     "method": method::SESSION_UPDATE,
-                    "params": {"update": {"content": {"text": text}}}
+                    "params": {"update": {"content": {"text": text}, "chunkId": chunk_id}}
                 }),
             );
         };
