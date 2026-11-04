@@ -50,7 +50,7 @@ none of the pane's fill on the line (no fill).
 Dividers (pair C): the fixture's divider band shows the shell, so the film never shows a divider layer; a film
 "divider" (the middle of the two content edges beside it) would only restate those edges, so none is derived. Each
 trace divider is judged from the trace: its rect's centre against the middle of the gap between the two panes it
-separates (any pane row, a closing one too), per sample; 1 px or more off is the finding "divider rect not centred on its
+separates (any pane row, and the S3d `closing` grounds), per sample; 1 px or more off is the finding "divider rect not centred on its
 panes' gap", with its samples. The drag cue (below) stays information on the pane sides.
 Tab strips (the note's strip rows): the strip's two edges against the pane's edges, each read inside the pane's own
 rect of the shown sample and 48 pt around it (a strip that lags its pane): a neighbour's strip that touches it with no
@@ -181,6 +181,12 @@ class Film:
         raw = sorted(((t0 + float(x.get("t", 0.0)) / 1000.0, x.get("page") or []) for x in trace.get("samples") or []
                       if isinstance(x, dict)), key=lambda e: e[0])
         self.page_rows = [rows for _, rows in raw] if len(raw) == len(self.samples) else [[] for _ in self.samples]
+        # Closing grounds per sample (S3d `closing`: [pane, x, y, width, height, alpha, z] per shown closing ground; the S3
+        # sampler skips a host that shows one, so its pane is not in `panes`), in the samples' order.
+        closing = sorted(((t0 + float(x.get("t", 0.0)) / 1000.0, [r for r in x.get("closing") or []
+                                                                   if isinstance(r, list) and len(r) >= 5])
+                          for x in trace.get("samples") or [] if isinstance(x, dict)), key=lambda e: e[0])
+        self.closing_rows = [rows for _, rows in closing] if len(closing) == len(self.samples) else [[] for _ in self.samples]
         frame = self.note.get("window_frame") or ((meta.get("window") or {}).get("frame"))
         self.window_x = float(frame[0]) if frame else None
         self.strip_rows = {str(k): int(v) for k, v in ((self.note.get("lines") or {}).get("strip_rows") or {}).items()}
@@ -1102,10 +1108,11 @@ def judge_inside(film, shown, inside, rest_frames, summary, add_frame):
             shell_in_max_px=round(shell_max, 1), no_fill_frames=len(no_fill), no_fill_ranges=ranges(no_fill))
 
 
-def divider_panes(sample, rect, axis):
+def divider_panes(sample, rect, axis, closing=()):
     """(left, right): the two panes trace divider RECT separates in SAMPLE, as (pane id, edge in points), or None on a
-    side with no pane. Any pane row counts, a closing one too (with S3 a closing pane keeps its rect in its slot during
-    the close, beside its own divider; frame-owner-s3b), fixture or not, faded or not. A pane shares part of the
+    side with no pane. Any pane row counts, and each row of CLOSING (the sample's S3d `closing` grounds: with S3 a closing
+    pane keeps its ground in its slot during the close, beside its own divider, and the sampler records it there, not in
+    `panes`; frame-owner-s3b), fixture or not, faded or not. A pane shares part of the
     divider's extent across it; on the lo side, a pane that starts before the divider's centre and ends within
     DIVIDER_NEAR_PT of the rect; on the hi side, one that ends after the centre and starts within DIVIDER_NEAR_PT of it.
     On each side the pane whose edge is nearest the centre: the one beside the divider, not the next one past it."""
@@ -1113,7 +1120,7 @@ def divider_panes(sample, rect, axis):
     lo, hi, c0, c1 = (x, x + w, y, y + h) if axis == "row" else (y, y + h, x, x + w)
     centre = (lo + hi) / 2
     left = right = None
-    for pid, row in sample.panes.items():
+    for pid, row in list(sample.panes.items()) + [(r[0], r) for r in closing]:
         if len(row) < 5 or float(row[3]) <= 0 or float(row[4]) <= 0:
             continue
         (px_, py_, pw_, ph_), _ = pane_rect(row)
@@ -1138,12 +1145,13 @@ def judge_divider_rects(film, dividers, summary):
     (what "divider rect", line "trace", side "mid"; its off spans are samples), labelled by its panes at the last
     sample judged."""
     s = film.scale
+    closing = getattr(film, "closing_rows", None) or []  # S3d grounds per sample (a film without the key: none)
     for did, (axis, centres, rects) in sorted(dividers.items(), key=lambda kv: str(kv[0])):
         per, pair = {}, None
         for k, rect in enumerate(rects):
             if rect is None:
                 continue
-            left, right = divider_panes(film.samples[k], rect, axis)
+            left, right = divider_panes(film.samples[k], rect, axis, closing[k] if k < len(closing) else ())
             if left is None or right is None:
                 continue
             per[k] = {"dev": round(centres[k] - (left[1] + right[1]) / 2 * s, 2), "lag": None}
