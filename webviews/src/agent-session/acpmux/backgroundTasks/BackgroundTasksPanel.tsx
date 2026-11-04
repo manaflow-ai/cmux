@@ -105,8 +105,10 @@ export function BackgroundTasksPanel({
   workflow?: WorkflowReads;
   onStop?(target: StopTarget): Promise<unknown>;
   onClearFinished(ids: string[]): void;
-  onExpand(): void;
-  onClose(): void;
+  /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+  onExpand?(): void;
+  /// Unset (its own tab, which the tab's own close closes), no Close button and Escape closes nothing.
+  onClose?(): void;
   /// A started chat's row opens that chat; unset leaves it plain text.
   onOpenSession?(sessionId: string): void;
   /// A command's row opens its terminal; unset leaves it plain text.
@@ -317,8 +319,8 @@ function PanelFrame({
   backLabel?: string;
   clear?: () => void;
   expanded: boolean;
-  onExpand(): void;
-  onClose(): void;
+  onExpand?(): void;
+  onClose?(): void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -331,10 +333,10 @@ function PanelFrame({
       data-expanded={expanded || undefined}
       // ui-allow: Escape steps back out of a transcript, else closes the panel
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return;
+        if (event.key !== "Escape" || event.defaultPrevented || !(back || onClose)) return;
         event.preventDefault();
         if (back) back();
-        else onClose();
+        else onClose?.();
       }}
     >
       <header className="acpmux-bg__head">
@@ -356,25 +358,29 @@ function PanelFrame({
               <Icon name="action.delete" size={14} />
             </button>
           )}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={expandLabel}
-            title={expandLabel}
-            aria-pressed={expanded}
-            onClick={onExpand}
-          >
-            <Expand size={14} />
-          </button>
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("backgroundTasks.close")}
-            title={t("backgroundTasks.close")}
-            onClick={onClose}
-          >
-            <Close size={14} />
-          </button>
+          {onExpand && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={expandLabel}
+              title={expandLabel}
+              aria-pressed={expanded}
+              onClick={onExpand}
+            >
+              <Expand size={14} />
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("backgroundTasks.close")}
+              title={t("backgroundTasks.close")}
+              onClick={onClose}
+            >
+              <Close size={14} />
+            </button>
+          )}
         </span>
       </header>
       {children}

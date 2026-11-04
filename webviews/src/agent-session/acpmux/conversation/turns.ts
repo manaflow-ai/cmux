@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { TURN_RETRY, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
@@ -1061,6 +1061,8 @@ const staysOut = (row: AcpmuxRow) =>
   // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
   // see it happened.
   row.kind === "failover" ||
+  // A recap is about the whole chat, not the turn above it.
+  row.kind === "recap" ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
@@ -1128,6 +1130,39 @@ function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
 /// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
 /// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
 function liveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  clockOffset: number,
+  liveRuns = false,
+  sessionStatus = false,
+  lineBelow = false,
+  trayAgents = 0,
+): AcpmuxRow[] {
+  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow, trayAgents));
+}
+
+/// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
+/// while its harness retries a failed model request the line says the model cannot be reached,
+/// never "Thinking" (Leo, 2026-11-03, on "Thinking 7m 49s" for a chat whose model gateway was down:
+/// "i feel like this mac session just keeps "thinking""). Once the model answers, the time the
+/// retries took leaves the line's "Thinking" clock, which before the first output times the turn
+/// from its prompt. A fresh line object, so the memoized row draws again.
+export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
+  const retryRow = turn.find((row) => row.id === TURN_RETRY);
+  if (!retryRow?.retry && !retryRow?.retriedMs) return shaped;
+  const at = shaped.length - 1;
+  const line = shaped[at];
+  if (line?.kind !== THINKING) return shaped;
+  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
+  const next: AcpmuxRow = {
+    ...line,
+    ...(retryRow.retry && { retry: retryRow.retry }),
+    ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
+  };
+  return [...shaped.slice(0, at), next];
+}
+
+function shapeLiveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
   clockOffset: number,
