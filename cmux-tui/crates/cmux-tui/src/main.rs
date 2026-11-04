@@ -1885,6 +1885,12 @@ fn run_main() {
         crate::client_log::stderr_log!("startup", "{BIN}: {error}");
         client_log::exit(1);
     }
+    // `cmux rd serve|connect`: Mac Screen sessions on the cmux.rd/1 engine, which the app
+    // starts from its bundled bin/cmux (plans/cmux-next/remote-desktop-mac-host.md).
+    #[cfg(target_os = "macos")]
+    if raw_args.first().map(String::as_str) == Some("rd") {
+        client_log::exit(cmux_rd_host::run_cli(&raw_args[1..]));
+    }
     if remote_cli::is_remote_invocation(&raw_args) {
         discard_provider_secret_environment();
         client_log::exit(remote_cli::run(&raw_args, &usage(), config::StartupConfigSnapshot::load));

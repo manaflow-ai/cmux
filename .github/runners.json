@@ -242,6 +242,8 @@
       "reads no picker output and so waits on one fixed label (scripts/ci/runner_routing_table.py). All three",
       "lists only shrink."
     ],
+    "pr-red-checks-comment.yml#comment": "portable-checks",
+    "ci-guards.yml#guard-status": "portable-checks",
     "pr-checks.yml#size": "portable-checks",
     "pr-checks.yml#ui-review": "portable-checks",
     "pr-checks.yml#split": "portable-checks",
@@ -595,6 +597,8 @@
       "Secretless placement bootstraps are admitted as light jobs so their short runner-state read cannot queue behind the paid overflow.",
       "They fail open to the workflow's existing hosted or Blacksmith fallback when CI_RUNNER_STATE is stale or unavailable."
     ],
+    "pr-red-checks-comment.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
+    "ci-guards.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap after guard completion"},
     "pr-checks.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
     "cmux-next-fast-gates.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"},
     "web-validation.yml#portable-placement": {"class": "portable-checks", "reason": "runner-state placement bootstrap"}
