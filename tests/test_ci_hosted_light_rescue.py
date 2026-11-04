@@ -100,7 +100,7 @@ class Scope(unittest.TestCase):
     def test_declared_workflows_come_from_both_key_forms_and_skip_the_nightly(self):
         runners = {"hosted_light_jobs": {"$comment": ["x"], "pr-checks.yml#size": {}, "pr-checks.yml#ui-review": {},
                                          "ci.yml#changes": {}, "fast-checks.yml:admit": {}, "nightly.yml#decide": {}}}
-        self.assertEqual(rescue.declared_workflows(runners), ["ci.yml", "fast-checks.yml", "pr-checks.yml"])
+        self.assertEqual(rescue.declared_workflows(runners), ["ci.yml", "pr-checks.yml"])
         self.assertEqual(rescue.declared_workflows({}), [])
 
     def test_the_repository_declaration_scopes_real_workflow_files(self):

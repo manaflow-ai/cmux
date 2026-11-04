@@ -77,11 +77,19 @@ def parse_time(value: object) -> dt.datetime | None:
 
 
 def declared_workflows(runners: Mapping[str, Any]) -> list[str]:
-    """Workflow files with a hosted light job: `file.yml#job` (feat) or `file.yml:job` (main) keys."""
+    """PR-triggered workflow files with a hosted light job.
+
+    A colon key (the main-branch ``file.yml:job`` form) can describe a
+    workflow_dispatch admission such as fast-checks. Those runs test an
+    explicit snapshot input rather than a pull-request head, so this PR-only
+    rescue cannot prove current-head provenance and excludes them. The
+    declaration remains available to the runner policy and its own failover.
+    """
     table = runners.get("hosted_light_jobs")
     if not isinstance(table, Mapping):
         return []
-    files = {re.split(r"[#:]", str(key), maxsplit=1)[0] for key in table if not str(key).startswith("$")}
+    files = {str(key).split("#", 1)[0] for key in table
+             if not str(key).startswith("$") and "#" in str(key)}
     return sorted(name for name in files if name.endswith((".yml", ".yaml")) and name not in EXCLUDED_WORKFLOWS)
 
 

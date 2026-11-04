@@ -32,6 +32,9 @@ jobs:
       - name: Check out trusted rescue code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Keep the Actions-write caller on a reviewed, immutable rescue source.
+          # Update this SHA with the trusted main source when this workflow changes.
+          ref: f3c8696591352b55b995c90d339a98de54a3c0b4
           persist-credentials: false
 
       # Only the existing owned-pool-sweeper concurrency group mutates runs.
