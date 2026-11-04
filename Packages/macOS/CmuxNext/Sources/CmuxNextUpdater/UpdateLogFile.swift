@@ -9,9 +9,11 @@ public import Foundation
 /// "i only clicked the download button and it allegedly updated but i didnt restart the app").
 ///
 /// Lines are written in order on one files lane of ``BackgroundWork`` (one priority, so one serial
-/// queue), never on the caller's thread, and quit waits for them (``ShutdownBehavior/blockShutdown``):
-/// the lines just before an install's quit are the ones that matter. Past ``rotateBytes`` the file
-/// moves to `<name>.1`, replacing the older one, so the two stay under twice that.
+/// queue), never on the caller's thread. The lines just before an install's quit matter most, and
+/// Sparkle's quit does not wait for the lane, so they run at ``WorkPriority/userVisible`` (written
+/// within milliseconds, well before the quit's own steps end) and are marked
+/// ``ShutdownBehavior/blockShutdown`` for any quit that does drain the lanes. Past ``rotateBytes``
+/// the file moves to `<name>.1`, replacing the older one, so the two stay under twice that.
 nonisolated public struct UpdateLogFile: Sendable {
     /// The log file.
     public let url: URL
@@ -47,7 +49,7 @@ nonisolated public struct UpdateLogFile: Sendable {
         let stamp = date.formatted(.iso8601.year().month().day().time(includingFractionalSeconds: true).timeZone(separator: .omitted))
         let line = Data("\(stamp) [\(ProcessInfo.processInfo.processIdentifier)] \(message)\n".utf8)
         let url = url
-        work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { Self.append(line, to: url) }
+        work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { Self.append(line, to: url) }
     }
 
     /// Appends `line` to `url`, rotating first when the file is past ``rotateBytes``. A failure drops
