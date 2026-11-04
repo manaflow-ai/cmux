@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { TaskGoal } from "./goal";
 import { useT } from "./i18n";
+import { Expand, PauseCircle, PlayTriangle } from "./conversation/icons";
+import { formatDuration } from "./conversation/turns";
+import { useNow } from "./subagents/SubagentGroup";
+import "./TaskGoalStrip.css";
 
 /** The harness's goal stays visible between turns and after reopening the chat. */
 export function TaskGoalStrip({
@@ -8,12 +12,29 @@ export function TaskGoalStrip({
   command,
 }: {
   goal: TaskGoal;
-  command(action: "pause" | "resume" | "clear"): Promise<unknown>;
+  command(action: "pause" | "resume" | "delete"): Promise<unknown>;
 }) {
   const t = useT();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
-  const run = async (action: "pause" | "resume" | "clear") => {
+  const [expanded, setExpanded] = useState(false);
+  const live = goal.status === "running" || goal.status === "active";
+  const now = useNow(live);
+  const start = goal.startedAt;
+  const elapsed =
+    goal.elapsedMs ??
+    (start !== undefined
+      ? Math.max(0, (goal.endedAt ?? (live ? now : goal.updatedAt ?? now)) - start)
+      : undefined);
+  const status =
+    goal.status === "running" || goal.status === "active"
+      ? t("goal.active")
+      : goal.status === "done" || goal.status === "complete"
+        ? t("goal.complete")
+        : goal.status === "paused"
+          ? t("goal.paused")
+          : t("goal.blocked");
+  const run = async (action: "pause" | "resume" | "delete") => {
     if (pending) return;
     setPending(true);
     setError(undefined);
@@ -26,9 +47,18 @@ export function TaskGoalStrip({
     }
   };
   return (
-    <section className="acpmux-goal" data-state={goal.status} aria-label={t("goal.label")} aria-busy={pending}>
+    <section
+      className="acpmux-goal"
+      data-state={goal.status}
+      data-provider={goal.provider}
+      aria-label={t("goal.label")}
+      aria-busy={pending}
+    >
+      <span className="acpmux-goal-mark" aria-hidden="true">
+        <span>◎</span>
+      </span>
       <span className="acpmux-goal-copy">
-        <span className="acpmux-goal-state">{t(`goal.${goal.status}`)}</span>
+        <span className="acpmux-goal-state">{status}</span>
         <span className="acpmux-goal-objective" title={goal.objective}>
           {goal.objective}
         </span>
@@ -38,18 +68,56 @@ export function TaskGoalStrip({
           </span>
         )}
       </span>
-      {goal.status !== "complete" && (
+      {elapsed !== undefined && <time className="acpmux-goal-time">{formatDuration(elapsed)}</time>}
+      {goal.status !== "done" && goal.status !== "complete" && (
         <button
           type="button"
+          className="acpmux-goal-action"
           disabled={pending}
-          onClick={() => void run(goal.status === "active" ? "pause" : "resume")}
+          aria-label={goal.status === "running" || goal.status === "active" ? t("replay.pause") : t("composer.queueResume")}
+          title={goal.status === "running" || goal.status === "active" ? t("replay.pause") : t("composer.queueResume")}
+          onClick={() => void run(goal.status === "running" || goal.status === "active" ? "pause" : "resume")}
         >
-          {t(goal.status === "active" ? "replay.pause" : "composer.queueResume")}
+          {goal.status === "running" || goal.status === "active" ? (
+            <PauseCircle size={16} />
+          ) : (
+            <PlayTriangle size={16} />
+          )}
         </button>
       )}
-      <button type="button" disabled={pending} onClick={() => void run("clear")}>
-        {t("inspector.clear")}
+      <button
+        type="button"
+        className="acpmux-goal-action"
+        disabled={pending}
+        aria-label={t("inspector.clear")}
+        title={t("inspector.clear")}
+        onClick={() => void run("delete")}
+      >
+        <span aria-hidden="true">×</span>
       </button>
+      {(goal.steps?.length || goal.detail) && (
+        <button
+          type="button"
+          className="acpmux-goal-action"
+          aria-expanded={expanded}
+          aria-label={expanded ? t("inspector.clear") : t("goal.label")}
+          title={t("goal.label")}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          <Expand size={15} />
+        </button>
+      )}
+      {expanded && (
+        <div className="acpmux-goal-details">
+          {goal.detail && <p>{goal.detail}</p>}
+          {goal.steps?.map((step, index) => (
+            <div className="acpmux-goal-step" key={`${step.label}-${index}`} data-status={step.status}>
+              <span aria-hidden="true">{step.status === "done" || step.status === "completed" ? "✓" : "·"}</span>
+              <span>{step.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {error && (
         <span className="acpmux-goal-error" role="alert">
           {error}
