@@ -78,6 +78,18 @@ struct HomeSidebarHeaderTests {
     /// filter was on. An on filter shows as a chip (Unread ×) under the search row with the list under
     /// it; the empty list says No Unread Chats over Show All; the chip, Show All and the toggle each
     /// turn it off, and every chat shows again.
+    /// The user, 2026-11-03 (msg 20156): "the filter button looks active" while the filter is on. The
+    /// Unread toggle sits on glass, where its lit glyph and its rest glyph are the same ink, so the on
+    /// state keeps the toggle's fill (`ChromeHover` `lit`) under the glyph until the filter goes off.
+    @Test func theUnreadToggleKeepsItsFillWhileTheFilterIsOn() {
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        #expect(!home.unreadToggle.hover.state.lit)
+        home.unreadToggle.performClick(nil)
+        #expect(home.unreadOnly && home.unreadToggle.hover.state.lit)
+        home.filterChip.performClick(nil)
+        #expect(!home.unreadOnly && !home.unreadToggle.hover.state.lit)
+    }
+
     @Test func anOnFilterShowsItselfAndTurnsOffFromTheChipOrShowAll() {
         let off = HomeSidebarHeaderLayout(width: 320, searchOpen: false, filterOn: false)
         #expect(off.filterChip == .zero)
