@@ -8,7 +8,7 @@ use super::*;
 fn hub() -> Arc<Hub> {
     use crate::config::{Config, StoreMode};
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake], "env": {"FAKE_ECHO_GUIDANCE": "1"}}}, "defaultHarness": "fake",
                      "titles": {"generate": false}});
     let mut cfg: Config = serde_json::from_value(cfg).unwrap();
     cfg.store.mode = StoreMode::Memory;
