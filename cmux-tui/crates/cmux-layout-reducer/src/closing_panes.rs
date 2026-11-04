@@ -342,6 +342,58 @@ impl ClosingPanes {
         &self.awaiting
     }
 
+    /// The whole state as one string hashed (FNV-1a, 64 bits): every entry by pane (each side's neighbours, gap,
+    /// place, travel start and end, whether it scrolls, its row column, the carry and the row travel), the close order
+    /// and the panes awaiting the cameras. The corpus tests compare it after each call (the Swift
+    /// `ClosingPanesCorpusTests.state` builds the same string).
+    pub fn state_hash(&self) -> u64 {
+        fn hex(value: f64) -> String {
+            format!("{:x}", value.to_bits())
+        }
+        fn side(side: &Side) -> String {
+            let neighbours: Vec<String> = side.neighbours.iter().map(u64::to_string).collect();
+            [
+                neighbours.join(","),
+                hex(side.gap),
+                hex(side.fixed),
+                side.start.map_or_else(|| "-".to_owned(), hex),
+                side.end.map_or_else(|| "-".to_owned(), hex),
+            ]
+            .join(";")
+        }
+        let mut text = String::new();
+        for (pane, entry) in &self.entries {
+            let carried = entry
+                .carried_shown
+                .map_or_else(|| "-".to_owned(), |c| format!("{},{}", hex(c.min_x), hex(c.max_x)));
+            let travel = entry
+                .row_travel
+                .map_or_else(|| "-".to_owned(), |t| format!("{},{}", hex(t.start), hex(t.target)));
+            let fields = [
+                pane.to_string(),
+                side(&entry.min_x),
+                side(&entry.max_x),
+                side(&entry.min_y),
+                side(&entry.max_y),
+                if entry.scrolls { "1" } else { "0" }.to_owned(),
+                entry.row_column.to_string(),
+                carried,
+                travel,
+            ];
+            text += &fields.join("|");
+            text.push('\n');
+        }
+        let order: Vec<String> = self.order.iter().map(u64::to_string).collect();
+        let awaiting: Vec<String> = self.awaiting.iter().map(u64::to_string).collect();
+        text += &format!("order:{}\nawait:{}\n", order.join(","), awaiting.join(","));
+        let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
+        for byte in text.bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+        hash
+    }
+
     /// Starts `pane` closing: `shown` is where it shows in the new layout's coordinates, `panes` the layout it left (the
     /// order its sides list their neighbours in), `handles` that layout's handles. Returns whether the pane was in that
     /// layout.

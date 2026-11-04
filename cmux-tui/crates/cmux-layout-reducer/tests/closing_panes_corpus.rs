@@ -5,7 +5,7 @@
 //! line. Answers and state are IEEE-754 bit patterns, so every value must be equal bit for bit.
 
 use cmux_layout_reducer::closing_panes::{
-    ClosingPanes, Edges, FrameFact, HandleFact, HandleKind, PaneFact, Placed, RowTravel, Side,
+    ClosingPanes, Edges, FrameFact, HandleFact, HandleKind, PaneFact, Placed, RowTravel,
 };
 use std::collections::BTreeMap;
 
@@ -71,52 +71,6 @@ fn hex(value: f64) -> String {
 
 fn rect(r: Placed) -> String {
     [r.x, r.y, r.width, r.height].map(hex).join(",")
-}
-
-/// The hash of the whole state, as `ClosingPanesCorpusTests.state` builds it.
-fn state(closing: &ClosingPanes) -> String {
-    fn side(side: &Side) -> String {
-        let neighbours: Vec<String> = side.neighbours.iter().map(u64::to_string).collect();
-        [
-            neighbours.join(","),
-            hex(side.gap),
-            hex(side.fixed),
-            side.start.map_or_else(|| "-".to_owned(), hex),
-            side.end.map_or_else(|| "-".to_owned(), hex),
-        ]
-        .join(";")
-    }
-    let mut text = String::new();
-    for (pane, entry) in closing.entries() {
-        let carried = entry
-            .carried_shown
-            .map_or_else(|| "-".to_owned(), |c| format!("{},{}", hex(c.min_x), hex(c.max_x)));
-        let travel = entry
-            .row_travel
-            .map_or_else(|| "-".to_owned(), |t| format!("{},{}", hex(t.start), hex(t.target)));
-        let fields = [
-            pane.to_string(),
-            side(&entry.min_x),
-            side(&entry.max_x),
-            side(&entry.min_y),
-            side(&entry.max_y),
-            if entry.scrolls { "1" } else { "0" }.to_owned(),
-            entry.row_column.to_string(),
-            carried,
-            travel,
-        ];
-        text += &fields.join("|");
-        text.push('\n');
-    }
-    let order: Vec<String> = closing.order().iter().map(u64::to_string).collect();
-    let awaiting: Vec<String> = closing.awaiting().iter().map(u64::to_string).collect();
-    text += &format!("order:{}\nawait:{}\n", order.join(","), awaiting.join(","));
-    let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
-    for byte in text.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
-    }
-    format!("{hash:x}")
 }
 
 /// Replays one call on `closing`; returns its answer and the state hash.
@@ -209,7 +163,7 @@ fn call(line: &str, closing: &mut ClosingPanes) -> String {
         other => panic!("unknown call {other}"),
     };
     assert!(f.words.next().is_none(), "unread words: {line}");
-    format!("{answer} {}", state(closing))
+    format!("{answer} {:x}", closing.state_hash())
 }
 
 #[test]

@@ -9,7 +9,7 @@ use cmux_layout_reducer_ffi::closing_panes::{
     CmuxClosingTaken, cmux_closing_panes_begin, cmux_closing_panes_carry, cmux_closing_panes_drop,
     cmux_closing_panes_free, cmux_closing_panes_has_awaiting, cmux_closing_panes_new,
     cmux_closing_panes_rects, cmux_closing_panes_remove, cmux_closing_panes_settle,
-    cmux_closing_panes_settle_carried, cmux_closing_panes_shift_y,
+    cmux_closing_panes_settle_carried, cmux_closing_panes_shift_y, cmux_closing_panes_state_hash,
 };
 use cmux_layout_reducer_ffi::{ERR_INVALID, ERR_NULL, OK};
 use std::mem::{offset_of, size_of};
@@ -257,8 +257,15 @@ fn every_call_of_the_corpus_answers_through_the_c_abi_as_the_swift_rules_did() {
             continue;
         }
         let (inputs, expected) = raw.split_once(" => ").expect("bad line");
-        let (answer, _state) = expected.rsplit_once(' ').expect("answer and state");
+        let (answer, state) = expected.rsplit_once(' ').expect("answer and state");
         assert_eq!(call(inputs, closing), answer, "{}", &inputs[..inputs.len().min(120)]);
+        // SAFETY: a live handle.
+        assert_eq!(
+            format!("{:x}", unsafe { cmux_closing_panes_state_hash(closing) }),
+            state,
+            "state after {}",
+            &inputs[..1]
+        );
         calls += 1;
     }
     // SAFETY: freed once.

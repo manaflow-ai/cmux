@@ -475,3 +475,15 @@ pub unsafe extern "C" fn cmux_closing_panes_has_awaiting(closing: *const CmuxClo
     // SAFETY: null or live (module Safety).
     unsafe { closing.as_ref() }.map_or(0, |c| u8::from(c.rules.has_awaiting()))
 }
+
+/// The hash of the handle's whole state (`ClosingPanes::state_hash`; 0 for a null handle): the corpus tests compare it
+/// after each call, so a difference in any side, travel or carry shows even where an answer does not.
+///
+/// # Safety
+/// See the module.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_closing_panes_state_hash(closing: *const CmuxClosingPanes) -> u64 {
+    // SAFETY: null or live (module Safety).
+    unsafe { closing.as_ref() }
+        .map_or(0, |c| catch_unwind(AssertUnwindSafe(|| c.rules.state_hash())).unwrap_or(0))
+}

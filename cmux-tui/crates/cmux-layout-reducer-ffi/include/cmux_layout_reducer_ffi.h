@@ -744,6 +744,7 @@ int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, d
 int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, CmuxClosingTaken *out);
 int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
 uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
+uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */
 
 /*
  * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a
