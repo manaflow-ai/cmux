@@ -125,7 +125,12 @@ impl Dir {
         let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
         // SAFETY: `st` is written by a successful call before it is read.
         let r = unsafe {
-            libc::fstatat(self.0.as_raw_fd(), c.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+            libc::fstatat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                st.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
         };
         if r < 0 {
             let e = io::Error::last_os_error();
@@ -224,7 +229,8 @@ enum Flag {
 /// A hidden name in a folder that no other call picks.
 pub(super) fn fresh_name() -> io::Result<String> {
     let mut b = [0u8; 8];
-    getrandom::fill(&mut b).map_err(|e| io::Error::other(format!("the OS random generator: {e}")))?;
+    getrandom::fill(&mut b)
+        .map_err(|e| io::Error::other(format!("the OS random generator: {e}")))?;
     let hex: String = b.iter().map(|x| format!("{x:02x}")).collect();
     Ok(format!(".cmux-journal-{hex}.tmp"))
 }

@@ -158,11 +158,8 @@ mod dir_impl {
         }
 
         fn remove(&self, path: &str, expected: &Version) -> io::Result<Mutation> {
-            let absent = if *expected == Version::Absent {
-                Mutation::Applied
-            } else {
-                Mutation::Changed
-            };
+            let absent =
+                if *expected == Version::Absent { Mutation::Applied } else { Mutation::Changed };
             let Some((dir, name)) = self.folder(path, false)? else { return Ok(absent) };
             let aside = fresh_name()?;
             match dir.rename(&name, &aside) {
@@ -174,7 +171,9 @@ mod dir_impl {
                 dir.rename_noreplace(&aside, &name).map_err(|e| {
                     io::Error::new(
                         e.kind(),
-                        format!("{path} changed during the flush; its copy is kept as {aside}: {e}"),
+                        format!(
+                            "{path} changed during the flush; its copy is kept as {aside}: {e}"
+                        ),
                     )
                 })?;
                 return Ok(Mutation::Changed);
