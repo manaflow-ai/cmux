@@ -1064,6 +1064,14 @@ name = "cmux-cloud-cli"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-cloud-environment"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
@@ -1248,6 +1256,7 @@ name = "cmux-host"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
@@ -1761,6 +1770,7 @@ dependencies = [
  "cmux-automations",
  "cmux-build-identity",
  "cmux-chat-index",
+ "cmux-cloud-environment",
  "cmux-config",
  "cmux-conversation",
  "cmux-git",
@@ -1841,6 +1851,7 @@ name = "cmux-tui-cloud-conversations"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "cmux-cloud-wire",
  "cmux-json",
  "serde",
