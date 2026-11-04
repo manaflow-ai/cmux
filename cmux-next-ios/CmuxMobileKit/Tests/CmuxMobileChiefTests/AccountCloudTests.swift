@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxMobileChief
 
 /// The new Mac rows the account's own Cloud calls carry (cmux#25834, Mac features after
-/// 2026-10-26): Automations, Make Primary Chief, Connect GitHub and the synced Artifacts, at the
+/// 2026-10-26): Automations, Make Primary Chief and Connect GitHub, at the
 /// HTTP boundary: what the phone sends the service and what it makes of the answers.
 @MainActor
 @Suite(.serialized) struct AccountCloudTests {
@@ -66,8 +66,7 @@ import Testing
         configuration.protocolClasses = [Service.self]
         let session = URLSession(configuration: configuration)
         let base = URL(string: "https://cloud-api-staging.cmux.dev")!
-        return AccountCloud(http: ChiefCloudHTTP(base: base, accessToken: { _ in "token" }, session: session),
-                            platform: URL(string: "https://cmux-platform-development.debussy.workers.dev"), platformSession: session)
+        return AccountCloud(http: ChiefCloudHTTP(base: base, accessToken: { _ in "token" }, session: session))
     }
 
     static let list = #"{"value":{"owner":"team_1","revision":"r","automations":[{"id":"auto_a","name":"Morning summary","enabled":true,"version":3,"next_run_at":4102444800000,"triggers":[{"spec":{"type":"cron","expr":"0 9 * * 1-5","tz":"UTC"}}],"body":{"prompt":"summarize my PRs"}},{"id":"auto_b","name":"Nightly","enabled":false,"version":1,"next_run_at":null,"triggers":[{"spec":{"type":"manual"}}],"body":{"prompt":"x"}},{"id":"auto_c","name":"Broken","enabled":true,"version":2,"next_run_at":null,"triggers":[{"spec":{"type":"every","seconds":1800}}],"body":{"command":"make"}}]}}"#
@@ -190,42 +189,6 @@ import Testing
         #expect(opened.isEmpty)
         #expect(model.state == .connected(["octo"]))
         #expect(Service.ops == ["integration.list"])
-    }
-
-    @Test func syncedArtifactsReadTheTreeHistoryAndFileWithEncodedQueries() async throws {
-        Service.reset([
-            "/v1/artifacts/tree": (200, #"{"ref":"main","sha":"a","entries":[{"name":"notes","path":"notes","type":"tree"},{"name":"b.md","path":"b.md","type":"blob","size":12},{"name":"a.html","path":"a.html","type":"blob","size":40}]}"#),
-            "/v1/artifacts/history": (200, #"{"commits":[{"sha":"a1b2c3d4e5","parents":[],"message":"Save notes\n","authorName":"cmux","time":1761700000000,"trailers":{"harness":"claude","machine":"mini"}}]}"#),
-            "/v1/artifacts/file": (200, "# Hello"),
-        ])
-        let artifacts = SyncedArtifacts(account: Self.account())
-        let entries = try await artifacts.tree("")
-        #expect(entries.map(\.name) == ["notes", "a.html", "b.md"])
-        #expect(entries.first?.isFolder == true)
-        let commits = try await artifacts.history("b.md")
-        #expect(commits.first?.message == "Save notes" && commits.first?.harness == "claude" && commits.first?.shortSHA == "a1b2c3d")
-        let data = try await artifacts.file("a b&c=d.md", ref: "a1b2c3d4e5")
-        #expect(String(decoding: data, as: UTF8.self) == "# Hello")
-        let query = Service.lock.withLock { Service.seen.last?.query }
-        #expect(query == "ref=a1b2c3d4e5&path=a%20b%26c%3Dd.md")
-    }
-
-    @Test func syncedArtifactsSayWhyTheyDidNotLoad() async {
-        Service.reset(["/v1/artifacts/tree": (401, "{}")])
-        let artifacts = SyncedArtifacts(account: Self.account())
-        await #expect(throws: SyncedArtifacts.Failure.signedOut) { try await artifacts.tree("") }
-        Service.reset(["/v1/artifacts/tree": (404, "{}")])
-        await #expect(throws: SyncedArtifacts.Failure.notFound) { try await artifacts.tree("") }
-    }
-
-    @Test func thePlatformTakesOnlyItsOwnDeployments() {
-        #expect(AccountCloud.platformBase(cloud: URL(string: "https://cloud-api.cmux.dev")!, environment: [:])?.host() == "cmux-platform.debussy.workers.dev")
-        #expect(AccountCloud.platformBase(cloud: URL(string: "https://cloud-api-staging.cmux.dev")!, environment: [:])?.host()
-            == "cmux-platform-staging.debussy.workers.dev")
-        #expect(AccountCloud.platformBase(cloud: URL(string: "https://cmux-api-development.debussy.workers.dev")!, environment: [:])?.host()
-            == "cmux-platform-development.debussy.workers.dev")
-        #expect(!AccountCloud.isPlatformOrigin(URL(string: "https://evil.example")!))
-        #expect(!AccountCloud.isPlatformOrigin(URL(string: "http://x.debussy.workers.dev")!))
     }
 }
 

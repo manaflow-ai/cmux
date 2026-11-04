@@ -802,7 +802,6 @@ struct ShellTabs: View {
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
                         automations: { AnyView(CloudAutomationsScreen()) },
-                        artifacts: { AnyView(SyncedArtifactsScreen.live()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }
                     ),
                     inviteToTeam: { shell.invite(to: $0) },

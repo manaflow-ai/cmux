@@ -6,16 +6,14 @@ import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// The account's Cloud pages Settings lists (Automations, Artifacts) and its Connect GitHub row.
-/// They come from the Chief module, which holds the account's Cloud calls; Settings only places them.
+/// The account's Cloud page Settings lists (Automations) and its Connect GitHub row. They come
+/// from the Chief module, which holds the account's Cloud calls; Settings only places them.
 public struct SettingsCloudPages {
     public var automations: () -> AnyView
-    public var artifacts: () -> AnyView
     public var connectGitHub: () -> AnyView
 
-    public init(automations: @escaping () -> AnyView, artifacts: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
+    public init(automations: @escaping () -> AnyView, connectGitHub: @escaping () -> AnyView) {
         self.automations = automations
-        self.artifacts = artifacts
         self.connectGitHub = connectGitHub
     }
 }

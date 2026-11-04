@@ -31,7 +31,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
     let callChief: (() -> Void)?
     /// Screen Sharing with the account's Macs (nil in mock mode: no row).
     let screenSharing: ScreenSharingService?
-    /// The account's Cloud pages (Automations, Artifacts) and Connect GitHub (nil: no Cloud rows).
+    /// The account's Cloud page (Automations) and Connect GitHub (nil: no Cloud rows).
     let cloudPages: SettingsCloudPages?
     private let callKeys = OpenAIKeyModel.shared
     private let callPreferences = VoiceCallPreferences.shared
@@ -98,10 +98,6 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                             SettingsLabel("Automations", symbol: "clock.badge.checkmark")
                         }
                         .accessibilityIdentifier("settings.automations")
-                        NavigationLink(value: SettingsRoute.artifacts) {
-                            SettingsLabel("Artifacts", symbol: "shippingbox")
-                        }
-                        .accessibilityIdentifier("settings.artifacts")
                         cloudPages.connectGitHub()
                     } header: {
                         Text("Cloud")
@@ -285,8 +281,6 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             if let screenSharing { ScreenSharingPage(service: screenSharing) }
         case .automations:
             cloudPages?.automations()
-        case .artifacts:
-            cloudPages?.artifacts()
         case .longPressMenus:
             LongPressMenusPage()
         }
@@ -305,8 +299,8 @@ public enum SettingsRoute: Hashable, Sendable {
     case screenSharing
     /// Appearance → Accent color: the one accent every chrome tint reads.
     case accentColor
-    /// Cloud → Automations and Artifacts (the account's Cloud pages).
-    case automations, artifacts
+    /// Cloud → Automations (the account's Cloud automations).
+    case automations
     /// Long-Press Menus: the menu items the person hid.
     case longPressMenus
 
@@ -318,7 +312,7 @@ public enum SettingsRoute: Hashable, Sendable {
             return
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .notifications,
-                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations, .artifacts,
+                                    .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .automations,
                                     .longPressMenus]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route

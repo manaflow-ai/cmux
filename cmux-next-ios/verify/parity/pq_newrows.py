@@ -215,27 +215,16 @@ def automations(j, label):
     after = {a.get("name"): a for a in automations_on_cloud()}
     out["paused_on_cloud"] = after.get(target, {}).get("enabled") is False
     pq.shot("automations-after-paused")
-    runs = cli("automation", "runs", "--target", "cloud")
-    out["runs_on_cloud"] = runs
-    if len(names) > 1:
-        victim = sorted(names)[1]
-        r.dismiss(j)
-        back = [x for x in j.sim.find(label="Automations", kind="Button") if x.frame[1] < 120] or \
-               [x for x in j.sim.find(label="Back", kind="Button") if x.frame[1] < 120]
-        if back:
-            j.sim.tap_el(back[0]); time.sleep(1.5)
-        v = j.sim.wait(contains=victim, timeout=8)
-        check(v, f"{victim} not listed")
-        x, y = v.center
-        j.sim.long_press(x, y, 1.2)
-        time.sleep(1.2)
-        j.sim.tap_q(ident="automations.delete", timeout=6)
-        time.sleep(1)
-        pq.shot("automations-after-delete-ask")
-        j.sim.tap_q(ident="automations.delete.confirm", timeout=6)
-        time.sleep(3)
-        out["deleted_on_cloud"] = victim not in {a.get("name") for a in automations_on_cloud()}
-        pq.shot("automations-after-deleted")
+    runs = cli("automation", "history", target, "--target", "cloud")
+    out["runs_on_cloud"] = runs if not hasattr(runs, "stdout") else runs.stdout[:2000]
+    # Delete (the free plan holds one Cloud automation: the same one, after it ran and paused).
+    j.sim.tap_q(ident="automations.delete", timeout=6)
+    time.sleep(1)
+    pq.shot("automations-after-delete-ask")
+    j.sim.tap_q(ident="automations.delete.confirm", timeout=6)
+    time.sleep(3)
+    out["deleted_on_cloud"] = target not in {a.get("name") for a in automations_on_cloud()}
+    pq.shot("automations-after-deleted")
     return out
 
 
@@ -314,16 +303,17 @@ def home_hide(j, label):
     return out
 
 
-NEXT_PROMPT = ("Reply with exactly these three lines and nothing else:\n"
-               "All done.\n[taste] Which icon should the sidebar use?\n- Folder\n- Stack")
+# One line: the rig types with hardware key events, and a typed newline would send early.
+NEXT_PROMPT = "Reply with exactly this one line and nothing else: [outward] Should I push the branch now?"
 
 
 def nextstep(j, label):
-    """A phone-started chat answers with a tagged ask. Before: the ask is plain text. After: a
-    next-step card; tapping Stack sends `Stack` as the next prompt (acpmux records it)."""
+    """A phone-started chat answers with a tagged yes-or-no ask. Before: the ask is plain text.
+    After: a next-step card with Yes and Not now; tapping Yes sends `Yes` as the next prompt
+    (acpmux records it) and the card folds to the answer."""
     st = c.chat_seed(j, key="nr_chat", turns=("ONE",))
     c.open_chat(j, st)
-    c.ask(j, NEXT_PROMPT, "Which icon", timeout=240)
+    c.ask(j, NEXT_PROMPT, "push the branch", timeout=240)
     c.wait_idle(st["session"])
     time.sleep(3)
     pq.shot(f"nextstep-{label}-card")
@@ -331,11 +321,11 @@ def nextstep(j, label):
     out = {"card": bool(card), "session": st["session"]}
     if label == "before" or not card:
         return out
-    j.sim.tap_q(label="Stack", kind="Button", timeout=6)
+    j.sim.tap_q(ident="agentChat.nextStep.option.0", timeout=6)
     time.sleep(2)
     def answered():
         said = [x["text"] for x in c.prompts(st["session"])]
-        return said if said and said[-1] == "Stack" else None
+        return said if said and said[-1] == "Yes" else None
     out["prompts"], _ = t.until(answered, timeout=60, what="acpmux to record the answer")
     c.wait_idle(st["session"])
     time.sleep(2)
@@ -349,13 +339,15 @@ def continue_(j, label):
     card leads with Continue; a tap sends acpmux's turn retry and the chat goes on."""
     st = c.chat_seed(j, key="nr_cont", turns=("ONE",))
     c.open_chat(j, st)
-    c.type_in_composer(j, "Count from 1 to 400, one number per line, slowly, then say DONE.")
+    c.type_in_composer(j, "Write a long story, about two thousand words, about a lighthouse keeper named Ada.")
     c.send(j)
-    c.wait_text(j, "12", timeout=180)
+    # Kill as soon as the answer streams: the turn has done work, and is still running.
+    c.wait_text(j, "Ada", timeout=180, exclude="Write a long story")
     # The failure: the agent process ends under the turn (rig fault, on the Mac).
     out = {"session": st["session"]}
-    killed = pq.rsh("for p in $(pgrep -f '@anthropic-ai/claude-code|claude-agent-acp|claude --'); do "
-                    "ps -o command= -p $p | grep -q newrows && kill -9 $p && echo $p; done").stdout.split()
+    # Only this tag's agents: a Claude process whose environment names this rig app's bundle.
+    killed = pq.rsh("for p in $(pgrep -f 'claude.*stream-json'); do "
+                    "ps eww -o command= -p $p | grep -q 'debug\\.newrows' && kill -9 $p && echo $p; done").stdout.split()
     out["killed"] = killed
     lead = j.sim.wait(ident="agentChat.failure.lead", timeout=120)
     pq.shot(f"continue-{label}-card")
@@ -599,7 +591,8 @@ def forkcolumn(j, label):
     return out
 
 
-FLOWS = {"automations": automations, "artifacts": artifacts, "home": home_hide, "nextstep": nextstep,
+FLOWS = {"automations": automations, "artifacts": artifacts,  # artifacts: the gap only (the row is blocked)
+         "home": home_hide, "nextstep": nextstep,
          "continue": continue_, "newchaton": newchaton, "moves": moves, "reveal": reveal, "compact": compact,
          "queueing": queueing, "menus": menus, "help": help_logs, "github": github, "forkcolumn": forkcolumn}
 
