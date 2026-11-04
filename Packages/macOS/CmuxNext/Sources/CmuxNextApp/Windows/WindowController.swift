@@ -246,17 +246,23 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
         }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
-        if let requested, let (workspace, daemon) = machines.workspace(id: requested) { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
-        if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
-        if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
-        if let (workspace, daemon) = firstListedWorkspace { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
-        // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
-        if content == nil { showConnecting() }
+        switch presentation(requested: requested) {
+        case .workspace(let (workspace, daemon)): show(workspace, on: daemon)
+        case .homePage(let (workspace, daemon)): if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
+        case .pausedMachine: _ = showPausedMachine(state.machineID)
+        case .creation, .waitingForMachine: return
+        // Keeps the request, or what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
+        case .awaitingWorkspace, .nothing: if content == nil { showConnecting() }
+        }
     }
 
-    /// The first workspace this window lists that a machine holds: what `showWorkspace` shows when its request names none.
-    var firstListedWorkspace: (WorkspaceModel, DaemonService)? {
-        services.windows.registry.members(of: state.id).lazy.compactMap({ self.services.machines.workspace(id: $0) }).first
+    /// What `showWorkspace(requested:)` presents now, with nothing shown (``WorkspacePresentation``).
+    func presentation(requested: String?) -> WorkspacePresentation<(WorkspaceModel, DaemonService)> {
+        let machines = services.machines, remote = state.machineID != MachineRegistry.localID
+        return .decide(requested: requested, creation: pendingCreation != nil, workspace: { machines.workspace(id: $0) },
+                       homeStands: { self.homePageStands(for: $0.0) }, onRemoteMachine: remote, machineWaits: { self.isWaiting(for: self.state.machineID) },
+                       machinePaused: { self.pausedSession(self.state.machineID) != nil }, awaits: { self.services.windows.claims.awaits($0, in: self.state.id) },
+                       firstListed: { self.services.windows.registry.members(of: self.state.id).lazy.compactMap { machines.workspace(id: $0) }.first })
     }
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.

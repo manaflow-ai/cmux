@@ -26,7 +26,7 @@ extension WindowController {
     /// Shows the Home page in place of the store's home workspace while the
     /// Home item stands for it (its row is hidden then). False: show `workspace`.
     func showsHomePage(instead workspace: WorkspaceModel) -> Bool {
-        guard services.home.dock.isClassic, workspace.kind == "home", services.sidebarLayout.document.hidesHome else { return false }
+        guard homePageStands(for: workspace) else { return false }
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.page != .home { state.page = .home }
         return showTopPage(.home)
@@ -46,13 +46,15 @@ extension WindowController {
     /// shows nothing (cx-cmge7), so such a show uses a top page instead.
     var holdsVisiblePageTab: Bool {
         guard let workspace = workspaceContent, !workspace.modelPanes.isEmpty else { return false }
-        return !(services.home.dock.isClassic && workspace.workspace.kind == "home" && services.sidebarLayout.document.hidesHome)
+        return !homePageStands(for: workspace.workspace)
     }
 
-    /// Leaving the top page shows a workspace, not classic Home's page again (`showWorkspace`, `showsHomePage`).
-    var leavingShowsWorkspace: Bool {
-        guard let (workspace, _) = state.workspaceID.flatMap(services.machines.workspace(id:)) ?? firstListedWorkspace else { return false }
-        return !(services.home.dock.isClassic && workspace.kind == "home" && services.sidebarLayout.document.hidesHome)
+    /// Leaving the top page shows a workspace's panes, not a waiting view or classic Home's page (``presentation(requested:)``).
+    var leavingShowsWorkspace: Bool { presentation(requested: state.workspaceID).showsPanes }
+
+    /// Classic Home stands for `workspace` (the hidden home workspace): showing it shows the Home page.
+    func homePageStands(for workspace: WorkspaceModel) -> Bool {
+        services.home.dock.isClassic && workspace.kind == "home" && services.sidebarLayout.document.hidesHome
     }
 
     /// Leaves the top page for the window's workspace at once
