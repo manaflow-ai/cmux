@@ -59,11 +59,12 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        self.bg_start_with_id(session, command, cwd, None, description, notify).await
+        self.bg_start_with_id(session, command, cwd, None, description, notify, result_line).await
     }
 
     /// Workflow-only stable identity. The durable claim is written before spawning, so an
     /// uncertain launch is never executed a second time after a daemon crash.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn bg_start_with_id(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -72,6 +73,7 @@ impl Hub {
         fixed_id: Option<&str>,
         description: Option<String>,
         notify: bool,
+        result_line: bool,
     ) -> Result<Value, RpcError> {
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
@@ -217,8 +219,16 @@ impl Hub {
 
     /// Whether a task of the chat runs (`Hub::in_use`).
     pub(super) fn bg_running(&self, session: &Session) -> bool {
+        self.bg_running_count(session) > 0
+    }
+
+    /// How many of the chat's tasks run.
+    pub(super) fn bg_running_count(&self, session: &Session) -> usize {
         let dir = self.bg_dir(session);
-        self.bg_records(&dir).iter().any(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+        self.bg_records(&dir)
+            .iter()
+            .filter(|r| r.ended_at.is_none() && !bg_gone(&dir, &r.id))
+            .count()
     }
 
     /// `_acpmux/bg/list`: the chat's tasks, oldest first, each with the tail of its output.

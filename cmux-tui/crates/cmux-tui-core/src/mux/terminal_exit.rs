@@ -219,6 +219,10 @@ impl Mux {
                 loss.log();
                 loss
             });
+        // An `on_exit` shell restart below needs a host root (`host_loss` is
+        // read from it).
+        #[cfg(unix)]
+        let has_host_root = host_loss.is_some();
         // cx-6so.49: whether this loss may respawn, checked before the locks.
         #[cfg(any(unix, windows))]
         let respawn_candidate =
@@ -364,8 +368,34 @@ impl Mux {
             })
         })
         .flatten();
+        // Planned in this critical section, as the respawn above: from the
+        // commit on, the terminal reads respawning, never dead and never
+        // neither live nor restarting (an app session's owner counts it,
+        // server/owner_keepers.rs).
+        #[cfg(unix)]
+        let restart = drop_to_shell
+            .filter(|_| has_host_root)
+            .map(|slot| (slot, self.plan_user_restart_locked(&registry, &mut state, slot)));
         drop(state);
+        // A signal exit whose detach waits out the shutdown lead is
+        // scheduled under the registry lock, as the respawn above is planned:
+        // from the commit on, it keeps an app session's owner until it
+        // settles (`kept_terminal_count` reads both under this lock), so a
+        // stop never begins a shutdown that would make the person's kill a
+        // host loss.
+        if let Some(until_ms) = settle_until_ms {
+            self.schedule_exit_settle(terminal_id, until_ms);
+        }
         drop(registry);
+        #[cfg(unix)]
+        match restart {
+            Some((_, Ok(plan))) => self.start_user_restart(plan),
+            Some((slot, Err(error))) => eprintln!(
+                "cmux-tui: could not drop the ended command of tab {slot} into a shell: {error:#}"
+            ),
+            None => {}
+        }
+        #[cfg(not(unix))]
         if let Some(slot) = drop_to_shell {
             self.drop_exited_terminal_to_shell(slot);
         }
@@ -429,15 +459,13 @@ impl Mux {
                 }
             }
         }
-        if let Some(until_ms) = settle_until_ms {
-            self.schedule_exit_settle(terminal_id, until_ms);
-        }
         Ok(!replayed)
     }
 
     /// Start the shell of an `on_exit` shell terminal whose process ended in
     /// the tab at `slot`, through the manual restart (`restart_dead_tab`).
     /// A refused restart (the owner shuts down) leaves the tab kept, dead.
+    #[cfg(not(unix))]
     fn drop_exited_terminal_to_shell(&self, slot: SurfaceId) {
         let Some(mux) = self.exit_settles.owner() else { return };
         if let Err(error) = mux.restart_dead_tab(slot) {

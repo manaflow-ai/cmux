@@ -39,6 +39,12 @@ Fleet: cmux-ci run --class exclusive --measurement --label measure --script scri
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
+# `--bench=new-pane-start-state` (scripts/measure/instant-new-surfaces.sh passes it through): the fleet entry
+# runs scripts/cmux-next/new-pane-start-state-bench.py on the same tagged app instead, with the same arguments.
+if "--bench=new-pane-start-state" in sys.argv:
+    other = os.path.join(os.path.dirname(os.path.abspath(__file__)), "new-pane-start-state-bench.py")
+    os.execv(sys.executable, [sys.executable, other, *[a for a in sys.argv[1:] if a != "--bench=new-pane-start-state"]])
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
 import bench_arms  # noqa: E402

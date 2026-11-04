@@ -43,8 +43,6 @@ pub(super) fn install<'js>(
 /// Claude workflows allow one leading `export const meta` followed by an async
 /// function body (including top-level return). Remove only that export token,
 /// never text inside strings/comments or an unrelated later statement.
-// The daemon runner in PR #33785 is the production caller of this staged API.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn body(script: &str) -> String {
     let mut rest = script.trim_start_matches('\u{feff}');
     loop {

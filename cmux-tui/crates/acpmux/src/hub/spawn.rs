@@ -237,10 +237,20 @@ impl Hub {
                             "preset {name:?} has a system prompt, but this daemon has no state directory"
                         ))
                     })?;
-                    prompt_file = Some(
-                        crate::config::checked_system_prompt(&dir, name, sha)
-                            .map_err(RpcError::invalid_params)?,
-                    );
+                    let original = crate::config::checked_system_prompt(&dir, name, sha)
+                        .map_err(RpcError::invalid_params)?;
+                    prompt_file = Some(if let Some(text) = meta.cmux_preset_prompt.as_deref() {
+                        let overrides = dir.join(".context-overrides");
+                        let key = crate::sha256::sha256_hex(text.as_bytes());
+                        let hash = crate::config::write_system_prompt(&overrides, &key, text)
+                            .map_err(|e| {
+                                RpcError::internal(format!("save selected prompt: {e}"))
+                            })?;
+                        crate::config::checked_system_prompt(&overrides, &key, &hash)
+                            .map_err(RpcError::invalid_params)?
+                    } else {
+                        original
+                    });
                 }
             }
         }

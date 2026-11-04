@@ -185,6 +185,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/context",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/context_override",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "agent-session-turn-prepare",
       "params": true,
       "result": true
@@ -370,6 +382,12 @@
     {
       "kind": "request",
       "name": "_acpmux/set_tools",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/set_directories",
       "params": true,
       "result": true
     },
@@ -743,6 +761,12 @@
     {
       "kind": "request",
       "name": "_acpmux/history",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_search",
       "params": true,
       "result": true
     },
@@ -1678,6 +1702,24 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_redeem",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_pull",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/vault_status",
       "params": true,
       "result": true
     },

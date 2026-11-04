@@ -1,7 +1,275 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.gallery.openStage": {"comment": "Command palette: opens a stage of the live gallery as a tab of this app (NIGHTLY and DEV builds)", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Gallery Stage"}}, "ar": {"stringUnit": {"state": "translated", "value": "مسرح المعرض"}}, "bs": {"stringUnit": {"state": "translated", "value": "Scena galerije"}}, "da": {"stringUnit": {"state": "translated", "value": "Gallerivisning"}}, "de": {"stringUnit": {"state": "translated", "value": "Galerie-Bühne"}}, "es": {"stringUnit": {"state": "translated", "value": "Escenario de la galería"}}, "fr": {"stringUnit": {"state": "translated", "value": "Scène de la galerie"}}, "it": {"stringUnit": {"state": "translated", "value": "Scena della galleria"}}, "ja": {"stringUnit": {"state": "translated", "value": "ギャラリーステージ"}}, "km": {"stringUnit": {"state": "translated", "value": "ឆាកវិចិត្រសាល"}}, "ko": {"stringUnit": {"state": "translated", "value": "갤러리 스테이지"}}, "nb": {"stringUnit": {"state": "translated", "value": "Gallerivisning"}}, "pl": {"stringUnit": {"state": "translated", "value": "Scena galerii"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Palco da galeria"}}, "ru": {"stringUnit": {"state": "translated", "value": "Сцена галереи"}}, "th": {"stringUnit": {"state": "translated", "value": "เวทีแกลเลอรี"}}, "tr": {"stringUnit": {"state": "translated", "value": "Galeri Sahnesi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Сцена галереї"}}, "vi": {"stringUnit": {"state": "translated", "value": "Sân khấu thư viện"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "图库舞台"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "圖庫舞台"}}}},
+    "argument.gallery.entry": {"comment": "Argument of Gallery Stage: the gallery entry id to show", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Entry"}}, "ar": {"stringUnit": {"state": "translated", "value": "الإدخال"}}, "bs": {"stringUnit": {"state": "translated", "value": "Unos"}}, "da": {"stringUnit": {"state": "translated", "value": "Element"}}, "de": {"stringUnit": {"state": "translated", "value": "Eintrag"}}, "es": {"stringUnit": {"state": "translated", "value": "Entrada"}}, "fr": {"stringUnit": {"state": "translated", "value": "Entrée"}}, "it": {"stringUnit": {"state": "translated", "value": "Voce"}}, "ja": {"stringUnit": {"state": "translated", "value": "エントリ"}}, "km": {"stringUnit": {"state": "translated", "value": "ធាតុ"}}, "ko": {"stringUnit": {"state": "translated", "value": "항목"}}, "nb": {"stringUnit": {"state": "translated", "value": "Oppføring"}}, "pl": {"stringUnit": {"state": "translated", "value": "Wpis"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Entrada"}}, "ru": {"stringUnit": {"state": "translated", "value": "Запись"}}, "th": {"stringUnit": {"state": "translated", "value": "รายการ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Girdi"}}, "uk": {"stringUnit": {"state": "translated", "value": "Запис"}}, "vi": {"stringUnit": {"state": "translated", "value": "Mục"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "条目"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "條目"}}}},
+    "argument.gallery.variant": {"comment": "Argument of Gallery Stage: the entry's variant to show", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Variant"}}, "ar": {"stringUnit": {"state": "translated", "value": "المتغير"}}, "bs": {"stringUnit": {"state": "translated", "value": "Varijanta"}}, "da": {"stringUnit": {"state": "translated", "value": "Variant"}}, "de": {"stringUnit": {"state": "translated", "value": "Variante"}}, "es": {"stringUnit": {"state": "translated", "value": "Variante"}}, "fr": {"stringUnit": {"state": "translated", "value": "Variante"}}, "it": {"stringUnit": {"state": "translated", "value": "Variante"}}, "ja": {"stringUnit": {"state": "translated", "value": "バリアント"}}, "km": {"stringUnit": {"state": "translated", "value": "បំរែបំរួល"}}, "ko": {"stringUnit": {"state": "translated", "value": "변형"}}, "nb": {"stringUnit": {"state": "translated", "value": "Variant"}}, "pl": {"stringUnit": {"state": "translated", "value": "Wariant"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Variante"}}, "ru": {"stringUnit": {"state": "translated", "value": "Вариант"}}, "th": {"stringUnit": {"state": "translated", "value": "รูปแบบ"}}, "tr": {"stringUnit": {"state": "translated", "value": "Varyant"}}, "uk": {"stringUnit": {"state": "translated", "value": "Варіант"}}, "vi": {"stringUnit": {"state": "translated", "value": "Biến thể"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "变体"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "變體"}}}},
     "action.debug.allThemesPlayground": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "All Themes Playground"}}, "ja": {"stringUnit": {"state": "translated", "value": "すべてのテーマのプレイグラウンド"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "ساحة تجربة كل السمات"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Igralište svih tema"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Legeplads for alle temaer"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Spielwiese für alle Themes"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Zona de pruebas de todos los temas"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Bac à sable de tous les thèmes"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Area di prova di tutti i temi"}}, "km": {"stringUnit": {"state": "needs_review", "value": "កន្លែងសាកល្បងរូបរាងទាំងអស់"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "모든 테마 플레이그라운드"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Lekeplass for alle temaer"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Plac zabaw wszystkich motywów"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Playground de todos os temas"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Песочница всех тем"}}, "th": {"stringUnit": {"state": "needs_review", "value": "สนามทดลองธีมทั้งหมด"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Tüm temalar deneme alanı"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Пісочниця всіх тем"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Sân thử mọi chủ đề"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "所有主题试验场"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "所有主題試驗場"}}}},
+    "action.chief.moveRollback": {
+      "comment": "Command palette action: undo the Chief's last move so it runs on this Mac again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roll Back Chief Move"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التراجع عن نقل Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poništi premještanje za Chief"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rul flytning af Chief tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verschiebung von Chief zurücknehmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revertir el traslado de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuler le déplacement de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annulla lo spostamento di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の移動を元に戻す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រឡប់ការផ្លាស់ទី Chief វិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 이동 되돌리기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rull tilbake flytting av Chief"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cofnij przeniesienie Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reverter mudança do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отменить перенос Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้อนการย้าย Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief taşımasını geri al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати перенесення Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoàn tác chuyển Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回滚 Chief 移动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原 Chief 移動"
+          }
+        }
+      }
+    },
+    "action.sidebar.revealWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示工作區"}}}},
+    "action.sidebar.revealAndFocusWorkspace": {"comment": "Command palette and the workspace row menu: shows the current workspace in the sidebar", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Reveal and Focus Workspace in Sidebar"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار مساحة العمل في الشريط الجانبي والتركيز عليها"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži i fokusiraj radni prostor u bočnoj traci"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbejdsområde i sidepanelet"}}, "de": {"stringUnit": {"state": "translated", "value": "Arbeitsbereich in der Seitenleiste zeigen und fokussieren"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar y enfocar espacio de trabajo en la barra lateral"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher et activer l’espace de travail dans la barre latérale"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra e attiva spazio di lavoro nella barra laterale"}}, "ja": {"stringUnit": {"state": "translated", "value": "サイドバーでワークスペースを表示してフォーカス"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញ និងផ្ដោតលើកន្លែងធ្វើការនៅក្នុងរបារចំហៀង"}}, "ko": {"stringUnit": {"state": "translated", "value": "사이드바에서 작업 공간 표시 및 포커스"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis og fokuser arbeidsområde i sidefeltet"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż i aktywuj obszar roboczy na pasku bocznym"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar e focar espaço de trabalho na barra lateral"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать рабочее пространство в боковой панели и перейти к нему"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงและโฟกัสพื้นที่ทำงานในแถบด้านข้าง"}}, "tr": {"stringUnit": {"state": "translated", "value": "Çalışma alanını kenar çubuğunda göster ve odaklan"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати робочий простір на бічній панелі й перейти до нього"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện và chuyển tới không gian làm việc trong thanh bên"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "在边栏中显示并聚焦工作区"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "在側邊欄中顯示並聚焦工作區"}}}},
+    "action.debug.sidebarStatesPlayground": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar States Playground"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ساحة تجربة حالات الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Igralište stanja bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legeplads for sidepanelets tilstande"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spielwiese für Seitenleistenzustände"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zona de pruebas de estados de la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bac à sable des états de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Area di prova degli stati della barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの状態プレイグラウンド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កន្លែងសាកល្បងស្ថានភាពរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 상태 플레이그라운드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lekeplass for sidepaneltilstander"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Plac zabaw stanów paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Playground de estados da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Песочница состояний боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สนามทดลองสถานะแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğu durumları deneme alanı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пісочниця станів бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sân thử trạng thái thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "边栏状态试验场"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄狀態試驗場"
+          }
+        }
+      }
+    },
     "action.agent.jumpToNextNeedingInput": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Go to Next Agent Needing Input"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "الانتقال إلى الوكيل التالي الذي ينتظر إدخالًا"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Idi na sljedećeg agenta koji čeka unos"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Gå til næste agent, der venter på input"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Zum nächsten Agenten, der auf Eingabe wartet"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Ir al siguiente agente que necesita respuesta"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Aller à l’agent suivant en attente de réponse"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Vai al prossimo agente in attesa di input"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "入力待ちの次のエージェントへ移動"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ទៅកាន់ភ្នាក់ងារបន្ទាប់ដែលត្រូវការការបញ្ចូល"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "입력이 필요한 다음 에이전트로 이동"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Gå til neste agent som venter på svar"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Przejdź do następnego agenta czekającego na odpowiedź"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ir para o próximo agente aguardando resposta"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Перейти к следующему агенту, ожидающему ввода"}}, "th": {"stringUnit": {"state": "needs_review", "value": "ไปยังเอเจนต์ถัดไปที่รอการตอบ"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Girdi bekleyen sonraki ajana git"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Перейти до наступного агента, що чекає на введення"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Đi tới tác tử tiếp theo cần phản hồi"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "前往下一个等待输入的智能体"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "前往下一個等待輸入的代理程式"}}}},
     "action.artifacts.show": {"comment": "Command palette: opens the Artifacts page", "extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Show Artifacts"}}, "ar": {"stringUnit": {"state": "translated", "value": "إظهار العناصر المحفوظة"}}, "bs": {"stringUnit": {"state": "translated", "value": "Prikaži artefakte"}}, "da": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "de": {"stringUnit": {"state": "translated", "value": "Artefakte anzeigen"}}, "es": {"stringUnit": {"state": "translated", "value": "Mostrar artefactos"}}, "fr": {"stringUnit": {"state": "translated", "value": "Afficher les artefacts"}}, "it": {"stringUnit": {"state": "translated", "value": "Mostra artefatti"}}, "ja": {"stringUnit": {"state": "translated", "value": "アーティファクトを表示"}}, "km": {"stringUnit": {"state": "translated", "value": "បង្ហាញវត្ថុបុរាណ"}}, "ko": {"stringUnit": {"state": "translated", "value": "아티팩트 보기"}}, "nb": {"stringUnit": {"state": "translated", "value": "Vis artefakter"}}, "pl": {"stringUnit": {"state": "translated", "value": "Pokaż artefakty"}}, "pt-BR": {"stringUnit": {"state": "translated", "value": "Mostrar artefatos"}}, "ru": {"stringUnit": {"state": "translated", "value": "Показать артефакты"}}, "th": {"stringUnit": {"state": "translated", "value": "แสดงอาร์ติแฟกต์"}}, "tr": {"stringUnit": {"state": "translated", "value": "Yapıtları Göster"}}, "uk": {"stringUnit": {"state": "translated", "value": "Показати артефакти"}}, "vi": {"stringUnit": {"state": "translated", "value": "Hiện tạo phẩm"}}, "zh-Hans": {"stringUnit": {"state": "translated", "value": "显示制品"}}, "zh-Hant": {"stringUnit": {"state": "translated", "value": "顯示成品"}}}},
     "action.cloudShareMachine": {"extractionState": "manual", "localizations": {"en": {"stringUnit": {"state": "translated", "value": "Share Machine…"}}, "ar": {"stringUnit": {"state": "needs_review", "value": "مشاركة الجهاز…"}}, "bs": {"stringUnit": {"state": "needs_review", "value": "Podijeli mašinu…"}}, "da": {"stringUnit": {"state": "needs_review", "value": "Del maskine…"}}, "de": {"stringUnit": {"state": "needs_review", "value": "Maschine teilen …"}}, "es": {"stringUnit": {"state": "needs_review", "value": "Compartir máquina…"}}, "fr": {"stringUnit": {"state": "needs_review", "value": "Partager la machine…"}}, "it": {"stringUnit": {"state": "needs_review", "value": "Condividi macchina…"}}, "ja": {"stringUnit": {"state": "needs_review", "value": "マシンを共有…"}}, "km": {"stringUnit": {"state": "needs_review", "value": "ចែករំលែកម៉ាស៊ីន…"}}, "ko": {"stringUnit": {"state": "needs_review", "value": "기기 공유…"}}, "nb": {"stringUnit": {"state": "needs_review", "value": "Del maskin …"}}, "pl": {"stringUnit": {"state": "needs_review", "value": "Udostępnij maszynę…"}}, "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Compartilhar Máquina…"}}, "ru": {"stringUnit": {"state": "needs_review", "value": "Поделиться машиной…"}}, "th": {"stringUnit": {"state": "needs_review", "value": "แชร์เครื่อง…"}}, "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi Paylaş…"}}, "uk": {"stringUnit": {"state": "needs_review", "value": "Поділитися машиною…"}}, "vi": {"stringUnit": {"state": "needs_review", "value": "Chia sẻ máy…"}}, "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "共享机器…"}}, "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "共享機器…"}}}},
@@ -1444,6 +1712,137 @@
         "stringUnit": {
           "state": "translated",
           "value": "Có thể xem"
+        }
+      }
+    }
+  },
+    "action.agent.share.invite.menu": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invite People…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Personen einladen…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter des personnes…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "دعوة أشخاص…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invitar a personas…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀請成員…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "邀请成员…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "사람 초대…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ユーザーを招待…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Pozovi osobe…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Invita persone…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "អញ្ជើញមនុស្ស…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Inviter personer…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Zaproś osoby…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Convidar pessoas…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Пригласить людей…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "เชิญผู้คน…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Kişi davet et…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Запросити людей…"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Mời mọi người…"
         }
       }
     }
@@ -51618,6 +52017,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "切換符合終端機背景"
+          }
+        }
+      }
+    },
+    "action.agentPane.display.showMinimap": {
+      "comment": "Command palette toggle: shows or hides the chat minimap (the rail of prompt ticks at the chat's edge). Checked while shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Chat Minimap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのミニマップを表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إظهار الخريطة المصغرة للدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži mini mapu chata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis chattens minikort"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat-Minimap anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar minimapa del chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher la mini-carte du chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra minimappa della chat"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញផែនទីតូចនៃការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 미니맵 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis chattens minikart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż minimapę czatu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar minimapa do chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать мини-карту чата"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงแผนที่ย่อของแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet Mini Haritasını Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати мінікарту чату"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện bản đồ thu nhỏ của cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示聊天缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示聊天縮圖"
+          }
+        }
+      }
+    },
+    "action.agentPane.display.railOnRight": {
+      "comment": "Command palette toggle: puts the chat's prompt rail (one tick per prompt) on the right edge instead of the left. Checked while on the right.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt Rail on Right Edge"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロンプトレールを右端に表示"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "شريط المطالبات على الحافة اليمنى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Traka upita na desnoj ivici"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Promptskinne i højre kant"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prompt-Leiste am rechten Rand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra de mensajes en el borde derecho"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rail des invites sur le bord droit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Barra dei prompt sul bordo destro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារសំណើនៅគែមស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "프롬프트 레일을 오른쪽 가장자리에"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ledetekstskinne på høyre kant"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek promptów przy prawej krawędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trilho de prompts na borda direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Полоса запросов у правого края"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบพรอมต์ที่ขอบขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İstem Rayı Sağ Kenarda"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Смуга запитів біля правого краю"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh lời nhắc ở cạnh phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示栏位于右侧边缘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提示列位於右側邊緣"
           }
         }
       }

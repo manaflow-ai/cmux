@@ -17,6 +17,7 @@ public struct AllThemesPlaygroundView: View {
             HStack(spacing: 12) {
                 TextField(AllThemesPlaygroundStrings.search, text: $model.query)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .frame(maxWidth: 260)
                 Toggle(AllThemesPlaygroundStrings.failuresOnly, isOn: $model.failuresOnly)
                 Spacer()
@@ -82,6 +83,6 @@ struct AllThemesPlaygroundChip: View {
         .background(RoundedRectangle(cornerRadius: 5).fill(Color(nsColor: sample.surface.nsColor)))
         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color(nsColor: StatusDotHue.error.hue(isDark: false).nsColor),
                                                                 lineWidth: sample.passes ? 0 : 2))
-        .help(AllThemesPlaygroundStrings.sampleHelp(sample))
+        .themedHelp(AllThemesPlaygroundStrings.sampleHelp(sample))
     }
 }

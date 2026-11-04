@@ -25,6 +25,8 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
+#[path = "hub_integration/acp_schema.rs"]
+mod acp_schema;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
 #[path = "hub_integration/agent_inbox.rs"]
@@ -68,6 +70,9 @@ mod prompt_approval;
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[cfg(unix)]
+#[path = "hub_integration/prompt_delivery.rs"]
+mod prompt_delivery;
 #[path = "hub_integration/prompt_ledger.rs"]
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
@@ -483,6 +488,7 @@ async fn an_agents_bare_fork_error_names_the_harness() {
 async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
     let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.context_overrides.user = Some("GUIDANCE-ON-FORK".into());
     let s = c
         .request(
             method::SESSION_NEW,
@@ -508,6 +514,11 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
     let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&id).unwrap().meta().cmux_context_delivered);
+    assert!(
+        !hub.resolve(&fid).unwrap().meta().cmux_context_delivered,
+        "fresh reconstruction must deliver the hidden guidance to its new harness"
+    );
     let forked: Vec<Value> = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -544,6 +555,7 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn", "{r}");
+    assert!(hub.resolve(&fid).unwrap().meta().cmux_context_delivered);
     let reply: String = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -821,6 +833,67 @@ async fn wait_resolves_on_permission_then_on_ready() {
     assert!(
         c.request(method::MUX_WAIT, json!({"sessions": [id], "until": ["bogus"]})).await.is_err()
     );
+}
+
+/// `_acpmux/session_search` finds a session's prompts and the agent's replies by their words,
+/// newest first, by name or id; a bad query and an unknown session are errors.
+#[tokio::test]
+async fn session_search_finds_prompts_and_replies_newest_first() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "finder"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for text in ["the broker quota", "a QUOTA for the broker again"] {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
+        .unwrap();
+    }
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": "finder", "query": "quota broker"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["sessionId"], json!(id), "{r}");
+    let hits = r["hits"].as_array().unwrap();
+    let got: Vec<(&str, &str)> = hits
+        .iter()
+        .map(|h| (h["role"].as_str().unwrap(), h["snippet"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("assistant", "echo: a QUOTA for the broker again"),
+            ("user", "a QUOTA for the broker again"),
+            ("assistant", "echo: the broker quota"),
+            ("user", "the broker quota"),
+        ],
+        "{r}"
+    );
+    assert!(hits[0]["seq"].as_u64() > hits[1]["seq"].as_u64(), "{r}");
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": id, "query": "broker", "role": "user", "limit": 1}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
+    assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    for params in
+        [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
+    {
+        assert!(c.request(method::MUX_SESSION_SEARCH, params).await.is_err());
+    }
 }
 
 #[tokio::test]

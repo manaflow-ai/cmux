@@ -74,6 +74,7 @@ extension SettingsSchema {
         "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.verticalTabs", "tabs.verticalTabsExpandOnHover", // how tabs are listed (looks only)
+        "tabs.hideLoneChatTab", // whether a lone chat's tab draws (looks only)
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
         "palette.scopes.tabs.prefix",
@@ -300,6 +301,8 @@ extension SettingsSchema {
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
         "feed.agentPermissionPrompts": .privacy,
+        // Whether Chief Home pins the Feed's requests over the person's chat is theirs to turn on.
+        "feed.needsYouInChief": .userOnly,
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
