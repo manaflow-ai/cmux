@@ -16,6 +16,12 @@ struct TranscriptFoldHold {
     let begin: @MainActor () -> Void
     /// Lets go when the disclosure's animation completes.
     let end: @MainActor () -> Void
+    /// Shows a settling row's SwiftUI view now, in the state it draws before the change (a native
+    /// row is swapped for its SwiftUI view at rest), so the change has a view to animate.
+    var swap: @MainActor () -> Void = {}
+    /// Sizes the rows again on the disclosure's spring: the row's height and the rows below follow
+    /// the body's edge instead of jumping to their final places on the next layout pass.
+    var resize: @MainActor () -> Void = {}
 }
 
 extension EnvironmentValues {
@@ -44,7 +50,14 @@ extension AnyTransition {
 /// One disclosure tap: the transcript holds the tapped line, the change plays on the shared spring,
 /// and the hold ends when that animation completes. Reduce Motion opens and closes at once, and
 /// lets go on the next turn of the main loop (after the change is laid out).
-@MainActor func toggleDisclosure(_ hold: TranscriptFoldHold, _ change: () -> Void) {
+///
+/// `key` and `disclosures`: the transcript's disclosure (a tool row's `tool-`, a group's `group-`, a
+/// thought's `thought-` key). Every such disclosure animates the same way, native or SwiftUI, open
+/// or close: its row is SwiftUI while it settles (`ChatDisclosures.settle`), shown in its current
+/// state first (`TranscriptFoldHold.swap`); on the next turn of the main loop the change plays on the
+/// spring in SwiftUI (the body's `DisclosureReveal`) and in the list (`TranscriptFoldHold.resize`).
+@MainActor func toggleDisclosure(_ hold: TranscriptFoldHold, key: String? = nil, in disclosures: ChatDisclosures? = nil,
+                                 _ change: @escaping @MainActor () -> Void) {
     hold.begin()
     if UIAccessibility.isReduceMotionEnabled {
         var transaction = Transaction()
@@ -52,8 +65,22 @@ extension AnyTransition {
         withTransaction(transaction, change)
         let end = hold.end
         Task { @MainActor in end() }
-    } else {
+        return
+    }
+    guard let key, let disclosures else {
         withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) { hold.end() }
+        return
+    }
+    disclosures.settle(key, true)
+    hold.swap()
+    // After the swapped row drew its current state: a view inserted and changed in one update
+    // has no "before" to animate from.
+    Task { @MainActor in
+        withAnimation(.cmuxMobileSmooth, completionCriteria: .logicallyComplete, change) {
+            disclosures.settle(key, false)
+            hold.end()
+        }
+        hold.resize()
     }
 }
 #endif
