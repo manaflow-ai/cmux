@@ -114,8 +114,9 @@ class Scope(unittest.TestCase):
     def test_reusable_declarations_bring_their_callers(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
+            (directory / "report.yml").write_text("on:\n  workflow_call:\n")
             (directory / "caller.yml").write_text("on: [pull_request]\njobs:\n  report:\n    uses: ./.github/workflows/report.yml\n")
-            self.assertEqual(rescue.with_callers(["report.yml"], directory), ["caller.yml", "report.yml"])
+            self.assertEqual(rescue.with_callers(["report.yml"], directory), ["caller.yml"])
 
     def test_callers_drops_only_workflows_proven_to_be_reusable_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -265,6 +266,18 @@ class WorkflowToken(unittest.TestCase):
 
 
 class Sweep(unittest.TestCase):
+    def test_discovery_page_cache_reuses_a_page_within_its_short_ttl(self):
+        fake = Fake({"pr-checks.yml": [run(7)]}, {7: [job("PR size")]})
+        cursor = rescue.ScanState()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=True, scan_state=cursor,
+                     clock=lambda: 0, sleep=lambda _: None)
+        first = sum(call[0] == "runs" for call in fake.calls)
+        fake.calls.clear()
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=60), dry_run=True, scan_state=cursor,
+                     clock=lambda: 60, sleep=lambda _: None)
+        self.assertEqual(first, 4)
+        self.assertEqual(sum(call[0] == "runs" for call in fake.calls), 0)
+
     def test_an_overflow_listing_page_finds_a_candidate_past_the_first_100_runs(self):
         gated = [run(100 + index) for index in range(101)]
         overflow = run(999)
