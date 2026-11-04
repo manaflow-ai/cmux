@@ -100,8 +100,11 @@ final class ThemeCoordinator {
         // Art Color: another picture (a pick, a shuffle or rotation step, a preview) is another hue,
         // and pages' `--cmux-app-*` accent comes from the app theme made here, so make it again. The
         // native scopes re-derive on their own (ThemeScope.repaintBackdropArt).
+        // The revision applied now, read before the task starts: a picture change between here and
+        // the task's first read would otherwise count as already shown and never re-derive.
+        let appliedRevision = store.backdropRevision.value
         artObservation = Task { [weak self] in
-            var shown = store.backdropRevision.value
+            var shown = appliedRevision
             for await revision in ObservationStream({ store.backdropRevision.value }) {
                 guard revision != shown else { continue }
                 shown = revision
