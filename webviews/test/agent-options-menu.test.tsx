@@ -159,6 +159,23 @@ test("only options no other chip owns are extra", async () => {
   expect(extraConfigOptions(noModes).map((entry) => entry.id)).toEqual(["mode", "thinking"]);
 });
 
+// Leo 2026-11-04 ("this should NOT be in the bottom composer area"): Claude's session recap switch
+// is Settings > Chats > Session Recap, so it never becomes a composer chip.
+test("the session recap option never reaches the composer", async () => {
+  const { extraConfigOptions } = await import("../src/agent-session/acpmux/agentOptions");
+  type Summary = Parameters<typeof extraConfigOptions>[0];
+  const summary = {
+    family: "claude",
+    harness: "claude",
+    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    configOptions: [
+      option("session-recap", ["default", "on", "off"], { category: "model_config", name: "Session recap" }),
+      option("thinking", ["off", "on"]),
+    ],
+  } as unknown as Summary;
+  expect(extraConfigOptions(summary).map((entry) => entry.id)).toEqual(["thinking"]);
+});
+
 test("the Options chip names one option and picks its choice through the config command", async () => {
   const sent: string[] = [];
   await render(codex([option("thinking", ["off", "on"], { name: "Thinking" })]), sent);
@@ -204,9 +221,9 @@ test("a custom harness collaboration option stays available in Options", async (
 
 test("a chat still opening draws no Options from the last session's summary", async () => {
   const recap = [
-    option("session-recap", ["default", "on", "off"], { name: "Session recap", category: "model_config" }),
+    option("prompt-suggestions", ["off", "on"], { name: "Prompt suggestions", category: "model_config" }),
   ];
-  // The pane opened chat s2 while the summary still describes s1 (another chat's switches).
+  // The pane opened chat s2 while the summary still describes s1 (another chat's switch).
   await render(codex(recap), [], { sessionId: "s2" });
   expect(host.querySelector("[data-menu=options]")).toBeNull();
   // A chat switching harness also carries its old session's options.
@@ -214,7 +231,7 @@ test("a chat still opening draws no Options from the last session's summary", as
   expect(host.querySelector("[data-menu=options]")).toBeNull();
   // Once its own summary is attached, Options is back.
   await render(codex(recap), [], { sessionId: "s1" });
-  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Session recap");
+  expect(host.querySelector("[data-menu=options]")?.textContent).toContain("Prompt suggestions");
 });
 
 test("a session with no extra option shows no Options chip", async () => {

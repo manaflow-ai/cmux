@@ -201,6 +201,17 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
         ChiefAlerts.shared.macPushesReplies = { PushRegistration.shared.receivesChiefPushes }
         // A cmux link tapped in a chat, the Feed or Chief opens here, not in Safari.
         CmuxLinkOpener.shared.handler = { NotificationRouter.shared.open(link: $0) }
+        // Mute Chat Notifications: the chats muted on this phone, in the store the notification
+        // extension reads. One task off the main thread reads the list, then writes each change
+        // in order (only the newest waiting one), so a quick mute and unmute ends as the person left it.
+        let mutes = PushChatMutes.live()
+        let (changes, saving) = AsyncStream<Set<String>>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        ChatMuteList.shared.save = { saving.yield($0) }
+        Task.detached(priority: .utility) {
+            let stored = mutes.muted()
+            await MainActor.run { ChatMuteList.shared.load(stored) }
+            for await keys in changes { mutes.save(keys) }
+        }
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
@@ -243,8 +254,15 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                                    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
+        let payload = PushPayload(userInfo: notification.request.content.userInfo)
+        let chatMac = payload?.kind == .chief || payload?.kind == .terminal ? nil : payload?.mac
+        let chatSession = payload?.sessionId
         Task { @MainActor in
             let showing = route.map { NotificationRouter.shared.isShowing($0) } ?? false
+            // A chat muted on this phone (Mute Chat Notifications): into Notification Center only.
+            if let chatMac, let chatSession, ChatMuteList.shared.isMuted(mac: chatMac, session: chatSession) {
+                return completionHandler(showing ? [] : [.list])
+            }
             completionHandler(showing ? [] : [.banner, .list, .sound])
         }
     }
