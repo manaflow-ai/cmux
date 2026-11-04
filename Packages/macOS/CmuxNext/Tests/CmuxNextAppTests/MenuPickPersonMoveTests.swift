@@ -30,6 +30,10 @@ struct MenuPickPersonMoveTests {
     private static func withWindow(_ body: (AppServices, WindowController, [String]) async throws -> Void) async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        let suite = "cmux-menu-pick-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        services.rightSidebarDefaults = defaults // the right sidebar's state, never the test process's own defaults
+        defer { defaults.removePersistentDomain(forName: suite) }
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         let store = services.machines.local.store
@@ -62,6 +66,39 @@ struct MenuPickPersonMoveTests {
             for _ in 0..<100 where controller.focus.state.pane != panes[1] { try await Task.sleep(for: .milliseconds(10)) }
             #expect(controller.focus.state.pane == panes[1], "the menu's Focus Next Pane did not move the focus")
             #expect(controller.focus.state.personMoveSeq != before, "a focus move the person chose from a menu did not count as theirs")
+        }
+    }
+
+    /// The recorded case (dogfood build 7dd31211): View > Focus Right Sidebar chosen with the mouse. Its one focus event is
+    /// the window's report of the new first responder (the section's search field), with the app's source: it must count
+    /// (review of #35874: the Focus Next Pane case counts through its focus move and did not cover this one).
+    @Test func aResponderMoveChosenFromAMenuCountsAsThePersons() async throws {
+        try await Self.withWindow { services, controller, _ in
+            let before = controller.focus.state.personMoveSeq
+            let item = try #require(services.registry.makeMenuItem(for: "focusRightSidebar"), "Focus Right Sidebar has no menu item")
+            let action = try #require(item.action)
+            let sent = NSApplication.shared.sendAction(action, to: item.target, from: item)
+            #expect(sent, "the menu item's action was not sent")
+            for _ in 0..<100 where controller.focus.state.target != .textField { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(controller.focus.state.target == .textField,
+                         "the right sidebar's search field never reported as the first responder: \(controller.focus.state.target)")
+            #expect(controller.focus.state.personMoveSeq != before, "a responder move the person chose from a menu did not count as theirs")
+        }
+    }
+
+    /// A menu item run by its key equivalent is no menu pick: AppKit runs it inside the key's dispatch, which names the
+    /// person, and a key's responder change is no focus choice (#35275). Its focus move, CLI-sourced here, does not count.
+    @Test func aKeyEquivalentRunIsNoMenuPick() async throws {
+        try await Self.withWindow { services, controller, panes in
+            services.registry.isDispatchingKeyDown = { true } // the run comes from a key-down's dispatch
+            let before = controller.focus.state.personMoveSeq
+            let item = try #require(services.registry.makeMenuItem(for: "focusNextPane"), "Focus Next Pane has no menu item")
+            let action = try #require(item.action)
+            let sent = NSApplication.shared.sendAction(action, to: item.target, from: item)
+            #expect(sent, "the menu item's action was not sent")
+            for _ in 0..<100 where controller.focus.state.pane != panes[1] { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(controller.focus.state.pane == panes[1], "the key equivalent's Focus Next Pane did not move the focus")
+            #expect(controller.focus.state.personMoveSeq == before, "a key equivalent's run counted as a menu pick")
         }
     }
 
