@@ -998,7 +998,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isDisabledByPolicy: { ManagedDevicePolicy().isEnforced(.disableAutoUpdate) }
     )
     private let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
-    private lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
+    private(set) lazy var titlebarAccessoryController = UpdateTitlebarAccessoryController(
         updateLog: updateLog,
         settingsRuntime: settingsRuntime,
         layoutModel: titlebarControlsLayoutModel
@@ -1933,6 +1933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // built-in defaults.
         if !isRunningUnderXCTest, !ManagedDevicePolicy().isEnforced(.disableTelemetry) {
             CmuxFeatureFlags.shared.start()
+        } else if !isRunningUnderXCTest {
+            // Still load local overrides into the off-main snapshot that
+            // `ChiefSettings.isAvailable` reads before session restore.
+            _ = CmuxFeatureFlags.shared
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -4331,6 +4335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             deferBrowserPanels: true,
             workspaceCreateIdempotencyCache: TerminalController.shared.workspaceCreateIdempotencyCache
         )
+        // A snapshot saved with Chief on carries its Home; with Chief off, drop it.
+        ChiefHomeNavigation.removeHome(in: context.tabManager)
         context.restoreWindowDockSessionSnapshot(
             snapshot,
             notificationStore: notificationStore,
@@ -16251,10 +16257,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Numeric shortcuts for visible workspace rows (9 = last visible row).
-        // Always consume the event when the digit matches to prevent Ghostty's
-        // goto_tab fallback from creating a new window when the index is out of bounds.
+        // Numeric shortcuts for visible workspace rows (9 = last visible row). Always consume a matching
+        // digit so Ghostty's goto_tab fallback cannot create a new window for an out-of-bounds index.
         if let digit = routableNumberedConfiguredShortcutDigit(event: event, action: .selectWorkspaceByNumber) {
+            if openNotificationsPopoverRow(forDigit: digit, event: event) { return true }
             if let manager = tabManagerForNumberedShortcut(event: event),
                let targetIndex = manager.selectWorkspaceByNumber(digit) {
 #if DEBUG

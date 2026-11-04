@@ -87,7 +87,8 @@ fn run_inner(
     load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
     if remote_help_requested(&args[1..]) {
-        print!("{}", remote_help(args.first().map(String::as_str)));
+        let help = remote_help(args.first().map(String::as_str));
+        print!("{}", crate::cli::with_program_name(help, &crate::cli::program_name()));
         return Ok(());
     }
     match args.first().map(String::as_str) {

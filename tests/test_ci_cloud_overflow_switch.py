@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import re
+import subprocess
+import textwrap
 import sys
 import tempfile
 import unittest
@@ -14,10 +17,19 @@ import yaml
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The watch's own bounded CI_TRUSTED_RUNNER selector: ephemeral labels only, never a probed size.
+WATCH_SELECTOR = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    '["blacksmith-2vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'
+    "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}"
+)
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import check_repo_variables as check  # noqa: E402
 import cloud_overflow_switch as switch  # noqa: E402
+sys.path.insert(0, str(ROOT / "tests"))
+from test_ci_fork_runner_routing import (  # noqa: E402
+    ADVERSARIAL_VARIABLE_VALUES, evaluate_runs_on, parse_expression, runner_label_errors)
 import signing_runner_variables as signing  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "ci-cloud-overflow-probe.yml"
@@ -120,6 +132,66 @@ def run_main(env: dict[str, str], actions: FakeActions, writer: FakeSwitch | Non
         return code, out.read_text() if out.exists() else "", summary.read_text() if summary.exists() else ""
 
 
+# feat-cmux-next's signing jobs read MACOS_RUNNER_26 (auto-resume-nightly-notarization.yml and friends);
+# the switch's workflow checks those workflows out. This stands in for that checkout.
+FEAT_WORKFLOWS = tempfile.TemporaryDirectory()
+(Path(FEAT_WORKFLOWS.name) / "staple.yml").write_text(
+    "on: workflow_dispatch\njobs:\n  staple:\n    environment: release\n"
+    "    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || "
+    "'blacksmith-6vcpu-macos-26' }}\n    steps:\n      - run: true\n", encoding="utf-8")
+os.environ[signing.DIRS_ENV] = FEAT_WORKFLOWS.name
+
+
+class SigningDerivationTests(unittest.TestCase):
+    def write(self, directory: Path, name: str, text: str) -> None:
+        (directory / name).write_text(text, encoding="utf-8")
+
+    def test_derives_runs_on_variables_of_signing_jobs_only(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.write(root, "a.yml", (
+                "on: push\njobs:\n"
+                "  sign:\n    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}\n"
+                "    steps:\n      - run: echo ${{ secrets.APPLE_CERTIFICATE_BASE64 }}\n"
+                "  publish:\n    environment: release-next\n"
+                "    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-4vcpu-ubuntu-2404' || vars['Linux_Runner'] }}\n"
+                "    steps:\n      - run: true\n"
+                "  test:\n    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}\n"
+                "    steps:\n      - run: echo ${{ secrets.CODECOV_TOKEN }}\n"))
+            self.assertEqual(signing.derive([root]), {"MACOS_RUNNER_PR", "LINUX_RUNNER"})
+
+    def test_a_missing_directory_fails_closed(self) -> None:
+        env = {signing.DIRS_ENV: "/nonexistent/workflows"}
+        self.assertIsNone(signing.signing_variables(env))
+        self.assertTrue(signing.is_signing_variable("MACOS_RUNNER_PR", env))
+        self.assertFalse(signing.allowed_value("MACOS_RUNNER_IOS", "glaeda-ios-sim", env))
+        self.assertTrue(signing.allowed_value("CI_LIGHT_LANE_RUNNER", "glaeda-side-light-xcode-26.6", env))
+
+    def test_this_tree_and_feat_together(self) -> None:
+        derived = signing.signing_variables()
+        # main: every job with a secret runs on a fixed label or the bounded LINUX_RUNNER selector
+        # (test_ci_fork_runner_routing.py), so no signing job reads MACOS_RUNNER_15 any more; the
+        # stand-in feat-cmux-next workflow reads MACOS_RUNNER_26.
+        self.assertIn("MACOS_RUNNER_26", derived)
+        self.assertNotIn("MACOS_RUNNER_15", derived)
+
+    def test_the_switch_and_checker_read_feat_cmux_next(self) -> None:
+        for name in ("ci-cloud-overflow-probe.yml", "ci-repo-variables.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+            self.assertIn("ref: feat-cmux-next", text, name)
+            self.assertIn(f"{signing.DIRS_ENV}: .signing-workflows/feat-cmux-next/.github/workflows", text, name)
+
+    def test_a_derived_variable_never_gets_an_owned_failover(self) -> None:
+        values, _ = switch.failover_values(PIN, "")
+        for name in signing.signing_variables():
+            if name in values:
+                self.assertTrue(signing.ephemeral_label(values[name]), (name, values[name]))
+        self.assertNotIn("MACOS_RUNNER_26", values)
+        # No signing job reads MACOS_RUNNER_15 now, so it fails over to the owned std pool like _PR.
+        self.assertEqual(values["MACOS_RUNNER_15"], "glaeda-std-xcode-26.6")
+        self.assertEqual(values["MACOS_RUNNER_PR"], "glaeda-std-xcode-26.6")
+
+
 class FailoverTests(unittest.TestCase):
     def test_failover_is_derived_from_the_lane_pin(self) -> None:
         values, problems = switch.failover_values(PIN, "")
@@ -129,7 +201,10 @@ class FailoverTests(unittest.TestCase):
         # The merge-gating checks' readers accept only the 2 and 4 vCPU Blacksmith labels.
         self.assertEqual(values["CI_TRUSTED_RUNNER"], "blacksmith-2vcpu-ubuntu-2404")
         for name in switch.STD_VARIABLES:
-            self.assertEqual(values[name], "glaeda-std-xcode-26.6")
+            if signing.is_signing_variable(name):
+                self.assertNotIn(name, values)  # a signing job reads it (read from the workflows)
+            else:
+                self.assertEqual(values[name], "glaeda-std-xcode-26.6")
         self.assertEqual(values["MACOS_RUNNER_DISPLAY"], "glaeda-gui-std-xcode-26.6")
         self.assertEqual(values["MACOS_RUNNER_IOS"], "glaeda-ios-sim")
         self.assertEqual(values["CI_PAID_MACOS_OVERFLOW"], "1")
@@ -149,10 +224,10 @@ class FailoverTests(unittest.TestCase):
 
     def test_overrides_replace_drop_and_refuse(self) -> None:
         values, problems = switch.failover_values(PIN, json.dumps({
-            "MACOS_RUNNER_15": "glaeda-side-std-xcode-26.6", "MACOS_RUNNER_26_LARGE": "",
+            "MACOS_RUNNER_DUAL_XCODE": "glaeda-side-std-xcode-26.6", "MACOS_RUNNER_26_LARGE": "",
             "MACOS_RUNNER_26": "blacksmith-12vcpu-macos-26", "CI_CLOUD_OVERFLOW_SAVED": "x",
             "CI_PR_POOL_OWNED": "0", "MACOS_RUNNER_PR": "macos-15"}))
-        self.assertEqual(values["MACOS_RUNNER_15"], "glaeda-side-std-xcode-26.6")
+        self.assertEqual(values["MACOS_RUNNER_DUAL_XCODE"], "glaeda-side-std-xcode-26.6")
         self.assertNotIn("MACOS_RUNNER_26_LARGE", values)
         # Signing jobs read MACOS_RUNNER_26: no owned failover, and no override may name it.
         self.assertNotIn("MACOS_RUNNER_26", values)
@@ -191,9 +266,11 @@ class SigningVariableTests(unittest.TestCase):
     PINS = ("/Applications/Xcode_26.6.app", "/Applications/Xcode_27.0.app", "", None)
 
     def test_the_switch_reads_the_one_list(self) -> None:
-        self.assertIs(switch.SIGNING_VARIABLES, signing.EPHEMERAL_RUNNER_VARIABLES)
-        self.assertIn("MACOS_RUNNER_26", switch.SIGNING_VARIABLES)
-        self.assertIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
+        # Read from the workflows: this tree's signing jobs, and the feat-cmux-next one the fixture stands in for.
+        derived = signing.signing_variables()
+        self.assertIn("MACOS_RUNNER_26", derived)
+        self.assertIn("LINUX_RUNNER", derived)
+        self.assertNotIn("CI_CLOUD_OVERFLOW_SAVED", derived)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:
         overrides = ("", json.dumps({"MACOS_RUNNER_26": "glaeda-std-xcode-26.6",
@@ -201,7 +278,7 @@ class SigningVariableTests(unittest.TestCase):
         for pin in self.PINS:
             for override in overrides:
                 values, problems = switch.failover_values(pin, override)
-                for name in switch.SIGNING_VARIABLES:
+                for name in signing.signing_variables():
                     if name in values:
                         self.assertTrue(signing.ephemeral_label(values[name]), (pin, override, name, values[name]))
                 if override:
@@ -280,14 +357,14 @@ class PlanTests(unittest.TestCase):
         failover, _ = switch.failover_values(PIN, "")
         changed = switch.plan_off({
             "LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
-            "MACOS_RUNNER_15": None,  # unset: its readers fall back to Blacksmith
+            "MACOS_RUNNER_DUAL_XCODE": None,  # unset: its readers fall back to Blacksmith
             "MACOS_RUNNER_26": "macos-26",  # someone chose GitHub-hosted: left alone
             "MACOS_RUNNER_IOS": "glaeda-ios-sim",  # already at its failover: not recorded
             "CI_PAID_MACOS_OVERFLOW": None,
         }, failover)
         self.assertEqual(changed["LINUX_RUNNER"], {"before": "blacksmith-4vcpu-ubuntu-2404",
                                                    "after": "blacksmith-16vcpu-ubuntu-2404"})
-        self.assertEqual(changed["MACOS_RUNNER_15"], {"before": None, "after": "glaeda-std-xcode-26.6"})
+        self.assertEqual(changed["MACOS_RUNNER_DUAL_XCODE"], {"before": None, "after": "glaeda-std-xcode-26.6"})
         self.assertEqual(changed["CI_PAID_MACOS_OVERFLOW"], {"before": None, "after": "1"})
         self.assertNotIn("MACOS_RUNNER_26", changed)
         self.assertNotIn("MACOS_RUNNER_IOS", changed)
@@ -322,7 +399,7 @@ class PlanTests(unittest.TestCase):
 
     def test_the_probe_set_is_the_compile_sizes(self) -> None:
         # Never one label: one stalled size must not flip the fleet (Leo's no-pins order, 2026-10-28).
-        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"))
+        self.assertEqual(switch.PROBE_LABELS, ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404"))
 
     def test_stuck_job_needs_a_blacksmith_label_and_the_wait(self) -> None:
         jobs = [
@@ -392,8 +469,8 @@ class MainTests(unittest.TestCase):
         self.assertIn("merge_group run", summary)
 
     def test_a_started_probe_restores_and_deletes_the_record(self) -> None:
-        record = {"since": ago(60), "probe": "blacksmith-4vcpu-ubuntu-2404", "changed": {
-            "LINUX_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
+        record = {"since": ago(60), "probe": "blacksmith-32vcpu-ubuntu-2404", "changed": {
+            "LINUX_RUNNER": {"before": "blacksmith-32vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"},
             "CI_PAID_MACOS_OVERFLOW": {"before": None, "after": "1"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"}}}
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
@@ -403,17 +480,17 @@ class MainTests(unittest.TestCase):
         code, out, summary = run_main(env, actions, writer)
         self.assertEqual(code, 0)
         self.assertIn("outcome=started", out)
-        # Review of this change: 4 vCPU is not probed and may still be stalled, so LINUX_RUNNER stays on
-        # the 16 vCPU size whose probe started rather than going back to a label nobody watches.
+        # Review of this change: 32 vCPU is no longer probed and may still be stalled, so LINUX_RUNNER stays
+        # on the 16 vCPU size whose probe started rather than going back to a label nobody watches.
         self.assertEqual(writer.writes, [("CI_PAID_MACOS_OVERFLOW", None), ("CI_CLOUD_OVERFLOW_SAVED", None)])
-        self.assertIn("stays blacksmith-16vcpu-ubuntu-2404; its value before, blacksmith-4vcpu-ubuntu-2404", summary)
+        self.assertIn("stays blacksmith-16vcpu-ubuntu-2404; its value before, blacksmith-32vcpu-ubuntu-2404", summary)
         self.assertIn("left alone", summary)
         # A before that is a probed size goes back as before.
         restores = switch.plan_on({"changed": {"LINUX_RUNNER": {
-            "before": "blacksmith-32vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"}}},
+            "before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-16vcpu-ubuntu-2404"}}},
             {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"}, switch.PROBE_LABELS)
         self.assertEqual([(r.name, r.value, r.skipped) for r in restores],
-                         [("LINUX_RUNNER", "blacksmith-32vcpu-ubuntu-2404", "")])
+                         [("LINUX_RUNNER", "blacksmith-4vcpu-ubuntu-2404", "")])
         self.assertEqual(actions.calls, [])
 
     def test_a_stalled_record_finishes_a_partial_switch(self) -> None:
@@ -498,10 +575,10 @@ class MainTests(unittest.TestCase):
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                                                 "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"}, []),
                          {"MACOS_RUNNER_PR": "glaeda-std-xcode-26.6"})
-        # Only 32 vCPU started: the chain moves on to it.
+        # Only 4 vCPU started: the chain moves on to it.
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
-                                               ["blacksmith-32vcpu-ubuntu-2404"]),
-                         {"LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404"})
+                                               ["blacksmith-4vcpu-ubuntu-2404"]),
+                         {"LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"})
         self.assertEqual(switch.toward_started({"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"},
                                                switch.PROBE_LABELS),
                          {"LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404"})
@@ -516,7 +593,9 @@ class MainTests(unittest.TestCase):
         stalled = probe_job(6)
         started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
                    "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
-        self.assertEqual(switch.probe_set_outcome([stalled, started], switch.PROBE_LABELS, NOW, 5),
+        # Every size but the first starts.
+        rest = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS[1:]]
+        self.assertEqual(switch.probe_set_outcome([stalled, *rest], switch.PROBE_LABELS, NOW, 5),
                          ("partial", [switch.PROBE_LABELS[0]]))
         self.assertEqual(switch.probe_set_outcome([stalled], switch.PROBE_LABELS, NOW, 5),
                          ("waiting", [switch.PROBE_LABELS[0]]))
@@ -532,16 +611,16 @@ class MainTests(unittest.TestCase):
         env = {"VAR_CI_CLOUD_OVERFLOW_SAVED": json.dumps(record), "VAR_MACOS_RUNNER_PR": "glaeda-std-xcode-26.6",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
-        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(env, FakeActions([stalled, *rest]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         self.assertIn("outcome=partial", out)
         # Nor does it turn overflow off when there is no record.
         writer = FakeSwitch()
-        code, out, _ = run_main(BLACKSMITH_STEADY, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(BLACKSMITH_STEADY, FakeActions([stalled, *rest]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         # Per-label health is written either way, for the pool reconciler to read.
         self.assertEqual(writer.health[-1]["labels"], {switch.PROBE_LABELS[0]: "stalled",
-                                                       switch.PROBE_LABELS[1]: "started"})
+                                                       **{label: "started" for label in switch.PROBE_LABELS[1:]}})
         self.assertEqual(writer.health[-1]["run"], "https://github.com/manaflow-ai/cmux/actions/runs/1")
         # Every size started: the record is put back and deleted.
         writer = FakeSwitch()
@@ -556,22 +635,23 @@ class MainTests(unittest.TestCase):
         stalled = probe_job(6)
         started = {**probe_job(6, runner_name="bs-1", status="in_progress"),
                    "name": switch.probe_job_name(switch.PROBE_LABELS[1])}
-        env = {"VAR_LINUX_RUNNER": "blacksmith-32vcpu-ubuntu-2404", "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26",
+        rest = [{**started, "name": switch.probe_job_name(label)} for label in switch.PROBE_LABELS[1:]]
+        env = {"VAR_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404", "VAR_MACOS_RUNNER_PR": "blacksmith-6vcpu-macos-26",
                "VAR_CMUX_CI_XCODE_APP_PR": PIN}
         writer = FakeSwitch()
-        code, out, _ = run_main(env, FakeActions([stalled, started]), writer)
+        code, out, _ = run_main(env, FakeActions([stalled, *rest]), writer)
         self.assertEqual((code, writer.writes), (0, []))
         self.assertIn("outcome=partial", out)
         self.assertEqual(writer.health[-1]["labels"][switch.PROBE_LABELS[0]], "stalled")
 
     def test_a_restore_goes_back_only_onto_a_size_that_started(self) -> None:
-        # Review at 437df955: a legacy CI_TRUSTED_RUNNER record (before 4 vCPU, never probed).
+        # Review at 437df955: a legacy CI_TRUSTED_RUNNER record (before a size that is not probed).
         record = {"changed": {
-            "CI_TRUSTED_RUNNER": {"before": "blacksmith-4vcpu-ubuntu-2404", "after": "blacksmith-2vcpu-ubuntu-2404"},
+            "CI_TRUSTED_RUNNER": {"before": "blacksmith-2vcpu-ubuntu-2404", "after": "blacksmith-4vcpu-ubuntu-2404"},
             "LINUX_RUNNER": {"before": None, "after": "blacksmith-16vcpu-ubuntu-2404"},
             "MACOS_RUNNER_PR": {"before": "blacksmith-6vcpu-macos-26", "after": "glaeda-std-xcode-26.6"},
             "MACOS_RUNNER_15": {"before": "macos-15", "after": "glaeda-std-xcode-26.6"}}}
-        current = {"CI_TRUSTED_RUNNER": "blacksmith-2vcpu-ubuntu-2404", "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
+        current = {"CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404", "LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                    "MACOS_RUNNER_PR": "glaeda-std-xcode-26.6", "MACOS_RUNNER_15": "glaeda-std-xcode-26.6"}
         restores = {r.name: r for r in switch.plan_on(record, current, switch.PROBE_LABELS)}
         self.assertTrue(restores["CI_TRUSTED_RUNNER"].skipped)
@@ -691,6 +771,52 @@ class MainTests(unittest.TestCase):
         self.assertEqual((code, writer.writes), (1, []))
 
 
+
+class PythonDependencyTests(unittest.TestCase):
+    def test_watch_bootstraps_yaml_in_a_job_local_environment(self) -> None:
+        # Execute the workflow's actual shell command with a clean Python stand-in:
+        # it cannot import YAML until the pinned installation has completed.
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        step = next(step for step in workflow["jobs"]["watch"]["steps"] if step.get("id") == "switch")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            binaries = root / "bin"
+            binaries.mkdir()
+            fake = binaries / "python3"
+            fake.write_text(f"#!{sys.executable}\n" + textwrap.dedent("""\
+                import json, os, pathlib, sys
+                root = pathlib.Path(os.environ['PYTHON_FIXTURE_ROOT'])
+                args = sys.argv[1:]
+                with (root / 'events').open('a') as out:
+                    out.write(json.dumps([sys.executable, *args]) + '\\n')
+                if args == ['-c', 'import yaml']:
+                    raise SystemExit(0 if (root / 'installed').exists() else 1)
+                if args[:2] == ['-m', 'venv']:
+                    target = pathlib.Path(args[2]) / 'bin' / 'python'
+                    target.parent.mkdir(parents=True)
+                    target.write_text(pathlib.Path(__file__).read_text())
+                    target.chmod(0o755)
+                elif args[:3] == ['-m', 'pip', 'install']:
+                    if 'PyYAML==6.0.3' not in args:
+                        raise SystemExit('expected pinned PyYAML')
+                    (root / 'installed').touch()
+                elif args == ['scripts/ci/cloud_overflow_switch.py']:
+                    if not (root / 'installed').exists():
+                        raise SystemExit("ModuleNotFoundError: No module named 'yaml'")
+                    (root / 'executed').touch()
+                else:
+                    raise SystemExit('unexpected python call: ' + repr(args))
+                """))
+            fake.chmod(0o755)
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', step['run']], cwd=ROOT,
+                                    env={**os.environ, 'PATH': f'{binaries}:{os.environ["PATH"]}',
+                                         'RUNNER_TEMP': str(root / 'runner'), 'PYTHON_FIXTURE_ROOT': str(root),
+                                         'GITHUB_PATH': str(root / 'github-path')},
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / 'executed').exists())
+            self.assertTrue((root / 'installed').exists())
+
 class WorkflowTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")
 
@@ -708,14 +834,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: always() && steps.switch.outputs.outcome != 'started'", self.text)
 
     def test_watch_runs_off_blacksmith_and_passes_every_switched_variable(self) -> None:
-        # Never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes there behind the
-        # switch's own failover and held the concurrency group, so no later run decided anything.
+        # Its own bounded selector, never a single label: on 2026-11-03 the literal
+        # blacksmith-6vcpu-macos-26 was dead and the watch queued 19 minutes (run 41688532704),
+        # so the hosted light rescue it carries ran every 20-25 minutes (cmuxterm-hq#6671).
         runs_on = re.search(r"name: Watch the probe and switch overflow\n(?:.*\n)*?\s+runs-on: (.*)", self.text).group(1)
-        self.assertNotIn("ubuntu-24.04", runs_on)
-        self.assertNotIn("ubuntu-latest", runs_on)
-        self.assertNotIn("github-hosted-required", runs_on)
-        # Blacksmith macOS: never a size the probes ask for, so it never queues behind them.
-        self.assertEqual(runs_on, "blacksmith-6vcpu-macos-26")
+        runs_on, _, comment = runs_on.partition(" # ")
+        self.assertEqual(runs_on, WATCH_SELECTOR)
+        self.assertTrue(comment.startswith("ephemeral-required:"), comment)
+        self.assertEqual(runner_label_errors(runs_on), [])
+        # Whatever CI_TRUSTED_RUNNER holds (unset, a stray value, a probed size the switch's
+        # alternate failover may write, hosted Ubuntu set by hand), the watch never takes a size
+        # the probes ask for, so it never queues beside a stalled probe and holds the group
+        # (2026-10-28), and never GitHub-hosted Ubuntu: on 2026-10-27 the watch queued 94 minutes
+        # there behind the switch's own failover.
+        tree = parse_expression(runs_on[3:-2])
+        values = {"", *ADVERSARIAL_VARIABLE_VALUES, *switch.PROBE_LABELS, switch.TRUSTED_FAILOVER,
+                  *switch.ALTERNATE_FAILOVERS.values(), "blacksmith-2vcpu-ubuntu-2404",
+                  "blacksmith-8vcpu-ubuntu-2404", "blacksmith-32vcpu-ubuntu-2404"}
+        for value in sorted(values):
+            label = evaluate_runs_on(tree, {"github.repository_owner": "manaflow-ai",
+                                            "vars.CI_TRUSTED_RUNNER": value})
+            with self.subTest(CI_TRUSTED_RUNNER=value):
+                self.assertNotIn(label, switch.PROBE_LABELS)
+                self.assertIn(label, {"blacksmith-2vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404"})
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
                                                   "CMUX_CI_XCODE_APP_PR"}
         for name in names:
@@ -723,6 +864,39 @@ class WorkflowTests(unittest.TestCase):
                       or f"            {name}=${{{{ vars.{name} }}}}\n" in self.text)
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
+
+    def test_the_job_with_the_variable_write_key_runs_on_a_literal_ephemeral_label(self) -> None:
+        # The watch mints the GLAEDA_ROUTE_APP_KEY token that writes repository variables. #27022 let
+        # CI_CONTROL_RUNNER pick its runner, an owned (reused) Mac for one, so a variable could put that
+        # key on a machine where it outlives the job. Only a literal ephemeral label, or the trusted
+        # selector whose expression bounds CI_TRUSTED_RUNNER to ephemeral labels, may carry it.
+        for name, job in yaml.safe_load(self.text)["jobs"].items():
+            if "secrets." not in json.dumps(job) and "create-github-app-token" not in json.dumps(job):
+                continue
+            if job["runs-on"] == WATCH_SELECTOR:
+                continue
+            self.assertNotIn("${{", job["runs-on"], name)
+            self.assertTrue(job["runs-on"].startswith(switch.CLOUD_PREFIX), name)
+
+    def test_no_job_that_ci_control_runner_moves_holds_a_secret(self) -> None:
+        # CI_CONTROL_RUNNER may name a reused machine, so the control jobs it moves hold only their
+        # job-scoped GITHUB_TOKEN: no secret, and no App token minted from one.
+        moved = []
+        for path in sorted(WORKFLOW.parent.glob("*.y*ml")):
+            for name, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
+                if "CI_CONTROL_RUNNER" not in str(job.get("runs-on", "")):
+                    continue
+                moved.append(f"{path.name}:{name}")
+                self.assertNotIn("secrets.", json.dumps(job), f"{path.name}:{name}")
+                self.assertNotIn("create-github-app-token", json.dumps(job), f"{path.name}:{name}")
+        self.assertIn("nightly-next-tick.yml:request", moved)
+
+    def test_one_fixed_group_so_two_watches_never_write_at_once(self) -> None:
+        # The switch's variable writes and record delete are separate calls; a group keyed by anything a
+        # run can change (a variable, an input) would let two watches interleave them.
+        group = re.search(r"(?m)^concurrency:\n  group: (.*)$", self.text).group(1)
+        self.assertEqual(group, "ci-cloud-overflow-probe")
+        self.assertIn("  cancel-in-progress: false\n", self.text)
 
     def test_watch_uses_existing_route_app_credentials(self) -> None:
         self.assertIn("vars.GLAEDA_ROUTE_APP_ID", self.text)
@@ -779,6 +953,68 @@ class RepoVariableCheckTests(unittest.TestCase):
         env = self.env(CI_CLOUD_OVERFLOW_SAVED=json.dumps(record),
                        CMUX_CI_RUNNER_VARIABLES="MACOS_RUNNER_26=glaeda-std-xcode-26.6\n")
         self.assertTrue(any("MACOS_RUNNER_26" in p for p in check.problems(env)))
+
+
+class ReadTokenTests(unittest.TestCase):
+    """The watch's reads go out on cmux-bot's token, its writes and refused reads on the workflow token."""
+
+    def client(self, refuse: int | None = None) -> tuple[switch.GitHub, list[tuple[str, str, str]]]:
+        import urllib.error
+        api = switch.GitHub("bot", "manaflow-ai/cmux", "workflow")
+        sent: list[tuple[str, str, str]] = []
+
+        def send(method: str, path: str, data: bytes | None, token: str) -> dict:
+            sent.append((method, path.split("?")[0], token))
+            if refuse is not None and token == "bot":
+                raise urllib.error.HTTPError(path, refuse, "refused", {}, None)  # type: ignore[arg-type]
+            return {"jobs": [], "workflow_runs": []}
+
+        api._send = send  # type: ignore[method-assign]
+        return api, sent
+
+    def test_reads_use_the_bot_and_writes_the_workflow_token(self) -> None:
+        api, sent = self.client()
+        api.jobs(7, 1)
+        api.runs("queued")
+        api.force_cancel(8)
+        api.rerun(8)
+        self.assertEqual([token for *_, token in sent], ["bot", "bot", "workflow", "workflow"])
+
+    def test_a_refused_read_is_asked_once_on_the_workflow_token(self) -> None:
+        for code in (401, 403, 429):
+            api, sent = self.client(refuse=code)
+            self.assertEqual(api.jobs(7, 1), [])
+            self.assertEqual([token for *_, token in sent], ["bot", "workflow"], code)
+
+    def test_other_read_errors_are_not_retried(self) -> None:
+        api, sent = self.client(refuse=404)
+        with self.assertRaises(RuntimeError):
+            api.jobs(7, 1)
+        self.assertEqual(len(sent), 1)
+
+    def test_without_a_fallback_everything_uses_the_one_token(self) -> None:
+        api = switch.GitHub("only", "manaflow-ai/cmux")
+        sent: list[str] = []
+        api._send = lambda method, path, data, token: sent.append(token) or {}  # type: ignore[method-assign]
+        api.request("GET", "/actions/runs/1")
+        api.request("POST", "/actions/runs/1/rerun")
+        self.assertEqual(sent, ["only", "only"])
+
+    def test_the_watch_reads_as_cmux_bot_with_the_workflow_token_as_fallback(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["watch"]["steps"]
+        [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
+        self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
+        self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
+        # Read-only: the bot token can never cancel, re-run or write a variable.
+        self.assertEqual({k: v for k, v in mint["with"].items() if k.startswith("permission-")},
+                         {"permission-actions": "read"})
+        self.assertTrue(mint["continue-on-error"])
+        [step] = [s for s in steps if s.get("id") == "switch"]
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
+        self.assertEqual(step["env"]["GH_FALLBACK_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
+        self.assertNotIn("GLAEDA_ROUTE", step["env"]["GH_TOKEN"])
+        self.assertLess(steps.index(mint), steps.index(step))
 
 
 if __name__ == "__main__":

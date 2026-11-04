@@ -221,6 +221,16 @@ jobs:
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Keep cargo's registry and cmux-tui/target for the Rust SDK leg between runs.
+      # Only main saves, as in rust-msrv.
+      - name: Cache cargo build
+        if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Set up Go
         if: matrix.language == 'go'
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -397,6 +407,18 @@ jobs:
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # Keep cargo's registry and the two Rust consumer example target dirs between
+      # runs. Pull requests only restore: a push to main or a dispatch saves.
+      - name: Cache cargo build
+        if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: |
+            cmux-tui/bindings/examples/rust-agent-dashboard -> target
+            cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Set up Go
         if: matrix.language == 'go'
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -527,6 +549,24 @@ jobs:
 
       - name: Install Rust 1.88 MSRV toolchain
         run: rustup toolchain install 1.88.0 --profile minimal --component clippy --component rustfmt
+
+      # Keep cargo's registry and the four target dirs (the cmux-tui workspace that
+      # holds the SDK crates, and the three example workspaces) between runs. The
+      # job's own key, with the toolchain in it, so 1.88 artifacts never mix with
+      # the pinned toolchain's. Only main saves: a pull request restores what its
+      # base (and main, the default branch) saved, and a branch's own save never
+      # comes back, so it would only push useful entries out of the cache store.
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: |
+            cmux-tui -> target
+            cmux-tui/bindings/examples/rust-agent-screen-detection -> target
+            cmux-tui/bindings/examples/rust-agent-dashboard -> target
+            cmux-tui/bindings/examples/rust-sidebar-monitor -> target
+          key: rust-1.88.0
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Test public Rust SDK crates and examples on MSRV
         run: |

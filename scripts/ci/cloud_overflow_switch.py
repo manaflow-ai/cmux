@@ -9,9 +9,9 @@ lands on. On 2026-09-29 Blacksmith stopped starting jobs org-wide from about
 variables at the owned pools and GitHub-hosted Linux by hand.
 
 ci-cloud-overflow-probe.yml runs this every 10 minutes. Its `probe` jobs ask
-for each Blacksmith Linux size in PROBE_LABELS (32 and 16 vCPU), one job per
+for each Blacksmith Linux size in PROBE_LABELS (4 and 16 vCPU), one job per
 label, and only print a line. This script, in the `watch` job on Blacksmith
-macOS, waits for them:
+Linux (its own bounded CI_TRUSTED_RUNNER selector, 2 or 8 vCPU, never a probe size), waits for them:
 
 - Every probe starts within PROBE_MINUTES of being queued: Blacksmith serves.
   If this switch turned overflow off (the CI_CLOUD_OVERFLOW_SAVED record
@@ -45,14 +45,15 @@ elsewhere is left alone. Nothing here touches the lane switches
 (CI_PR_POOL_OWNED, CI_E2E_OWNED_UI, CI_IOS_OWNED, ...): minis-first routing
 never changes, only where overflow goes.
 
-Signing jobs read their runner from the variables in
-signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES (LINUX_RUNNER,
-MACOS_RUNNER_26), which must only ever name an ephemeral runner (rule 7 of
+Some variables are read by signing jobs' runs-on, and those must only ever
+name an ephemeral runner (rule 7 of
 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py on
-feat-cmux-next, checked live by cmux-next-guards.yml there; the variables are
-repository-wide, and this scheduled switch runs from main). The switch
-never writes anything else to one: MACOS_RUNNER_26 has no owned failover (its
-jobs wait for Blacksmith), an override that names a reused machine for one is
+feat-cmux-next, checked live by cmux-next-guards.yml there). Which ones is
+read from the workflows of main and of feat-cmux-next
+(signing_runner_variables.signing_variables(); the variables are
+repository-wide, and this scheduled switch runs from main). The switch never
+writes anything else to one: such a variable has no owned failover (its jobs
+wait for Blacksmith), an override that names a reused machine for one is
 refused, and an older record that still names one as switched to an owned
 pool is not re-applied. Turning overflow back on still puts back the value a
 record names.
@@ -87,21 +88,22 @@ RECORD_VARIABLE = "CI_CLOUD_OVERFLOW_SAVED"
 OVERRIDES_VARIABLE = "CI_CLOUD_FAILOVER"
 PAID_OVERFLOW_VARIABLE = "CI_PAID_MACOS_OVERFLOW"
 CLOUD_PREFIX = pr_runner_pool.EPHEMERAL_PREFIX  # "blacksmith-"
-# What the probe asks for: the Blacksmith Linux sizes compiles run on, every
-# one of them (the workflow's probe matrix restates this). Overflow goes off
+# What the probe asks for: every member of the linux pool in .github/runners.json
+# (tests/test_ci_runner_pools.py; the workflow's probe matrix restates this). Overflow goes off
 # only when none of them starts its probe; one that starts means Blacksmith
 # serves. A single probed label is a pin: on 2026-10-28 the 4 vCPU label
 # alone queued past 5 minutes at 21:59Z, 22:13Z, 22:53Z and 23:30Z while the
 # other sizes started jobs, and each time the whole fleet failed over.
-PROBE_LABELS = ("blacksmith-32vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
+PROBE_LABELS = ("blacksmith-4vcpu-ubuntu-2404", "blacksmith-16vcpu-ubuntu-2404")
 # Where Linux overflow goes while the probed label stalls: another Blacksmith
 # Linux size, never GitHub-hosted Ubuntu. CI_TRUSTED_RUNNER's readers accept
 # only ubuntu-24.04 and the 2 and 4 vCPU labels (docs/ci-runners.md), so it
 # takes 2 vCPU.
 LINUX_FAILOVER = "blacksmith-16vcpu-ubuntu-2404"
 TRUSTED_FAILOVER = "blacksmith-2vcpu-ubuntu-2404"
-# When the probed label is that failover itself, the next size over.
-ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-32vcpu-ubuntu-2404",
+# When the probed label is that failover itself, the other size: a probed one, so
+# toward_started() can pick it, and one the bounded LINUX_RUNNER selectors accept.
+ALTERNATE_FAILOVERS = {LINUX_FAILOVER: "blacksmith-4vcpu-ubuntu-2404",
                        TRUSTED_FAILOVER: "blacksmith-4vcpu-ubuntu-2404"}
 # The only Blacksmith labels CI_TRUSTED_RUNNER's readers accept.
 TRUSTED_BLACKSMITH_LABELS = frozenset({"blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404"})
@@ -116,13 +118,11 @@ LINUX_VARIABLES = (LINUX_VARIABLE, TRUSTED_VARIABLE)
 # lane goes through e2e_runner_pool.py, the iOS lane through
 # MACOS_RUNNER_IOS) and MACOS_RUNNER_BACKGROUND is GitHub-hosted, so neither
 # is here; CI_CLOUD_FAILOVER can add one.
-# MACOS_RUNNER_26 is not either: signing jobs run on it, so it never names an owned
-# mini (SIGNING_VARIABLES below). On 2026-10-28 the failover pointed it at the std
-# pool and turned cmux-next-guards.yml's signing-runner-variables red on every PR.
-STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR", "MACOS_RUNNER_DUAL_XCODE")
-# The variables signing jobs take their runner from: the switch writes only an
-# ephemeral label (blacksmith-* or ubuntu-*) to these, or puts back a recorded value.
-SIGNING_VARIABLES = signing_runner_variables.EPHEMERAL_RUNNER_VARIABLES
+# Any of these a signing job reads (signing_runner_variables) keeps its value: on
+# 2026-10-28 the failover pointed MACOS_RUNNER_26 at the std pool and turned
+# cmux-next-guards.yml's signing-runner-variables red on every PR.
+STD_VARIABLES = ("MACOS_RUNNER_15", "MACOS_RUNNER_26", "MACOS_RUNNER_26_LARGE", "MACOS_RUNNER_PR",
+                 "MACOS_RUNNER_DUAL_XCODE")
 GUI_VARIABLE = "MACOS_RUNNER_DISPLAY"
 IOS_VARIABLE = "MACOS_RUNNER_IOS"
 SWITCHED_VARIABLES = (*LINUX_VARIABLES, *STD_VARIABLES, GUI_VARIABLE, IOS_VARIABLE, PAID_OVERFLOW_VARIABLE)
@@ -255,9 +255,9 @@ def failover_values(xcode_app_pr: str | None, overrides: str | None) -> tuple[di
                 else:
                     values[name] = value.strip()
     for name in [name for name, value in values.items() if not signing_safe(name, value)]:
-        # Nothing above should produce one; this is the backstop the tests pin.
-        problems.append(f"the failover for {name} is {values.pop(name)}, not an ephemeral runner; signing jobs "
-                        "run on it, so it is left alone")
+        # A signing job reads it (read from the workflows), so it keeps its value. Not a problem:
+        # this is the routine case for MACOS_RUNNER_26.
+        values.pop(name)
     if any(name not in LINUX_VARIABLES for name in values):
         # MACOS_RUNNER_15, _26 and friends are read only when this is 1.
         values[PAID_OVERFLOW_VARIABLE] = "1"
@@ -305,8 +305,9 @@ def plan_on(record: Mapping[str, Any], current: Mapping[str, str | None],
 
     With `started` (the labels whose probes started in this run), a Linux
     variable goes back only onto a label whose probe started: an older
-    record's before (blacksmith-4vcpu-ubuntu-2404 from when that one label was
-    the probe, or unset, whose readers fall back to an unprobed literal) may
+    record's before (a size no longer probed, such as blacksmith-32vcpu-ubuntu-2404
+    before the linux pool went smallest first, or unset, whose readers fall back
+    to an unprobed literal) may
     still be stalled, and once the record is deleted nothing would see it.
     Such a variable stays where it is. A GitHub-hosted label is never put back.
     """
@@ -522,27 +523,51 @@ def stuck_job(jobs: Iterable[Mapping[str, Any]], now: dt.datetime, minutes: int,
     return min(stuck, key=lambda item: item[0])[1] if stuck else None
 
 
+REFUSED_CODES = frozenset({401, 403, 429})
+
+
 class GitHub:
-    def __init__(self, token: str, repo: str) -> None:
+    """REST client. With `fallback_token`, reads go out on `token` (the watch's cmux-bot installation token,
+    whose pool is its own) and a refused read is asked once more on the fallback (the workflow token, which
+    shares the repository's 1,000/h pool with every workflow); writes always use the fallback, so who
+    cancels and re-runs a run is unchanged. Without it, everything uses `token`, as before."""
+
+    def __init__(self, token: str, repo: str, fallback_token: str | None = None) -> None:
         self.repo = repo
-        self.headers = {
+        self.token = token
+        self.fallback_token = (fallback_token or "").strip() or None
+
+    def _headers(self, token: str) -> dict[str, str]:
+        return {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": "cmux-ci-cloud-overflow-switch",
         }
 
-    def request(self, method: str, path: str, body: Any | None = None) -> Any:
-        data = json.dumps(body).encode() if body is not None else None
-        headers = dict(self.headers)
+    def _send(self, method: str, path: str, data: bytes | None, token: str) -> Any:
+        headers = self._headers(token)
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", data=data, headers=headers,
                                          method=method)
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else {}
+
+    def request(self, method: str, path: str, body: Any | None = None) -> Any:
+        data = json.dumps(body).encode() if body is not None else None
+        read = method == "GET"
+        token = self.token if read or self.fallback_token is None else self.fallback_token
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read()
-                return json.loads(raw) if raw else {}
+            try:
+                return self._send(method, path, data, token)
+            except urllib.error.HTTPError as error:
+                if not (read and self.fallback_token and token != self.fallback_token
+                        and error.code in REFUSED_CODES):
+                    raise
+                # A refused GET did nothing: ask the workflow token once.
+                return self._send(method, path, data, self.fallback_token)
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -738,7 +763,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         if not token or not repo or not run_id:
             print("cloud-overflow-switch: GH_TOKEN, GH_REPO and GITHUB_RUN_ID are required", file=sys.stderr)
             return 2
-        api = GitHub(token, repo)
+        api = GitHub(token, repo, env.get("GH_FALLBACK_TOKEN"))
     if switch is None and (env.get("SWITCH_TOKEN") or "").strip():
         switch = GitHub(str(env["SWITCH_TOKEN"]).strip(), repo)
     minutes = probe_minutes(env.get("PROBE_MINUTES"))

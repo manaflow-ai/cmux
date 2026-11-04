@@ -640,5 +640,350 @@ class TransportTests(unittest.TestCase):
         self.assertNotIn("--location", command)
 
 
+finalize_spec = importlib.util.spec_from_file_location("finalize_release", ROOT / "scripts/ci/finalize-release.py")
+finalize = importlib.util.module_from_spec(finalize_spec)
+sys.modules[finalize_spec.name] = finalize
+finalize_spec.loader.exec_module(finalize)
+
+
+class FakeReleases:
+    """GitHub's release endpoints over an in-memory table, as finalize-release.py calls them."""
+
+    api_url = "https://api.test"
+    repo = "o/r"
+
+    def __init__(self, releases, assets):
+        self.table = {release["id"]: dict(release) for release in releases}
+        self.stored = assets
+        self.calls = []
+        self.stale = {}  # releases a lagging list still shows after DELETE
+
+    def releases(self):
+        return [dict(release) for release in [*self.table.values(), *self.stale.values()]]
+
+    def assets(self, release_id):
+        if release_id not in self.table:
+            raise finalize.RequestError("HTTP 404", status=404)
+        stored = self.stored.get(release_id, [])
+        # A name maps to its own bytes unless the test gives (name, digest[, size]).
+        entries = [(*entry, 1)[:3] if isinstance(entry, tuple) else (entry, f"sha256:{entry}", 1) for entry in stored]
+        return {name: {"name": name, "state": "uploaded", "digest": digest, "size": size}
+                for name, digest, size in entries}
+
+    def request(self, method, url, *, body=None, **_):
+        path = urlsplit(url).path.removeprefix("/repos/o/r/releases")
+        self.calls.append((method, path, json.loads(body) if body else None))
+        if method == "POST" and path == "/generate-notes":
+            return {"body": "notes"}
+        if path.startswith("/tags/"):
+            tag = path.removeprefix("/tags/")
+            for release in self.table.values():
+                if release["tag_name"] == tag and not release["draft"]:
+                    return dict(release)
+            raise publisher.RequestError("HTTP 404", status=404)
+        release_id = int(path.strip("/"))
+        if method == "GET" and release_id not in self.table:
+            raise finalize.RequestError("HTTP 404", status=404)
+        if method == "DELETE":
+            if release_id not in self.table:
+                raise finalize.RequestError("HTTP 404", status=404)
+            self.table.pop(release_id)
+            return None
+        if method == "PATCH":
+            self.table[release_id].update(json.loads(body))
+        return dict(self.table[release_id])
+
+
+class AdoptTests(unittest.TestCase):
+    """v0.65.2.2 was tagged from a branch whose workflow still published by tag:
+    that made an empty published release, and the 12 assets stayed on a draft
+    GitHub now shows as untagged-<hash>, so every download 404ed."""
+
+    NAMES = ["cmux-macos.dmg", "appcast.xml"]
+
+    def client(self, extra=(), extra_assets=None):
+        draft = {"id": 1, "tag_name": "untagged-7319b3bc", "name": "v1.2.3", "draft": True, "prerelease": False}
+        empty = {"id": 2, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
+        return FakeReleases([draft, empty, *extra], {1: self.NAMES, **(extra_assets or {})})
+
+    def adopt(self, client, release_id=1, dry_run=False, generate_notes=True, prerelease="false"):
+        args = finalize.argparse.Namespace(
+            tag="v1.2.3", release_id=release_id, expect_asset=list(self.NAMES), expect_count=2,
+            name=None, target_commitish=None, body_file=None, generate_notes=generate_notes,
+            prerelease=prerelease, make_latest="true", dry_run=dry_run)
+        finalize.adopt(client, args)
+
+    def test_empty_release_is_replaced_by_the_staged_draft(self):
+        client = self.client()
+        self.adopt(client)
+        self.assertEqual(list(client.table), [1])
+        published = client.table[1]
+        self.assertEqual(published["tag_name"], "v1.2.3")
+        self.assertFalse(published["draft"])
+        self.assertEqual(published["make_latest"], "true")
+        writes = [(method, path) for method, path, body in client.calls
+                  if method == "DELETE" or (method == "PATCH" and "tag_name" in body)]
+        # The empty release goes before the draft takes its tag.
+        self.assertEqual(writes[:2], [("DELETE", "/2"), ("PATCH", "/1")])
+
+    def test_dry_run_changes_nothing(self):
+        client = self.client()
+        self.adopt(client, dry_run=True)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_release_with_its_own_assets_is_never_deleted(self):
+        for own in (["notes.txt"], [("cmux-macos.dmg", "sha256:other")],
+                    [("cmux-macos.dmg", "sha256:cmux-macos.dmg", 2)], ["cmux-macos.dmg", "notes.txt"]):
+            client = self.client(extra_assets={2: own})
+            with self.assertRaisesRegex(RuntimeError, "releases 2 for v1.2.3 are drafts or have assets"):
+                self.adopt(client)
+            self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_a_release_holding_copies_of_draft_assets_is_replaced(self):
+        # v0.65.2.2 was hand-repaired by copying two DMGs from the draft.
+        client = self.client(extra_assets={2: ["cmux-macos.dmg"]})
+        self.adopt(client)
+        self.assertEqual(list(client.table), [1])
+        self.assertFalse(client.table[1]["draft"])
+
+    def test_a_release_already_holding_every_draft_asset_is_left_serving(self):
+        # v0.65.2.2 ended up hand-repaired with all 12 assets: adopt must not
+        # delete a working release.
+        client = self.client(extra_assets={2: list(self.NAMES)})
+        with self.assertRaisesRegex(RuntimeError, "already holds every asset"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_refused_delete_that_answers_404_stops_before_publishing(self):
+        client = self.client()
+        original = client.request
+
+        def refusing(method, url, **kwargs):
+            if method == "DELETE":
+                client.calls.append((method, url, None))
+                raise finalize.RequestError("HTTP 404", status=404)
+            return original(method, url, **kwargs)
+
+        client.request = refusing
+        with self.assertRaisesRegex(RuntimeError, "still exists after DELETE"):
+            self.adopt(client)
+        self.assertTrue(client.table[1]["draft"])
+
+    def test_a_new_release_on_the_tag_still_blocks_publish(self):
+        client = self.client()
+        client.stale[2] = dict(client.table[2])
+        newcomer = {"id": 4, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": False, "prerelease": False}
+        original = client.request
+
+        def appearing(method, url, **kwargs):
+            result = original(method, url, **kwargs)
+            if method == "DELETE":
+                client.table[4] = dict(newcomer)
+            return result
+
+        client.request = appearing
+        with self.assertRaisesRegex(RuntimeError, r"ids 4\)"):
+            self.adopt(client)
+
+    def test_notes_flags_stop_the_old_notes_being_carried(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client)
+        self.assertEqual(client.table[1]["body"], "notes")
+
+    def test_generated_notes_are_stored_before_the_delete(self):
+        client = self.client()
+        self.adopt(client)
+        writes = [(method, path) for method, path, _ in client.calls if method != "GET"]
+        self.assertEqual(writes[:3], [("POST", "/generate-notes"), ("PATCH", "/1"), ("DELETE", "/2")])
+        self.assertEqual(writes.count(("POST", "/generate-notes")), 1)
+        self.assertEqual(client.table[1]["body"], "notes")
+
+    def test_a_notes_generation_failure_leaves_both_releases_unchanged(self):
+        client = self.client()
+        before = {key: dict(value) for key, value in client.table.items()}
+        original = client.request
+
+        def failing(method, url, **kwargs):
+            if method == "POST" and url.endswith("/generate-notes"):
+                raise finalize.RequestError("HTTP 503", status=503)
+            return original(method, url, **kwargs)
+
+        client.request = failing
+        with self.assertRaises(finalize.RequestError):
+            self.adopt(client)
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_generated_notes_write_failure_preserves_the_duplicate(self):
+        client = self.client()
+        original = client.request
+
+        def failing(method, url, **kwargs):
+            if method == "PATCH" and json.loads(kwargs["body"]).get("body") == "notes":
+                raise finalize.RequestError("HTTP 503", status=503)
+            return original(method, url, **kwargs)
+
+        client.request = failing
+        with self.assertRaises(finalize.RequestError):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertTrue(client.table[1]["draft"])
+
+    def test_a_prerelease_cannot_be_made_latest_before_any_write(self):
+        for staged_prerelease, requested in ((True, None), (False, "true")):
+            with self.subTest(staged_prerelease=staged_prerelease, requested=requested):
+                client = self.client()
+                client.table[1]["prerelease"] = staged_prerelease
+                before = {key: dict(value) for key, value in client.table.items()}
+                with self.assertRaisesRegex(RuntimeError, "prerelease.*latest"):
+                    self.adopt(client, prerelease=requested)
+                self.assertEqual(client.table, before)
+                self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_stable_override_can_make_a_prerelease_draft_latest(self):
+        client = self.client()
+        client.table[1]["prerelease"] = True
+        self.adopt(client, prerelease="false")
+        self.assertFalse(client.table[1]["prerelease"])
+        self.assertFalse(client.table[1]["draft"])
+        self.assertEqual(client.table[1]["make_latest"], "true")
+
+    def test_a_missing_body_file_fails_before_any_write(self):
+        client = self.client()
+        args = finalize.argparse.Namespace(
+            tag="v1.2.3", release_id=1, expect_asset=list(self.NAMES), expect_count=2,
+            name=None, target_commitish=None, body_file=Path("/nonexistent/notes.md"), generate_notes=False,
+            prerelease="false", make_latest="true", dry_run=False)
+        with self.assertRaises(OSError):
+            finalize.adopt(client, args)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_body_file_is_published_once(self):
+        client = self.client()
+        with tempfile.TemporaryDirectory() as directory:
+            notes = Path(directory) / "notes.md"
+            notes.write_text("Hand notes")
+            args = finalize.argparse.Namespace(
+                tag="v1.2.3", release_id=1, expect_asset=list(self.NAMES), expect_count=2,
+                name=None, target_commitish=None, body_file=notes, generate_notes=True,
+                prerelease="false", make_latest="true", dry_run=False)
+            finalize.adopt(client, args)
+        self.assertEqual(client.table[1]["body"], "Hand notes")
+        self.assertNotIn(("POST", "/generate-notes"), [(m, p) for m, p, _ in client.calls])
+
+    def test_carried_notes_are_written_before_the_delete(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client, generate_notes=False)
+        writes = [call for call in client.calls if call[0] != "GET"]
+        self.assertEqual(writes[:2], [("PATCH", "/1", {"body": "Full Changelog"}), ("DELETE", "/2", None)])
+
+    def test_an_asset_without_a_digest_is_not_assumed_a_copy(self):
+        client = self.client(extra_assets={2: [("cmux-macos.dmg", None)]})
+        with self.assertRaisesRegex(RuntimeError, "releases 2 for"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_another_draft_for_the_tag_is_never_deleted(self):
+        other = {"id": 3, "tag_name": "v1.2.3", "name": "v1.2.3", "draft": True, "prerelease": False}
+        client = self.client(extra=[other])
+        with self.assertRaisesRegex(RuntimeError, "releases 3 for"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2, 3])
+
+    def test_only_a_draft_named_for_the_tag_is_adopted(self):
+        client = self.client()
+        client.table[1]["name"] = "v9.9.9"
+        with self.assertRaisesRegex(RuntimeError, "not a staged draft for tag v1.2.3"):
+            self.adopt(client)
+        with self.assertRaisesRegex(RuntimeError, "not a staged draft"):
+            self.adopt(client, release_id=2)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_an_incomplete_draft_is_not_adopted(self):
+        client = self.client()
+        client.stored[1] = ["appcast.xml"]
+        with self.assertRaisesRegex(RuntimeError, "missing cmux-macos.dmg"):
+            self.adopt(client)
+        self.assertEqual(sorted(client.table), [1, 2])
+
+    def test_a_lagging_release_list_does_not_strand_the_tag(self):
+        client = self.client()
+        client.stale[2] = dict(client.table[2])
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+        self.assertEqual(client.table[1]["tag_name"], "v1.2.3")
+
+    def test_a_release_already_deleted_stops_before_writes_then_allows_a_fresh_rerun(self):
+        client = self.client()
+        client.stale[2] = client.table.pop(2)
+        before = {key: dict(value) for key, value in client.table.items()}
+        with self.assertRaises(finalize.RequestError) as raised:
+            self.adopt(client)
+        self.assertEqual(raised.exception.status, 404)
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+        client.stale.clear()
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+
+    def test_a_draft_already_on_the_tag_skips_the_tag_move(self):
+        client = self.client()
+        client.table[1]["tag_name"] = "v1.2.3"
+        self.adopt(client)
+        self.assertFalse(client.table[1]["draft"])
+        tag_moves = [body for method, _, body in client.calls if method == "PATCH" and "tag_name" in body]
+        self.assertEqual(tag_moves, [])
+
+    def test_without_a_notes_flag_the_deleted_release_s_notes_are_kept(self):
+        client = self.client()
+        client.table[2]["body"] = "Full Changelog"
+        self.adopt(client, generate_notes=False)
+        self.assertEqual(client.table[1]["body"], "Full Changelog")
+
+    def test_an_already_published_release_points_at_publish(self):
+        client = self.client()
+        self.adopt(client)
+        with self.assertRaisesRegex(RuntimeError, "finish it with `publish`"):
+            self.adopt(client)
+
+    def test_adopt_help_lists_the_dry_run_option(self):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts/ci/finalize-release.py"), "adopt", "--help"],
+            capture_output=True, text=True, check=True)
+        self.assertIn("--dry-run", result.stdout)
+
+    def test_adopt_command_line_dispatches_a_write_free_dry_run(self):
+        client = self.client()
+        before = {key: dict(value) for key, value in client.table.items()}
+        argv = ["finalize-release.py", "adopt", "--repo", "o/r", "--tag", "v1.2.3",
+                "--release-id", "1", "--expect-count", "2", "--make-latest", "false", "--dry-run"]
+        output = io.StringIO()
+        with patch.object(sys, "argv", argv), patch.object(sys, "stdout", output), \
+                patch.object(finalize.publisher, "client_from_env", return_value=client) as client_from_env:
+            self.assertEqual(finalize.main(), 0)
+        client_from_env.assert_called_once_with("o/r")
+        self.assertIn("Adopting draft 1", output.getvalue())
+        self.assertEqual(client.table, before)
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_adopt_command_line_requires_an_explicit_make_latest(self):
+        # An omitted make_latest lets GitHub make the adopted release latest,
+        # which would point releases/latest at an older repaired tag.
+        argv = ["finalize-release.py", "adopt", "--repo", "o/r", "--tag", "v1.2.3",
+                "--release-id", "1", "--expect-count", "2", "--dry-run"]
+        with patch.object(sys, "argv", argv), patch.object(sys, "stderr", io.StringIO()) as err, \
+                patch.object(finalize.publisher, "client_from_env") as client_from_env:
+            with self.assertRaises(SystemExit):
+                finalize.main()
+        self.assertIn("--make-latest", err.getvalue())
+        client_from_env.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()
