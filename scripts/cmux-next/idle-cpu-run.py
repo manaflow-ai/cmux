@@ -85,6 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--minutes", type=float, default=10.0)
     ap.add_argument("--chats", type=int, default=0)
     ap.add_argument("--history", type=int, default=0, help="Claude and Codex chats seeded in the fresh home")
+    ap.add_argument("--history-prompt-kb", type=int, default=0, help="each seeded Codex row's prompt size in KB")
+    ap.add_argument("--writers", type=float, default=0.0,
+                    help="outside agents: one Codex DB write and one Claude line every this many seconds (0: none)")
     ap.add_argument("--windows", type=int, default=3)
     ap.add_argument("--window", type=float, default=60.0)
     ap.add_argument("--sample-each-window", action="store_true", help="`sample` the busiest process after each window")
@@ -122,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         "minis": [a.mini] if a.mini else list(MINIS),
         "cmux_ci_args": ["--measurement", "--label", "measure", "--label", "gui-session-v1",
                          "--script", SCRIPT, f"--arg=artifact={build['artifact']}", f"--arg=minutes={a.minutes:g}",
-                         f"--arg=chats={a.chats}", f"--arg=history={a.history}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}", f"--arg=sample={'each' if a.sample_each_window else 1}",
+                         f"--arg=chats={a.chats}", f"--arg=history={a.history}", f"--arg=prompt_kb={a.history_prompt_kb}", f"--arg=writers={a.writers:g}", f"--arg=windows={a.windows}", f"--arg=window={a.window:g}", f"--arg=sample={'each' if a.sample_each_window else 1}",
                          "--artifact", ".build/idle-cpu/report.tgz", "--timeout", str(minutes_total * 60)],
         "verdict": str(VERDICT),
         "note": f"build {build['id']} commit {build['ref']}; scripts/cmux-next/idle-cpu-run.py",
