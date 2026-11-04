@@ -54,7 +54,7 @@ final class HomeApprovalRowProvider: TranscriptCustomRowProvider {
         let snapshot = question.items.first?.options.first { $0.id == "allow" }?.preview?.text
         let request = snapshot.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any]
         let raw = (request?["toolCall"] as? [String: Any])?["rawInput"]
-        let input = question.isPending ? raw.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed]) }.map { String(decoding: $0, as: UTF8.self) } : nil
+        let input = question.isPending ? raw.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys, .prettyPrinted, .fragmentsAllowed, .withoutEscapingSlashes]) }.map { String(decoding: $0, as: UTF8.self) } : nil
         return visible([title, input, status].compactMap { $0 }.joined(separator: "\n\n"))
     }
     /// An agent's MCP connect card (optchat-chief brain/home_mcp_connect.rs): its buttons say Connect and
