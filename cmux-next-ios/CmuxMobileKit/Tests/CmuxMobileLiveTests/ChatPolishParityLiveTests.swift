@@ -19,7 +19,7 @@ import Testing
         #expect(!records.map(steer).contains(.promptSeq(turnId: "t3", seq: 14)))
     }
 
-    @Test func theBookmarksRecordCarriesEveryMark() throws {
+    @Test @MainActor func theBookmarksRecordCarriesEveryMark() throws {
         let marks = try json(#"{"seq":30,"dir":"mux","kind":"bookmarks","msg":{"bookmarks":[12,29]}}"#)
         #expect(records.map(marks) == [.bookmarks([12, 29])])
         #expect(AcpmuxSessionSource.marks(try json(#"{"sessionId":"s1","bookmarks":[4,9]}"#)) == [4, 9])
