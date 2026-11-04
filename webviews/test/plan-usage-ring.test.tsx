@@ -289,8 +289,8 @@ test("an inert ring (no usage reported yet) still opens its right-click, and a c
   // aria-disabled, not disabled: WebKit sends no contextmenu to a disabled button.
   expect(ring()!.disabled).toBe(false);
   expect(ring()!.getAttribute("aria-disabled")).toBe("true");
+  // act flushes the click's state update, so an opened card would already be in the DOM.
   await act(async () => ring()!.click());
-  await wait(50);
   expect(card()).toBeNull();
   await rightClick(ring()!);
   expect(menuItems().map(itemText)).toEqual(["Context Usage", "Plan Usage", "Hide Usage Ring"]);

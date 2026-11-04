@@ -6,6 +6,7 @@
   padding: 16px;
 }
 .plan-usage-gallery--ring {
+  --plan-usage-gallery-stage: 220px;
   align-items: flex-end;
-  min-height: 220px;
+  min-height: var(--plan-usage-gallery-stage);
 }

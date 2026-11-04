@@ -102,7 +102,7 @@
   appearance: none;
   display: block;
   width: 100%;
-  height: 4px;
+  height: var(--ds-space-1);
   margin-top: var(--ds-space-1);
   border: 0;
   border-radius: 999px;
