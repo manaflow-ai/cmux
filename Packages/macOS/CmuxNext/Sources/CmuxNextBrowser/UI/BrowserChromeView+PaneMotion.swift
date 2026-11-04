@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 
-/// FRAME OWNER REFACTOR S3 (`motion.frameOwner.contentPolicy`): in a keyboard resize the browser chrome is a container
+/// FRAME OWNER REFACTOR S3: in a keyboard resize the browser chrome is a container
 /// that follows its pane in every frame: its toolbar, progress line and page area lay out at the pane's size, and the
 /// page area's own backdrop fills what the page does not. Only the page keeps its size (``BrowserPagePaneMotionHolding``:
 /// a Chromium page). A page that cannot hold (a WebKit page, docked DevTools, a side panel, a device fit) keeps the

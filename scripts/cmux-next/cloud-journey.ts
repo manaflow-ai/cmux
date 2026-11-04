@@ -208,9 +208,22 @@ type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
 function directExec(api: Api, machine: string, journey: Journey): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
+  let guestRoute = false;
+  const guestExec: Exec = async (command, timeoutMs = 60_000) => {
+    // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
+    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: Math.min(timeoutMs, 300_000) });
+    const v: any = g.body?.value ?? g.body;
+    if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
+    return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
+  };
   return async (command, timeoutMs = 60_000) => {
+    if (guestRoute) return guestExec(command, timeoutMs);
     if (!session || session.expires_at - Date.now() < 60_000) {
       const r = await api.raw("POST", `/v1/cloud/machines/${machine}/client-session`, { ttl_seconds: 900 });
+      if (r.status === 501 && String(r.body?.error?.code ?? "") === "cloud.provider.unsupported") {
+        guestRoute = true;
+        return guestExec(command, timeoutMs);
+      }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`client-session: HTTP ${r.status} ${short(r.body.error?.code ?? r.body.error ?? r.body)}`);
       session = r.body.value;
       journey.secrets.push(session!.token);
@@ -272,7 +285,7 @@ async function startHeadlessLink(cmux: string, host: string, install: { id: stri
 }
 
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
-const GUEST = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
+const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 /**
@@ -305,7 +318,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   const findByName = async (): Promise<string | null> => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
     const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    const row = rows.find((m) => m?.name === appName && m.status !== "deleted");
+    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
+    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
     return row ? String(row.id ?? row.machine_id) : null;
   };
   let machine: string | null = null;
@@ -360,6 +374,16 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
   }
 }
 
+/**
+ * Steps that passed on the version before a deploy and fail after it: the deploy's own reds. A step that
+ * was already red before (a known backend bug) is not the deploy's fault and never triggers a rollback.
+ * With no baseline (the first run, or it could not sign in), every failed step counts.
+ */
+export function newReds(before: Step[] | null, after: Step[]): Step[] {
+  const passed = new Set((before ?? []).filter((s) => s.status === "pass").map((s) => s.step));
+  return after.filter((s) => s.status === "fail" && (before === null || passed.has(s.step)));
+}
+
 function argValue(flag: string, argv: string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
@@ -369,6 +393,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("*/")[0]);
     return 0;
+  }
+  // --compare BEFORE.json AFTER.json: exit 3 when the deploy made a step red (newReds), 0 otherwise.
+  const compare = argv.indexOf("--compare");
+  if (compare >= 0) {
+    const load = (f: string | undefined): Step[] | null => {
+      try { return f ? (JSON.parse(readFileSync(f, "utf8")).steps as Step[]) : null; } catch { return null; }
+    };
+    const before = load(argv[compare + 1]);
+    const after = load(argv[compare + 2]) ?? [];
+    const reds = newReds(before, after);
+    for (const r of reds) console.log(`NEW RED ${r.step}: ${r.detail.slice(0, 300)}`);
+    console.log(reds.length ? `${reds.length} step(s) red after the deploy that were green before it` : "no new reds");
+    return reds.length ? 3 : 0;
   }
   const backend = resolveBackend(argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging"), argValue("--api", argv), argValue("--stack", argv), Number(argValue("--local-port", argv) ?? 8787));
   const outArg = argValue("--out", argv);
@@ -526,7 +563,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
           if (wait === "0" && last) return { value: last, detail: last.slice(0, 280) };
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
-          if (wait && wait !== "3" && wait !== "0") throw new Error(`acp wait exit ${wait}: ${last.slice(-300)}`);
+          if (wait && wait !== "3" && wait !== "0") {
+            // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
+            const h = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>&1 | grep -E '"kind":"turn_error"' | tail -1`, 45_000).catch(() => null);
+            const why = /"error":"((?:[^"\\]|\\.)*)"/.exec(h?.stdout ?? "")?.[1] ?? "";
+            throw new Error(`acp wait exit ${wait}: ${(why || last).slice(-300)}`);
+          }
         }
         throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
       });
@@ -553,9 +595,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     // POST /v1/handoffs {sessionId, machine} (backend/apps/api/src/handoffs/routes.ts). Production leaves the
     // hand-off bindings unbound until it ships there and answers 404: that is a SKIP, not a red.
-    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id });
-    if (handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
+    // A transport error is recorded as this step's failure; the journey goes on to its next steps.
+    const handoff = await api.raw("POST", "/v1/handoffs", { sessionId: session, machine: created.id }).catch((error: Error) => error);
+    if (!(handoff instanceof Error) && handoff.status === 404) J.skip("handoff record", "hand-off is not deployed on this backend (404)");
     else await J.step("handoff record", async () => {
+      if (handoff instanceof Error) throw new Error(`/v1/handoffs: ${handoff.message}`);
       if (handoff.status >= 300) throw new Error(`/v1/handoffs: HTTP ${handoff.status} ${short(handoff.body.error ?? handoff.body)}`);
       return { value: null, detail: `HTTP ${handoff.status} ${short(handoff.body.value?.id ?? handoff.body.id ?? handoff.body)}` };
     }).catch(() => undefined);

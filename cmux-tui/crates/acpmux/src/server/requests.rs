@@ -7,6 +7,7 @@ use crate::no_panic::{JsonExt, LockExt};
 mod briefs;
 pub(super) mod cancel_refused;
 mod composer;
+mod context;
 mod events;
 mod info;
 #[path = "requests/mailbox.rs"]
@@ -2180,6 +2181,9 @@ async fn dispatch_request_with_identity(
         }
         // Read or change presets (`requests/presets.rs`).
         method::MUX_PRESETS => presets::handle(hub, conn, &params).await,
+        method::MUX_CONTEXT | method::MUX_CONTEXT_OVERRIDE => {
+            context::handle(hub, conn, m, &params).await
+        }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
