@@ -1847,6 +1847,8 @@ button.cv-subagent > :last-child {
 
 .cv-subagent-result__report,
 .cv-subagent-result__empty {
+  max-height: 12rem;
+  overflow: auto;
   color: var(--cv-text);
   font-size: var(--ds-font-size-sm);
 }

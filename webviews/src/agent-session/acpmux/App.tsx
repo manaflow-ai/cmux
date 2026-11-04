@@ -7485,11 +7485,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const manager = drivingUntil !== undefined && drivingExpired !== drivingUntil ? chatManager : undefined;
   // The Chief whose prompts this chat draws "Sent from" (conversation/sentFrom.ts).
   const chatChief = useMemo(() => chiefOf(shownSessionId, snapshot.sessions), [shownSessionId, snapshot.sessions]);
-  const freshAgents = useMemo(
-    () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
+  const freshAgentMap = useMemo(
+    () => subagentsIn(snapshot.rows, snapshot.subagentViews),
     [snapshot.rows, snapshot.subagentViews],
   );
-  const freshAgentMap = useMemo(() => new Map(freshAgents.map((agent) => [agent.id, agent])), [freshAgents]);
+  const freshAgents = useMemo(() => [...freshAgentMap.values()], [freshAgentMap]);
   /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
   const subagentTitle = (id: string) =>
     subagentTabTitle(
