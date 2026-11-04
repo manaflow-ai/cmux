@@ -484,7 +484,7 @@
 .acpmux-pdf-viewer-open {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: calc(100% - 32px);
   margin: 12px 16px 0;
   padding: 7px 10px;
