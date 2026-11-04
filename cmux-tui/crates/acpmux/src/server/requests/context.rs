@@ -1,5 +1,6 @@
 //! Context viewer and cmux-added context override requests.
 use super::*;
+use crate::context_inventory::verified_prompt_text;
 use std::path::Path;
 
 fn project_path(value: Option<&Value>, fallback: &Path) -> Result<std::path::PathBuf, RpcError> {
