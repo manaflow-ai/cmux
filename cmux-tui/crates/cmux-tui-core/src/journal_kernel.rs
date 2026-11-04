@@ -204,12 +204,33 @@ struct JournalFanoutState {
     database_reader_count: u64,
 }
 
+/// Tests: releases the tailer held by [`JournalKernel::hold_tailer_for_test`] on drop.
+#[cfg(test)]
+pub(crate) struct TailerHold {
+    kernel: Arc<JournalKernel>,
+    hold: Arc<(Mutex<bool>, Condvar)>,
+}
+
+#[cfg(test)]
+impl Drop for TailerHold {
+    fn drop(&mut self) {
+        *self.kernel.tailer_hold.lock().recover_poison() = None;
+        let (held, released) = &*self.hold;
+        *held.lock().recover_poison() = false;
+        released.notify_all();
+    }
+}
+
 /// Session-local journal runtime. It owns the only persistent live-tail
 /// SQLite reader and publishes a bounded ring of decoded records.
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Tests: while set, the tailer waits here before each read pass, so the ring trails the
+    /// writer's commits on purpose.
+    #[cfg(test)]
+    tailer_hold: Mutex<Option<Arc<(Mutex<bool>, Condvar)>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
     /// The registry file, so a reader behind the ring opens its own
@@ -263,6 +284,8 @@ impl JournalKernel {
                 }),
                 changed: Condvar::new(),
                 tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
                 database_path: None,
@@ -285,6 +308,8 @@ impl JournalKernel {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
             database_path: Some(database_path),
@@ -327,6 +352,14 @@ impl JournalKernel {
         let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    /// Tests: hold the tailer before its next read pass until the returned guard drops.
+    #[cfg(test)]
+    pub(crate) fn hold_tailer_for_test(self: &Arc<Self>) -> TailerHold {
+        let hold = Arc::new((Mutex::new(true), Condvar::new()));
+        *self.tailer_hold.lock().recover_poison() = Some(hold.clone());
+        TailerHold { kernel: self.clone(), hold }
     }
 
     pub(crate) fn epoch(&self) -> u64 {
@@ -589,7 +622,17 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };
+        #[cfg(test)]
+        let hold = kernel.tailer_hold.lock().recover_poison().clone();
         drop(kernel);
+        #[cfg(test)]
+        if let Some(hold) = hold {
+            let (held, released) = &*hold;
+            let mut held = held.lock().recover_poison();
+            while *held {
+                held = released.wait(held).recover_poison();
+            }
+        }
         observed_request_epoch = requested_epoch;
 
         let mut appended = VecDeque::new();
@@ -827,6 +870,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,
@@ -857,6 +902,8 @@ mod performance_tests {
                 }),
                 changed: Condvar::new(),
                 tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
                 enabled: true,
                 producers: RwLock::new(HashMap::new()),
                 database_path: None,
@@ -956,6 +1003,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,
