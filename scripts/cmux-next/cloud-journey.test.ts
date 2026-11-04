@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { claudeLoginPrograms, INSTALLER_SWIFT, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, INSTALLER_SWIFT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -60,5 +60,10 @@ describe("cloud journey", () => {
     expect(ok).toEqual({ probe: "cloud-chat-replies-production", at: "2026-11-04T11:00:00Z", runner: "github-actions", run: "https://x/runs/1", outcome: "ok", ms: 5000 });
     const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
     expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
+  });
+  test("the model stub ships next to the journey and judges tool results only", () => {
+    const stub = readFileSync(MODEL_STUB_PY, "utf8");
+    expect(stub).toContain('c.get("type") == "tool_result"');
+    expect(stub).toContain("cred_sha256");
   });
 });

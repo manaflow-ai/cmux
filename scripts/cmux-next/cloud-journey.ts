@@ -35,13 +35,19 @@
  * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
  * token the step is skipped and the reply fails "Not logged in".
  *
+ * --model stub makes the model endpoint the only stand-in: cloud-journey-model-stub.py runs on the machine's loopback
+ * and Claude Code's settings point there (after the login copy, whose installer refuses a custom endpoint). The login
+ * passed is a made-up setup-token shape, so no real credential exists. The reply must carry the stub's nonce, every
+ * model request must carry the passed login (its SHA-256, which the stub logs: the credential hop), and one Bash tool
+ * call must come back with its output. Account, machine, acpmux and the Claude Code binary are the real ones.
+ *
  * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
  * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
  *
  * Secrets are read from the environment or files, sent only in headers or request bodies, and never printed.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -316,6 +322,9 @@ export function swiftRawString(source: string, name: string): string {
   return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
 }
 
+/** The model stub --model stub runs on the machine. */
+export const MODEL_STUB_PY = fileURLToPath(new URL("./cloud-journey-model-stub.py", import.meta.url));
+
 /** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
 export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
 
@@ -469,11 +478,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const keep = argv.includes("--keep");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
-  const claudeLogin = (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
+  // --model stub: the model endpoint is the only stand-in (cloud-journey-model-stub.py on the machine). The login the
+  // journey passes is then a made-up setup-token shape: the stub checks it arrived, and no real credential exists.
+  const modelStub = argValue("--model", argv) === "stub";
+  const nonce = randomBytes(6).toString("hex");
+  const claudeLogin = modelStub
+    ? `sk-ant-oat01-journeystub-${randomBytes(24).toString("hex")}`
+    : (process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "").trim();
   const probeOut = argValue("--probe-out", argv);
   const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
-  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session" });
+  const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" });
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
   const appCli = argValue("--app-cli", argv);
@@ -627,6 +642,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
+    const stubLog = "/home/cmux/.cmux/journey-model-stub.log";
+    if (modelStub && agent === "claude" && !only.has("chat")) {
+      // The stub listens on the machine's loopback only; Claude Code's own settings point it there, after the login
+      // copy (whose installer refuses a custom endpoint), so the forwarded login is sent nowhere but the stub.
+      await J.step("model stub on the machine", async () => {
+        const file = "/home/cmux/.cmux/journey-model-stub.py";
+        const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: readFileSync(MODEL_STUB_PY).toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+        const port = 18000 + Math.floor(Math.random() * 1000);
+        const r = await exec(
+          `rm -f ${shq(stubLog)}; (STUB_TOOL=1 nohup python3 ${shq(file)} ${shq(nonce)} ${port} ${shq(stubLog)} >/dev/null 2>&1 &); ` +
+            `for i in $(seq 50); do curl -fsS -m 2 -o /dev/null -X POST "http://127.0.0.1:${port}/v1/messages" -d '{}' && break; sleep 0.2; done; ` +
+            `python3 - ${port} <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY`,
+        );
+        if (!r.stdout.includes("stub-ready")) throw new Error(`exit ${r.code} ${r.stderr.slice(-200)}`);
+        return { value: null, detail: `127.0.0.1:${port}, nonce ${nonce}, one Bash tool round trip` };
+      });
+    }
     const session = `journey-${tag}`;
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
@@ -648,7 +681,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const r = await exec(`${GUEST}"$c" acp wait ${shq(session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"; "$c" acp last ${shq(session)} 2>&1; echo "@@lastexit $?"`, 45_000);
           const wait = /@@wait (\d+)/.exec(r.stdout)?.[1];
           last = r.stdout.replace(/@@wait \d+\n?/, "").replace(/@@lastexit \d+\s*$/, "").trim();
-          if (wait === "0" && last) return { value: last, detail: last.slice(0, 280) };
+          if (wait === "0" && last) {
+            if (modelStub && !last.includes(nonce)) throw new Error(`the reply does not carry the stub's nonce ${nonce}: ${last.slice(-200)}`);
+            return { value: last, detail: last.slice(0, 280) };
+          }
           if (wait === "2") throw new Error(`the agent waits on a permission: ${last.slice(-200)}`);
           if (wait && wait !== "3" && wait !== "0") {
             // A failed turn (exit 1) prints no reply: name its error, e.g. a harness with no sign-in on the machine.
@@ -659,6 +695,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         throw new Error(`no reply within ${chatBudget / 1000} s; last: ${last.slice(-300)}`);
       });
+      if (modelStub && agent === "claude") {
+        await J.step("stub: forwarded login and a tool round trip", async () => {
+          const r = await exec(`cat ${shq(stubLog)} 2>/dev/null`);
+          const rows = r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+          const turns = rows.filter((x: any) => x.m === "POST" && String(x.p).startsWith("/v1/messages") && x.stream);
+          const want = createHash("sha256").update(claudeLogin).digest("hex");
+          if (!turns.length) throw new Error("Claude Code sent the stub no streamed /v1/messages request");
+          if (!turns.every((x: any) => x.cred_sha256 === want)) throw new Error("a model request did not carry the login the journey passed (the forwarded credential did not reach Claude Code)");
+          if (!turns.some((x: any) => x.tool_ok)) throw new Error("no tool round trip: the Bash call's output never came back to the model");
+          return { value: null, detail: `${turns.length} model requests, each with the forwarded login (SHA-256 match); Bash ran and its output came back` };
+        });
+      }
     }
 
     await J.step("connect (connect_info + link_token)", async () => {
