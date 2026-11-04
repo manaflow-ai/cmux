@@ -157,6 +157,7 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/preview-proof" => "<!doctype html><title>Preview proof fixture</title><main style=\"font:24px sans-serif;padding:48px\">Preview is rendered</main><script>console.error('fixture console error'); throw new Error('fixture page error');</script>".to_owned(),
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
@@ -548,6 +549,58 @@ fn host_sessions_reach_the_page_agent_after_goto() {
     let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
     let _ = stop.args(["close", "--socket"]).arg(&socket).output();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The high-level proof helper opens a local preview, captures browser errors,
+/// and leaves a screenshot path in the same result for transcript attachment.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn preview_proof_returns_screenshot_and_console_errors() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-preview-proof-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let _host = HostGuard::start(&socket, &binary);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(format!("await previewProof({port}, {{ path: '/preview-proof' }});").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let _ = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["close", "--socket"])
+        .arg(&socket)
+        .output();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(output.contains("fixture console error"), "console error missing: {output}");
+    assert!(output.contains("fixture page error"), "page error missing: {output}");
+    assert!(output.contains(&format!("http://127.0.0.1:{port}/preview-proof")), "preview URL missing: {output}");
+    assert!(
+        output.lines().any(|line| line.contains("/image-") && line.contains(".png")),
+        "screenshot attachment path missing: {output}"
+    );
 }
 
 /// A headless session starts with no tabs: the start tab Chromium opens is
