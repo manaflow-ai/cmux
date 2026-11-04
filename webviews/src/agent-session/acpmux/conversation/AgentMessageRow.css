@@ -306,6 +306,7 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
 .acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }

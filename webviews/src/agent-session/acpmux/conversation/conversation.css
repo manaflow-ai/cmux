@@ -3739,7 +3739,8 @@ button.cv-video-frames__frame:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--cv-activity-text);
+  /* The line's tone: the activity tone at rest, the text tone when the line lights. */
+  color: inherit;
 }
 /* Its tag takes the sender span's room (less the mark), never AgentTag.css's 40% of it, which cut the
    name short beside an empty gap. */
