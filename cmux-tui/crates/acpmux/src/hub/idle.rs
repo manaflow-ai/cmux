@@ -514,7 +514,7 @@ impl Hub {
         let subagents =
             session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running();
         let below = session.work_below_since.lock().map_or(true, |v| *v != 0);
-        let processes = self.process_table(session).running.len() + self.bg_running_count(session);
+        let processes = self.running_processes(session) + self.bg_running_count(session);
         if !(turn || subagents > 0 || below || processes > 0) {
             return None;
         }
