@@ -102,6 +102,7 @@ pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod adopt_retry;
 mod hosts;
 mod lifecycle;
+mod repo_sync;
 mod log_deferral;
 mod log_load;
 mod retention;

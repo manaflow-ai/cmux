@@ -1,0 +1,104 @@
+#![cfg(unix)]
+use cmux_git::sync_barrier::{Probe, Sync, probe};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct Scratch(PathBuf);
+impl Scratch {
+    fn new() -> Self {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "cmux-sync-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&path).unwrap();
+        Self(path.canonicalize().unwrap())
+    }
+    fn repo(&self) -> PathBuf {
+        self.0.join("repo")
+    }
+}
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn writes_wait_until_sync_is_durable_and_hold_off_the_next_sync() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    let sync = Sync::begin(&repo).unwrap();
+    assert!(matches!(probe(&repo.join("src/new.rs")).unwrap(), Probe::Syncing));
+    std::fs::create_dir(&repo).unwrap();
+    std::fs::write(repo.join("source"), "synced").unwrap();
+    sync.complete().unwrap();
+    let Probe::Ready(guard) = probe(&repo.join("src/new.rs")).unwrap() else { panic!("not ready") };
+    assert!(Sync::begin(&repo).is_err(), "a write holds its lease through mutation");
+    std::fs::write(repo.join("source"), "edited").unwrap();
+    drop(guard);
+    assert_eq!(std::fs::read_to_string(repo.join("source")).unwrap(), "edited");
+    Sync::begin(&repo).unwrap().complete().unwrap();
+}
+
+#[test]
+fn failed_sync_never_opens_the_barrier_and_retry_repairs_it() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    drop(Sync::begin(&repo).unwrap());
+    assert!(matches!(probe(&repo).unwrap(), Probe::Incomplete));
+    Sync::begin(&repo).unwrap().complete().unwrap();
+    assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
+}
+
+#[test]
+fn aliases_and_missing_descendants_share_the_same_barrier() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    std::fs::create_dir(&repo).unwrap();
+    let alias = scratch.0.join("alias");
+    std::os::unix::fs::symlink(&repo, &alias).unwrap();
+    let sync = Sync::begin(&repo).unwrap();
+    assert!(matches!(probe(&alias.join("new/file")).unwrap(), Probe::Syncing));
+    sync.complete().unwrap();
+    assert!(matches!(probe(&alias).unwrap(), Probe::Ready(_)));
+}
+
+#[test]
+fn ordinary_local_repositories_are_ready_without_a_marker() {
+    let scratch = Scratch::new();
+    assert!(matches!(probe(&scratch.repo()).unwrap(), Probe::Ready(_)));
+    assert_eq!(std::fs::read_dir(&scratch.0).unwrap().count(), 0);
+}
+
+/// Same deterministic overlap schedule, with and without waiting. This measures
+/// edit retention, not end-to-end Cloud latency (which belongs to the probes).
+#[test]
+fn sync_race_retention_measurement() {
+    let scratch = Scratch::new();
+    let repo = scratch.repo();
+    std::fs::create_dir(&repo).unwrap();
+    let file = repo.join("source");
+    let mut retained = [0, 0];
+    for gated in [false, true] {
+        for _ in 0..100 {
+            let sync = Sync::begin(&repo).unwrap();
+            if !gated {
+                std::fs::write(&file, "agent edit").unwrap();
+            } else {
+                assert!(matches!(probe(&file).unwrap(), Probe::Syncing));
+            }
+            std::fs::write(&file, "repo sync").unwrap();
+            sync.complete().unwrap();
+            if gated {
+                let Probe::Ready(_guard) = probe(&file).unwrap() else { panic!("not ready") };
+                std::fs::write(&file, "agent edit").unwrap();
+            }
+            retained[usize::from(gated)] +=
+                usize::from(std::fs::read_to_string(&file).unwrap() == "agent edit");
+        }
+    }
+    println!("sync_race_retention: before={}/100 after={}/100", retained[0], retained[1]);
+    assert_eq!(retained, [0, 100]);
+}
