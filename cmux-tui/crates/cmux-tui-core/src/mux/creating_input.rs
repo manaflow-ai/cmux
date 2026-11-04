@@ -374,7 +374,7 @@ impl Mux {
     #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
         // A poisoned state takes the old read, as `Mux::surface` does.
-        if self.control_clients.input_lane.on() && !self.state.is_poisoned() {
+        if self.control_clients.input_lane.on() {
             return self.state.routes().live_terminal(terminal_id);
         }
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
