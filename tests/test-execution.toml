@@ -734,6 +734,10 @@ path = "tests/test_defaults_guard_review_rerun.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_intent_familiar_review_git.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
@@ -1582,6 +1586,10 @@ path = "tests/test_triage_rules.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_auto_triage_event.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_focused_filter_guard.py"
 lane = "linux-guard"
 
@@ -2213,8 +2221,11 @@ path = "tests/test_signing_runner_claim.py"
 lane = "linux-guard"
 
 [[test]]
-[[test]]
 path = "tests/test_ci_hosted_light_rescue.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
 
 [[test]]

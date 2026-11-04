@@ -370,7 +370,8 @@ class JanitorSnapshot(unittest.TestCase):
                          {"queued": 2, "running": 1, "reserved_queued": 0, "oldest_queued_minutes": 90})
         self.assertEqual(snap["pools"][LARGE]["reserved_queued"], 1)
         self.assertNotIn(OLD, snap["pools"])
-        self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
+        self.assertEqual(snap["pools"]["blacksmith-4vcpu-ubuntu-2404"],
+                         {"queued": 1, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 90})
         # The picker reads what the janitor writes.
         # 12vcpu is reserved by the queued nightly job and 6vcpu 26 has jobs
         # queued, so the run rolls over to the idle macOS 15 pool.
@@ -407,7 +408,9 @@ class JanitorSnapshot(unittest.TestCase):
                     self.job("glaeda-mini", "queued"), self.job("blacksmith-4vcpu-ubuntu-2404", "queued")]}
         snap = janitor.pool_load_snapshot(runs, jobs, now=NOW)
         self.assertEqual((snap["pools"][mini]["running"], snap["pools"][mini]["queued"]), (2, 1))
-        self.assertEqual(set(snap["pools"]), {mini})
+        self.assertEqual(set(snap["pools"]), {mini, "blacksmith-4vcpu-ubuntu-2404"})
+        self.assertEqual(snap["pools"]["blacksmith-4vcpu-ubuntu-2404"],
+                         {"queued": 1, "running": 0, "reserved_queued": 0, "oldest_queued_minutes": 90})
 
     def test_the_snapshot_says_what_each_owned_runner_is_running(self):
         # pr_runner_pool.py's warm routing estimates a busy warm runner's wait from it.
