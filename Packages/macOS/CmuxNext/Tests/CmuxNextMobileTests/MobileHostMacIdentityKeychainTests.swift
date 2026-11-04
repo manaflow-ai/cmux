@@ -14,16 +14,19 @@ nonisolated let testLoginKeychain = LoginKeychain()
 /// identity' in your keychain."
 @Suite struct MobileHostMacIdentityKeychainTests {
     /// What each Keychain call saw: its query and whether Keychain UI was on during it.
-    // crash-allow: every stored var is private and read or written only inside `lock.withLock`; `lock` and `copyStatus` are immutable lets.
+    // crash-allow: every stored var is private and read or written only inside `lock.withLock`; `lock` is an immutable let.
     final class Recorder: @unchecked Sendable {
         private let lock = NSLock()
         private var recordedQueries: [[String: Any]] = []
         private var recordedInteraction: [Bool] = []
         private var stored: Data?
-        private let copyStatus: OSStatus?
+        private var copyStatus: OSStatus?
 
         /// `copyStatus`, when set, is what every read returns (an item the read is refused).
         init(copyStatus: OSStatus? = nil) { self.copyStatus = copyStatus }
+
+        /// From now on every read returns `status` (nil: the reads answer again).
+        func refuseReads(_ status: OSStatus?) { lock.withLock { copyStatus = status } }
 
         var queries: [[String: Any]] { lock.withLock { recordedQueries } }
         var interactionDuringCalls: [Bool] { lock.withLock { recordedInteraction } }
@@ -104,5 +107,27 @@ nonisolated let testLoginKeychain = LoginKeychain()
         #expect(FileManager.default.fileExists(atPath: store.fallbackFile.path))
         #expect(try store.loadOrCreate() == first)
         #expect(recorder.interactionDuringCalls.allSatisfy { !$0 })
+    }
+
+    /// The Keychain refused one read at launch (2026-11-02, -25293) and the store made a file key, a
+    /// second identity beside the Keychain's. Later launches proved whichever store answered, so the
+    /// phone that pinned the Keychain key refused this Mac (`mac_identity_changed`) whenever the
+    /// Keychain refused again, until a relaunch (2026-11-03). After one read that answers, every
+    /// refused read must give the Keychain key, the one the phones pinned.
+    @Test func aKeychainThatRefusesSometimesKeepsOneIdentity() throws {
+        let recorder = Recorder()
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = MobileHostMacIdentityStore(bundleID: "test.bundle", stateDirectory: directory, keychain: recorder.calls, loginKeychain: testLoginKeychain)
+        let pinned = try store.loadOrCreate()
+        recorder.refuseReads(errSecAuthFailed)
+        // The one launch it cannot tell from a build that may never read the item: a file key.
+        _ = try store.loadOrCreate()
+        recorder.refuseReads(nil)
+        #expect(try store.loadOrCreate() == pinned)
+        recorder.refuseReads(errSecAuthFailed)
+        #expect(try store.loadOrCreate() == pinned)
+        recorder.refuseReads(errSecInteractionNotAllowed)
+        #expect(try store.loadOrCreate() == pinned)
     }
 }
