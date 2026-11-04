@@ -49,7 +49,16 @@ final class FeedListLayout: UICollectionViewLayout {
 
     override func prepare() {
         super.prepare()
-        let width = collectionView?.bounds.width ?? 0
+        sumFrames()
+    }
+
+    /// Sums the frames again when the heights or the width changed since the last sum. UIKit may
+    /// ask for attributes before `prepare()` (a snapshot applied right after `setHeights` asks for
+    /// the visible cells first), so every query sums first: `tops` and `rowHeights` always have
+    /// the same length when read. Before, a smaller list (the Unread filter) read `rowHeights`
+    /// past its end with the old, longer `tops` and trapped.
+    private func sumFrames() {
+        let width = collectionView?.bounds.width ?? width
         guard dirty || width != self.width else { return }
         self.width = width
         dirty = false
@@ -63,10 +72,20 @@ final class FeedListLayout: UICollectionViewLayout {
         total = y
     }
 
-    override var collectionViewContentSize: CGSize { CGSize(width: width, height: total) }
+    override var collectionViewContentSize: CGSize {
+        sumFrames()
+        return CGSize(width: width, height: total)
+    }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
         newBounds.width != width
+    }
+
+    /// The event rows UIKit has now: a query during a batch update may still see the old count.
+    private var rowLimit: Int {
+        guard let collectionView else { return tops.count }
+        guard collectionView.numberOfSections > 1 else { return 0 }
+        return min(tops.count, collectionView.numberOfItems(inSection: 1))
     }
 
     private func frame(row: Int) -> CGRect {
@@ -78,6 +97,7 @@ final class FeedListLayout: UICollectionViewLayout {
         if indexPath.section == 0 {
             attributes.frame = CGRect(x: 0, y: 0, width: width, height: headerHeight)
         } else {
+            sumFrames()
             guard tops.indices.contains(indexPath.item) else { return nil }
             attributes.frame = frame(row: indexPath.item)
         }
@@ -91,15 +111,17 @@ final class FeedListLayout: UICollectionViewLayout {
             header.frame = CGRect(x: 0, y: 0, width: width, height: headerHeight)
             result.append(header)
         }
-        guard !tops.isEmpty, (collectionView?.numberOfSections ?? 0) > 1 else { return result }
+        sumFrames()
+        let limit = rowLimit
+        guard limit > 0 else { return result }
         // The first row whose bottom is below rect.minY.
-        var low = 0, high = tops.count
+        var low = 0, high = limit
         while low < high {
             let mid = (low + high) / 2
             if tops[mid] + rowHeights[mid] <= rect.minY { low = mid + 1 } else { high = mid }
         }
         var row = low
-        while row < tops.count, tops[row] < rect.maxY {
+        while row < limit, tops[row] < rect.maxY {
             let attributes = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: row, section: 1))
             attributes.frame = frame(row: row)
             result.append(attributes)
