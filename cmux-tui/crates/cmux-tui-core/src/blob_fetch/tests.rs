@@ -243,3 +243,26 @@ fn only_the_two_ops_are_blob_fetch_frames() {
     assert!(is_sha256(&sha(b"")));
     assert!(!is_sha256("ABC"));
 }
+
+#[test]
+fn starts_past_the_running_cap_are_refused() {
+    let home = Home::new("busy");
+    // A store that takes connections and never answers: every job stays running.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming() {
+            held.push(stream);
+        }
+    });
+    let service = BlobFetchService::new(Roots::new([home.path.clone()]));
+    for index in 0..super::MAX_RUNNING {
+        let plan = format!("plan {index}").into_bytes();
+        assert_eq!(start(&service, &origin, &plan)["ok"], true);
+    }
+    let refused = start(&service, &origin, b"one more plan");
+    assert_eq!(refused["error_code"], "blob.busy", "{refused}");
+    // The same plan as a running job is still that job.
+    assert_eq!(start(&service, &origin, b"plan 0")["ok"], true);
+}

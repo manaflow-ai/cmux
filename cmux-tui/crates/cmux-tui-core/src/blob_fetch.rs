@@ -50,6 +50,9 @@ const TRIES: u32 = 4;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// Finished jobs kept for `blob.fetch.status`.
 const KEPT_FINISHED: usize = 32;
+/// At most this many fetch jobs run at once; a start past it is refused
+/// (`blob.busy`) and the Mac copies over the link instead.
+const MAX_RUNNING: usize = 4;
 /// Paths named in a status answer's `failed` list (the rest are counted).
 const LISTED_FAILURES: usize = 200;
 
@@ -332,6 +335,19 @@ impl BlobFetchService {
                 && job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
         }) {
             return Ok(job.answer());
+        }
+        let running = jobs
+            .by_id
+            .values()
+            .filter(|job| {
+                job.status.lock().unwrap_or_else(PoisonError::into_inner).state == State::Running
+            })
+            .count();
+        if running >= MAX_RUNNING {
+            return Err(Refusal {
+                code: "blob.busy",
+                message: format!("{MAX_RUNNING} store fetches are running already"),
+            });
         }
         jobs.next += 1;
         let id = format!("fetch_{}_{}", std::process::id(), jobs.next);
