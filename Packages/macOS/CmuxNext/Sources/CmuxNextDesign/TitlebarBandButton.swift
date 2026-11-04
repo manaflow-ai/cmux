@@ -25,7 +25,7 @@ public final class TitlebarBandButton: ClickableButton {
     /// draws `Palette.textSecondary`. An owner sets it again in its own theme hook, which a theme
     /// repaint runs before this button's (`ThemeRepaint` paints a view before its subviews).
     public var tintOverride: NSColor? {
-        didSet { applyThemeColors() }
+        didSet { if tintOverride != oldValue { applyThemeColors() } }
     }
     /// Optional compact count/status text supplied by a content-owned tool.
     public var badge: String? {

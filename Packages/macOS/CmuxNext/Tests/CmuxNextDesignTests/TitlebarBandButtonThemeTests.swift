@@ -18,7 +18,7 @@ import CmuxNextDesignTokens
     /// scope (the scope holds its roots weakly: the caller keeps it).
     private func lightBand() throws -> (TitlebarBandButton, NSView, ThemeScope) {
         let scope = ThemeScope(level: .room)
-        scope.setOverride(try #require(ThemeSpec("Band Light")), input: Self.light, animated: false)
+        scope.setOverride(ThemeSpec("Band Light"), input: Self.light, animated: false)
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         scope.root(host)
         let button = TitlebarBandButton(symbol: "chevron.left")
@@ -30,7 +30,7 @@ import CmuxNextDesignTokens
         let (button, host, scope) = try lightBand()
         // The theme repaint runs every view's hook in the scope (`ThemeRepaint`), as a theme
         // switch or a light/dark change does in the app.
-        scope.setOverride(try #require(ThemeSpec("Band Dark")), input: Self.dark, animated: false)
+        scope.setOverride(ThemeSpec("Band Dark"), input: Self.dark, animated: false)
 
         #expect(button.superview === host)
         let ink = try #require(button.contentTintColor)
@@ -50,7 +50,7 @@ import CmuxNextDesignTokens
         let (button, host, scope) = try lightBand()
         let lit = NSColor(srgbRed: 0.9, green: 0.3, blue: 0.1, alpha: 1)
         button.tintOverride = lit
-        scope.setOverride(try #require(ThemeSpec("Band Dark")), input: Self.dark, animated: false)
+        scope.setOverride(ThemeSpec("Band Dark"), input: Self.dark, animated: false)
         #expect(button.superview === host)
         #expect(Self.same(try #require(button.contentTintColor), lit))
         button.tintOverride = nil
