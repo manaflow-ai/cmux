@@ -190,8 +190,12 @@ test("a personal steer keeps reply A and final reply B expanded while other chat
       expect(Boolean(document.querySelector('[data-row-id="steer"]'))).toBe(steered);
       expect(document.querySelector('[data-row-id="a2"]')).not.toBeNull();
       for (const id of ["t1", "interim", "t2"]) expect(document.querySelector(`[data-row-id="${id}"]`)).toBeNull();
-      expect(document.querySelectorAll(".cv-turn-actions").length).toBe(1);
+      // The turn's one footer; the steer carries the Copy of the part before it (turns.ts
+      // withSegmentCopy), in the gap over its bubble.
+      expect(document.querySelectorAll(".cv-turn-actions:not(.cv-segment-actions)").length).toBe(1);
       expect(document.querySelectorAll(".cv-reply-actions").length).toBe(0);
+      expect(document.querySelectorAll(".cv-segment-actions").length).toBe(steered ? 1 : 0);
+      if (steered) expect(document.querySelector('[data-row-id="steer"] .cv-segment-actions')).not.toBeNull();
     } finally {
       await act(async () => root.unmount());
     }

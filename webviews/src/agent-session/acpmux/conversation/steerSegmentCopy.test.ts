@@ -1,3 +1,4 @@
+// l10n-allow-file: test fixtures, not shipped UI.
 // The person's steer ends the part of the turn before it for the reader, so that part gets the Copy an
 // ended turn's footer has, in the gap over the steer, as Claude Code does when the person comes in
 // (Leo, 2026-11-03: "a lot of these should've been counted as "ended"-ish turns that allow me to
@@ -64,7 +65,11 @@ test("no copy where nothing was said, nor on a prompt or another agent's message
   const rows = turnView(ended, new Set(), { now: 10_000 });
   expect(copyOf(rows, "u1")).toBeUndefined();
   const message = turnView(
-    source.map((one) => (one.id === "s1" ? { ...one, steer: undefined, incoming: { kind: "message" } } : one)) as AcpmuxRow[],
+    source.map((one) => (one.id === "s1" ? {
+            ...one,
+            steer: undefined,
+            incoming: { kind: "message", message: { name: "lane-12", sessionId: "lane-12", text: "ofc", raw: "ofc" } },
+          } : one)) as AcpmuxRow[],
     new Set(),
     { now: 10_000, working: true },
   );
