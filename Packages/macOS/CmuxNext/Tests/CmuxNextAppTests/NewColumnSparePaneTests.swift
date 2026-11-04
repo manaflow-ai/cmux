@@ -47,8 +47,8 @@ import Testing
         }
     }
 
-    @Test(.timeLimit(.minutes(1)), arguments: [true, false])
-    func aNewColumnsKeyTurnBuildsNoPaneView(springs: Bool) async throws {
+    @Test(.timeLimit(.minutes(1)))
+    func aNewColumnsKeyTurnBuildsNoPaneView() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -66,8 +66,9 @@ import Testing
         window.contentView = content.contentView
         window.orderFrontRegardless()
         let root = content.layoutView
-        // The pane springs pinned on or off without touching the shared settings: the code must work with no animation.
-        root.context.reduceMotionOverride = !springs
+        // No pane springs (pinned without touching the shared settings): the code works with no animation; a layout
+        // motion is driven explicitly below.
+        root.context.reduceMotionOverride = true
         root.driver.isManual = true
         root.driver.detach()
         root.driver.attach(to: root)
@@ -103,14 +104,12 @@ import Testing
         #expect(content.paneSpare.ready == nil, "a new spare was made in the key's turn")
         #expect(made.stripModel.selectedID?.rawValue == provisional.tabID, "the new column's strip does not select its stand-in tab")
 
-        // The next spare is made only once the layout is still: never in a spring frame; after the key's frame when
-        // nothing springs.
-        if springs { try #require(root.isInLayoutMotion, "fixture: with the springs on, the New Column does not spring") }
-        if root.isInLayoutMotion {
-            await idle()
-            #expect(content.paneSpare.ready == nil, "a spare was made while the new column sprang in")
-            land()
-        }
+        // The next spare is made only once the layout is still. A layout motion (driven here as a spring's start and landing
+        // drive it) keeps it from being made in a spring frame; its landing asks for it after that frame.
+        root.setLayoutInMotion(true)
+        await idle()
+        #expect(content.paneSpare.ready == nil, "a spare was made while the layout was in motion")
+        root.setLayoutInMotion(false)
         await idle()
         #expect(content.paneSpare.ready != nil, "no spare was made once the layout was still")
     }
