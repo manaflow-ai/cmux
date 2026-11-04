@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 480
 // l10n-allow-file: synthetic transcript assertions.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -173,14 +174,8 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             .filter({ hasText: "All three focused tests pass." })
             .waitFor({ timeout: 10_000 });
           const headers = page.locator(".acpmux-worked > .cv-worked");
-          if (variant === "claude") {
-            expect(await headers.count()).toBe(0);
-            await page
-              .locator(".cv-tool")
-              .filter({ hasText: /Read|Ran|Searched|Used/ })
-              .first()
-              .waitFor();
-          } else {
+          {
+            // A finished Claude turn folds under one Worked for too (#34774, #35113), closed like Codex's.
             await headers.waitFor();
             await page.waitForFunction(
               (open) =>
@@ -215,7 +210,10 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
             console.log(`transcript-cohesion ${variant} ${label}: ${JSON.stringify(measured)}`);
             if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1") {
               expect(measured.headerHeight).toBeCloseTo(22, 1);
-              if (variant === "codex-closed") {
+              if (variant === "claude") {
+                // Its rhythm is Codex's closed fold's: the reply 16px under the header.
+                expect(measured.replyGap).toBeCloseTo(16, 1);
+              } else if (variant === "codex-closed") {
                 expect(measured.replyGap).toBeCloseTo(16, 1);
                 expect(Math.abs(measured.replyCenterGap - 38.375)).toBeLessThan(1);
               } else expect(measured.nextGap).toBeCloseTo(0, 1);
