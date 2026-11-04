@@ -239,7 +239,9 @@ await requireBrowserLane("tool-row-column-browser.test.ts", async () => {
           await steps.getByRole("button", { name: "Capture the repaired screen", exact: false }).click();
           await steps.locator("img").waitFor();
           await steps.locator("img").evaluate((image) => (image as HTMLImageElement).decode());
-          expect(await steps.locator("img").evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+          expect(
+            await steps.locator("img").evaluate((image) => (image as HTMLImageElement).naturalWidth),
+          ).toBeGreaterThan(0);
         }
         expect(await steps.textContent()).not.toContain("Loaded tools");
         expect(await steps.textContent()).not.toContain("Waiting…");
