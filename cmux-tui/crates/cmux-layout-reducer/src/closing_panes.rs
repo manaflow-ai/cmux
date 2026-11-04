@@ -234,7 +234,7 @@ fn collapse(
     travel: &mut Option<Travel>,
     scroll: Option<RowTravel>,
 ) {
-    if !(free.neighbours.is_empty() && !rider.neighbours.is_empty()) {
+    if !free.neighbours.is_empty() || rider.neighbours.is_empty() {
         return;
     }
     let end = rest.unwrap_or(rider.fixed);
@@ -448,7 +448,7 @@ impl ClosingPanes {
                         handle.fixed_split != scrolls
                             && (if handle.area != 0 { handle.area } else { area }) == area
                     }
-                    HandleKind::ColumnEdge => !handle.docked == scrolls,
+                    HandleKind::ColumnEdge => handle.docked != scrolls,
                     HandleKind::RowEdge => handle.column == row_column,
                 };
                 if !eligible {
@@ -665,12 +665,12 @@ impl ClosingPanes {
         let speed = |side: &Side, at: f64, edge: Edge, velocity: fn(&FrameFact) -> f64| -> f64 {
             let mut best: Option<&FrameFact> = None;
             for live in side.neighbours.iter().filter_map(|&n| frame(n, frames)) {
-                best = match best {
-                    Some(b) if !((edge.of(live.now) - at).abs() < (edge.of(b.now) - at).abs()) => {
-                        Some(b)
-                    }
-                    _ => Some(live),
-                };
+                // `Sequence.min(by:)`: a later frame replaces the best only when it is strictly closer.
+                let closer = best
+                    .is_none_or(|b| (edge.of(live.now) - at).abs() < (edge.of(b.now) - at).abs());
+                if closer {
+                    best = Some(live);
+                }
             }
             best.map_or(0.0, velocity)
         };
@@ -808,8 +808,11 @@ mod tests {
 
     #[test]
     fn swift_min_and_max_keep_swift_s_answer_on_a_tie_and_nan() {
-        assert_eq!(swift_min(0.0, -0.0).to_bits(), (-0.0f64).to_bits());
+        // On a tie Swift's min keeps its first argument and max its second.
+        assert_eq!(swift_min(0.0, -0.0).to_bits(), 0.0f64.to_bits());
+        assert_eq!(swift_min(-0.0, 0.0).to_bits(), (-0.0f64).to_bits());
         assert_eq!(swift_max(-0.0, 0.0).to_bits(), 0.0f64.to_bits());
+        assert_eq!(swift_max(0.0, -0.0).to_bits(), (-0.0f64).to_bits());
         assert!(swift_min(f64::NAN, 1.0).is_nan());
         assert_eq!(swift_max(0.0, f64::NAN), 0.0);
         assert_eq!(least(&[2.0, f64::NAN, 1.0]), Some(1.0));
