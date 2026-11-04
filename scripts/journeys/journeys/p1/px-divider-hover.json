@@ -1,0 +1,132 @@
+{
+ "id": "px-divider-hover",
+ "priority": "P1",
+ "title": "PIXEL: the resize cursor follows a column edge that a key resize moves under the real pointer (p0 | p1 terminals)",
+ "why": "HOT PATH AUDIT frames (#34589): the divider handles lost their own tracking areas and cursor rects (AppKit rebuilt the window's structural regions for each divider move, 14.6 % of a STRESS drag); one tracking area on the screen view now hit-tests the current divider frames. This proves with the real pointer that the resize cursor shows at the divider's new place after it moves, and not at its old place.",
+ "source": "PIXEL PERFECT kit, written by HOT PATH AUDIT frames (agent hpa-frames) for the lead's proof before #34589 lands",
+ "budget_seconds": 60,
+ "estimate_seconds": 35,
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "skip_first_run_history"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "px-divider-hover"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at [0.0, 0.05, 1.0, 0.9] of the screen",
+   "fraction": [
+    0.0,
+    0.05,
+    1.0,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (p1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "column.widthOneThird",
+   "title": "set-up: p1's column takes its share"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "try_action",
+   "action": "column.widthOneThird",
+   "title": "set-up: p0's column takes its share"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5,
+   "title": "the layout settles (nothing observable to wait on)"
+  },
+  {
+   "do": "px_divider_hover",
+   "key": "l",
+   "modifiers": [
+    "control",
+    "shift"
+   ],
+   "target": {
+    "divider": 0
+   },
+   "settle_s": 1.0,
+   "mark": "hover",
+   "title": "the real pointer on the p0 | p1 column edge (resize cursor); Ctrl-Shift-L springs the edge away under it (no resize cursor); the pointer at the edge's new place (resize cursor) and at its old place (none)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "after: focus p0"
+  },
+  {
+   "do": "type",
+   "text": "echo dh-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "dh-done-${nonce}"
+    },
+    {
+     "app_text_line": "dh-done-${nonce}"
+    },
+    {
+     "frame_text": "dh-done-${nonce}"
+    }
+   ]
+  }
+ ]
+}

@@ -117,6 +117,16 @@ Steps (`do`):
                missed it). The film's pixel note gets `key_then_drag`: the plan (rest, press, step, spring), the key's and
                the drag's send times, the journal's key-down and mouse-down, the spring edge at the mouse-down and what it
                had left, the dragged edge's travel and the verdict, on the host clock.
+  px_divider_hover {key, modifiers?, target?: {divider | row_divider: N}, settle_s?: 1.0, mark?}
+               HOT PATH AUDIT frames: the divider cursor comes from one tracking area on the screen view that hit-tests
+               the current divider frames (the handles have no tracking area and no cursor rects). The real pointer
+               (CuaDriver move_cursor, hid_move) on the divider's center: the app shows a resize cursor (`debug.cursor`).
+               One real key (rk_press) springs the divider away under the still pointer: no resize cursor. The pointer
+               at the divider's new center (the trace after the spring): the resize cursor; at its old center: none. Any
+               other reading fails the journey; a build without debug.cursor, or a key that did not move the divider by
+               HOVER_MIN_MOVE_PT, is not run. Returns the four readings (the app's and the window server's cursor).
+  hid_move     {window_point: [x, y]}  the real pointer to a window point (points from the window's top-left), with no
+               button: CuaDriver's move_cursor in desktop pixels, as hid_click places a click.
 """
 import json
 import math
@@ -1075,10 +1085,93 @@ def step_px_window_frame(j, step):
     return out
 
 
+HOVER_SETTLE_S = 0.35  # a real pointer move's tracking events reach the app, and the frame after them
+HOVER_MIN_MOVE_PT = 16.0  # the key must move the divider past its hit band (7 pt by default) and the pointer's slack
+RESIZE_CURSORS = ("columnResize", "rowResize", "resizeLeftRight", "resizeUpDown")
+
+
+def step_hid_move(j, step):
+    """The real pointer to a window point with no button (CuaDriver move_cursor, desktop pixels)."""
+    V.R.require_front(j)
+    point = tuple(float(v) for v in step["window_point"])
+    (x, y), scale = V._desktop_pixels(j, point)
+    sent = D.now()
+    bad, data, raw = V.R._session(j).call("move_cursor", {"scope": "desktop", "x": x, "y": y})
+    if bad or (data or {}).get("effect") in ("refused", "failed", "error"):
+        raise D.NotRun(f"hid_move: CuaDriver did not move the pointer: {json.dumps(raw)[:400]}")
+    return {"point": list(point), "pixels": [x, y], "scale": scale, "sent": round(sent, 6)}
+
+
+def _cursor(j):
+    """{app, system}: the cursor the app shows now and the window server's, by name (debug.cursor, NSCursor.debugName)."""
+    try:
+        reply = j.app.rpc("debug.cursor") or {}
+    except D.StepError as error:
+        raise D.NotRun(f"px_divider_hover: this build has no debug.cursor ({str(error)[:200]})")
+    if not isinstance(reply, dict) or "app" not in reply:
+        raise D.NotRun(f"px_divider_hover: this build has no debug.cursor: {json.dumps(reply)[:200]}")
+    return {"app": reply.get("app"), "system": reply.get("system")}
+
+
+def _divider_centers(j):
+    """({id: (cx, cy, w, h)}, window width) of the dividers in the trace's last sample (window points from the top-left)."""
+    trace = _trace_now(j)
+    samples = trace.get("samples") or []
+    last = samples[-1] if samples else {}
+    return _dividers(last), float((last.get("window") or [1e9])[0])
+
+
+def step_px_divider_hover(j, step):
+    """The resize cursor follows a divider that moves under the real pointer (see the module doc)."""
+    target = dict(step.get("target") or {"divider": 0})
+    vertical = "row_divider" not in target
+    index = int(target.get("divider", target.get("row_divider", 0)))
+    rest, window_w = _divider_centers(j)
+    ids = _ordered(rest, window_w, vertical)
+    if index >= len(ids):
+        raise D.StepError(f"px_divider_hover: no {'vertical' if vertical else 'horizontal'} divider {index}: {sorted(rest)}")
+    divider = ids[index]
+    old = [round(rest[divider][0], 2), round(rest[divider][1], 2)]
+    readings = []
+
+    def read(label, point, want_resize):
+        moved = j.step_hid_move({"window_point": point}) if point is not None else None
+        time.sleep(HOVER_SETTLE_S)
+        cursor = _cursor(j)
+        readings.append({"label": label, "pointer": point, "want": "resize" if want_resize else "not resize",
+                         "app": cursor["app"], "system": cursor["system"], "ok": (cursor["app"] in RESIZE_CURSORS) == want_resize,
+                         "move": moved})
+
+    read("on the divider at rest", old, True)
+    mark = step.get("mark", "hover")
+    j.step_rk_press({"key": step["key"], "modifiers": list(step.get("modifiers", [])), "count": 1, "gap_ms": 0,
+                     "mark": mark + "-key"})
+    time.sleep(float(step.get("settle_s", 1.0)))
+    after, _ = _divider_centers(j)
+    if divider not in after:
+        raise D.StepError(f"px_divider_hover: divider {divider} is gone after the key: {sorted(after)}")
+    new = [round(after[divider][0], 2), round(after[divider][1], 2)]
+    travel = (new[0] - old[0]) if vertical else (new[1] - old[1])
+    info = {"divider": divider, "old_center": old, "new_center": new, "travel_pt": round(travel, 2), "readings": readings,
+            "key": {"key": step["key"], "modifiers": list(step.get("modifiers", []))}}
+    if abs(travel) < HOVER_MIN_MOVE_PT:
+        raise D.NotRun(f"px_divider_hover: the key moved divider {divider} {travel:.1f} pt (< {HOVER_MIN_MOVE_PT} pt): "
+                       "no new place to check")
+    read("still pointer after the divider moved away", None, False)
+    read("the divider's new place", new, True)
+    read("the divider's old place", old, False)
+    if getattr(j, "video", None) is not None:
+        j.video["notes"].setdefault("pixel", {})["divider_hover"] = info
+    wrong = [r for r in readings if not r["ok"]]
+    if wrong:
+        raise D.StepError("px_divider_hover: " + "; ".join(f"{r['label']}: cursor {r['app']} (want {r['want']})" for r in wrong))
+    return {"divider_hover": info}
+
+
 STEPS = {"px_switch": step_px_switch, "px_agent": step_px_agent, "px_window_frame": step_px_window_frame, "px_film": step_px_film, "px_springs": step_px_springs, "px_tunable": step_px_tunable, "px_page": step_px_page,
          "px_agent_css": step_px_agent_css, "px_record_start": step_px_record_start, "px_tab_new": step_px_tab_new,
          "px_hold_tab_close": step_px_hold_tab_close,
-         "px_key_then_drag": step_px_key_then_drag}
+         "px_key_then_drag": step_px_key_then_drag, "px_divider_hover": step_px_divider_hover, "hid_move": step_hid_move}
 CONDITIONS = {}
 
 
