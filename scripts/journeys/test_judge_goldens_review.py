@@ -1333,6 +1333,95 @@ class EighthReviewTests(unittest.TestCase):
                 finally:
                     w.close()
 
+    def test_a_null_ruler_is_refused_too(self):
+        # "ruler": null is no ruler of any form either; before, a fact with expectations and a null ruler was
+        # judged as if it had none (the null hid the mistake of a ruler left out)
+        import test_judge_goldens_truth as truth
+        w = truth.TruthWorkspace()
+        try:
+            w.write_truth()
+            path = w.manifest / "truth.json"
+            doc = json.loads(path.read_text())
+            doc["facts"][0]["ruler"] = None
+            path.write_text(json.dumps(doc))
+            self.assertEqual(w.snapshot()[0], 0)
+            code, out = w.bless()
+            self.assertEqual(code, 2, out)
+            self.assertIn("truth.json has facts that cannot be checked", out)
+        finally:
+            w.close()
+
+    def test_two_new_films_of_one_snapshot_clash_too(self):
+        # nothing stored yet: "col-drag" and "col-drag.events" are both new in the first snapshot
+        w = base.Workspace()
+        try:
+            (w.gallery / "build-a-120x2" / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
+            code, out = w.snapshot()
+            self.assertEqual(code, 2, out)
+            self.assertIn("a film name that starts with another film's name and a dot (col-drag)", out)
+        finally:
+            w.close()
+
+    def test_a_stored_film_gone_from_the_gallery_still_clashes(self):
+        # col-drag is stored without col-drag.events.json; then its film files leave the gallery (the gallery no longer
+        # names col-drag) and col-drag.events.json comes back with a new film col-drag.events. Only the stored name
+        # col-drag tells that col-drag.events.json is col-drag's input: the new film must not take it
+        w = base.Workspace()
+        try:
+            folder = w.gallery / "build-a-120x2"
+            events = folder / "col-drag.events.json"
+            data = events.read_bytes()
+            events.unlink()
+            self.assertEqual(w.snapshot()[0], 0)
+            for suffix in jg.FILM_SUFFIXES:
+                if (folder / f"col-drag{suffix}").exists():
+                    (folder / f"col-drag{suffix}").unlink()
+            self.assertNotIn("col-drag", jg.find_films(w.gallery)["build-a-120x2"])
+            events.write_bytes(data)
+            (folder / "col-drag.events.trace.json").write_text(json.dumps({"t0_s": 1.0, "samples": []}))
+            code, out = w.snapshot()
+            self.assertEqual(code, 2, out)
+            self.assertIn("a film name that starts with another film's name and a dot (col-drag)", out)
+            self.assertFalse((w.store / "films" / "build-a-120x2" / "col-drag.events.json").exists())
+        finally:
+            w.close()
+
+    def test_a_snapshot_waits_for_the_lock(self):
+        # another snapshot holds the lock for 0.6 s: this one waits for it, then completes
+        import fcntl
+        import threading
+        import time
+        w = base.Workspace()
+        try:
+            w.store.mkdir(parents=True, exist_ok=True)
+            held = open(w.store / jg.STORE_LOCK, "a")
+            fcntl.flock(held, fcntl.LOCK_EX)
+            release = threading.Timer(0.6, lambda: (fcntl.flock(held, fcntl.LOCK_UN), held.close()))
+            release.start()
+            started = time.monotonic()
+            code, out = self.cli(w, w.manifest, "snapshot", "--source", str(w.gallery), "--settled-minutes", "0",
+                                 "--lock-seconds", "30")
+            release.join()
+            self.assertEqual(code, 0, out)
+            self.assertGreaterEqual(time.monotonic() - started, 0.5)
+        finally:
+            w.close()
+
+    def test_a_part_file_of_a_snapshot_is_no_extra(self):
+        # a dot file (a snapshot's part file in progress) is not counted as another manifest's file; a plain extra is
+        w = base.Workspace()
+        try:
+            self.assertEqual(w.snapshot()[0], 0)
+            doc = json.loads((w.manifest / "films.json").read_text())
+            folder = w.store / "films" / "build-a-120x2"
+            os.chmod(folder, 0o755)
+            (folder / ".col-drag.trace.json.part").write_text("{}")
+            self.assertEqual(jg.store_extras(w.store, doc), (0, 0))
+            (folder / "other.trace.json").write_text("{}")
+            self.assertEqual(jg.store_extras(w.store, doc), (0, 1))
+        finally:
+            w.close()
+
     def test_the_ruler_needs_the_pinned_frames_too(self):
         import test_judge_goldens_truth as truth
         w = truth.TruthWorkspace()
