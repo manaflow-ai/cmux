@@ -31,9 +31,11 @@ struct LiveResizePageTrackerNoticesTests {
                 // global-notice-allow: the fork's tracker observes these views' frame notices on the default center (the production path)
                 observers.append(NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: current,
                                                                         queue: nil) { [weak self, weak host] note in
+                    // The notice stays on this side: only the view's identity crosses to the main actor.
+                    let object = (note.object as AnyObject?).map(ObjectIdentifier.init)
                     MainActor.assumeIsolated { // main-proof: AppKit posts frame notices on the main thread
-                        guard let self, let host, let window = host.window, let object = note.object as? NSView else { return }
-                        self.notices.append((ObjectIdentifier(object), window.convertToScreen(host.convert(host.bounds, to: nil))))
+                        guard let self, let host, let window = host.window, let object else { return }
+                        self.notices.append((object, window.convertToScreen(host.convert(host.bounds, to: nil))))
                     }
                 })
                 if current === host.window?.contentView { break }
