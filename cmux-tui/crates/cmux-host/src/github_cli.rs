@@ -730,7 +730,7 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
     let body = s.strip_prefix('{')?;
     let mut keys = Vec::new();
     let (mut depth, mut quote, mut in_key, mut key) = (0usize, None::<char>, true, String::new());
-    let mut push = |key: &mut String, keys: &mut Vec<String>| {
+    let push = |key: &mut String, keys: &mut Vec<String>| {
         let k = key.trim().trim_matches(|c| c == '"' || c == '\'').to_owned();
         if !k.is_empty() {
             keys.push(k);
