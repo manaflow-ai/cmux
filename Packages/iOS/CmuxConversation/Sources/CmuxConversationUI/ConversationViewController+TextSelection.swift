@@ -11,7 +11,7 @@ import UIKit
 /// label supplies the system selection UI; the label keeps drawing the text
 /// (effects, mentions, links) underneath, so nothing visibly changes but the
 /// highlight and handles.
-final class BubbleTextSelectionView: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate {
+final class BubbleTextSelectionView: UITextView, UITextViewDelegate, @preconcurrency UIEditMenuInteractionDelegate {
     let rowID: String
     let messageID: String
     /// The bubble's own text, for Copy (the overlay's copy is drawn clear).
