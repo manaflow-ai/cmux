@@ -54,21 +54,35 @@ fn npm_metadata(rel: &Path) -> bool {
         || rel.file_name().is_some_and(|n| n == ".package-lock.json")
 }
 
-/// Whether some URL in `bytes` carries userinfo (`scheme://user[:pass]@host`).
+/// Whether some URL in `bytes` carries a credential: userinfo
+/// (`scheme://user[:pass]@host`) or a query parameter named like one
+/// (`?token=`, `&access_key=`, `X-Amz-Signature=`).
 fn url_with_userinfo(bytes: &[u8]) -> bool {
+    const QUERY_SECRETS: &[&[u8]] =
+        &[b"token", b"auth", b"key", b"sig", b"secret", b"password", b"passwd", b"credential"];
+    let stop = |b: &u8| matches!(b, b'"' | b'\'' | b'<' | b'>' | b'\\') || b.is_ascii_whitespace();
     let mut rest = bytes;
     while let Some(at) = rest.windows(3).position(|w| w == b"://") {
-        let authority = rest.get(at + 3..).unwrap_or_default();
-        let end = authority
-            .iter()
-            .position(|b| {
-                matches!(b, b'/' | b'"' | b'\'' | b'<' | b'>' | b'\\') || b.is_ascii_whitespace()
-            })
-            .unwrap_or(authority.len());
-        if authority.get(..end).is_some_and(|a| a.contains(&b'@')) {
+        let after = rest.get(at + 3..).unwrap_or_default();
+        let url =
+            after.get(..after.iter().position(stop).unwrap_or(after.len())).unwrap_or_default();
+        let authority = url.get(..url.iter().position(|b| *b == b'/').unwrap_or(url.len()));
+        if authority.is_some_and(|a| a.contains(&b'@')) {
             return true;
         }
-        rest = authority;
+        if let Some(q) = url.iter().position(|b| *b == b'?') {
+            let query = url.get(q + 1..).unwrap_or_default().to_ascii_lowercase();
+            let names = query
+                .split(|b| *b == b'&')
+                .map(|p| p.split(|b| *b == b'=').next().unwrap_or_default());
+            if names
+                .into_iter()
+                .any(|name| QUERY_SECRETS.iter().any(|s| name.windows(s.len()).any(|w| w == *s)))
+            {
+                return true;
+            }
+        }
+        rest = after;
     }
     false
 }
@@ -719,6 +733,9 @@ mod tests {
         assert!(url_with_userinfo(b"x https://token@host/a"));
         assert!(!url_with_userinfo(b"https://registry.npmjs.org/@scope/a/-/a.tgz"));
         assert!(!url_with_userinfo(b"mailto me@x.com, https://x.com/a@b"));
+        assert!(url_with_userinfo(b"https://r.org/pkg.tgz?token=SECRET"));
+        assert!(url_with_userinfo(b"https://s3/x.tgz?X-Amz-Signature=abc&v=1"));
+        assert!(!url_with_userinfo(b"https://r.org/pkg.tgz?version=1.2&format=tgz"));
         let src = tempfile::tempdir().unwrap();
         write(
             &src.path().join("_cacache/content-v2/sha512/aa/pub"),

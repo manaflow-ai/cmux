@@ -1705,9 +1705,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 /// After a seed checks out a folder on this machine: restore its dependencies
-/// from the cache and run its install, in the background
-/// (`acpmux machine deps warm --if-joined`, which does nothing on a machine
-/// that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
+/// from the cache in the background, never running its install
+/// (`acpmux machine deps warm --if-joined --no-install`, which does nothing on
+/// a machine that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
 /// unix-only.
 #[cfg(unix)]
 fn warm_seeded_deps(folder: &Path) {
@@ -1743,7 +1743,9 @@ fn warm_seeded_deps(folder: &Path) {
         command.arg("acp");
     }
     command
-        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--json"])
+        // Restore only: a seed never runs a project's install, whose lifecycle
+        // scripts would execute repository code without the owner's consent.
+        .args(["machine", "deps", "warm", "--if-joined", "--if-missing", "--no-install", "--json"])
         .arg(folder)
         .current_dir(folder)
         .stdin(cmux_process::Stdio::null())
