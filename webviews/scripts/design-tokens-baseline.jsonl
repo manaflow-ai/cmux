@@ -173,7 +173,6 @@
 {"file":"agent-session/acpmux/conversation/DispatchCard.css","kind":"spacing","property":"margin-top","values":{"6px":1}}
 {"file":"agent-session/acpmux/conversation/DynamicWorkflow.gallery.css","kind":"font-weight","property":"font-weight","values":{"650":9,"700":1}}
 {"file":"agent-session/acpmux/conversation/DynamicWorkflow.gallery.css","kind":"radius","property":"border-radius","values":{"14px":2,"10px":1,"9px":1,"11px":1,"7px 7px 0 0":1,"7px":1}}
-{"file":"agent-session/acpmux/conversation/icons.tsx","kind":"color","property":"color","values":{"#3a3b36":1,"#3b3c37":1}}
 {"file":"agent-session/acpmux/conversation/InboxNoticeCard.css","kind":"spacing","property":"margin","values":{"2px 0":1}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"font-weight","property":"font-weight","values":{"650":3}}
 {"file":"agent-session/acpmux/conversation/LongCommandRows.gallery.css","kind":"radius","property":"border-radius","values":{"9px":1}}
@@ -416,7 +415,6 @@
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"gap","values":{"2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"margin-left","values":{"calc(14px + var(--acpmux-line-icon-gap, 8px) + var(--acpmux-tray-indent, 0px))":1,"-2px":1}}
 {"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"padding-top","values":{"2px":1}}
-{"file":"agent-session/acpmux/subagents/subagents.css","kind":"spacing","property":"top","values":{"7px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"height","property":"height","values":{"26px":5,"6px":1,"22px":2,"14px":1,"18px":1,"40px":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"radius","property":"border-radius","values":{"var(--acpmux-composer-radius,11px)":1}}
 {"file":"agent-session/acpmux/summary/summary.css","kind":"spacing","property":"gap","values":{"2px":5}}
@@ -592,8 +590,6 @@
 {"file":"pages/home-channels/chief-editor.css","kind":"spacing","property":"margin","values":{"2px 0 0":1}}
 {"file":"pages/home-channels/chief-editor.css","kind":"spacing","property":"margin-top","values":{"22px":1}}
 {"file":"pages/home-channels/chief-editor.css","kind":"spacing","property":"padding","values":{"16px 20px 8px 12px":1,"8px 20px 12px 44px":1,"12px 20px 16px":1,"0 10px":1,"6px 10px":1,"0 6px":1,"12px 14px":1}}
-{"file":"pages/home-channels/ledger.css","kind":"duration","property":"transition","values":{"background-color 180ms ease, border-color 180ms ease, transform 180ms cubic-bezier(0.22, 1, 0.36, 1)":1,"opacity 120ms ease-out":1,"width 120ms linear":1}}
-{"file":"pages/home-channels/ledger.css","kind":"easing","property":"animation","values":{"lg-sheet-in var(--cmux-motion-micro) cubic-bezier(0.2, 0.8, 0.2, 1)":1}}
 {"file":"pages/home-channels/ledger.css","kind":"height","property":"height","values":{"16px":2,"5px":2,"8px":2,"6px":1,"1px":3,"min(520px, 72vh)":1,"48px":1,"36px":1,"2px":1,"56px":1}}
 {"file":"pages/home-channels/ledger.css","kind":"height","property":"min-height","values":{"44px":1,"16px":1,"26px":1,"22px":1,"48px":1,"56px":1,"40px":1}}
 {"file":"pages/home-channels/ledger.css","kind":"spacing","property":"bottom","values":{"-2px":1}}
@@ -606,9 +602,6 @@
 {"file":"pages/home-channels/ledger.css","kind":"spacing","property":"padding-top","values":{"1px":1}}
 {"file":"pages/home-channels/ledger.css","kind":"spacing","property":"top","values":{"13px":1,"1.5px":1}}
 {"file":"pages/home-channels/styles.css","kind":"duration","property":"animation","values":{"hc-writing 1.4s ease-in-out infinite":1}}
-{"file":"pages/home-channels/styles.css","kind":"duration","property":"transition","values":{"border-color 120ms ease-out":1,"opacity 120ms ease-out":1}}
-{"file":"pages/home-channels/styles.css","kind":"easing","property":"animation","values":{"hc-thread-in var(--cmux-motion-micro) ease-out":1}}
-{"file":"pages/home-channels/styles.css","kind":"easing","property":"transition","values":{"opacity var(--cmux-motion-quick) ease-out":1}}
 {"file":"pages/home-channels/styles.css","kind":"height","property":"height","values":{"1px":2,"30px":3,"18px":1,"34px":2}}
 {"file":"pages/home-channels/styles.css","kind":"spacing","property":"top","values":{"-14px":1}}
 {"file":"pages/keybindings/styles.css","kind":"duration","property":"animation","values":{"keys-recorder-light calc(var(--cmux-motion-large, 240ms) + 200ms) ease-out":1}}

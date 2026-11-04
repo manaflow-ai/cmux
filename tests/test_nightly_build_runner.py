@@ -752,12 +752,12 @@ class Workflow(unittest.TestCase):
                 runs_on = DOC["jobs"][job]["runs-on"]
                 self.assertNotIn("CI_NIGHTLY_NEXT_BUILD_RUNNER", runs_on)
                 self.assertIn(f"needs.{GUARDED[job]}.outputs.owned", runs_on)
-                self.assertIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
+                self.assertNotIn(f"needs.{GUARDED[job]}.outputs.blacksmith", runs_on)
 
-    def test_every_nightly_next_route_has_a_blacksmith_fallback(self) -> None:
-        # Owned only when the picker saw it idle for this very attempt; anything else (a re-run of
-        # failed jobs that kept an earlier attempt's pick included) is Blacksmith, whatever
-        # vars.MACOS_RUNNER_26 holds (a hosted or owned value never routes around the pick).
+    def test_every_nightly_next_route_falls_back_to_the_nightly_only_builder(self) -> None:
+        # The pick only when the picker saw it idle for this very attempt; anything else (a re-run of
+        # failed jobs that kept an earlier attempt's pick included) is our plain nightly-only pool,
+        # never Blacksmith (nightlies never use Blacksmith), whatever vars.MACOS_RUNNER_26 holds.
         for job, pick in GUARDED.items():
             source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
             for event, attempt, picked_for, owned, blacksmith, owned_on, variable in itertools.product(
@@ -776,9 +776,9 @@ class Workflow(unittest.TestCase):
                     if picked_for == str(attempt) and owned:
                         self.assertEqual(label, owned)
                     else:
-                        self.assertTrue(str(label).startswith("blacksmith-"), label)
+                        self.assertEqual(label, "glaeda-nightly-only-m4pro")
 
-    def test_the_ghostty_helper_takes_the_owned_or_blacksmith_pick_never_the_dedicated_builder(self) -> None:
+    def test_the_ghostty_helper_takes_the_owned_pick_or_our_nightly_pool_never_the_dedicated_builder(self) -> None:
         # Starved on Blacksmith macos-26 behind the bare label (run 40500413442). The dedicated
         # builder's hook admits only build-nightly-app, so the helper never takes it.
         job = DOC["jobs"]["build-nightly-ghostty-cli-helper"]
@@ -807,8 +807,8 @@ class Workflow(unittest.TestCase):
                 if picked_for == str(attempt) and helper == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
-                    # The picker's moving label, else the default; never a dropped pick.
-                    self.assertEqual(label, blacksmith or SMALL)
+                    # The owned nightly pool, never the picker's Blacksmith label nor a dropped pick.
+                    self.assertEqual(label, "glaeda-nightly-std-xcode-26.6")
 
     def test_the_pickers_never_block_their_job(self) -> None:
         for job, pick in GUARDED.items():
@@ -882,10 +882,10 @@ class Workflow(unittest.TestCase):
                                **{f"needs.{pick}.outputs.{key}": value for key, value in out.items()}}
                     source = DOC["jobs"][job]["runs-on"].removeprefix("${{").removesuffix("}}")
                     self.assertEqual(evaluate(parse_nightly_expression(source), context), SIDE)
-                    # A re-run of failed jobs that kept the previous attempt's pick takes the moving
-                    # Blacksmith label, so a refused owned label is never taken again.
+                    # A re-run of failed jobs that kept the previous attempt's pick takes our nightly-only
+                    # pool (never the warm builder label), so a refused owned label is never taken again, and never Blacksmith.
                     stale = {**context, "github.run_attempt": attempt + 1}
-                    self.assertEqual(evaluate(parse_nightly_expression(source), stale), LARGE)
+                    self.assertEqual(evaluate(parse_nightly_expression(source), stale), "glaeda-nightly-only-m4pro")
 
     def test_an_owned_pick_outside_the_workflow_run_watch_leaves_a_marker(self) -> None:
         for pick in GUARDED.values():

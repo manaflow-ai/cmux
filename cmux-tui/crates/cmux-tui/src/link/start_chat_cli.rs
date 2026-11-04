@@ -71,7 +71,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH]";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -139,7 +139,17 @@ pub(super) fn run(args: &[String]) -> i32 {
                 _ => None,
             }
         }
-        "copy" => StartCopy::of(&flags).map(|copy| copy.run(&ledger, &push)),
+        "copy" => StartCopy::of(&flags).map(|copy| {
+            // `--store PLATFORM|default`: through the content-addressed store, the cmux
+            // credential on stdin; without one the copy goes over the link as before.
+            if let Some(platform) = flags.one("--store")
+                && let Err(error) =
+                    super::sync_cli::store_from_stdin(platform, &mut std::io::stdin().lock())
+            {
+                eprintln!("{}", json!({"store": {"used": false, "error": error}}));
+            }
+            copy.run(&ledger, &push)
+        }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         _ => None,

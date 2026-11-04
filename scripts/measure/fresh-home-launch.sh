@@ -8,6 +8,11 @@
 #   --arg=ref=SHA   the commit whose app to build and launch (40 hex; default: this checkout). It is
 #                   built in its own worktree, so a PR head that predates this script can be launched.
 #   --arg=seconds=S how long the app must stay up (default 30)
+#   --arg=load=1    launch and hold the app under qos-load-bench.sh's agent-like load (CPU spinners
+#                   past every core, dd writers, find storms, readers), started once the build is done and
+#                   stopped when the smoke ends: "a busy machine makes things slower, never makes them
+#                   fail" (cmuxterm-hq#7063).
+#   --arg=startup=S how long Home may take to render (default 90; the smoke's --startup-timeout)
 # It builds a tagged Debug app (scripts/reload.sh, as crash-gate.sh does) and runs
 # scripts/ci/fresh_home_launch_smoke.py --app on it in the console session: an empty HOME, no
 # defaults, Home must render and the app must stay up. The verdict is the smoke's: exit 0 passed,
@@ -15,15 +20,31 @@
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 here="$PWD"
-ref="" seconds=30
+ref="" seconds=30 load=0 startup=90
 for arg in "$@"; do
   case "$arg" in
     ref=*) ref="${arg#ref=}" ;;
     seconds=*) seconds="${arg#seconds=}" ;;
+    load=*) load="${arg#load=}" ;;
+    startup=*) startup="${arg#startup=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 [[ "$seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "seconds= must be a number" >&2; exit 2; }
+[[ "$startup" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "startup= must be a number" >&2; exit 2; }
+[[ "$load" == 0 || "$load" == 1 ]] || { echo "load= must be 0 or 1" >&2; exit 2; }
+# The load's workers, each in its own process group (set -m in start_load), so stop_load ends their
+# dd and find children too. Only this script's own jobs are signalled.
+load_pgids=() load_dir=""
+stop_load() {
+  for g in ${load_pgids[@]+"${load_pgids[@]}"}; do kill -TERM -- "-$g" 2>/dev/null; done
+  wait 2>/dev/null; load_pgids=()
+  [ -n "$load_dir" ] && rm -rf "$load_dir"; load_dir=""
+}
+# A cancelled or timed-out step gets SIGTERM, which skips an EXIT trap unless the signal is trapped:
+# exit on it so the EXIT traps below stop the load (its workers are in their own process groups, so
+# the step's own group signal never reaches them) and remove the worktree.
+trap 'exit 143' TERM; trap 'exit 130' INT; trap 'exit 129' HUP
 out="$here/.build/fresh-home-launch"
 rm -rf "$out" && mkdir -p "$out"
 src="$here"
@@ -45,7 +66,7 @@ if [[ -n "$ref" && "$ref" != "$(git rev-parse HEAD)" ]]; then
   scratch="$(mktemp -d)"
   src="$scratch/src"
   git worktree add --quiet --detach "$src" "$ref" || { rm -rf "$scratch"; exit 3; }
-  trap 'git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
+  trap 'stop_load; git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"' EXIT
 fi
 cd "$src"
 sha="$(git rev-parse HEAD)"
@@ -108,10 +129,32 @@ if [[ -z "$app" || ! -d "$app" ]]; then
 fi
 # The harness and the teardown come from this script's checkout, never the launched ref's (which
 # may predate them); the teardown also runs when the step is killed mid-smoke.
-trap 'python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1; [ -n "${scratch:-}" ] && { git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"; }' EXIT
-python3 -I "$here/scripts/ci/fresh_home_launch_smoke.py" --app "$app" --seconds "$seconds" --out "$out/smoke"
+trap 'stop_load; python3 "$here/scripts/cmux-next/tag_teardown.py" "$app" >/dev/null 2>&1; [ -n "${scratch:-}" ] && { git -C "$here" worktree remove --force "$src" >/dev/null 2>&1; rm -rf "$scratch"; }' EXIT
+if [ "$load" = 1 ]; then
+  # The same load as qos-load-bench.sh's load_default cell, at the default priority, from this
+  # script's checkout. Started after the build so the build's own time is not what it measures.
+  load_dir="$(mktemp -d)"
+  cc -O2 -o "$load_dir/spin" "$here/scripts/measure/qos-load-bench/spin.c" || exit 3
+  # The readers' tree (2000 files of 64 KiB, as qos-load-bench.sh's loadtree), in the load's own folder.
+  mkdir -p "$load_dir/loadtree"
+  for i in $(seq 1 2000); do head -c 65536 /dev/urandom > "$load_dir/loadtree/f$i"; done
+  set -m
+  start_load() { "$@" & load_pgids+=("$!"); }
+  for _ in $(seq 1 $(( $(sysctl -n hw.ncpu) / 4 + 1 ))); do start_load "$load_dir/spin"; done
+  for _ in 1 2; do start_load /bin/sh -c 'while :; do dd if=/dev/zero of="$1/w$$" bs=1m count=256 2>/dev/null; rm -f "$1/w$$"; done' sh "$load_dir"; done
+  for _ in 1 2; do start_load /bin/sh -c 'while :; do find /System/Library /usr -type f -size +1k >/dev/null 2>&1; done'; done
+  for _ in 1 2; do start_load /bin/sh -c 'while :; do cat "$1"/loadtree/f* | shasum >/dev/null; done' sh "$load_dir"; done
+  set +m
+  sleep 5
+  echo "FRESH-HOME load on: $(sysctl -n hw.ncpu) cores, load averages $(uptime | sed 's/.*averages: //')"
+fi
+python3 -I "$here/scripts/ci/fresh_home_launch_smoke.py" --app "$app" --seconds "$seconds" --startup-timeout "$startup" --out "$out/smoke"
 status=$?
+if [ "$load" = 1 ]; then
+  echo "FRESH-HOME load at the end: load averages $(uptime | sed 's/.*averages: //')"
+  stop_load
+fi
 case $status in 0) verdict=passed ;; 1) verdict=failed ;; *) verdict=cannot-run; status=3 ;; esac
-echo "FRESH-HOME verdict $verdict commit $sha (exit $status)"
+echo "FRESH-HOME verdict $verdict commit $sha load $load (exit $status)"
 tar -czf "$out/report.tgz" -C "$out" .
 exit $status

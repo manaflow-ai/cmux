@@ -93,6 +93,11 @@ final class WorkspacesListControl {
 
     /// Where the list's visible area ends (above the tab bar), in the list's space.
     var visibleBottom: CGFloat { controller?.visibleBottom ?? .infinity }
+
+    /// Reveal Workspace in List: the item scrolls to the middle and flashes once.
+    func reveal(_ itemID: String) {
+        controller?.reveal(itemID)
+    }
 }
 
 /// The Workspaces list (SPEC 11.1) as a UIKit collection view: a plain list
@@ -197,7 +202,7 @@ final class WorkspacesHeightCache {
         guard case let .row(model) = item, !textSize.isAccessibilityCategory else { return nil }
         let icon = model.workspace.icon ?? ""
         let iconKind = icon.isEmpty ? "none" : (WorkspaceSwatch.isSymbol(icon) ? "symbol" : "emoji")
-        return "row.\(iconKind)"
+        return "row.\(iconKind)\(model.compact ? ".compact" : "")"
     }
 }
 
@@ -544,6 +549,38 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     var visibleBottom: CGFloat {
         guard let collectionView else { return .infinity }
         return collectionView.bounds.height - collectionView.adjustedContentInset.bottom
+    }
+
+    /// The item in the middle of the list, then a press fill that fades on its cell.
+    func reveal(_ itemID: String) {
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: itemID) else { return }
+        let flash = { [weak collectionView] in
+            guard let cell = collectionView?.cellForItem(at: indexPath) else { return }
+            let fill = UIView(frame: cell.bounds)
+            fill.backgroundColor = theme.colors.fillPressed.uiColor
+            fill.isUserInteractionEnabled = false
+            fill.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            fill.accessibilityIdentifier = "workspaces.revealed"
+            cell.addSubview(fill)
+            // A fade, not motion: kept under Reduce Motion too. The fill holds a moment first.
+            UIView.animate(withDuration: 1.2, delay: 0.4, options: [.curveEaseOut], animations: { fill.alpha = 0 }) { _ in
+                fill.removeFromSuperview()
+            }
+            UIAccessibility.post(notification: .layoutChanged, argument: cell)
+        }
+        // Reduce Motion: the list jumps there.
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+            return flash()
+        }
+        let animator = theme.motion.smooth.animator()
+        animator.addAnimations {
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: false)
+            collectionView.layoutIfNeeded()
+        }
+        animator.addCompletion { _ in flash() }
+        animator.startAnimation()
     }
 
     func scrollTo(_ itemID: String, atTop: Bool, animated: Bool, completion: (() -> Void)?) {

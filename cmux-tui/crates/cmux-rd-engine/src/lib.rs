@@ -310,7 +310,10 @@ impl MediaEngine {
         let cc_cfg =
             CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
         let mut streams = BTreeMap::new();
-        streams.insert(cfg.stream, StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight));
+        streams.insert(
+            cfg.stream,
+            StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight),
+        );
         Self {
             streams,
             cc: CongestionController::new(cc_cfg, cfg.path),
@@ -336,7 +339,10 @@ impl MediaEngine {
         if self.streams.len() >= MAX_STREAMS {
             return Err(StreamError::TooMany);
         }
-        self.streams.insert(stream, StreamState::new(width, height, self.cfg.max_fps, self.cfg.frames_in_flight));
+        self.streams.insert(
+            stream,
+            StreamState::new(width, height, self.cfg.max_fps, self.cfg.frames_in_flight),
+        );
         Ok(())
     }
 

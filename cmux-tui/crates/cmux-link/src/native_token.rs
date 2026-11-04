@@ -42,6 +42,14 @@ const MAX_REPLAY: usize = 4096;
 const MAX_STREAMS: usize = 4096;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
+/// The longest receiving-policy lease a VM accepts (`expires_at - checked_at`).
+/// Revocation does not wait for it: every renewal rechecks each stream against
+/// the new policy. It bounds only how long a receiver that cannot read policy
+/// keeps what it had. A read measured 5.5-8.3 s with no peers on the
+/// development backend (more with them), so a 30 s lease left too little room
+/// to renew before it ended.
+pub const MAX_POLICY_LEASE_MS: u64 = 120_000;
+
 /// The nine signed fields defined by the backend's NativeLinkBinding schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -9,7 +9,9 @@ tests) and the cmux-tui macOS targets, which are Mac builds. They took Blacksmit
 32 vCPU on every pull request and push (about 1.17M vCPU-minutes a day, 2026-10-31).
 
 A workflow's placement step runs this before those jobs, on attempt 1 (and the rescue bot's
-attempt 2) of a trusted run. Each job in JOBS, in priority order, gets:
+attempt 2) of a trusted run. The three lightweight side workflows also opt into the rescue
+bot's attempt 3 with ``PORTABLE_ATTEMPT3_RESCUE=1``; callers without that marker keep their
+paid fallback. Each job in JOBS, in priority order, gets:
 
 1. fleet Linux: vars.LINUX_RUNNER (FLEET_LINUX) when it names one of our own Linux runners
    (not a Blacksmith label, not a GitHub-hosted image). MAC_FIRST jobs skip this step: a macOS
@@ -132,11 +134,24 @@ def queued_on(snapshot: Mapping[str, Any] | None, label: str) -> int:
     return int(entry.get("queued") or 0)
 
 
+PORTABLE_ATTEMPT3_RESCUE = "PORTABLE_ATTEMPT3_RESCUE"
+
+
 def attempt_refusal(env: Mapping[str, str]) -> str:
-    """Why this attempt keeps its Blacksmith route, or "": only a first attempt (or a rescue's second) moves."""
+    """Why this attempt keeps its paid route, or "" when this caller may place.
+
+    The three lightweight side workflows opt into a bot's third attempt after
+    the owned-pool rescue has already retried the run twice.  The marker is
+    deliberately supplied by those workflows instead of inferred from a
+    display name: other callers (including ``ci.yml`` and ``cmux-next.yml``),
+    manual retries, and unknown attempts remain fail-closed.
+    """
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
     actor = (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip()
-    if attempt != "1" and not (attempt == "2" and actor in pool.RESCUE_ACTORS):
+    rescue_attempt = attempt == "2" and actor in pool.RESCUE_ACTORS
+    light_attempt3 = (attempt == "3" and actor in pool.RESCUE_ACTORS
+                      and env.get(PORTABLE_ATTEMPT3_RESCUE) == "1")
+    if attempt != "1" and not (rescue_attempt or light_attempt3):
         return f"attempt {attempt} keeps its Blacksmith route"
     return ""
 

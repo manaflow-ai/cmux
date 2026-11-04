@@ -44,6 +44,12 @@ pub const ACTIVITY_CAPABILITY: &str = "activity";
 /// Cloud short-idle-pauses a machine only when its report advertises this, so a chat mid-turn
 /// with no app attached is never paused, also not right after the agent restarted.
 pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds also says what
+/// each of its sessions at work waits on: the report's `activity.phases`
+/// (`{"relayed": bool, "turns": [{"phase", "since", ...}]}`, one entry per acpmux session at
+/// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
+/// its turns only from a report that advertises this (cmux#34298).
+pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
 /// How long acpmux's count of sessions at work holds without a new `acp_activity` line
 /// (acpmux renews it every 20 s, `daemon/cloud_activity.rs`): a
 /// daemon that died mid-turn does not keep the machine awake for good.
@@ -84,9 +90,9 @@ impl Env {
     /// The only API origin each environment may bind to.
     pub fn api_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-api-development.debussy.workers.dev",
-            Env::Stg => "https://cloud-api-staging.cmux.dev",
-            Env::Prod => "https://cloud-api.cmux.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_API,
+            Env::Stg => cmux_cloud_environment::STAGING_API,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_API,
         }
     }
 
@@ -94,9 +100,9 @@ impl Env {
     /// choose an origin and redirect the machine's bearer elsewhere.
     pub fn platform_origin(self) -> &'static str {
         match self {
-            Env::Dev => "https://cmux-platform-development.debussy.workers.dev",
-            Env::Stg => "https://cmux-platform-staging.debussy.workers.dev",
-            Env::Prod => "https://cmux-platform-production.debussy.workers.dev",
+            Env::Dev => cmux_cloud_environment::DEVELOPMENT_PLATFORM,
+            Env::Stg => cmux_cloud_environment::STAGING_PLATFORM,
+            Env::Prod => cmux_cloud_environment::PRODUCTION_PLATFORM,
         }
     }
 
@@ -188,15 +194,19 @@ pub struct DaemonInfo {
 }
 
 impl DaemonInfo {
-    /// The same block with `activity` on (the stream is live) or off, and `activity-turns` with
-    /// it while acpmux's count is known (`turns`).
-    pub fn with_activity(&self, on: bool, turns: bool) -> DaemonInfo {
+    /// The same block with `activity` on (the stream is live) or off, `activity-turns` with it
+    /// while acpmux's count is known (`turns`), and `activity-phases` with that while acpmux's
+    /// phases are known too (`phases`).
+    pub fn with_activity(&self, on: bool, turns: bool, phases: bool) -> DaemonInfo {
         let mut capabilities: Vec<String> =
             self.capabilities.iter().filter(|c| !is_activity_capability(c)).cloned().collect();
         if on {
             capabilities.push(ACTIVITY_CAPABILITY.to_owned());
             if turns {
                 capabilities.push(ACTIVITY_TURNS_CAPABILITY.to_owned());
+                if phases {
+                    capabilities.push(ACTIVITY_PHASES_CAPABILITY.to_owned());
+                }
             }
         }
         DaemonInfo { version: self.version.clone(), capabilities }
@@ -208,7 +218,7 @@ impl DaemonInfo {
 }
 
 fn is_activity_capability(c: &str) -> bool {
-    c == ACTIVITY_CAPABILITY || c == ACTIVITY_TURNS_CAPABILITY
+    c == ACTIVITY_CAPABILITY || c == ACTIVITY_TURNS_CAPABILITY || c == ACTIVITY_PHASES_CAPABILITY
 }
 
 /// The daemon block from one `identify` answer's `data`: version plus the
@@ -246,6 +256,13 @@ pub struct Activity {
     pub active_sessions: u64,
     pub last_user_input_at: Option<u64>,
     pub last_agent_action_at: Option<u64>,
+    /// acpmux's `phases` block, while every daemon whose count holds sent one
+    /// ([`ACTIVITY_PHASES_CAPABILITY`]).
+    pub phases: Option<Value>,
+    /// When a person last prompted one of acpmux's chats (Unix ms), the newest any daemon sent:
+    /// the Cloud keeps the machine running for a while after it (cmux-platform `IdlePolicy.ts`,
+    /// the post-chat warm window).
+    pub last_person_prompt_at: Option<u64>,
 }
 
 impl Activity {
@@ -258,18 +275,33 @@ impl Activity {
         if let Some(at) = self.last_agent_action_at {
             out.insert("last_agent_action_at".to_owned(), json!(at));
         }
+        if let Some(phases) = &self.phases {
+            out.insert("phases".to_owned(), phases.clone());
+        }
+        if let Some(at) = self.last_person_prompt_at {
+            out.insert("last_person_prompt_at".to_owned(), json!(at));
+        }
         Value::Object(out)
     }
 }
 
 impl Activity {
     /// The report's activity from the daemon's (or the socket's `activity` lines) and acpmux's
-    /// sessions at work: the counts add up, the newest agent action wins.
-    pub fn with_acp(&self, acp_sessions: u64, acp_action_at: Option<u64>) -> Activity {
+    /// sessions at work: the counts add up, the newest agent action wins, and acpmux's person's
+    /// prompt time rides along.
+    pub fn with_acp(
+        &self,
+        acp_sessions: u64,
+        acp_action_at: Option<u64>,
+        acp_phases: Option<Value>,
+        acp_prompt_at: Option<u64>,
+    ) -> Activity {
         Activity {
             active_sessions: self.active_sessions.saturating_add(acp_sessions),
             last_user_input_at: self.last_user_input_at,
             last_agent_action_at: self.last_agent_action_at.max(acp_action_at),
+            phases: acp_phases,
+            last_person_prompt_at: acp_prompt_at,
         }
     }
 }

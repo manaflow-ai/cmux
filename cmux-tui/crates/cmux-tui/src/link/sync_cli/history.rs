@@ -139,7 +139,8 @@ pub(super) fn blob_path(sha256: &str) -> anyhow::Result<PathBuf> {
     if sha256.len() != 64 || !sha256.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         bail!("{sha256} is not a SHA-256");
     }
-    Ok(link_sync_dir()?.join("blobs").join(&sha256[..2]).join(sha256))
+    let Some(shard) = sha256.get(..2) else { bail!("{sha256} is not a SHA-256") };
+    Ok(link_sync_dir()?.join("blobs").join(shard).join(sha256))
 }
 
 /// The blob of `sha256`, when this Mac keeps it.
@@ -198,8 +199,9 @@ fn keep_blob_inner(root: &Dir, relative: &str, sha256: &str) -> anyhow::Result<b
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
-        out.write_all(&buffer[..read])?;
+        let chunk = buffer.get(..read).context("the read went past its buffer")?;
+        hasher.update(chunk);
+        out.write_all(chunk)?;
     }
     if hex(&hasher.finalize()) != sha256 {
         drop(out);
@@ -234,8 +236,11 @@ fn keep_file(path: &Path) -> Option<String> {
             if read == 0 {
                 return out.sync_all();
             }
-            hasher.update(&buffer[..read]);
-            out.write_all(&buffer[..read])?;
+            let chunk = buffer
+                .get(..read)
+                .ok_or_else(|| std::io::Error::other("the read went past its buffer"))?;
+            hasher.update(chunk);
+            out.write_all(chunk)?;
         }
     })();
     let sha256 = hex(&hasher.finalize());

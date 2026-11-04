@@ -91,6 +91,11 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| {
             error
+                .downcast_ref::<crate::mux::LayoutSizesError>()
+                .map(|error| error.code().to_string())
+        })
+        .or_else(|| {
+            error
                 .downcast_ref::<crate::ColumnDockError>()
                 .and_then(|error| error.code().map(str::to_string))
         })

@@ -278,7 +278,7 @@ struct TabStripFollowsPaneTickTests {
         case .dividerRelease:
             // What `DividerDrag` leaves for the layout its release makes: the pointer's velocity, leftward.
             let screen = try #require(rig.root.screenViews["s"])
-            screen.releasedDivider = (.split("x"), -900, CACurrentMediaTime())
+            screen.releasedDivider = (.split("x"), -900, CACurrentMediaTime(), MotionTunables.frameOwnerSharedEdges.value)
             rig.model.setSplitRatio("x", ratio: 0.3, transaction: .make(), phase: .ended)
         case .columnWidth:
             rig.model.setColumnWidth("c0", width: 0.35, transaction: .make(), phase: .ended)

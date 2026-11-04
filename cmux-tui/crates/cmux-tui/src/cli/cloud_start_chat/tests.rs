@@ -244,6 +244,9 @@ fn a_pending_machine_names_the_command_that_waits_on() {
     let mut fake = Fake::new(vec![
         signed_in(),
         ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
+        ok(
+            json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "provisioning"}]}),
+        ),
     ]);
     let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
     else {
@@ -254,6 +257,99 @@ fn a_pending_machine_names_the_command_that_waits_on() {
         error["details"]["again"],
         "cmux cloud start-chat --name chat-fresh --prompt x --wait --json"
     );
+    assert_eq!(error["details"]["machine_id"], "vm-9");
+    assert_eq!(error["details"]["stage"]["status"], "provisioning");
+    assert!(error["message"].as_str().unwrap().contains("stuck at: the machine is provisioning"));
+    assert_eq!(fake.ran.last().unwrap(), &strings(&["cloud", "list-machines", "--json"]));
+}
+
+#[test]
+fn a_pending_start_on_a_running_machine_names_the_link_wait() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(
+            json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "running"}]}),
+        ),
+    ]);
+    let Outcome::Failed { error, exit } =
+        run(&mut fake, &request(&["--prompt", "x", "--target", "machine:vm-9"]))
+    else {
+        panic!()
+    };
+    assert_eq!(exit, 75);
+    assert!(
+        error["message"].as_str().unwrap().contains("waiting for the link to its agent daemon")
+    );
+}
+
+#[test]
+fn a_pending_start_on_a_machine_not_listed_yet_says_so() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
+        ok(
+            json!({"machines": [], "creating": [{"creation_id": "c-1", "name": "chat-fresh", "status": "creating"}]}),
+        ),
+    ]);
+    let Outcome::Failed { error, .. } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert!(error["message"].as_str().unwrap().contains("the create request is still in flight"));
+    assert_eq!(error["details"]["stage"]["listed"], false);
+}
+
+#[test]
+fn a_pending_start_whose_machine_failed_is_final() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
+        ok(
+            json!({"machines": [], "creating": [{"creation_id": "c-1", "name": "chat-fresh", "status": "failed",
+                                                "reason": "snapshot capture is still being confirmed"}]}),
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_failed"), 1));
+    assert!(
+        error["message"].as_str().unwrap().contains("snapshot capture is still being confirmed")
+    );
+}
+
+#[test]
+fn a_pending_start_whose_list_fails_still_answers_pending() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
+        Ran {
+            code: 1,
+            stderr: "{\"code\":\"app.down\",\"message\":\"no app\"}".into(),
+            ..Ran::default()
+        },
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert_eq!(exit, 75);
+    assert!(error["message"].as_str().unwrap().contains("machine list could not be read"));
+}
+
+#[test]
+fn a_pending_start_whose_listed_machine_failed_is_final() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(
+            json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "failed"}]}),
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x"])) else {
+        panic!()
+    };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_failed"), 1));
+    assert_eq!(error["details"]["machine_id"], "vm-9");
 }
 
 #[test]

@@ -96,7 +96,7 @@ import {
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { useComposerChrome } from "./composerChrome";
+import { UsageRingMenu, useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
@@ -340,6 +340,9 @@ type Props = {
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
+  /// The person edited the prompt, in any chat (one with no session yet too): the pane wakes a
+  /// paused Cloud machine as they type (cloudWake.ts `cloudTypingWakes`).
+  onPromptEdit?(text: string): void;
   /** The person took the agent's suggested next prompt into the field (Tab, Right-arrow): acpmux
    * counts it taken (`suggestion_gate.rs`). */
   onSuggestionTaken?(): void;
@@ -466,6 +469,7 @@ export function Composer({
   onCmuxCommand,
   onUnsentDraft,
   onTyping,
+  onPromptEdit,
   onSuggestionTaken,
   keptAttachments,
   onImportFile,
@@ -645,7 +649,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+  const { showContextUsage, composerRing, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
     useComposerSettings();
   // Both looks put the model in the footer and draw Claude's draft-sensitive Send and Stop slot
   // (composerLook.ts; Leo 2026-11-01: "we already have a good version").
@@ -1243,7 +1247,10 @@ export function Composer({
       if (timer !== undefined) clearTimeout(timer);
     };
   }, []);
+  // The row the arrows chose; until then no row is chosen, so Return still sends ("ok :D" ↩ sends it).
+  // Tab takes the chosen row or the first. A hovered row only lights up (emojiHover).
   const [emojiActive, setEmojiActive] = useState<string | undefined>();
+  const [emojiHover, setEmojiHover] = useState<number | undefined>();
   const [emojiDismissed, setEmojiDismissed] = useState<string | undefined>();
   const [emojiRecents, setEmojiRecents] = useState(loadRecentEmoji);
   const otherMenu = open || Boolean(mentionTyped) || recalling || shell;
@@ -1258,8 +1265,11 @@ export function Composer({
   );
   const emojiAt = emojiRows.length > 0 ? emojiTyped : undefined;
   const emojiChosen = emojiActive === undefined ? -1 : emojiRows.findIndex((row) => row.key === emojiActive);
-  const emojiSelected = emojiChosen >= 0 ? emojiChosen : emojiAt && !emojiAt.emoticon ? 0 : -1;
-  useEffect(() => setEmojiActive(undefined), [emojiKey]);
+  const emojiSelected = emojiChosen;
+  useEffect(() => {
+    setEmojiActive(undefined);
+    setEmojiHover(undefined);
+  }, [emojiKey]);
   const emojiLook = experimentArm(emojiShortcodeLook);
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
@@ -1348,9 +1358,12 @@ export function Composer({
     setEmojiRecents(rememberEmoji(match.emoji));
     // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
     const after = text.slice(markdownOffset(text, caret)).replace(/^\s+$/, "");
+    // One space after the emoji: the text's own when it already starts with one (a mid-line pick);
+    // a line break is not a space, so a pick at a line's end still adds one.
+    const space = /^[ \t]/.test(after) ? "" : " ";
     const at = caret - emojiAt.token.length + match.emoji.length + 1;
     pendingCaret.current = at;
-    edit(`${text.slice(0, emojiAt.start)}${match.emoji} ${after}`, at);
+    edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
   /// Sends the draft; false when there was nothing to send or the host refused it.
@@ -1912,6 +1925,7 @@ export function Composer({
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;
     if (sessionId && value.trim()) onTyping?.(value, sessionId);
+    if (value.trim()) onPromptEdit?.(value);
   };
   promptCaret.current = setCaret;
   promptKeyDown.current = (event) => {
@@ -2552,9 +2566,9 @@ export function Composer({
                   key={emojiAt.start}
                   look={emojiLook}
                   matches={emojiRows}
-                  active={emojiSelected}
+                  active={emojiSelected >= 0 ? emojiSelected : (emojiHover ?? -1)}
                   back={emojiAt.token.length}
-                  onHover={(index) => setEmojiActive(emojiRows[index]?.key)}
+                  onHover={setEmojiHover}
                   onPick={pickEmoji}
                 />
               </ComposerListLayer>
@@ -2634,17 +2648,29 @@ export function Composer({
         // Claude Code ends the quiet row on the context ring. It keeps its place before the chat
         // reports usage (inert, ContextRing), so the first report moves nothing in the row
         // (hq#1957: the composer holds still while a turn runs); the context-usage setting
-        // hides it (showContextUsage).
+        // hides it (showContextUsage), from its own right-click too, which also picks what it shows:
+        // the context or the plan usage limits (composerRing; UsageRingMenu).
         ring={
           showContextUsage && (
-            <ContextRing
-              used={usage?.used}
-              size={usage?.size}
-              setup={usage?.setup}
-              cacheExpiresAt={usage?.cacheExpiresAt}
-              breakdown={snapshot.summary?.contextBreakdown}
-              onOpenDetails={onOpenContext}
-            />
+            <UsageRingMenu>
+              <ContextRing
+                used={usage?.used}
+                size={usage?.size}
+                setup={usage?.setup}
+                cacheExpiresAt={usage?.cacheExpiresAt}
+                breakdown={snapshot.summary?.contextBreakdown}
+                onOpenDetails={onOpenContext}
+                {...(composerRing === "planUsage"
+                  ? {
+                      plan: {
+                        limits:
+                          typeof snapshot.summary?.usageLimits === "object" ? snapshot.summary.usageLimits : undefined,
+                        family: snapshot.summary?.family ?? snapshot.summary?.harness,
+                      },
+                    }
+                  : {})}
+              />
+            </UsageRingMenu>
           )
         }
         actionsLead={quietActions ? sendControl : undefined}

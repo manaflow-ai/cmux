@@ -4,10 +4,12 @@ import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { layoutConversation, placeRows, type AcpmuxRow, type RowHeights } from "./model";
 import {
   TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_COMPOSER_GAP,
   TRANSCRIPT_FOOTER_CONTROL,
   TRANSCRIPT_FOOTER_GAP,
   TRANSCRIPT_RUN_GAP,
   TRANSCRIPT_TURN_GAP,
+  MARK_FOOTER_ROW,
   MARK_MESSAGE,
   MARK_PROMPT,
   MARK_STATUS,
@@ -51,6 +53,29 @@ test("a reply's footer row sits 8 under it, and the next row 24 (a prompt 32) un
     expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(gap);
     const measured = placeRows(layout, (index) => (index === 0 ? 100 : undefined));
     expect(measured.tops[3]).toBe(100 + TRANSCRIPT_FOOTER_GAP + TRANSCRIPT_FOOTER_CONTROL + gap);
+  }
+});
+
+// A status line the agent's own background work drew after its turn ended ("Background update",
+// "Background task finished", "Subagent finished") is that turn's tail: 8 under its footer row, as
+// the footer is under the reply, and the turn gap to the next prompt. A block gap above and the
+// turn gap below left it floating alone in the band (Leo, 2026-11-04: "this bare background update
+// tool call floating in teh air is so weird loking proportionally"). Another agent's line there
+// keeps the block gap (the test above).
+test("a lone status line under a footer row is its turn's tail, 8 under it", () => {
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STATUS)).toBe(TRANSCRIPT_FOOTER_GAP);
+  expect(transcriptGap(MARK_FOOTER_ROW, MARK_STEP)).toBe(TRANSCRIPT_BLOCK_GAP);
+  expect(transcriptGap(MARK_STATUS, MARK_PROMPT)).toBe(TRANSCRIPT_TURN_GAP);
+  const lone = [
+    row("bg", BACKGROUND_TURN, { background: { id: "bg", trigger: "system", running: false, quiet: true } }),
+    row("bg-running", BACKGROUND_TURN, { background: { id: "bg2", trigger: "system", running: true } }),
+    row("task", "backgroundTask", {}),
+    row("subagent", "subagentDone", {}),
+  ];
+  for (const line of lone) {
+    const layout = layoutConversation([answer, footer, hidden, line, row("prompt", "user", { text: "Next." })], 720);
+    expect(layout.tops[3]! - (layout.tops[1]! + layout.heights[1]!)).toBe(TRANSCRIPT_FOOTER_GAP);
+    expect(layout.tops[4]! - (layout.tops[3]! + layout.heights[3]!)).toBe(TRANSCRIPT_TURN_GAP);
   }
 });
 
@@ -168,7 +193,7 @@ test("estimated grid rows follow the Interface Size", () => {
   }
 });
 
-test("the live line sits flush under a run of one-line rows: 22 apart top to top (#29965)", () => {
+test("the live line keeps the scaled run gap after activity while activity rows stay flush", () => {
   const run = row("run", "activity", {
     items: [
       {
@@ -191,7 +216,9 @@ test("the live line sits flush under a run of one-line rows: 22 apart top to top
   const layout = layoutConversation([run, next, live], 720);
   expect(layout.heights[0]).toBe(22);
   expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_RUN_GAP);
+  expect(layout.heights[2]).toBe(22);
+  expect(layout.tailGap).toBe(TRANSCRIPT_COMPOSER_GAP);
   // The same live line right under its prompt still waits a block gap under it (grid.md 5.5).
   const prompt = row("p", "user", { text: "Go" });
   const waiting = layoutConversation([prompt, live], 720);

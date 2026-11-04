@@ -172,6 +172,17 @@ extension AgentPaneView {
         String(localized: "agentPane.peerApprovals.enroll", defaultValue: "Enroll this Mac", bundle: .module)
     }
 
+    /// The person's answer for a peer's prompt waits while this Mac enrolls there.
+    static func peerApprovalsEnrollingTitle(_ peer: String) -> String {
+        String(format: String(localized: "agentPane.peerApprovals.enrolling.title", defaultValue: "Enrolling this Mac on %@…",
+                              bundle: .module), peer)
+    }
+
+    static var peerApprovalsEnrollingDetail: String {
+        String(localized: "agentPane.peerApprovals.enrolling.detail",
+               defaultValue: "Your answer goes as soon as it's done.", bundle: .module)
+    }
+
     static func peerApprovalsEnrollFailed(_ peer: String, _ reason: String) -> String {
         String(format: String(localized: "agentPane.peerApprovals.enrollFailed", defaultValue: "Could not enroll this Mac on %@: %@",
                               bundle: .module), peer, reason)

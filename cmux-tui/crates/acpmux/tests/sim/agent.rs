@@ -102,7 +102,12 @@ impl Agents {
 fn text_of(params: &Value) -> String {
     params["prompt"]
         .as_array()
-        .map(|b| b.iter().filter_map(|b| b["text"].as_str()).collect())
+        .map(|b| {
+            b.iter()
+                .filter(|b| !acpmux::prompt_context::is_context(b))
+                .filter_map(|b| b["text"].as_str())
+                .collect()
+        })
         .unwrap_or_default()
 }
 

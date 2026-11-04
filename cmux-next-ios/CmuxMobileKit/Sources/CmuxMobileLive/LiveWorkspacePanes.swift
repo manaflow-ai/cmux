@@ -281,6 +281,9 @@ extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
             ?? sync.tree?.homeWorkspaces.first(where: { ws in ws.tabs.contains { $0.id == copy.id } }) else { return copy }
         if let edge = destination.splitEdge {
             try await moveTab(copy, toNewSplit: edge, in: home)
+        } else if destination == .column {
+            // The Mac's Fork Conversation to New Column Right: a new column right of the chat's (`move-tab-to-column`).
+            try await moveTabToNewColumn(copy, in: home)
         } else if destination == .workspace {
             _ = try await moveTab(copy, from: home, toWorkspace: nil)
         }

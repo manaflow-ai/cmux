@@ -13,8 +13,8 @@ import { AgentLine } from "../subagents/AgentLine";
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { elapsed, running, STATE_LABEL, SubagentHarnessContext, useNow } from "../subagents/SubagentGroup";
-import type { Subagent } from "../subagents/subagentFold";
+import { elapsed, running, STATE_LABEL, SubagentHarnessContext, ticking, useNow } from "../subagents/SubagentGroup";
+import { awaitsOwnWork, type Subagent } from "../subagents/subagentFold";
 import { IDLE_AFTER_MS } from "../subagents/idle";
 import { retrying, retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "../conversation/icons";
@@ -29,7 +29,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { ChildSessionRows, sessionStatus } from "../session-info/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
-import { AgentIdentity, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { AgentIdentity, foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
 import { agentTone } from "../subagents/agentTones";
 import { orderedSubagents } from "./subagentOrder";
 
@@ -54,6 +54,8 @@ export const STATUS_LABEL: Record<SubagentStatus, StringKey> = {
 };
 
 export function subagentStatus(agent: Subagent, waiting: ReadonlySet<string>, now?: number): SubagentStatus {
+  // Its end was interim: it waits on background work of its own, its report still to come.
+  if (awaitsOwnWork(agent)) return waiting.has(agent.id) ? "waiting" : "idle";
   if (running(agent)) {
     if (waiting.has(agent.id)) return "waiting";
     return now !== undefined && isIdle(agent, now) ? "idle" : "running";
@@ -73,6 +75,8 @@ export function isIdle(agent: Subagent, now: number): boolean {
 
 export function subagentStatusLabel(agent: Subagent, waiting: ReadonlySet<string>, now?: number): StringKey {
   const status = subagentStatus(agent, waiting, now);
+  // One whose end was interim says what it waits on; one only quiet past the window stays Idle.
+  if (status === "idle" && awaitsOwnWork(agent)) return "subagents.state.ownWork";
   if (status !== "stopped") return STATUS_LABEL[status];
   return agent.state === "disconnected" ? STATE_LABEL.disconnected : STATE_LABEL.cancelled;
 }
@@ -179,7 +183,7 @@ export function SubagentStatusList({
 }) {
   const t = useT();
   const chatHarness = useContext(SubagentHarnessContext);
-  const now = useNow(agents.some(running));
+  const now = useNow(agents.some(ticking));
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
@@ -212,7 +216,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 icon={SUBAGENT_FALLBACK}
-                mark={agent.harness ?? chatHarness}
+                mark={foreignHarness(agent.harness, chatHarness)}
                 status={status}
                 state={subagentStateText(t, agent, waiting)}
                 working={Boolean(retrying(agent))}

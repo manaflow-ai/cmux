@@ -1,6 +1,6 @@
 // l10n-allow-file: the status copy is supplied by the pane's string table.
-// The first streamed answer token replaces the live line in the same frame. The line must hide
-// before that frame paints, or "Thinking" flashes underneath the answer for one frame.
+// The first streamed answer token turns the live line to "Writing" in the same frame, before that
+// frame paints, so "Thinking" never flashes under the answer. The line never hides mid-turn.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -44,12 +44,17 @@ afterEach(() => {
   dom = undefined;
 });
 
-test("hides the live line before the first streamed answer token paints", () => {
-  act(() => root!.render(<Thinking quietKey={undefined} />));
+test("the live line stays shown and reads Writing from the first streamed answer token", () => {
+  act(() => root!.render(<Thinking quietKey={undefined} liveState="writing" />));
   expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Thinking");
 
-  act(() => root!.render(<Thinking quietKey="assistant:1" />));
-  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(true);
+  act(() => root!.render(<Thinking quietKey="assistant:1" liveState="writing" />));
+  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
+  expect(container.querySelector(".cv-worked")?.textContent).toContain("Writing");
+
+  act(() => root!.render(<Thinking quietKey="assistant:2" liveState="writing" />));
+  expect(container.querySelector(".cv-worked")?.classList.contains("is-quiet")).toBe(false);
 });
 
 test("a send in flight names who it goes to, on either live line", () => {

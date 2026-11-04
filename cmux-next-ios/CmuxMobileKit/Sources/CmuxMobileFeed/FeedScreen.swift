@@ -269,16 +269,9 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
-        case .feedSwipe(let id, _):
-            swipe.demoReveal = id
-            swipe.demoPerform = nil
-            swipe.demoSerial += 1
         case .feedSwipeAction(let id, let action):
-            swipe.demoReveal = nil
             swipe.demoPerform = (id, action)
             swipe.demoSerial += 1
-        case .feedSwipeClose:
-            swipe.openID = nil
         case .feedExpand, .feedReply, .answerQuestion:
             list.demo(command)
         default:

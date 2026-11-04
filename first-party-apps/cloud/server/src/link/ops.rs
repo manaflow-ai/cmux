@@ -495,7 +495,14 @@ fn ensure_running<C: ControlPlane>(
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)
             .key(start_key);
-        server.handle(&start)?;
+        match server.handle(&start) {
+            Ok(_) => {}
+            // Something else started it first (inbound traffic wakes a
+            // paused machine): it is not paused, so the connect goes on and
+            // the readiness read below decides.
+            Err(error) if error.code == codes::NOT_PAUSED => {}
+            Err(error) => return Err(error),
+        }
         // The machine's state changed: read its link facts again.
         let attach = server.attach_mut();
         attach.infos.forget(machine);

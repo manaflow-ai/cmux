@@ -15,6 +15,7 @@ import type { IdleProbeOptions } from "./idleProbe";
 import { queuedRowsState } from "./queuedRowsState";
 import { composerAttachmentsState } from "./composerAttachmentsState";
 import { cloudSignedInForDebug } from "./cloudMachines";
+import type { SeedSnapshotFields } from "./waitingSteersFixture";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -34,7 +35,8 @@ export type AcpmuxDebug = {
   /// "tool-summary", or with a shared chat (teammates' prompts, who
   /// answered an ask, who else is here and typing; multiplayer/sharedFixture.ts) when it is "shared",
   /// or with step `count` (0-5, else 0) of the subagent tray's life (subagentsFixture.ts) when it is
-  /// "subagents".
+  /// "subagents", or with three steers waiting under a running turn (waitingSteersFixture.ts) when it is
+  /// "waiting-steers".
   seedRows(count?: number, fixture?: string, agents?: number): Promise<Record<string, unknown>>;
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
@@ -110,7 +112,8 @@ function nextFrame(): Promise<number> {
 
 export function createAcpmuxDebug(
   host: {
-    replaceRows(rows: AcpmuxRow[]): void;
+    /// `fields`: the snapshot fields a fixture's rows need beside them (a waiting steer's `newestOwnSteer`).
+    replaceRows(rows: AcpmuxRow[], fields?: SeedSnapshotFields): void;
     rowCount(): number;
     sessionId?(): string | undefined;
     automation?: automation.AutomationHost;
@@ -155,6 +158,8 @@ export function createAcpmuxDebug(
         subagentTrayRows,
         SHARED_PRESENCE,
         sharedRows,
+        WAITING_STEERS_SNAPSHOT,
+        waitingSteersRows,
       } = await import("./debugFixtures");
       const trayStep = (count: number) =>
         Number.isInteger(count) && count > 0 && count < SUBAGENT_TRAY_STEPS ? count : 0;
@@ -178,10 +183,12 @@ export function createAcpmuxDebug(
                     ? toolSummaryRows(Date.now() - 60_000)
                     : fixture === "shared"
                       ? sharedRows(Date.now() - 1_020_000)
-                      : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
+                      : fixture === "waiting-steers"
+                        ? waitingSteersRows(Date.now() - 90_000)
+                        : syntheticRows(Math.max(3, Math.floor(count)), fixture === "short" ? "short" : "mixed");
       const start = performance.now();
       const committed = acpmuxPerf.nextCommit();
-      host.replaceRows(rows);
+      host.replaceRows(rows, fixture === "waiting-steers" ? WAITING_STEERS_SNAPSHOT : undefined);
       if (fixture === "shared") {
         // The presence to restore on leaving: kept across uninterrupted repeat seeds of this chat,
         // taken again once live presence or a switch displaced the fixture. The fixture's own
@@ -271,6 +278,8 @@ export function createAcpmuxDebug(
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        start_state_shown: acpmuxPerf.startStateShown() ?? null,
+        launch: acpmuxPerf.launchTimeline(),
       };
     },
 

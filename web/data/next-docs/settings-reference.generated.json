@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 565,
+  "count": 568,
   "sections": [
     {
       "id": "general",
@@ -17,6 +17,18 @@
             "inline",
             "strip",
             "both"
+          ]
+        },
+        {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
           ]
         },
         {
@@ -1144,6 +1156,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.hideLoneChatTab",
+          "title": "Hide the Tab of a Chat Alone in Its Pane",
+          "help": "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.nativeNewTabPage",
           "title": "Native New Tab Page",
           "help": "Cmd-T and the + button open the native New Tab page instead of the web one. It opens faster and lists every command palette action as you type. Recent chats and widgets are only on the web page for now.",
@@ -1507,7 +1527,7 @@
           "title": "Titlebar",
           "help": "Minimal has no titlebar strip; the top row moves the window.",
           "kind": "choice",
-          "default": "standard",
+          "default": "minimal",
           "group": "Window",
           "values": [
             "minimal",
@@ -2846,6 +2866,14 @@
           "help": "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
           "kind": "string_map",
           "default": {},
+          "group": "App Theme"
+        },
+        {
+          "key": "appearance.themeFile",
+          "title": "Theme File",
+          "help": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
+          "kind": "text",
+          "default": null,
           "group": "App Theme"
         },
         {
@@ -6000,10 +6028,10 @@
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
-          "title": "Let Agents Start Cloud Sessions Without Asking",
-          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "title": "Let Agents Use Cloud Without Asking",
+          "help": "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Cloud Workspaces"
         },
         {

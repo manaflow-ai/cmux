@@ -386,11 +386,93 @@ fn signed_out(error: &Value) -> bool {
         || message.contains("not signed in")
 }
 
-/// Whether this run comes from an agent chat (whose `cloud start-session` asks the person).
-fn from_agent_chat() -> bool {
-    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"]
+/// Where a start the app answered `pending` for is stuck, read from the app's own machine list
+/// (`cloud list-machines`, `CloudHandlers+List.swift`): the listed machine's status, or its
+/// create still on the way (`creating` rows: `name`, `status` `creating` or `failed`, `reason`),
+/// or neither. A machine that is listed and running is waiting on its link (the machine's
+/// acpmux), not on the provider.
+#[derive(Debug, Default, PartialEq)]
+pub(super) struct StartStage {
+    pub(super) machine_id: Option<String>,
+    pub(super) status: Option<String>,
+    pub(super) creating: bool,
+    pub(super) listed: bool,
+    /// Why the create failed, as the app's `creating` row says.
+    pub(super) reason: Option<String>,
+    /// The machine list could not be read.
+    pub(super) unread: bool,
+}
+
+impl StartStage {
+    /// The machine will not come up: asking again cannot help.
+    pub(super) fn is_final(&self) -> bool {
+        matches!(self.status.as_deref(), Some("failed" | "destroyed" | "deleting" | "deleted"))
+    }
+
+    pub(super) fn describe(&self) -> String {
+        let base = match (self.listed, self.status.as_deref()) {
+            (_, Some("failed")) if self.creating => "the machine's create failed".to_owned(),
+            (_, Some("failed")) => "the machine failed".to_owned(),
+            (true, Some("running")) => {
+                "the machine is running; waiting for the link to its agent daemon".to_owned()
+            }
+            (true, Some(status)) => format!("the machine is {status}"),
+            (true, None) => "the machine is listed with no status".to_owned(),
+            (false, _) if self.creating => "the create request is still in flight".to_owned(),
+            (false, _) if self.unread => {
+                "unknown (the app's machine list could not be read)".to_owned()
+            }
+            (false, _) => "the machine is not in the app's machine list yet".to_owned(),
+        };
+        match &self.reason {
+            Some(reason) => format!("{base}: {reason}"),
+            None => base,
+        }
+    }
+
+    fn json(&self) -> Value {
+        json!({"describe": self.describe(), "machine_id": self.machine_id, "status": self.status,
+               "creating": self.creating, "listed": self.listed, "reason": self.reason})
+    }
+}
+
+/// Reads [`StartStage`] for the machine a pending `start-session` names (by id, else by name).
+pub(super) fn start_stage(runner: &mut dyn Runner, started: &Value) -> StartStage {
+    let id = at(started, "machine_id").as_str().map(str::to_owned);
+    let name = at(started, "machine_name").as_str().map(str::to_owned);
+    let Ok(listed) = step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"])))
+    else {
+        return StartStage { machine_id: id, unread: true, ..StartStage::default() };
+    };
+    let row = at(&listed, "machines").as_array().into_iter().flatten().find(|row| {
+        id.as_deref().is_some_and(|id| at(row, "machine_id").as_str() == Some(id))
+            || name.as_deref().is_some_and(|name| at(row, "title").as_str() == Some(name))
+    });
+    if let Some(row) = row {
+        return StartStage {
+            machine_id: at(row, "machine_id").as_str().map(str::to_owned).or(id),
+            status: at(row, "status").as_str().map(str::to_owned),
+            listed: true,
+            ..StartStage::default()
+        };
+    }
+    // A create on its way names the machine it asks for; a nameless one (the server picks the
+    // name) is this start's only when it is the only create on its way.
+    let creations: Vec<&Value> = at(&listed, "creating").as_array().into_iter().flatten().collect();
+    let creation = creations
         .iter()
-        .any(|name| std::env::var(name).is_ok_and(|value| !value.trim().is_empty()))
+        .find(|row| name.as_deref().is_some_and(|name| at(row, "name").as_str() == Some(name)))
+        .or_else(|| match creations.as_slice() {
+            [only] if at(only, "name").is_null() => Some(only),
+            _ => None,
+        });
+    StartStage {
+        machine_id: id,
+        status: creation.and_then(|row| at(row, "status").as_str().map(str::to_owned)),
+        creating: creation.is_some(),
+        reason: creation.and_then(|row| at(row, "reason").as_str().map(str::to_owned)),
+        ..StartStage::default()
+    }
 }
 
 /// Runs the steps (module docs) and answers the outcome.
@@ -398,7 +480,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     // 1. Signed in, and the machine names in use.
     let listed = match step_result(&runner.cmux(&words(&["cloud", "list-machines", "--json"]))) {
         Ok(listed) => listed,
-        Err(error) => return app_failure(error, request, &request.machine),
+        Err(error) => return app_failure(error),
     };
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
         return failed(
@@ -444,18 +526,36 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {
         Ok(started) => started,
-        Err(error) => return app_failure(error, request, &machine),
+        Err(error) => return app_failure(error),
     };
     if at(&started, "pending").as_bool() == Some(true) {
         let again = again_command(request, &machine);
+        let stage = start_stage(runner, &started);
+        if stage.is_final() {
+            return failed(
+                "cloud.start_failed",
+                format!(
+                    "the machine failed to start ({}); running the command again will not help. \
+                     Start a new one: {}",
+                    stage.describe(),
+                    again_command(request, &Machine::New)
+                ),
+                json!({"stage": stage.json(), "machine_name": at(&started, "machine_name"),
+                       "machine_id": stage.machine_id.map_or_else(|| at(&started, "machine_id").clone(), Value::String),
+                       "app": at(&started, "text")}),
+                1,
+            );
+        }
         return failed(
             "cloud.start_pending",
             format!(
-                "the machine is still starting; the chat opens in its workspace when it is up. \
-                 Run the same command again to keep waiting: {again}"
+                "the machine is still starting (stuck at: {}); the chat opens in its workspace when it is up. \
+                 Run the same command again to keep waiting: {again}",
+                stage.describe()
             ),
             json!({"again": again, "machine_name": at(&started, "machine_name"),
-                   "machine_id": at(&started, "machine_id"), "app": at(&started, "text")}),
+                   "machine_id": stage.machine_id.clone().map_or_else(|| at(&started, "machine_id").clone(), Value::String),
+                   "stage": stage.json(), "app": at(&started, "text")}),
             75,
         );
     }
@@ -744,7 +844,7 @@ pub(super) fn upload_prompt(
 }
 
 /// A failure of a step before the chat existed.
-fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
+fn app_failure(error: Value) -> Outcome {
     let message = at(&error, "message").as_str().unwrap_or("the cmux app refused").to_owned();
     if signed_out(&error) {
         return failed(
@@ -754,16 +854,10 @@ fn app_failure(error: Value, request: &Request, machine: &Machine) -> Outcome {
             1,
         );
     }
-    let mut details = json!({"app": error});
-    let mut message = message;
-    if from_agent_chat() {
-        let again = again_command(request, machine);
-        message.push_str(&format!(
-            ". From an agent chat the app asks the person first: they answer Start on the card \
-             in this chat (`cmux agents dialog list` lists it); then run {again}"
-        ));
-        details.set("again", json!(again));
-    }
+    // An agent chat's start asks nobody (`cloud.agentsStartWithoutAsking`, on by default), so a
+    // refusal here is the app's own; when the person turned asking back on, the app's refusal (Not
+    // now, or no answer) already names the command to run again.
+    let details = json!({"app": error});
     let code = at(&error, "code").as_str().unwrap_or("cloud.start_failed").to_owned();
     failed(&code, message, details, 1)
 }

@@ -1012,6 +1012,40 @@ fn an_unreadable_shares_file_is_kept_aside_and_never_overwritten() {
     let _ = std::fs::remove_dir_all(&blocked);
 }
 
+/// A move aside never replaces a copy already kept: when `.unreadable` and the `-<unix ms>` name
+/// the clock gives are both taken (two moves in one millisecond, or a clock that went back), the
+/// new copy goes to a free name beside them and every earlier copy survives (cmux#33921).
+#[test]
+fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
+    let directory = scratch("shares-unreadable-collision");
+    let dir = Some(directory.as_path());
+    let first = directory.join(format!("{FILE}.unreadable"));
+    std::fs::write(&first, b"first").unwrap();
+    // Take every `-<ms>` name the move can pick in the next few seconds.
+    let now = wall_ms();
+    let taken: Vec<_> =
+        (now..now + 3_000).map(|ms| directory.join(format!("{FILE}.unreadable-{ms}"))).collect();
+    for path in &taken {
+        std::fs::write(path, b"earlier").unwrap();
+    }
+    std::fs::write(directory.join(FILE), b"not json").unwrap();
+    LinkShares::default().insert(dir, SESSION.into(), 1, terms(), false).unwrap();
+    assert!(wall_ms() < now + 3_000, "the move ran inside the taken window");
+    assert_eq!(std::fs::read(&first).unwrap(), b"first", "`.unreadable` is not replaced");
+    for path in &taken {
+        assert_eq!(std::fs::read(path).unwrap(), b"earlier", "{} was replaced", path.display());
+    }
+    let moved: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| std::fs::read(path).is_ok_and(|bytes| bytes == b"not json"))
+        .collect();
+    assert_eq!(moved.len(), 1, "the new unreadable copy is kept once: {moved:?}");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()).len(), 1, "the new file reads back");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
 /// A redeem with the link's secret and an account that is not invited joins as a link guest (it
 /// spends a use), instead of being refused as not invited (cmux#33746, 2).
 #[test]

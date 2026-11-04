@@ -117,10 +117,10 @@ extension ConversationViewController: ConversationComposerViewDelegate {
             let bubble = BubbleBackgroundView()
             bubble.side = .trailing
             bubble.hasTail = model.showsTail
-            bubble.fillColor = ConversationTheme.outgoingBubble
+            bubble.fillColor = ConversationTheme.sentFill
             // The landed bubble's screen-fixed gradient, sampled where it lands,
             // so the color doesn't change at the hand-off to the cell.
-            bubble.screenGradient = ConversationTheme.iMessageGradient
+            bubble.screenGradient = ConversationTheme.sentFillGradient
             let label = ConversationEffectLabel()
             label.numberOfLines = 0
             label.attributedText = layoutCache.attributedText(for: model)
@@ -258,6 +258,8 @@ extension ConversationViewController {
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return }
         if replyTarget != nil { exitReplyMode() }
         editingMessageID = message.id
+        // The trailing control cancels the edit; the host's page menu waits.
+        header.suppressesActionMenu = true
         revealRowID = message.rowID
         let overlay = MessageEditOverlay(text: message.text)
         overlay.onSave = { [weak self] text in
@@ -273,6 +275,7 @@ extension ConversationViewController {
 
     func exitEditMode() {
         editingMessageID = nil
+        header.suppressesActionMenu = false
         revealRowID = nil
         editOverlay?.dismiss {}
         editOverlay = nil

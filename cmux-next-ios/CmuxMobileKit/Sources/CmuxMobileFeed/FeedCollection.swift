@@ -24,12 +24,14 @@ final class FeedListControl {
     #endif
 }
 
-/// The Feed's list (verify/feed-perf-20261022.md): a `UICollectionView`
-/// whose rows are UIKit views only (`FeedRowCell`), with a diffable data
-/// source keyed by event id. Each row's layout (`FeedRowLayout`) is
-/// computed off the main thread, kept until its event or row state
-/// changes, and gives the flow layout exact heights, so scrolling a row in
-/// costs placing reused views and nothing else. The SwiftUI rows it replaced
+/// The Feed's list (verify/feed-perf-20261022.md): a `UITableView` whose
+/// rows are UIKit views only (`FeedRowCell`), with a diffable data source
+/// keyed by event id. Each row's layout (`FeedRowLayout`) is computed off
+/// the main thread, kept until its event or row state changes, and gives the
+/// table exact heights, so scrolling a row in costs placing reused views and
+/// nothing else. A table (not a collection view with its own layout) so the
+/// rows get UIKit's own trailing swipe actions (`UIContextualAction`): the
+/// system slide, full swipe, haptic and VoiceOver actions, as in Mail. The SwiftUI rows it replaced
 /// built and measured a full view tree for each row that scrolled in, 14 to
 /// 20 ms of main-thread work each.
 struct FeedCollection: UIViewControllerRepresentable {
@@ -81,7 +83,7 @@ final class FeedCollectionController: UIViewController {
     }
 }
 
-final class FeedCollectionView: UICollectionView {
+final class FeedCollectionView: UITableView {
     var onWidthChange: ((CGFloat) -> Void)?
     private var lastWidth: CGFloat = 0
 
@@ -99,7 +101,7 @@ final class FeedCollectionView: UICollectionView {
 }
 
 @MainActor
-final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellDelegate {
+final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
     enum Section: Hashable { case header, events }
     static let headerID = "feed.header"
 
@@ -109,9 +111,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private var store: FeedStore { context.store }
 
     private(set) var collectionView: FeedCollectionView?
-    private var dataSource: UICollectionViewDiffableDataSource<Section, String>?
+    private var dataSource: FeedTableDataSource?
     private let layouts = FeedRowLayoutCache<FeedRowLayout>()
-    private let listLayout = FeedListLayout()
     private var states: [String: FeedRowState] = [:]
     private var items: [String: FeedItem] = [:]
     /// The events as the list shows them (the applied snapshot's order).
@@ -165,14 +166,26 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     // MARK: Building the view
 
     func makeView() -> FeedCollectionView {
-        let view = FeedCollectionView(frame: .zero, collectionViewLayout: listLayout)
+        let view = FeedCollectionView(frame: .zero, style: .plain)
         view.backgroundColor = .cmuxMobileBackground
         view.alwaysBounceVertical = true
         view.keyboardDismissMode = .interactive
         view.contentInsetAdjustmentBehavior = .automatic
+        view.accessibilityIdentifier = "feed.list"
+        // Rows draw their own divider; a row is not selected (its parts are the buttons).
+        view.separatorStyle = .none
+        view.allowsSelection = false
+        view.cellLayoutMarginsFollowReadableWidth = false
+        view.sectionHeaderTopPadding = 0
+        // Exact heights from the row layouts, never estimates: the table sums them as the old layout did.
+        view.estimatedRowHeight = 0
+        view.estimatedSectionHeaderHeight = 0
+        view.estimatedSectionFooterHeight = 0
+        view.sectionHeaderHeight = 0
+        view.sectionFooterHeight = 0
         view.delegate = self
-        // Cells for rows about to scroll in are made and filled in idle time (a new cell costs ~20 ms).
-        view.isPrefetchingEnabled = true
+        view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
+        view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
         let refresh = UIRefreshControl()
         refresh.addAction(UIAction { [weak self, weak refresh] _ in
             Task { @MainActor in
@@ -183,19 +196,21 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         view.refreshControl = refresh
         view.onWidthChange = { [weak self] width in self?.widthChanged(width) }
 
-        let headerCell = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, _ in
-            guard let self else { return }
-            cell.contentConfiguration = UIHostingConfiguration { self.header }.margins(.all, 0)
-        }
-        let rowCell = UICollectionView.CellRegistration<FeedRowCell, String> { [weak self] cell, _, id in
-            guard let self, let layout = self.layout(for: id) else { return }
-            cell.delegate = self
-            cell.apply(layout, item: self.items[id], settled: self.rowsSettled)
-        }
-        dataSource = UICollectionViewDiffableDataSource(collectionView: view) { collectionView, indexPath, id in
-            indexPath.section == 0
-                ? collectionView.dequeueConfiguredReusableCell(using: headerCell, for: indexPath, item: id)
-                : collectionView.dequeueConfiguredReusableCell(using: rowCell, for: indexPath, item: id)
+        dataSource = FeedTableDataSource(tableView: view) { [weak self] tableView, indexPath, id in
+            MainActor.assumeIsolated { () -> UITableViewCell in
+                guard indexPath.section != 0 else {
+                    let cell = tableView.dequeueReusableCell(withIdentifier: Self.headerID, for: indexPath)
+                    cell.selectionStyle = .none
+                    cell.backgroundColor = .clear
+                    if let self { cell.contentConfiguration = UIHostingConfiguration { self.header }.margins(.all, 0) }
+                    return cell
+                }
+                let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
+                guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
+                row.delegate = self
+                row.apply(layout, item: self.items[id], settled: self.rowsSettled)
+                return row
+            }
         }
         collectionView = view
         scale = view.traitCollection.displayScale > 0 ? view.traitCollection.displayScale : 3
@@ -263,8 +278,8 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         }
         headerHeight = height
         reconfigureHeader()
-        listLayout.headerHeight = height
-        listLayout.invalidateLayout()
+        // The table reads the header's new height.
+        UIView.performWithoutAnimation { collectionView?.performBatchUpdates(nil) }
     }
 
     private func reconfigureHeader() {
@@ -407,9 +422,12 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
             shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
         }
         // Each changed row's height, from the layout of the key it is shown with.
+        var heightChanged = false
         for (id, key) in keys where !unchanged.contains(id) || shownHeights[id] == nil {
             shownKeys[id] = key
-            shownHeights[id] = layouts.cached(key)?.height ?? 1
+            let height = layouts.cached(key)?.height ?? 1
+            if let old = shownHeights[id], abs(old - height) > 0.25 { heightChanged = true }
+            shownHeights[id] = height
         }
         var snapshot = dataSource.snapshot()
         if snapshot.numberOfSections == 0 {
@@ -432,9 +450,9 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
         applyCount += 1
         UIView.performWithoutAnimation {
-            listLayout.setHeights(order: shownOrder, heights: shownHeights, changed: plan.orderChanged ? nil : reconfigure)
             dataSource.apply(snapshot, animatingDifferences: false)
-            if plan.orderChanged || !plan.reconfigure.isEmpty { listLayout.invalidateLayout() }
+            // A shown row has a new height: the table reads the heights again.
+            if heightChanged { collectionView.performBatchUpdates(nil) }
             if let anchor { restore(anchor) }
             continueJumpToTop()
         }
@@ -476,7 +494,11 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private var warmed: Set<String> = []
     private var warmQueue: [FeedRowLayout] = []
     private var warmScheduled = false
-    private lazy var warmCell = FeedRowCell(frame: CGRect(x: 0, y: 0, width: max(width, 1), height: 100))
+    private lazy var warmCell: FeedRowCell = {
+        let cell = FeedRowCell(style: .default, reuseIdentifier: nil)
+        cell.frame = CGRect(x: 0, y: 0, width: max(width, 1), height: 100)
+        return cell
+    }()
 
     static func shape(_ layout: FeedRowLayout) -> String {
         let item = layout.key.item
@@ -576,7 +598,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         pending = pendingItems
         let keys = pendingItems.map { key(for: $0) }
         let styles = styles, scale = scale
-        let visible = Set(collectionView?.indexPathsForVisibleItems.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
+        let visible = Set(collectionView?.indexPathsForVisibleRows?.compactMap { dataSource?.itemIdentifier(for: $0) } ?? [])
         for key in keys where visible.contains(key.item.id) || (visible.isEmpty && keys.firstIndex(of: key).map { $0 < 10 } == true) {
             layouts.store(FeedRowLayout.make(key, styles: styles, scale: scale), for: key)
         }
@@ -616,24 +638,21 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         }
         var snapshot = dataSource.snapshot()
         snapshot.reconfigureItems(present)
-        let apply = {
-            self.listLayout.setHeights(order: self.shownOrder, heights: self.shownHeights, changed: present)
-            dataSource.apply(snapshot, animatingDifferences: false)
-            self.listLayout.invalidateLayout()
-            collectionView.layoutIfNeeded()
+        // One batch update reconfigures the rows and reads their new heights; animated, the table moves
+        // the rows to them (Reduce Motion: at once).
+        let animate = animated && !UIAccessibility.isReduceMotionEnabled
+        let resize = {
+            dataSource.apply(snapshot, animatingDifferences: animate)
+            collectionView.performBatchUpdates(nil)
             if let anchor { self.restore(anchor) }
             self.continueJumpToTop()
         }
-        if animated, !UIAccessibility.isReduceMotionEnabled {
-            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction], animations: apply)
-        } else {
-            UIView.performWithoutAnimation(apply)
-        }
+        if animate { resize() } else { UIView.performWithoutAnimation(resize) }
     }
 
     private func cell(_ id: String) -> FeedRowCell? {
         guard let indexPath = dataSource?.indexPath(for: id) else { return nil }
-        return collectionView?.cellForItem(at: indexPath) as? FeedRowCell
+        return collectionView?.cellForRow(at: indexPath) as? FeedRowCell
     }
 
     // MARK: Anchoring
@@ -644,11 +663,11 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private func visibleAnchor(excluding: Set<String> = []) -> Anchor? {
         guard let collectionView, let dataSource else { return nil }
         let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
-        let rows = collectionView.indexPathsForVisibleItems.filter { $0.section == 1 }.sorted()
+        let rows = (collectionView.indexPathsForVisibleRows ?? []).filter { $0.section == 1 }.sorted()
         for indexPath in rows {
-            guard let attributes = collectionView.layoutAttributesForItem(at: indexPath), attributes.frame.maxY > top,
-                  let id = dataSource.itemIdentifier(for: indexPath), !excluding.contains(id) else { continue }
-            return Anchor(id: id, delta: attributes.frame.minY - collectionView.contentOffset.y)
+            let frame = collectionView.rectForRow(at: indexPath)
+            guard frame.maxY > top, let id = dataSource.itemIdentifier(for: indexPath), !excluding.contains(id) else { continue }
+            return Anchor(id: id, delta: frame.minY - collectionView.contentOffset.y)
         }
         return nil
     }
@@ -656,10 +675,10 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private func restore(_ anchor: Anchor) {
         guard let collectionView, let indexPath = dataSource?.indexPath(for: anchor.id) else { return }
         collectionView.layoutIfNeeded()
-        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+        let frame = collectionView.rectForRow(at: indexPath)
         let minY = -collectionView.adjustedContentInset.top
         let maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
-        let y = min(max(attributes.frame.minY - anchor.delta, minY), maxY)
+        let y = min(max(frame.minY - anchor.delta, minY), maxY)
         if abs(y - collectionView.contentOffset.y) > 0.25 { collectionView.contentOffset.y = y }
     }
 
@@ -693,34 +712,33 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     }
 
     func scrollTo(id: String, animated: Bool) {
-        guard let collectionView, let indexPath = dataSource?.indexPath(for: id),
-              let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+        guard let collectionView, let indexPath = dataSource?.indexPath(for: id) else { return }
+        let frame = collectionView.rectForRow(at: indexPath)
         // The row's top under the bars (scrollToItem(.top) ignores the safe area's top inset).
         let maxY = max(-collectionView.adjustedContentInset.top,
                        collectionView.contentSize.height - collectionView.bounds.height + collectionView.adjustedContentInset.bottom)
-        let y = min(attributes.frame.minY - collectionView.adjustedContentInset.top, maxY)
+        let y = min(frame.minY - collectionView.adjustedContentInset.top, maxY)
         collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: animated)
     }
 
     // MARK: Cells
 
-    func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        // A cell filled ahead (prefetch) missed redraws (a read flag, the minute) while off screen.
+    /// Exact heights: the header's measured height, each row's from its layout.
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard indexPath.section != 0 else { return headerHeight }
+        guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
+        return shownHeights[id] ?? 1
+    }
+
+    func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        // A reused cell may have missed redraws (a read flag, the minute) while off screen.
         if let cell = cell as? FeedRowCell, let id = cell.layout?.key.item.id, let item = items[id] {
             if cell.shownRead != item.isRead { cell.redraw(item) }
             if CACurrentMediaTime() - cell.timeDrawnAt > 30 { cell.refreshTime() }
         }
         #if DEBUG
-        if FeedCellTiming.enabled { FeedCellTiming.logger.notice("FEEDCELL willDisplay \(indexPath.item, privacy: .public) y=\(Int(collectionView.contentOffset.y), privacy: .public)") }
+        if FeedCellTiming.enabled { FeedCellTiming.logger.notice("FEEDCELL willDisplay \(indexPath.row, privacy: .public) y=\(Int(tableView.contentOffset.y), privacy: .public)") }
         #endif
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-        guard let cell = cell as? FeedRowCell, let id = cell.layout?.key.item.id else { return }
-        // A row scrolled away closes, so no open row outlives its registration (the drawer would open over it).
-        if cell.isOpen { cell.close() }
-        RowSwipeActions.shared.setOpen(registrationKey(id), close: nil)
-        if swipe.openID == id { swipe.openID = nil }
     }
 
     // MARK: Scrolling
@@ -738,7 +756,6 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         // The person took over: a jump to the top in flight ends where they caught it.
         jumpingToTop = false
-        if swipe.openID != nil { swipe.openID = nil }
         #if DEBUG
         // G-04: a finger-driven scroll is one frame-interval window (CMUX_MOBILE_FRAMELOG=1).
         if FeedStressRig.shared.config.autoscrollPasses == nil { FrameIntervalLog.shared.begin("feed-scroll") }
@@ -778,11 +795,42 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
 
     // MARK: Swipe actions
 
-    private func registrationKey(_ id: String) -> String { "feed.\(ObjectIdentifier(swipe)).\(id)" }
+    /// The row's trailing actions, UIKit's own: the outermost is the full swipe.
+    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard indexPath.section != 0, let id = dataSource?.itemIdentifier(for: indexPath), let item = items[id] else {
+            return UISwipeActionsConfiguration(actions: [])
+        }
+        let context = context
+        return item.swipeActions(store: store, open: { context.open(item) }).configuration
+    }
+
+    /// No leading actions: a rightward swipe from the leading edge opens the team drawer.
+    func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        UISwipeActionsConfiguration(actions: [])
+    }
+
+    func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
+        guard let id = dataSource?.itemIdentifier(for: indexPath) else { return }
+        openRow = id
+        // The drawer closes it on a rightward swipe (Mail), as it closes a `List` row's.
+        RowSwipeActions.shared.setOpen(registrationKey, close: { [weak tableView] in tableView?.setEditing(false, animated: true) })
+    }
+
+    func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
+        // UIKit may end the row it closed after it began the next one: only the open row's end counts.
+        let id = indexPath.flatMap { dataSource?.itemIdentifier(for: $0) }
+        guard id == nil || id == openRow else { return }
+        openRow = nil
+        RowSwipeActions.shared.setOpen(registrationKey, close: nil)
+    }
+
+    /// The row whose actions are open (UIKit keeps one open at a time).
+    private var openRow: String?
+
+    private var registrationKey: String { "feed.\(ObjectIdentifier(swipe))" }
 
     private func observeSwipe() {
         withObservationTracking {
-            _ = swipe.openID
             _ = swipe.demoSerial
         } onChange: { [weak self] in
             Task { @MainActor in
@@ -796,26 +844,13 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     private var lastDemoSerial = 0
 
     private func swipeChanged() {
-        for cell in visibleCells where cell.isOpen && cell.layout?.key.item.id != swipe.openID { cell.close() }
         guard swipe.demoSerial != lastDemoSerial else { return }
         lastDemoSerial = swipe.demoSerial
-        if let id = swipe.demoReveal { cell(id)?.reveal() }
-        if let (id, action) = swipe.demoPerform { cell(id)?.perform(actionID: action) }
-    }
-
-    func rowSwipeBegan(_ id: String) {
-        swipe.openID = id
-    }
-
-    func rowSwipeOpenChanged(_ id: String, open: Bool) {
-        RowSwipeActions.shared.setOpen(registrationKey(id), close: open ? { [weak self] in self?.cell(id)?.close() } : nil)
-        if !open, swipe.openID == id { swipe.openID = nil }
-    }
-
-    func rowSwipeActions(_ id: String) -> [FeedSwipeAction] {
-        guard let item = items[id] else { return [] }
-        let context = context
-        return item.swipeActions(store: store, open: { context.open(item) })
+        // UIKit opens a row's actions only under a finger; the demo performs the action itself.
+        if let (id, action) = swipe.demoPerform, let item = items[id] {
+            let context = context
+            item.swipeActions(store: store, open: { context.open(item) }).first { $0.id == action }?.action()
+        }
     }
 
     // MARK: Row actions
@@ -837,7 +872,7 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
         let opening = !(states[id]?.replying ?? false)
         mutateState(id) { $0.replying = opening }
         guard opening, let indexPath = dataSource?.indexPath(for: id) else { return }
-        collectionView?.scrollToItem(at: indexPath, at: .bottom, animated: true)
+        collectionView?.scrollToRow(at: indexPath, at: .bottom, animated: true)
         cell(id)?.focusComposer()
     }
 
@@ -1032,4 +1067,13 @@ final class FeedListController: NSObject, UICollectionViewDelegate, FeedRowCellD
     #endif
 }
 
+/// The Feed's diffable source. A diffable table source answers no to
+/// `canEditRowAt` by default, which turns off every swipe action: event rows
+/// say yes (their actions are the delegate's trailing configuration), the
+/// header row no.
+final class FeedTableDataSource: UITableViewDiffableDataSource<FeedListController.Section, String> {
+    override func tableView(_ tableView: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+        indexPath.section != 0
+    }
+}
 #endif

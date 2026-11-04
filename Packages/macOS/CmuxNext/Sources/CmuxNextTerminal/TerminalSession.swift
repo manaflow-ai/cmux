@@ -177,8 +177,13 @@ public final class TerminalSession {
     /// Kitty images the owner left out of its image replays (its cap).
     private(set) var skippedImages = 0
 
-    public init(io: any TerminalIO, ownsGeometry: Bool = true) {
+    /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
+    let blankWatch: TerminalBlankWatch
+
+    /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
         self.io = io
+        blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
@@ -433,6 +438,7 @@ public final class TerminalSession {
         closeCancels = []
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
+        blankWatch.cancel()
         surfaceView.removeFromSuperview()
     }
 

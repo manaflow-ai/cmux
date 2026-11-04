@@ -53,8 +53,8 @@ pub enum Target {
 
 /// What a `Target::HereForFolder` launch prints.
 pub const FOLDER_HERE: &str = "starting on this machine, which a person works at, because --cwd or \
--w names a folder here; leave them out to place it on a fleet host (`acpmux host place`), or \
-pass --host local to say this machine on purpose";
+-w names a folder here; leave them out to place it on a fleet host (`acpmux machine pick`), or \
+pass --machine local to say this machine on purpose";
 
 /// Whether this machine is one a person works at, by the fleet registry.
 pub fn here_is_interactive() -> bool {
@@ -92,7 +92,7 @@ pub async fn resolve(
                 let mut many = many.to_vec();
                 many.sort();
                 let at: Vec<String> = many.iter().map(|h| at(h.as_deref())).collect();
-                bail!("session {name:?} runs on {}; pass --host with one of them", at.join(", "))
+                bail!("session {name:?} runs on {}; pass --machine with one of them", at.join(", "))
             }
         }
     }
@@ -134,7 +134,7 @@ fn without_pick(v: &Value, here_if_none: bool, held: Option<String>) -> Result<O
 fn no_fleet_host(v: &Value) -> String {
     let why = v.get("why").and_then(Value::as_str).unwrap_or("no connected fleet host");
     format!(
-        "starting on this machine: no fleet host took it ({why}); `acpmux peer add` connects one"
+        "starting on this machine: no fleet host took it ({why}); `acpmux machine add` connects one"
     )
 }
 
@@ -244,7 +244,7 @@ mod tests {
         assert_eq!(
             no_fleet_host(&none),
             "starting on this machine: no fleet host took it (no host has room for this); \
-             `acpmux peer add` connects one"
+             `acpmux machine add` connects one"
         );
     }
 

@@ -193,6 +193,11 @@ struct CloudMachineChangeStateTests {
         session.refresher = { _ in reads += 1; session.machine.status = .failed }
         await session.untilRunning(pause: { _ in await Task.yield() })
         #expect(reads == 1, "a machine that failed while provisioning is not read again")
+        reads = 0
+        session.machine.status = .provisioning
+        session.refresher = { _ in reads += 1 }
+        await session.untilRunning(pause: { _ in session.machine.status = .running })
+        #expect(reads == 0, "a machine another read saw running during the pause is not read again")
     }
 
     @Test(.timeLimit(.minutes(1)))

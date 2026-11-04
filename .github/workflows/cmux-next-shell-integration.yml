@@ -30,6 +30,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   shell-integration:
     name: cmux-next shell integration

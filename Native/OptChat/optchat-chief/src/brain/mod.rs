@@ -875,10 +875,14 @@ pub struct Brain {
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
-    /// pauses, the peers paused by this host and since when each idles.
+    /// pauses, and since when each idles (the paused peers are saved in
+    /// `state.cloud_paused`).
     cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
     cloud_idle: std::time::Duration,
-    cloud_paused: std::collections::BTreeSet<String>,
+    /// Subagent sessions another acpmux link reports (a move handed them to
+    /// this machine's default daemon, placed_agents.rs): the home daemon's
+    /// list never judges them gone.
+    reported_elsewhere: std::collections::HashSet<String>,
     cloud_idle_since: std::collections::BTreeMap<String, u64>,
     /// Peers whose last pause failed: when the next try may run and the
     /// error last logged. The waits come from `cloud_pause_backoff`.
@@ -1120,7 +1124,7 @@ impl Brain {
             sub_starter: None,
             cloud_vms: None,
             cloud_idle,
-            cloud_paused: Default::default(),
+            reported_elsewhere: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
             cloud_pause_backoff: spawns::PAUSE_BACKOFF.to_vec(),
@@ -1300,6 +1304,12 @@ impl Brain {
             control::start_ticker(self.tx.clone());
         }
         self.sub_starter = starter;
+    }
+
+    /// The subagent sessions another acpmux link reports (placed_agents.rs):
+    /// a home daemon list without one of them does not end it.
+    pub fn set_reported_elsewhere(&mut self, sessions: std::collections::HashSet<String>) {
+        self.reported_elsewhere = sessions;
     }
 
     /// The VMs behind cloud peers: resumed before a cloud subagent starts,

@@ -102,7 +102,7 @@ export default agentPaneEntry({
   height: 640,
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow",
-    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
+    "agent-session/acpmux/subagents/SubagentComposer.tsx#SubagentComposer",
   ],
   keywords: ["subagent", "split", "right", "task", "session info"],
   variants: {
