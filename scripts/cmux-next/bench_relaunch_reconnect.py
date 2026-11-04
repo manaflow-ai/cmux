@@ -166,6 +166,47 @@ def wait_live(sock: str, seconds: float) -> dict:
     return last
 
 
+def session_records(home: str, session: str, since: float) -> dict:
+    """What acpmux logged for the streaming chat since `since` (ms since 1970): the first record
+    after it, the first `agent_message_chunk`, `host_adopted` and other `mux` records, by kind
+    with its `at` (first of each), and how many chunks. Says whether the daemon had the agent's
+    output when the page did not show it."""
+    out: dict = {"chunks": 0, "first": {}}
+    for path in sorted(glob.glob(os.path.join(home, "sessions", session, "events", "*"))):
+        try:
+            with open(path, errors="replace") as handle:
+                lines = handle.readlines()
+        except OSError:
+            continue
+        for line in lines:
+            try:
+                record = json.loads(line)
+            except ValueError:
+                continue
+            at = record.get("at")
+            if not isinstance(at, (int, float)) or at < since:
+                continue
+            kind = record.get("kind") or "?"
+            update = ((record.get("msg") or {}).get("params") or {}).get("update") or {}
+            if update.get("sessionUpdate") == "agent_message_chunk":
+                out["chunks"] += 1
+                kind = "agent_message_chunk"
+            out["first"].setdefault(kind, at)
+    return out
+
+
+def page_wire(sock: str) -> list:
+    """The shown page's acpmux wire lifecycle (connecting, open, handshake, reconnect), newest 200."""
+    log = bp.rpc(sock, "debug.agent_pane", {"action": "acp_log", "limit": 5000}, timeout=30)
+    entries = log.get("entries") if isinstance(log, dict) else None
+    if not isinstance(entries, list):
+        return [log] if log else []
+    def brief(entry):
+        text = json.dumps(entry)
+        return text if len(text) <= 600 else text[:600] + "..."
+    return [brief(entry) for entry in entries if "session/update" not in json.dumps(entry)[:600]][-200:]
+
+
 def round_phases(timings: dict, page: dict, daemon: dict) -> dict:
     """Each phase in ms since the app process started (None when it never happened)."""
     zero = timings.get("process_start_epoch_ms")
@@ -263,6 +304,8 @@ def main(argv: list[str] | None = None):
                          "launch_to_process_ms": None if zero is None else round(zero - started, 1),
                          "phases": phases, "page": page, "daemon_log": daemon, "daemon_log_lines": log_lines,
                          "daemon_after": sorted(daemon_pids(args.app)),
+                         "session_records": session_records(acpmux_home, streaming, quit_at),
+                         "page_wire": page_wire(sock),
                          "app_marks": timings.get("launch_ms_since_process_start")}
                 rounds.append(entry)
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "

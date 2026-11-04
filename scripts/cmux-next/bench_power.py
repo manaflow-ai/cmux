@@ -749,13 +749,19 @@ def main():
     if not args.app:
         parser.error("--app is required")
     scenarios = args.scenarios.split(",")
-    if "relaunch-reconnect" in scenarios:
+    if any(name.split(":")[0] == "relaunch-reconnect" for name in scenarios):
         # Relaunch to the first live chat event (bench_relaunch_reconnect.py), through this
-        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats.
-        if scenarios != ["relaunch-reconnect"]:
+        # script's one fleet entry (perf-idle-power.sh); --load-local sets its chats, and
+        # `relaunch-reconnect:MODES:ROUNDS:TIMEOUT` (modes joined by +) one run's modes, rounds
+        # and live timeout, e.g. relaunch-reconnect:cold+update:1:240.
+        if len(scenarios) != 1:
             raise SystemExit("bench-power: the relaunch-reconnect scenario runs alone (--scenarios relaunch-reconnect)")
         import bench_relaunch_reconnect as relaunch
         argv = ["--app", args.app, "--config", args.config]
+        parts = scenarios[0].split(":")[1:]
+        for flag, value in zip(("--modes", "--rounds", "--live-timeout"), parts):
+            if value:
+                argv += [flag, value.replace("+", ",")]
         argv += ["--chats", str(args.load_local)] if args.load_local is not None else []
         argv += ["--out", args.out] if args.out else []
         argv += ["--md", args.md] if args.md else []
