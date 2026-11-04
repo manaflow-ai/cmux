@@ -1,6 +1,6 @@
-import AppKit
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSettings
 import Foundation
 
@@ -44,7 +44,7 @@ extension AppControl {
                 return .value(DebugMouse.send(call.params, services: services))
             },
             // The cursor the app shows now, by name (NSCursor.debugName), and the window server's.
-            .mainActor("debug.cursor") { _ in .value(["app": .string(NSCursor.current.debugName), "system": .string(NSCursor.currentSystem?.debugName ?? "none")]) },
+            .mainActor("debug.cursor") { _ in .value(.object(LayoutRootView.debugCursorReport().mapValues(JSONValue.string))) },
             // The Home data path (homeRouter) from the socket (DebugHomeAPI).
             .async("debug.home.api") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }

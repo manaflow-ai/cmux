@@ -38,6 +38,23 @@ extension LayoutRootView {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG (`debug.cursor`): the cursor the app shows and the window server's, by name, and in the key window the
+    /// pointer the layout hover reads and each screen's hovered divider and resize cursor.
+    public static func debugCursorReport() -> [String: String] {
+        var report = ["app": NSCursor.current.debugName, "system": NSCursor.currentSystem?.debugName ?? "none"]
+        guard let window = NSApp.keyWindow else { return report.merging(["key_window": "none"]) { $1 } }
+        var stack: [NSView] = window.contentView.map { [$0] } ?? []
+        while let view = stack.popLast() {
+            guard let root = view as? LayoutRootView else { stack.append(contentsOf: view.subviews); continue }
+            report["pointer"] = root.context.hoverPointer(window).map { "\($0.x),\($0.y)" } ?? "none"
+            for (id, screen) in root.screenViews where !screen.isHidden {
+                let hovered = screen.dividerViews.values.filter(\.isHovered).map(\.kind.mouseAreaID).sorted()
+                report["screen.\(id.rawValue)"] = "hovered=\(hovered.joined(separator: "+")) shown=\(screen.dividerPointer.shownCursor?.debugName ?? "none")"
+            }
+        }
+        return report
+    }
+
     /// DEBUG (`debug.mouse` `divider`): the center of the divider hit area named `name` (its id or an id prefix;
     /// "first": the top-left one), in window coordinates.
     public func debugDividerCenter(named name: String) -> NSPoint? {

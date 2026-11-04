@@ -89,6 +89,33 @@ struct DividerCursorNoRegionRebuildTests {
         #expect(NSCursor.current !== handle.resizeCursor, "the app gave the resize cursor back: \(NSCursor.current.debugName)")
     }
 
+    /// AppKit sends `cursorUpdate` to the view under the pointer when it crosses a cursor area (a terminal's I-beam rect
+    /// beside the handle): the handle answers with its resize cursor inside its clip, and leaves the cursor to the
+    /// views under it outside the clip (the real-pointer journey px-divider-hover showed the I-beam on a divider).
+    @Test func theHandleUnderThePointerAnswersACursorUpdateWithItsResizeCursor() throws {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let parent = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        window.contentView = parent
+        let handle = DividerHandleView(kind: .split("x"), axis: .horizontal)
+        handle.frame = CGRect(x: 100, y: 0, width: 8, height: 400)
+        parent.addSubview(handle)
+        handle.cursorClip = CGRect(x: 0, y: 0, width: 400, height: 300)
+        func update(at point: CGPoint) throws {
+            let event = try #require(NSEvent.enterExitEvent(with: .cursorUpdate, location: point, modifierFlags: [], timestamp: 0,
+                                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                            trackingNumber: 0, userData: nil))
+            handle.cursorUpdate(with: event)
+        }
+        NSCursor.iBeam.set()
+        try update(at: CGPoint(x: 104, y: 100)) // inside the clip (window coordinates, bottom-left origin)
+        #expect(NSCursor.current === handle.resizeCursor, "inside the clip: \(NSCursor.current.debugName)")
+        NSCursor.iBeam.set()
+        try update(at: CGPoint(x: 104, y: 350)) // under the dock
+        #expect(NSCursor.current !== handle.resizeCursor, "under the dock: \(NSCursor.current.debugName)")
+    }
+
     /// The pointer over a divider still gets the resize cursor, and over the part a dock covers it does not.
     @Test func thePointerOverADividerGetsTheResizeCursorInsideItsClipOnly() throws {
         let handle = DividerHandleView(kind: .split("x"), axis: .horizontal)

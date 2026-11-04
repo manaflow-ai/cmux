@@ -182,6 +182,14 @@ final class DividerHandleView: NSView {
     /// Set only by the owning screen's hover pass.
     func setHovered(_ hovered: Bool) { isHovered = hovered }
 
+    /// AppKit sends `cursorUpdate` to the view under the pointer when the pointer crosses any cursor area (a terminal's
+    /// I-beam rect beside this handle): the handle on top answers with its resize cursor inside its clip, as its cursor
+    /// rect did. It needs no tracking area of its own for that.
+    override func cursorUpdate(with event: NSEvent) {
+        guard cursorRectInBounds.contains(convert(event.locationInWindow, from: nil)) else { return super.cursorUpdate(with: event) }
+        resizeCursor.set()
+    }
+
     /// Leaving the view tree mid-drag: the mouse-up will never arrive here,
     /// so the drag state ends with the view (the screen ends the gesture).
     override func viewWillMove(toSuperview newSuperview: NSView?) {
