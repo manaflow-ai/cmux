@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 extension LayoutRootView {
     /// Parks the provider's next stand-in pane content in a pane host made now, hidden in this view and so already in the
