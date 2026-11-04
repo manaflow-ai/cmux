@@ -109,6 +109,8 @@ jobs:
             scripts/ci/owned_pool_rescue.py
             scripts/ci/owned_pool_sources.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/warm_distance.py
+            scripts/ci/owned_warm_state.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false
@@ -295,6 +297,8 @@ jobs:
             scripts/ci/owned_pool_rescue.py
             scripts/ci/owned_pool_sources.py
             scripts/ci/pr_runner_pool.py
+            scripts/ci/warm_distance.py
+            scripts/ci/owned_warm_state.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false

@@ -162,6 +162,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Validate sparse scripts/ci checkouts carry every helper they import
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_sparse_checkout_imports.py
+
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
