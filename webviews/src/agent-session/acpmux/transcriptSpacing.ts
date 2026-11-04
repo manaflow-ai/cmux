@@ -313,10 +313,10 @@ export const RUN_CHILD = {
 export const FOOTER = {
   /** Icon glyph box, CSS px: Claude 16 (chatgpt.com 20). */
   glyph: 16,
-  /** Button hit box: grid transcript-action-control 28 (chatgpt.com 32, Claude 24). */
-  button: 28,
+  /** Button hit box: Claude Code desktop's 24 (chatgpt.com 32; Leo, 2026-11-04, beside Claude's: "spaing bad"). */
+  button: 24,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
-  pitch: 28,
+  pitch: 24,
   pending: undefined as string | undefined,
 } as const;
 

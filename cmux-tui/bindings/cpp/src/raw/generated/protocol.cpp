@@ -10019,9 +10019,24 @@ Result<Json> Codec<ServerStatsWritePath>::encode(const ServerStatsWritePath& val
     auto encoded_effect_intents = encode_value(value.effect_intents);
     if (!encoded_effect_intents) return std::move(encoded_effect_intents).error();
     object.emplace("effect_intents", std::move(encoded_effect_intents).value());
+    if (value.registry_wal_frame_bytes) {
+        auto encoded = encode_value(*value.registry_wal_frame_bytes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("registry_wal_frame_bytes", std::move(encoded).value());
+    }
     auto encoded_request_effect_commits = encode_value(value.request_effect_commits);
     if (!encoded_request_effect_commits) return std::move(encoded_request_effect_commits).error();
     object.emplace("request_effect_commits", std::move(encoded_request_effect_commits).value());
+    if (value.wal_commits) {
+        auto encoded = encode_value(*value.wal_commits);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("wal_commits", std::move(encoded).value());
+    }
+    if (value.wal_synced_commits) {
+        auto encoded = encode_value(*value.wal_synced_commits);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("wal_synced_commits", std::move(encoded).value());
+    }
     auto encoded_writer_registry_locks = encode_value(value.writer_registry_locks);
     if (!encoded_writer_registry_locks) return std::move(encoded_writer_registry_locks).error();
     object.emplace("writer_registry_locks", std::move(encoded_writer_registry_locks).value());
@@ -10059,6 +10074,12 @@ Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& val
         if (!decoded) return std::move(decoded).error();
         result.effect_intents = std::move(decoded).value();
     }
+    const Json* field_registry_wal_frame_bytes = value.find("registry_wal_frame_bytes");
+    if (field_registry_wal_frame_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_registry_wal_frame_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.registry_wal_frame_bytes = std::move(decoded).value();
+    }
     const Json* field_request_effect_commits = value.find("request_effect_commits");
     if (!field_request_effect_commits) {
         return make_error(ErrorCode::decode, "missing required field 'request_effect_commits'");
@@ -10067,6 +10088,18 @@ Result<ServerStatsWritePath> Codec<ServerStatsWritePath>::decode(const Json& val
         auto decoded = decode_value<std::uint64_t>(*field_request_effect_commits);
         if (!decoded) return std::move(decoded).error();
         result.request_effect_commits = std::move(decoded).value();
+    }
+    const Json* field_wal_commits = value.find("wal_commits");
+    if (field_wal_commits) {
+        auto decoded = decode_value<std::uint64_t>(*field_wal_commits);
+        if (!decoded) return std::move(decoded).error();
+        result.wal_commits = std::move(decoded).value();
+    }
+    const Json* field_wal_synced_commits = value.find("wal_synced_commits");
+    if (field_wal_synced_commits) {
+        auto decoded = decode_value<std::uint64_t>(*field_wal_synced_commits);
+        if (!decoded) return std::move(decoded).error();
+        result.wal_synced_commits = std::move(decoded).value();
     }
     const Json* field_writer_registry_locks = value.find("writer_registry_locks");
     if (!field_writer_registry_locks) {
