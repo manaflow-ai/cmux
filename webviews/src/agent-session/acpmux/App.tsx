@@ -9218,6 +9218,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     hasPermissionGroups ||
     individualPermission ||
     secret ||
+    mcpConnect ||
+    mcpCall ||
     toolCards.length > 0,
   );
   // A folder confirmation can be pending while the New Tab stays mounted. Keep the same ask in
@@ -9325,7 +9327,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
-      {(individualPermission || secret || toolCards.length > 0) && (
+      {(individualPermission || secret || mcpConnect || mcpCall || toolCards.length > 0) && (
         <>
           <ToolCards
             cards={toolCards}
