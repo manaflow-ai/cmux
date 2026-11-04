@@ -14,8 +14,10 @@ use std::sync::atomic::{AtomicI32, Ordering};
 /// The pid of the last SIGTERM's sender; 0 when none came or the kernel named none.
 static SENDER: AtomicI32 = AtomicI32::new(0);
 
-/// Records each SIGTERM's sender from now on. Call it before tokio's own SIGTERM stream is made:
-/// the registry then runs this action first.
+/// Records each SIGTERM's sender from now on. Call it only after tokio's own SIGTERM stream is
+/// registered: this action alone would replace SIGTERM's default action (the process would no
+/// longer end on it). Every action runs inside the same signal delivery, so the sender is stored
+/// before the daemon's task reads the stream's wake-up.
 pub(crate) fn record() {
     // SAFETY: the action only does an atomic store, which is async-signal-safe.
     let registered = unsafe {

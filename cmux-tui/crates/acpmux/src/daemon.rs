@@ -591,9 +591,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(unix)]
     let mut stop_signals = {
         use tokio::signal::unix::{SignalKind, signal};
-        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`).
-        term_sender::record();
-        (signal(SignalKind::terminate()).ok(), signal(SignalKind::interrupt()).ok())
+        let term = signal(SignalKind::terminate()).ok();
+        // Who sends SIGTERM is named on the stop line (`daemon/term_sender.rs`). Only once tokio's
+        // own stream is registered: an action of ours alone would replace SIGTERM's default
+        // action, and a daemon whose stream failed would then never stop on SIGTERM.
+        if term.is_some() {
+            term_sender::record();
+        }
+        (term, signal(SignalKind::interrupt()).ok())
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
