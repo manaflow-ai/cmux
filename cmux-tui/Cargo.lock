@@ -1062,19 +1062,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-computer-use-approval"
-version = "0.1.0"
-dependencies = [
- "serde_json",
- "sha2 0.10.9",
-]
-
-[[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
 source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "cmux-computer-use-approval"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1673,6 +1673,7 @@ dependencies = [
  "cmux-build-identity",
  "cmux-chat-index",
  "cmux-config",
+ "cmux-device-hub-client",
  "cmux-holder",
  "cmux-host",
  "cmux-json",

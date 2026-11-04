@@ -10,8 +10,9 @@ use base64::Engine as _;
 use cmux_device_hub_client::{
     ApprovalAsk, ApprovalOutcome, ApprovalRequest, ApprovalTarget, Assurance, Backoff, Decision,
     DeviceIdentity, DeviceKeys as _, ErrorCode, FileKeyStore, HubApprover, HubClient,
-    HubClientConfig, HubError, KeyStore as _, NoHubApprover, PING_FRAME, Platform, RemoteApprover,
-    SocketOptions, SoftwareKeys, StaticToken, UserSocket, VerifiedDecision, decision_message,
+    HubClientConfig, HubError, KeyStore as _, NoHubApprover, PING_FRAME, PinnedApprover, Platform,
+    RemoteApprover, SocketOptions, SoftwareKeys, StaticToken, UserSocket, VerifiedDecision,
+    decision_message, key_fingerprint,
 };
 use serde_json::json;
 use support::{MockHub, STACK_TOKEN};
@@ -20,10 +21,12 @@ fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
-/// Another device of the account, with its own keys.
+/// Another device of the account, with its own keys: a signing key (deny)
+/// and an approval key (Allow), as the hub's `signingKey` and `approvalKey`.
 struct Device {
     id: String,
     keys: SoftwareKeys,
+    approval: SoftwareKeys,
 }
 
 impl Device {
@@ -31,15 +34,30 @@ impl Device {
         Device {
             id: uuid::Uuid::new_v4().to_string(),
             keys: SoftwareKeys::generate(Assurance::Hardware).unwrap(),
+            approval: SoftwareKeys::generate(Assurance::Hardware).unwrap(),
         }
+    }
+
+    fn approval_key(&self) -> String {
+        base64::engine::general_purpose::STANDARD.encode(self.approval.signing_public_key())
     }
 
     fn signing_key(&self) -> String {
         base64::engine::general_purpose::STANDARD.encode(self.keys.signing_public_key())
     }
 
+    /// What the box owner pins for this device at setup.
+    fn pin(&self) -> PinnedApprover {
+        PinnedApprover {
+            device_id: self.id.clone(),
+            approval_key_fingerprint: key_fingerprint(&self.approval_key()).unwrap(),
+        }
+    }
+
     fn sign(&self, digest: &str, decision: Decision) -> String {
-        let signature = self.keys.sign(decision_message(digest, decision).as_bytes()).unwrap();
+        // An Allow with the approval key, a deny with the signing key.
+        let keys = if decision == Decision::Deny { &self.keys } else { &self.approval };
+        let signature = keys.sign(decision_message(digest, decision).as_bytes()).unwrap();
         base64::engine::general_purpose::STANDARD.encode(signature)
     }
 }
@@ -51,6 +69,8 @@ struct Rig {
     socket: Option<UserSocket>,
     approver: HubApprover,
     phone: Device,
+    /// Pinned with the phone, but not on the hub until a test adds it.
+    mac: Device,
     _dir: tempfile::TempDir,
 }
 
@@ -64,8 +84,16 @@ fn options() -> SocketOptions {
 }
 
 impl Rig {
-    /// A registered Linux machine with its socket open and an iPhone on the account.
+    /// A registered Linux machine with its socket open and an iPhone on the
+    /// account; the owner pinned the iPhone and a Mac.
     async fn new() -> Rig {
+        let phone = Device::new();
+        let mac = Device::new();
+        let pins = vec![phone.pin(), mac.pin()];
+        Rig::pinned(phone, mac, pins).await
+    }
+
+    async fn pinned(phone: Device, mac: Device, pins: Vec<PinnedApprover>) -> Rig {
         let hub = MockHub::start().await;
         let dir = tempfile::tempdir().unwrap();
         let identity = FileKeyStore::new(dir.path(), Platform::Linux).load_or_create().unwrap();
@@ -77,12 +105,11 @@ impl Rig {
         config.allow_http = true;
         let client = Arc::new(HubClient::new(config).unwrap());
         client.register_device("build-box-7").await.unwrap();
-        let phone = Device::new();
-        hub.add_device(&phone.id, "ios", &phone.signing_key());
+        hub.add_approver(&phone.id, "ios", &phone.signing_key(), &phone.approval_key());
         let socket = UserSocket::spawn(Arc::clone(&client), options());
-        let approver = HubApprover::new(Arc::clone(&client), socket.events());
+        let approver = HubApprover::new(Arc::clone(&client), socket.events(), pins);
         hub.wait_connections(1).await;
-        Rig { hub, identity, client, socket: Some(socket), approver, phone, _dir: dir }
+        Rig { hub, identity, client, socket: Some(socket), approver, phone, mac, _dir: dir }
     }
 
     fn me(&self) -> &str {
@@ -314,13 +341,56 @@ async fn a_decider_added_after_the_question_is_found_by_refetching() {
     let rig = Rig::new().await;
     let request = rig.request(5_000, 60_000);
     let (task, id) = rig.ask(&request, false, None).await;
-    let mac = Device::new();
-    rig.hub.add_device(&mac.id, "macos", &mac.signing_key());
+    let mac = &rig.mac;
+    rig.hub.add_approver(&mac.id, "macos", &mac.signing_key(), &mac.approval_key());
     let sig = mac.sign(&request.digest, Decision::Session);
     rig.push_decided(&id, "session", &request.digest, &mac.id, &sig);
     let outcome = outcome(task).await;
     assert_eq!(decided(&outcome).decision, Decision::Session);
     assert_eq!(decided(&outcome).via(), "mac");
+    rig.stop().await;
+}
+
+/// A device registered on the hub with platform `ios` and a valid signature
+/// (anyone with an account session can register one: a stolen token, another
+/// box of the user, a compromised hub) is not an approver this machine's owner
+/// pinned, so its decision never applies.
+#[tokio::test]
+async fn a_forged_ios_device_on_the_hub_cannot_approve() {
+    let rig = Rig::new().await;
+    let forged = Device::new();
+    rig.hub.add_approver(&forged.id, "ios", &forged.signing_key(), &forged.approval_key());
+    refused(&rig, true, |request, id| {
+        let sig = forged.sign(&request.digest, Decision::Always);
+        rig.push_decided(id, "always", &request.digest, &forged.id, &sig);
+    })
+    .await;
+    rig.stop().await;
+}
+
+/// The hub lists the pinned iPhone with another key (a swapped or
+/// re-registered key): its decisions no longer apply, even signed with the
+/// key the hub now lists.
+#[tokio::test]
+async fn a_pinned_device_whose_hub_key_changed_is_refused() {
+    let phone = Device::new();
+    let impostor = Device::new();
+    let pins = vec![PinnedApprover { device_id: phone.id.clone(), ..impostor.pin() }];
+    let rig = Rig::pinned(phone, Device::new(), pins).await;
+    let request = rig.request(5_000, 60_000);
+    let outcome = rig.approver.ask(ApprovalAsk { request, allow_always: false, on_late: None }).await;
+    assert!(matches!(outcome, ApprovalOutcome::Unavailable(_)), "{outcome:?}");
+    rig.stop().await;
+}
+
+/// No approver pinned: nothing is asked, whatever devices the account has.
+#[tokio::test]
+async fn with_no_pinned_approver_nothing_is_asked() {
+    let rig = Rig::pinned(Device::new(), Device::new(), vec![]).await;
+    let request = rig.request(5_000, 60_000);
+    let outcome = rig.approver.ask(ApprovalAsk { request, allow_always: false, on_late: None }).await;
+    assert!(matches!(outcome, ApprovalOutcome::Unavailable(_)), "{outcome:?}");
+    assert_eq!(rig.hub.count("POST", "/v1/approvals"), 0);
     rig.stop().await;
 }
 
@@ -365,6 +435,17 @@ async fn a_bad_signature_is_refused() {
     refused(&rig, false, |request, id| {
         let sig = impostor.sign(&request.digest, Decision::Once);
         rig.push_decided(id, "once", &request.digest, &rig.phone.id, &sig);
+    })
+    .await;
+    // An Allow signed with the pinned phone's signing key, not its approval key.
+    refused(&rig, false, |request, id| {
+        let sig = rig
+            .phone
+            .keys
+            .sign(decision_message(&request.digest, Decision::Session).as_bytes())
+            .unwrap();
+        let sig = base64::engine::general_purpose::STANDARD.encode(sig);
+        rig.push_decided(id, "session", &request.digest, &rig.phone.id, &sig);
     })
     .await;
     // A signature for "deny" presented as "once".
@@ -513,7 +594,7 @@ async fn unavailable_without_a_hub_or_an_approver() {
     let windows = Device::new();
     hub.add_device(&windows.id, "windows", &windows.signing_key());
     let (events, _) = tokio::sync::broadcast::channel(4);
-    let approver = HubApprover::new(client, events);
+    let approver = HubApprover::new(client, events, vec![windows.pin()]);
     assert!(matches!(approver.ask(ask.clone()).await, ApprovalOutcome::Unavailable(_)));
 
     // A hub that does not answer.
@@ -529,7 +610,8 @@ async fn unavailable_without_a_hub_or_an_approver() {
     );
     config.allow_http = true;
     let (events, _) = tokio::sync::broadcast::channel(4);
-    let approver = HubApprover::new(Arc::new(HubClient::new(config).unwrap()), events);
+    let approver =
+        HubApprover::new(Arc::new(HubClient::new(config).unwrap()), events, vec![rig.phone.pin()]);
     assert!(matches!(approver.ask(ask).await, ApprovalOutcome::Unavailable(_)));
 
     // A request whose digest does not match its fields never leaves the machine.

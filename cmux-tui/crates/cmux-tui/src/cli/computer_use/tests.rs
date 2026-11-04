@@ -82,6 +82,53 @@ fn setup_parses_modes_and_keeps_manifests_to_bounded() {
     assert!(unrestricted.understand_unrestricted);
 }
 
+fn plain_setup() -> Setup {
+    Setup {
+        mode: Mode::Ask,
+        manifest: None,
+        understand_unrestricted: false,
+        elevated: false,
+        device_hub: None,
+        hub_token_command: None,
+        hub_allow_always: false,
+        approvers: Vec::new(),
+        #[cfg(not(target_os = "macos"))]
+        approver_pins: Vec::new(),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn approvers_come_with_a_hub_and_pins_are_checked() {
+    let setup = |text: &str| match parsed(text) {
+        Ok(Command::Setup(setup)) => Ok(setup),
+        Ok(other) => panic!("{other:?}"),
+        Err(e) => Err(e),
+    };
+    let hub = "--device-hub https://hub.example --hub-token-command /usr/bin/hub-token";
+    let two = setup(&format!("setup --mode ask {hub} --approver a1 --approver b2")).unwrap();
+    assert_eq!(two.approvers, ["a1", "b2"]);
+    assert_eq!(two.device_hub.as_deref(), Some("https://hub.example"));
+    assert!(setup("setup --mode ask --approver a1").is_err(), "no hub");
+    assert!(setup("setup --mode ask --device-hub http://hub.example --hub-token-command /t").is_err());
+    assert!(setup("setup --mode ask --device-hub https://hub.example --hub-token-command t").is_err());
+    assert!(setup("setup --mode ask --device-hub https://hub.example").is_err());
+    let fingerprint = "a".repeat(64);
+    let pin = format!(r#"{{"device_id":"d1","approval_key_fingerprint":"{fingerprint}","name":"iPhone","platform":"ios"}}"#);
+    let words: Vec<String> = ["setup", "--mode", "ask", "--device-hub", "https://hub.example", "--hub-token-command", "/t", "--approver-pin", &pin]
+        .iter()
+        .map(|word| (*word).to_owned())
+        .collect();
+    let Ok(Command::Setup(pinned)) = parse(&words) else { panic!() };
+    assert_eq!(pinned.approver_pins[0].device_id, "d1");
+    let short = pin.replace(&fingerprint, "abc");
+    let mut bad = words;
+    if let Some(last) = bad.last_mut() {
+        *last = short;
+    }
+    assert!(parse(&bad).is_err());
+}
+
 #[test]
 fn unrestricted_needs_both_env_vars_and_the_flag() {
     let both = |key: &str| match key {
@@ -92,9 +139,8 @@ fn unrestricted_needs_both_env_vars_and_the_flag() {
     let one = |key: &str| (key == "CUA_DRIVER_PERMISSION_MODE").then(|| "unrestricted".to_owned());
     let setup = |flag: bool| Setup {
         mode: Mode::Unrestricted,
-        manifest: None,
         understand_unrestricted: flag,
-        elevated: false,
+        ..plain_setup()
     };
     assert_eq!(unrestricted_refusal(&setup(true), both), None);
     assert!(unrestricted_refusal(&setup(false), both).is_some());
@@ -130,43 +176,96 @@ fn a_screenshot_is_the_first_image_or_the_refusal_text() {
 
 #[cfg(not(target_os = "macos"))]
 mod system {
-    use super::super::system_config::{document, elevated_args, read_manifest};
+    use super::super::system_config::{
+        DeviceHub, Pin, SystemConfig, config, elevated_args, pins_of, read_manifest, render,
+    };
     use super::*;
 
+    /// The shared fixture: what setup writes is exactly what the host's
+    /// parser reads back (`cmux-remote-host` `config.rs` tests the same files).
     #[test]
-    fn the_config_carries_the_mode_manifest_and_unrestricted_opt_in() {
-        assert_eq!(document(Mode::Ask, None), json!({"version": 1, "mode": "ask"}));
-        let manifest = json!({"version": 3, "resources": {"apps": ["firefox"]}});
-        assert_eq!(
-            document(Mode::Bounded, Some(manifest.clone())),
-            json!({"version": 1, "mode": "bounded", "manifest": manifest})
-        );
-        assert_eq!(
-            document(Mode::Unrestricted, None),
-            json!({"version": 1, "mode": "unrestricted", "env": {
-                "CUA_DRIVER_PERMISSION_MODE": "unrestricted",
-                "CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS": "1"}})
-        );
-        assert!(document(Mode::Standard, None).get("env").is_none());
+    fn setup_writes_the_documents_the_host_reads() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../schemas/computer-use/setup-config");
+        let cases: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).unwrap())
+                .unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let file = case["file"].as_str().unwrap();
+            let mode = Mode::parse(case["mode"].as_str().unwrap()).unwrap();
+            let manifest = case["manifest"].as_str().map(std::path::PathBuf::from);
+            let hub: Option<DeviceHub> = serde_json::from_value(case["device_hub"].clone()).unwrap();
+            let pins: Vec<Pin> = serde_json::from_value(case["approvers"].clone()).unwrap();
+            let written = render(&config(mode, manifest.as_deref(), hub, pins)).unwrap();
+            let expected = std::fs::read_to_string(dir.join(file)).unwrap();
+            let written: toml::Value = toml::from_str(&written).unwrap();
+            let expected: toml::Value = toml::from_str(&expected).unwrap();
+            assert_eq!(written, expected, "{file}");
+            // And it reads back as setup's own type (setup keeps pins across runs).
+            let back: SystemConfig = written.try_into().unwrap();
+            assert_eq!(back.mode, mode.name());
+        }
     }
 
     #[test]
-    fn the_elevated_run_repeats_the_setup_with_an_absolute_manifest() {
+    fn the_elevated_run_repeats_the_setup_with_an_absolute_manifest_and_the_pins() {
         let setup = Setup {
             mode: Mode::Bounded,
             manifest: Some("m.json".into()),
-            understand_unrestricted: false,
-            elevated: false,
+            device_hub: Some("https://hub.example".into()),
+            hub_token_command: Some("/usr/bin/hub-token".into()),
+            hub_allow_always: true,
+            approvers: vec!["d1".into()],
+            ..plain_setup()
         };
-        let args = elevated_args(&setup).unwrap();
+        let pin = Pin {
+            device_id: "d1".into(),
+            approval_key_fingerprint: "b".repeat(64),
+            name: "Aziz's iPhone".into(),
+            platform: "ios".into(),
+        };
+        let args = elevated_args(&setup, std::slice::from_ref(&pin)).unwrap();
         assert_eq!(&args[..4], ["computer-use", "setup", "--mode", "bounded"]);
         assert_eq!(args[4], "--manifest");
         assert!(std::path::Path::new(&args[5]).is_absolute(), "{args:?}");
+        assert!(!args.contains(&"--approver".to_owned()), "the elevated run never asks the hub again");
         assert_eq!(args.last().map(String::as_str), Some(ELEVATED_FLAG));
-        // The elevated words parse back to the same setup.
+        // The elevated words parse back to the same setup, with the confirmed pin.
         let Ok(Command::Setup(back)) = parse(&args[1..]) else { panic!("{args:?}") };
         assert_eq!(back.mode, Mode::Bounded);
-        assert!(back.elevated);
+        assert!(back.elevated && back.hub_allow_always);
+        assert_eq!(back.approver_pins, vec![pin]);
+        assert_eq!(back.device_hub, setup.device_hub);
+    }
+
+    #[test]
+    fn only_another_mac_or_iphone_with_an_approval_key_can_be_pinned() {
+        use base64::Engine as _;
+        let signing = base64::engine::general_purpose::STANDARD.encode([4_u8; 65]);
+        let mut approval_point = [7_u8; 65];
+        approval_point[0] = 4;
+        let approval = base64::engine::general_purpose::STANDARD.encode(approval_point);
+        let device = |id: &str, platform: &str, approval_key: Option<&str>| -> cmux_device_hub_client::HubDevice {
+            serde_json::from_value(json!({"id": id, "name": format!("{platform} {id}"), "platform": platform,
+                                           "signingKey": signing, "approvalKey": approval_key}))
+            .unwrap()
+        };
+        let devices = vec![
+            device("phone", "ios", Some(&approval)),
+            device("old-mac", "macos", None),
+            device("box", "linux", None),
+            device("pc", "windows", None),
+        ];
+        let pins = pins_of(&devices, "box", &["PHONE".into()]).unwrap();
+        assert_eq!(pins[0].device_id, "phone");
+        // The approval key's fingerprint, never the signing key's.
+        assert_eq!(pins[0].approval_key_fingerprint, cmux_device_hub_client::key_fingerprint(&approval).unwrap());
+        assert_ne!(pins[0].approval_key_fingerprint, cmux_device_hub_client::key_fingerprint(&signing).unwrap());
+        let error = pins_of(&devices, "box", &["old-mac".into()]).unwrap_err();
+        assert!(error.contains("no approval key"), "{error}");
+        assert!(pins_of(&devices, "box", &["box".into()]).is_err(), "never itself");
+        assert!(pins_of(&devices, "box", &["pc".into()]).is_err(), "never a Windows box");
+        assert!(pins_of(&devices, "box", &["missing".into()]).is_err());
     }
 
     #[test]

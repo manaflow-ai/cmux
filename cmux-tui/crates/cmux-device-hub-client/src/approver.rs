@@ -14,7 +14,7 @@ use tokio::time::Instant;
 
 use crate::approval::{
     ApprovalRequest, ApprovalState, DecisionEvidence, Expectation, HubApproval, KnownDevice,
-    VerifiedDecision, verify_decision,
+    PinnedApprover, VerifiedDecision, pin_of, verify_decision,
 };
 use crate::client::{HubClient, unix_millis};
 use crate::error::HubError;
@@ -99,12 +99,17 @@ struct Inner {
     client: Arc<HubClient>,
     events: broadcast::Sender<SocketEvent>,
     devices: Mutex<DeviceCache>,
+    /// The approvers this machine's owner pinned; the hub's list only supplies their keys.
+    pinned: Vec<PinnedApprover>,
     asks: Mutex<HashMap<String, AskEntry>>,
     tokens: AtomicU64,
 }
 
 /// [`RemoteApprover`] over the device hub. `events` is the User DO socket's
-/// ([`UserSocket::events`](crate::UserSocket::events)).
+/// ([`UserSocket::events`](crate::UserSocket::events)); `pinned` are the
+/// approvers the machine's owner confirmed at setup. With none pinned every
+/// question is unavailable: a device the hub lists, whatever its platform and
+/// signature, never approves on its own.
 #[derive(Clone)]
 pub struct HubApprover {
     inner: Arc<Inner>,
@@ -118,12 +123,17 @@ enum WatchEnd {
 }
 
 impl HubApprover {
-    pub fn new(client: Arc<HubClient>, events: broadcast::Sender<SocketEvent>) -> HubApprover {
+    pub fn new(
+        client: Arc<HubClient>,
+        events: broadcast::Sender<SocketEvent>,
+        pinned: Vec<PinnedApprover>,
+    ) -> HubApprover {
         HubApprover {
             inner: Arc::new(Inner {
                 client,
                 events,
                 devices: Mutex::new(DeviceCache { devices: Vec::new(), stale: true }),
+                pinned,
                 asks: Mutex::new(HashMap::new()),
                 tokens: AtomicU64::new(1),
             }),
@@ -176,6 +186,7 @@ impl Inner {
             own_device_id: self.client.identity().id(),
             request_digest: &request.digest,
             allow_always,
+            pinned: &self.pinned,
         };
         verify_decision(evidence, &expected, &devices).ok()
     }
@@ -320,14 +331,26 @@ impl RemoteApprover for HubApprover {
         // Subscribed before asking, so a decision pushed at once is not missed.
         let mut events = inner.events.subscribe();
         let outcome = async {
+            if inner.pinned.is_empty() {
+                return Err(ApprovalOutcome::Unavailable(
+                    "no approver is pinned on this machine (cmux computer-use setup --approver)"
+                        .to_owned(),
+                ));
+            }
             let own_id = inner.client.identity().id().to_owned();
             let devices = match inner.refresh_devices().await {
                 Ok(devices) => devices,
                 Err(error) => return Err(unavailable_or_error(error)),
             };
-            if !devices.iter().any(|device| device.id != own_id && device.platform.is_approver()) {
+            let can_allow = |device: &KnownDevice| {
+                !device.id.eq_ignore_ascii_case(&own_id)
+                    && device.platform.is_approver()
+                    && pin_of(device, &inner.pinned).is_ok()
+            };
+            if !devices.iter().any(can_allow) {
                 return Err(ApprovalOutcome::Unavailable(
-                    "no Mac or iPhone on this account can approve".to_owned(),
+                    "no pinned Mac or iPhone is on this account with its pinned approval key"
+                        .to_owned(),
                 ));
             }
             let approval = inner

@@ -20,7 +20,22 @@
 //! [environment]
 //! CUA_DRIVER_PERMISSION_MODE = "unrestricted"
 //! CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"
+//!
+//! # Device hub approvals: only the approvers pinned here can answer.
+//! [device_hub]
+//! url = "https://device-hub.example.com"
+//! token_command = "/usr/local/bin/cmux-hub-token"   # prints the account's access token
+//! allow_always = false                             # whether a phone or Mac may answer Always
+//!
+//! [[approvers]]                                    # `cmux computer-use setup --approver ID`
+//! device_id = "0f8e2c84-3d1a-4f27-9a51-6c2b7e8d9a10"
+//! approval_key_fingerprint = "9f86d081…"            # SHA-256 of its signing key, 64 hex
+//! name = "Aziz's iPhone"                           # display only
+//! platform = "ios"                                 # display only
 //! ```
+//!
+//! `cmux computer-use setup` writes this file (`schemas/computer-use/setup-config`
+//! holds what it writes; both sides test against it).
 
 use std::path::{Path, PathBuf};
 
@@ -67,14 +82,54 @@ pub struct ComputerUseConfig {
     pub manifest: Option<PathBuf>,
     /// Executables (paths or file names) the never-asked list lets through.
     pub allow_terminals: Vec<String>,
+    /// The device hub this box asks through, when the owner set one up.
+    pub device_hub: Option<DeviceHubConfig>,
+    /// The approvers the owner pinned: the only devices whose decisions apply.
+    pub approvers: Vec<PinnedApprover>,
     /// Where it came from, for status.
     pub source: Option<PathBuf>,
 }
 
 impl Default for ComputerUseConfig {
     fn default() -> Self {
-        Self { mode: Mode::Ask, manifest: None, allow_terminals: Vec::new(), source: None }
+        Self {
+            mode: Mode::Ask,
+            manifest: None,
+            allow_terminals: Vec::new(),
+            device_hub: None,
+            approvers: Vec::new(),
+            source: None,
+        }
     }
+}
+
+/// `[device_hub]`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceHubConfig {
+    /// The hub's origin (`https://` only).
+    pub url: String,
+    /// The program that prints this account's access token (bare, or
+    /// `{"access_token"}`), run as the person's user with no arguments.
+    pub token_command: PathBuf,
+    /// Whether a phone or Mac may answer Always for this box.
+    #[serde(default)]
+    pub allow_always: bool,
+}
+
+/// One `[[approvers]]` entry: a device the owner confirmed at setup.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinnedApprover {
+    pub device_id: String,
+    /// SHA-256 of the device's X9.63 signing key, 64 lowercase hex digits.
+    pub approval_key_fingerprint: String,
+    /// Display only.
+    #[serde(default)]
+    pub name: String,
+    /// Display only (`ios`, `macos`).
+    #[serde(default)]
+    pub platform: String,
 }
 
 impl ComputerUseConfig {
@@ -101,6 +156,10 @@ struct RawConfig {
     allow_terminals: Vec<String>,
     #[serde(default)]
     environment: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    device_hub: Option<DeviceHubConfig>,
+    #[serde(default)]
+    approvers: Vec<PinnedApprover>,
 }
 
 /// The owner's configuration file on this OS.
@@ -168,7 +227,39 @@ pub fn parse(text: &str) -> Result<ComputerUseConfig, String> {
     if raw.manifest.as_deref().is_some_and(|path| !path.is_absolute()) {
         return Err("manifest must be an absolute path".into());
     }
-    Ok(ComputerUseConfig { mode, manifest: raw.manifest, allow_terminals: raw.allow_terminals, source: None })
+    if let Some(hub) = &raw.device_hub {
+        if !hub.url.starts_with("https://") {
+            return Err("[device_hub] url must be https://".into());
+        }
+        if !hub.token_command.is_absolute() {
+            return Err("[device_hub] token_command must be an absolute path".into());
+        }
+    }
+    if !raw.approvers.is_empty() && raw.device_hub.is_none() {
+        return Err("[[approvers]] needs [device_hub]".into());
+    }
+    let mut approvers: Vec<PinnedApprover> = Vec::new();
+    for approver in raw.approvers {
+        let fingerprint = &approver.approval_key_fingerprint;
+        if fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err(format!(
+                "approver {}: approval_key_fingerprint must be 64 lowercase hex digits",
+                approver.device_id
+            ));
+        }
+        if approver.device_id.is_empty() || approvers.iter().any(|known| known.device_id == approver.device_id) {
+            return Err(format!("approver {:?}: an empty or repeated device_id", approver.device_id));
+        }
+        approvers.push(approver);
+    }
+    Ok(ComputerUseConfig {
+        mode,
+        manifest: raw.manifest,
+        allow_terminals: raw.allow_terminals,
+        device_hub: raw.device_hub,
+        approvers,
+        source: None,
+    })
 }
 
 /// Whether a file's owner and permissions make it the owner's (Unix rule,
@@ -219,6 +310,47 @@ mod tests {
         assert!(parse("mode = \"bounded\"").is_err());
         assert!(parse("mode = \"bounded\"\nmanifest = \"m.yaml\"").is_err());
         assert_eq!(parse("mode = \"bounded\"\nmanifest = \"/etc/cmux/m.yaml\"").unwrap().mode, Mode::Bounded);
+    }
+
+    /// The files `cmux computer-use setup` writes (schemas/computer-use/setup-config,
+    /// which the CLI's tests render) are what this parser reads back.
+    #[test]
+    fn what_setup_writes_parses_back_to_the_same_config() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../schemas/computer-use/setup-config");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).unwrap()).unwrap();
+        for case in cases["cases"].as_array().unwrap() {
+            let file = case["file"].as_str().unwrap();
+            let config = parse(&std::fs::read_to_string(dir.join(file)).unwrap())
+                .unwrap_or_else(|error| panic!("{file}: {error}"));
+            assert_eq!(Some(config.mode.as_str()), case["mode"].as_str(), "{file}");
+            assert_eq!(config.manifest.as_deref().and_then(Path::to_str), case["manifest"].as_str(), "{file}");
+            let hub = config.device_hub.as_ref().map(|hub| {
+                serde_json::json!({"url": hub.url, "token_command": hub.token_command, "allow_always": hub.allow_always})
+            });
+            assert_eq!(hub.unwrap_or(serde_json::Value::Null), case["device_hub"], "{file}");
+            let approvers: Vec<serde_json::Value> = config
+                .approvers
+                .iter()
+                .map(|pin| {
+                    serde_json::json!({"device_id": pin.device_id, "approval_key_fingerprint": pin.approval_key_fingerprint,
+                                       "name": pin.name, "platform": pin.platform})
+                })
+                .collect();
+            assert_eq!(serde_json::Value::from(approvers), case["approvers"], "{file}");
+        }
+    }
+
+    #[test]
+    fn approvers_need_a_hub_and_a_full_fingerprint() {
+        let hub = "[device_hub]\nurl = \"https://hub.example\"\ntoken_command = \"/usr/bin/t\"\n";
+        let pin = |fingerprint: &str| format!("[[approvers]]\ndevice_id = \"d1\"\napproval_key_fingerprint = \"{fingerprint}\"\n");
+        assert!(parse(&pin(&"a".repeat(64))).is_err(), "no hub");
+        assert!(parse(&format!("{hub}{}", pin(&"a".repeat(63)))).is_err());
+        assert!(parse(&format!("{hub}{}", pin(&"A".repeat(64)))).is_err());
+        assert_eq!(parse(&format!("{hub}{}", pin(&"a".repeat(64)))).unwrap().approvers.len(), 1);
+        assert!(parse("[device_hub]\nurl = \"http://hub.example\"\ntoken_command = \"/usr/bin/t\"\n").is_err());
+        assert!(parse("[device_hub]\nurl = \"https://hub.example\"\ntoken_command = \"t\"\n").is_err());
     }
 
     #[test]

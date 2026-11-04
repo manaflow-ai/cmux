@@ -20,9 +20,9 @@ pub struct ApproverDecision {
     pub via: String,
 }
 
-/// The owner's other devices (the device hub client of Lane 5 implements it):
-/// `POST /v1/approvals`, then the decision a different device of the account
-/// signed, verified against that device's registered key
+/// The owner's other devices ([`crate::hub::HubRemote`] over the device hub
+/// client): `POST /v1/approvals`, then the decision a different device of the
+/// account signed, applied only when signed by an approver the box owner pinned
 /// (docs/computer-use-approvals.md, "Device hub approvals").
 ///
 /// `ask` resolves to `None` when no device answers before
@@ -42,8 +42,9 @@ pub trait RemoteApprover: Send + Sync {
 
 /// A protected collector on this machine. `offered` is the decision a person
 /// confirms: the automatic prompt offers [`Decision::Session`];
-/// `cmux computer-use approvals approve <id> [--once|--always]` re-opens it
-/// with that choice. A dismissed prompt answers `deny`; `None` means the
+/// `computer_use.approvals.prompt` re-opens it with `once` or `session`, never
+/// `always` (any local caller reaches that method; Always is chosen on the
+/// phone or Mac). A dismissed prompt answers `deny`; `None` means the
 /// collector could not ask (no agent, no Hello) and the others keep waiting.
 #[async_trait]
 pub trait LocalCollector: Send + Sync {

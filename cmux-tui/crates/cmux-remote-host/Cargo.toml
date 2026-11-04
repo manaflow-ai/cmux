@@ -40,6 +40,9 @@ serde_yaml_ng = "0.10"
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "io-std", "net", "sync", "time", "process", "fs"] }
 toml = "0.8"
+url = "2"
+# The device hub client (cmux-tui workspace member): device identity, signed requests, approvals.
+cmux-device-hub-client = { path = "../cmux-device-hub-client" }
 # trycua/cua cua-driver-rs-v0.34.0, the commit scripts/cmux-next/cua-driver-sdk.pin.json pins for macOS.
 cua-driver-sdk = { git = "https://github.com/trycua/cua", rev = "b0968e1b12834e485dda68789541a3cc57664a9f", optional = true }
 

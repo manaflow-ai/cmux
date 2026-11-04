@@ -25,7 +25,8 @@ pub enum Outcome {
     Unavailable,
 }
 
-/// Applies an Allow to the session (and the saved list), on time or late.
+/// Applies an Allow to the session (and the saved list), on time or late, and
+/// a late once as one call's credit.
 pub trait GrantSink: Send + Sync {
     fn grant(&self, session: &str, target: &Target, decision: Decision);
 }
@@ -127,12 +128,20 @@ impl Broker {
             let mut asked = lock(&self.asked);
             let Some(entry) = asked.get_mut(&id) else { return };
             match entry.pending.accept(decision, digest, now_ms()) {
-                Ok(decision) => Some((entry.pending.request.session.clone(), entry.pending.request.target.clone(), decision)),
+                // Late: every call that waited on it has stopped waiting (its receiver is gone).
+                Ok(decision) => Some((
+                    entry.pending.request.session.clone(),
+                    entry.pending.request.target.clone(),
+                    decision,
+                    entry.outcome.receiver_count() == 0,
+                )),
                 Err(_) => None,
             }
         };
-        let Some((session, target, decision)) = accepted else { return };
-        if matches!(decision, Decision::Session | Decision::Always) {
+        let Some((session, target, decision, late)) = accepted else { return };
+        // A late once is one call's credit, so the agent's retry runs (as on macOS);
+        // an on-time once is the waiting call's alone.
+        if matches!(decision, Decision::Session | Decision::Always) || (decision == Decision::Once && late) {
             self.sink.grant(&session, &target, decision);
         }
         self.finish(id, Outcome::Decided(decision));
@@ -249,6 +258,35 @@ mod tests {
         let digest = asked["request"]["digest"].as_str().unwrap();
         broker.answer(&json!({"type": "app_approval", "id": asked["id"], "ok": true, "decision": "always", "digest": digest}));
         assert_eq!(lock(&sink.0).len(), 1);
+    }
+
+    /// As the Swift broker and the docs: a once answered after every call
+    /// stopped waiting leaves that session one call's credit, so the agent's
+    /// retry runs; a once answered on time is that call's alone.
+    #[tokio::test(start_paused = true)]
+    async fn a_late_once_leaves_one_calls_credit_and_an_on_time_once_none() {
+        let (sender, mut lines) = mpsc::unbounded_channel();
+        let sink = Arc::new(Recorder::default());
+        let broker = Broker::new(sender, sink.clone());
+        let call = tokio::spawn({
+            let broker = Arc::clone(&broker);
+            async move { broker.ask(question("s1")).await }
+        });
+        let asked = lines.recv().await.unwrap();
+        let digest = asked["request"]["digest"].as_str().unwrap().to_owned();
+        broker.answer(&json!({"type": "app_approval", "id": asked["id"], "ok": true, "decision": "once", "digest": digest}));
+        assert_eq!(call.await.unwrap(), Outcome::Decided(Decision::Once));
+        assert!(lock(&sink.0).is_empty(), "an on-time once is the waiting call's only");
+
+        let call = tokio::spawn({
+            let broker = Arc::clone(&broker);
+            async move { broker.ask(question("s2")).await }
+        });
+        let asked = lines.recv().await.unwrap();
+        assert_eq!(call.await.unwrap(), Outcome::Timeout);
+        let digest = asked["request"]["digest"].as_str().unwrap();
+        broker.answer(&json!({"type": "app_approval", "id": asked["id"], "ok": true, "decision": "once", "digest": digest}));
+        assert_eq!(lock(&sink.0).as_slice(), &[("s2".to_owned(), "exe:/usr/bin/gedit".to_owned(), Decision::Once)]);
     }
 
     #[tokio::test]

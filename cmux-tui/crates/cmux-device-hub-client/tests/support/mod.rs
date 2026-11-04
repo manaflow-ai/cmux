@@ -103,9 +103,17 @@ impl MockHub {
         self.hub.data.lock().unwrap().devices.insert(
             id.to_owned(),
             json!({"id": id, "name": format!("{platform} device"), "platform": platform, "signingKey": signing_key,
-                   "agreementKey": signing_key, "createdAt": now_ms(), "lastSeenAt": now_ms(),
+                   "agreementKey": signing_key, "approvalKey": null, "createdAt": now_ms(), "lastSeenAt": now_ms(),
                    "macScreenShared": false, "online": false, "assurance": "hardware"}),
         );
+    }
+
+    /// A Mac or iPhone with an approval key (the hub's `approvalKey`).
+    pub fn add_approver(&self, id: &str, platform: &str, signing_key: &str, approval_key: &str) {
+        self.add_device(id, platform, signing_key);
+        if let Some(device) = self.hub.data.lock().unwrap().devices.get_mut(id) {
+            device["approvalKey"] = json!(approval_key);
+        }
     }
 
     pub fn device(&self, id: &str) -> Option<Value> {

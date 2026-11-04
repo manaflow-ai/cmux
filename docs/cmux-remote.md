@@ -156,7 +156,7 @@ cmux-tui daemon            (remote_host/linux.rs, remote_host/windows.rs)
 | Bootstrap (secret, switches, acpmux) | fd 3 (direct) or `<runtime>/bootstrap.json` (0600, deleted once read) | `<runtime>\bootstrap.json`, deleted once read |
 | Ready | `READY=1` to systemd, or `ready` on stdout | the event `Global\cmux-remote-<rh-leaf>-ready` |
 | Supervisor endpoint | `<runtime>/rh-<digest>/s.sock` (0600 in 0700) | `\\.\pipe\cmux-remote-<rh-leaf>`, DACL `D:P(A;;GA;;;<user SID>)`, remote clients rejected |
-| Host checks the daemon | `SO_PEERCRED` uid, and the peer is the process serving the daemon socket | the client's token SID is this user's and its image is the daemon executable |
+| Host checks the daemon | `SO_PEERCRED` uid, and the peer is the process serving the daemon socket | the client's token SID is this user's, its image is the daemon executable, and it is the daemon that started the host (`daemon_pid` and `daemon_start`, its creation FILETIME, from the bootstrap) or the process now serving the daemon socket (a handoff's new daemon) |
 | Daemon checks the host | pid and start time (`/proc/<pid>/stat` field 22) match `host.json`, peer pid from `SO_PEERCRED` | pid and creation time match, server pid from `GetNamedPipeServerProcessId` |
 
 Adoption, backoff, drain and the 60 s orphan grace are the macOS rules
@@ -212,22 +212,39 @@ every call. Local collectors:
 - **Linux**: polkit actions `com.cmux.computer-use.approve` and
   `com.cmux.computer-use.approve-always` (`dist/com.cmux.computer-use.policy`,
   installed to `/usr/share/polkit-1/actions/`, `auth_self`). The host calls
-  `CheckAuthorization` for itself with `AllowUserInteraction` and the details
-  `agent`, `workspace`, `app`, `executable`, `tool`, `scope`, `client`, which
-  the policy's messages show. Offered only in a graphical session
-  (`XDG_SESSION_TYPE` x11 or wayland), where the desktop runs a polkit agent.
-  Authenticating answers the offered scope (this session by default); dismissing
-  answers deny.
+  `CheckAuthorization` for itself with `AllowUserInteraction` and no details:
+  polkit refuses details from a caller that is neither uid 0 nor the action's
+  owner, and an `org.freedesktop.policykit.owner` annotation for the person's
+  uid would let agents (the same uid) pass details too. The dialog therefore
+  shows the action's fixed message; the person reads the agent and the app in
+  `cmux computer-use approvals pending` or on the phone. Offered only in a
+  graphical session (`XDG_SESSION_TYPE` x11 or wayland), where the desktop
+  runs a polkit agent. Authenticating answers the offered scope (this session
+  by default); dismissing answers deny. Not yet verified on a real GNOME or
+  KDE session.
 - **Windows**: Windows Hello (`UserConsentVerifier`, through
   `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` on a small
-  host-owned "cmux Remote" window), when Hello is available.
-- **Device hub**: the `RemoteApprover` trait in `cmux-remote-host`
-  (`approver.rs`), which the hub client implements; the first answer with the
-  request's digest wins.
+  host-owned "cmux Remote" window), when Hello is available. The window and
+  the request run on a thread of their own that pumps its messages; when
+  another collector answers first the host cancels the request and closes the
+  window. Not yet verified on a real Windows desktop.
+- **Device hub**: `cmux-remote-host/src/hub.rs` over the hub client's
+  `HubApprover`, started when the config has `[device_hub]` and at least one
+  pinned `[[approvers]]` entry (docs/computer-use-approvals.md, "Device hub
+  approvals"); otherwise there is no hub collector and `computer_use.status`
+  says why under `device_hub`. The host is a device of the account with the
+  key in this user's store (`$XDG_STATE_HOME/cmux/device-hub`, else the
+  Secret Service; `%LOCALAPPDATA%\cmux\device-hub` or CNG on Windows), and gets
+  the account's token from `token_command`. An Allow applies only when a
+  pinned Mac or iPhone signed it with the approval key whose fingerprint the
+  owner pinned (a deny needs the decider's signing key); the first answer with
+  the request's digest wins.
 
 `cmux computer-use approvals approve <id>` sends
 `computer_use.approvals.prompt`, which opens the local collector (offering
-Allow for This Session); it never decides by itself. `computer_use.status`,
+Allow for This Session, or `once` when asked; never Always, which only the
+phone or Mac offers); it never decides by itself, and shows one question at
+most once every 10 seconds (`cooldown` otherwise). `computer_use.status`,
 `computer_use.approvals.list`, `.pending`, `.deny` and `.revoke` are open to any
 local caller (they read or lower trust). Question ids are the first 16 hex
 digits of the request digest, as on macOS (docs/computer-use-approvals.md,
@@ -240,9 +257,19 @@ digits of the request digest, as on macOS (docs/computer-use-approvals.md,
   0600) and `endpoint.json` are files of the person's user; a process that
   already runs arbitrary code as that user can change them or drive the desktop
   directly. Isolate such agents with a VM, a separate user or a second device.
-- **Targets.** A call is gated on the app its `pid` or `window_id` names; an
-  input call with neither (screen coordinates, the focused window) is refused
-  in every mode (`target_unresolved`) so it cannot land on a never-allowed app.
+- **Targets.** Before a call runs, the worker resolves every app it names
+  (`worker/target_guard.rs`, the Rust twin of the macOS `CuaTargetGuard`):
+  each `pid` and `window_id` (a window owned by another pid is checked too),
+  `bundle_id` (none on these systems, so refused), `app_name` and
+  `launch_app`'s `name` (an executable on `PATH`, symlinks resolved), typed
+  `target`s, and every step of `run_steps` / `run_actions`. Upstream's loose
+  `app` / `window` selectors, unknown target shapes, desktop input without a
+  pid or window, and an `element_token` without its pid are refused;
+  `run_script` and `replay_trajectory` are refused. Each app outside the
+  session is asked about before any of the call runs, and a batch is never
+  rerun after upstream reports an app outside the manifest. An input call that
+  names no app (screen coordinates, the focused window) is refused in every
+  mode (`target_unresolved`) so it cannot land on a never-allowed app.
   The never-allowed list matches the running executable: a terminal that runs
   under an interpreter (terminator and guake are `python3`) is matched as
   `python3`, so do not approve an interpreter app on a machine where agents run.

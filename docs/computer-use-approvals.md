@@ -196,10 +196,6 @@ or a 0600 key file on a headless box, reported as lower assurance).
 - One Face ID check signs one Allow, for the digest that was on screen: the
   iPhone app re-reads the approval before signing and refuses one whose digest
   changed, and the evaluated `LAContext` is invalidated after the signature.
-- Not built yet in the Rust client (`cmux-device-hub-client`,
-  `verify_decision`): it still checks every decision against `signingKey`,
-  so it refuses iPhone Allows until it reads `approvalKey` and checks the
-  owner's pins (Track 2).
 - **The fingerprint a box pins**: the lowercase hex SHA-256 of the approval
   key's 65 X9.63 bytes (the bytes `approvalKey` base64-decodes to), the same
   rule as `viewerKeyFingerprint` applied to the approval key. People compare
@@ -214,6 +210,28 @@ or a 0600 key file on a headless box, reported as lower assurance).
   checking `sig` against the decider's `signingKey` (it only refuses).
   Swift: `ComputerUseApprovalDecided.verifies(decider:)` picks the key by
   decision; the pin check is the box's.
+- **Pinned approvers.** The hub's word alone never grants; only pinned approvers do. The box
+  owner pins each approver on the box (`cmux computer-use setup --approver
+  <device id>`, elevated): setup reads the account's devices as the box's own
+  device, shows each chosen device's name, platform and **approval key**
+  fingerprint (the lowercase hex SHA-256 of the 65 X9.63 bytes its
+  `approvalKey` decodes to, shown as the iPhone and Mac show it: the first 32
+  hex digits, uppercase, in eight groups of four) and writes
+  `{device_id, approval_key_fingerprint}` into the root- or SYSTEM-owned
+  config only after the owner types `yes`. A device with no `approvalKey` is
+  refused. An Allow (`once`, `session`, `always`) applies only when the
+  decider is a pinned `macos`/`ios` device whose `approvalKey` in
+  `GET /v1/devices` (used only to fetch it) still has the pinned fingerprint
+  and `sig` verifies with that key; a `deny` applies when `sig` verifies with
+  the decider's `signingKey` (it only refuses). The decider is never the
+  asking device. A device registered on the hub with any platform and a valid
+  signature (a stolen account session, another of the user's boxes, a
+  compromised hub) cannot allow unless the owner pinned its approval key; an
+  Allow signed with a device's signing key, or by a pinned device whose
+  approval key the hub now lists differently, is refused. No pinned approver
+  means no hub collector (fail closed; `computer_use.status` says why under
+  `device_hub`). Rust: `cmux-device-hub-client` `verify_decision` and
+  `pin_of`; the host's collector is `cmux-remote-host/src/hub.rs`.
 - `GET /v1/approvals/:id` returns the state after a reconnect.
 - Only the user's Macs and iPhones answer (403 `not_approver` for a Windows
   or Linux machine). `POST /v1/approvals` carries `allowAlways`, the asking
@@ -367,9 +385,9 @@ the host, which answers from its state or asks the worker:
 | `computer_use.status` | `{}` | any local Unix connection |
 | `computer_use.approvals.list` | `{}` | any local Unix connection |
 | `computer_use.approvals.pending` | `{}` | any local Unix connection |
-| `computer_use.approvals.revoke` | `{"scope":"all"}` or `{"scope":"app","app":{"bundle_id"\|"executable"\|"name":S}}` | any local Unix connection (lowers) |
+| `computer_use.approvals.revoke` | `{"all":true}` or `{"app":{"bundle_id"\|"executable":S}}` | any local Unix connection (lowers) |
 | `computer_use.approvals.deny` | `{"id":S}` | any local Unix connection (lowers) |
-| `computer_use.approvals.prompt` | `{"id":S}` | any local Unix connection; shows the question again, decides nothing |
+| `computer_use.approvals.prompt` | `{"id":S,"decision"?:"once"\|"session"}` | any local Unix connection; shows the question again with the dialog's own choices (never `always`, which only the phone or Mac offers), decides nothing; one question at most once every 10 s (`cooldown`) |
 
 The daemon refuses every other `computer_use.*` method with
 `origin.forbidden` (`cmux-tui-core/src/server/remote_host_command.rs`): no
@@ -399,16 +417,34 @@ can verify; it is not in this version.
 
 ### `setup` on Linux and Windows
 
-`cmux computer-use setup --mode M [--manifest FILE] [--i-understand-unrestricted]`
-writes `{"version":1,"mode":M,"manifest"?:<capability manifest v3>,"env"?:{"CUA_DRIVER_PERMISSION_MODE":"unrestricted","CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS":"1"}}`:
+`cmux computer-use setup --mode M [--manifest FILE] [--i-understand-unrestricted]
+[--device-hub URL --hub-token-command PROGRAM [--hub-allow-always] --approver DEVICE_ID...]`
+writes the TOML the host reads (`cmux-remote-host` `config.rs`; one file, one
+schema): `mode`, `manifest` (the path of the owner's capability manifest,
+copied next to the config), `[environment]` with upstream's two-part opt-in for
+`unrestricted`, `[device_hub]` (`url`, `token_command`, `allow_always`) and the
+pinned `[[approvers]]` (`device_id`, `approval_key_fingerprint`, `name`,
+`platform`). `schemas/computer-use/setup-config` holds what setup writes; the
+CLI renders each case and the host parses each file in their tests.
 
-| OS | File | Writer |
+| OS | Files | Writer |
 | --- | --- | --- |
-| Linux | `/etc/cmux/computer-use.json` (0644, in a root-owned 0755 folder; refused if the folder is not root's or is group/world writable) | root; otherwise `sudo` from a terminal |
-| Windows | `%ProgramData%\cmux\computer-use.json` (folder owned by Administrators, ACL SYSTEM and Administrators full, Users read, inheritance off) | an elevated administrator or SYSTEM; otherwise UAC from a terminal |
+| Linux | `/etc/cmux/computer-use.toml`, `/etc/cmux/computer-use.manifest.yaml` (0644, in a root-owned 0755 folder; refused if the folder is not root's or is group/world writable) | root; otherwise `sudo` from a terminal |
+| Windows | `%ProgramData%\cmux\computer-use.toml`, `…\computer-use.manifest.yaml` (folder owned by Administrators, ACL SYSTEM and Administrators full, Users read, inheritance off) | an elevated administrator or SYSTEM; otherwise UAC from a terminal |
 
-`bounded` needs `--manifest` (a JSON object with `"version": 3`), and only
-`bounded` takes one. `unrestricted` needs both upstream env vars set in the
+`--approver` (repeatable) reads the account's devices from the hub as this
+user's device (the one cmux Remote uses), shows each chosen device's name,
+platform and approval key fingerprint, and pins them only after the person types
+`yes`; it then elevates with the confirmed pins. Only another Mac or iPhone of
+the account can be pinned. Root's provisioning can pass
+`--approver-pin '{"device_id","approval_key_fingerprint","name","platform"}'`
+directly; a non-root run refuses it. A setup without approver flags keeps the
+current `[device_hub]` and approvers. `token_command` is a program that prints
+the account's access token (bare or `{"access_token"}`), run as the person's
+user.
+
+`bounded` needs `--manifest` (a JSON object with `"version": 3`, which is
+also YAML), and only `bounded` takes one. `unrestricted` needs both upstream env vars set in the
 invoking shell and `--i-understand-unrestricted`. Without a terminal and
 without root/elevation, setup refuses; it never writes a file the user owns.
 The host must read the file only when its owner and ACL are as above. On

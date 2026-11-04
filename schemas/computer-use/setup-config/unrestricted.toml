@@ -1,0 +1,7 @@
+# cmux Computer Use: this machine's mode (docs/computer-use-approvals.md, "Modes").
+# Written by `cmux computer-use setup`; owned by root (Linux) or SYSTEM/Administrators (Windows).
+mode = "unrestricted"
+
+[environment]
+CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS = "1"
+CUA_DRIVER_PERMISSION_MODE = "unrestricted"

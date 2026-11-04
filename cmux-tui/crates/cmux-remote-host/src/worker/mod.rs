@@ -33,6 +33,7 @@
 pub mod admission;
 pub mod broker;
 pub mod driver;
+pub mod target_guard;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -51,6 +52,7 @@ use crate::policy;
 use admission::{AdmissionConfig, Refusal};
 use broker::{Broker, GrantSink, Outcome};
 use driver::{CallError, Ceiling, Driver, DriverSession, Residual, ResidualAuthority, SessionMode, SessionSpec};
+use target_guard::TargetResolver;
 
 pub const PROTOCOL: u64 = 1;
 pub const CAPABILITY: &str = "app-approval-v1";
@@ -92,6 +94,9 @@ pub(crate) struct Session {
     labels: Mutex<Labels>,
     /// Apps this session may use beyond the saved list.
     grants: Mutex<Vec<Target>>,
+    /// One call each: a once answered after every call stopped waiting, so the
+    /// agent's retry runs (as the macOS broker's credits).
+    credits: Mutex<Vec<Target>>,
     version: AtomicU64,
     /// The upstream session and the (session version, saved generation) it was built for.
     handle: tokio::sync::Mutex<Option<BuiltSession>>,
@@ -135,6 +140,16 @@ impl GrantSink for Sink {
         let Some(worker) = self.0.upgrade() else { return };
         if decision == Decision::Always {
             worker.add_saved(target.clone());
+        }
+        if decision == Decision::Once {
+            // Only a late once reaches the sink: one call's credit.
+            if let Some(session) = lock(&worker.sessions).get(session).cloned() {
+                let mut credits = lock(&session.credits);
+                if !credits.iter().any(|credit| credit.key() == target.key()) {
+                    credits.push(target.clone());
+                }
+            }
+            return;
         }
         if let Some(session) = lock(&worker.sessions).get(session).cloned() {
             let mut grants = lock(&session.grants);
@@ -214,6 +229,57 @@ fn pid_in_message(message: &str) -> Option<u32> {
     None
 }
 
+/// The executable `name` names: a path as given, else the first match on
+/// `PATH` (Windows: also `name.exe`), with symlinks resolved, so the never-allowed
+/// list sees the real program (`x-terminal-emulator` is a terminal).
+pub fn executable_named(name: &str) -> Option<std::path::PathBuf> {
+    let is_file = |path: &Path| path.is_file().then(|| std::fs::canonicalize(path).ok()).flatten();
+    if name.contains(['/', '\\']) {
+        let path = Path::new(name);
+        return if path.is_absolute() { is_file(path) } else { None };
+    }
+    let mut names = vec![name.to_owned()];
+    if cfg!(windows) && !name.to_ascii_lowercase().ends_with(".exe") {
+        names.push(format!("{name}.exe"));
+    }
+    let lower = name.to_ascii_lowercase();
+    if lower != name {
+        names.push(lower);
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).find_map(|dir| names.iter().find_map(|name| is_file(&dir.join(name))))
+}
+
+/// The worker's resolver: pids and windows of this machine, as the driver sees them.
+struct LiveResolver<'a> {
+    worker: &'a Worker,
+    session: &'a Session,
+}
+
+#[async_trait]
+impl TargetResolver for LiveResolver<'_> {
+    async fn app_for_pid(&self, pid: u32) -> Option<Target> {
+        target_of_pid(pid)
+    }
+
+    async fn app_for_window(&self, window_id: u32) -> Option<Target> {
+        let handle = self.worker.handle(self.session).await.ok()?;
+        let windows = handle.call("list_windows", json!({})).await.ok()?;
+        target_of_pid(pid_of_window(&windows, u64::from(window_id))?)
+    }
+
+    async fn app_named(&self, name: &str) -> Option<Target> {
+        let executable = executable_named(name)?;
+        let stem = executable.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default();
+        Some(Target { bundle_id: None, executable: Some(executable.display().to_string()), name: stem })
+    }
+
+    async fn app_for_bundle_id(&self, _bundle_id: &str) -> Option<Target> {
+        // Windows and Linux apps have no bundle id.
+        None
+    }
+}
+
 /// A capability manifest (version 3) as JSON text, which upstream's YAML loader reads.
 pub fn manifest_json(tools: &[String], apps: &[Target], ttl_seconds: u64) -> Value {
     let apps: Vec<Value> = apps
@@ -279,6 +345,14 @@ impl Worker {
         }
     }
 
+    /// Spends the session's credit for `target`, if it has one.
+    fn take_credit(&self, session: &Session, target: &Target) -> bool {
+        let mut credits = lock(&session.credits);
+        let before = credits.len();
+        credits.retain(|credit| credit.key() != target.key());
+        credits.len() != before
+    }
+
     fn allowed(&self, session: &Session, target: &Target) -> bool {
         let key = target.key();
         lock(&session.grants).iter().any(|app| app.key() == key)
@@ -307,12 +381,12 @@ impl Worker {
             .await
     }
 
-    /// The upstream session spec for `session` with `extra` apps (an Allow Once).
-    fn spec(&self, session: &Session, extra: Option<&Target>) -> Result<SessionSpec, String> {
+    /// The upstream session spec for `session` with `extra` apps (Allow Once).
+    fn spec(&self, session: &Session, extra: &[Target]) -> Result<SessionSpec, String> {
         let mode = self.mode()?;
         let mut apps = lock(&session.grants).clone();
         apps.extend(lock(&self.saved).iter().cloned());
-        apps.extend(extra.cloned());
+        apps.extend(extra.iter().cloned());
         let version = self.next_session.fetch_add(1, Ordering::Relaxed);
         let path = self.manifest_dir.join(format!("{}-{version}.yaml", session.id));
         let (mode, manifest, ttl) = match mode {
@@ -359,23 +433,12 @@ impl Worker {
         {
             return Ok(Arc::clone(handle));
         }
-        let spec = self.spec(session, None).map_err(|error| CallError::new("driver_unavailable", error))?;
+        let spec = self.spec(session, &[]).map_err(|error| CallError::new("driver_unavailable", error))?;
         let handle = self.driver.session(&spec).map_err(|error| CallError::new("driver_unavailable", error))?;
         if let Some((_, old)) = current.replace((wanted, Arc::clone(&handle))) {
             old.close();
         }
         Ok(handle)
-    }
-
-    /// Resolves the call's real target: its `pid`, or the pid of its `window_id`.
-    async fn resolve(&self, session: &Session, arguments: &Value) -> Option<Target> {
-        if let Some(pid) = arguments.get("pid").and_then(Value::as_u64).and_then(|pid| u32::try_from(pid).ok()) {
-            return target_of_pid(pid);
-        }
-        let window = arguments.get("window_id").and_then(Value::as_u64)?;
-        let handle = self.handle(session).await.ok()?;
-        let windows = handle.call("list_windows", json!({})).await.ok()?;
-        target_of_pid(pid_of_window(&windows, window)?)
     }
 
     /// The approval gate for `target`; Ok(Some(app)) when only this call may use it (Allow Once).
@@ -386,6 +449,9 @@ impl Worker {
         let mode = self.mode().map_err(|error| CallError::new("config_invalid", error))?;
         if !matches!(mode, Mode::Ask | Mode::Bounded) || self.allowed(session, target) {
             return Ok(None);
+        }
+        if self.take_credit(session, target) {
+            return Ok(Some(target.clone()));
         }
         match self.ask(session, target.clone(), tool, "R1").await {
             Outcome::Decided(Decision::Once) => Ok(Some(target.clone())),
@@ -404,53 +470,59 @@ impl Worker {
         }
     }
 
-    async fn call_with(&self, session: &Session, once: Option<&Target>, tool: &str, arguments: &Value) -> Result<Value, CallError> {
-        match once {
-            None => self.handle(session).await?.call(tool, arguments.clone()).await,
-            Some(target) => {
-                let spec = self.spec(session, Some(target)).map_err(|error| CallError::new("driver_unavailable", error))?;
-                let handle = self.driver.session(&spec).map_err(|error| CallError::new("driver_unavailable", error))?;
-                let result = handle.call(tool, arguments.clone()).await;
-                handle.close();
-                result
-            }
+    async fn call_with(&self, session: &Session, once: &[Target], tool: &str, arguments: &Value) -> Result<Value, CallError> {
+        if once.is_empty() {
+            return self.handle(session).await?.call(tool, arguments.clone()).await;
         }
+        let spec = self.spec(session, once).map_err(|error| CallError::new("driver_unavailable", error))?;
+        let handle = self.driver.session(&spec).map_err(|error| CallError::new("driver_unavailable", error))?;
+        let result = handle.call(tool, arguments.clone()).await;
+        handle.close();
+        result
     }
 
-    /// One `tools/call`: refuse opaque tools and never-allowed targets, ask
-    /// for an app outside the session, then run it in the session's upstream session.
+    /// The approval gate for every app of one call, in order; the apps only this call may use.
+    async fn gate_all(&self, session: &Session, targets: &[Target], tool: &str) -> Result<Vec<Target>, CallError> {
+        let mut once = Vec::new();
+        for target in targets {
+            once.extend(self.gate(session, target, tool).await?);
+        }
+        Ok(once)
+    }
+
+    /// One `tools/call`: resolve and check every app the call names
+    /// ([`target_guard`], the macOS `CuaTargetGuard`), ask for each app outside
+    /// the session before any of it runs, then run it in the session's upstream session.
     pub(crate) async fn call(&self, session: &Session, tool: &str, arguments: Value) -> Result<Value, CallError> {
         if policy::OPAQUE_TOOLS.contains(&tool) {
             return Err(CallError::new("tool_refused", format!("{tool} is not available through cmux")));
         }
-        let mut asked_for = None;
-        let mut once = None;
-        match self.resolve(session, &arguments).await {
-            Some(target) => {
-                once = self.gate(session, &target, tool).await?;
-                asked_for = Some(target.key());
-            }
-            // An action with no resolvable target (screen coordinates, the focused window) could
-            // land on a never-allowed app (a terminal): refused in every mode. Ask and bounded
-            // sessions also have upstream's display grant off, so this only adds the check to
-            // standard and unrestricted.
-            None if !self.read_only(tool).await => {
-                return Err(CallError::new(
-                    "target_unresolved",
-                    format!("{tool} needs a pid or window_id of the app it acts on"),
-                ));
-            }
-            None => {}
+        let resolver = LiveResolver { worker: self, session };
+        let checked = target_guard::check(tool, &arguments, &resolver, &self.allow_terminals()).await?;
+        // An action with no resolvable target (screen coordinates, the focused window) could
+        // land on a never-allowed app (a terminal): refused in every mode. Ask and bounded
+        // sessions also have upstream's display grant off, so this only adds the check to
+        // standard and unrestricted.
+        if checked.targets.is_empty() && !self.read_only(tool).await {
+            return Err(CallError::new(
+                "target_unresolved",
+                format!("{tool} needs a pid or window_id of the app it acts on"),
+            ));
         }
-        let result = self.call_with(session, once.as_ref(), tool, &arguments).await;
+        let once = self.gate_all(session, &checked.targets, tool).await?;
+        let result = self.call_with(session, &once, tool, &arguments).await;
         // Upstream resolved a target the arguments did not name: ask about it, then retry once.
+        // Never for a batch: its earlier steps already ran, and every app it names was asked
+        // about before it started.
         if let Err(error) = &result
+            && !target_guard::is_batch(tool)
             && error.code.as_deref() == Some(OUTSIDE_MANIFEST)
             && let Some(target) = pid_in_message(&error.message).and_then(target_of_pid)
-            && asked_for.as_deref() != Some(target.key().as_str())
+            && !checked.targets.iter().any(|known| known.key() == target.key())
         {
-            let once = self.gate(session, &target, tool).await?;
-            return self.call_with(session, once.as_ref(), tool, &arguments).await;
+            let mut once = once;
+            once.extend(self.gate(session, &target, tool).await?);
+            return self.call_with(session, &once, tool, &arguments).await;
         }
         result
     }
@@ -485,6 +557,7 @@ impl Worker {
         self.saved_generation.fetch_add(1, Ordering::Relaxed);
         for session in lock(&self.sessions).values() {
             lock(&session.grants).retain(keep);
+            lock(&session.credits).retain(keep);
             session.version.fetch_add(1, Ordering::Relaxed);
         }
         // Revocation stops in-flight work: every upstream session is closed now.
@@ -529,6 +602,7 @@ pub async fn serve_session<S: AsyncRead + AsyncWrite + Unpin>(worker: Arc<Worker
         id: id.clone(),
         labels: Mutex::new(Labels::default()),
         grants: Mutex::new(Vec::new()),
+        credits: Mutex::new(Vec::new()),
         version: AtomicU64::new(0),
         handle: tokio::sync::Mutex::new(None),
     });

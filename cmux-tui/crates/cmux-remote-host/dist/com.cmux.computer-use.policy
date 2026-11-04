@@ -5,8 +5,8 @@
 <!--
   cmux Computer Use approvals on a Linux desktop (docs/computer-use-approvals.md).
   Install to /usr/share/polkit-1/actions/. The cmux Remote host asks with
-  CheckAuthorization(AllowUserInteraction) and details agent, workspace, app,
-  executable, tool, scope and client; polkit substitutes them below.
+  CheckAuthorization(AllowUserInteraction) and no details: polkit refuses
+  details from an unprivileged caller, so the messages are fixed text.
   auth_self: the person at the desktop confirms with their own password or
   fingerprint every time (no _keep: each question is answered once).
 -->
@@ -17,7 +17,7 @@
 
   <action id="com.cmux.computer-use.approve">
     <description>Allow an agent to use an app with cmux Computer Use</description>
-    <message>$(agent) in $(workspace) wants to use $(app) $(scope). Authenticate to allow it.</message>
+    <message>An agent in cmux wants to use an app with Computer Use. Check the question in cmux (cmux computer-use approvals pending), then authenticate to allow it.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
@@ -27,7 +27,7 @@
 
   <action id="com.cmux.computer-use.approve-always">
     <description>Always allow agents to use an app with cmux Computer Use</description>
-    <message>Always allow agents in $(client) to use $(app)? $(agent) in $(workspace) asked. Authenticate to allow it.</message>
+    <message>Always allow agents in this cmux to use an app with Computer Use? Check the question in cmux (cmux computer-use approvals pending), then authenticate to allow it.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
