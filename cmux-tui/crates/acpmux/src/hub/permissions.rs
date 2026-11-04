@@ -327,7 +327,7 @@ impl Hub {
             }
             "session_info_update" => {
                 if let Some(goal) = update.pointer("/_meta/goal") {
-                    m.goal = goal.as_object().map(|_| goal.clone());
+                    m.goal = crate::goal::GoalState::from_value(goal, m.family.as_deref());
                     goal_write = true;
                 }
                 // A harness title made from the first input stops before a client context

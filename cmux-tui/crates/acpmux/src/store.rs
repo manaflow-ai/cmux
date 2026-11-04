@@ -5,6 +5,7 @@
 //! Both expose the same API so the hub does not care which is active.
 
 use crate::config::{StoreConfig, StoreMode, write_atomic};
+use crate::goal::GoalState;
 use crate::no_panic::LockExt;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -211,7 +212,7 @@ pub struct SessionMeta {
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal: Option<Value>,
+    pub goal: Option<GoalState>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,

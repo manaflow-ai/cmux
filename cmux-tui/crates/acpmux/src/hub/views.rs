@@ -449,7 +449,7 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
-        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        v["goal"] = m.goal.as_ref().map(crate::goal::GoalState::to_value).unwrap_or(Value::Null);
         // What the context holds by category, as Claude Code's /context says after each turn.
         v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
         // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
