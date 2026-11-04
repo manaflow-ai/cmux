@@ -16,7 +16,7 @@ impl Hub {
             let looping = m
                 .goal
                 .as_ref()
-                .and_then(|goal| goal.get("kind"))
+                .and_then(|goal| goal.extra.get("kind"))
                 .and_then(Value::as_str)
                 .is_some_and(|kind| kind == "loop");
             if !looping {
