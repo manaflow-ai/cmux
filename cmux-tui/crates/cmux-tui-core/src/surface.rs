@@ -61,8 +61,12 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
+pub(crate) use input_port::{InputReply, input_may_be_written};
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
@@ -775,6 +779,9 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        // The attachment's other frames go after the keys the port took (S1.6b).
+        let port = input_port::InputPort::default();
+        attachment.set_input_order(port.order());
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -808,6 +815,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: port,
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",

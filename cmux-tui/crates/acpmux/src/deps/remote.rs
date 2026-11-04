@@ -80,7 +80,16 @@ pub enum Fetched {
     Miss,
     /// The hub has no dependency caches.
     Off,
+    /// Given up part way: at its pace it would have been slower than a cold
+    /// install (`give_up`). The archive's size and the bytes read.
+    Abandoned {
+        size: u64,
+        got: u64,
+    },
 }
+
+/// Time a download's pace is measured over before `give_up` is asked.
+const PACE_AFTER_MS: u64 = 300;
 
 /// What an upload did.
 #[derive(Debug, PartialEq, Eq)]
@@ -89,6 +98,27 @@ pub enum Stored {
     /// Another machine stored this key first.
     Exists,
     Off,
+}
+
+/// What the machine that stored an archive measured, kept beside it so a
+/// machine with no measurements of its own can still choose (`warm.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Meta {
+    /// Its cold install, which this archive saves.
+    pub cold_ms: u64,
+    pub archive_bytes: u64,
+}
+
+/// A timing record is a few dozen bytes; anything larger is not one.
+const META_MAX_BYTES: u64 = 4096;
+
+/// The key of `key`'s timing record: an entry of its own, of the same
+/// ecosystem, that no lockfile's key can equal.
+pub fn meta_key(key: &str) -> Option<String> {
+    let (ecosystem, _) = key.split_once('-')?;
+    let digest = Sha256::digest(format!("acpmux-deps meta\n{key}").as_bytes());
+    Some(format!("{ecosystem}-{}", hex(&digest)))
 }
 
 pub struct Remote {
@@ -127,7 +157,15 @@ impl Remote {
     }
 
     /// Download `key` into `out`, verifying its size and digest as it streams.
-    pub async fn fetch(&self, key: &str, out: &Path) -> Result<Fetched> {
+    /// `give_up(got, size, elapsed_ms)` is asked as it goes (after a short
+    /// measuring time): true ends the download as [`Fetched::Abandoned`].
+    pub async fn fetch(
+        &self,
+        key: &str,
+        out: &Path,
+        give_up: impl Fn(u64, u64, u64) -> bool,
+    ) -> Result<Fetched> {
+        let started = std::time::Instant::now();
         let mut response = self
             .client
             .get(self.url(key, ""))
@@ -167,6 +205,10 @@ impl Remote {
             }
             hasher.update(&chunk);
             file.write_all(&chunk)?;
+            let elapsed = started.elapsed().as_millis() as u64;
+            if elapsed >= PACE_AFTER_MS && got < size && give_up(got, size, elapsed) {
+                return Ok(Fetched::Abandoned { size, got });
+            }
         }
         file.flush()?;
         if got != size {
@@ -176,6 +218,28 @@ impl Remote {
             bail!("archive digest does not match");
         }
         Ok(Fetched::Hit(size))
+    }
+
+    /// `key`'s timing record, when its archive's uploader stored one.
+    pub async fn fetch_meta(&self, key: &str) -> Result<Option<Meta>> {
+        let Some(meta) = meta_key(key) else { return Ok(None) };
+        let scratch = tempfile::tempdir()?;
+        let path = scratch.path().join("meta.json");
+        match self.fetch(&meta, &path, |_, size, _| size > META_MAX_BYTES).await? {
+            Fetched::Hit(size) if size <= META_MAX_BYTES => {
+                Ok(serde_json::from_slice(&std::fs::read(&path)?).ok())
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Store `key`'s timing record (once: a later one finds it there).
+    pub async fn store_meta(&self, key: &str, meta: Meta) -> Result<Stored> {
+        let Some(meta_key) = meta_key(key) else { bail!("key has no ecosystem") };
+        let scratch = tempfile::tempdir()?;
+        let path = scratch.path().join("meta.json");
+        std::fs::write(&path, serde_json::to_vec(&meta)?)?;
+        self.store(&meta_key, &path).await
     }
 
     /// Upload the archive in `file` under `key`.
@@ -251,6 +315,18 @@ mod tests {
 
     fn sha(data: &[u8]) -> [u8; 32] {
         Sha256::digest(data).into()
+    }
+
+    #[test]
+    fn a_timing_record_has_a_key_of_its_own() {
+        let key = format!("bun-{}", "a".repeat(64));
+        let meta = meta_key(&key).unwrap();
+        assert!(meta.starts_with("bun-"));
+        assert_eq!(meta.len(), key.len());
+        assert_ne!(meta, key);
+        assert!(meta[4..].bytes().all(|b| b.is_ascii_hexdigit()));
+        assert_eq!(meta_key(&key), Some(meta));
+        assert_eq!(meta_key("nodash"), None);
     }
 
     #[test]

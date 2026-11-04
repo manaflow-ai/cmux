@@ -77,15 +77,21 @@ def reason(body: str) -> str | None:
 
 
 def check(
-    config: dict, base: str, body: str, paths: list[str], expected_files: int | None = None
+    config: dict,
+    base: str,
+    body: str,
+    paths: list[str],
+    expected_files: int | None = None,
+    listed_records: int | None = None,
 ) -> tuple[int, list[str]]:
     """Return (exit code, annotation lines).
 
     `expected_files` is the pull request's changed-file count. GitHub's files listing stops at
     3,000 entries, so a shorter listing than that count may hide a guarded path: into main that
-    fails unless the description gives a reason."""
+    fails unless the description gives a reason. `listed_records` is how many file records the
+    listing returned; a rename adds its old path to `paths`, so `paths` alone overcounts."""
     hits = guarded_hits(config, paths)
-    listed = len(set(paths))
+    listed = listed_records if listed_records is not None else len(set(paths))
     if expected_files is not None and listed < expected_files and not reason(body):
         message = (
             f"The changed-file listing has {listed} paths but the pull request changes {expected_files} files; "
@@ -127,10 +133,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--paths-file", type=Path, required=True, help="changed paths, one per line")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--expected-files", type=int, default=None, help="the pull request's changed_files")
+    parser.add_argument("--listed-records", type=int, default=None, help="file records the listing returned")
     args = parser.parse_args(argv)
     body = args.body_file.read_text() if args.body_file.exists() else ""
     paths = [line.strip() for line in args.paths_file.read_text().splitlines() if line.strip()]
-    code, lines = check(load_config(args.config), args.base, body, paths, args.expected_files)
+    code, lines = check(load_config(args.config), args.base, body, paths, args.expected_files, args.listed_records)
     for line in lines:
         print(line)
     return code
