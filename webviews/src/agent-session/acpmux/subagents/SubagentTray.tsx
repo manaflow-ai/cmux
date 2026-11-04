@@ -360,7 +360,10 @@ export const SubagentTray = memo(function SubagentTray({
   // top bit aka what the collapsed area shows i think can show much more interesting stuf fthan it
   // does now").
   const counts = headCounts;
-  const stacked = new Set(headMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
+  // A narrow tray keeps room for its counts: one mark, in the lines' icon column. A family the drawn
+  // marks already show is not drawn again after the counts; one they leave out still is.
+  const drawnMarks = headMarks.slice(0, narrow ? 1 : STACK_MARKS);
+  const stacked = new Set(drawnMarks.flatMap((mark) => (mark.harness ? [harnessFamily(mark.harness)] : [])));
   const trailingMarks = counts.marks.filter((harness) => !stacked.has(harnessFamily(harness)));
   const title = counts.text;
   // Its subagents and the chats it started run, or a command does: the header's mark is lit.
@@ -478,12 +481,11 @@ export const SubagentTray = memo(function SubagentTray({
             rememberTrayOpen(chat, !open);
           }}
         >
-          {head === "stack" && headMarks.length > 0 ? (
+          {head === "stack" && drawnMarks.length > 0 ? (
             // The lines' own marks side by side, each subagent's in its tone (trayHead.experiment.ts),
             // as the sidebar's status row stacks them before "8 done".
             <span className="acpmux-running-tray__stack" data-tray-stack aria-hidden="true">
-              {/* A narrow tray keeps room for its counts: one mark, in the lines' icon column. */}
-              {headMarks.slice(0, narrow ? 1 : STACK_MARKS).map((mark) => (
+              {drawnMarks.map((mark) => (
                 <AgentIdentity
                   key={mark.key}
                   className="acpmux-running-tray__stack-mark"
