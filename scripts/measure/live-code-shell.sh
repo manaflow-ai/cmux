@@ -22,7 +22,16 @@ shell=$!
 trap 'kill "$shell" 2>/dev/null || true' EXIT
 wait_for() { # PATTERN SECONDS
   for _ in $(seq 1 $(( $2 * 10 ))); do grep -q "$1" "$out/shell.log" && return 0; sleep 0.1; done
-  echo "timed out waiting for: $1" >&2; cat "$out/shell.log" >&2; return 1
+  echo "timed out waiting for: $1" >&2; cat "$out/shell.log" >&2
+  if kill -0 "$shell" 2>/dev/null; then
+    echo "the shell is still running; its main thread:" >&2
+    sample "$shell" 1 -mayDie 2>/dev/null | sed -n '/Call graph/,/Total number/p' | head -60 >&2 || true
+  else
+    wait "$shell"; echo "the shell exited with $?" >&2
+    report="$(ls -t ~/Library/Logs/DiagnosticReports/cmux-view-shell* 2>/dev/null | head -1)"
+    [[ -n "$report" ]] && head -c 6000 "$report" >&2
+  fi
+  return 1
 }
 wait_for "redrawn generation=0" 30
 cp "$package/Sources/ViewShell/Badge.swift" "$out/Badge.swift.orig"

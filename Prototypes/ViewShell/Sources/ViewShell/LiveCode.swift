@@ -47,6 +47,7 @@ final class LiveCode: ObservableObject {
 
     /// After a generation's views are rebuilt: says so, and writes its picture when asked.
     func drawn() {
+        print("view-shell: live code: drawing generation=\(generation)")
         if let render {
             let renderer = ImageRenderer(content: PreviewBadge(text: render.text).padding(4))
             renderer.scale = 2
@@ -62,7 +63,7 @@ final class LiveCode: ObservableObject {
     }
 
     private static func patches(in folder: URL) -> [String] {
-        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".dylib") }.sorted()
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasSuffix(".dylib") && !$0.hasPrefix(".") }.sorted()
     }
 
     private func scan(_ folder: URL) {
