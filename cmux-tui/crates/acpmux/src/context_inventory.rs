@@ -243,10 +243,10 @@ fn preset_part(text: String) -> ContextPart {
 /// Refresh only the preset part from the actual launch argv, after preset
 /// resolution. Reading later settings would describe a future launch instead.
 pub fn preset_source(argv: &[String]) -> Option<ContextPart> {
-    let file = argv
-        .windows(2)
-        .rev()
-        .find_map(|words| (words[0] == "--system-prompt-file").then(|| &words[1]))?;
+    let file = argv.windows(2).rev().find_map(|words| match words {
+        [flag, file] if flag == "--system-prompt-file" => Some(file),
+        _ => None,
+    })?;
     std::fs::read_to_string(file).ok().map(preset_part)
 }
 
