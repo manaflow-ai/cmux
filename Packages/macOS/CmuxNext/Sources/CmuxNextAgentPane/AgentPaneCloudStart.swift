@@ -253,7 +253,9 @@ struct AgentPaneHandOff {
     nonisolated static func copyableFolder(_ path: String, home: String?) async -> Result<String, AgentPaneCloudFolderRefusal> {
         await Task.detached(priority: .userInitiated) { () -> Result<String, AgentPaneCloudFolderRefusal> in
             guard let folder = AcpmuxPathPolicy.canonical(path), AcpmuxPathPolicy.isDirectory(folder) else { return .failure(.missing) }
-            let canonicalHome = home.map { AcpmuxPathPolicy.canonical($0) ?? ($0 as NSString).standardizingPath }
+            // No home given: this Mac's own, so the home and credential checks never lapse.
+            let home = home ?? NSHomeDirectory()
+            let canonicalHome: String? = AcpmuxPathPolicy.canonical(home) ?? (home as NSString).standardizingPath
             guard !AgentHome.isHomeOrAbove(folder, home: canonicalHome) else { return .failure(.homeOrAbove) }
             if let canonicalHome, let secret = AgentPaneCloudFolderRefusal.secretFolder(of: folder, home: canonicalHome) {
                 return .failure(.secret("~/" + secret))
@@ -290,9 +292,10 @@ nonisolated enum AgentPaneCloudFolderRefusal: Error, Equatable {
     case secret(String)
 
     /// Home's folders of keys and credentials, relative to home, that a Cloud copy never takes, nor a
-    /// folder holding one (`~/.config` holds gcloud's). cmux-tui's `link/access_cli.rs` `SECRET_FOLDERS`
-    /// keeps the like list for a shared folder's files. `Library` holds Keychains.
-    static let secretFolders = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library"]
+    /// folder holding one (`~/.config` holds gcloud's, `~/Library` Keychains). cmux-tui's
+    /// `link/access_cli.rs` `SECRET_FOLDERS` keeps the like list for a shared folder's files. Never all of
+    /// `~/Library`: iCloud Drive and the cloud-storage folders (Dropbox, Google Drive) hold projects there.
+    static let secretFolders = [".ssh", ".aws", ".gnupg", ".config/gcloud", ".kube", ".docker", ".secrets", ".azure", "Library/Keychains"]
 
     /// The first of ``secretFolders`` that `folder` (canonical) is in or holds, by path components; nil
     /// for none. Reads no disk: a credential folder need not exist to be refused.

@@ -248,7 +248,7 @@ struct AgentPaneCloudStartTests {
         let cases: [(String, String)] = [(".ssh", "~/.ssh"), (".ssh/keys", "~/.ssh"), (".aws", "~/.aws"), (".gnupg", "~/.gnupg"),
                                          (".config", "~/.config/gcloud"), (".config/gcloud", "~/.config/gcloud"), (".kube", "~/.kube"),
                                          (".docker", "~/.docker"), (".secrets", "~/.secrets"), (".azure", "~/.azure"),
-                                         ("Library", "~/Library"), ("Library/Keychains", "~/Library"), (".SSH", "~/.ssh")]
+                                         ("Library", "~/Library/Keychains"), ("Library/Keychains", "~/Library/Keychains"), (".SSH", "~/.ssh")]
         for (relative, named) in cases {
             let model = Self.pane(starts)
             model.transport.homeFolder = home
@@ -260,11 +260,18 @@ struct AgentPaneCloudStartTests {
             #expect(model.transport.replacements.beginSandbox())
         }
         #expect(starts.seen.isEmpty)
-        let model = Self.pane(starts)
-        model.transport.homeFolder = home
-        model.transport.gestures.record()
-        let started = await model.respond(to: Self.start(Self.good.merging(["cwd": project]) { $1 }))
-        #expect(started["ok"] as? Bool == true, "\(started)")
+        // A project folder still starts, and so does one in iCloud Drive or a cloud-storage folder
+        // under ~/Library (review of #35019 at 8f03b2c: all of ~/Library refused them).
+        let iCloud = (home as NSString).appendingPathComponent("Library/Mobile Documents/com~apple~CloudDocs/paint")
+        let dropbox = (home as NSString).appendingPathComponent("Library/CloudStorage/Dropbox/paint")
+        for folder in [iCloud, dropbox] { try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+        for cwd in [project, iCloud, dropbox] {
+            let model = Self.pane(starts)
+            model.transport.homeFolder = home
+            model.transport.gestures.record()
+            let started = await model.respond(to: Self.start(Self.good.merging(["cwd": cwd]) { $1 }))
+            #expect(started["ok"] as? Bool == true, "\(cwd): \(started)")
+        }
     }
 
     /// cmux#35005: a folder that is gone, and home or above it, each get their own code, never the
