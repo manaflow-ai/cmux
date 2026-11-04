@@ -88,7 +88,11 @@ fn scrubbed_file(
     size: Option<u64>,
 ) -> Result<Vec<u8>, Failure> {
     let size = size.filter(|size| *size <= MAX_PAGE_BYTES as u64).ok_or(Refusal::Refused)?;
-    let params = json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1), "epoch": epoch});
+    let mut params =
+        json!({"transferId": transfer_id, "path": path, "offset": 0, "limit": size.max(1)});
+    if epoch != 0 {
+        params["epoch"] = json!(epoch);
+    }
     let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
     let bytes = page
         .field("data")

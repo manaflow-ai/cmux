@@ -900,6 +900,12 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
     let call = |method: &str, params: Value, timeout: Duration| -> Result<Value, Failure> {
         Ok(link.call(method, params, timeout)?)
     };
+    let with_epoch = |mut params: Value, epoch: u64| {
+        if epoch != 0 {
+            params.insert("epoch", json!(epoch));
+        }
+        params
+    };
     let transfers = &mux.agent_transfers;
     match prepared {
         Prepared::Receive { manifest, guard, cwd, moved } => {
@@ -918,14 +924,18 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"receive_id": receive_id, "session_id": answer.field("sessionId")}))
         }
         Prepared::Write { receive_id, path, offset, data, epoch } => {
-            let params = json!({"receiveId": receive_id, "path": path, "offset": offset,
-                                "data": data, "epoch": epoch});
+            let params = with_epoch(
+                json!({"receiveId": receive_id, "path": path, "offset": offset, "data": data}),
+                epoch,
+            );
             let answer = call("_acpmux/transfer_write", params, CALL_TIMEOUT)?;
             Ok(json!({"next": answer.field("next")}))
         }
         Prepared::Finish { receive_id, cwd, name, epoch } => {
             let mut params = json!({"receiveId": receive_id, "cwd": cwd});
-            params.insert("epoch", json!(epoch));
+            if epoch != 0 {
+                params.insert("epoch", json!(epoch));
+            }
             if let Some(name) = name {
                 params.insert("name", json!(name));
             }
@@ -963,7 +973,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 Err(failure) => {
                     // The chat must not stay frozen for a move nobody can read.
                     let params =
-                        json!({"sessionId": session, "transferId": transfer_id, "epoch": epoch});
+                        with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
                     let _ = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
                     return Err(failure);
                 }
@@ -977,7 +987,10 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                        "manifest": manifest}))
         }
         Prepared::Read { transfer_id, path, offset, limit, epoch } => {
-            let params = json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": limit, "epoch": epoch});
+            let params = with_epoch(
+                json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": limit}),
+                epoch,
+            );
             let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
             Ok(
                 json!({"data": page.field("data"), "next": page.field("next"), "eof": page.field("eof")}),
@@ -998,8 +1011,10 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             })
         }
         Prepared::Commit { session, transfer_id, to, epoch } => {
-            let params =
-                json!({"sessionId": session, "transferId": transfer_id, "to": to, "epoch": epoch});
+            let params = with_epoch(
+                json!({"sessionId": session, "transferId": transfer_id, "to": to}),
+                epoch,
+            );
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
@@ -1007,7 +1022,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id, epoch } => {
-            let params = json!({"sessionId": session, "transferId": transfer_id, "epoch": epoch});
+            let params =
+                with_epoch(json!({"sessionId": session, "transferId": transfer_id}), epoch);
             let aborted = call("_acpmux/transfer_abort", params, CALL_TIMEOUT);
             // Forgotten either way: a move acpmux will not abort committed
             // or was never this chat's, and no read of it should go on.
