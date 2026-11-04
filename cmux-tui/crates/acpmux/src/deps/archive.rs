@@ -213,6 +213,25 @@ fn walk(
     Ok(())
 }
 
+/// `target` read from the folder `dir` (both relative to the archive root),
+/// lexically: None when it is absolute or climbs above the root.
+fn within(dir: &Path, target: &Path) -> Option<PathBuf> {
+    let mut out = dir.to_path_buf();
+    for part in target.components() {
+        match part {
+            Component::Normal(name) => out.push(name),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    return None;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(out)
+}
+
 fn safe_relative(path: &Path) -> bool {
     path.components().all(|c| matches!(c, Component::Normal(_))) && path.components().count() > 0
 }
@@ -288,6 +307,21 @@ pub fn unpack(
                 out.outside += 1;
                 continue;
             }
+            // A link must land inside the plan's folders too: tar's own bound is
+            // all of `dest`, so `registry/cache -> ../bin` followed by
+            // `registry/cache/cargo` would write `~/.cargo/bin/cargo`.
+            if let Some(target) = entry.link_name()? {
+                let kind = entry.header().entry_type();
+                let resolved = if kind.is_symlink() {
+                    path.parent().and_then(|dir| within(dir, &target))
+                } else {
+                    within(Path::new(""), &target)
+                };
+                if !resolved.is_some_and(|r| allowed.iter().any(|prefix| r.starts_with(prefix))) {
+                    out.outside += 1;
+                    continue;
+                }
+            }
             if !entry.unpack_in(dest)? {
                 return Err(io::Error::other("archive entry outside its folder"));
             }
@@ -318,7 +352,7 @@ pub fn unpack(
     result.map(|()| out)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -391,6 +425,56 @@ mod tests {
             return;
         }
         round_trip(Codec::Zstd);
+    }
+
+    #[test]
+    fn unpack_never_writes_through_a_link_that_leaves_the_plan_folders() {
+        let out = tempfile::tempdir().unwrap();
+        let archive = out.path().join("a.tar.gz");
+        {
+            let gz = flate2::write::GzEncoder::new(
+                File::create(&archive).unwrap(),
+                flate2::Compression::fast(),
+            );
+            let mut b = tar::Builder::new(gz);
+            let link = |name: &str, target: &str, kind: tar::EntryType| {
+                let mut h = tar::Header::new_gnu();
+                h.set_entry_type(kind);
+                h.set_size(0);
+                h.set_mode(0o777);
+                h.set_path(name).unwrap();
+                h.set_link_name(target).unwrap();
+                h.set_cksum();
+                h
+            };
+            // registry/cache -> ../bin, then a file through it: ~/.cargo/bin/cargo.
+            let h = link("registry/cache", "../bin", tar::EntryType::Symlink);
+            b.append(&h, &[][..]).unwrap();
+            let h = link("registry/index/abs", "/etc", tar::EntryType::Symlink);
+            b.append(&h, &[][..]).unwrap();
+            let h = link("registry/index/hard", "bin/cargo", tar::EntryType::Link);
+            b.append(&h, &[][..]).unwrap();
+            // A link that stays inside the plan's folders is kept.
+            let h = link("registry/index/ok", "../cache-ok", tar::EntryType::Symlink);
+            b.append(&h, &[][..]).unwrap();
+            let mut header = tar::Header::new_gnu();
+            header.set_size(6);
+            header.set_mode(0o644);
+            header.set_cksum();
+            b.append_data(&mut header, "registry/cache/cargo", &b"#!evil"[..]).unwrap();
+            b.into_inner().unwrap().finish().unwrap();
+        }
+        let dest = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dest.path().join("bin")).unwrap();
+        let allowed =
+            ["registry/index".into(), "registry/cache".into(), "registry/cache-ok".into()];
+        // The file entry then lands in a real registry/cache folder, never in bin/.
+        let unpacked = unpack(&archive, Codec::Gzip, dest.path(), &allowed).unwrap();
+        assert_eq!(unpacked.outside, 3, "{unpacked:?}");
+        assert!(!dest.path().join("bin/cargo").exists());
+        assert!(!dest.path().join("registry/cache").is_symlink());
+        assert!(!dest.path().join("registry/index/abs").exists());
+        assert!(dest.path().join("registry/index/ok").is_symlink());
     }
 
     #[test]

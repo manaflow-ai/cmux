@@ -130,7 +130,10 @@ async fn one(
     let scratch = tempfile::tempdir()?;
     let archive_path: PathBuf = scratch.path().join("deps.tar");
     let mut cold = false;
-    if present(&plan) {
+    // A project's own node_modules that is already there is kept. A package
+    // manager's shared cache is always merged into: one earlier install must
+    // not stop every later project from restoring or publishing its key.
+    if plan.replaces && present(&plan) {
         report.restore = "present";
     } else if let Some(remote) = remote {
         let started = Instant::now();
