@@ -163,6 +163,8 @@ export const L = {
   portsUp: "ports.up",
   portsDown: "ports.down",
   portsClose: "ports.close",
+  sharePreview: "ports.sharePreview",
+  revokeShare: "ports.revokeShare",
   openBrowser: "ports.openBrowser",
   browserProxy: "ports.browserProxy",
   browserTabUnavailable: "ports.browserTabUnavailable",

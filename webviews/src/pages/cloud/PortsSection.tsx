@@ -40,6 +40,7 @@ export function PortsSection({
         <ul className="cloud-items">
           {detail.ports.map((forward) => {
             const pending = detail.pendingPorts?.find((pending) => pending.port === forward.port);
+            const shared = detail.sharedPreviews?.[forward.port];
             return (
               <li key={forward.port} className="cloud-item cloud-forward">
                 <span className="cloud-item-title cloud-mono">
@@ -63,6 +64,27 @@ export function PortsSection({
                   >
                     {t(L.openBrowser)}
                   </button>
+                  {shared ? (
+                    <button
+                      type="button"
+                      className="cloud-link-button cloud-forward-revoke"
+                      disabled={!!pending}
+                      aria-busy={pending?.action === "revoke"}
+                      onClick={() => void store.detail.revokePreview(machine, forward.port, shared.linkId)}
+                    >
+                      {t(L.revokeShare)}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="cloud-link-button cloud-forward-share"
+                      disabled={!!pending}
+                      aria-busy={pending?.action === "share"}
+                      onClick={() => void store.detail.sharePreview(machine, forward.port)}
+                    >
+                      {t(L.sharePreview)}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="cloud-link-button cloud-forward-close"
@@ -73,6 +95,7 @@ export function PortsSection({
                     {t(L.portsClose)}
                   </button>
                 </span>
+                {shared && <code className="cloud-mono cloud-preview-share-url">{shared.url}</code>}
               </li>
             );
           })}

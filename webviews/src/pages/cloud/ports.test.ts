@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { pageError, type PageClient } from "../shared/pageClient";
 import { DetailReader, type MachineDetail, type PortAction } from "./detail";
-import { ACTION_RUN, CloudOps, HostActions, type BrowserRoute, type PortForward } from "./ops";
+import { ACTION_RUN, CloudActions, CloudOps, HostActions, type BrowserRoute, type PortForward } from "./ops";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -63,6 +63,10 @@ async function fixture() {
       if (op === CloudOps.portList) return { forwards: [forward(String(params.machine))] } as R;
       if (op === CloudOps.portForward) return forward(String(params.machine), Number(params.port)) as R;
       if (op === CloudOps.browserOpen) return route(String(params.machine), Number(params.port)) as R;
+      if (op === ACTION_RUN && params.action === CloudActions.previewShare)
+        return { confirmed: true, machine_id: String((params.args as Record<string, unknown>).machine), port: Number((params.args as Record<string, unknown>).port), linkId: "link-3000", url: "https://preview.example/link-3000", expiresAt: 1_999_999_999_999 } as R;
+      if (op === ACTION_RUN && params.action === CloudActions.previewRevoke)
+        return { confirmed: true, revoked: true } as R;
       return null as R;
     },
     async subscribe() {
@@ -178,6 +182,18 @@ describe("Cloud port action boundaries", () => {
     tab.resolve({ confirmed: true });
     expect(await running).toBe(true);
     expect(f.pending()).toEqual([]);
+  });
+
+  test("share creates and copies the link, then revoke removes it from the port", async () => {
+    const f = await fixture();
+    expect(await f.reader.sharePreview("a", 3000)).toBe(true);
+    expect(f.get().sharedPreviews?.[3000]).toEqual({ linkId: "link-3000", url: "https://preview.example/link-3000", expiresAt: 1_999_999_999_999 });
+    const share = f.calls.find((call) => call.op === ACTION_RUN && call.params.action === CloudActions.previewShare);
+    expect(share?.params.args).toEqual({ machine: "a", port: 3000 });
+    expect(await f.reader.revokePreview("a", 3000, "link-3000")).toBe(true);
+    expect(f.get().sharedPreviews?.[3000]).toBeUndefined();
+    const revoke = f.calls.find((call) => call.op === ACTION_RUN && call.params.action === CloudActions.previewRevoke);
+    expect(revoke?.params.args).toEqual({ machine: "a", port: 3000, linkId: "link-3000" });
   });
 
   for (const { action, op, run } of actions) {
