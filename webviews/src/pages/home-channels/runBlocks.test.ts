@@ -46,7 +46,7 @@ test("labels a group with only protocol rows as having no visible calls", () => 
 });
 
 test("prefers the command title and never displays raw JSON", () => {
-  const command = tool({ name: "exec", title: "{\"command\":\"pwd\"}", input: { command: "pwd\necho done" } });
+  const command = tool({ name: "exec", title: '{"command":"pwd"}', input: { command: "pwd\necho done" } });
   expect(homeToolTitle(command)).toBe("pwd");
   expect(homeToolKind(command)).toBe("command");
 });

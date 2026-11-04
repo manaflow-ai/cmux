@@ -2560,6 +2560,11 @@ path = "tests/test_nightly_next_rolling_dmg_identity.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_sign_yield.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence, 2026-10-23); run by the change's author: python3 -m unittest tests/test_nightly_sign_yield.py."
+
+[[test]]
 path = "tests/test_nightly_next_identity_probe.py"
 lane = "linux-guard"
 
