@@ -89,18 +89,29 @@ if code != 0:
 # 3. The Cloud chat: start, send, wait for the turn, read the reply.
 code, out, err = cmux("cloud", "start-chat", "--prompt", args.prompt, "--agent", args.agent,
                       "--wait", "--timeout", "900", "--json", timeout=1200)
-answer = {}
-try:
-    answer = json.loads(out) if out.strip() else {}
-except json.JSONDecodeError:
-    pass
-reply = answer.get("reply") if isinstance(answer, dict) else None
+def parsed(text: str) -> dict:
+    try:
+        value = json.loads(text) if text.strip() else {}
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+answer = parsed(out)
+reply = answer.get("reply")
 record("cloud start-chat", code, out, err, reply=clean(reply or "", 8000) or None)
-machine = answer.get("machine_id") if isinstance(answer, dict) else None
+# A failed chat answers on stderr, with the machine it made at details.answer.machine_id.
+failure = parsed(err).get("details") or {}
+machine = answer.get("machine_id") or (failure.get("answer") or {}).get("machine_id")
 
-# 4. The machine the chat made goes, pass or fail.
+# 4. The machine the chat made goes, pass or fail (a destructive verb needs --confirm from a script).
+killed = True
 if machine:
-    code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--json", timeout=120)
+    code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
+                                timeout=120)
     record("cloud kill-machine", code_k, out_k, err_k)
+    killed = code_k == 0
 
-finish("pass" if code == 0 and reply else "fail: cloud start-chat gave no reply")
+if not (code == 0 and reply):
+    finish("fail: cloud start-chat gave no reply")
+finish("pass" if killed else "fail: the chat replied but its machine was not killed")

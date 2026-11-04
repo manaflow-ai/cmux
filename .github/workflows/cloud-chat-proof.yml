@@ -144,10 +144,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      - name: Stop the tagged app
-        if: always()
-        run: pkill -f "DerivedData/cmux-${CMUX_PROOF_TAG}/.*/cmux DEV" 2>/dev/null || true
-
       - name: Remove the auth profile
         if: always()
         run: |
