@@ -34,7 +34,10 @@ const linkLabel = (href: string) => {
 /// one, and the card renders again for each row the pointer (or a wheel under it) passes.
 let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  (timeFormat ??= new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" })).format(new Date(at));
+  (timeFormat ??= new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })).format(new Date(at));
 
 // Only bounded preview spans pass here. Preserve both ends of hashes, paths and URLs; the full
 // token stays available to hover and assistive technology instead of taking over the whole card.
@@ -83,8 +86,20 @@ function forwardScrollKey(scroller: HTMLElement, event: React.KeyboardEvent): vo
 const underCard: CoveredCandidates = (surface) =>
   surface.parentElement?.querySelectorAll(":scope > .acpmux-scroll") ?? [];
 
-/// A prompt card's measured text budget: the reply's lines under the prompt's, at the card's width.
-type Fit = { width: number; lineHeight: number; lines: number };
+/// A prompt card's measured text budget: the reply's lines under the prompt's, at the card's width and
+/// its type (`type`: the prompt's and the reply's line heights, which a text size or density changes).
+type Fit = { width: number; type: string; lineHeight: number; lines: number };
+/// The card's type as `Fit.type` keeps it: one style read each, no layout of their own.
+function typeOf(
+  prompt: HTMLElement,
+  reply: HTMLElement,
+): { type: string; prompt: number; reply: number } | undefined {
+  const view = prompt.ownerDocument.defaultView;
+  if (!view) return undefined;
+  const promptLine = Number.parseFloat(view.getComputedStyle(prompt).lineHeight) || 20;
+  const replyLine = Number.parseFloat(view.getComputedStyle(reply).lineHeight) || promptLine;
+  return { type: `${promptLine}/${replyLine}`, prompt: promptLine, reply: replyLine };
+}
 /// What a fit is remembered by: the reply's blocks (a turn keeps its own) and the text beside them.
 type FitKey = { reply: readonly ReplyBlock[]; text: string };
 /// Every card's measured budgets, by what it showed (PreviewCard `fit`). A sweep back over rows it
@@ -200,7 +215,9 @@ export const PreviewCard = React.forwardRef<
     const mark = from.getBoundingClientRect();
     const frame = base.getBoundingClientRect();
     const shiftX =
-      Number.parseFloat(from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "") || 0;
+      Number.parseFloat(
+        from.ownerDocument.defaultView?.getComputedStyle(from.parentElement!).translate ?? "",
+      ) || 0;
     return {
       x: mark.left - shiftX - frame.left - base.clientLeft + base.scrollLeft,
       y: mark.top - frame.top - base.clientTop + base.scrollTop,
@@ -249,7 +266,12 @@ export const PreviewCard = React.forwardRef<
   /// natural height with its clamp lifted, the card's height under its budget), and a row it has
   /// measured at this width (`known`) writes its remembered budget and reads once.
   const fit = useCallback(
-    (node: HTMLElement, promptCard: boolean, known: FitKey, reuse: boolean): { width: number; height: number } => {
+    (
+      node: HTMLElement,
+      promptCard: boolean,
+      known: FitKey,
+      reuse: boolean,
+    ): { width: number; height: number } => {
       const replyNode = node.querySelector<HTMLElement>(".acpmux-minimap__reply");
       const promptNode = node.querySelector<HTMLElement>(".acpmux-minimap__prompt");
       const settle = () => {
@@ -268,21 +290,27 @@ export const PreviewCard = React.forwardRef<
       const remembered = reuse ? fitOf(known) : undefined;
       if (remembered) {
         budget(replyNode, remembered.lines, remembered.lineHeight);
+        // One read pass after the write: the card's place and size, and its type, which the budget
+        // does not change. A text size or density changed since the fit (with the card closed, so
+        // its observer never saw it) measures again below, as does a card drawn wider or narrower.
         const from = origin(node);
         const size = { width: node.offsetWidth, height: node.offsetHeight };
-        // The same content at the same width wraps the same: the budget holds. A card that drew
-        // wider or narrower (the pane resized since) measures again below.
-        if (size.width === remembered.width) {
+        if (
+          size.width === remembered.width &&
+          typeOf(promptNode, replyNode)?.type === remembered.type
+        ) {
           move(node, from, size.height);
           return size;
         }
       }
-      const style = promptNode.ownerDocument.defaultView?.getComputedStyle(promptNode);
-      if (!style) return settle();
-      const lineHeight = Number.parseFloat(style.lineHeight) || 20;
-      const replyStyle = replyNode.ownerDocument.defaultView?.getComputedStyle(replyNode);
-      const replyLineHeight = Number.parseFloat(replyStyle?.lineHeight ?? "") || lineHeight;
-      const promptLines = Math.max(1, Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)));
+      const type = typeOf(promptNode, replyNode);
+      if (!type) return settle();
+      const lineHeight = type.prompt;
+      const replyLineHeight = type.reply;
+      const promptLines = Math.max(
+        1,
+        Math.min(3, Math.ceil(promptNode.getBoundingClientRect().height / lineHeight)),
+      );
       // The reply's natural height, read from the reply itself with its clamp lifted for the read
       // (an inline style, put back before anything paints). A measuring copy appended to the card
       // and removed again was two DOM insertions under the page's `:has()` rules on every row the
@@ -307,7 +335,12 @@ export const PreviewCard = React.forwardRef<
       budget(replyNode, lines, replyLineHeight);
       // The budget sets the card's height, and with it where the card centers.
       const size = settle();
-      rememberFit(known, { width: size.width, lineHeight: replyLineHeight, lines });
+      rememberFit(known, {
+        width: size.width,
+        type: type.type,
+        lineHeight: replyLineHeight,
+        lines,
+      });
       return size;
     },
     [origin, move],
@@ -317,7 +350,10 @@ export const PreviewCard = React.forwardRef<
   promptCard.current = prompt !== undefined;
   /// What the card shows, as its fit remembers it (`fitOf`): the reply's blocks, which a turn keeps,
   /// and what else wraps the prompt and the reply.
-  const content: FitKey = { reply, text: `${pending ? "\u0001" : ""}${prompt ?? ""}\u0000${bookmark ? 1 : 0}` };
+  const content: FitKey = {
+    reply,
+    text: `${pending ? "\u0001" : ""}${prompt ?? ""}\u0000${bookmark ? 1 : 0}`,
+  };
   const known = useRef(content);
   known.current = content;
   /// The card's size as of its last fit: a resize notification of that size (the observer's first,
@@ -360,7 +396,8 @@ export const PreviewCard = React.forwardRef<
     const node = self.current;
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height) return;
+      if (node.offsetWidth === fitted.current.width && node.offsetHeight === fitted.current.height)
+        return;
       refit(node, false);
     });
     observer.observe(node);
@@ -374,7 +411,9 @@ export const PreviewCard = React.forwardRef<
     },
     [ref],
   );
-  const scrollKey = layer ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event) : undefined;
+  const scrollKey = layer
+    ? (event: React.KeyboardEvent) => forwardScrollKey(scroller!, event)
+    : undefined;
   const cardStyle: React.CSSProperties & { "--acpmux-rail-left": string } = {
     "--acpmux-rail-left": `${railLeft}px`,
     ...(side === "right" && !layer ? { left: "auto", right: 0 } : {}),
@@ -437,7 +476,9 @@ export const PreviewCard = React.forwardRef<
           )}
           {metadata.toolCount !== undefined && metadata.toolCount > 0 && (
             <span className="acpmux-minimap__meta-token" data-meta="tools">
-              {metadata.toolCount === 1 ? t("toolRun.used.one") : t("toolRun.used.other", { n: metadata.toolCount })}
+              {metadata.toolCount === 1
+                ? t("toolRun.used.one")
+                : t("toolRun.used.other", { n: metadata.toolCount })}
             </span>
           )}
           {metadata.fileCount !== undefined && (
@@ -472,7 +513,10 @@ export const PreviewCard = React.forwardRef<
       {reply.length > 0 && (
         <div className="acpmux-minimap__reply" data-only={prompt === undefined || undefined}>
           {reply.map((block, blockIndex) => (
-            <p key={blockIndex} className={block.kind === "item" ? "acpmux-minimap__item" : undefined}>
+            <p
+              key={blockIndex}
+              className={block.kind === "item" ? "acpmux-minimap__item" : undefined}
+            >
               {block.spans.map((span, spanIndex) =>
                 span.code ? (
                   <code key={spanIndex}>{previewText(span.text)}</code>
