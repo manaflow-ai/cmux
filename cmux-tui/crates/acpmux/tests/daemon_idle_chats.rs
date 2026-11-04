@@ -179,6 +179,96 @@ fn usage(pid: u32) -> Option<Usage> {
     Some(Usage { cpu: Duration::from_millis(ticks * 1000 / hz), switches })
 }
 
+/// Each thread of `pid` as (thread handle, name, CPU time): macOS `PROC_PIDLISTTHREADS` and
+/// `PROC_PIDTHREADINFO`. A thread whose time grew in a window ran in it; a handle that is new in
+/// every window is a thread made and ended per wake (a blocking pool thread past its keep-alive).
+#[cfg(target_os = "macos")]
+fn threads(pid: u32) -> Vec<(u64, String, Duration)> {
+    use std::os::raw::{c_int, c_void};
+    #[repr(C)]
+    struct ThreadInfo {
+        user_time: u64,
+        system_time: u64,
+        cpu_usage: i32,
+        policy: i32,
+        run_state: i32,
+        flags: i32,
+        sleep_time: i32,
+        curpri: i32,
+        priority: i32,
+        maxpriority: i32,
+        name: [u8; 64],
+    }
+    unsafe extern "C" {
+        fn proc_pidinfo(
+            pid: c_int,
+            flavor: c_int,
+            arg: u64,
+            buffer: *mut c_void,
+            size: c_int,
+        ) -> c_int;
+    }
+    const PROC_PIDTHREADINFO: c_int = 5;
+    const PROC_PIDLISTTHREADS: c_int = 6;
+    let mut handles = vec![0u64; 512];
+    // SAFETY: the buffer holds `handles.len()` u64 handles, as the flavor writes.
+    let got = unsafe {
+        proc_pidinfo(
+            pid as c_int,
+            PROC_PIDLISTTHREADS,
+            0,
+            handles.as_mut_ptr().cast(),
+            (handles.len() * 8) as c_int,
+        )
+    };
+    handles.truncate(usize::try_from(got.max(0)).unwrap_or(0) / 8);
+    handles
+        .into_iter()
+        .filter_map(|handle| {
+            let mut info: ThreadInfo = unsafe { std::mem::zeroed() };
+            let size = size_of::<ThreadInfo>() as c_int;
+            // SAFETY: `info` matches struct proc_threadinfo and its size.
+            let read = unsafe {
+                proc_pidinfo(pid as c_int, PROC_PIDTHREADINFO, handle, (&raw mut info).cast(), size)
+            };
+            (read == size).then(|| {
+                let end = info.name.iter().position(|b| *b == 0).unwrap_or(info.name.len());
+                let name = String::from_utf8_lossy(&info.name[..end]).into_owned();
+                (handle, name, Duration::from_nanos(info.user_time + info.system_time))
+            })
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn threads(_pid: u32) -> Vec<(u64, String, Duration)> {
+    Vec::new()
+}
+
+/// The threads of `pid` that ran in each window: name, handle, CPU, and whether the thread was
+/// new in that window.
+fn thread_report(marks: &[Vec<(u64, String, Duration)>]) -> String {
+    let mut lines = Vec::new();
+    for (n, pair) in marks.windows(2).enumerate() {
+        let before: std::collections::HashMap<u64, Duration> =
+            pair[0].iter().map(|(h, _, t)| (*h, *t)).collect();
+        let mut ran = Vec::new();
+        for (handle, name, time) in &pair[1] {
+            match before.get(handle) {
+                Some(was) if time > was => {
+                    ran.push(format!("{name}#{handle:x} +{:?}", *time - *was))
+                }
+                Some(_) => {}
+                None => ran.push(format!("NEW {name}#{handle:x} {time:?}")),
+            }
+        }
+        let gone =
+            pair[0].iter().filter(|(h, _, _)| !pair[1].iter().any(|(k, _, _)| k == h)).count();
+        lines.push(format!("  window {}: ran [{}], ended threads {gone}", n + 1, ran.join(", ")));
+    }
+    lines.join("\n")
+}
+
 /// (pid, ppid, command) of every process.
 fn table() -> Vec<(u32, u32, String)> {
     let out = std::process::Command::new("ps")
@@ -367,9 +457,11 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
 
     let procs = processes(pid, &home);
     let mut marks = vec![procs.iter().map(|(p, _)| usage(*p)).collect::<Vec<_>>()];
+    let mut daemon_threads = vec![threads(pid)];
     for _ in 0..WINDOWS {
         std::thread::sleep(WINDOW);
         marks.push(procs.iter().map(|(p, _)| usage(*p)).collect());
+        daemon_threads.push(threads(pid));
     }
     let mut report = Vec::new();
     let mut busiest: Option<(u32, Duration)> = None;
@@ -400,12 +492,15 @@ fn acpmux_daemon_with_finished_chats_has_no_periodic_wakeups() {
         }
     }
     let sampled = busiest.map(|(p, _)| sample_of(p, &scratch)).unwrap_or_default();
+    let ran = thread_report(&daemon_threads);
+    println!("daemon threads that ran, per {WINDOW:?} window:\n{ran}");
     drop(streams);
     drop(daemon);
     let _ = fs::remove_dir_all(&scratch);
     assert!(
         report.is_empty(),
-        "an idle acpmux daemon with {CHATS} finished chats woke up ({} processes measured):\n{}\n{sampled}",
+        "an idle acpmux daemon with {CHATS} finished chats woke up ({} processes measured):\n{}\n\
+         daemon threads that ran, per {WINDOW:?} window:\n{ran}\n{sampled}",
         procs.len(),
         report.join("\n")
     );
