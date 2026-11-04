@@ -182,6 +182,7 @@ final class BrowserHibernation {
     }
 
     func stop() {
+        agentPages?.pages.stop()
         settingsObservation?.cancel()
         pressureObservation?.cancel()
         pressureObservation = nil

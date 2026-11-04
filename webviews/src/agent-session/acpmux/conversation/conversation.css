@@ -3608,7 +3608,9 @@ button.cv-video-frames__frame:focus-visible {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
-  color: var(--cv-activity-text);
+  /* The transcript's text tone, as every message row between agents (AgentMessageRow.css "One line,
+     inline"; Leo, 2026-11-03: "idk why everything is grey other than the recieving message bubble"). */
+  color: var(--cv-text);
 }
 /* Another agent's message (IncomingMessageCard.tsx): the shared DisclosureRow's line, on the tool
    rows' line with no margins of its own (its row's frame, `.acpmux-row--line`, gives the room and
@@ -3630,7 +3632,7 @@ button.cv-video-frames__frame:focus-visible {
   position: relative;
   height: var(--cv-message-line);
   min-height: 0;
-  color: var(--cv-activity-text);
+  color: var(--cv-text);
   /* The hover plate keeps its inset while the sender's mark stays in the shared icon column. */
   margin-inline-start: calc(-1 * var(--ds-space-1));
   padding-inline: var(--ds-space-1);
@@ -3706,10 +3708,12 @@ button.cv-video-frames__frame:focus-visible {
    every tool row's words do: the slot plus the gap, 24px (grid.md 5.5; transcript-icon-column.test.ts). */
 .cv-received__sender {
   display: inline-flex;
-  flex: none;
+  /* Its whole name: the first line after it gives way first (`.cv-disclosure__label`, shrink 1000;
+     Leo, 2026-11-03: "idk why names are ellipses'd so early"). Only a name wider than the line is cut. */
+  flex: 0 0 auto;
   align-items: center;
-  max-width: 45%;
   min-width: 0;
+  max-width: 100%;
   height: var(--cv-message-line);
   gap: var(--cv-row-icon-gap);
 }
@@ -3740,8 +3744,8 @@ button.cv-video-frames__frame:focus-visible {
   white-space: nowrap;
   color: var(--cv-activity-text);
 }
-/* The sender span already caps the name at 45% of the line: its tag takes the span's room (less
-   the mark), never a percentage of a percentage that cuts the name short beside an empty gap. */
+/* Its tag takes the sender span's room (less the mark), never AgentTag.css's 40% of it, which cut the
+   name short beside an empty gap. */
 .cv-received__sender > .cv-agent-tag {
   flex: 0 1 auto;
   max-width: 100%;
@@ -3806,12 +3810,12 @@ button.cv-received__host:focus-visible > .cv-received__host-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--cv-text-dim);
+  color: var(--cv-text-muted);
 }
 /* Opened: the whole message, wrapped, never cut. */
 .cv-received__text {
   margin-top: 4px;
-  color: var(--cv-activity-text);
+  color: var(--cv-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
@@ -3820,8 +3824,9 @@ button.cv-received__host:focus-visible > .cv-received__host-name {
 /* One steady tone: pointing at or focusing a received line, its opened card or its sender changes
    no text's colour, opacity or filter; hover only reveals the line's controls and its plate (Leo,
    2026-11-03: "i dont think this should light up/dim based off if ur hovered onit or otherwise").
-   The line, its sender and its card keep the activity tone the tool rows rest at (#27074), the
-   preview its dim one (received-message-steady-tone-browser.test.ts). */
+   The line, its sender and its card keep the transcript's text tone, the preview its muted one
+   (received-message-steady-tone-browser.test.ts; Leo, 2026-11-03: "idk why everything is grey other
+   than the recieving message bubble" replaced #27074's activity tone for message rows). */
 /* Markdown and headings set the primary tone themselves (.cv-md, .cv-h): inside a message from or
    to another agent they take the container's tone instead. */
 .cv-received__text :is(.cv-md, .cv-h),
