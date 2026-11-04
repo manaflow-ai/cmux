@@ -35,9 +35,10 @@ extension ActionWorkFailure {
     public func notice(title: String?) -> String? {
         if shown { return nil }
         if refusal != nil { return message }
+        if cause == .unanswered { return nil }
         if let shownReason { return title.map { Self.failedText($0, shownReason) } ?? shownReason }
         switch cause {
-        case .unanswered: return nil
+        case .unanswered: return nil // returned above, even with a reason in words (#34628's "may still apply")
         case .daemon, .connection: return title.map(Self.failedText) ?? Self.failedUntitled
         case .text: return title.map { Self.failedText($0, message) } ?? message
         }

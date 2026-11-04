@@ -26,6 +26,7 @@ extension ActionWorkFailure {
         if let unanswered = error as? CloseUnanswered {
             self.init("\(label): \(unanswered)", mayHaveApplied: true)
             shownReason = unanswered.description
+            cause = .text // unlike a missed deadline, a close that may still happen is said (#30915)
             return
         }
         let daemonError = error as? DaemonError
@@ -41,6 +42,8 @@ extension ActionWorkFailure {
         case .endpointBlocked(let reason)?: shownReason = reason
         default: break
         }
+        // A missed deadline's reason in words, for a surface that shows one; a toast shows nothing (`notice(title:)`).
+        if daemonError?.isMissedDeadline == true { shownReason = RefusalStrings.daemonTimedOut }
     }
 }
 
