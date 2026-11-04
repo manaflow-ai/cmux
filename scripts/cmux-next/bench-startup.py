@@ -46,6 +46,8 @@ row per mark: median and max ms since process start, and the median gap from
 the previous row. Kills only processes started from the tag's DerivedData.
 """
 import argparse
+import ctypes
+import threading
 import glob
 import json
 import os
@@ -432,6 +434,89 @@ def stop(pids, timeout=10):
         wait_exit(pids, 5)
 
 
+# --tiers (scratch, REOPEN-F7; STATUS 7770): the core tier the app's main thread runs on, read with no profiler
+# (proc_pidinfo PROC_PIDTHREADCOUNTS, as journeys/ext_tiers.py on cp/harness-cores-kit). Never merge.
+TIERS = False
+
+
+class TierSampler(threading.Thread):
+    """Reads the per-tier CPU time of `pid`'s main thread (its lowest thread id) every ms, on the bench clock
+    (ms after `spawned_at`, time.monotonic, the clock of Launch.arrived), until stop()."""
+
+    def __init__(self, pid, spawned_at, limit_s=20.0):
+        super().__init__(daemon=True)
+        self.pid, self.spawned_at, self.limit_s = pid, spawned_at, limit_s
+        self.rows, self.levels, self.error = [], [], None
+        self.halt = threading.Event()
+
+    def run(self):
+        try:
+            lib = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+            libc = ctypes.CDLL(None)
+
+            class TB(ctypes.Structure):
+                _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
+            tb = TB()
+            libc.mach_timebase_info(ctypes.byref(tb))
+            tick = tb.numer / tb.denom
+            sysctl = lambda k: subprocess.run(["/usr/sbin/sysctl", "-n", k], capture_output=True, text=True).stdout.strip()
+            n = int(sysctl("hw.nperflevels") or 1)
+            self.levels = [sysctl(f"hw.perflevel{i}.name") for i in range(n)]
+            ids = (ctypes.c_uint64 * 4096)()
+            main = None
+            give_up = time.monotonic() + 5
+            while main is None and time.monotonic() < give_up and not self.halt.is_set():
+                got = lib.proc_pidinfo(self.pid, 28, 0, ids, ctypes.sizeof(ids))
+                live = [t for t in ids[: max(got, 0) // 8] if t]
+                if live:
+                    main = min(live)
+                else:
+                    time.sleep(0.0005)
+            if main is None:
+                self.error = "no thread list"
+                return
+            size = 8 + 40 * n + 40
+            buf = ctypes.create_string_buffer(size)
+            end = time.monotonic() + self.limit_s
+            while not self.halt.is_set() and time.monotonic() < end:
+                k = lib.proc_pidinfo(self.pid, 34, ctypes.c_uint64(main), buf, size)
+                now = time.monotonic()
+                if k <= 0:
+                    break
+                raw = buf.raw
+                f = [int.from_bytes(raw[8 + 8 * i: 16 + 8 * i], "little") for i in range(5 * n)]
+                self.rows.append([round((now - self.spawned_at) * 1000, 3)]
+                                 + [round((f[5 * l + 2] + f[5 * l + 3]) * tick / 1e6, 4) for l in range(n)])
+                time.sleep(0.001)
+        except Exception as error:  # a sampler fault never fails the launch; the run reports it
+            self.error = repr(error)
+
+    def stop(self):
+        self.halt.set()
+        self.join(5)
+
+    def window(self, start_ms, end_ms):
+        """The main thread in [start_ms, end_ms] (bench clock): the tier its first CPU time in the window ran on,
+        ms per tier, and ms from start_ms to its first time on the fastest tier (perflevel0)."""
+        if self.error or len(self.rows) < 2:
+            return {"error": self.error or "no samples"}
+        n = len(self.levels)
+        per = [0.0] * n
+        start_tier = first_fast = None
+        for a, b in zip(self.rows, self.rows[1:]):
+            if b[0] < start_ms or a[0] > end_ms:
+                continue
+            d = [b[1 + l] - a[1 + l] for l in range(n)]
+            for l in range(n):
+                per[l] += d[l]
+            if start_tier is None and max(d) > 0:
+                start_tier = self.levels[d.index(max(d))]
+            if first_fast is None and d[0] > 0:
+                first_fast = round(max(a[0] - start_ms, 0), 1)
+        return {"start_tier": start_tier, "ms": {self.levels[l]: round(per[l], 2) for l in range(n)},
+                "first_fastest_ms": first_fast, "samples": len(self.rows)}
+
+
 class Launch:
     """One app process whose launch marks arrive on a pipe."""
 
@@ -491,6 +576,9 @@ class Launch:
                 self.popen_returned_at = time.monotonic()
             print(f"bench-startup: app limits {limits_line(changed)}", file=sys.stderr, flush=True)
             os.close(write_fd)
+        self.tiers = TierSampler(self.process.pid, self.spawned_at) if TIERS and self.process else None
+        if self.tiers:
+            self.tiers.start()
         self.read_fd = read_fd
         self.buffer = b""
         self.marks = {}
@@ -614,6 +702,92 @@ NEW_SESSION_EACH_RUN = False
 # --activation: "active" launches the measured app through LaunchServices, frontmost and active as a person's launch;
 # "inactive" spawns it with no activation (behind, not key).
 ACTIVATION = "inactive"
+# --xctrace-launch (REOPEN-F7 scratch, never merge): each measured launch under `xctrace record --all-processes`
+# (Time Profiler, trace.py's recorder), started and given a second for its first sample before the app is spawned
+# (KIT rule); the app's main-thread samples up to the first window frame, summed by function, go into the run's marks
+# as "launch_profile". A profiled run's marks are not timing evidence.
+XCTRACE_LAUNCH = False
+
+
+def launch_profile(out, app_pid, until_ms):
+    """{"samples", "self": [[ms, frame]...], "total": [[ms, frame]...]} of the app's main thread from its first sample
+    to `until_ms` later (the first window frame mark), from the recording in `out`."""
+    import collections
+    trace = load_trace_module()
+    exported = trace.export_xctrace(out)
+    path = exported.get("time-profile")
+    if not path:
+        return {"error": "no time-profile table"}
+    import collections as _c
+    every = trace.time_profile_samples(path)
+    per_pid = _c.Counter(((r[2] or {}).get("pid"), (r[2] or {}).get("process") or "") for r in every)
+    rows = [r for r in every if (r[2] or {}).get("pid") == app_pid]
+    if not rows:
+        return {"error": "no samples of the app", "pids": [[str(k), v] for k, v in per_pid.most_common(12)]}
+    # The main thread: the app's busiest thread over the launch (the first one sampled can be the pre-exec bench fork).
+    main_tid = _c.Counter((r[2] or {}).get("tid") for r in rows).most_common(1)[0][0]
+    rows = sorted((r for r in rows if r[2].get("tid") == main_tid), key=lambda r: r[0])
+    start = rows[0][0]
+    # until_ms counts from the process start, the samples from the recording's start: keep every main-thread sample;
+    # the call tree and the after-dfl window below find the launch by its frames.
+    own, total = collections.Counter(), collections.Counter()
+    for _, weight, _, frames in rows:
+        names = [str(trace.text(f) if not isinstance(f, str) else f) for f in frames]
+        if names:
+            own[names[0][:200]] += weight
+        for name in set(n[:200] for n in names):
+            total[name] += weight
+    to_ms = lambda c, n: [[round(v / 1e6, 1), k] for k, v in c.most_common(n)]
+    # The launch's window build as a call tree: each sample inside applicationDidFinishLaunching adds its weight to
+    # every path prefix of the app frames below it (outermost first, up to 7 levels); and the samples of the 120 ms
+    # after the last applicationDidFinishLaunching sample (the first commit and what runs before the first frame),
+    # each with its time and its top app frames.
+    def frame_names(frames):
+        return [str(trace.text(f) if not isinstance(f, str) else f) for f in frames]
+    tree, after, dfl_last = collections.Counter(), [], None
+    for t, weight, _, frames in rows:
+        names = frame_names(frames)
+        if any("applicationDidFinishLaunching" in n for n in names):
+            dfl_last = t
+            outer = list(reversed(names))
+            at = next(i for i, n in enumerate(outer) if "applicationDidFinishLaunching" in n)
+            path = [n[:110] for n in outer[at + 1:] if not n.startswith(("0x", "swift_", "_swift", "objc_", "<"))][:7]
+            for depth in range(1, len(path) + 1):
+                tree[" > ".join(path[:depth])] += weight
+    # Scratch (REOPEN-F7 profile 7): the subtree under each anchor frame, system frames kept, 8 levels.
+    anchors = ("WindowActivation.show", "ShellWindow.layoutIfNeeded", "WorkspaceRowView.layout", "SidebarListView.reload",
+               "WorkspaceRowView.__allocating_init", "LayoutRootView.layout", "SidebarView.render(_:)")
+    sub = {a: collections.Counter() for a in anchors}
+    for t, weight, _, frames in rows:
+        outer = list(reversed(frame_names(frames)))
+        for a in anchors:
+            at = next((i for i, n in enumerate(outer) if a in n), None)
+            if at is None:
+                continue
+            path = [n[:100] for n in outer[at + 1:] if not n.startswith(("0x", "<"))][:10]
+            sub[a]["(self+all)"] += weight
+            for depth in range(1, len(path) + 1):
+                sub[a][" > ".join(path[:depth])] += weight
+    anchored = {a: [[round(v / 1e6, 1), k] for k, v in c.most_common(120)] for a, c in sub.items()}
+    if dfl_last is not None:
+        for t, weight, _, frames in rows:
+            if dfl_last < t <= dfl_last + 120e6:
+                names = frame_names(frames)
+                app = [n[:90] for n in names if "Cmux" in n or "cmux" in n][:3]
+                after.append([round((t - dfl_last) / 1e6, 1), names[0][:90] if names else "", " < ".join(app),
+                              any("Transaction::commit" in n for n in names)])
+    return {"samples": len(rows), "span_ms": round((rows[-1][0] - start) / 1e6, 1), "self": to_ms(own, 60), "total": to_ms(total, 250),
+            "tree": [[round(v / 1e6, 1), k] for k, v in tree.most_common(400)], "after_dfl": after[:400], "anchored": anchored,
+            "pids": [[str(k), v] for k, v in per_pid.most_common(12)],
+            "threads": [[str(k), v] for k, v in _c.Counter((r[2] or {}).get("tid") for r in every if (r[2] or {}).get("pid") == app_pid).most_common(6)]}
+
+
+def load_trace_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cmux_trace", os.path.join(os.path.dirname(os.path.abspath(__file__)), "trace.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def app_support_tag(tag):
@@ -1048,7 +1222,9 @@ def seeded_agent(tag):
 
 
 def seed_layout():
-    return SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    layout = SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    # scratch (REOPEN-F7): a seed of another size is another layout, so a 24-row seed is never reused for --workspaces 100
+    return layout if REALISTIC_WORKSPACES == 24 else f"{layout}-w{REALISTIC_WORKSPACES}"
 
 
 def seeded_focus(tag):
@@ -1107,10 +1283,17 @@ def one_run(tag, mode, timeout, profile=None):
         prime.quit()
     # Cold allows no daemon older than this launch; warm and restart allow this step's (the floor taken above).
     floor = time.time() if mode == "cold" else STEP_STARTED_WALL[tag]
+    recorder = None
+    if XCTRACE_LAUNCH:
+        recorder = load_trace_module().XcTrace(scratch, cap_s=120)
+        recorder.start()
+        time.sleep(1.0)  # the recorder's first sample comes after its "Starting recording" line (KIT rule)
     launch = Launch(tag, scratch, active=ACTIVATION == "active")
     daemons = None
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if launch.tiers:
+            launch.tiers.stop()
         if reached and "terminal.launch_frame_shown" in launch.marks:
             # The last visible terminal's saved frame can land after the first live frame: wait briefly for it, so a
             # run never drops the reopen number (a build without the per-pane mark waits this long and has none).
@@ -1122,6 +1305,19 @@ def one_run(tag, mode, timeout, profile=None):
                 launch.marks.pop(late, None)
                 launch.arrived.pop(late, None)
         daemons = read_daemons(tag)  # while the app runs: the daemons that served this launch
+        if TIERS:  # scratch (REOPEN-F7): how many sidebar row views the launch made, and the sidebar's size
+            try:
+                client = app_client(tag)
+                try:
+                    perf = client.call("debug.sidebar_perf").get("result") or {}
+                    first = ((client.call("debug.layers").get("result") or {}).get("layout_passes") or {}).get("first_frame")
+                    print("BENCH-LAYOUT " + (first or "null"), flush=True)
+                finally:
+                    client.close()
+                print("BENCH-SIDEBAR " + json.dumps({k: perf.get(k) for k in ("row_views_made", "spare_row_views",
+                                                                           "list_reloads", "row_configures")}), flush=True)
+            except Exception as error:
+                print(f"BENCH-SIDEBAR error {error!r}", flush=True)
         if profile == "stress":  # the per-pane reopen rows (#32274); other profiles keep their run time
             launch.terminals = launch_terminals(tag)
             launch.frames_before_quit = frame_files(tag)  # the keeper's files while the app runs (#31967)
@@ -1131,6 +1327,8 @@ def one_run(tag, mode, timeout, profile=None):
         # on the app's main thread and would show as a stall itself.
         launch.front = front_app(launch)
     finally:
+        if recorder is not None:
+            recorder.stop()
         launch.quit()
         launch.linger = watch_linger(tag, time.monotonic())
     if not reached:
@@ -1143,6 +1341,11 @@ def one_run(tag, mode, timeout, profile=None):
     marks["quit_marks"] = getattr(launch, "quit_marks", {})
     marks["frames_before_quit"] = getattr(launch, "frames_before_quit", None)
     marks["frames_after_quit"] = frame_files(tag)
+    if recorder is not None and "first_window_frame_committed" in marks:
+        try:
+            marks["launch_profile"] = launch_profile(scratch, launch.process.pid, marks["first_window_frame_committed"])
+        except Exception as error:  # a diagnosis: a failed export is reported, never fatal
+            marks["launch_profile"] = {"error": repr(error)[:400]}
     if getattr(launch, "stalls", None) is not None:
         marks["stalls"] = launch.stalls
     marks["linger"] = launch.linger
@@ -1153,6 +1356,15 @@ def one_run(tag, mode, timeout, profile=None):
     print("BENCH-DAEMONS " + json.dumps({"mode": mode, **marks["daemons"]}), flush=True)
     if marks["daemons"]["verdict"] != "run":
         print(f"  {tag} {mode}: NOT RUN: " + "; ".join(marks["daemons"]["reasons"]), file=sys.stderr, flush=True)
+    if launch.tiers and "first_window_frame_committed" in launch.arrived and "main_start" in launch.marks:
+        frame_at = launch.arrived["first_window_frame_committed"]
+        main_at = frame_at - (launch.marks["first_window_frame_committed"] - launch.marks["main_start"])
+        dfl_at = (frame_at - (launch.marks["first_window_frame_committed"] - launch.marks["did_finish_launching_start"])
+                  if "did_finish_launching_start" in launch.marks else main_at)
+        marks["tiers"] = {"main_to_frame": launch.tiers.window(main_at, frame_at),
+                          "dfl_to_frame": launch.tiers.window(dfl_at, frame_at),
+                          "spawn_to_main": launch.tiers.window(0, main_at), "levels": launch.tiers.levels}
+        print("BENCH-TIERS " + json.dumps(marks["tiers"]), flush=True)
     marks["bench_clock"] = {"popen_ms": round((launch.popen_returned_at - launch.spawned_at) * 1000, 1),
                             "arrived_ms": {k: launch.arrived[k] for k in ("main_start", "first_window_frame_committed",
                                                                           FINAL_MARK, AGENT_MARK) if k in launch.arrived}}
@@ -1326,11 +1538,19 @@ def main():
                              "frontmost, active app as after a Dock click, checked with lsappinfo front at the measured "
                              "point (front_at_measure); inactive: spawned with no activation, behind and not key "
                              "(default: active for --profile stress with restore placement, else inactive)")
+    parser.add_argument("--workspaces", type=int, default=24,
+                        help="scratch (REOPEN-F7): workspaces in the realistic seed (default 24)")
+    parser.add_argument("--tiers", action="store_true",
+                        help="scratch: record the core tier of the app's main thread from main() to the first frame")
+    parser.add_argument("--xctrace-launch", action="store_true", help="REOPEN-F7 scratch: xctrace each measured launch")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
+    global TIERS, REALISTIC_WORKSPACES
+    TIERS = args.tiers
+    REALISTIC_WORKSPACES = args.workspaces
     # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
     # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
     # relaunch after a seed refused every saved frame for its size.
@@ -1343,6 +1563,8 @@ def main():
     ACTIVATION = args.activation or ("active" if args.profile == "stress" and WINDOW_PLACEMENT == "restore" else "inactive")
     if ACTIVATION == "active" and WINDOW_PLACEMENT == "test":
         parser.error("--activation active needs --window-placement restore (the test placement is an agent launch)")
+    global XCTRACE_LAUNCH
+    XCTRACE_LAUNCH = args.xctrace_launch
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
