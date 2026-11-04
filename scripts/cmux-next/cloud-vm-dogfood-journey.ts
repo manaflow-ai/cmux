@@ -16,8 +16,10 @@
  * --result-file, success or failure, so a workflow can publish the numbers.
  * The VM it creates is deleted by its exact id at the end, also on failure,
  * and carries idleTimeoutSeconds 300 and autoDeleteSeconds 3600 as backstops.
- * Earlier dogfood VMs (label purpose=dogfood, over an hour old) of the same
- * key are swept first. Keys are read from the environment and never printed.
+ * It deletes only the VM it made: the API has no per-caller filter, so a VM a
+ * killed run leaves behind is reaped by its own autoDeleteSeconds, never by a
+ * sweep that could reach another caller's machine. Keys are read from the
+ * environment and never printed.
  *
  *   CMUX_VM_DOGFOOD_URL=https://vm-staging.cmux.dev \
  *   CMUX_VM_SMOKE_API_KEY=cmuxvm_sk_... bun scripts/cmux-next/cloud-vm-dogfood-journey.ts --result-file out.json
@@ -202,28 +204,14 @@ function terminalRound(path: string, line: string, expect: string, timeoutMs: nu
   });
 }
 
-/** Deletes this key's dogfood VMs that an earlier, killed run left behind. */
-async function sweepLeftovers(): Promise<{ deleted: number; kept: number }> {
-  const swept = { deleted: 0, kept: 0 };
-  const list = await call("GET", "/v1/vms");
-  if (list.status !== 200) return swept;
-  const cutoff = Date.now() - 60 * 60_000;
-  const items = field(list.body, "items");
-  for (const vm of Array.isArray(items) ? items : []) {
-    if (field(field(vm, "labels"), "purpose") !== "dogfood") continue;
-    if (Date.parse(String(field(vm, "createdAt"))) > cutoff) continue;
-    const id = String(field(vm, "id"));
-    const gone = await call("DELETE", vmPath(id));
-    if (gone.status === 204 || gone.status === 404) swept.deleted += 1;
-    else swept.kept += 1;
-  }
-  return swept;
+// One cleanup for every caller (failure path, a signal, the deadline): a second
+// caller awaits the first one's DELETE instead of exiting under it.
+let cleanupRun: Promise<void> | null = null;
+function cleanup(): Promise<void> {
+  cleanupRun ??= runCleanup();
+  return cleanupRun;
 }
-
-let cleanedUp = false;
-async function cleanup(): Promise<void> {
-  if (cleanedUp) return;
-  cleanedUp = true;
+async function runCleanup(): Promise<void> {
   if (vmId === null) {
     if (cleanupState === "unverified") cleanupState = "completed";
     return;
@@ -284,7 +272,6 @@ try {
   const failed: string[] = [];
   const health = await timed("health", () => call("GET", "/healthz"));
   expectStatus(health, [200], "GET /healthz");
-  result["swept"] = await sweepLeftovers();
 
   const marker = `dogfood-${randomBytes(4).toString("hex")}`;
   const displayName = `dogfood ${runId}`.slice(0, 100);
