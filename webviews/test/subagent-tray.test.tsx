@@ -1210,6 +1210,8 @@ describe("the tray tells the truth", () => {
       ['A="$(git rev-parse HEAD)"; bun test', "git rev-parse HEAD · bun test"],
       ["A=`git rev-parse HEAD`; bun test", "git rev-parse HEAD · bun test"],
       ['A=$(printf "%s" "$(git rev-parse HEAD)"); bun test', "git rev-parse HEAD · printf · bun test"],
+      ['printf "%s" "$(git rev-parse HEAD)"', "git rev-parse HEAD · printf"],
+      ["sleep $((60 * 5))", "sleep $((60 * 5))"],
       ["export A=$(git rev-parse HEAD); bun test", "git rev-parse HEAD · bun test"],
       ["cd /tmp && A=$(git rev-parse HEAD); /opt/bin/cmux-ci run --ref $A", "git rev-parse HEAD · cmux-ci run"],
       ["A='$(not executed)'; bun test", "bun test"],
