@@ -70,40 +70,24 @@ public final class TitlebarBandButton: ClickableButton {
 
     override public var mouseDownCanMoveWindow: Bool { false }
 
-    /// Full Keyboard Access focus shows as the filled highlight, as the pointer's hover does, and only in
-    /// the key window (as AppKit's ring did; a background window keeps its first responder).
+    /// Full Keyboard Access focus shows as the filled highlight, as the pointer's hover does.
     override public func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
-        if became { isKeyFocused = true }
+        if became { hover.state.focused = true }
         return became
     }
 
     override public func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
-        if resigned { isKeyFocused = false }
+        if resigned { hover.state.focused = false }
         return resigned
-    }
-
-    private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { applyFocus() } } }
-    private lazy var keyRepaint = KeyWindowRepaint(self)
-
-    private func applyFocus() {
-        let shows = KeyWindowRepaint.showsFocus(self, focused: isKeyFocused)
-        if hover.state.focused != shows { hover.state.focused = shows }
     }
 
     /// A move between windows re-reads focus, so a button removed while focused never keeps the fill.
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        isKeyFocused = window?.firstResponder === self
-        applyFocus()
-        keyRepaint.track()
-    }
-
-    /// The window became or resigned key (``KeyWindowRepaint`` marks the button for display).
-    override public func viewWillDraw() {
-        applyFocus()
-        super.viewWillDraw()
+        let focused = window?.firstResponder === self
+        if hover.state.focused != focused { hover.state.focused = focused }
     }
 
     /// Disabled under a still pointer (Back with no history left): hover

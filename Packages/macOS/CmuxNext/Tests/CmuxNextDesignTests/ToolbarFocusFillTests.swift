@@ -29,16 +29,17 @@ struct ToolbarFocusFillTests {
         #expect((button.layer?.borderWidth ?? 0) == 0)
     }
 
-    /// As AppKit's ring did, the fill shows only in the key window: a background window keeps its first
-    /// responder, and its toolbar must not look hovered.
-    @Test func focusHidesWhenTheWindowIsNotKey() {
+    /// A button taken out of its window while focused does not keep the fill when it comes back.
+    @Test func aButtonMovedOutOfItsWindowDropsTheFill() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 40), styleMask: [.titled],
                               backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let button = TitlebarBandButton(symbol: "globe")
         window.contentView?.addSubview(button)
-        #expect(!window.isKeyWindow)
         #expect(button.becomeFirstResponder())
+        #expect(button.hover.state.focused)
+        button.removeFromSuperview()
+        window.contentView?.addSubview(button)
         #expect(!button.hover.state.focused)
     }
 
