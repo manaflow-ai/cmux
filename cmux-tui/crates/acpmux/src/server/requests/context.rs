@@ -59,6 +59,7 @@ pub(super) async fn handle(
         }
         inventory.overrides.project_key.clear();
         inventory.overrides.cwd.clear();
+        inventory.overrides.default_text = None;
         inventory.overrides.user = None;
         inventory.overrides.project = None;
     }

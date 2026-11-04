@@ -51,6 +51,8 @@ pub struct ContextInventory {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextOverrideView {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_text: Option<String>,
     pub user: Option<String>,
     pub project: Option<String>,
     pub project_key: String,
@@ -198,6 +200,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
         max_tokens,
         can_edit_overrides: true,
         overrides: ContextOverrideView {
+            default_text: Some(crate::agent_tools::CONCURRENT_WORK_RULE.into()),
             user,
             project,
             project_key: project_key.clone(),
@@ -233,10 +236,14 @@ pub fn snapshot_session(meta: &SessionMeta, cfg: &Config) -> Vec<ContextPart> {
     parts
 }
 
-/// Append the captured additions on the first dispatched turn, never at queue time.
+/// Append the captured default or override on the first written turn. All guidance
+/// uses this one user-context channel, including sessions with no cmux MCP server.
+/// Preset text is emitted separately by the harness's system-prompt argument.
 pub fn append_snapshot(parts: Option<&[ContextPart]>, blocks: &mut Vec<Value>) {
     for part in parts.into_iter().flatten().filter(|p| {
-        p.included && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+        p.included
+            && matches!(p.source.as_str(), "cmux-default" | "cmux-user" | "cmux-project")
+            && p.channel.as_deref().is_none_or(|channel| channel == "user-context")
     }) {
         if let Some(text) = part.text.as_deref() {
             let scope = part.source.strip_prefix("cmux-").unwrap_or("user");
@@ -254,17 +261,25 @@ pub fn record_tool_sources(meta: &mut SessionMeta, parts: Vec<ContextPart>) {
 
 /// Capture settings once when the session is created. Project text replaces user text.
 pub fn snapshot(cfg: &Config, cwd: &Path) -> Vec<ContextPart> {
-    let Some((scope, text)) = cfg.context_overrides.for_project(cwd) else { return Vec::new() };
+    let (scope, text) = cfg
+        .context_overrides
+        .for_project(cwd)
+        .unwrap_or(("default", crate::agent_tools::CONCURRENT_WORK_RULE));
     vec![ContextPart {
         id: format!("cmux-{scope}-override"),
         source: format!("cmux-{scope}"),
-        label: format!("{} override", if scope == "project" { "Project" } else { "User" }),
+        label: match scope {
+            "project" => "Project guidance (first-turn context)",
+            "user" => "User guidance (first-turn context)",
+            _ => "cmux guidance (first-turn context)",
+        }
+        .into(),
         tokens: estimated_tokens(text),
         included: !text.is_empty(),
         editable: true,
         measurement: "estimated".into(),
         source_bytes: Some(text.len() as u64),
-        channel: None,
+        channel: Some("user-context".into()),
         text: Some(text.to_owned()),
     }]
 }
@@ -347,6 +362,33 @@ mod tests {
             std::os::unix::fs::symlink(cwd, &link).unwrap();
             assert_eq!(overrides.for_project(&link), Some(("project", "project text")));
         }
+    }
+
+    #[test]
+    fn new_sessions_capture_default_guidance_and_empty_text_disables_it() {
+        let cfg = Config::default();
+        let captured = snapshot(&cfg, Path::new("/repo"));
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].source, "cmux-default");
+        assert!(captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(crate::agent_tools::CONCURRENT_WORK_RULE));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(captured[0].channel.as_deref(), Some("user-context"));
+        assert!(
+            blocks[0]["text"].as_str().unwrap().contains(crate::agent_tools::CONCURRENT_WORK_RULE)
+        );
+
+        let mut disabled = Config::default();
+        disabled.context_overrides.user = Some(String::new());
+        let captured = snapshot(&disabled, Path::new("/repo"));
+        assert_eq!(captured[0].source, "cmux-user");
+        assert!(!captured[0].included);
+        assert_eq!(captured[0].text.as_deref(), Some(""));
+        let mut blocks = Vec::new();
+        append_snapshot(Some(&captured), &mut blocks);
+        assert!(blocks.is_empty());
     }
 
     #[test]
