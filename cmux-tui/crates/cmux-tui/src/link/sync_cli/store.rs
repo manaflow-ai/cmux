@@ -269,21 +269,24 @@ pub(super) fn cut(data: &[u8]) -> usize {
     let end = data.len().min(CHUNK_MAX);
     let normal = end.min(CHUNK_AVG);
     let gear = gear();
+    let roll = |hash: u64, byte: &u8| {
+        (hash << 1).wrapping_add(gear.get(usize::from(*byte)).copied().unwrap_or_default())
+    };
+    let (Some(hard), Some(easy)) = (data.get(CHUNK_MIN..normal), data.get(normal..end)) else {
+        return end;
+    };
     let mut hash = 0u64;
-    let mut at = CHUNK_MIN;
-    while at < normal {
-        hash = (hash << 1).wrapping_add(gear[usize::from(data[at])]);
+    for (at, byte) in (CHUNK_MIN..).zip(hard) {
+        hash = roll(hash, byte);
         if hash & top(MASK_HARD_BITS) == 0 {
             return at + 1;
         }
-        at += 1;
     }
-    while at < end {
-        hash = (hash << 1).wrapping_add(gear[usize::from(data[at])]);
+    for (at, byte) in (normal..).zip(easy) {
+        hash = roll(hash, byte);
         if hash & top(MASK_EASY_BITS) == 0 {
             return at + 1;
         }
-        at += 1;
     }
     end
 }
@@ -298,7 +301,7 @@ pub(super) fn chunks(reader: &mut dyn std::io::Read) -> std::io::Result<Vec<Piec
         while !eof && buffer.len() < CHUNK_MAX {
             let start = buffer.len();
             buffer.resize(start + CHUNK_MAX, 0);
-            let read = reader.read(&mut buffer[start..])?;
+            let read = reader.read(buffer.split_at_mut(start).1)?;
             buffer.truncate(start + read);
             eof = read == 0;
         }
@@ -306,11 +309,8 @@ pub(super) fn chunks(reader: &mut dyn std::io::Read) -> std::io::Result<Vec<Piec
             return Ok(pieces);
         }
         let size = cut(&buffer);
-        pieces.push(Piece {
-            offset,
-            size: size as u64,
-            sha256: hex(&Sha256::digest(&buffer[..size])),
-        });
+        let (piece, _) = buffer.split_at(size);
+        pieces.push(Piece { offset, size: size as u64, sha256: hex(&Sha256::digest(piece)) });
         offset += size as u64;
         buffer.drain(..size);
     }
@@ -373,9 +373,16 @@ pub(super) fn send(
             "size": file.size,
             "sha256": file.sha256,
         });
-        if !(pieces.len() == 1 && pieces[0].sha256 == file.sha256) && file.size > 0 {
-            entry["chunks"] = Value::Array(
-                pieces.iter().map(|p| json!({"sha256": p.sha256, "size": p.size})).collect(),
+        let whole = pieces.len() == 1 && pieces.first().is_some_and(|p| p.sha256 == file.sha256);
+        if !whole
+            && file.size > 0
+            && let Some(entry) = entry.as_object_mut()
+        {
+            entry.insert(
+                "chunks".into(),
+                Value::Array(
+                    pieces.iter().map(|p| json!({"sha256": p.sha256, "size": p.size})).collect(),
+                ),
             );
         }
         plan_files.push(entry);
@@ -397,7 +404,7 @@ pub(super) fn send(
     let uploads: Vec<(&LocalFile, Piece)> = missing
         .iter()
         .filter_map(|sha| wanted.get(sha))
-        .map(|(index, piece)| (pending[*index].file, piece.clone()))
+        .filter_map(|(index, piece)| Some((pending.get(*index)?.file, piece.clone())))
         .collect();
     let mut done = sent.reused;
     sent.uploaded += client.upload_all(&uploads, &mut |bytes| {
