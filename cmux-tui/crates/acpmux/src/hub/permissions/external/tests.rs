@@ -171,3 +171,22 @@ async fn external_access_stop_after_allow_still_prevents_the_read() {
     hub.cancel_pending_permissions(&session);
     assert!(read.await.is_err());
 }
+
+#[tokio::test]
+async fn external_access_new_title_rule_after_allow_still_prevents_the_read() {
+    let (hub, session) = fixture(PermissionPolicy::ApproveAll);
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let mut read = Box::pin(hub.retry_external_read(
+        &session,
+        Path::new("/Users/you/Documents/a"),
+        epoch,
+        None,
+        AccessKind::FilesAndFolders,
+        || panic!("a new deny rule cannot be bypassed by the recovery title"),
+    ));
+    pending(read.as_mut()).await;
+    answer(&hub, &session, "allow_once", true).await.unwrap();
+    session.meta.lock().unwrap().permission_rules =
+        Some(json!({"autoDeny": ["Read /Users/you/Documents"]}));
+    assert!(read.await.is_err());
+}

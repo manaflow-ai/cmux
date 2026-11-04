@@ -34,7 +34,7 @@ fn request(session: &Session, path: &Path, kind: AccessKind, call: &str) -> Valu
         "sessionId": session.meta().agent_session_id.clone().unwrap_or_else(|| session.id.clone()),
         "toolCall": {
             "toolCallId": call, "kind": "read", "status": "pending",
-            "title": format!("One-time access to {}", path.display()),
+            "title": format!("Read {}", path.display()),
             "rawInput": {"path": path}, "locations": [{"path": path}],
             "_meta": {"acpmux": {"externalAccess": {
                 "kind": kind, "target": path, "operation": "read_text_file",
