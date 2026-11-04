@@ -562,10 +562,11 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudFolderGrants,
   cloudStartFolder,
   cloudStartToasted,
+  grantedCloudStart,
   newTabProjectPick,
-  oneCloudStart,
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
 } from "./cloudRun";
@@ -8615,15 +8616,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
   /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
   /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
-  /// The last Cloud pick's folder grant (workspace.useFolder), still out or done: a Cloud start waits
-  /// for it, so a Return right after picking Cloud never races the grant into path_outside_roots.
-  const cloudFolderGrant = useRef<Promise<unknown> | undefined>(undefined);
+  /// The Cloud picks' folder grants (workspace.useFolder), by folder: a Cloud start waits for the
+  /// grant of the folder it sends, at most CLOUD_FOLDER_GRANT_WAIT_MS, so a Return right after
+  /// picking Cloud never races the grant into path_outside_roots and a grant that never answers
+  /// never holds the composer.
+  const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const composerModeRows = {
     mode: sandboxModeRows.mode,
     onMode: (mode: RunMode) => {
       if (mode === "cloud") {
         const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
-        if ("cwd" in folder) cloudFolderGrant.current = pickFolder(callNative, folder.cwd, () => undefined);
+        if ("cwd" in folder) cloudFolderGrant.granting(folder.cwd, pickFolder(callNative, folder.cwd, () => undefined));
       }
       sandboxModeRows.onMode(mode);
     },
@@ -8639,11 +8642,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() =>
-    oneCloudStart((method, params) =>
-      (cloudFolderGrant.current ?? Promise.resolve()).catch(() => undefined).then(() => callNative(method, params)),
-    ),
-  );
+  const [startCloud] = useState(() => grantedCloudStart(callNative, cloudFolderGrant));
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -14808,9 +14807,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable, (grant) => {
-                    cloudFolderGrant.current = grant;
-                  })}
+                  {...newTabProjectPick(callNative, sandboxOfferable, cloudFolderGrant.granting)}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
