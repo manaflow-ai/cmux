@@ -124,6 +124,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t["name"] == WRAP_UP) { WRAP_UP_STEER } else { "" };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -203,7 +204,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
              inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
              app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
              field has the error, its state and its idempotency key; its message names the fix. \
-             A failed script reports the calls that already ran. Families: {families}.{bg}{github}"
+             A failed script reports the calls that already ran. Families: {families}.{bg}{github}{wrap_up}"
         ),
         "inputSchema": {
             "type": "object",
@@ -235,6 +236,17 @@ const GITHUB_STEER: &str = " When the person asks about their GitHub (can you se
     see for this chat and how cmux checked each, with no token. Answer with those logins and say \
     they are connected through cmux; an organization account is the one their cmux team \
     connected, not the person.";
+
+/// acpmux's `wrap_up` behind this server (acpmux `acpmux_mcp_wrap_up.rs`): the next-step box the
+/// person sees under the answer. Its `call_log` record carries what it showed (`shown`), which
+/// the agent pane reads to draw the box (webviews `conversation/wrapUp.ts`).
+const WRAP_UP: &str = "acpmux_wrap_up";
+const WRAP_UP_STEER: &str = " When you end a turn that did work, call \
+    `cmux.acpmux_wrap_up({recap, ask, actions})` as its last step: recap says in two or three \
+    plain sentences what changed and where things stand, including what is not done or not \
+    verified. Add ask (one short question) and actions (one or two answers, your pick first) only \
+    when a decision waits on the person; their click comes back as their next message. Then end \
+    the turn without repeating the recap.";
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).
 fn families(tools: &[Value]) -> BTreeMap<String, Vec<String>> {
@@ -567,6 +579,10 @@ fn exec_mode(
                         }
                         if let Some(key) = answered["error"]["idempotency_key"].as_str() {
                             record.set("idempotency_key", json!(key));
+                        }
+                        // The wrap-up's box, for the agent pane to draw from the transcript.
+                        if ok && name == WRAP_UP && answered["value"].is_object() {
+                            record.set("shown", answered["value"].clone());
                         }
                         records.push(record);
                     }
@@ -1210,6 +1226,22 @@ mod github_steer_tests {
         assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
         let without = descriptors(&[json!({"name": "pane_split"})]);
         assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
+    }
+}
+
+#[cfg(test)]
+mod wrap_up_steer_tests {
+    use super::*;
+
+    /// A chat with acpmux's `wrap_up` is told to end a turn with it in `cmux_exec`'s own
+    /// description, since code mode shows no other tool; one without it is not.
+    #[test]
+    fn the_exec_description_names_wrap_up_only_where_it_is() {
+        let with = descriptors(&[json!({"name": WRAP_UP})]);
+        let text = with[0]["description"].as_str().unwrap();
+        assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
+        let without = descriptors(&[json!({"name": "pane_split"})]);
+        assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
     }
 }
 
