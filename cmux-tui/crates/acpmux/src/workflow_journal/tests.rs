@@ -206,6 +206,7 @@ fn native_workflow_journal_repairs_a_garbled_final_record_without_replaying_it()
     );
     journal.finish().unwrap();
     assert_eq!(std::fs::read(directory.path().join("activities.jsonl.corrupt")).unwrap(), corrupt);
+    drop(journal);
 
     let mut resumed = Journal::open(directory.path(), "script", 0).unwrap();
     assert_eq!(
