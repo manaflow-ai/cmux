@@ -312,8 +312,9 @@ def raw_output(text: str, limit: int = 2048) -> dict:
 # `--confirm` comes last: `cmux` reads a flag it does not know as taking the next word, so
 # `--confirm --json` made `--json` the confirm's value, the CLI answered in human text, and a
 # failed kill's error was dropped as not JSON (run 41867887577).
-def kill_command(machine: str) -> tuple[int, str, str]:
-    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120)
+def kill_command(machine: str, *, cleanup: bool = False) -> tuple[int, str, str]:
+    flags = ("--json", "--confirm") if cleanup else ("--confirm", "--json")
+    return cmux("cloud", "kill-machine", "--target", f"machine:{machine}", *flags, timeout=120)
 
 
 def kill_failure(code: int, out: str, err: str) -> dict:
@@ -322,11 +323,11 @@ def kill_failure(code: int, out: str, err: str) -> dict:
             "raw": {"exit": code, "stdout": raw_output(out), "stderr": raw_output(err)}}
 
 
-def kill_machine(machine: str, *, inspect_status: bool = True) -> bool:
+def kill_machine(machine: str, *, inspect_status: bool = True, cleanup: bool = False) -> bool:
     """Kill MACHINE (a destructive verb needs --confirm from a script). A failed kill reads one
     bounded status snapshot and retries once; only the safe status/error summary and the redacted
     raw output are kept."""
-    code_k, out_k, err_k = kill_command(machine)
+    code_k, out_k, err_k = kill_command(machine, cleanup=cleanup)
     if code_k == 0:
         record("cloud kill-machine", code_k, "", "")
         return True
@@ -339,7 +340,7 @@ def kill_machine(machine: str, *, inspect_status: bool = True) -> bool:
         extra["status_after_failure"] = {"exit": status_code, **status_summary,
                                          **({"error": status_detail} if status_detail else {})}
     record("cloud kill-machine", code_k, "", failed["stderr"], raw=failed["raw"], **extra)
-    code_retry, out_retry, err_retry = kill_command(machine)
+    code_retry, out_retry, err_retry = kill_command(machine, cleanup=cleanup)
     if code_retry == 0:
         record("cloud kill-machine retry", code_retry, "", "")
         return True
@@ -471,7 +472,7 @@ if args.cleanup_machine:
               if row else {}))
     status_code, status_summary, status_detail = machine_status(machine)
     record("cloud machine-status", status_code, "", status_detail, machine_status=status_summary)
-    killed = kill_machine(machine)
+    killed = kill_machine(machine, cleanup=True)
     after_code, after_summary, after_detail = machine_status(machine)
     record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
     finish("pass" if killed else "fail: kill-machine failed twice")
