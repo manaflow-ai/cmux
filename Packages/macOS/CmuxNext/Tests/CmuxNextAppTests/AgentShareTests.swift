@@ -448,15 +448,52 @@ struct AgentShareTests {
         window.contentView?.addSubview(card)
         defer { card.removeFromSuperview() }
         #expect(!card.copyButton.isEnabled, "no link before anyone is invited")
+        for view in [card.linkRow, card.linkLabel, card.copyButton] as [NSView] {
+            #expect(view.isAccessibilityHidden(), "VoiceOver skips the empty link row while there is no link")
+        }
         await model.load()
         for _ in 0..<200 where !card.copyButton.isEnabled { await Task.yield() }
         #expect(card.copyButton.isEnabled)
         #expect(card.linkLabel.stringValue == link)
+        for view in [card.linkRow, card.linkLabel, card.copyButton] as [NSView] {
+            #expect(!view.isAccessibilityHidden(), "VoiceOver reads the link row once there is a link")
+        }
         #expect(card.copyButton.button.title == model.copyLinkTitle)
+        // Copy Invite Link has one fixed width that fits Copied too, so the confirmation moves nothing.
+        let fixed = card.copyButton.constraints.filter { $0.firstAttribute == .width && $0.secondItem == nil && $0.relation == .equal }
+        #expect(fixed.count == 1, "Copy Invite Link has one fixed width")
+        card.layoutSubtreeIfNeeded()
+        let copyWidth = card.copyButton.frame.width
+        #expect(copyWidth >= card.copyButton.intrinsicContentSize.width)
         card.copyPressed()
         for _ in 0..<200 where card.copyButton.button.title != model.copiedTitle { await Task.yield() }
         #expect(card.copyButton.button.title == model.copiedTitle)
         #expect(pasteboard.copied == [link])
+        card.layoutSubtreeIfNeeded()
+        #expect(card.copyButton.frame.width == copyWidth, "Copied keeps Copy Invite Link's width")
+        #expect(copyWidth >= card.copyButton.intrinsicContentSize.width, "the fixed width fits Copied")
+    }
+
+    /// Copied does not outlive the link: when the chat's invite link goes away (its last invitee
+    /// removed), the button reads Copy Invite Link again the next time a link shows.
+    @Test func copiedClearsWhenTheInviteLinkGoesAway() async {
+        @MainActor final class Daemon { var link: String? = "https://room.example/i/s" }
+        let daemon = Daemon()
+        let model = AgentShareInviteSheetModel(chat: "Fix the build", session: Self.session, work: .init(
+            list: {
+                guard let link = daemon.link else { return [] }
+                return [AgentSessionShare(shareId: "s", state: "active", session: Self.session, surface: 1, inviteUrl: link,
+                                          invitees: [AgentSessionShareInvitee(account: "@theo", role: "view", invitedAt: 1, state: "invited")])]
+            },
+            invite: { _, _ in },
+            remove: { _ in daemon.link = nil }))
+        await model.load()
+        model.copiedFor = .seconds(60)
+        model.copyLink()
+        #expect(model.copied)
+        await model.remove("@theo")
+        #expect(model.inviteLink == nil)
+        #expect(!model.copied, "Copied clears with the link")
     }
 
     /// Invite and Remove run one after the other, in the order pressed: a Remove pressed while an
