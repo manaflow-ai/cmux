@@ -171,6 +171,37 @@ test.each(["compact", "full"])(
   },
 );
 
+// The rail container's identifier (railSide.ts): macOS accessibility exposes a DOM id as the
+// element's AXDOMIdentifier, the one handle a capture of a release build has to measure the rail's
+// rect. It is API: a rename breaks those captures, so the literal is pinned here.
+test.each(["compact", "full"])("the %s rail's container carries the cmux.agent.threadMap identifier", async (arm) => {
+  const { RAIL_ACCESSIBILITY_ID } = await import("../src/agent-session/acpmux/threadMinimap/railSide");
+  expect(RAIL_ACCESSIBILITY_ID).toBe("cmux.agent.threadMap");
+  setChatDisplay({ "agentPane.display.minimap": arm });
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(turns, new Set())}
+          sessionId={`rail-id-${arm}`}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    const named = document.querySelectorAll(`[id="${RAIL_ACCESSIBILITY_ID}"]`);
+    expect(named).toHaveLength(1);
+    expect(named[0]).toBe(rail());
+    // The full arm draws the ScrollMap's nav, the compact one ThreadMinimap's.
+    expect(rail().classList.contains("acpmux-scrollmap")).toBe(arm === "full");
+    expect(rail().getAttribute("aria-label")).toBe("Thread map");
+  } finally {
+    await act(async () => root.unmount());
+    setChatDisplay({});
+  }
+});
+
 // Under the edge-strip gutter (gutter.experiment.ts), a pane too narrow for the rail beside the text
 // hides it at rest on either edge and keeps the live hover strip at that same edge
 // (design/session-rail.md: never removed for pane width).
