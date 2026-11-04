@@ -44,11 +44,22 @@ struct KeyResizeWindowLayoutPassesTests {
         for _ in 0..<4 { _ = RunLoop.main.run(mode: .default, before: Date()) }
     }
 
-    @Test(arguments: [false, true])
-    func aColumnKeysSpringFrameNeedsOneWindowLayoutPass(reverse: Bool) throws {
+    @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
+    func aColumnKeysSpringFrameNeedsOneWindowLayoutPass(reverse: Bool, shell: Bool) throws {
         LayoutPassGuard.shared.install()
         let rig = Ground.Rig(Ground.column(Ground.pair), focused: "p2")
         defer { rig.close() }
+        if shell {
+            // The app's window class (its layout pass runs the overlay layer's work), titled as the app's is.
+            let shellWindow = ShellWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.titled, .resizable],
+                                          backing: .buffered, defer: false)
+            shellWindow.isReleasedWhenClosed = false
+            rig.window.contentView = nil
+            shellWindow.contentView = rig.root
+            rig.root.layoutSubtreeIfNeeded()
+            rig.root.driver.isManual = true
+        }
+        defer { if shell { rig.root.window?.close() } }
         guard let window = rig.root.window, let content = window.contentView else { throw CancellationError() }
         // At rest first: the rig's own setup passes and turns.
         Self.drainMainTurns()
@@ -57,6 +68,9 @@ struct KeyResizeWindowLayoutPassesTests {
         let keys: [LayoutDirection] = reverse ? [.right, .left, .right] : [.left, .right, .left]
         for (index, key) in keys.enumerated() {
             #expect(PaneResize.press("p2", key, model: rig.model, view: rig.root))
+            var marked: [String] = []
+            Self.needingLayout(content, into: &marked)
+            if !marked.isEmpty { print("S1B-WINDOW-LAYOUT shell \(shell) press \(index): the key's turn marked \(marked.prefix(8))") }
             // The key's own turn: the display cycle after the event.
             keyTurn.append(Self.windowPass(window))
             Self.drainMainTurns()
@@ -79,8 +93,8 @@ struct KeyResizeWindowLayoutPassesTests {
                 frames += 1
             }
         }
-        print("S1B-WINDOW-LAYOUT key turn passes \(keyTurn), first frame passes \(firstPasses), frames \(frames), extra \(extra.count)")
-        for line in extra.prefix(40) { print("S1B-WINDOW-LAYOUT \(line)") }
+        print("S1B-WINDOW-LAYOUT shell \(shell) reverse \(reverse) key turn passes \(keyTurn), first frame passes \(firstPasses), frames \(frames), extra \(extra.count)")
+        for line in extra.prefix(40) { print("S1B-WINDOW-LAYOUT shell \(shell) \(line)") }
         #expect(extra.isEmpty, "\(extra.count) of \(frames) spring frames needed a second window layout pass: \(extra.prefix(4))")
     }
 }
