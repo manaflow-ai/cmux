@@ -19,6 +19,11 @@ public final class CloudMachineWire {
         self.team = team
     }
 
+    public convenience init(apiBaseURL: URL, auth: CloudAuth) {
+        self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
+                  team: { await auth.teamID })
+    }
+
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
         stop()
         let generation = generation

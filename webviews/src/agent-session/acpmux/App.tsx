@@ -8561,7 +8561,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (row?.kind === "user") return row.id;
     }
     return undefined;
-  }, [snapshot.isWorking, snapshot.rows]);
+  }, [snapshot.rows]);
   useEffect(() => {
     const machineID = cloudMachineID ?? snapshot.summary?.machine;
     setCloudPreviewContext({

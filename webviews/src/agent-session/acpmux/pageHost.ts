@@ -33,7 +33,10 @@ export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
 
-const RENAMED: Record<string, string> = { ready: "handshake", "chat.persistSession": "session.persist" };
+const RENAMED: Record<string, string> = {
+  ready: "handshake",
+  "chat.persistSession": "session.persist",
+};
 
 /// The `cmux.agent` op of an old bridge method.
 export function agentPageOp(method: string): string {
@@ -70,7 +73,8 @@ export async function callPageHost<T>(
         userMessage: error.message,
         details: { protocol: error.code },
       });
-    if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
+    if (error.code.startsWith("cmux.protocol."))
+      throw new NativeError({ userMessage: error.message });
     const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
     throw new NativeError({
       code: error.code,
@@ -194,11 +198,12 @@ export function applyHostEvent(event: HostEvent): void {
       return void addCloudPreviewPort(event.value);
     case "cloudPreviewPortsKnown": {
       const value = event.value;
-      const ports = value && typeof value === "object" && Array.isArray((value as { ports?: unknown }).ports)
-        ? (value as { ports: unknown[] }).ports
-        : Array.isArray(value)
-          ? value
-          : [];
+      const ports =
+        value && typeof value === "object" && Array.isArray((value as { ports?: unknown }).ports)
+          ? (value as { ports: unknown[] }).ports
+          : Array.isArray(value)
+            ? value
+            : [];
       return seedCloudPreviewPorts(ports);
     }
   }

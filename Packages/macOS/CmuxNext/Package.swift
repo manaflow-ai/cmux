@@ -1255,7 +1255,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextCloudUI",
-            dependencies: ["CmuxNextCloud", "CmuxNextDesign"],
+            dependencies: ["CmuxNextActions", "CmuxNextCloud", "CmuxNextDesign"],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),

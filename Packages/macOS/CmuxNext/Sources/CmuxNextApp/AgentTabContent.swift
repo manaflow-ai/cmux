@@ -1,6 +1,8 @@
 import CmuxNextActions
 import AppKit
-import CmuxNextAgentPane; import CmuxNextCloud
+import CmuxNextAgentPane
+import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextPages
 import CmuxNextWakeups
 import Foundation

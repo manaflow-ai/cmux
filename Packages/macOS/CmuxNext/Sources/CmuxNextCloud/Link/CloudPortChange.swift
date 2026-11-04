@@ -14,13 +14,16 @@ public struct CloudPortChange: Equatable, Sendable {
     public let proto: String
     public let process: String?
     public let state: State
+    /// Replayed inventory establishes a baseline; it is not a newly opened app.
+    public let known: Bool
 
-    public init(machineID: String, port: Int, proto: String, process: String?, state: State) {
+    public init(machineID: String, port: Int, proto: String, process: String?, state: State, known: Bool = false) {
         self.machineID = machineID
         self.port = port
         self.proto = proto
         self.process = process
         self.state = state
+        self.known = known
     }
 
     private struct Event: Decodable {
@@ -30,6 +33,8 @@ public struct CloudPortChange: Equatable, Sendable {
             var proto: String?
             var process: String?
             var state: String
+            var snapshot: Bool?
+            var known: Bool?
         }
 
         var name: String
@@ -41,8 +46,10 @@ public struct CloudPortChange: Equatable, Sendable {
             var machine: String
             var kind: String
             var data: Detail?
+            var snapshot: Bool?
         }
         struct Detail: Decodable {
+            var snapshot: Bool?
             var port: Int
             var proto: String?
             var process: String?
@@ -57,7 +64,7 @@ public struct CloudPortChange: Equatable, Sendable {
            event.name == eventName, let data = event.data, data.port > 0,
            let state = State(rawValue: data.state) {
             return CloudPortChange(machineID: data.machine, port: data.port, proto: data.proto ?? "tcp",
-                                   process: data.process, state: state)
+                                   process: data.process, state: state, known: data.known == true || data.snapshot == true)
         }
         guard let event = try? JSONDecoder().decode(MachineEvent.self, from: appServerEvent),
               event.name == "cmux.cloud.machine.event", let data = event.data,
@@ -69,7 +76,7 @@ public struct CloudPortChange: Equatable, Sendable {
         default: return nil
         }
         return CloudPortChange(machineID: data.machine, port: detail.port, proto: detail.proto ?? "tcp",
-                               process: detail.process, state: state)
+                               process: detail.process, state: state, known: data.snapshot == true || detail.snapshot == true)
     }
 
     /// Parses the ephemeral `cloud.machine.event` frame sent on `/v1/wire/cloud`.
@@ -77,7 +84,8 @@ public struct CloudPortChange: Equatable, Sendable {
         guard let object = (try? JSONSerialization.jsonObject(with: frame)) as? [String: Any],
               object["t"] as? String == "ephemeral",
               object["event"] as? String == "cloud.machine.event",
-              let data = object["data"] else { return nil }
+              var data = object["data"] as? [String: Any] else { return nil }
+        if object["snapshot"] as? Bool == true { data["snapshot"] = true }
         let envelope: [String: Any] = ["name": "cmux.cloud.machine.event", "data": data]
         guard let encoded = try? JSONSerialization.data(withJSONObject: envelope) else { return nil }
         return parse(appServerEvent: encoded)
