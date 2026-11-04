@@ -95,10 +95,21 @@ fn hosted_typing_surface(
     name: &str,
     lane: bool,
 ) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    hosted_surface_with(name, lane, |_| {})
+}
+
+/// [`hosted_typing_surface`] with the fake host's attachment changed by `configure` before the surface takes it.
+#[cfg(unix)]
+fn hosted_surface_with(
+    name: &str,
+    lane: bool,
+    configure: impl FnOnce(&mut crate::terminal_host_runtime::HostAttachment),
+) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
     let mux = Mux::new_for_test(name, SurfaceOptions::default());
     mux.set_input_lane_for_test(lane);
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
     let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    configure(&mut attachment);
     let terminal_id = attachment.record.terminal_id.clone();
     attachment.record.workspace_key = workspace.key.clone();
     mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
@@ -1190,4 +1201,76 @@ fn a_write_waiting_for_a_reconnect_fails_when_the_reader_gives_up() {
             "a write to a host the reader gave up on waited {took:?}, its reconnect deadline, not the give-up"
         );
     });
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 1, item 4): a viewer size sent while the input port holds the person's key
+/// (a key that moved the grid sends it under the sizing lock, on the key's own turn) does not wait for the port: it
+/// goes on the port behind the key. Before, it waited in the order barrier for up to 2 s, then went first.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_behind_a_key_the_port_holds_goes_after_it_without_waiting() {
+    let (_mux, surface, mut host) = hosted_typing_surface("hosted-input-port-viewer-size", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    let started = Instant::now();
+    surface.resize(97, 31).expect("the viewer size was sent");
+    let took = started.elapsed();
+    drop(resume);
+    let kinds: Vec<_> = frames_until_quiet(&mut host, Duration::from_millis(500))
+        .into_iter()
+        .map(|frame| frame.kind)
+        .collect();
+    assert!(
+        took < Duration::from_millis(500),
+        "a viewer size waited {took:?} for the key the port held (it runs under the sizing lock on a key's turn)"
+    );
+    let key_at = kinds.iter().position(|kind| *kind == MessageKind::Input);
+    let size_at = kinds.iter().position(|kind| *kind == MessageKind::ViewerSize);
+    assert!(
+        matches!((key_at, size_at), (Some(key), Some(size)) if key < size),
+        "the viewer size did not reach the host after the key the port held: {kinds:?}"
+    );
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 2): an attach that settles the host's viewer size gives up at its
+/// own deadline, not the order barrier's 2 s, when the input port holds a frame.
+#[cfg(unix)]
+#[test]
+fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
+    let (_mux, surface, _host) =
+        hosted_surface_with("hosted-input-port-settle-deadline", true, |attachment| {
+            attachment.viewer_size_acks = true;
+        });
+    let pty = surface.as_pty().expect("a terminal");
+    surface.resize(97, 31).expect("the first viewer size was sent");
+    let resume = pty.input_port.pause_writes_for_test();
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    let started = Instant::now();
+    let settled = surface.settle_hosted_viewer_size(Instant::now() + Duration::from_millis(200));
+    let took = started.elapsed();
+    drop(resume);
+    assert!(!settled, "the fake host acknowledges nothing, so the size cannot settle");
+    assert!(
+        took < Duration::from_millis(900),
+        "an attach with a 200 ms deadline waited {took:?} for the input port's held frame"
+    );
+}
+
+/// R-DAEMON-STATE S1.6c (#35082 review 2, should-do 3): a write whose frame the port's writer took and then lost (the
+/// writer panicked during its write) may have reached the host, so its error says so, as a timeout during the write
+/// does; the creating-input flush must not give those bytes back.
+#[cfg(unix)]
+#[test]
+fn a_write_the_writer_lost_after_taking_it_may_be_written() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-lost", true);
+    let pty = surface.as_pty().expect("a terminal");
+    pty.input_port.panic_after_take_for_test();
+    let error = surface.write_bytes(b"w").expect_err("a write its writer lost answered ok");
+    assert!(
+        input_may_be_written(&error),
+        "a frame the writer took and lost was reported as not written: {error}"
+    );
 }

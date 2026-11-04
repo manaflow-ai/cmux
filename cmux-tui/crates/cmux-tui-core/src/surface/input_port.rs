@@ -192,6 +192,9 @@ struct PortState {
     reply_wait: Option<Duration>,
     #[cfg(test)]
     reconnect_wait: Option<Duration>,
+    /// Tests: the writer panics after it took its next frame (a writer lost during a write).
+    #[cfg(test)]
+    panic_after_take: bool,
 }
 
 #[derive(Default)]
@@ -404,6 +407,12 @@ impl InputPort {
             Some(wait);
     }
 
+    /// Tests: the writer panics after it takes its next frame.
+    #[cfg(test)]
+    pub(crate) fn panic_after_take_for_test(&self) {
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).panic_after_take = true;
+    }
+
     /// Tests: whether the writer waits for a reconnect now.
     #[cfg(test)]
     pub(crate) fn reconnecting_for_test(&self) -> bool {
@@ -507,6 +516,11 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
                 let _ = paused.recv();
                 shared.state.lock().unwrap_or_else(PoisonError::into_inner).paused = Some(paused);
             }
+            let lost = std::mem::take(
+                &mut shared.state.lock().unwrap_or_else(PoisonError::into_inner).panic_after_take,
+            );
+            // crash-allow: test-only panic, a writer lost after it took its frame.
+            assert!(!lost, "test: the input port's writer is lost after it took its frame");
         }
         // The terminal is gone: its port closed, and nothing is left to write to.
         let Some(runtime) = terminal.upgrade() else {
