@@ -58,6 +58,11 @@ shell between is never this strip (that side's edge is the pane's own edge); the
 left edge (information: a pill also moves when the tabs reflow with the strip's width).
 Page windows (D4): each Chromium host of the trace's page rows against its page window (trace) and the page's ring 1
 (film): covers the divider, or loses edge columns.
+Repeated frames (3e.5): a film frame whose scan lines equal the frame before (or differ only in a few pixels of one
+small run inside a pane: a cursor blink, a glyph) shows that frame's picture: every reader reads it with that frame's
+sample (`repeats` in the JSON). When the layout due in that frame differs where the scan can see it (an edge on a scan
+line moved by 1 device px or more), the window presented an old picture: the frame is late as a whole (m6), and no layer
+finding comes from it.
 Motions (an edge of the trace that moves, then rests 3 samples): settle_frames (from the first frame that shows the
 landed sample until the content is within 1 px of it for good) and, for a spring input with a declared spring, the
 trace and the film against that spring's step response (omega0 = 2 pi / response; t0 fitted). A motion is input-driven
@@ -121,6 +126,9 @@ SPRING_T0_STEPS = 41        # t0 grid points (coarse, then as many again around 
 DIVIDER_NEAR_PT = 12.0      # a pane edge this close to a divider's side is that divider's neighbour
 NON_SPRING_INPUTS = ("drag", "held keys", "window resize")  # inputs whose motion follows the input by design
 INPUT_KEY_WINDOW_S = 0.5    # key presses this long before a motion's first sample count as its input
+REPEAT_MAX_PX = 16          # 3e.5: a frame that differs from the frame before in at most this many scan pixels ...
+REPEAT_BOX_PX = 24          # ... all on one scan line and within this span (a cursor blink, one glyph) ...
+REPEAT_EDGE_PX = 8          # ... and none this close to a pane edge of either frame's sample or on a strip row
 
 
 def code_of(hex_color):
@@ -952,6 +960,101 @@ def clock_verdict(votes, tracks):
                     f"moving frames within {TOL_PX:g} px)" + (f"; edges at a later offset (late layers) {later}" if later else ""))
 
 
+def _line_edges(film, k, axis, coord):
+    """The device px of the pane edges that scan line COORD (AXIS "row": a row at y; "col": a column at x) crosses in
+    sample K, sorted: a pane's x edges on a row its rect spans, its y edges on a column it spans."""
+    if k is None:
+        return []
+    out = []
+    for row in film.samples[k].panes.values():
+        if len(row) < 5:
+            continue
+        (x, y, w, h), _ = pane_rect(row)
+        across, along = ((y, y + h), (x, x + w)) if axis == "row" else ((x, x + w), (y, y + h))
+        if across[0] * film.scale <= coord < across[1] * film.scale:
+            out += [along[0] * film.scale, along[1] * film.scale]
+    return sorted(out)
+
+
+def _scan_moved(film, a, b):
+    """Whether the layout of sample B differs from sample A where the scan can see it: on some scan line a pane edge it
+    crosses moved by TOL_PX or more (or a pane came onto or left the line). A layout change smaller than a device px, or
+    away from every scan line, leaves the scan unchanged and proves no late frame."""
+    if a is None or b is None or a == b:
+        return False
+    for axis, coords in (("row", film.rows), ("col", film.cols)):
+        for coord in coords:
+            ea, eb = _line_edges(film, a, axis, coord), _line_edges(film, b, axis, coord)
+            if len(ea) != len(eb) or any(abs(p - q) >= TOL_PX for p, q in zip(ea, eb)):
+                return True
+    return False
+
+
+def _strip_spans(film, k):
+    """{strip row y: [(x0, x1) device px of each pane whose tab strip is on that row]} in sample K."""
+    out = collections.defaultdict(list)
+    if k is None:
+        return out
+    for pid, y in film.strip_rows.items():
+        row = film.samples[k].panes.get(pid)
+        if row is not None and len(row) >= 5:
+            (x, _, w, _), _ = pane_rect(row)
+            out[y].append((x * film.scale, (x + w) * film.scale))
+    return out
+
+
+def find_repeats(film, fixed, shown):
+    """3e.5: the film frames that repeat the frame before. A frame repeats it when its scan lines equal the frame
+    before's in every pixel, or differ in at most REPEAT_MAX_PX pixels, all on one scan line, within REPEAT_BOX_PX of
+    each other, at least REPEAT_EDGE_PX from every pane edge on that line and on no pane's tab strip, in the samples
+    of both frames on both clocks (a cursor blink or a glyph inside a pane, never an edge that moved or a strip).
+    Returns {"held": {frame: the first frame of its run of repeats}, "late": the repeats whose frame was due to show a
+    layout that the scan would show differently (_scan_moved, on the fixed clock FIXED, as E7 reads it): the window
+    presented an old picture while the layout moved, late as a whole; "report": the JSON summary}."""
+    held, late, near = {}, [], {}
+    if not film.has_scan or film.n < 2:
+        return {"held": held, "late": late, "report": {"frames": 0, "ranges": "", "late": [], "near_px": {}}}
+    lines = [(i, "row", y) for i, y in enumerate(film.rows)] + [(i, "col", x) for i, x in enumerate(film.cols)]
+    for f in range(1, film.n):
+        changed, n_px = [], 0
+        for i, axis, coord in lines:
+            px = film.row_px[:, i] if axis == "row" else film.col_px[:, i]
+            diff = np.flatnonzero((px[f] != px[f - 1]).any(axis=-1))
+            if len(diff):
+                changed.append((axis, coord, diff))
+                n_px += len(diff)
+            if n_px > REPEAT_MAX_PX or len(changed) > 1:
+                break
+        if n_px:
+            if n_px > REPEAT_MAX_PX or len(changed) > 1:
+                continue
+            axis, coord, diff = changed[0]
+            lo_px, hi_px = int(diff.min()), int(diff.max())
+            if hi_px - lo_px >= REPEAT_BOX_PX:
+                continue
+            ks = {fixed[f - 1], fixed[f], shown[f - 1], shown[f]} - {None}
+            if any(min(abs(e - lo_px), abs(e - hi_px)) < REPEAT_EDGE_PX for k in ks for e in _line_edges(film, k, axis, coord)):
+                continue
+            if axis == "row" and any(x0 - REPEAT_EDGE_PX <= hi_px and lo_px <= x1 + REPEAT_EDGE_PX
+                                     for k in ks for x0, x1 in _strip_spans(film, k).get(coord, ())):
+                continue
+            near[str(f)] = n_px
+        src = held.get(f - 1, f - 1)
+        held[f] = src
+        if _scan_moved(film, fixed[src], fixed[f]):
+            late.append(f)
+    return {"held": held, "late": late,
+            "report": {"frames": len(held), "ranges": ranges(sorted(held)), "late": sorted(late), "near_px": near}}
+
+
+def hold_repeats(clock, held):
+    """CLOCK (per frame, the sample it shows) with each repeated frame showing the sample of the frame it repeats."""
+    out = list(clock)
+    for f in sorted(held):
+        out[f] = out[held[f]]
+    return out
+
+
 def judge(base, all_frames=False):
     film = Film(base)
     report = {"case": film.name, "base": str(film.base), "scale": film.scale, "period_ms": round(film.period * 1000, 3),
@@ -976,7 +1079,12 @@ def judge(base, all_frames=False):
     report["clock"] = clock
     offset = clock["offset"] or 0  # clock not found: the fixed clock, and the finding says so
     shown = [None if k is None or not 0 <= k - offset < len(film.samples) else k - offset for k in fixed]
-    if offset:
+    # 3e.5: a frame that repeats the frame before shows that frame's sample: on the film's clock every reader below
+    # reads and judges it so. The fixed clock is not held: E7 (late as a whole) reads it, and so do the late repeats.
+    repeats = find_repeats(film, fixed, shown)
+    report["repeats"] = repeats["report"]
+    if offset or repeats["held"]:
+        shown = hold_repeats(shown, repeats["held"])
         measured, inside, line_codes = measure_lines(film, lines, shown)
         strip_x, strip_y = strip_x_extents(film, shown, line_codes), strip_tops(film, shown, line_codes)
     # The first trace sample where any judged edge moves; frames before it (less one) are at rest.
@@ -1105,7 +1213,7 @@ def judge(base, all_frames=False):
     judge_divider_rects(film, dividers, summary)
     strips = judge_strips(film, shown, rest_frames, spring, reduce, summary, add_frame, line_codes, strip_x, strip_y, fixed)
     judge_page_windows(film, shown, measured, summary, add_frame)
-    report["m6"] = judge_m6(film, shown, measured, side_rest, strips)
+    report["m6"] = judge_m6(film, shown, measured, side_rest, strips, repeats["late"])
     if film.main_pane_source and film.main_pane_source != "note" and film.main_pane[0] > 0:
         report["notes"].append(f"the panes' visible area {film.main_pane} is from {film.main_pane_source}")
     if film.note.get("page_backdrop") is not False and any(i["kind"] == "page" for i in film.panes.values()):
@@ -1305,7 +1413,7 @@ def _next_distinct(values):
     return out
 
 
-def judge_m6(film, shown, measured, side_rest, strips):
+def judge_m6(film, shown, measured, side_rest, strips, late_repeats=()):
     """3e, the judge part of cmux-ad m6 1d (FRAME OWNER): per film frame and content kind (terminal, page, agent), each
     content edge against its pane edge as cmux's own layer shows it in the same film frame (3e.1: never the trace): the
     pane's tab strip on its strip row (x edges) and the strip's top on each scan column that crosses it (the pane's top
@@ -1410,7 +1518,8 @@ def judge_m6(film, shown, measured, side_rest, strips):
                               "fail_by_rule": {r: rules[kind][r] for r in M6_RULES},
                               "fail_frames_by_rule": {r: ranges(rule_frames[kind][r]) for r in M6_RULES},
                               "sources": dict(sources[kind]), "edges": dict(edge_counts[kind])}
-    late = sorted(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
+    late = sorted(set(f for f, lags in (strips.get("lags_fixed") or {}).items() if lags and all(v == 1 for v in lags))
+                  | set(late_repeats))
     out["late_as_a_whole"], out["late_as_a_whole_ranges"] = len(late), ranges(late)
     return out
 
