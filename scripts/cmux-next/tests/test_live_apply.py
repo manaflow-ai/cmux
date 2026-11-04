@@ -67,6 +67,8 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(self.verdict([("A", new)], {new: [("+", "@main"), ("+", "struct App {}")]}), "rebuild")
         self.assertEqual(self.verdict([("A", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/main.swift")]), "rebuild")
         self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@main")]}), "rebuild")
+        self.assertEqual(self.verdict([("M", VIEW)], {VIEW: [("+", "@MainActor @main")]}), "rebuild")
+        self.assertEqual(self.verdict([("A", new)], {new: [("+", "@available(macOS 14, *) @main struct App {}")]}), "rebuild")
 
     def test_a_deleted_swift_file_is_live_and_ios_alone_leaves_the_mac_app(self):
         self.assertEqual(self.verdict([("D", VIEW)]), "swift-live")
