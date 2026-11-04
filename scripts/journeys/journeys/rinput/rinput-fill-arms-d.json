@@ -4,7 +4,7 @@
  "title": "R-INPUT first-key menu stall arms (d): O/U/K/W before the first Command-C, 12 fresh launches (scratch, never merge)",
  "why": "Choose the fix from the root cost (lead 2026-11-04): does -[NSMenu update], an idle key walk or a warm page cache take the Windows menu fill off the first chord's turn, and what does the moved fill cost?",
  "source": "REWRITE R-INPUT agent a80216a78adfb7d0f",
- "budget_seconds": 130,
+ "budget_seconds": 160,
  "options": {
   "key_path": "real"
  },
@@ -348,7 +348,7 @@
   },
   {
    "do": "smoke_type",
-   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "text": "cat /System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/*.car >/dev/null; echo w${nonce}",
    "enter": true,
    "title": "launch 4: arm W, the symbol catalogs read into the page cache"
   },
@@ -669,7 +669,7 @@
   },
   {
    "do": "smoke_type",
-   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "text": "cat /System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/*.car >/dev/null; echo w${nonce}",
    "enter": true,
    "title": "launch 8: arm W, the symbol catalogs read into the page cache"
   },
@@ -990,7 +990,7 @@
   },
   {
    "do": "smoke_type",
-   "text": "for f in /System/Library/CoreServices/CoreGlyphs*.bundle/Contents/Resources/*.car /System/Library/Frameworks/AppKit.framework/Versions/C/Resources/*.car /System/Library/PrivateFrameworks/SFSymbols.framework/Versions/A/Resources/*.car; do cat \"$f\" >/dev/null 2>&1; done; echo warm-${nonce}",
+   "text": "cat /System/Library/CoreServices/CoreGlyphs.bundle/Contents/Resources/*.car >/dev/null; echo w${nonce}",
    "enter": true,
    "title": "launch 12: arm W, the symbol catalogs read into the page cache"
   },
