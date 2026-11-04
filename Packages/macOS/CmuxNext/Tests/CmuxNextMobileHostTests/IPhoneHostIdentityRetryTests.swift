@@ -103,6 +103,8 @@ import Testing
         clock.advance(by: .seconds(2))
         await Self.until { reads.fileStore.count == 2 && clock.sleeperCount == 0 }
         #expect(reads.fileStore == [false, false])
-        #expect(host.phase != .waiting(IPhoneHostStrings.keychainLocked))
+        // The read past the identity reaches hostd's start (this suite's fake stops there): the
+        // locked-keychain wait is gone once the supervisor's state stream delivers it.
+        await Self.until { host.phase != .waiting(IPhoneHostStrings.keychainLocked) }
     }
 }
