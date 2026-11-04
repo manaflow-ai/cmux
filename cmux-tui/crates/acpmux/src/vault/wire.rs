@@ -12,6 +12,10 @@ use zeroize::Zeroizing;
 
 /// The machine's vault route on the hub origin.
 pub const MACHINE_PATH: &str = "/v1/vault/machine";
+/// The query that tells the hub this machine runs the egress proxy: without
+/// it a proxy entry is `withheld` (an older machine would put the value in
+/// the agent env).
+pub const DELIVERY_QUERY: &str = "delivery=proxy.v1";
 /// The 403 code of a machine whose person has not granted it the vault.
 pub const NOT_GRANTED: &str = "vault.not_granted";
 /// Largest value accepted, in bytes (the machine.env reader's limit).
@@ -37,13 +41,19 @@ pub struct EnvItem {
     pub name: String,
     pub revision: u64,
     pub value: Option<Zeroizing<String>>,
+    /// `Some(allowed hosts)` for `delivery: proxy`: agents get the
+    /// placeholder and the egress proxy puts the value only into requests to
+    /// these hosts. `None` for `delivery: env` (or a hub that predates
+    /// delivery): the value itself goes in the agent env.
+    pub proxy: Option<Vec<String>>,
 }
 
 impl std::fmt::Debug for EnvItem {
     /// Never the value.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state = if self.value.is_some() { "active" } else { "revoked" };
-        write!(f, "EnvItem({} r{} {state})", self.name, self.revision)
+        let delivery = if self.proxy.is_some() { "proxy" } else { "env" };
+        write!(f, "EnvItem({} r{} {state} {delivery})", self.name, self.revision)
     }
 }
 
@@ -125,12 +135,39 @@ fn env_item(item: &Value) -> Option<EnvItem> {
     if !crate::login_env::machine_env_name_allowed(name) || super::REFUSED_NAMES.contains(&name) {
         return None;
     }
+    // `withheld` (a proxy entry for a machine that did not ask for them) and
+    // any other state are not delivered.
     let value = match item.get("state")?.as_str()? {
         "revoked" => None,
         "active" => Some(decode_value(item.get("valueBase64")?.as_str()?)?),
         _ => return None,
     };
-    Some(EnvItem { name: name.to_owned(), revision, value })
+    let proxy = match item.get("delivery") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(d)) if d == "env" => None,
+        Some(Value::String(d)) if d == "proxy" => Some(allowed_hosts(item.get("allowedHosts"))),
+        Some(_) => return None,
+    };
+    Some(EnvItem { name: name.to_owned(), revision, value, proxy })
+}
+
+/// Most allowed hosts one entry may carry.
+pub const MAX_HOSTS: usize = 16;
+
+/// The valid, distinct host patterns of `allowedHosts`, in order (at most
+/// [`MAX_HOSTS`]); anything else is dropped, so a malformed host only
+/// narrows where the value can go.
+fn allowed_hosts(list: Option<&Value>) -> Vec<String> {
+    let mut hosts: Vec<String> = Vec::new();
+    for host in list.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+        if let Some(pattern) = cmux_vault_egress::HostPattern::parse(host) {
+            let text = pattern.to_string();
+            if !hosts.contains(&text) && hosts.len() < MAX_HOSTS {
+                hosts.push(text);
+            }
+        }
+    }
+    hosts
 }
 
 /// Base64 (standard, padded or not) of UTF-8 with no NUL, at most
