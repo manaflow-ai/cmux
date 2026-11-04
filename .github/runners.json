@@ -454,6 +454,10 @@
     "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks"},
     "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks"},
     "nightly.yml#report-nightly-failure": {"class": "portable-checks"},
+    "nightly.yml#decide": {"class": "portable-checks"},
+    "nightly.yml#await-release-surface-ack": {"class": "portable-checks"},
+    "nightly.yml#pick-nightly-sign-runner": {"class": "portable-checks"},
+    "nightly.yml#published-in": {"class": "portable-checks"},
     "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks"},
     "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks"},
     "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks"},
@@ -470,29 +474,23 @@
     "nightly.yml#build-nightly-ghostty-cli-helper": "apple-app-build",
     "nightly.yml#build-sign-notarize-nightly": "apple-signing-release",
     "nightly.yml#generate-nightly-deltas": "apple-signing-release",
-    "nightly.yml#recover-nightly-next-notarization": {
+    "nightly.yml#recover-nightly-next-notarization": "apple-signing-release",
+    "nightly.yml#promote-nightly-next": {
       "class": "apple-signing-release",
-      "placement_followup": "the recovery picker names only Blacksmith, so this reads the owned nightly slot and side lane directly; add an owned recovery pick"
+      "picker_followup": "a main dispatch with no job before it to pick a runner; it takes the owned nightly slot, which admits the exclusive claim the release App key needs (the nightly-only minis refuse a signing-class job)"
     },
-    "nightly.yml#refresh-compilation-cache": {
-      "class": "apple-app-build",
-      "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
-    },
+    "nightly.yml#publish-nightly": "apple-signing-release",
+    "nightly.yml#publish-nightly-next-github": "apple-signing-release",
+    "nightly.yml#publish-nightly-next-github-names": "apple-signing-release",
+    "nightly.yml#refresh-compilation-cache": "apple-app-build",
     "nightly.yml#refresh-test-compilation-cache": {
       "class": "apple-app-build",
       "picker_followup": "runs-on names a fixed macOS label; take it from a picker job's output"
     },
     "nightly.yml#sign-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#signer-dmg-image": "apple-signing-release",
     "nightly.yml#verify-final-dmg-nightly": "apple-signing-release",
-    "nightly.yml#launch-smoke-nightly": "apple-signing-release",
     "nightly.yml#verify-nightly-identity-legacy": "apple-signing-release",
-    "nightly.yml#legacy-signer-dmg-image": "apple-signing-release",
-    "nightly.yml#verify-nightly-identity-legacy-pool": "apple-signing-release",
-    "nightly.yml#verify-recovered-nightly-next": {
-      "class": "apple-signing-release",
-      "placement_followup": "the recovery picker names only Blacksmith, so this reads the owned nightly slot and side lane directly; add an owned recovery pick"
-    },
+    "nightly.yml#verify-recovered-nightly-next": "apple-signing-release",
     "nightly.yml#verify-signed-nightly": "apple-signing-release",
     "nightly.yml#visual-gate-nightly": "apple-gui",
     "relay-publish-npm.yml#smoke": {
@@ -572,19 +570,9 @@
   "hosted_light_jobs": {
     "$comment": [
       "allowed_secrets names every secret each job may reference, including inherited workflow env; omitted means none.",
-      "Same-repository nightly jobs may use GitHub-hosted Ubuntu only during their declared bootstrap route.",
+      "Nightly jobs never use GitHub-hosted runners: they run only on our own Mac minis (tests/test_nightly_owned_minis_only.py).",
       "The route still prefers a verified fleet reservation and measured Blacksmith overflow; this table never permits release/signing operations, credentialed visual-gate routing or artifact publication on hosted Ubuntu."
     ],
-    "nightly.yml#decide": {"class": "portable-checks", "reason": "routing bootstrap", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "nightly.yml#pick-nightly-build-runner": {"class": "portable-checks", "reason": "runner picker", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},
-    "nightly.yml#resolve-nightly-cmux-tui-client": {"class": "portable-checks", "reason": "client reuse lookup"},
-    "nightly.yml#resolve-nightly-ghostty-cli-helper": {"class": "portable-checks", "reason": "helper reuse lookup"},
-    "nightly.yml#find-nightly-next-recovery": {"class": "portable-checks", "reason": "recovery lookup"},
-    "nightly.yml#visual-gate-nightly-verdict": {"class": "portable-checks", "reason": "visual verdict bookkeeping"},
-    "nightly.yml#report-visual-gate-nightly": {"class": "portable-checks", "reason": "visual report bookkeeping"},
-    "nightly.yml#nightly-identity-legacy-published": {"class": "portable-checks", "reason": "publication state bookkeeping"},
-    "nightly.yml#report-nightly-failure": {"class": "portable-checks", "reason": "failure report bookkeeping"},
-    "nightly.yml#close-nightly-failure-issue": {"class": "portable-checks", "reason": "failure issue bookkeeping"},
     "cmux-next-fast-gates.yml#resolve": {"class": "portable-checks", "reason": "resolver: names the head and base, 10 s of work (run 41389051872)"},
     "cmux-next-fast-gates.yml#post": {"class": "portable-checks", "reason": "report step: posts the cmux-next/fast-gates status"},
     "ci.yml#changes": {"class": "portable-checks", "reason": "CI router: change classification and runner picks, 11 s of work (run 41385632466)", "allowed_secrets": ["GLAEDA_ROUTE_APP_KEY"]},

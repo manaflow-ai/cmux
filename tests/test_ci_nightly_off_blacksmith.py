@@ -96,21 +96,25 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                                "vars.LINUX_RUNNER": "blacksmith-16vcpu-ubuntu-2404",
                                "vars.RUNNER_POOLS": '{"linux_16":"blacksmith-16vcpu-ubuntu-2404","linux_32":"blacksmith-32vcpu-ubuntu-2404"}' }
                     with self.subTest(job=name, attempt=attempt, placement=placement_attempt):
-                        # Without a placement: hosted Ubuntu on every attempt and track, never Blacksmith.
-                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
+                        # Without a placement: the nightly-only minis on every attempt and track, never
+                        # hosted Ubuntu or Blacksmith (nightlies run only on our own Mac minis).
+                        self.assertEqual(evaluate(expression, context), "glaeda-nightly-only-m4pro")
                         context["needs.decide.outputs.track"] = "nightly"
-                        self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
+                        self.assertEqual(evaluate(expression, context), "glaeda-nightly-only-m4pro")
                         context["github.repository_owner"] = "fork-owner"
                         self.assertEqual(evaluate(expression, context), "ubuntu-24.04")
+            # decide's mini placement on the all-nightly reservation, for this attempt only.
             for runner in ("cmux-nightly-reservation-control", "glaeda-side-std-xcode-26.6"):
-                output = name.replace("cmux-", "").replace("-", "_")
                 context = {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1,
                            "needs.decide.outputs.track": "nightly-next",
                            "needs.decide.outputs.early_attempt": "1",
-                           f"needs.decide.outputs.early_{output}_runner": runner}
+                           "needs.decide.outputs.early_mini_jobs": f" {name} ",
+                           "needs.decide.outputs.early_mini_runner": runner}
                 self.assertEqual(evaluate(expression, context), runner)
+                self.assertEqual(evaluate(expression, {**context, "github.run_attempt": 2}),
+                                 "glaeda-nightly-only-m4pro")
 
-    def test_fleet_linux_fallback_jobs_install_gh_before_their_gh_calls(self) -> None:
+    def test_mini_jobs_install_gh_before_their_gh_calls(self) -> None:
         import yaml
         jobs = yaml.safe_load((WORKFLOWS / "nightly.yml").read_text())["jobs"]
         for name, first_gh_step in (("resolve-nightly-cmux-tui-client", "Wait through GitHub API rate limits in this job's gh calls"),
@@ -120,11 +124,13 @@ class NightlyPooledRoutingTests(unittest.TestCase):
             with self.subTest(job=name):
                 ensure = next(i for i, step in enumerate(steps)
                               if step.get("run") == "bash scripts/ci/nightly-steps/ensure-gh.sh")
-                self.assertEqual(steps[ensure].get("if"), "runner.os == 'Linux'")
+                # Every runner: a mini may lack gh too (the script installs it with Homebrew there).
+                self.assertNotIn("if", steps[ensure])
                 self.assertLess(ensure, names.index("Wait through GitHub API rate limits in this job's gh calls"))
                 self.assertLess(ensure, names.index(first_gh_step))
         script = (ROOT / "scripts/ci/nightly-steps/ensure-gh.sh").read_text()
         self.assertIn("apt-get install -y -q gh", script)
+        self.assertIn("HOMEBREW_NO_AUTO_UPDATE=1 \"$brew\" install gh", script)
         self.assertIn("https://cli.github.com/packages", script)
         self.assertIn("::error", script)
 
@@ -193,8 +199,12 @@ class NightlyPooledRoutingTests(unittest.TestCase):
     def test_secret_bearing_nightlies_use_the_trusted_owned_pool(self) -> None:
         text = nightly_expand((WORKFLOWS / "nightly.yml").read_text(encoding="utf-8"))
         owned = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+        # The notarization recovery takes its own owned pick, then the nightly build pool.
+        recovery = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
         for name in ("sign-nightly-identity-legacy", "build-sign-notarize-nightly", "recover-nightly-next-notarization"):
             runs_on = re.search(r"^    runs-on: (.+)$", text[text.index(f"\n  {name}:"):], re.MULTILINE).group(1)
+            if name == "recover-nightly-next-notarization":
+                owned = recovery
             with self.subTest(job=name):
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
@@ -219,12 +229,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         # Unplaced, our nightly-only minis (never Blacksmith); the steps run on Linux or a Mac alike.
         owned = "vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
         for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant"):
-            expected = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-            if name == "prepare-nightly-variant-primary":
-                # Fleet Linux first, only when build-nightly-app's place-fleet saw an idle runner.
-                expected += ("needs.build-nightly-app.outputs.light_attempt == format('{0}', github.run_attempt) && "
-                             "needs.build-nightly-app.outputs.light_linux_runner || ")
-            expected += light.replace("{job}", name) + owned
+            # Never fleet Linux: nightlies run only on our own Mac minis.
+            expected = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                        + light.replace("{job}", name) + owned)
             with self.subTest(job=name):
                 self.assertEqual(jobs[name]["runs-on"], expected)
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
@@ -259,9 +266,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         On 2026-10-28 the light nightly jobs, created while the overflow record was
         set, waited hours on blacksmith-6vcpu-macos-26 after the switch had cleared,
         and the NEXT feed fell more than two hours behind. They hold no release
-        secrets, so with the record set or not they take a current fleet placement,
-        else GitHub-hosted Ubuntu (the controls) or our nightly-only minis (the
-        prepare jobs), never Blacksmith (Lawrence, 2026-10-30). The prepare steps
+        secrets, so with the record set or not they take a current mini placement,
+        else our nightly-only minis, never hosted Ubuntu or Blacksmith (Lawrence,
+        2026-10-30; only a fork's fallback names hosted Ubuntu). The prepare steps
         run on Linux or a Mac (Apple's lipo, the Mac's tar).
         """
         import yaml
@@ -270,8 +277,7 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         for name in LIGHT_NIGHTLY_JOBS:
             with self.subTest(job=name):
                 runs_on = jobs[name]["runs-on"]
-                expected_tail = ("|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
-                                 if name.startswith("prepare-nightly-variant") else "|| 'ubuntu-24.04' }}")
+                expected_tail = "|| vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}"
                 self.assertTrue(runs_on.endswith(expected_tail), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
@@ -303,7 +309,9 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         jobs = yaml.safe_load(nightly_expand((WORKFLOWS / "nightly.yml").read_text()))["jobs"]
         self.assertNotIn("pick-legacy-identity-runner", jobs)
         job = jobs["legacy-identity-target"]
-        self.assertEqual(job["runs-on"], jobs["signer-app"]["runs-on"])
+        # It holds the release App key without glaeda's exclusive class yet, so it waits on hosted Ubuntu
+        # until the glaeda signing-jobs change lands (tests/test_nightly_owned_minis_only.py PENDING_GLAEDA).
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
         source = parse_expression(job["runs-on"].removeprefix("${{").removesuffix("}}"))
         self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 1}), "ubuntu-24.04")
         self.assertEqual(evaluate(source, {"github.repository_owner": "manaflow-ai", "github.run_attempt": 2}),
@@ -346,7 +354,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
         declared = json.loads((ROOT / ".github/runners.json").read_text())["hosted_light_jobs"]
         for name in PUBLICATION_POOL_JOBS:
             with self.subTest(job=name):
-                self.assertIn(f"nightly.yml#{name}", declared)
+                # On the nightly-only minis now, so never a hosted light job.
+                self.assertNotIn(f"nightly.yml#{name}", declared)
                 self.assertNotIn("pick-nightly-build-runner", jobs[name]["needs"])
                 self.assertNotIn("needs.pick-nightly-build-runner.outputs.", jobs[name]["runs-on"])
                 self.assertNotIn("environment", jobs[name])

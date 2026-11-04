@@ -162,17 +162,6 @@ class NightlyNeverBlacksmith(unittest.TestCase):
                 with self.subTest(job=name, inner=inner):
                     self.assertFalse(BLACKSMITH_ROUTE.search(str(spec.get("runs-on", ""))), spec.get("runs-on"))
 
-    def test_the_early_admission_overflow_is_never_blacksmith(self) -> None:
-        sys.path.insert(0, str(ROOT / "scripts/ci"))
-        import nightly_linux_admission as admission
-        self.assertTrue(admission.OVERFLOW)
-        self.assertFalse([label for label in admission.OVERFLOW if "blacksmith" in label])
-        env = JOBS["decide"]["steps"]
-        overflow = {str((step.get("env") or {}).get("OVERFLOW_LINUX")) for step in env if (step.get("env") or {}).get("OVERFLOW_LINUX")}
-        self.assertTrue(overflow)
-        for value in overflow:
-            self.assertNotIn("blacksmith", value)
-            self.assertNotIn("LINUX_RUNNER", value)
 
     def test_the_sampler_catches_a_blacksmith_fallback(self) -> None:
         source = "needs.pick-nightly-sign-runner.outputs.sign_owned_pool || needs.pick-nightly-sign-runner.outputs.linux"

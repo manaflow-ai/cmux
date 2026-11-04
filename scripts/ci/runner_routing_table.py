@@ -31,8 +31,8 @@ ask whether the job needed macOS. This module asks.
 * a job of an `any` class does not take portable placement's fleet Linux
   output, then its mini output, then a Blacksmith label, in that order
   (portable_order()); nightly.yml's light jobs read build-nightly-app's
-  light-job placement (its fleet Linux output where it has one, then its mini
-  output, then a Blacksmith label) instead.
+  light-job placement (its mini output, then the nightly-only Mac pool) instead,
+  never fleet Linux or Blacksmith: nightlies run only on our own Mac minis.
 
 `linux_followup`, `placement_followup` and `picker_followup` exist only so the
 table can describe today's tree: an existing job that should move but has not yet. A new
@@ -83,11 +83,14 @@ NEEDS = ("macos", "linux", "any")
 PORTABLE_LINUX = re.compile(r"needs\.portable-placement\.outputs\.linux_runner$")
 PORTABLE_MINI = re.compile(r"needs\.portable-placement\.outputs\.mini_runner$")
 # nightly.yml's light jobs: build-nightly-app's last step places them (NIGHTLY=1) on a free mini, else
-# Blacksmith; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
+# the nightly-only Mac pool; build-nightly-remote-daemon, which builds beside the app, takes the Ghostty helper's owned
 # Mac pick (pick-nightly-build-runner's helper) instead. A nightly job never takes vars.LINUX_RUNNER as it is;
-# fleet Linux comes only from a placement output that saw an idle runner (NIGHTLY_LINUX), before the mini.
+# a fleet Linux placement output (NIGHTLY_LINUX) is refused: nightlies run only on our own Mac minis.
 NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_runner|decide\.outputs\.early_mini_runner"
-                          r"|pick-nightly-build-runner\.outputs\.helper)$")
+                          r"|pick-nightly-build-runner\.outputs\.helper)$"
+                          # The nightly-only Mac pool itself: its minis run only nightly work, so a nightly control
+                          # with no placement takes it directly (nightlies run only on our own minis).
+                          r"|^vars\.CI_NIGHTLY_ONLY_RUNNER$")
 # nightly.yml's first job (decide) has no job before it to place it: attempt 1 of a nightly-next push asks for
 # glaeda's nightly slot, which only nightly jobs take, and the owned-pool rescue moves it to Blacksmith when no
 # slot takes it (its picker_followup says so).
@@ -146,6 +149,20 @@ def nightly_reservation(term: str) -> bool:
                              "vars.CI_NIGHTLY_ONLY_RUNNER"])
 
 
+def nightly_only_pool(runs_on: str) -> bool:
+    """Whether a nightly route ends on the nightly-only Mac pool (its variable, then its literal).
+
+    That pool is several minis that take only nightly work (glaeda-nightly-only-admit), not one label with
+    one host, so a nightly control that ends there needs no picker in front of it.
+    """
+    text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
+    expressions = EXPRESSION.findall(text)
+    if len(expressions) != 1:
+        return False
+    terms = [term.strip() for term in value_terms(expressions[0])]
+    return terms[-2:] == ["vars.CI_NIGHTLY_ONLY_RUNNER", "'glaeda-nightly-only-m4pro'"]
+
+
 def has_nightly_reservation(runs_on: str) -> bool:
     text = json.loads(runs_on) if runs_on.startswith('"') else runs_on
     expressions = EXPRESSION.findall(text)
@@ -192,9 +209,10 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         mini = next((i for i, term in enumerate(terms) if NIGHTLY_MINI.search(term) or NIGHTLY_SLOT.search(term)), None)
         if mini is None:
             return "it does not read needs.build-nightly-app.outputs.light_mini_runner (or the nightly slot)"
+        # Nightlies run only on our own Mac minis (Lawrence, 2026-11-03): never fleet Linux.
+        if any(name in runs_on for name in NIGHTLY_LINUX):
+            return "it reads a fleet Linux placement; nightlies run only on our own Mac minis"
         linux = -1
-        if "needs.decide.outputs.early_mini_runner" in runs_on or NIGHTLY_LINUX[0] in runs_on:
-            linux = next((i for i, term in enumerate(terms) if term.endswith(NIGHTLY_LINUX)), None)
     else:
         linux = next((i for i, term in enumerate(terms) if PORTABLE_LINUX.search(term)), None)
         mini = next((i for i, term in enumerate(terms) if PORTABLE_MINI.search(term)), None)
@@ -715,7 +733,8 @@ def check(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) -> list[str]:
         elif entry.get("placement_followup") and not bypass:
             problems.append(f"{job.key} no longer bypasses placement; remove its placement_followup")
         # A bypass is already one pin, recorded by its placement_followup.
-        reserved = job.key.startswith("nightly.yml#") and has_nightly_reservation(job.runs_on)
+        reserved = job.key.startswith("nightly.yml#") and (has_nightly_reservation(job.runs_on)
+                                                           or nightly_only_pool(job.runs_on))
         pin = not bypass and not job.from_picker and not reserved
         if pin and not entry.get("picker_followup"):
             problems.append(

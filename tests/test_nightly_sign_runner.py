@@ -41,21 +41,19 @@ SIGNING_JOBS = {
     "build-sign-notarize-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "verify-signed-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "verify-final-dmg-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
-    # The pool-signed build's fresh-home launch smoke, beside signer-dmg: secret-free, as the final verify.
-    "launch-smoke-nightly": "needs.pick-nightly-sign-runner.outputs.runner",
     "recover-nightly-next-notarization": "needs.find-nightly-next-recovery.outputs.sign_runner",
     "verify-recovered-nightly-next": "needs.find-nightly-next-recovery.outputs.sign_runner",
-    # The release-pool path's one Mac job: Apple's checks and the DMG image, no secrets.
-    "signer-dmg-image": "needs.pick-nightly-sign-runner.outputs.runner",
 }
 # Jobs that never take Blacksmith (Lawrence, 2026-10-30: nightlies never use Blacksmith): an owned
 # pick where one exists, then the owned nightly slot variable, the owned side lane, then the owned std pool
 # literal, so the chain never ends on a reserved lane variable (test_ci_runs_on_fallback.py).
 OWNED_ONLY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "generate-nightly-deltas",
                    "build-sign-notarize-nightly", "recover-nightly-next-notarization", "verify-signed-nightly",
-                   "verify-final-dmg-nightly", "launch-smoke-nightly", "signer-dmg-image",
-                   "verify-recovered-nightly-next")
+                   "verify-final-dmg-nightly", "verify-recovered-nightly-next")
 OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
+RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
+RECOVERY_JOBS = {"recover-nightly-next-notarization", "verify-recovered-nightly-next"}
 # Each picker's re-run label, the other Blacksmith macOS 26 size.
 ALTERNATES = {
     "needs.pick-nightly-sign-runner.outputs.runner": "needs.pick-nightly-sign-runner.outputs.alternate",
@@ -301,12 +299,6 @@ class Unverified(unittest.TestCase):
                 self.assertEqual(picker.main(env, read=broken, now=NOW, sleep=lambda s: None), 0)
         self.assertEqual(calls, ["t"] * picker.SNAPSHOT_READS)
 
-    def test_the_sign_pickers_pass_the_github_token_fallback(self) -> None:
-        steps = WORKFLOW["jobs"]["pick-nightly-sign-runner"]["steps"]
-        for step_id in ("sign-runner", "sign-linux-runner"):
-            step = next(step for step in steps if step.get("id") == step_id)
-            with self.subTest(step=step_id):
-                self.assertEqual(step["env"]["SNAPSHOT_FALLBACK_TOKEN"], "${{ github.token }}")
 
     def test_a_full_rerun_without_a_snapshot_tries_the_other_size(self) -> None:
         # Attempt 1 took 6 vCPU unverified; a full re-run picks again, still blind, and moves to 12 vCPU.
@@ -451,12 +443,6 @@ class EveryLabelDead(unittest.TestCase):
                                               "RUNNER_POOLS": pools}, now=NOW), 0)
             self.assertEqual(output.read_text(), f"runner={SMALL}\nalternate={SMALL}\nplacement=unverified\n")
 
-    def test_every_picker_step_reads_runner_pools(self) -> None:
-        steps = [step for job in WORKFLOW["jobs"].values() for step in job.get("steps", [])
-                 if "nightly_sign_runner.py" in str(step.get("run", ""))]
-        self.assertTrue(steps)
-        for step in steps:
-            self.assertEqual(step["env"].get("RUNNER_POOLS"), "${{ vars.RUNNER_POOLS }}")
 
 
 class Workflow(unittest.TestCase):
@@ -469,7 +455,7 @@ class Workflow(unittest.TestCase):
                 runs_on = str(jobs[name]["runs-on"])
                 self.assertNotIn(picked, runs_on)
                 self.assertNotIn(ALTERNATES[picked], runs_on)
-                self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
                 self.assertIn(name, OWNED_ONLY_JOBS)
 
     def test_owned_only_jobs_never_name_blacksmith(self) -> None:
@@ -477,7 +463,7 @@ class Workflow(unittest.TestCase):
         for name in OWNED_ONLY_JOBS:
             with self.subTest(job=name):
                 runs_on = str(jobs[name]["runs-on"])
-                self.assertTrue(runs_on.endswith(OWNED_FALLBACK), runs_on)
+                self.assertTrue(runs_on.endswith(RECOVERY_FALLBACK if name in RECOVERY_JOBS else OWNED_FALLBACK), runs_on)
                 self.assertNotIn("blacksmith", runs_on)
                 self.assertNotIn("RUNNER_POOLS", runs_on)
                 self.assertNotIn("MACOS_RUNNER", runs_on)
@@ -493,29 +479,6 @@ class Workflow(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("environment", WORKFLOW["jobs"][name].get("environment", "") or "")
 
-    def test_the_pickers_run_the_step_and_publish_its_output(self) -> None:
-        jobs = WORKFLOW["jobs"]
-        for job, output in (("pick-nightly-sign-runner", "runner"), ("find-nightly-next-recovery", "sign_runner"),
-                            ("legacy-identity-target", "sign_runner")):
-            with self.subTest(job=job):
-                step = next(s for s in jobs[job]["steps"] if s.get("id") == "sign-runner")
-                self.assertTrue(step["continue-on-error"])
-                # The picker job checks out only the publication tooling (tests/test_nightly_cmux_tui_resolve.py).
-                tooling = ".publish-tooling/" if job == "pick-nightly-sign-runner" else ""
-                self.assertEqual(step["run"].strip(), f"python3 {tooling}scripts/ci/nightly_sign_runner.py")
-                self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
-                self.assertEqual(jobs[job]["outputs"][output], "${{ steps.sign-runner.outputs.runner }}")
-                alternate = "alternate" if output == "runner" else "sign_alternate"
-                self.assertEqual(jobs[job]["outputs"][alternate], "${{ steps.sign-runner.outputs.alternate }}")
-                # legacy-identity-target takes release-next only for the release App credentials of its
-                # gh calls (tests/test_gh_app_token.py); that environment has no reviewers, so nothing waits.
-                # pick-nightly-sign-runner mints the routing token, so it reads GLAEDA_ROUTE_APP_KEY in
-                # ci-routing-agent, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
-                expected = {"legacy-identity-target": "release-next", "pick-nightly-sign-runner": "ci-routing-agent"}
-                self.assertEqual(jobs[job].get("environment"), expected.get(job))
-        self.assertEqual(jobs["pick-nightly-sign-runner"]["permissions"], {"actions": "read", "contents": "read"})
-        # A failed pick never blocks signing: the jobs fall back to the variable.
-        self.assertTrue(jobs["pick-nightly-sign-runner"]["continue-on-error"])
 
 
 class OwnedVerify(unittest.TestCase):
@@ -526,12 +489,12 @@ class OwnedVerify(unittest.TestCase):
     (Leo, 2026-10-24); the signing jobs, which hold the keys, stay on Blacksmith.
     """
 
-    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly")
+    OWNED_JOBS = ("verify-signed-nightly", "verify-final-dmg-nightly")
     # The cmux NIGHTLY-identity verify, also secret-free, keeps its own picker's Blacksmith labels after
     # the owned pick: on 2026-10-28 it queued 20+ min on blacksmith-6vcpu-macos-26 while 12 vCPU was stalled.
     # The cmux NIGHTLY-identity copy's secret-free Mac jobs: the macOS signer's verify, and the release
     # signer pool's image job and verify.
-    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy", "legacy-signer-dmg-image", "verify-nightly-identity-legacy-pool")
+    LEGACY_OWNED_JOBS = ("verify-nightly-identity-legacy",)
     OWNED = "needs.pick-nightly-sign-runner.outputs.owned"
 
     def test_verify_jobs_read_the_owned_pick_only_for_the_attempt_it_was_made_for(self) -> None:
@@ -591,7 +554,7 @@ class OwnedVerify(unittest.TestCase):
             ({"needs.pick-nightly-sign-runner.outputs.attempt": "2", self.OWNED: "glaeda-side-light-xcode-26.6"},
              "glaeda-side-light-xcode-26.6", "fleet"),
         )
-        for name in ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly"):
+        for name in ("verify-signed-nightly", "verify-final-dmg-nightly"):
             job = WORKFLOW["jobs"][name]
             for changes, runner, xcode in cases:
                 with self.subTest(job=name, changes=changes):
@@ -665,10 +628,7 @@ class OwnedVerify(unittest.TestCase):
                          "${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}")
         self.assertEqual(step["env"]["CANDIDATE"], "${{ vars.MACOS_RUNNER_26 }}")
         self.assertNotIn("DEDICATED_LABEL", step["env"])
-        # The job outlives its step budgets, and the Blacksmith pick comes first: a slow App API
-        # never cancels the job before `runner` is written (a cancelled pick skips signing).
-        ids = [s.get("id") for s in job["steps"]]
-        self.assertLess(ids.index("sign-runner"), ids.index("route-token"))
+        # The job outlives its step budgets, so a slow App API never cancels it before its outputs are written.
         budget = sum(int(s.get("timeout-minutes", 0)) for s in job["steps"])
         self.assertTrue(all("timeout-minutes" in s for s in job["steps"] if s.get("id")))
         self.assertGreaterEqual(int(job["timeout-minutes"]), budget + 2)
@@ -696,7 +656,7 @@ class SnapshotReadToken(unittest.TestCase):
     # pull requests, outside the environment).
     # decide places early controls through the same read-only routing App.
     KEYED_JOBS = {"decide", "pick-nightly-build-runner", "pick-nightly-sign-runner", "route-visual-gate-nightly",
-                  "build-nightly-app"}
+                  "build-nightly-app", "find-nightly-next-recovery"}
 
     def test_each_snapshot_read_uses_the_read_token_with_the_github_token_fallback(self) -> None:
         for name in self.PICKERS:
@@ -795,7 +755,7 @@ class Overtaken(unittest.TestCase):
         self.assertTrue(step["continue-on-error"])
         self.assertEqual(step["if"], "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'")
         gate = "needs.pick-nightly-sign-runner.outputs.overtaken != 'true'"
-        for name in ("signer-app", "build-sign-notarize-nightly"):
+        for name in ("build-sign-notarize-nightly",):
             self.assertIn("pick-nightly-sign-runner", jobs[name]["needs"])
             self.assertIn(gate, jobs[name]["if"], name)
 
