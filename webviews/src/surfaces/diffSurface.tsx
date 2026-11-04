@@ -13,6 +13,8 @@ import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
 import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
+import { appPopupHost } from "../pages/shared/pagePopupHost";
+import { UiProvider } from "../ui/UiProvider";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
 import diffViewerStyles from "../styles.css?inline";
 import gitStyles from "../agent-session/acpmux/changes/git.css?inline";
@@ -100,5 +102,9 @@ export async function renderDiffSurface(
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
   const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
-  createRoot(rootElement).render(<RouterProvider router={router} />);
+  createRoot(rootElement).render(
+    <UiProvider container={rootElement} popupHost={appPopupHost(diffPageClient())}>
+      <RouterProvider router={router} />
+    </UiProvider>,
+  );
 }
