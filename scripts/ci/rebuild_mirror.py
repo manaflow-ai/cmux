@@ -111,6 +111,10 @@ def start(root: str, rev: str, job: str, full: dict, output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(record, sort_keys=True) + "\n")
     print("mirror=true")
+    # The workflow's promotion path looks up the narrowed candidate namespace,
+    # while the legacy reuse key remains the full-tree fingerprint.
+    if record.get("candidate_key"):
+        print(f"candidate_key={record['candidate_key']}")
 
 
 def finish(plan: Path, outcome: str, output: Path, execution_receipt: Path | None = None) -> dict:

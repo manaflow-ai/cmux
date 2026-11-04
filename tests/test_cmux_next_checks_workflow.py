@@ -1679,7 +1679,9 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         steps = self.steps("fast-tier-cargo")
         lookup = steps[index_of(steps, lambda s: s.get("id") == "planner-reuse")]
         self.assertIn("vars.CI_REBUILD_MIRROR) == 'enforce'", lookup["if"])
+        self.assertIn("steps.reuse-key.outputs.candidate_key != ''", lookup["if"])
         self.assertIn("--trusted-branch feat-cmux-next --trusted-event push", lookup["run"])
+        self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])
         self.assertEqual(lookup.get("env", {}).get("GH_TOKEN"), "${{ github.token }}")
         self.assertIs(lookup.get("continue-on-error"), True)
         trusted = steps[index_of(steps, lambda s: s.get("name") == "Reuse the trusted planner pass")]

@@ -3490,17 +3490,17 @@ jobs:
       # CI_REBUILD_MIRROR=0 keeps the old whole-tree mode available as a kill switch.
       - name: Look for a trusted planner pass
         id: planner-reuse
-        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.key != '' && inputs.no_reuse != true }}
+        if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.candidate_key != '' && inputs.no_reuse != true }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          KEY: ${{ steps.reuse-key.outputs.key }}
+          KEY: ${{ steps.reuse-key.outputs.candidate_key }}
         run: python3 -I scripts/ci/job_reuse.py lookup --key "$KEY" --trusted-branch feat-cmux-next --trusted-event push >> "$GITHUB_OUTPUT"
 
       - name: Reuse the trusted planner pass
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit == 'true' }}
         env:
-          KEY: ${{ steps.reuse-key.outputs.key }}
+          KEY: ${{ steps.reuse-key.outputs.candidate_key }}
           RUN_URL: ${{ steps.planner-reuse.outputs.run_url }}
           SHA: ${{ steps.planner-reuse.outputs.sha }}
         run: |
