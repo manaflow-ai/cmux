@@ -1503,6 +1503,44 @@ class CrashIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
 
+class VolatileErrorTokens(unittest.TestCase):
+    """An error line naming each run's own temp dir is the same error (2026-11-04, cmux#34660's release-notary red)."""
+
+    NOTARY = "nightly-guards / workflow-guard-tests / release-notary"
+    STEP = "Validate nightly builds and signers never cancel or replace a waiting run"
+
+    def judge(self, head_line, base_line, *extra):
+        github = FakeGitHub()
+        github.jobs = {1: failed_job(1, 10, HEAD, name=self.NOTARY, step=self.STEP),
+                       2: failed_job(2, 20, BASE_SHA, name=self.NOTARY, step=self.STEP)}
+        github.logs = {1: log(self.NOTARY, self.STEP, head_line, *extra, "##[error]Process completed with exit code 1."),
+                       2: log(self.NOTARY, self.STEP, base_line, "##[error]Process completed with exit code 1.")}
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_same_error_in_another_temp_dir_is_excused(self):
+        text = self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json was never released",
+                          "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released")
+        self.assertIn(f"excused '{self.NOTARY}'", text)
+        self.assertIn("<tmp>/lease.json", text)
+
+    def test_the_same_error_under_another_runner_temp_and_checkout_is_excused(self):
+        self.assertIn("excused", self.judge(
+            "error: /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh: publish-nightly holds no lease",
+            "error: /Users/ci/actions-runner/_work/_temp/8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh: publish-nightly "
+            "holds no lease"))
+
+    def test_another_error_in_another_temp_dir_is_still_refused(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next"):
+            self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json is corrupt",
+                       "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released")
+
+    def test_a_crash_that_names_a_temp_dir_is_never_excused(self):
+        crash = "error: Process '/tmp/tmp.Pw5bL0wmeb/swiftpm-testing-helper' exited with unexpected signal code 6"
+        with self.assertRaisesRegex(excuse.Refused, "signal"):
+            self.judge("##[error]publish-nightly: lease file /tmp/tmp.Pw5bL0wmeb/lease.json was never released",
+                       "##[error]publish-nightly: lease file /tmp/tmp.Zq81xKcd0A/lease.json was never released", crash)
+
+
 class EchoedStepScriptIsNoEvidence(unittest.TestCase):
     """The runner echoes each step's script before it runs, so the script's own text (an `echo "::error::..."`
     branch, a grep for test names) is in every run's log. 2026-10-30: cmux#28145's kit job at c39d28ef failed two

@@ -211,6 +211,14 @@ class ScriptAndCliTest(unittest.TestCase):
             if name.endswith(".json"):
                 model_stub.load_script(os.path.join(HERE, name))
 
+    def test_machine_vault_script_reads_both_echo_apis(self) -> None:
+        script = model_stub.load_script(os.path.join(HERE, "machine-vault-e2e.json"))
+        results = ["cmux-secret://MACHINE_VAULT_E2E\n",
+                   '{"headers":{"host":"postman-echo.com","x-cmux-e2e":"n0nce42","accept":"*/*"}}',
+                   '{\n  "headers": {\n    "Host": "httpbin.org", \n    "X-Cmux-E2e": "cmux-secret://MACHINE_VAULT_E2E"\n  }\n}\n']
+        reply = model_stub.render(script["steps"][3]["text"], "", results)
+        self.assertEqual(reply.splitlines()[:3], ["env=cmux-secret://MACHINE_VAULT_E2E", "allowed=n0nce42", "denied=cmux-secret://MACHINE_VAULT_E2E"])
+
     def test_cli_prints_ready_line_and_serves(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             ready = os.path.join(d, "ready.json")
