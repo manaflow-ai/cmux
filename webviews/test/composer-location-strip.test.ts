@@ -604,7 +604,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     };
     return {
       where: chip("where") ?? chip("combined"),
-      machine: chip("machines") ?? chip("cloud"),
+      machine: chip("machines"),
       stripRight: strip.getBoundingClientRect().right,
     };
   }
@@ -619,11 +619,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     ["strip-where-machine", 430, "This Mac", null],
     ["strip-where-machine", 244, "This Mac", null],
     ["strip-where-machine", 243, false, null],
-    ["strip-where-machine-cloud", 430, "Cloud", "New machine"],
-    ["strip-where-machine-cloud", 352, "Cloud", "New machine"],
-    ["strip-where-machine-cloud", 351, "Cloud", false],
-    ["strip-where-machine-cloud", 268, "Cloud", false],
-    ["strip-where-machine-cloud", 267, false, false],
+    ["strip-where-machine-cloud", 430, "Cloud", null],
+    ["strip-where-machine-cloud", 244, "Cloud", null],
+    ["strip-where-machine-cloud", 243, false, null],
     ["strip-where-machine-machine-picked", 430, "Another machine", "gpu-box"],
     ["strip-where-machine-machine-picked", 402, "Another machine", "gpu-box"],
     ["strip-where-machine-machine-picked", 401, "Another machine", false],

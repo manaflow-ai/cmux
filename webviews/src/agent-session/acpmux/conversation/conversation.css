@@ -5692,6 +5692,14 @@ a.cv-sha:focus-visible {
 .cv-plan__chevron {
   color: var(--cv-text-muted);
 }
+/* Its ink --cv-chevron-gap after the progress words, like every row's chevron: the summary's 8px gap
+   and the glyph's own inset taken back (test/transcript-chevron-after-label.test.ts). */
+.cv-plan__summary .cv-plan__chevron {
+  flex: none;
+  width: var(--cv-chevron-glyph);
+  height: var(--cv-chevron-glyph);
+  margin-inline-start: calc(var(--cv-chevron-gap) - 8px - var(--cv-chevron-ink));
+}
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
   /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */

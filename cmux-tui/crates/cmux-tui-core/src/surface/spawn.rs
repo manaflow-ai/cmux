@@ -227,6 +227,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                #[cfg(any(unix, windows))]
+                input_route: arc_swap::ArcSwapOption::empty(),
+                #[cfg(any(unix, windows))]
+                input_port: Default::default(),
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
