@@ -152,7 +152,6 @@ pub(crate) mod mcp_probe;
 mod meta_save;
 mod offer_results;
 mod offers;
-mod resume;
 mod secrets;
 mod seen;
 mod session;
@@ -653,9 +652,6 @@ pub struct Hub {
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
-    /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
-    pub(super) resume_watch: StdMutex<crate::resume::ResumeWatch>,
-    pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// Set when `shutdown_all` starts: the idle reaper stops for good.
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
@@ -930,8 +926,6 @@ impl Hub {
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
-            resume_watch: resume::new_watch(),
-            resumes: tokio::sync::watch::channel(0).0,
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),

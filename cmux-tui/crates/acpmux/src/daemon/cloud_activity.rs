@@ -121,7 +121,6 @@ impl Tracker {
 pub(super) async fn activity_loop(hub: Arc<Hub>) {
     let path = super::cloud_handoff::agent_socket();
     let mut events = hub.subscribe();
-    let mut resumes = hub.subscribe_resumes();
     let mut tracker = Tracker::new(crate::config::socket_path().to_string_lossy().into_owned());
     let mut tick = tokio::time::interval(RENEW);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -149,8 +148,6 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
                 false
             }
             _ = tick.tick() => true,
-            // After a pause the agent's count may have run out: a line goes at once.
-            Ok(()) = resumes.changed() => true,
         };
         if !path.exists() {
             continue;

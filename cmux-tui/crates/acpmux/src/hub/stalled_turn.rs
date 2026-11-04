@@ -121,7 +121,7 @@ impl Hub {
     }
 
     /// The turn whose stalled count runs: `session`'s running turn, once its prompt was written.
-    pub(super) fn counted_turn(session: &Session) -> Option<TurnInfo> {
+    fn counted_turn(session: &Session) -> Option<TurnInfo> {
         let counted = session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).clone();
         session.turn().filter(|t| counted.as_ref() == Some(&t.turn_id))
     }
@@ -159,9 +159,6 @@ impl Hub {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
-        // A deadline that passed while this daemon did not run is no stall: the gap starts every
-        // count again first (`resume.rs`), whichever timer fired first after it.
-        self.check_resume();
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
         for session in self.sessions() {

@@ -694,8 +694,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         })
     };
     tokio::spawn(notify::notify_loop(hub.clone()));
-    // A paused machine or a stopped daemon is noticed on resume (`hub/resume.rs`).
-    tokio::spawn(Hub::resume_loop(Arc::downgrade(&hub)));
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
     #[cfg(target_os = "linux")]
