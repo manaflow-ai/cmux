@@ -304,6 +304,12 @@ jobs:
             launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
             launchctl setenv CLAUDE_CODE_OAUTH_TOKEN "$CLAUDE_CODE_OAUTH_TOKEN"
           else
+            # No team login or other model route left in the GUI environment from an
+            # earlier job on a reused runner: the stub run sends only its throwaway login.
+            for key in CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL \
+              CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX ANTHROPIC_CUSTOM_HEADERS; do
+              launchctl unsetenv "$key" 2>/dev/null || true
+            done
             # The shared model stub on loopback, for as long as this step runs.
             STUB_DIR="$RUNNER_TEMP/model-stub"
             mkdir -p "$STUB_DIR"
@@ -376,5 +382,6 @@ jobs:
           launchctl unsetenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
           launchctl unsetenv ANTHROPIC_BASE_URL 2>/dev/null || true
           launchctl unsetenv ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
+          launchctl unsetenv ANTHROPIC_API_KEY 2>/dev/null || true
           # The model stub this job started (its own pid, recorded at start).
           if [ -s "$RUNNER_TEMP/model-stub/pid" ]; then kill "$(cat "$RUNNER_TEMP/model-stub/pid")" 2>/dev/null || true; fi
