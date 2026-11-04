@@ -23,8 +23,8 @@
         "readme": {
           "path": "noto-emoji/README.md",
           "sourcePath": "README.md",
-          "sha256": "1ae0343308fe8c7e6e679cd12688df7586aa87df286be19d8bb2969b8abcac64",
-          "bytes": 2495
+          "sha256": "7824b8fa4a8c2cf204d02ceecedcc35ec3d492c8ed40ad43ebfdbd7a180de85b",
+          "bytes": 2494
         },
         "licenseFull": {
           "path": "noto-emoji/APACHE-2.0.txt",
