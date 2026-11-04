@@ -591,8 +591,8 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "externalAccess.openSettings":
-            if let raw = params?["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
-               Set(params?.keys ?? []) == ["kind"] {
+            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
+               Set(params.keys) == ["kind"] {
                 self = .externalAccessOpenSettings(kind)
             } else {
                 self = .unsupported(method)
