@@ -80,10 +80,11 @@ struct PaneTabRowPerPageHoldTests {
         let window: NSWindow
         var afterCommit: [@MainActor () -> Void] = []
 
-        init(p1 content: NSView, axis: SplitAxis = .horizontal) {
+        init(p1 content: NSView, axis: SplitAxis = .horizontal, p1Below: Bool = false) {
             _ = NSApplication.shared
             provider.first["p1"] = content
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            let (a, b): (SplitNode, SplitNode) = p1Below ? (.leaf("p2"), .leaf("p1")) : (.leaf("p1"), .leaf("p2"))
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: axis, ratio: 0.5, a: a, b: b))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p1")
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
@@ -160,10 +161,11 @@ struct PaneTabRowPerPageHoldTests {
     /// edge (a terminal whose prompt is on its last row; Codex's review of #34247), the area grows above the held content
     /// and would show the chat's row inside it: the chat shows without the row, once, at the held rect, and gets the row
     /// and its rest frame once at the landing.
-    /// The presses (b) runs: a horizontal grow, and a vertical grow of p1 over p2 whose held area rides the bottom edge
-    /// (a terminal with its prompt on its last row): the row-sharing chat's top, above the area, would show under the strip.
+    /// The presses (b) runs: a horizontal grow, and a vertical grow of p1 under p2 upward: its top edge moves, so its held
+    /// area rides the bottom edge (by the edge that stays, and by its terminal's prompt on the last row): the row-sharing
+    /// chat's top, above the area, would show under the strip.
     nonisolated static let shownPresses: [Press] = [Press(axis: .horizontal, direction: .right, ridesBottom: false),
-                                                    Press(axis: .vertical, direction: .down, ridesBottom: true)]
+                                                    Press(axis: .vertical, direction: .up, ridesBottom: true)]
 
     /// One press for (b): the split's axis, the arrow on p1, and whether the held content rides the bottom edge.
     nonisolated struct Press: Sendable, CustomTestStringConvertible {
@@ -181,7 +183,7 @@ struct PaneTabRowPerPageHoldTests {
     @Test(arguments: shownPresses)
     func aChatShownDuringAKeyResizeKeepsItsRowAndItsFrameUntilTheLanding(_ press: Press) throws {
         let page = RowPage()
-        let rig = Rig(p1: page, axis: press.axis)
+        let rig = Rig(p1: page, axis: press.axis, p1Below: press.ridesBottom)
         defer { rig.window.closeAfterTest() }
         let pane = try #require(rig.provider.views["p1"])
         page.report(60)
@@ -195,10 +197,12 @@ struct PaneTabRowPerPageHoldTests {
         #expect(PaneResize.press("p1", press.direction, model: rig.model, view: rig.root))
         var off: [String] = [], frames = 0
         var shown: (offers: Int, sizes: Int)?
+        var heldOnBottom: Bool?
         while frames < 240, rig.root.advanceFrame(1.0 / 120) {
             frames += 1
             if frames == 2 {
                 shown = (page.offered.count, page.sizes.count)
+                heldOnBottom = pane.contentHost.hold?.bottom
                 pane.show(page)
             }
             rig.root.layoutSubtreeIfNeeded()
@@ -206,6 +210,7 @@ struct PaneTabRowPerPageHoldTests {
         }
         try #require(frames > 3, "the press did not spring (\(frames) frames)")
         let atShow = try #require(shown)
+        try #require(heldOnBottom == press.ridesBottom, "SETUP: the area held on the \(heldOnBottom == true ? "bottom" : "top") edge at the switch")
         let duringHold = Array(page.offered.dropFirst(atShow.offers))
         rig.root.layoutSubtreeIfNeeded()
         rig.release()
