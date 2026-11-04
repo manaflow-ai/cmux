@@ -304,8 +304,7 @@ def step_daemon_arm(j, step):
         raise D.NotRun(f"daemon_arm: no daemon pid (debug.daemon {json.dumps(getattr(j.app, 'daemon_state', None))[:200]})")
     text = subprocess.run(["ps", "-wwE", "-p", str(int(pid))], capture_output=True, text=True, timeout=10).stdout
     words = [w for w in text.split() if w.startswith(name + "=")]
-    rows = text.strip().splitlines()
-    exe = rows[1].split()[4] if len(rows) > 1 and len(rows[1].split()) > 4 else None
+    exe = D.process_exe(pid) or None  # ps comm: the whole path (the command words split a path with spaces)
     rec = {"as": step["as"], "pid": int(pid), "exe": exe, "words": words, "on": (name + "=1") in words,
            "want": step.get("want"), "t": round(host_now(), 6), "host": _host_trace(j, name)}
     (j.out / f"daemon-arm-{step['as']}.json").write_text(json.dumps(rec))
@@ -316,19 +315,44 @@ def step_daemon_arm(j, step):
 
 
 def _host_trace(j, name):
-    """The current terminal's host process (its pane's view: host_pid) and whether its environment has
-    CMUX_TRACE_FLOWS (the host writes its flow trace) and NAME. Only those words are kept."""
+    """The current terminal's host process and whether its environment has CMUX_TRACE_FLOWS (the host writes its
+    flow trace) and NAME; only those words are kept. The host is the pane view's host_pid, else (a view without
+    one) the echo program's first ancestor run from the app's bundle."""
     try:
         view = j.view_of_pane(j.pane) if j.pane else None
     except (D.StepError, OSError, ValueError) as error:
-        return {"error": str(error)[:200]}
-    host = (view or {}).get("host_pid")
+        view = {"error": str(error)[:200]}
+    host, found_by = (view or {}).get("host_pid"), "pane view host_pid"
     if not host:
-        return {"pid": None, "terminal": j.term, "pane": j.pane}
+        host, found_by = _echo_host(j), "echo program's ancestor in the app bundle"
+    if not host:
+        return {"pid": None, "terminal": j.term, "pane": j.pane, "view_error": (view or {}).get("error")}
     text = subprocess.run(["ps", "-wwE", "-p", str(int(host))], capture_output=True, text=True, timeout=10).stdout
     keep = [w for w in text.split() if w.startswith(("CMUX_TRACE_FLOWS=", name + "="))]
-    return {"pid": int(host), "terminal": j.term, "pane": j.pane, "words": keep,
+    return {"pid": int(host), "found_by": found_by, "exe": D.process_exe(host) or None, "terminal": j.term,
+            "pane": j.pane, "words": keep,
             "trace_flows": any(w.startswith("CMUX_TRACE_FLOWS=") and len(w) > len("CMUX_TRACE_FLOWS=") for w in keep)}
+
+
+def _echo_host(j):
+    """The echo program's (echo.py's ready line pid) first ancestor whose executable is in the app's bundle, within
+    4 parents: its terminal host. None without an echo program or such an ancestor."""
+    try:
+        log = getattr(j, "echo_log", None)
+        with open(log) if log else open(os.devnull) as text:
+            ready = next((json.loads(l) for l in text.read().splitlines() if '"ready"' in l), {})
+    except (OSError, ValueError):
+        ready = {}
+    pid, bundle = ready.get("pid"), (getattr(j.app, "bundle", "") or "").rstrip("/")
+    for _ in range(4):
+        if not pid or not bundle:
+            return None
+        parent = subprocess.run(["ps", "-o", "ppid=", "-p", str(int(pid))], capture_output=True, text=True,
+                                timeout=10).stdout.strip()
+        pid = int(parent) if parent.isdigit() and int(parent) > 1 else None
+        if pid and D.process_exe(pid).startswith(bundle + "/"):
+            return pid
+    return None
 
 
 def step_server_stats(j, step):

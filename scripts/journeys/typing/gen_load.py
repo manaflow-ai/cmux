@@ -81,7 +81,7 @@ def journey(profile, film):
             "steps": steps(profile, film)}
 
 
-def rds_journey(arm):
+def rds_journey(arm, target="new_tab"):
     """R-DAEMON-STATE stage S1 typing A/B (STATUS 10117): typing-load-l6 with a NEW daemon at the probe relaunch,
     the input lane switch on (CMUX_NEXT_TUI_RDS_INPUT=1, which the app hands its daemon as CMUX_TUI_RDS_INPUT=1) or
     absent, and the arm proven from the daemon's environment before and after the typing. P1: run with --journey
@@ -91,18 +91,29 @@ def rds_journey(arm):
     spawned by the new daemon, so it has the reopen's CMUX_TRACE_FLOWS (R-DAEMON-STATE STATUS 10740: the set-up
     terminal's host is an old host the new daemon adopts, with no flow trace). The set-up terminal stays as the
     first tab, so the relaunch still settles on a shown terminal. server-stats with the lock holds by code site is
-    kept right after load_start and right after the last typist_play."""
+    kept right after load_start and right after the last typist_play.
+
+    target "adopted" (typing-load-l6-rds-adopted-<arm>, R-DAEMON-STATE STATUS 10927): the typed terminal is the
+    set-up terminal itself, as in runs 1-6 (STATUS 10595): its host was spawned by the OLD daemon, before the
+    relaunch, and the new daemon adopts it (so it has no CMUX_TRACE_FLOWS). Everything else is the same."""
+    assert target in ("new_tab", "adopted"), target
     spec = journey("L6", True)
-    spec.update(id=f"typing-load-l6-rds-{arm}", priority="P1",
-                title=f"Typing under load L6, R-DAEMON-STATE S1 input lane {arm.upper()} (new daemon, arm proven)",
-                source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117, 10740)")
+    if target == "new_tab":
+        spec.update(id=f"typing-load-l6-rds-{arm}", priority="P1",
+                    title=f"Typing under load L6, R-DAEMON-STATE S1 input lane {arm.upper()} (new daemon, arm proven)",
+                    source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117, 10740)")
+    else:
+        spec.update(id=f"typing-load-l6-rds-adopted-{arm}", priority="P1",
+                    title=f"Typing under load L6, R-DAEMON-STATE S1 input lane {arm.upper()}, typed into the set-up "
+                          "terminal whose host the new daemon adopted (new daemon, arm proven)",
+                    source="REWRITE R-DAEMON-STATE S1 typing A/B (STATUS 10117, 10740, 10927: the adopted-host test)")
     steps, out = spec["steps"], []
     relaunch = next(i for i, step in enumerate(steps) if step["do"] == "probe_relaunch")
     last_play = max(i for i, step in enumerate(steps) if step["do"] == "typist_play")
     for i, step in enumerate(steps):
         if i == relaunch:
             step = dict(step, new_daemon=True, env={"CMUX_NEXT_TUI_RDS_INPUT": "1"} if arm == "on" else {})
-        if step["do"] == "echo_start":
+        if step["do"] == "echo_start" and target == "new_tab":
             # The set-up terminal is adopted (above) so the key window and its pane are the typing pane's; the
             # typed terminal is a new tab there, from the new daemon.
             out += [{"do": "smoke_key", "key": "`", "modifiers": ["control"], "mark": "term2"},
@@ -130,7 +141,7 @@ def main():
     a = ap.parse_args()
     bad = 0
     specs = [journey(profile, film) for profile in PROFILES for film in (True, False)]
-    for spec in specs + [rds_journey("off"), rds_journey("on")]:
+    for spec in specs + [rds_journey("off"), rds_journey("on"), rds_journey("on", target="adopted")]:
         path = OUT / f"{spec['id']}.json"
         text = json.dumps(spec, indent=2) + "\n"
         if a.check:

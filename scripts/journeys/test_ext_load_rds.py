@@ -99,23 +99,44 @@ class RdsArms(unittest.TestCase):
             with self.assertRaises(self.load.D.NotRun):
                 self.load.step_probe_relaunch(j, {"new_daemon": True})
 
-    def arm(self, ps_text, want, j=None):
-        app = FakeApp()
-        j = j or FakeJourney(self.out, app)
-        done = subprocess.CompletedProcess([], 0, ps_text, "")
+    BUNDLE = "/lease/app/cmux DEV x.app"
+
+    def fake_ps(self, env=None, exe=None, ppid=None):
+        """subprocess.run for `ps`, answered by its arguments: -wwE (ENV: pid -> command and environment text),
+        -o comm= (EXE: pid -> executable path) and -o ppid= (PPID: pid -> parent pid)."""
+        env, exe, ppid = env or {}, exe or {}, ppid or {}
+
+        def run(argv, **kw):
+            pid = int(argv[-1])
+            if argv[:2] == ["ps", "-wwE"]:
+                out = "  PID   TT  STAT      TIME COMMAND\n" + (f"  {pid}   ??  Ss   0:01.00 {env[pid]}\n" if pid in env else "")
+            elif argv[:3] == ["ps", "-o", "comm="]:
+                out = exe.get(pid, "") + "\n"
+            elif argv[:3] == ["ps", "-o", "ppid="]:
+                out = f"{ppid[pid]}\n" if pid in ppid else ""
+            else:
+                raise AssertionError(f"unexpected command {argv}")
+            return subprocess.CompletedProcess(argv, 0, out, "")
+        return run
+
+    def arm(self, daemon_env, want, j=None, **ps):
+        j = j or FakeJourney(self.out, FakeApp())
+        env = {**ps.pop("env", {}), 200: daemon_env}
+        exe = {**ps.pop("exe", {}), 200: f"{self.BUNDLE}/Contents/Resources/bin/cmux"}
         # host_now reads CLOCK_UPTIME_RAW, which only macOS has; the arm proof does not depend on it.
-        with mock.patch.object(self.load.subprocess, "run", return_value=done), \
+        with mock.patch.object(self.load.subprocess, "run", side_effect=self.fake_ps(env, exe, ps.pop("ppid", {}))), \
                 mock.patch.object(self.load, "host_now", return_value=1.0):
             return self.load.step_daemon_arm(j, {"as": "before", "want": want})
 
-    PS_ON = ("  PID   TT  STAT      TIME COMMAND\n  200   ??  Ss   0:01.00 /x/cmux-tui --headless --session s "
-             "HOME=/h CMUX_TRACE_FLOWS=/o CMUX_TUI_RDS_INPUT=1 SECRET_TOKEN=abc\n")
-    PS_OFF = "  PID   TT  STAT      TIME COMMAND\n  200   ??  Ss   0:01.00 /x/cmux-tui --headless HOME=/h\n"
+    PS_ON = ("/x/cmux DEV x.app/Contents/Resources/bin/cmux --headless --session s HOME=/h CMUX_TRACE_FLOWS=/o "
+             "CMUX_TUI_RDS_INPUT=1 SECRET_TOKEN=abc")
+    PS_OFF = "/x/cmux DEV x.app/Contents/Resources/bin/cmux --headless HOME=/h"
 
     def test_arm_proof(self):
         rec = self.arm(self.PS_ON, "on")
         self.assertTrue(rec["on"])
         self.assertEqual(rec["words"], ["CMUX_TUI_RDS_INPUT=1"])
+        self.assertEqual(rec["exe"], f"{self.BUNDLE}/Contents/Resources/bin/cmux")  # the whole path, spaces too
         kept = json.loads((self.out / "daemon-arm-before.json").read_text())
         self.assertNotIn("SECRET_TOKEN", json.dumps(kept))  # only the switch words are kept
         self.assertFalse(self.arm(self.PS_OFF, "off")["on"])
@@ -125,18 +146,33 @@ class RdsArms(unittest.TestCase):
             self.arm(self.PS_ON, "off")
 
     def test_arm_proof_names_the_typing_host_and_its_flow_trace(self):
-        host_ps = ("  PID   TT  STAT      TIME COMMAND\n  300   ??  Ss   0:01.00 /x/cmux-tui host "
-                   "CMUX_TRACE_FLOWS=/o/flows TOKEN=abc\n")
         j = FakeJourney(self.out, FakeApp(), pane="pane_t", host_pid=300)
-        with mock.patch.object(self.load.subprocess, "run",
-                               side_effect=[subprocess.CompletedProcess([], 0, self.PS_ON, ""),
-                                            subprocess.CompletedProcess([], 0, host_ps, "")]), \
-                mock.patch.object(self.load, "host_now", return_value=1.0):
-            rec = self.load.step_daemon_arm(j, {"as": "before", "want": "on"})
+        rec = self.arm(self.PS_ON, "on", j=j, env={300: "/x/host CMUX_TRACE_FLOWS=/o/flows TOKEN=abc"})
         self.assertEqual(rec["host"]["pid"], 300)
+        self.assertEqual(rec["host"]["found_by"], "pane view host_pid")
         self.assertTrue(rec["host"]["trace_flows"])
         self.assertEqual(rec["host"]["words"], ["CMUX_TRACE_FLOWS=/o/flows"])
         self.assertNotIn("TOKEN", (self.out / "daemon-arm-before.json").read_text())
+
+    def test_adopted_host_without_a_view_pid_is_the_echo_programs_bundle_ancestor(self):
+        # The adopted set-up terminal: its host came from the old daemon (no CMUX_TRACE_FLOWS). The pane view names
+        # no host, so the echo program's parents are walked: echo.py 400 <- login 350 <- host 300 (in the bundle).
+        app = FakeApp()
+        app.bundle = self.BUNDLE
+        j = FakeJourney(self.out, app, pane="pane_t", host_pid=None)
+        j.echo_log = self.out / "echo.jsonl"
+        j.echo_log.write_text('{"t": 1.0, "ready": true, "pid": 400}\n')
+        rec = self.arm(self.PS_ON, "on", j=j, env={300: "/x/host HOME=/h"}, ppid={400: 350, 350: 300},
+                       exe={350: "/usr/bin/login", 300: f"{self.BUNDLE}/Contents/Resources/bin/cmux"})
+        self.assertEqual(rec["host"]["pid"], 300)
+        self.assertEqual(rec["host"]["found_by"], "echo program's ancestor in the app bundle")
+        self.assertFalse(rec["host"]["trace_flows"])
+        self.assertEqual(rec["host"]["words"], [])
+
+    def test_no_host_found_is_recorded_not_raised(self):
+        j = FakeJourney(self.out, FakeApp(), pane="pane_t", host_pid=None)
+        rec = self.arm(self.PS_ON, "on", j=j)
+        self.assertIsNone(rec["host"]["pid"])
 
     def test_server_stats_sends_the_raw_line_and_keeps_the_reply(self):
         app = FakeApp()
@@ -163,6 +199,31 @@ class RdsArms(unittest.TestCase):
             rec = self.load.step_server_stats(j, {"as": "before"})
         self.assertFalse(rec["answered"])
         self.assertIn("missing", json.loads((self.out / "server-stats-before.json").read_text())["reply"])
+
+
+class Journeys(unittest.TestCase):
+    """typing/gen_load.py: the adopted variant types into the set-up terminal; the new-tab one into a new tab."""
+
+    def test_adopted_and_new_tab_targets(self):
+        sys.path.insert(0, str(HERE / "typing"))
+        import gen_load
+        new_tab, adopted = gen_load.rds_journey("on"), gen_load.rds_journey("on", target="adopted")
+        self.assertEqual(adopted["id"], "typing-load-l6-rds-adopted-on")
+        self.assertEqual(new_tab["id"], "typing-load-l6-rds-on")
+        lines = lambda spec: [s["line"] for s in spec["steps"] if s["do"] == "smoke_adopt_line"]
+        self.assertEqual(lines(adopted), ["typing-${nonce}", "typing-${nonce}"])
+        self.assertEqual(lines(new_tab), ["typing-${nonce}", "typing-${nonce}", "rds-${nonce}"])
+        for spec in (new_tab, adopted):
+            steps = [(s["do"], s.get("as")) for s in spec["steps"]]
+            relaunch = next(s for s in spec["steps"] if s["do"] == "probe_relaunch")
+            self.assertEqual(relaunch["env"], {"CMUX_NEXT_TUI_RDS_INPUT": "1"})
+            self.assertTrue(relaunch["new_daemon"])
+            for want in (("daemon_arm", "before"), ("daemon_arm", "after"), ("server_stats", "before"),
+                         ("server_stats", "after")):
+                self.assertIn(want, steps)
+            # the typed terminal is adopted before echo.py starts in it
+            self.assertLess(max(i for i, s in enumerate(spec["steps"]) if s["do"] == "smoke_adopt_line"),
+                            next(i for i, s in enumerate(spec["steps"]) if s["do"] == "echo_start"))
 
 
 class ResultFetch(unittest.TestCase):
