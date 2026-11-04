@@ -292,7 +292,10 @@ if options.headless {
     if let folder = options.liveRender { LiveCode.shared.render = (folder, "live code") }
     LiveCode.shared.watch(live)
     LiveCode.shared.drawn()
-    dispatchMain()
+    // The main run loop, not dispatchMain(): dispatchMain parks the main thread and drains the main
+    // queue on a worker, and SwiftUI's renderer waits for the real main thread (a deadlock on the
+    // first patch). The run loop drains the main queue on the main thread.
+    while true { RunLoop.main.run() }
 }
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
