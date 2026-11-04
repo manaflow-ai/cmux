@@ -19,7 +19,7 @@ struct ComputerUseApprovalSettingsTests {
         #expect(parsed.computerUse.phoneAlwaysAllow)
         let unknown = CmuxConfigSnapshot.parse(try JSONValue.parse(Data(#"{"computerUse":{"mode":"yolo"}}"#.utf8)),
                                                validDensities: [], validMetrics: [])
-        #expect(unknown.computerUse.mode == .ask)
+        #expect(unknown.computerUse.mode == .standard, "an unknown mode is ignored: the default applies")
     }
 
     @Test func agentsCannotRaiseTrust() throws {

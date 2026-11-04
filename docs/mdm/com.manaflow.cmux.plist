@@ -841,7 +841,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>ask</string>
+			<string>standard</string>
 			<key>pfm_description</key>
 			<string>Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine.</string>
 			<key>pfm_name</key>

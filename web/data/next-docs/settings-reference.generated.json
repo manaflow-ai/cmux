@@ -448,7 +448,7 @@
           "title": "Agents Using Apps",
           "help": "Ask Before Using Apps asks you the first time an agent uses each app, on this Mac and on your iPhone. Approved Apps Only runs the apps you set up and asks for the rest. Standard runs routine clicks and typing without asking. Unrestricted never asks; use it only on a disposable machine.",
           "kind": "choice",
-          "default": "ask",
+          "default": "standard",
           "group": "Computer Use",
           "values": [
             "ask",
