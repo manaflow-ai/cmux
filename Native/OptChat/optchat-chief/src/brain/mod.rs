@@ -875,10 +875,10 @@ pub struct Brain {
     /// Starts a queued subagent by id (`Spawner::queue_starter`).
     sub_starter: Option<Sender<crate::subagents::QueuedStart>>,
     /// B4: the VMs behind cloud peers, how long a peer idles before its VM
-    /// pauses, the peers paused by this host and since when each idles.
+    /// pauses, and since when each idles (the paused peers are saved in
+    /// `state.cloud_paused`).
     cloud_vms: Option<std::sync::Arc<dyn crate::cloud_vms::CloudVms>>,
     cloud_idle: std::time::Duration,
-    cloud_paused: std::collections::BTreeSet<String>,
     /// Subagent sessions another acpmux link reports (a move handed them to
     /// this machine's default daemon, placed_agents.rs): the home daemon's
     /// list never judges them gone.
@@ -1124,7 +1124,6 @@ impl Brain {
             sub_starter: None,
             cloud_vms: None,
             cloud_idle,
-            cloud_paused: Default::default(),
             reported_elsewhere: Default::default(),
             cloud_idle_since: Default::default(),
             cloud_pause_retry: Default::default(),
