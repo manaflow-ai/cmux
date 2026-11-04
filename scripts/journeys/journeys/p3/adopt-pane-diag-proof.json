@@ -1,0 +1,12 @@
+{
+ "id": "adopt-pane-diag-proof",
+ "priority": "P3",
+ "title": "SCRATCH (never pinned): a terminal whose screen is empty and silent makes adopt_pane time out and save its diag-adopt* files",
+ "why": "Fleet proof of cp/journey-close-then-type-diag (STATUS 12261): the diagnostics path runs on a real mini.",
+ "budget_seconds": 90,
+ "steps": [
+  {"do": "new_terminal", "via": "key"},
+  {"do": "type", "text": "printf '\\033[2J\\033[3J\\033[H'; exec sleep 600", "enter": true},
+  {"do": "adopt_pane", "as": "silent", "timeout": 6}
+ ]
+}
