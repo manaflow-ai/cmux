@@ -538,9 +538,10 @@ impl BlobFetchService {
         // revisions, from that index on.
         if let Some(from) = request.get("written_from").and_then(Value::as_u64) {
             let written = job.written.lock().unwrap_or_else(PoisonError::into_inner);
-            let from = usize::try_from(from).unwrap_or(usize::MAX).min(written.len());
-            let page: Vec<Value> = written[from..]
+            let from = usize::try_from(from).unwrap_or(usize::MAX);
+            let page: Vec<Value> = written
                 .iter()
+                .skip(from)
                 .take(WRITTEN_PAGE)
                 .map(|(path, revision)| json!({"path": path, "revision": revision}))
                 .collect();
