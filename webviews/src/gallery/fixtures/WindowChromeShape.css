@@ -1,6 +1,6 @@
 .window-chrome-gallery {
   --chrome-density: 1;
-  --chrome-unit: calc(4px * var(--chrome-density));
+  --chrome-unit: calc(4px * var(--chrome-density) * var(--cmux-interface-scale, 1));
   --chrome-inset: calc(var(--chrome-unit) * 2);
   --chrome-outer-radius: calc(var(--chrome-unit) * 8);
   --chrome-inner-radius: max(0px, calc(var(--chrome-outer-radius) - var(--chrome-inset)));
@@ -29,20 +29,22 @@
   background-image: linear-gradient(color-mix(in srgb, var(--chrome-surface) 82%, transparent), color-mix(in srgb, var(--chrome-surface) 92%, transparent)), var(--cmux-app-background-image, url("./assets/liquid-glass-wallpaper.jpg"));
   background-size: cover;
   background-position: center;
+  border-radius: var(--chrome-outer-radius);
+  overflow: hidden;
 }
 
-.chrome-window-header { display: grid; grid-template-columns: calc(var(--chrome-unit) * 61) minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); align-items: center; min-height: calc(var(--chrome-unit) * 10); padding: 0 calc(var(--chrome-unit) * 2); }
+.chrome-window-header { display: grid; grid-template-columns: calc(var(--chrome-unit) * 61) minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--chrome-inset); align-items: start; min-height: calc(var(--chrome-unit) * 10); padding: 0 calc(var(--chrome-unit) * 2); }
 .chrome-window-sidebar-title,
 .chrome-window-agent-title,
 .chrome-window-browser-title { min-width: 0; }
-.chrome-window-sidebar-title { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); padding-inline: calc(var(--chrome-unit) * 2); }
+.chrome-window-sidebar-title { display: flex; align-items: center; gap: calc(var(--chrome-unit) * 2); padding-inline: calc(var(--chrome-unit) * 2); min-height: calc(var(--chrome-action-slot) * 1.5); }
 .chrome-sidebar-toggle { border: 0; background: transparent; color: var(--chrome-muted); font: inherit; cursor: pointer; }
 .chrome-sidebar-toggle:hover { color: var(--chrome-ink); }
 .chrome-traffic-lights { display: flex; gap: var(--chrome-unit); }
 .chrome-traffic-lights i { width: var(--chrome-icon-size); height: var(--chrome-icon-size); border-radius: 50%; background: #ff5f57; }
 .chrome-traffic-lights i:nth-child(2) { background: #febc2e; }
 .chrome-traffic-lights i:nth-child(3) { background: #28c840; }
-.chrome-window-body { display: flex; flex: 1; min-height: 0; gap: var(--chrome-inset); overflow: hidden; border-radius: var(--chrome-outer-radius); }
+.chrome-window-body { display: flex; flex: 1; min-height: 0; gap: var(--chrome-inset); overflow: hidden; }
 .chrome-sidebar { width: calc(var(--chrome-unit) * 61); min-width: calc(var(--chrome-unit) * 61); padding: calc(var(--chrome-unit) * 4) calc(var(--chrome-unit) * 2); background: var(--chrome-sidebar); }
 .chrome-main { min-width: 0; flex: 1; display: flex; flex-direction: column; padding-right: var(--chrome-inset); }
 .chrome-content-surface { min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: color-mix(in srgb, var(--chrome-card) 74%, transparent); border-radius: var(--chrome-inner-radius); }

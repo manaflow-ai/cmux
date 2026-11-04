@@ -4,7 +4,7 @@ import "./sidebarShapes.css";
 
 export function SidebarShapes({ variant, density, appearance, uiScale = 1 }: { variant: SidebarVariant; density: SidebarDensity; appearance: SidebarAppearance; uiScale?: number }) {
   const tokens = sidebarTokens(density, uiScale);
-  const style = Object.fromEntries(Object.entries(tokens).map(([key, value]) => [`--sidebar-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, key === "scale" ? value : `${value}px`])) as CSSProperties;
+  const style = Object.fromEntries(Object.entries(tokens).map(([key, value]) => [`--sidebar-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`, key === "scale" ? value : `calc(${value}px * var(--cmux-interface-scale, 1))`])) as CSSProperties;
   return <aside className={`sidebar-shape ${sidebarVariantClass(variant)}`} data-density={density} data-appearance={appearance} style={style} aria-label="Workspaces">
     {sidebarGroups(variant).map(group => <section className="sidebar-shape__group" key={group.title} style={{ "--sidebar-group-colour": group.colour ?? "currentColor" } as CSSProperties}>
       <div className="sidebar-shape__label"><span>{group.title}</span><span className="sidebar-shape__disclosure" aria-hidden>⌄</span></div>

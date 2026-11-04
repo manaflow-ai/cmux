@@ -67,7 +67,7 @@ export function sidebarGroups(variant: SidebarVariant): readonly SidebarGroup[] 
     { title: "cmux NEXT", rows: [{ title: "Sidebar proportions", icon: "▣" }, { title: "Cloud workspaces", detail: "Remote", icon: "⌁" }, { title: "Composer polish", icon: "□" }] },
     { title: "Research", rows: [{ title: "Design references", icon: "◇" }, { title: "Native chrome", icon: "▣" }, { title: "Archive", icon: "□" }] },
   ];
-  if (variant === "B") return groups.map((group) => ({ ...group, colour: "var(--agent-accent, var(--cmux-accent, currentColor))" }));
+  if (variant === "B") return groups.map((group) => ({ ...group, colour: "var(--agent-ansi-4, var(--cmux-accent, currentColor))" }));
   return groups;
 }
 
