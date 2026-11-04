@@ -33,6 +33,8 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var isDebugBuild: Bool
     /// Where a Cloud machine's link socket comes from.
     public var linkSource: LinkSource = .legacy
+    /// The bundled CLI's selection for this launch; nil in legacy configuration fixtures.
+    public var runtimeSelection: CloudRuntimeSelection? = nil
 
     public enum LinkSource: Sendable, Equatable {
         /// `/api/vm` list, create and attach endpoint and a `cmux-tui remote
@@ -75,6 +77,11 @@ public struct CloudConfiguration: Sendable, Equatable {
     // prime its cached user/team. A stable namespace preserves staging sign-in
     // on subsequent launches and leaves the old production session untouched.
     private var authStorageProject: String? {
+        if let runtimeSelection { return runtimeSelection.authNamespace }
+        return legacyAuthStorageProject
+    }
+
+    private var legacyAuthStorageProject: String? {
         !isDebugBuild && bundleID == "com.cmuxterm.app.debug.next" && !isProductionAuth
             && stackProjectID == Self.developmentProjectID ? stackProjectID : nil
     }
@@ -158,6 +165,21 @@ public struct CloudConfiguration: Sendable, Equatable {
             linkSource: linkSource)
     }
 
+    /// Applies Rust's selected environment to auth/team web calls and NEXT Cloud endpoints.
+    /// Rust remains the only endpoint table; this value only adapts the native consumers.
+    public func applying(_ selection: CloudRuntimeSelection) -> CloudConfiguration {
+        var value = self
+        value.runtimeSelection = selection
+        value.authWebOrigin = selection.authWebOrigin
+        value.apiBaseURL = selection.authWebOrigin
+        value.stackBaseURL = selection.stackOrigin
+        value.stackProjectID = selection.stackProjectId
+        value.stackPublishableClientKey = selection.stackClientKey
+        value.isProductionAuth = selection.name == "prod"
+        value.linkSource = .appServer
+        return value
+    }
+
     /// This process's configuration.
     /// The API Worker (`/v1/read`, `/v1/ops`, `/v1/auth/*`): production
     /// auth uses cloud-api.cmux.dev, signed NEXT DEV and every other
@@ -165,6 +187,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// `CMUX_NEXT_FEED_API_URL` override is honored in debug builds only, so
     /// a release build never sends a credential to another origin.
     public func ownerAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let runtimeSelection { return runtimeSelection.apiOrigin }
         if !isDebugBuild, bundleID == "com.cmuxterm.app.debug.next" { return Self.developmentWorkerOrigin }
         if isDebugBuild, let raw = environment["CMUX_NEXT_FEED_API_URL"], let url = URL(string: raw) { return url }
         // Non-production builds sign in on staging, whose Stack tokens the development Worker accepts.
@@ -180,6 +203,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// (``ownerAPIBaseURL(environment:)``), so its links mint from the development Worker; with
     /// `CMUX_NEXT_FEED_API_URL` set, the owner API is the one named, as for every other call.
     public func shareAPIBaseURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let runtimeSelection { return runtimeSelection.shareApiOrigin }
         guard isDebugBuild, !isProductionAuth, environment["CMUX_NEXT_FEED_API_URL"] == nil else {
             return ownerAPIBaseURL(environment: environment)
         }
@@ -191,6 +215,7 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// credentials never reach another origin; a debug build takes any https origin. Only a bare origin (no
     /// credentials, port, path, query or fragment) is taken: an install is kept per host (`install-share-<host>`).
     public func acceptsShareAPI(_ api: URL) -> Bool {
+        if let runtimeSelection { return api == runtimeSelection.shareApiOrigin }
         guard api.scheme?.lowercased() == "https", let host = api.host?.lowercased(), !host.isEmpty, api.user == nil, api.password == nil,
               api.path.isEmpty || api.path == "/", api.query == nil, api.fragment == nil else { return false }
         return api.port == nil && (isDebugBuild || Self.shareAPIHosts.contains(host))

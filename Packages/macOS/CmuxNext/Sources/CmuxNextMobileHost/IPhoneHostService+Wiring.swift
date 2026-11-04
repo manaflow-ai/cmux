@@ -55,9 +55,12 @@ extension IPhoneHostService {
         #endif
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
-        guard let base = serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let state = MobileHostStateDirectory(parent: DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)).resolve()
+        guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
+        let stateRoot = DaemonLauncher.applicationSupportDirectory()
+            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
+        let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection.map {
+            stateRoot.appendingPathComponent($0.name, isDirectory: true)
+        } ?? stateRoot).resolve()
         // The phone's browser tabs stream from this build's own remote browser host
         // (Contents/Helpers, every configuration on arm64).
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()

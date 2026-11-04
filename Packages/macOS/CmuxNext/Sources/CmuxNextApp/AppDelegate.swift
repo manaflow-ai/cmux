@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
@@ -24,9 +25,11 @@ import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let environment: AppEnvironment
+    private var environment: AppEnvironment
     /// The daemon's first connect attempt, begun in `main`.
-    private let daemonPrestart: DaemonPrestart?
+    private var daemonPrestart: DaemonPrestart?
+    /// Resolves once before any auth or daemon is constructed; cancelled on quit.
+    private var cloudBootstrap: Task<Void, Never>?
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
     /// Launch work that starts after the first window frame (perf-launch-memory).
@@ -90,6 +93,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // task-owner: cloudBootstrap; one CLI read before services, cancelled at termination.
+        cloudBootstrap = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let selection = try await CloudEnvironmentBootstrap(work: launchReads.work).resolve()
+                try Task.checkCancellation()
+                environment.cloudConfiguration = CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild).applying(selection)
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_RUNTIME"] = "1"
+                environment.terminalEnvironment["CMUX_NEXT_CLOUD_ENV"] = selection.name
+                environment.terminalEnvironment["CMUX_PLATFORM_ORIGIN"] = selection.platformOrigin.absoluteString
+                daemonPrestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                    terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
+                    resolvesShellIntegration: environment.resolvesShellIntegration, echoesPlacementShift: SidebarMirror.isLinked)
+                finishLaunching()
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Cloud environment bootstrap failed: \(String(describing: error), privacy: .public)")
+                // Fail closed: no token store or credential-bearing service exists on a failed selection.
+                NSApp.terminate(nil)
+            }
+            cloudBootstrap = nil
+        }
+    }
+
+    private func finishLaunching() {
         // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
         Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
@@ -526,6 +554,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        cloudBootstrap?.cancel()
+        cloudBootstrap = nil
         services?.crashRecovery.applicationWillTerminate()
         services?.crashReporting.reporter.stallSummary.close()  // the open hour's stall counts
         // The release push's socket closes and nothing reconnects (ReleasePushListener).

@@ -164,13 +164,14 @@ final class CloudService {
     /// - Parameters:
     ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
     ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false) {
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork, loginKeychain: LoginKeychain, authCaptureFixture: Bool = false, configuration selectedConfiguration: CloudConfiguration? = nil) {
         self.machines = machines
         self.mainWork = mainWork
         self.work = work
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
+        configuration = selectedConfiguration ?? CloudConfiguration.current(isDebugBuild: isDebugBuild) // a capture build's bench hooks: CloudConfiguration.benchHooksCompiled
         auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
-        paths = CloudPaths.standard(bundleID: configuration.bundleID)
+        let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
+        paths = configuration.runtimeSelection.map { CloudPaths(root: basePaths.root.appendingPathComponent($0.name, isDirectory: true)) } ?? basePaths
         deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
         api = CloudAPIClient(
@@ -182,7 +183,7 @@ final class CloudService {
         let install = { @Sendable (api: URL, folder: String) in
             MacInstallIdentity(
                 store: .forApp(directory: paths.root.appendingPathComponent(folder, isDirectory: true),
-                               service: "\(configuration.bundleID ?? "cmux").install-key.\(api.host ?? "unknown")",
+                               service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.runtimeSelection?.name ?? "default").\(api.host ?? "unknown")",
                                team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, loginKeychain: loginKeychain),
                 transport: InstallHTTPTransport(baseURL: api), deviceName: deviceName, clientVersion: clientVersion)
         }
@@ -857,7 +858,13 @@ final class CloudService {
     /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
     /// of idle before cmux Cloud pauses it; 0 is Off.
     func setIdlePause(_ machineID: String, minutes: Int) async throws {
-        try await api.setIdlePause(machineID, minutes: minutes)
+        if configuration.linkSource == .appServer {
+            _ = try await appOps("cloud.machine.idle_policy.set", .object([
+                "machine": .string(machineID), "idle_seconds": .number(Double(minutes) * 60),
+            ]), UUID().uuidString, .user)
+        } else {
+            try await api.setIdlePause(machineID, minutes: minutes)
+        }
         machines.session(machineID)?.machine.idlePauseMinutes = minutes
         logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
@@ -876,7 +883,13 @@ final class CloudService {
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {
-        try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
+        if configuration.linkSource == .appServer {
+            _ = try await appOps("cloud.machine.rename", .object([
+                "machine": .string(machineID), "name": .string(name.isEmpty ? machineID : name),
+            ]), UUID().uuidString, .user)
+        } else {
+            try await api.renameMachine(machineID, to: name.isEmpty ? nil : name)
+        }
         machines.session(machineID)?.machine.displayName = name.isEmpty ? nil : name
     }
 
