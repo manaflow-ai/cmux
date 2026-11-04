@@ -50,6 +50,16 @@ impl Hub {
         self.resumes.subscribe()
     }
 
+    /// Tests: the watch as an idle daemon leaves it: parked, the wall clock `lead` ahead of the
+    /// monotonic one (the computer slept that long while no turn ran).
+    #[doc(hidden)]
+    pub fn park_resume_watch_after_sleep(&self, lead: std::time::Duration) {
+        let lead_ms = u64::try_from(lead.as_millis()).unwrap_or(u64::MAX);
+        let mut watch = self.resume_watch.watch.lock().unwrap_or_else(|e| e.into_inner());
+        *watch = ResumeWatch::new(crate::store::now_ms().saturating_sub(lead_ms), mono_now());
+        watch.park();
+    }
+
     /// The gaps seen so far.
     pub fn resume_count(&self) -> u64 {
         *self.resumes.borrow()
