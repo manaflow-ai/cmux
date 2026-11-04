@@ -110,19 +110,13 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = FallbackTokenStore(
-                primary: KeychainStackTokenStore(service: configuration.keychainService),
-                fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-            )
+            let productionStore = Self.tokenStore(configuration: configuration)
             tokenStore = productionStore
             authDefaults = defaults
             client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
         }
         #else
-        let productionStore = FallbackTokenStore(
-            primary: KeychainStackTokenStore(service: configuration.keychainService),
-            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
-        )
+        let productionStore = Self.tokenStore(configuration: configuration)
         tokenStore = productionStore
         authDefaults = defaults
         client = Self.stackClient(configuration: configuration, tokenStore: productionStore)
@@ -199,6 +193,24 @@ public final class CloudAuth {
             callbackScheme: { configuration.callbackScheme },
             openExternalURL: openExternalURL
         )
+    }
+
+    /// This build's own Keychain store with its file fallback. Signed NEXT DEV on the NIGHTLY account
+    /// (``CloudConfiguration/nightlySession``) adopts cmux NIGHTLY's session into it when it has none:
+    /// NIGHTLY's Keychain item (readable only when DEV is signed with NIGHTLY's access group), then
+    /// NIGHTLY's file fallback. NIGHTLY's own session is only read, never changed or cleared.
+    static func tokenStore(configuration: CloudConfiguration) -> any StackAuthTokenStoreProtocol {
+        let own = FallbackTokenStore(
+            primary: KeychainStackTokenStore(service: configuration.keychainService),
+            fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
+        )
+        guard let nightly = configuration.nightlySession else { return own }
+        let keychain = KeychainTokenReader(service: nightly.keychainService, accessGroup: nightly.accessGroup)
+        let file = FileStackTokenStore(directory: nightly.credentialsDirectory)
+        return ImportingTokenStore(primary: own, sources: [
+            { keychain.read() },
+            { ImportedTokenPair(accessToken: await file.getStoredAccessToken(), refreshToken: await file.getStoredRefreshToken()) },
+        ])
     }
 
     private static func stackClient(configuration: CloudConfiguration,
