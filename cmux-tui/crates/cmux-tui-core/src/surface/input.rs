@@ -75,8 +75,8 @@ impl Surface {
         }
         match pty.input_route.load().as_deref() {
             None => None,
-            Some(super::input_port::InputRoute::Exited) => Some(Ok(())),
-            Some(super::input_port::InputRoute::Hosted(_)) => {
+            Some(input_port::InputRoute::Exited) => Some(Ok(())),
+            Some(input_port::InputRoute::Hosted(_)) => {
                 Some(pty.input_port.enqueue(&pty.terminal, kind, bytes).map_err(Into::into))
             }
         }

@@ -230,7 +230,7 @@ impl Surface {
                     Box::new(mouse_encoders),
                 ),
                 input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
-                    super::input_port::InputRoute::Exited,
+                    input_port::InputRoute::Exited,
                 ))),
                 input_port: Default::default(),
                 runtime: RankedMutex::new(

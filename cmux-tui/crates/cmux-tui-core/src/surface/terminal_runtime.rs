@@ -54,14 +54,12 @@ impl Drop for ReaderCompletionGuard {
 impl PtyTerminalRuntime {
     /// The input route of `runtime`, for the input port (R-DAEMON-STATE stage S1 step 6).
     #[cfg(any(unix, windows))]
-    pub(super) fn input_route_of(
-        runtime: &PtyRuntime,
-    ) -> Option<Arc<super::input_port::InputRoute>> {
+    pub(super) fn input_route_of(runtime: &PtyRuntime) -> Option<Arc<input_port::InputRoute>> {
         match runtime {
             PtyRuntime::Hosted(host) => {
-                Some(Arc::new(super::input_port::InputRoute::Hosted(host.input_route())))
+                Some(Arc::new(input_port::InputRoute::Hosted(host.input_route())))
             }
-            PtyRuntime::ExitedHosted => Some(Arc::new(super::input_port::InputRoute::Exited)),
+            PtyRuntime::ExitedHosted => Some(Arc::new(input_port::InputRoute::Exited)),
             PtyRuntime::Local { .. } => None,
         }
     }
@@ -337,11 +335,11 @@ pub struct PtyTerminalRuntime {
     /// The terminal's input port: on the input lane, interactive input to a hosted terminal goes through it
     /// (R-DAEMON-STATE stage S1 step 6, `surface::input_port`).
     #[cfg(any(unix, windows))]
-    pub(super) input_port: super::input_port::InputPort,
+    pub(super) input_port: input_port::InputPort,
     /// Where the port writes: the current host connection, the exited final screen, or `None` (not hosted).
     /// Published by [`Self::replace_runtime`] and the constructors, so the port never takes the runtime lock.
     #[cfg(any(unix, windows))]
-    pub(super) input_route: arc_swap::ArcSwapOption<super::input_port::InputRoute>,
+    pub(super) input_route: arc_swap::ArcSwapOption<input_port::InputRoute>,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }
