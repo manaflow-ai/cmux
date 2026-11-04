@@ -846,6 +846,12 @@ pub trait Store: Send + Sync {
         let _ = timeout;
         Ok(true)
     }
+    /// Why the store asks the daemon to stop with a restart, as it changes: `Some(reason)` once
+    /// the store cannot go on safely (the journal store's frozen checkpoint, whose logs only a
+    /// restart's replay writes again). None: a store that never asks.
+    fn stop_reason(&self) -> Option<tokio::sync::watch::Receiver<Option<String>>> {
+        None
+    }
     /// The daemon's shutdown is done: from now on every write is refused. It lets go of
     /// `daemon.lock` before its process exits, so the next daemon may already read this store;
     /// what it reads is the old daemon's last word (`Hub::shutdown_all`). Waits for writes under
@@ -988,7 +994,10 @@ pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
         StoreMode::Local if config.journal => Box::new(journal_store::JournalStore::open(
             config,
             root,
-            std::sync::Arc::new(cmux_journal::FsStorage),
+            std::sync::Arc::new(journal_store::FencedStorage::new(
+                std::sync::Arc::new(cmux_journal::FsStorage),
+                Box::new(crate::config::refuse_lost_home),
+            )),
             cmux_journal::Config::default(),
         )?),
         StoreMode::Local => Box::new(LocalStore::new(root.join("sessions"), config.segment_bytes)?),

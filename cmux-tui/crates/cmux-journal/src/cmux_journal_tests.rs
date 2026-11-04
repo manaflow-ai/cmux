@@ -264,6 +264,32 @@ fn appends_past_the_pending_cap_fail_without_waiting() {
     assert_eq!(journal.append(1, Class::Ack, &too_large), Err(AppendError::TooLarge));
 }
 
+/// `check_append` says what `append` would do: a caller that checks under its own lock, writes
+/// elsewhere, then appends, is never refused after it wrote (acpmux's journal store).
+#[test]
+fn check_append_says_what_append_would_do() {
+    let storage = SimStorage::new(36);
+    let config = Config { max_pending_bytes: 4096, ..quick() };
+    let (journal, _, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    storage.set_sync_delay(Duration::from_millis(500));
+    let big = vec![b'a'; 1000];
+    let mut refused = false;
+    for _ in 0..50 {
+        let checked = journal.check_append(big.len());
+        let appended = journal.append(1, Class::Ack, &big).map(|_| ());
+        assert_eq!(checked, appended, "check_append and append disagree");
+        if appended == Err(AppendError::Backlog) {
+            refused = true;
+            break;
+        }
+    }
+    assert!(refused, "the pending cap never refused an append");
+    assert_eq!(journal.check_append(crate::MAX_PAYLOAD_LEN + 1), Err(AppendError::TooLarge));
+    storage.set_sync_delay(Duration::ZERO);
+    assert!(journal.seal(WAIT).is_ok());
+    assert_eq!(journal.check_append(1), Err(AppendError::Closed));
+}
+
 #[test]
 fn a_sealed_journal_refuses_appends() {
     let storage = SimStorage::new(10);

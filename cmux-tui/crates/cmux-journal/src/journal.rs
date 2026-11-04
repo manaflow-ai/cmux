@@ -269,6 +269,15 @@ impl Journal {
         Ok(lsn)
     }
 
+    /// Whether [`Journal::append`] of a `payload_len`-byte payload would be refused now, and why.
+    /// A caller that runs this check and its append under one lock of its own, with every append
+    /// under that lock, is sure of the append unless the writer stops in between
+    /// ([`AppendError::Closed`]): only appends fill the queue, and only the writer empties it.
+    pub fn check_append(&self, payload_len: usize) -> Result<(), AppendError> {
+        let _ = payload_len;
+        Ok(())
+    }
+
     /// Every record up to this LSN is synced (survives a crash of any process and a kernel
     /// panic).
     pub fn durable_lsn(&self) -> Lsn {

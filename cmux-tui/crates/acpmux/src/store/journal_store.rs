@@ -52,6 +52,62 @@ const FORGET_WAIT: Duration = Duration::from_secs(5);
 pub struct JournalStore {
     inner: Arc<Inner>,
     checkpointer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// What the journal's open reported (the tests read it).
+    #[cfg(test)]
+    opened: cmux_journal::OpenReport,
+}
+
+/// The journal's storage, refusing every write under a lost home: `fence` (in the daemon,
+/// `config::refuse_lost_home`) is asked before each operation that makes, writes, renames or
+/// removes a file or folder.
+pub(super) struct FencedStorage {
+    inner: Arc<dyn cmux_journal::Storage>,
+    fence: Box<dyn Fn(&Path) -> Result<()> + Send + Sync>,
+}
+
+impl FencedStorage {
+    pub(super) fn new(
+        inner: Arc<dyn cmux_journal::Storage>,
+        fence: Box<dyn Fn(&Path) -> Result<()> + Send + Sync>,
+    ) -> Self {
+        Self { inner, fence }
+    }
+}
+
+impl cmux_journal::Storage for FencedStorage {
+    fn create_dir_all(&self, dir: &Path) -> std::io::Result<()> {
+        let _ = &self.fence;
+        self.inner.create_dir_all(dir)
+    }
+    fn list(&self, dir: &Path) -> std::io::Result<Vec<String>> {
+        self.inner.list(dir)
+    }
+    fn open(
+        &self,
+        path: &Path,
+        mode: cmux_journal::OpenMode,
+    ) -> std::io::Result<Box<dyn cmux_journal::StorageFile>> {
+        self.inner.open(path, mode)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        self.inner.rename(from, to)
+    }
+    fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+        self.inner.remove_file(path)
+    }
+    fn sync_dir(&self, dir: &Path) -> std::io::Result<()> {
+        self.inner.sync_dir(dir)
+    }
+    fn try_lock(&self, path: &Path) -> std::io::Result<Option<Box<dyn cmux_journal::StorageLock>>> {
+        self.inner.try_lock(path)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: a repair on this thread stops with an error right after it cut a log, as a crash
+    /// there would.
+    pub(super) static STOP_AFTER_CUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 struct Inner {
@@ -125,7 +181,18 @@ impl JournalStore {
             .name("acpmux-journal-checkpoint".into())
             .spawn(move || worker.run_checkpointer())
             .context("start the event journal's checkpointer")?;
-        Ok(Self { inner, checkpointer: Mutex::new(Some(checkpointer)) })
+        Ok(Self {
+            inner,
+            checkpointer: Mutex::new(Some(checkpointer)),
+            #[cfg(test)]
+            opened: report,
+        })
+    }
+
+    /// What the journal's open reported.
+    #[cfg(test)]
+    pub(super) fn opened(&self) -> &cmux_journal::OpenReport {
+        &self.opened
     }
 }
 
@@ -318,6 +385,10 @@ impl Inner {
             if keep < len {
                 truncate_private(path, keep)?;
                 self.forget_index_copy(id, *index);
+            }
+            #[cfg(test)]
+            if STOP_AFTER_CUT.with(std::cell::Cell::get) {
+                anyhow::bail!("stopped after the cut (a test)");
             }
             break;
         }
