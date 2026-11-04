@@ -218,6 +218,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
+  /// The current draft while a Cloud sign-in card is open, so auth never replays stale New Tab text.
+  onDraftChange?(text: string, attachments: ComposerAttachment[]): void;
   /// The chat view's composer stood in for this page while the host failed before its handshake:
   /// what was typed there, taken once as the page's own draft when the page comes back.
   takeDraft?(): { text: string; attachments: ComposerAttachment[] } | undefined;
@@ -527,6 +529,9 @@ export function NewTabScreen(props: Props) {
         ? "newtab.attachments"
         : null,
   );
+  useEffect(() => {
+    props.onDraftChange?.(text, attachments);
+  }, [attachments, props.onDraftChange, text]);
   // The draft as it is now, for `onLeaveDraft` when the page goes.
   const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
   leaving.current = {

@@ -8759,6 +8759,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const composerHandle = useRef<ComposerHandle | null>(null);
+  const cloudSignInNewTabDraft = useRef<{ text: string; attachments: ComposerAttachment[] }>();
+  const cloudSignInDraftReader = useRef<() => { text: string; attachments: ComposerAttachment[] } | undefined>(
+    () => composerHandle.current?.draft(),
+  );
   const cloudSignInSend = useRef<() => Promise<CloudStartAnswer> | undefined>(() => undefined);
   /// The card retries its preserved request once; native keeps the click across browser auth.
   const [cloudSignInRetry] = useState(() => makeCloudSignInRetry(() => cloudSignInSend.current()));
@@ -8769,6 +8773,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSignInPending.current = false;
     void callNative("cloud.signInCancel").catch(() => undefined);
   };
+  const noteCloudSignInNewTabDraft = useCallback((text: string, attachments: ComposerAttachment[]) => {
+    cloudSignInNewTabDraft.current = { text, attachments };
+  }, []);
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
   /// host closes this tab with only the sent prompt, so text or files added meanwhile would be lost;
   /// on failure the prompt is still in the composer to edit and send again.
@@ -8780,15 +8787,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     text: string,
     attachments: ComposerAttachment[],
     start: Omit<CloudStart, "task" | "attachments">,
+    newTabDraft?: { text: string; attachments: ComposerAttachment[] },
   ): string | false => {
     const refused = cloudPageRefusal(sandboxOffered);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     const request: CloudStart = { task: text, attachments, ...start };
-    void beginCloudSend(request);
+    const preservedDraft = newTabDraft ?? composerHandle.current?.draft();
+    cloudSignInDraftReader.current = newTabDraft
+      ? () => cloudSignInNewTabDraft.current
+      : () => composerHandle.current?.draft();
+    void beginCloudSend(request, false, preservedDraft);
     return false;
   };
-  const beginCloudSend = (request: CloudStart, signingIn = false): Promise<CloudStartAnswer> | undefined => {
+  const beginCloudSend = (
+    request: CloudStart,
+    signingIn = false,
+    preservedDraft?: { text: string; attachments: ComposerAttachment[] },
+  ): Promise<CloudStartAnswer> | undefined => {
     const { task: text, ...start } = request;
     // A retry of the same start reuses its first key, so the host reaches the machine it made (#33493).
     const key = cloudStartKeys.keyFor(request);
@@ -8798,20 +8814,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudSignInSend.current = () => {
       // The browser may stay open for minutes. If the person edits this prompt meanwhile,
       // leave the edited draft in place rather than starting Cloud with the stale request.
-      const draft = composerHandle.current?.draft();
-      const preservedAttachments = request.attachments ?? [];
+      const draft = cloudSignInDraftReader.current();
+      const expected = preservedDraft ?? { text, attachments: request.attachments ?? [] };
       const sameAttachments =
         draft === undefined ||
-        (draft.attachments.length === preservedAttachments.length &&
-          draft.attachments.every((attachment, index) => attachment.id === preservedAttachments[index]?.id));
-      if (draft !== undefined && (draft.text !== text || !sameAttachments)) {
-        return Promise.resolve({
+        (draft.attachments.length === expected.attachments.length &&
+          draft.attachments.every((attachment, index) => attachment.id === expected.attachments[index]?.id));
+      if (draft !== undefined && (draft.text !== expected.text || !sameAttachments)) {
+        const answer: CloudStartAnswer = {
           ok: false,
           code: "cloud_prompt_changed",
           message: "Your prompt changed while you were signing in. Send the updated prompt to Cloud.",
-        });
+        };
+        setCloudStart((current) => cloudStartEnded(current, key, answer));
+        return Promise.resolve(answer);
       }
-      return beginCloudSend(request, true);
+      return beginCloudSend(request, true, expected);
     };
     cloudStartPending.current = true;
     if (signingIn) cloudSignInPending.current = true;
@@ -8860,6 +8878,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     runModePicked.current = false;
     // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
     cancelCloudSignIn();
+    cloudSignInNewTabDraft.current = undefined;
     cloudSignInRetry.reset();
     setCloudStart(undefined);
     cloudSignInSend.current = () => undefined;
@@ -14905,6 +14924,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
+                  onDraftChange={noteCloudSignInNewTabDraft}
                   takeDraft={takeNewTabDraft}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
@@ -14930,7 +14950,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             harness,
                             ...cloudStartFolder(cwd),
                             ...(model ? { model } : {}),
-                          }),
+                          },
+                          { text, attachments }),
                         onSandbox: (harness: string, text: string, attachments: ComposerAttachment[]) => {
                           const started = sandboxPickedNotOffered
                             ? sandboxNotNow
