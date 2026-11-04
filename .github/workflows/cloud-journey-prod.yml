@@ -78,6 +78,8 @@ jobs:
       - name: Cloud journey (prod, ${{ matrix.model }} model)
         id: journey
         if: env.SELECTED == 'true'
+        # Leaves the job time to upload the artifact and open the issue.
+        timeout-minutes: 25
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
