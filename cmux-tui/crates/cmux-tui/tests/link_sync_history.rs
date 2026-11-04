@@ -309,3 +309,79 @@ fn a_locked_index_stops_an_undo_before_the_branch_moves() {
     assert_eq!(git(&setup.folder, &["rev-parse", "HEAD"]), first);
     assert_eq!(git(&setup.folder, &["status", "--porcelain"]), "");
 }
+
+/// Both sides changed a text file on different lines: the pull merges them
+/// by line, and the next push sends the merge.
+#[test]
+fn edits_to_different_lines_of_a_text_file_merge_cleanly() {
+    let setup = setup("merge");
+    std::fs::write(setup.folder.join("a.txt"), "1\n2\n3\n4\n5\n6\n7\n").unwrap();
+    synced(&setup, "push");
+    std::fs::write(setup.folder.join("a.txt"), "one here\n2\n3\n4\n5\n6\n7\n").unwrap();
+    std::fs::write(setup.remote.join("a.txt"), "1\n2\n3\n4\n5\n6\nseven there\n").unwrap();
+
+    let pulled = synced(&setup, "pull");
+    assert_eq!(pulled["written"].as_u64(), Some(1), "{pulled}");
+    let merged = "one here\n2\n3\n4\n5\n6\nseven there\n";
+    assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), merged);
+    assert!(!setup.folder.join("a.txt.cmux-sync-conflict").exists());
+
+    // The merge reaches the machine with the next push, and then both agree.
+    let pushed = synced(&setup, "push");
+    assert_eq!(pushed["written"].as_u64(), Some(1), "{pushed}");
+    assert_eq!(std::fs::read_to_string(setup.remote.join("a.txt")).unwrap(), merged);
+    let again = synced(&setup, "pull");
+    assert_eq!(again["written"].as_u64(), Some(0), "{again}");
+}
+
+/// Both sides changed the same line: a conflict. This Mac's file stays
+/// byte for byte, nothing else comes back either, and the merge with
+/// conflict markers is beside it, never sent by a push.
+#[test]
+fn overlapping_edits_conflict_without_touching_this_macs_file() {
+    let setup = setup("clash");
+    std::fs::write(setup.folder.join("a.txt"), "1\n2\n3\n").unwrap();
+    std::fs::write(setup.folder.join("b.txt"), "b\n").unwrap();
+    synced(&setup, "push");
+    std::fs::write(setup.folder.join("a.txt"), "1\ntwo here\n3\n").unwrap();
+    std::fs::write(setup.remote.join("a.txt"), "1\ntwo there\n3\n").unwrap();
+    std::fs::write(setup.remote.join("b.txt"), "b from the machine\n").unwrap();
+    let here = tree(&setup.folder);
+
+    let socket = setup.socket.to_str().unwrap();
+    let (folder, remote) = (setup.folder.to_str().unwrap(), setup.remote.to_str().unwrap());
+    let (ok, answer) = cmux(&setup, &["pull", "--socket", socket, folder, remote]);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["error_code"], "sync_conflict", "{answer}");
+    assert_eq!(answer["conflicts"], json!(["a.txt"]), "{answer}");
+    assert_eq!(answer["merge_files"], json!(["a.txt.cmux-sync-conflict"]), "{answer}");
+
+    let side = std::fs::read_to_string(setup.folder.join("a.txt.cmux-sync-conflict")).unwrap();
+    assert!(side.contains("<<<<<<<") && side.contains(">>>>>>>"), "{side}");
+    assert!(side.contains("two here") && side.contains("two there"), "{side}");
+    let mut after = tree(&setup.folder);
+    after.retain(|(path, _, _)| path != "a.txt.cmux-sync-conflict");
+    assert_eq!(after, here, "a conflicting pull changed this Mac's files");
+
+    let pushed = synced(&setup, "push");
+    assert!(!setup.remote.join("a.txt.cmux-sync-conflict").exists(), "{pushed}");
+}
+
+/// A binary file both sides changed stays a whole-file conflict, with no
+/// merge file.
+#[test]
+fn a_binary_file_changed_on_both_sides_stays_a_whole_file_conflict() {
+    let setup = setup("bin");
+    std::fs::write(setup.folder.join("data.bin"), b"\0\x01\n\x02\n").unwrap();
+    synced(&setup, "push");
+    std::fs::write(setup.folder.join("data.bin"), b"\0\x01\nhere\n").unwrap();
+    std::fs::write(setup.remote.join("data.bin"), b"\0there\n\x02\n").unwrap();
+
+    let socket = setup.socket.to_str().unwrap();
+    let (folder, remote) = (setup.folder.to_str().unwrap(), setup.remote.to_str().unwrap());
+    let (ok, answer) = cmux(&setup, &["pull", "--socket", socket, folder, remote]);
+    assert!(!ok, "{answer}");
+    assert_eq!(answer["conflicts"], json!(["data.bin"]), "{answer}");
+    assert_eq!(answer["merge_files"], json!([]), "{answer}");
+    assert_eq!(std::fs::read(setup.folder.join("data.bin")).unwrap(), b"\0\x01\nhere\n");
+}

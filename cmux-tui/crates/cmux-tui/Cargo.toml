@@ -99,6 +99,8 @@ terminput.workspace = true
 terminput-crossterm.workspace = true
 parking_lot.workspace = true
 sha2.workspace = true
+# `cmux link sync pull` merges a text file both sides changed by line.
+diffy.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.

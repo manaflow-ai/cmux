@@ -46,6 +46,7 @@ mod git_back;
 mod history;
 mod links;
 mod local;
+mod merge;
 mod names;
 mod packs;
 mod place;
@@ -257,7 +258,7 @@ pub(super) fn pull_back(
     }
     match pull::pull_kept(socket, local, remote_root, keep_new, false) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -269,7 +270,7 @@ pub(super) fn pull_back(
 pub(super) fn pull_into(socket: &Path, local: &Path, remote_root: &str) -> Back {
     match pull::pull(socket, local, remote_root) {
         Ok(pull::Pulled::Done(summary)) => Back::Done(summary),
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => Back::Conflict(conflicts, reasons),
+        Ok(pull::Pulled::Conflict(conflicts, reasons, _)) => Back::Conflict(conflicts, reasons),
         Err(error) => {
             Back::Failed { code: pull::failure_code(&error), error: format!("{error:#}") }
         }
@@ -383,7 +384,7 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
             println!("{summary}");
             return 0;
         }
-        Ok(pull::Pulled::Conflict(conflicts, reasons)) => {
+        Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(
                 "{} changed both here and on the machine; nothing was brought back",
                 conflicts.join(", ")
@@ -392,7 +393,7 @@ fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
                 error = format!("{error} ({})", reasons.join("; "));
             }
             json!({ "ok": false, "error": error, "error_code": "sync_conflict",
-                    "conflicts": conflicts })
+                    "conflicts": conflicts, "merge_files": merge_files })
         }
         Err(error) => json!({ "ok": false, "error": format!("{error:#}"),
                               "error_code": pull::failure_code(&error) }),
@@ -553,6 +554,13 @@ fn push_inner(
     }
     let git_record = set.git && !files_only;
     let manifest_name = if git_record { ".git/cmux-sync.json" } else { ".cmux-sync.json" };
+    // A pull's conflict merges stay here.
+    let merges: Vec<String> =
+        set.files.keys().filter(|relative| merge::is_conflict_file(relative)).cloned().collect();
+    for relative in merges {
+        set.files.remove(&relative);
+        set.skips.note(&relative, skips::Why::ConflictMerge);
+    }
     // The manifest's own name is never pushed over it, as a file or a symlink.
     if set.files.remove(manifest_name).is_some() | set.links.remove(manifest_name).is_some() {
         set.skips.note(manifest_name, skips::Why::Reserved);

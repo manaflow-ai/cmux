@@ -160,6 +160,35 @@ impl Dir {
         }
     }
 
+    /// Writes `bytes` as the file `name` with `mode`: to a new hidden name,
+    /// then renamed over `name`, which may be missing or a regular file
+    /// (never a folder or a symlink).
+    pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        let part = format!(".{name}.cmux-sync-part");
+        match self.unlink(&part, false) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+        let mut file = self.create_file(&part, mode)?;
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        let placed = written.and_then(|()| {
+            if matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+                self.rename(&part, self, name)
+            } else {
+                Err(io::Error::from(io::ErrorKind::AlreadyExists))
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
     /// The text of the symlink `name` (never followed).
     pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
         let c = c_name(name)?;
