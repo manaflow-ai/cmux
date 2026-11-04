@@ -94,6 +94,27 @@ extension WorkspaceTabsSource {
     }
 
     /// Rename Screen…: the Mac's name changes once it lists it (an empty name changes nothing).
+    /// Duplicate Screen: a copy of the screen on the Mac (its name, a terminal in its folder);
+    /// the phone opens its tab, as New Screen does.
+    func duplicateScreen(_ screen: MacScreen) async {
+        guard let workspace, let creator else { return }
+        if let pending = pendingTabTitle { return show("Still opening \(pending). Try again once it's open.") }
+        pendingTabTitle = "Duplicate Screen"
+        defer { pendingTabTitle = nil }
+        do {
+            let tab = try await creator.backend.duplicateScreen(screen, in: workspace)
+            if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tab.id }) != true {
+                store.appendTab(tab, to: workspaceID)
+            }
+            activate(tab.id)
+            route = nil
+            openedTab = tab.id
+            CmuxMobileTheme.standard.haptics.success()
+        } catch {
+            show(error, doing: "duplicate", screenTitle(screen))
+        }
+    }
+
     func renameScreen(_ screen: MacScreen, to name: String) async {
         renamingScreen = nil
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
