@@ -24,10 +24,11 @@ use tokio::process::Command;
 
 /// The families of harnesses that are one model agent each. Any other
 /// family (`chief`, `unii`, a test's `fake`) is left as it was.
-/// The discovered ACP agents (`config/discover.rs`) are all here.
-const LEAF_FAMILIES: [&str; 11] = [
+/// The discovered ACP agents (`config/discover.rs`) are all here, Muse
+/// (`muse-acp`, family from its name) included.
+const LEAF_FAMILIES: [&str; 12] = [
     "claude", "codex", "opencode", "gemini", "pi", "omp", "prime", "grok", "cursor", "hermes",
-    "deepseek",
+    "deepseek", "muse",
 ];
 
 /// A login variable and the harness family it belongs to. Every key of the
@@ -133,6 +134,11 @@ mod tests {
         assert_eq!(
             leaf_family("claude-xyz", &profile("claude-acp", Some("claude-xyz"))).as_deref(),
             Some("claude")
+        );
+        // Muse through its ACP adapter, as discovery makes it (family `muse`).
+        assert_eq!(
+            leaf_family("muse", &profile("/opt/bin/muse-acp", Some("muse"))).as_deref(),
+            Some("muse")
         );
         let mut chief = profile("cmux-tui", Some("chief"));
         chief.argv = vec!["cmux-tui".into(), "chief".into(), "acp".into()];
