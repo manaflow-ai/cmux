@@ -180,7 +180,7 @@
    "title": "launch 2 (U): clear the watchdog"
   },
   {
-   "do": "rpc",
+   "do": "rpc_any",
    "method": "debug.menu_item",
    "params": {
     "title": "R-INPUT probe: no item has this title"
@@ -501,7 +501,7 @@
    "title": "launch 6 (U): clear the watchdog"
   },
   {
-   "do": "rpc",
+   "do": "rpc_any",
    "method": "debug.menu_item",
    "params": {
     "title": "R-INPUT probe: no item has this title"
@@ -822,7 +822,7 @@
    "title": "launch 10 (U): clear the watchdog"
   },
   {
-   "do": "rpc",
+   "do": "rpc_any",
    "method": "debug.menu_item",
    "params": {
     "title": "R-INPUT probe: no item has this title"

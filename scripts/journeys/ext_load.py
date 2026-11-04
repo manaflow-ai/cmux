@@ -270,6 +270,15 @@ def step_probe_mark(j, step):
     return {"as": step["as"], "hangs": len(hangs) if isinstance(hangs, list) else None, "file": f"probe-{step['as']}.json"}
 
 
-STEPS = {"probe_relaunch": step_probe_relaunch, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
+def step_rpc_any(j, step):
+    """`rpc` whose error reply is a result, not a failure (R-INPUT first-chord arms: `debug.menu_item` with a title no item
+    has validates every menu and then answers an error)."""
+    try:
+        return {"reply": j.app.rpc(step["method"], j.sub(step.get("params") or {}), timeout=step.get("timeout", 20))}
+    except (D.StepError, OSError, ValueError) as error:
+        return {"error": str(error)[:300]}
+
+
+STEPS = {"rpc_any": step_rpc_any, "probe_relaunch": step_probe_relaunch, "probe_mark": step_probe_mark, "echo_start": step_echo_start, "load_start": step_load_start, "load_stop": step_load_stop,
          "typist_play": step_typist_play}
 CONDITIONS = {}
