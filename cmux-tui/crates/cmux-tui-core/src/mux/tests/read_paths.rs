@@ -426,14 +426,29 @@ fn focus_and_tab_selection_read_only_the_workspaces_they_change() {
         let changes = journaled_changes(&mux, head);
         assert!(!changes.is_empty(), "{label} journaled its changes");
         let after = snapshot();
-        for change in &changes {
+        let order = changes
+            .iter()
+            .map(|change| format!("{} {} {}", change["kind"], change["resource"], change["id"]))
+            .collect::<Vec<_>>();
+        // A client applies the changes in order, so the last upsert of a row
+        // is the row it ends with.
+        for (position, change) in changes.iter().enumerate() {
             assert_eq!(change["kind"], "upsert", "{label}: {change}");
+            if changes[position + 1..]
+                .iter()
+                .any(|later| later["resource"] == change["resource"] && later["id"] == change["id"])
+            {
+                continue;
+            }
             let collection = format!("{}s", change["resource"].as_str().unwrap());
             let row = rows(&after, &collection)
                 .into_iter()
                 .find(|row| row["id"] == change["id"])
                 .unwrap_or_else(|| panic!("{label}: {change} names a live row"));
-            assert_eq!(change["value"], row, "{label}: the delta equals the snapshot row");
+            assert_eq!(
+                change["value"], row,
+                "{label}: the delta equals the snapshot row ({order:?})"
+            );
         }
         for collection in ["workspaces", "screens", "panes", "tabs"] {
             for row in rows(&after, collection) {
