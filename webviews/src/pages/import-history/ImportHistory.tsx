@@ -108,8 +108,7 @@ function SourceRow({
   const localizedTitle = t(`history.source.${row.id}`);
   const title = row.title ?? (localizedTitle === `history.source.${row.id}` ? titleFor(row.id) : localizedTitle);
   const unavailable = row.kind === "local" && !row.source;
-  const expanded = Boolean(row.expanded || (row.kind === "text" && row.detected));
-  const selected = row.kind === "text" ? expanded : row.selected;
+  const expanded = Boolean(row.expanded);
   return (
     <section className={`history-source phase-${row.phase}`}>
       <div className="history-source-line">
@@ -118,7 +117,7 @@ function SourceRow({
             type="checkbox"
             id={`history-select-${row.id}`}
             aria-label={title}
-            checked={selected}
+            checked={row.selected}
             disabled={busy || unavailable || (row.kind === "zip" && !row.source)}
             onChange={(event) => {
               const checked = event.target.checked;
@@ -148,7 +147,7 @@ function SourceRow({
           )}
         </div>
         <div className="history-source-action">
-          {row.kind === "local" && (
+          {(row.kind === "local" || row.detected) && (
             <span className="history-muted">
               {t(
                 snapshot.phase === "detecting"
