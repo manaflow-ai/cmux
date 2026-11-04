@@ -533,6 +533,37 @@ class SharedWait(unittest.TestCase):
 
 
 class Wiring(unittest.TestCase):
+    def test_status_reports_consume_live_capacity_without_a_routing_app(self):
+        offered = 0
+        for workflow, name in (("pr-red-checks-comment.yml", "comment"),
+                               ("ci-guards.yml", "guard-status")):
+            with self.subTest(workflow=workflow):
+                workflow_jobs = jobs(workflow)
+                bootstrap = workflow_jobs.get("portable-placement")
+                if bootstrap is None:
+                    continue
+                step = bootstrap["steps"][-1]
+                config = {key: str(value) for key, value in step["env"].items() if "${{" not in str(value)}
+                config.update(SIDE_LABEL=SIDE, FLEET_LINUX="", GITHUB_RUN_ATTEMPT="1")
+                placed = placement.decide(config, idle(1), snapshot(), NOW)
+                self.assertEqual(placed.mini_jobs, (name,))
+                self.assertEqual(placed.mini_runner, SIDE)
+                self.assertEqual(placement.decide(config, idle(0), snapshot(), NOW).mini_jobs, ())
+                job = workflow_jobs[name]
+                needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+                self.assertIn("portable-placement", needs)
+                self.assertIn("always()", job["if"])
+                self.assertIn("!cancelled()", job["if"])
+                self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)",
+                              job["runs-on"])
+                self.assertIn(f"contains(needs.portable-placement.outputs.mini_jobs, ' {name} ')", job["runs-on"])
+                self.assertEqual(bootstrap["permissions"], {"contents": "read"})
+                self.assertNotIn("secrets.", yaml.safe_dump(bootstrap))
+                self.assertIn("CI_PORTABLE_LIGHT_JOBS_OFF != '1'", bootstrap["if"])
+                offered += len(placed.mini_jobs)
+        print(f"status reports offered an idle mini: {offered}/2")
+        self.assertEqual(offered, 2)
+
     def test_early_nightly_controls_try_fleet_before_blacksmith_without_signing_secrets(self):
         nightly = jobs("nightly.yml")
         step = next(s for s in nightly["decide"]["steps"] if s.get("id") == "place-early")
