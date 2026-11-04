@@ -12,6 +12,8 @@ struct Options {
     var query: [(String, String)] = []
     var capture: URL?
     var quitAfterCapture = false
+    /// Seconds a window may take to report ready before `--capture` gives up on it.
+    var readyTimeout: Double = 60
 
     static let usage = """
     usage: cmux-view-shell [--url URL | --dist DIR] [--size WxH]... [--capture DIR [--quit]] [--KEY VALUE]...
@@ -19,6 +21,7 @@ struct Options {
       --dist DIR     a built gallery folder (bun run gallery:build) instead of a server
       --size WxH     a window of that size in points; repeat for several windows (default 1280x800)
       --capture DIR  save each window as DIR/<W>x<H>.png once its panes are ready; --quit then exits
+                     (exit 1 when a window is not ready within --ready-timeout seconds, default 60)
       --KEY VALUE    any mock app axis, e.g. --fixture app.window/new-tab --density compact --script streaming
     """
 
@@ -46,6 +49,9 @@ struct Options {
                 options.sizes.append(CGSize(width: parts[0], height: parts[1]))
             case "--capture":
                 options.capture = URL(fileURLWithPath: (try value(flag) as NSString).expandingTildeInPath, isDirectory: true)
+            case "--ready-timeout":
+                guard let seconds = Double(try value(flag)), seconds > 0 else { throw ShellError.usage("--ready-timeout takes seconds") }
+                options.readyTimeout = seconds
             case "--quit":
                 options.quitAfterCapture = true
             case "-h", "--help":
@@ -77,10 +83,10 @@ func configQuery(appearanceIsDark: Bool) -> [(String, String)] {
     if let theme = appearance["theme"] as? String, !theme.isEmpty {
         var named = theme
         if theme.contains(":") {
-            let sides = Dictionary(uniqueKeysWithValues: theme.split(separator: ",").compactMap { side -> (String, String)? in
+            let sides = Dictionary(theme.split(separator: ",").compactMap { side -> (String, String)? in
                 let pair = side.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
                 return pair.count == 2 ? (pair[0], pair[1]) : nil
-            })
+            }, uniquingKeysWith: { _, last in last })
             named = sides[appearanceIsDark ? "dark" : "light"] ?? sides.values.first ?? theme
         }
         query.append(("theme", named))
@@ -184,7 +190,8 @@ final class PreviewWindow: NSObject, WKScriptMessageHandler, WKNavigationDelegat
 final class ShellDelegate: NSObject, NSApplicationDelegate {
     let options: Options
     var windows: [PreviewWindow] = []
-    var captured = 0
+    /// Windows already captured: a page reload reports ready again, and counts once.
+    var captured = Set<ObjectIdentifier>()
 
     init(options: Options) { self.options = options }
 
@@ -207,19 +214,28 @@ final class ShellDelegate: NSObject, NSApplicationDelegate {
             origin.y += 40
         }
         NSApp.activate()
+        if options.capture != nil, options.quitAfterCapture {
+            let timeout = options.readyTimeout
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                guard let self, self.captured.count < self.windows.count else { return }
+                FileHandle.standardError.write(Data("view-shell: \(self.windows.count - self.captured.count) window(s) not ready after \(Int(timeout)) s\n".utf8))
+                exit(1)
+            }
+        }
     }
 
     func ready(_ window: PreviewWindow, ms: Double) {
         print("view-shell: \(window.window.title) ready_ms=\(Int(ms.rounded()))")
-        guard let folder = options.capture else { return }
+        guard let folder = options.capture, !captured.contains(ObjectIdentifier(window)) else { return }
+        captured.insert(ObjectIdentifier(window))
         Task { @MainActor in
             do {
                 print("view-shell: captured \(try await window.capture(to: folder).path)")
             } catch {
                 FileHandle.standardError.write(Data("view-shell: capture failed: \(error)\n".utf8))
             }
-            captured += 1
-            if options.quitAfterCapture, captured == windows.count { NSApp.terminate(nil) }
+            if options.quitAfterCapture, captured.count == windows.count { NSApp.terminate(nil) }
         }
     }
 

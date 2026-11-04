@@ -22,17 +22,30 @@ uses_dist=0
 for arg in "$@"; do [[ "$arg" == --dist || "$arg" == --url ]] && uses_dist=1; done
 
 server_pid=""
-cleanup() { [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null || true; }
+# Stops only the server this script started: bun and the children it spawned (found by parent PID).
+cleanup() {
+  [[ -n "$server_pid" ]] || return 0
+  local children
+  children="$(pgrep -P "$server_pid" 2>/dev/null || true)"
+  kill "$server_pid" $children 2>/dev/null || true
+}
 trap cleanup EXIT
 
 if (( ! uses_dist )) && ! curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/app.html"; then
   echo "view shell: starting the gallery dev server on :$port (hot reload)" >&2
   (cd "$root/webviews" && exec bun run gallery:dev) >"${TMPDIR:-/tmp}/cmux-view-shell-gallery.log" 2>&1 &
   server_pid=$!
+  ready=0
   for _ in $(seq 1 120); do
-    curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/app.html" && break
+    if curl -fsS -o /dev/null "http://127.0.0.1:$port/gallery/app.html"; then ready=1; break; fi
+    kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.5
   done
+  if (( ! ready )); then
+    echo "view shell: the gallery dev server did not answer on :$port (log: ${TMPDIR:-/tmp}/cmux-view-shell-gallery.log)." >&2
+    echo "  Is another server on :$port from a checkout without gallery/app.html? Set CMUX_GALLERY_DEV_PORT." >&2
+    exit 1
+  fi
 fi
 
 swift build -c release --package-path "$package" --product cmux-view-shell >&2

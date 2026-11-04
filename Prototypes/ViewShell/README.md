@@ -28,7 +28,9 @@ cmux preview open --fixture app.window/new-tab --density compact     # the same,
   the command line wins.
 - **Several sizes.** One window per `--size WxH`; each plays its `--script` on a loop.
 - **Captures.** `--capture DIR` saves `DIR/<W>x<H>.png` per window once its panes are ready
-  (`--quit` exits after the last), and every window prints `ready_ms=` (load to ready).
+  (`--quit` exits after the last, or with 1 when a window is not ready within `--ready-timeout`
+  seconds), and every window prints `ready_ms=` (load to ready). A capture is the web content
+  only: where the window shows the system glass, the PNG is transparent.
 - **Any axis.** `--KEY VALUE` passes a mock app key: `--fixture`, `--fixture2`, `--layout`,
   `--density`, `--scale`, `--theme`, `--colorScheme`, `--script`, `--cpu`, `--slot`, and the rest
   in `webviews/src/gallery/app/axes.ts`.
