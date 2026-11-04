@@ -5635,8 +5635,8 @@ a.cv-sha:focus-visible {
 }
 /* Folded, the list is that line alone: no card around it, like the turn's other summary lines. */
 .cv-plan[data-folded] {
-  /* The folded mark sits on the transcript's icon column (gallery invariant icon-column). */
-  padding-inline: 2px 0;
+  /* The folded 12px mark sits centred in the transcript's icon column (gallery invariant icon-column). */
+  padding-inline: calc((var(--cv-row-icon) - 12px) / 2) 0;
   background: transparent;
   box-shadow: none;
 }
