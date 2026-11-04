@@ -21,18 +21,22 @@ public struct ImportedTokenPair: Equatable, Sendable {
 /// lands under it. A source is only ever read: a refresh or a sign-out changes `primary` and never the
 /// app the session came from. The adopted refresh token is the other app's own Stack session, so a
 /// sign-out must not revoke it on the server: ``isShared(refreshToken:)`` says so for
-/// `StackAuthClient`'s `keepsServerSession`. A write (a sign-in, a sign-out) before the first use ends
-/// the import for the process; the next launch with an empty `primary` adopts again.
+/// `StackAuthClient`'s `keepsServerSession`, from the tokens this process adopted (and the refreshes of
+/// them), so it still answers after the sign-out cleared `primary` and after the other app quit. A write (a sign-in, a sign-out) before the first use ends the import
+/// for the process; the next launch with an empty `primary` adopts again.
 ///
 /// ```swift
-/// let store = ImportingTokenStore(primary: ownStore, sources: [{ nightlyKeychain.read() }])
+/// let store = ImportingTokenStore(primary: MemoryStackTokenStore(), sources: [{ await nightly.fetch() }])
 /// ```
 public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     public typealias Source = @Sendable () async -> ImportedTokenPair?
 
     private let primary: any StackAuthTokenStoreProtocol
     private let sources: [Source]
-    private var importTask: Task<Void, Never>?
+    private var importTask: Task<String?, Never>?
+    /// Refresh tokens of sessions this process adopted, and the ones their refreshes replaced them with.
+    /// Kept for the process only, never written anywhere.
+    private var adopted: Set<String> = []
     private let log = AuthDebugLog()
 
     /// - Parameters:
@@ -47,31 +51,32 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
     private func settle(skippingImport: Bool = false) async {
         if importTask == nil {
             if skippingImport {
-                importTask = Task {}
+                importTask = Task { nil }
             } else {
                 let primary = primary
                 let sources = sources
                 let log = log
                 importTask = Task {
-                    if let own = await primary.getStoredRefreshToken(), !own.isEmpty { return }
+                    if let own = await primary.getStoredRefreshToken(), !own.isEmpty { return nil }
                     for (index, source) in sources.enumerated() {
                         guard let pair = await source() else { continue }
                         await primary.setTokens(accessToken: pair.accessToken, refreshToken: pair.refreshToken)
                         log.log("importing.store: adopted a session from source \(index) hasAccess=\(pair.accessToken != nil)")
-                        return
+                        return pair.refreshToken
                     }
                     log.log("importing.store: no source had a session")
+                    return nil
                 }
             }
         }
-        await importTask?.value
+        if let refreshToken = await importTask?.value { adopted.insert(refreshToken) }
     }
 
-    /// Whether `refreshToken` is the session a source holds now: the other app's own, which a sign-out
-    /// here must leave alive on the server.
+    /// Whether `refreshToken` is another app's session, which a sign-out here must leave alive on the
+    /// server: one this process adopted, or refreshed from one it adopted. The sources are not asked
+    /// again, so a sign-out never fetches the other app's session.
     public func isShared(refreshToken: String) async -> Bool {
-        for source in sources where await source()?.refreshToken == refreshToken { return true }
-        return false
+        adopted.contains(refreshToken)
     }
 
     public func getStoredAccessToken() async -> String? {
@@ -104,5 +109,10 @@ public actor ImportingTokenStore: StackAuthTokenStoreProtocol {
         await settle()
         await primary.compareAndSet(compareRefreshToken: compareRefreshToken, newRefreshToken: newRefreshToken,
                                     newAccessToken: newAccessToken)
+        // A refresh of an adopted session is still the other app's session.
+        if adopted.contains(compareRefreshToken), let newRefreshToken, !newRefreshToken.isEmpty,
+           await primary.getStoredRefreshToken() == newRefreshToken {
+            adopted.insert(newRefreshToken)
+        }
     }
 }

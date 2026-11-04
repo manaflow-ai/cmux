@@ -195,6 +195,9 @@ pub(crate) enum SharedJournalRead {
 struct JournalFanoutState {
     epoch: u64,
     requested_epoch: u64,
+    /// The `requested_epoch` the tailer last read through and published: while it is behind,
+    /// a commit already acknowledged to its writer may be missing from the ring.
+    published_epoch: u64,
     shutdown_requested: bool,
     head_sequence: u64,
     records: VecDeque<Arc<JournalDocument>>,
@@ -204,12 +207,37 @@ struct JournalFanoutState {
     database_reader_count: u64,
 }
 
+/// Tests: the tailer's gate, closed while the flag is true.
+#[cfg(test)]
+type TailerGate = Arc<(Mutex<bool>, Condvar)>;
+
+/// Tests: releases the tailer held by [`JournalKernel::hold_tailer_for_test`] on drop.
+#[cfg(test)]
+pub(crate) struct TailerHold {
+    kernel: Arc<JournalKernel>,
+    hold: TailerGate,
+}
+
+#[cfg(test)]
+impl Drop for TailerHold {
+    fn drop(&mut self) {
+        *self.kernel.tailer_hold.lock().recover_poison() = None;
+        let (held, released) = &*self.hold;
+        *held.lock().recover_poison() = false;
+        released.notify_all();
+    }
+}
+
 /// Session-local journal runtime. It owns the only persistent live-tail
 /// SQLite reader and publishes a bounded ring of decoded records.
 pub(crate) struct JournalKernel {
     state: Mutex<JournalFanoutState>,
     changed: Condvar,
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Tests: while set, the tailer waits here before each read pass, so the ring trails the
+    /// writer's commits on purpose.
+    #[cfg(test)]
+    tailer_hold: Mutex<Option<TailerGate>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
     /// The registry file, so a reader behind the ring opens its own
@@ -253,6 +281,7 @@ impl JournalKernel {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    published_epoch: 0,
                     shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
@@ -263,6 +292,8 @@ impl JournalKernel {
                 }),
                 changed: Condvar::new(),
                 tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
                 database_path: None,
@@ -275,6 +306,7 @@ impl JournalKernel {
             state: Mutex::new(JournalFanoutState {
                 epoch: 0,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence,
                 records: VecDeque::new(),
@@ -285,6 +317,8 @@ impl JournalKernel {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
             database_path: Some(database_path),
@@ -327,6 +361,23 @@ impl JournalKernel {
         let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
+    }
+
+    /// Whether the ring holds every commit acknowledged so far: false while the tailer has
+    /// not yet read through the last [`Self::notify_commit`]. A reader that must see a
+    /// commit its caller already saw acknowledged (`history.entries.list` after an agent
+    /// hook) reads the database instead of the ring until then.
+    pub(crate) fn ring_is_current(&self) -> bool {
+        let state = self.state.lock().recover_poison();
+        state.published_epoch == state.requested_epoch
+    }
+
+    /// Tests: hold the tailer before its next read pass until the returned guard drops.
+    #[cfg(test)]
+    pub(crate) fn hold_tailer_for_test(self: &Arc<Self>) -> TailerHold {
+        let hold = Arc::new((Mutex::new(true), Condvar::new()));
+        *self.tailer_hold.lock().recover_poison() = Some(hold.clone());
+        TailerHold { kernel: self.clone(), hold }
     }
 
     pub(crate) fn epoch(&self) -> u64 {
@@ -589,7 +640,17 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };
+        #[cfg(test)]
+        let hold = kernel.tailer_hold.lock().recover_poison().clone();
         drop(kernel);
+        #[cfg(test)]
+        if let Some(hold) = hold {
+            let (held, released) = &*hold;
+            let mut held = held.lock().recover_poison();
+            while *held {
+                held = released.wait(held).recover_poison();
+            }
+        }
         observed_request_epoch = requested_epoch;
 
         let mut appended = VecDeque::new();
@@ -632,6 +693,8 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
             publish_journal_batch(&mut state, appended, last_sequence);
             last_sequence = candidate_sequence;
             state.head_sequence = candidate_sequence;
+            // Every commit requested before this pass's read is in the ring now.
+            state.published_epoch = requested_epoch;
         }
         state.epoch = state.epoch.wrapping_add(1);
         kernel.changed.notify_all();
@@ -818,6 +881,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 7,
                 requested_epoch: 0,
+                published_epoch: 0,
                 shutdown_requested: false,
                 head_sequence: 0,
                 records: VecDeque::new(),
@@ -827,6 +891,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,
@@ -848,6 +914,7 @@ mod performance_tests {
                 state: Mutex::new(JournalFanoutState {
                     epoch: 0,
                     requested_epoch: 0,
+                    published_epoch: 0,
                     shutdown_requested: false,
                     head_sequence: 0,
                     records: VecDeque::new(),
@@ -857,6 +924,8 @@ mod performance_tests {
                 }),
                 changed: Condvar::new(),
                 tailer: Mutex::new(None),
+                #[cfg(test)]
+                tailer_hold: Mutex::new(None),
                 enabled: true,
                 producers: RwLock::new(HashMap::new()),
                 database_path: None,
@@ -947,6 +1016,7 @@ mod performance_tests {
             state: Mutex::new(JournalFanoutState {
                 epoch: 1,
                 requested_epoch: 1,
+                published_epoch: 1,
                 shutdown_requested: false,
                 head_sequence: JOURNAL_FANOUT_CAPACITY as u64,
                 records,
@@ -956,6 +1026,8 @@ mod performance_tests {
             }),
             changed: Condvar::new(),
             tailer: Mutex::new(None),
+            #[cfg(test)]
+            tailer_hold: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
             database_path: None,

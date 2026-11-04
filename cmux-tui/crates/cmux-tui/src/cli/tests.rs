@@ -425,6 +425,32 @@ fn an_app_actions_own_machine_flag_follows_its_words() {
     assert_eq!(parse_globals(&line).unwrap().1, line);
 }
 
+/// `--confirm` takes no value: `cloud kill-machine --confirm --json` is two
+/// switches, so the reply is JSON and the action gets `confirm: true` and no
+/// `json` argument. Both orders parse the same.
+#[cfg(unix)]
+#[test]
+fn confirm_does_not_swallow_a_following_json() {
+    for line in [
+        &["cloud", "kill-machine", "--target", "machine:m1", "--confirm", "--json"][..],
+        &["cloud", "kill-machine", "--target", "machine:m1", "--json", "--confirm"][..],
+    ] {
+        let (global, command) = parse_action_globals(&strings(line)).unwrap();
+        assert_eq!(global.output, OutputMode::Json, "{line:?}");
+        assert_eq!(
+            command,
+            strings(&["cloud", "kill-machine", "--target", "machine:m1", "--confirm"]),
+            "{line:?}"
+        );
+        let app::AppCommand::Call { params, .. } =
+            app::run_action("cloud kill-machine", &command[2..], app::ActionName::Cli).unwrap()
+        else {
+            panic!("expected a call")
+        };
+        assert_eq!(params["args"], serde_json::json!({"confirm": true}), "{line:?}: {params}");
+    }
+}
+
 #[test]
 fn global_value_options_reject_empty_inline_values() {
     let error = parse_globals(&strings(&["--socket=", "workspace", "list"])).unwrap_err();

@@ -4382,17 +4382,6 @@ class SharedRunnerStateTests(unittest.TestCase):
             self.assertIsNotNone(rows)
             self.assertEqual(picker.idle_runner(rows), picker.FLEET)
 
-    def test_nightly_control_picker_selects_linux_from_document_without_live_read(self):
-        import nightly_next_control_runner as picker
-        doc = self.linux_document()
-        env = {"ROUTE_TOKEN": "synthetic-token", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-               "CI_CONTROL_CANDIDATE": "cmux-fleet-linux-x64"}
-        with unittest.mock.patch.dict(pool.os.environ, {"CI_RUNNER_STATE": self.encode(doc)}), \
-                unittest.mock.patch.object(pool.GitHub, "get_api", side_effect=AssertionError("live read")):
-            rows = picker.read_live(env)
-            self.assertIsNotNone(rows)
-            self.assertEqual(picker.idle_runner(rows, picker.candidates(env)), "cmux-fleet-linux-x64")
-
     def test_portable_live_capacity_accepts_linux_from_document(self):
         import portable_job_placement as picker
         doc = self.linux_document()

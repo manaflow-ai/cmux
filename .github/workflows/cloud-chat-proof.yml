@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || format('Cloud chat proof ({0})', inputs.build) }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || format('Cloud chat proof ({0})', inputs.build) }}
 
 # One manual trip through a Cloud chat from a tagged DEV build of the dispatched commit, signed in as
 # the team's agent test account: build and launch the app with `scripts/reload.sh --auth-profile agent
@@ -20,6 +20,9 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # signin_pubkey: no proof; the signin job mints the agent account's staging session, encrypts it to
 # that RSA public key (base64 PEM) and uploads only the ciphertext for a day, for the Mac holding the
 # private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
+# cleanup_machine: no proof; the published NEXT DEV app signs in the same way, then reads
+# `cloud machine-status` for that machine and kills it (one retry), for a machine an earlier run
+# leaked. The machine's Cloud verbs live in the macOS app, so this stays on the macos_26 job.
 on:
   workflow_dispatch:
     inputs:
@@ -47,6 +50,11 @@ on:
         type: string
       request_id:
         description: Names the sign-in run (its run-name), so the requester finds it
+        required: false
+        default: ""
+        type: string
+      cleanup_machine:
+        description: A leaked Cloud machine id (vm_<hex>) to inspect and kill from the published app, instead of a proof
         required: false
         default: ""
         type: string
@@ -104,15 +112,22 @@ jobs:
     timeout-minutes: 120
     env:
       CMUX_PROOF_TAG: ccp-${{ github.run_id }}
+      # A cleanup needs no build: it always uses the published app.
+      CMUX_PROOF_BUILD: ${{ inputs.cleanup_machine != '' && 'published' || inputs.build }}
       CMUX_SKIP_ZIG_BUILD: "1"
       SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
     steps:
       - name: Refuse any ref but feat-cmux-next
         env:
           REF: ${{ github.ref }}
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
         run: |
           if [ "$REF" != refs/heads/feat-cmux-next ]; then
             echo "::error::cloud-chat-proof runs on feat-cmux-next only (got $REF)"
+            exit 1
+          fi
+          if [ -n "$CLEANUP_MACHINE" ] && ! printf '%s' "$CLEANUP_MACHINE" | grep -Eqx 'vm_[0-9a-f]{1,64}'; then
+            echo "::error::cleanup_machine must look like vm_<lowercase hex>"
             exit 1
           fi
 
@@ -123,20 +138,20 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: ./scripts/select-ci-xcode.sh
 
       # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
       - name: Setup Node
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Setup Bun
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -147,7 +162,7 @@ jobs:
       # newest published commit with the same cmux-tui and Ghostty inputs,
       # checked against its build-provenance attestation.
       - name: Build in-tree acpmux
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
           ./scripts/install-rust-ci.sh
@@ -156,7 +171,7 @@ jobs:
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Install the matching published cmux-tui client
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -191,14 +206,14 @@ jobs:
           echo "CMUX_TUI_CLIENT_LOCAL=$client" >> "$GITHUB_ENV"
 
       - name: Install build prerequisites
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Materialize the agent auth profile
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -217,7 +232,7 @@ jobs:
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
       - name: Install, sign in and launch the published NEXT DEV app
-        if: inputs.build == 'published'
+        if: env.CMUX_PROOF_BUILD == 'published'
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -245,7 +260,7 @@ jobs:
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Build and launch the tagged app
-        if: inputs.build != 'published'
+        if: env.CMUX_PROOF_BUILD != 'published'
         run: |
           set -euo pipefail
           ./scripts/reload.sh \
@@ -262,6 +277,7 @@ jobs:
           echo "CMUX_PROOF_APP=$app" >> "$GITHUB_ENV"
 
       - name: Token, Cloud chat and reply
+        if: inputs.cleanup_machine == ''
         timeout-minutes: 30
         env:
           PROOF_PROMPT: ${{ inputs.prompt }}
@@ -269,6 +285,15 @@ jobs:
         run: |
           python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
             --prompt "$PROOF_PROMPT" --agent "$PROOF_AGENT" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
+
+      - name: Machine status and kill
+        if: inputs.cleanup_machine != ''
+        timeout-minutes: 15
+        env:
+          CLEANUP_MACHINE: ${{ inputs.cleanup_machine }}
+        run: |
+          python3 -I scripts/cmux-next/cloud-chat-proof.py --app "$CMUX_PROOF_APP" --tag "$CMUX_PROOF_TAG" \
+            --cleanup-machine "$CLEANUP_MACHINE" --evidence "$RUNNER_TEMP/cloud-chat-proof/evidence.json"
 
       - name: Summarize the evidence
         id: evidence

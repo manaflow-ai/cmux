@@ -310,6 +310,12 @@ mode = os.environ.get("FAKE_GH", "")
 if mode == "old" and "--allow-escape-sequences" in args:
     sys.stderr.write("unknown flag: --allow-escape-sequences\\n\\nUsage: gh api <endpoint> [flags]\\n")
     sys.exit(1)
+if mode == "shim-old" and "--allow-escape-sequences" in args:
+    # An agent host's gh wrappers note a wait before the real gh answers.
+    sys.stderr.write("glaeda-gh: this caller read the same thing moments ago and the cache cannot answer it; "
+                     "waiting 23 s before spending a request on it again (CMUX_GH_MIN_REPEAT_SECONDS)\\n"
+                     "unknown flag: --allow-escape-sequences\\n\\nUsage: gh api <endpoint> [flags]\\n")
+    sys.exit(1)
 if mode == "http":
     sys.stderr.write("gh: Not Found (HTTP 404)\\n")
     sys.exit(1)
@@ -355,6 +361,11 @@ class PortableGhLog(unittest.TestCase):
 
     def test_old_gh_falls_back_without_the_flag(self):
         self.assertIn("red", self.read("old"))
+        route = f"repos/{REPO}/actions/jobs/7/logs"
+        self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
+
+    def test_old_gh_behind_a_wrapper_notice_falls_back_without_the_flag(self):
+        self.assertIn("red", self.read("shim-old"))
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}", f"api {route}"])
 
@@ -1218,6 +1229,90 @@ class StatusOnlyChecks(unittest.TestCase):
         self.status = None
         with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
             self.judge()
+
+
+class JoblessStatusChecks(unittest.TestCase):
+    """Vercel posts a commit status no Actions job gave (cmuxterm-hq#7039, 2026-11-04: "Deployment rate limited —
+    retry in 24 hours." on the head and on main's tip alike). It is excused only when the newest base commit with
+    that context has the same state and description."""
+
+    CONTEXT = "Vercel"
+    LIMITED = "Deployment rate limited — retry in 24 hours."
+    TIP, OLDER = "c" * 40, "d" * 40
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.head = {"context": self.CONTEXT, "state": "failure", "description": self.LIMITED,
+                     "target_url": "https://vercel.com/manaflow?upgradeToPro=build-rate-limit"}
+        self.base = {self.TIP: [dict(self.head)], self.OLDER: [dict(self.head, state="success",
+                                                                    description="Deployment has completed")]}
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            self.gh.routes.append(route)
+            if route.endswith(f"commits/{HEAD}/check-runs?per_page=100"):
+                return [{"check_runs": []}]
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                return {"statuses": [copy.deepcopy(self.head)]}
+            if route.endswith(f"actions/runs?head_sha={HEAD}&per_page=100"):
+                return {"workflow_runs": []}
+            if route.endswith("/actions/runs/10"):
+                return {"id": 10, "workflow_id": 7, "head_sha": HEAD, "event": "workflow_dispatch",
+                        "display_title": "cmux-next · " + HEAD}
+            if route.endswith(f"commits?sha=feat-cmux-next&per_page={excuse.BASE_STATUS_COMMITS}"):
+                return [{"sha": self.TIP}, {"sha": self.OLDER}]
+            for sha, statuses in self.base.items():
+                if route.endswith(f"commits/{sha}/status?per_page=100"):
+                    return {"statuses": copy.deepcopy(statuses)}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=[self.CONTEXT])
+
+    def test_the_same_failure_with_the_same_description_on_the_base_tip_is_excused(self):
+        self.assertEqual(self.judge(), [f"excused 'Vercel': base {self.TIP} status failure \"{self.LIMITED}\""])
+
+    def test_the_newest_base_commit_with_the_context_decides(self):
+        self.base[self.TIP] = []  # the tip has no Vercel status yet
+        with self.assertRaisesRegex(excuse.Refused, f"{self.OLDER} has it success: Deployment has completed"):
+            self.judge()
+        self.base[self.OLDER] = [dict(self.head)]
+        self.assertEqual(self.judge(), [f"excused 'Vercel': base {self.OLDER} status failure \"{self.LIMITED}\""])
+
+    def test_another_description_on_the_base_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, description="Deployment failed")]
+        with self.assertRaisesRegex(excuse.Refused, "has it failure: Deployment failed"):
+            self.judge()
+
+    def test_another_state_on_the_base_is_refused(self):
+        self.base[self.TIP] = [dict(self.head, state="error")]
+        with self.assertRaisesRegex(excuse.Refused, "has it error"):
+            self.judge()
+
+    def test_a_status_the_base_does_not_have_is_refused(self):
+        self.base = {self.TIP: [], self.OLDER: [dict(self.head, context="Vercel – other-project")]}
+        with self.assertRaisesRegex(excuse.Refused, "none of the 10 newest feat-cmux-next commits has a status"):
+            self.judge()
+
+    def test_a_status_with_no_description_is_refused(self):
+        self.head["description"] = ""
+        self.base[self.TIP] = [dict(self.head)]
+        with self.assertRaisesRegex(excuse.Refused, "no description and no job"):
+            self.judge()
+
+    def test_a_status_linking_an_actions_run_is_never_judged_by_its_base_status(self):
+        self.head["target_url"] = f"https://github.com/{REPO}/actions/runs/10"
+        with self.assertRaisesRegex(excuse.Refused, "no job 'Vercel' in run 10"):
+            self.judge()
+        self.assertFalse(any("commits?sha=" in route for route in self.gh.routes))
+
+    def test_another_red_still_needs_its_own_excuse(self):
+        self.gh.jobs[1]["name"] = "brand new red"
+        self.gh.logs[1] = log("brand new red", TEST_STEP, "##[error]something new")
+        with self.assertRaisesRegex(excuse.Refused, "brand new red"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, checks=[self.CONTEXT])
 
 
 class BaseRedWindow(unittest.TestCase):

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n";
+import { Quote } from "./icons";
 
 export type SelectionReplyLook = "chip" | "icon" | "none" | "row";
 const LOOKS: readonly SelectionReplyLook[] = ["chip", "icon", "none", "row"];
@@ -109,22 +110,8 @@ export function RowReplyButton({ text }: { text: string }) {
       title={label}
       onClick={() => quoteInReply(text)}
     >
-      <QuoteGlyph size={16} />
+      <Quote size={16} />
     </button>
-  );
-}
-
-function QuoteGlyph({ size }: { size: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M6.5 4.5 3 8l3.5 3.5M3.5 8h6a3.5 3.5 0 0 1 3.5 3.5v0"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -212,7 +199,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
       onMouseDown={(event) => event.preventDefault()}
       onClick={quote}
     >
-      <QuoteGlyph size={14} />
+      <Quote size={14} />
       {current === "chip" && <span>{label}</span>}
     </button>,
     doc.body,

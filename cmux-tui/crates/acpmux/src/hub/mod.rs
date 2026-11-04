@@ -2236,8 +2236,9 @@ impl Hub {
             .map(|m| m.id.as_str())
             .collect();
         // A session whose record did not list still has its folder.
-        let stored =
-            |id: &str| known.contains(id) || self.store.session_dir(id).is_some_and(|d| d.exists());
+        let stored = |id: &str| {
+            known.contains(id) || self.store.session_path(id).is_some_and(|d| d.exists())
+        };
         let stale = crate::agent::session_tmp::stale_for_daemon(&stored, &|id| closed.contains(id));
         if stale.is_empty() {
             return;
@@ -2328,14 +2329,22 @@ impl Hub {
         self.store.events(id, after, limit)
     }
 
-    /// Visits the records past `after` in order, one at a time, until `visit` returns false.
+    /// Visits the records past `after` in order, one at a time, until `visit` returns false. A
+    /// caller sends each record as it reads it (`session/load`'s replay), so the visit stops at
+    /// the chat's `last_seq` read first: a line the log holds before its journal record is
+    /// appended (R-DURABILITY S2c) is never sent ahead of that record. A chat no session holds
+    /// takes no appends: read to the end.
     pub fn scan_events(
         &self,
         id: &str,
         after: u64,
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
-        self.store.scan(id, after, visit)
+        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let Some(last) = live.map(|session| session.meta().last_seq) else {
+            return self.store.scan(id, after, visit);
+        };
+        self.store.scan(id, after, &mut |record| record.seq <= last && visit(record))
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

@@ -84,17 +84,15 @@ struct CloudConfigurationSignedDEVTests {
         #expect(config.linkSource == .appServer)
         // Its own production namespace: neither the staging session nor the old unscoped one.
         #expect(config.keychainService == "com.cmuxterm.app.debug.next.auth.9790718f-14cd-4f7e-824d-eaf527a82b82")
-        #expect(config.nightlySession?.keychainService == "com.cmuxterm.app.nightly.auth")
-        #expect(config.nightlySession?.accessGroup == "7WLXT3NR37.com.cmuxterm.app.nightly")
-        #expect(config.nightlySession?.credentialsDirectory.path.hasSuffix("Library/Application Support/cmux/com.cmuxterm.app.nightly") == true)
+        #expect(config.adoptsNightlySession)
     }
 
     @Test func onlySignedDEVOnTheNightlyAccountAdoptsNightlysSession() {
         let staging = CloudConfiguration.resolve(bundleID: "com.cmuxterm.app.debug.next", bundled: [:], process: [:], isDebugBuild: false)
-        #expect(staging.nightlySession == nil)
+        #expect(!staging.adoptsNightlySession)
         for (bundleID, debug) in [("com.cmuxterm.app.nightly", false), ("com.cmuxterm.app.debug.next", true), ("com.cmuxterm.app", false)] {
             let config = CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug, devAccount: .nightly)
-            #expect(config.nightlySession == nil, "\(bundleID) debug=\(debug)")
+            #expect(!config.adoptsNightlySession, "\(bundleID) debug=\(debug)")
             #expect(config == CloudConfiguration.resolve(bundleID: bundleID, bundled: [:], process: [:], isDebugBuild: debug))
         }
     }
@@ -110,5 +108,11 @@ struct CloudConfigurationSignedDEVTests {
         #expect(CloudConfiguration.devAccount(environment: ["CMUX_NEXT_DEV_ACCOUNT": "bogus"], defaults: defaults) == .nightly)
         #expect(CloudConfiguration.devAccount(environment: ["CMUX_NEXT_DEV_ACCOUNT": "staging"], defaults: defaults) == .staging)
         #expect(CloudConfiguration.devAccount(environment: [:], defaults: defaults) == .staging)
+    }
+
+    @Test func withoutARunningNightlyTheNightlyAccountFallsBackToStaging() {
+        #expect(CloudConfiguration.launchAccount(chosen: .nightly, nightlyIsRunning: { true }) == .nightly)
+        #expect(CloudConfiguration.launchAccount(chosen: .nightly, nightlyIsRunning: { false }) == .staging)
+        #expect(CloudConfiguration.launchAccount(chosen: .staging, nightlyIsRunning: { true }) == .staging)
     }
 }

@@ -71,10 +71,16 @@ UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
 REQUEST_FAILED = "GitHub evidence request failed: "
 
 
+# Notes an agent host's gh wrappers write before the real gh's own stderr (a wait on a repeated read).
+WRAPPER_NOTE_PREFIXES = ("glaeda-gh:", "gh-quota:")
+
+
 def escape_flag_unknown(stderr: str) -> bool:
-    """Whether an old gh rejected the optional ANSI-output flag itself."""
-    lines = (stderr or "").strip().splitlines()
-    return bool(lines) and lines[0].strip() == UNKNOWN_ESCAPE_FLAG
+    """Whether an old gh rejected the optional ANSI-output flag itself: gh's first line, after any
+    wrapper notes, is exactly the refusal. Another unknown flag first still refuses."""
+    lines = [line.strip() for line in (stderr or "").strip().splitlines()]
+    gh_lines = [line for line in lines if not line.startswith(WRAPPER_NOTE_PREFIXES)]
+    return bool(gh_lines) and gh_lines[0] == UNKNOWN_ESCAPE_FLAG
 
 
 class GitHub(_evidence.GitHub):
@@ -693,8 +699,9 @@ def validate_run_rollup(name: str, children: list[dict], repo: str = HOME_REPO) 
 SAME_TREE_SUFFIX = " (same-tree)"
 
 
-def status_job(repo: str, sha: str, name: str, github) -> dict | None:
-    """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME."""
+def status_job(repo: str, sha: str, name: str, github, base: str | None = None) -> dict | str | None:
+    """The completed Actions job behind commit status NAME on SHA, or None when SHA has no status NAME. A red
+    status no Actions job gave (Vercel's) is the audit line of base_status when BASE shares it, else refused."""
     statuses = github.json(f"repos/{repo}/commits/{sha}/status?per_page=100").get("statuses") or []
     # The combined status lists the newest per context.
     status = next((found for found in statuses if found.get("context") == name), None)
@@ -725,12 +732,41 @@ def status_job(repo: str, sha: str, name: str, github) -> dict | None:
             raise Refused(f"'{name}': its status is {state} but job '{job_name}' in run {run['id']} is "
                           f"{found.get('conclusion')}; nothing to compare with the base")
         return found
+    if not match and base and state in ("failure", "error"):
+        return base_status(repo, base, name, state, status.get("description") or "", github)
     where = f"run {match[1]} (its target_url)" if match else f"any run that tested {sha}"
     raise Refused(f"'{name}': a status ({state}: {status.get('description') or 'no description'}) with no job "
                   f"'{job_name}' in {where} to compare with the base")
 
 
-def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -> list[dict]:
+# A status no Actions job gave (2026-11-04, cmuxterm-hq#7039): Vercel posts "Deployment rate limited — retry in 24
+# hours." on every commit, the base's included, while its build limit lasts, and there is no job or log behind it to
+# compare per test. It is the base's only when the newest of the BASE_STATUS_COMMITS newest base commits that has a
+# status of that context has it in the same state with the same description; one the base does not share, or shares
+# with another description, stays the head's.
+BASE_STATUS_COMMITS = 10
+
+
+def base_status(repo: str, base: str, name: str, state: str, description: str, github) -> str:
+    """The audit line excusing jobless status NAME (STATE, DESCRIPTION) when the base has the same, else Refused."""
+    if not description:
+        raise Refused(f"'{name}': a status ({state}) with no description and no job: nothing to compare with the base")
+    for commit in github.json(f"repos/{repo}/commits?sha={base}&per_page={BASE_STATUS_COMMITS}") or []:
+        statuses = github.json(f"repos/{repo}/commits/{commit['sha']}/status?per_page=100").get("statuses") or []
+        found = next((found for found in statuses if found.get("context") == name), None)
+        if found is None:
+            continue
+        if (found.get("state"), found.get("description") or "") != (state, description):
+            raise Refused(f"'{name}': a status ({state}: {description}) with no job, and {base} {commit['sha']} has "
+                          f"it {found.get('state')}: {found.get('description') or 'no description'}")
+        return f"excused '{name}': base {commit['sha']} status {state} \"{description}\""
+    raise Refused(f"'{name}': a status ({state}: {description}) with no job, and none of the {BASE_STATUS_COMMITS} "
+                  f"newest {base} commits has a status '{name}' to compare with")
+
+
+def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github, *, base: str | None = None,
+              excused: list[str] | None = None) -> list[dict]:
+    """Failed head jobs; a check that is a jobless status red the base shares adds its line to EXCUSED."""
     jobs: dict[int, dict] = {}
     for run in runs:
         guards = []
@@ -759,8 +795,11 @@ def head_jobs(repo: str, sha: str, runs: list[int], checks: list[str], github) -
         aggregate_runs = []
         for name in checks:
             if name not in latest:
-                if (job := status_job(repo, sha, name, github)) is None:
+                if (job := status_job(repo, sha, name, github, base if excused is not None else None)) is None:
                     raise Refused(f"{name}: has not run on exact head {sha}")
+                if isinstance(job, str):
+                    excused.append(job)
+                    continue
                 jobs[job["id"]] = job
                 continue
             job = job_for(repo, latest[name], sha, github)
@@ -1241,8 +1280,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     job_reads: dict[int, int] = {}
     merge_bases: dict[str, str] = {}
     load_rollups(repo, base, github)
-    jobs = head_jobs(repo, sha, runs, list(checks), github)
-    if not jobs:
+    jobs = head_jobs(repo, sha, runs, list(checks), github, base=base, excused=audit)
+    if not jobs and not audit:
         # A red run or check with no failed job to show has nothing the base can excuse.
         raise Refused("no failed job found on the head to compare with the base")
     for job in jobs:
