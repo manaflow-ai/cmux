@@ -962,17 +962,15 @@ impl Brain {
         self.rewatch_permission(id);
     }
 
-    /// `id` lost its workspace (hidden, or its open failed): a prompt it
-    /// still waits on is watched again even if a Home card was delivered,
-    /// and denied once overdue, as for any subagent without a workspace.
+    /// `id` lost its workspace (hidden, or its open failed), or its Home card
+    /// was retired: a prompt it still waits on with no Allow button left is
+    /// watched again, and denied once overdue.
     pub(super) fn rewatch_permission(&mut self, id: &str) {
         self.present_home_approval(id);
         let Some((_, sub)) = self.state.sub(id) else {
             return;
         };
-        if Self::approval_workspace_shown(sub)
-            || sub.policy.as_deref() == Some(crate::approval::ASK)
-        {
+        if self.approval_shown(sub) || sub.policy.as_deref() == Some(crate::approval::ASK) {
             return;
         }
         let (Some(session_id), Some(p)) = (sub.session_id.clone(), sub.permission.clone()) else {
@@ -3305,19 +3303,22 @@ impl Brain {
             return true;
         }
         self.present_home_approval(&id);
+        if !unchanged && !self.home_approval_queued(&id) {
+            // Home cannot draw this request as Allow once / Deny: open the
+            // subagent's workspace, whose tab can answer it, instead of
+            // letting it be denied where nobody sees it (Leo, 2026-11-03).
+            self.show_for_permission(&id);
+        }
         let shown = self
             .state
             .sub(&id)
             .is_some_and(|(_, s)| self.approval_shown(s));
         let text = super::control::permission_note(&id, request, shown);
         self.queue(text, Source::Note);
-        if !self
-            .state
-            .sub(&id)
-            .is_some_and(|(_, s)| Self::approval_workspace_shown(s))
-        {
-            // Home delivery does not prove the person opened Home. Keep the
-            // deadline unless a local workspace supplies the existing answer path.
+        if !shown {
+            // No Allow button yet: denied once overdue, unless its Home card
+            // arrives (which forgets this watch), its workspace opens, or the
+            // Chief denies or steers it first.
             self.watch_unanswered(
                 crate::approval::Pending {
                     session_id: session_id.to_owned(),
@@ -3332,14 +3333,39 @@ impl Brain {
         true
     }
 
-    /// Only a local workspace exempts a request from the hidden-agent deadline.
-    /// A delivered Home card is answerable, but Home may never be opened.
-    pub(super) fn approval_workspace_shown(sub: &crate::state::SubRecord) -> bool {
-        sub.peer.is_none() && sub.workspace.is_some()
+    /// Opens hidden local subagent `id`'s workspace so its tab shows a prompt
+    /// Home cannot. Nothing when this host makes no workspaces, or for a
+    /// peer, an `ask` subagent or one that has a workspace already.
+    fn show_for_permission(&mut self, id: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        if self.workspaces.is_none()
+            || sub.peer.is_some()
+            || sub.workspace.is_some()
+            || sub.session_id.is_none()
+            || sub.policy.as_deref() == Some(crate::approval::ASK)
+        {
+            return;
+        }
+        let (reply, answer) = std::sync::mpsc::channel();
+        self.control_workspace(
+            &crate::tools::ControlCall {
+                action: "show".into(),
+                id: Some(id.to_owned()),
+                ..crate::tools::ControlCall::default()
+            },
+            reply,
+        );
+        // The open runs on its own thread; its outcome comes back as
+        // SubagentWorkspaceShown or SubagentWorkspaceFailed.
+        drop(answer);
     }
 
-    /// Whether there is a local app answer path to name in a refusal notice.
-    /// Delivery of a Home card does not exempt it from the no-answer deadline.
+    /// Whether the person's app shows `sub`'s prompt with an Allow button
+    /// that works: a local subagent with a workspace (its agent tab), or a
+    /// Home card the conversation owner acknowledged. Such a request waits
+    /// for the person; only one with neither is denied once overdue.
     pub(super) fn approval_shown(&self, sub: &crate::state::SubRecord) -> bool {
         sub.peer.is_none()
             && (sub.workspace.is_some()
