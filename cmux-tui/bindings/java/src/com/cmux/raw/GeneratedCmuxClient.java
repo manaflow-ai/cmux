@@ -1177,6 +1177,11 @@ public abstract class GeneratedCmuxClient {
         return SetHostSizePolicyResult.fromWire(result);
     }
 
+    public final EmptyResult setLayoutSizes(SetLayoutSizesRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_LAYOUT_SIZES, request.toWire());
+        return EmptyResult.fromWire(result);
+    }
+
     public final Object setPersonalTerminal(SetPersonalTerminalRequest request) throws CmuxException {
         Object result = execute(Commands.SET_PERSONAL_TERMINAL, request.toWire());
         return Wire.immutableJson(result);

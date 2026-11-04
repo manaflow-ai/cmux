@@ -78,6 +78,7 @@ mod health_view;
 mod held_asks;
 pub(super) mod idle;
 mod idle_census;
+pub(crate) use idle::SessionAtWork;
 pub(crate) use idle_census::LaunchServers;
 #[cfg(unix)]
 pub(crate) use idle_census::host_census;
