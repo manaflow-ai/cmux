@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "4184224384601",
+  "notes": "notes/4184224384601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35423,
+      "title": "base red: cloud-chat-resume tests prove #35206's resume wait, not the removed 60 s deadline",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35440,
+      "title": "base red: route the design-scale import and allow the debug cursor name table",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35077,
+      "title": "acpmux: requests wait 30 s for a live daemon's, host's or helper's answer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35436,
+      "title": "ci(nightly-next): a newer classic NIGHTLY build never supersedes a NEXT publication",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35290,
+      "title": "gallery: a load axis, each state tried on a busy or saturated machine",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
