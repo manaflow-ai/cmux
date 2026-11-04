@@ -1967,14 +1967,21 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
-/// Per-event override of the provider-wide timeout. Only codex SessionEnd
-/// differs: codex clamps it to 3s, so writing more only produces a warning.
+/// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
-    if provider.id == "codex" { codex_hook_timeout(event) } else { timeout }
+    if provider.id == "codex" {
+        codex_hook_timeout(event)
+    } else if provider.id == "claude" && sync_barrier_event(event) {
+        90
+    } else {
+        timeout
+    }
 }
 
 fn codex_hook_timeout(event: &str) -> u64 {
-    if event == "SessionEnd" {
+    if sync_barrier_event(event) {
+        90
+    } else if event == "SessionEnd" {
         CODEX_SESSION_END_TIMEOUT_SECONDS
     } else {
         COMMAND_HOOK_TIMEOUT_SECONDS
@@ -2012,8 +2019,7 @@ pub fn claude_session_hook_settings(
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
                     handler.insert("command".into(), Value::String(command.clone()));
-                    // `agent hook emit` delivers no messages, so nothing
-                    // needs Claude to wait for its output.
+                    // The pre-tool helper is synchronous; journal-only events are asynchronous.
                     handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
             }
@@ -2023,21 +2029,18 @@ pub fn claude_session_hook_settings(
 }
 
 fn sync_barrier_event(event: &str) -> bool {
-    matches!(
-        event,
-        "PreToolUse"
-            | "BeforeTool"
-            | "preToolUse"
-            | "beforeShellExecution"
-            | "beforeMCPExecution"
-            | "pre_tool_use"
-    )
+    event == "PreToolUse"
 }
 
 #[cfg(unix)]
-/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
-/// receipt is discarded because Claude Code adds hook stdout to the context.
+/// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
+/// preserved; journal receipts from other events are discarded.
 fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    if sync_barrier_event(event) {
+        return format!(
+            "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
+        );
+    }
     format!(
         "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -2059,9 +2062,16 @@ fn codex_contextual_hook_command(
     terminal: &str,
     launcher: &Path,
 ) -> String {
-    let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
+    let reply = if sync_barrier_event(event) {
+        "||exit 2"
+    } else if delivers_messages("codex", event) {
+        "||echo {}"
+    } else {
+        "||:;echo {}"
+    };
+    let stderr = if sync_barrier_event(event) { "" } else { " 2>/dev/null" };
     format!(
-        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {}{stderr}{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -2402,6 +2412,17 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
                 codex_trust_hash(label, &hook_command("codex", event), timeout),
                 codex_trust_hash(label, &journal_hook_command("codex", event), timeout),
                 codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+                // Trust identities emitted before PreToolUse became a gate.
+                codex_trust_hash(
+                    label,
+                    &journal_hook_command("codex", event),
+                    COMMAND_HOOK_TIMEOUT_SECONDS,
+                ),
+                codex_trust_hash(
+                    label,
+                    &legacy_hook_command("codex", event),
+                    COMMAND_HOOK_TIMEOUT_SECONDS,
+                ),
             ])
         })
         .collect::<anyhow::Result<Vec<_>>>()
@@ -3166,7 +3187,7 @@ mod tests {
             "permission_request",
             "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
         ),
-        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        ("pre_tool_use", "sha256:9a8c6ae67a0cc5583e8202f37bd62bc9c75b549b04338144ee5b97cbd3553239"),
         (
             "post_tool_use",
             "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
@@ -3356,7 +3377,7 @@ mod tests {
             let legacy = codex_trust_hash(
                 label,
                 &legacy_hook_command("codex", event),
-                codex_hook_timeout(event),
+                if *event == "SessionEnd" { 3 } else { 5 },
             );
             assert_eq!(legacy, *hash, "{event}");
             assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
@@ -3383,6 +3404,8 @@ mod tests {
             );
             if *event == "SessionEnd" {
                 assert_eq!(timeout, CODEX_SESSION_END_TIMEOUT_SECONDS);
+            } else if *event == "PreToolUse" {
+                assert_eq!(timeout, 90);
             } else {
                 assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS, "{event}");
             }
@@ -3992,6 +4015,53 @@ mod tests {
                 .unwrap();
         let hook = &root["hooks"]["PreToolUse"][0]["hooks"][0];
         assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_pre_tool_wrappers_keep_denials_and_block_helper_failures() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        for provider in ["claude", "codex"] {
+            let installed = hook_command(provider, "PreToolUse");
+            let fallback =
+                emit_hook_command(&shell_quote(helper.to_str().unwrap()), provider, "PreToolUse");
+            let contextual = codex_contextual_hook_command(
+                "PreToolUse",
+                Path::new("/unused"),
+                "term_test",
+                &helper,
+            );
+            for command in [installed, fallback, contextual] {
+                for (script, expected) in [
+                    (
+                        "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}'\n",
+                        0,
+                    ),
+                    ("#!/bin/sh\necho 'sync not ready' >&2\nexit 1\n", 2),
+                ] {
+                    fs::write(&helper, script).unwrap();
+                    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+                    let result = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(&command)
+                        .env("CMUX_TUI_HOOK", &helper)
+                        .output()
+                        .unwrap();
+                    assert_eq!(result.status.code(), Some(expected), "{command}");
+                    if expected == 0 {
+                        let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+                        assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
+                    }
+                }
+            }
+        }
+        let settings = claude_session_hook_settings(Some(&helper)).unwrap();
+        let hook = &settings["hooks"]["PreToolUse"][0]["hooks"][0];
+        assert_eq!(hook["async"], false);
+        assert_eq!(hook["timeout"], 90);
+        assert!(hook["command"].as_str().unwrap().contains(HOOK_MODE_ARG));
     }
 
     #[test]

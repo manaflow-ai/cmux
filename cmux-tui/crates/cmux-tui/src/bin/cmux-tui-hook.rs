@@ -36,10 +36,6 @@ const HANDOFF_WAIT: Duration = Duration::from_secs(5);
 /// process must report an unconfirmed handoff before that instead of being
 /// killed; the detached child keeps trying to deliver the event regardless.
 const CODEX_SESSION_END_HANDOFF_WAIT: Duration = Duration::from_secs(2);
-/// A native PreToolUse hook is synchronous for Codex and Claude. Hold it while
-/// Cloud finishes seeding the repository, but keep a bound so a dead marker
-/// cannot strand the agent forever.
-const SYNC_BARRIER_WAIT: Duration = Duration::from_secs(30);
 /// Hidden mode: the detached child on platforms without `fork`. The request id
 /// arrives as the first stdin line and the encoded request follows.
 const DETACHED_MODE_ARG: &str = "__detached-append";
@@ -116,29 +112,35 @@ fn run_reading(
     exe_prefix: &[&str],
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
+    let native = payload()?;
+    #[cfg(unix)]
+    if let Err(error) = cmux_git::native_hook::wait(
+        &args.source,
+        &args.native_event,
+        &native,
+        cmux_git::native_hook::WAIT,
+    ) {
+        // Output a provider decision, not a journal failure that the shell
+        // wrapper may discard. No ready lease survives this pre-tool hook.
+        println!("{}", cmux_git::native_hook::denial(&error.to_string()));
+        return Ok(());
+    }
     let inbox = inbox::Delivery::for_event(&args.source, &args.native_event);
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
-        drain_native_payload()?;
         inbox::print_nothing(inbox);
         return Ok(());
     }
     if inherited_route_is_untrusted(&args.source, |name| env::var_os(name)) {
-        drain_native_payload()?;
         inbox::print_nothing(inbox);
         return Ok(());
     }
     let (socket, terminal) = match session_route(&args.source) {
         Some(route) => route,
         None => {
-            drain_native_payload()?;
             inbox::print_nothing(inbox);
             return Ok(());
         }
     };
-    let native = payload()?;
-    if is_pre_tool_event(&args.native_event) {
-        wait_for_repository_sync(&native)?;
-    }
     let start_source = native.get("source").and_then(Value::as_str).unwrap_or("").to_owned();
     // Read before the journal event redacts it; it travels beside the event, never inside it.
     let live = cmux_tui_core::agent_hook_live_fields(&args.source, &args.native_event, &native);
@@ -170,30 +172,6 @@ fn run_reading(
         None => {}
     }
     Ok(())
-}
-
-fn is_pre_tool_event(event: &str) -> bool {
-    matches!(
-        event,
-        "PreToolUse"
-            | "BeforeTool"
-            | "preToolUse"
-            | "beforeShellExecution"
-            | "beforeMCPExecution"
-            | "pre_tool_use"
-    )
-}
-
-fn wait_for_repository_sync(native: &Value) -> anyhow::Result<()> {
-    let cwd = native
-        .get("cwd")
-        .or_else(|| native.get("working_directory"))
-        .and_then(Value::as_str)
-        .map(PathBuf::from)
-        .or_else(|| env::current_dir().ok())
-        .context("agent hook has no repository working directory")?;
-    cmux_git::sync_barrier::wait_ready(&cwd, SYNC_BARRIER_WAIT)
-        .with_context(|| format!("repository sync barrier for {}", cwd.display()))
 }
 
 /// Set to `launch` by a hook command that carries its own route (the Codex
@@ -436,10 +414,6 @@ fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String>
 
 fn shadowed_by_grok(source: &str, grok_hook_event: Option<&std::ffi::OsStr>) -> bool {
     matches!(source, "claude" | "cursor") && grok_hook_event.is_some_and(|value| !value.is_empty())
-}
-
-fn drain_native_payload() -> io::Result<()> {
-    io::copy(&mut io::stdin().take(MAX_NATIVE_PAYLOAD_BYTES + 1), &mut io::sink()).map(|_| ())
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {

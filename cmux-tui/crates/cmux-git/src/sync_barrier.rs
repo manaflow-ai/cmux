@@ -42,7 +42,10 @@ pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
                 drop(ready);
                 return Ok(());
             }
-            Probe::Syncing | Probe::Incomplete => {
+            Probe::Incomplete => {
+                return Err(io::Error::other("repository synchronization failed; retry the sync"));
+            }
+            Probe::Syncing => {
                 if Instant::now() >= deadline {
                     return Err(io::Error::new(
                         io::ErrorKind::TimedOut,
