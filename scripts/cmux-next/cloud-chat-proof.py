@@ -499,10 +499,10 @@ if launchable_cleanup:
 if args.cleanup_machine:
     machine = args.cleanup_machine
     evidence["cleanup_machine"] = machine
-    _, _, _, machines = listed()
+    list_code, list_out, list_err, machines = listed()
     row = next((r for r in machines.get("machines") or []
                 if isinstance(r, dict) and r.get("machine_id") == machine), None)
-    record("cloud list-machines (cleanup target)", 0, "", "", listed=row is not None,
+    record("cloud list-machines (cleanup target)", list_code, "", failure_text(list_err, list_out), listed=row is not None,
            loaded=machines.get("loaded"),
            **({"row": {key: scalar(row[key]) for key in ("title", "status", "created_at") if key in row}}
               if row else {}))
@@ -511,7 +511,8 @@ if args.cleanup_machine:
     killed = kill_machine(machine, cleanup=True)
     after_code, after_summary, after_detail = machine_status(machine)
     record("cloud machine-status after kill", after_code, "", after_detail, machine_status=after_summary)
-    finish("pass" if killed else "fail: kill-machine failed twice")
+    finish("pass" if killed and list_code == 0 and row is not None
+            else "fail: cleanup target was not confirmed")
 
 actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
                   lambda value: value.get("cloud_environment") == args.cloud_backend
@@ -582,7 +583,7 @@ record("cloud browser event proof", event_code, "", "",
        browser_proof={"url": BROWSER_PROOF_URL, **event_proof})
 
 # 5. The machine the chat made goes, pass or fail.
-killed = kill_machine(machine, inspect_status=False) if machine else True
+killed = kill_machine(machine, inspect_status=False) if machine else False
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")
