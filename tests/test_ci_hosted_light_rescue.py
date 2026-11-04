@@ -311,6 +311,26 @@ class Sweep(unittest.TestCase):
         self.assertEqual(fake.job_reads[7], 1)
         self.assertEqual(mutations(fake), [])
 
+    def test_fresh_runs_spend_no_job_reads_and_become_eligible_after_aging(self):
+        fresh = [{**run(index), "created_at": ago(60)} for index in range(1, 41)]
+        eligible = run(999)
+        for source in ("listed", "retained"):
+            with self.subTest(source=source):
+                rows = fresh + [eligible] if source == "listed" else [eligible]
+                fake = Fake({"pr-checks.yml": rows}, {999: [job("PR size")]})
+                cursor = rescue.ScanState()
+                if source == "retained":
+                    cursor.candidates = {item["id"]: {**item, "_workflow": "pr-checks.yml"} for item in fresh}
+
+                sweep(fake, dry_run=True, cursor=cursor)
+
+                self.assertEqual(fake.job_reads, {999: 1})
+                self.assertEqual(set(cursor.candidates), {999})
+                aged = Fake({"pr-checks.yml": [fresh[0]]}, {1: [job("PR size", waited=60)]})
+                rescue.sweep(aged, ["pr-checks.yml"], now=NOW + dt.timedelta(seconds=180), dry_run=False,
+                             scan_state=cursor, log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+                self.assertEqual(mutations(aged), [("cancel", 1), ("rerun", 1)])
+
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs}, settles_after=3)
@@ -501,6 +521,49 @@ class RecoverCancelled(unittest.TestCase):
         fake.cancelled[7] = -1
         sweep(fake)
         self.assertEqual(mutations(fake), [])
+
+    def test_unreadable_owned_cancellations_do_not_starve_newer_recovery_or_fresh_work(self):
+        fake = Fake({"pr-checks.yml": [run(12)]}, {12: [job("PR size")]})
+        previous = fake.run
+        def current(run_id):
+            if run_id <= 10:
+                raise RuntimeError(f"GET /actions/runs/{run_id}: HTTP 403")
+            if run_id == 11:
+                return {**run(11), "status": "completed", "conclusion": "cancelled"}
+            return previous(run_id)
+        fake.run = current
+        pending, cursor = set(range(1, 12)), rescue.ScanState()
+        serviced = {}
+        for count in range(1, 4):
+            before = len(mutations(fake))
+            rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                         scan_state=cursor, log=lambda _: None, sleep=lambda _: None, clock=lambda: 0)
+            for run_id in (11, 12):
+                if ("rerun", run_id) in mutations(fake):
+                    serviced.setdefault(run_id, count)
+            self.assertLessEqual(len(mutations(fake)) - before, rescue.MAX_RESCUES * 2)
+
+        self.assertEqual(serviced, {12: 1, 11: 3})
+        self.assertEqual(pending, set(range(1, 11)))
+
+    def test_slow_unreadable_receipts_leave_settle_time_for_fresh_work(self):
+        fake = Fake({"pr-checks.yml": [run(12)]}, {12: [job("PR size")]})
+        elapsed = [0.0]
+        previous = fake.run
+        def current(run_id):
+            if run_id <= 10:
+                elapsed[0] += 20
+                raise RuntimeError(f"GET /actions/runs/{run_id}: HTTP 403")
+            return previous(run_id)
+        fake.run = current
+        pending = set(range(1, 11))
+
+        rescue.sweep(fake, ["pr-checks.yml"], now=NOW, dry_run=False, pending=pending,
+                     scan_state=rescue.ScanState(), log=lambda _: None, sleep=lambda _: None,
+                     clock=lambda: elapsed[0])
+
+        self.assertEqual(mutations(fake), [("cancel", 12), ("rerun", 12)])
+        self.assertEqual(pending, set(range(1, 11)))
 
     def test_closed_or_advanced_pending_runs_are_not_retried(self):
         for closed in (False, True):
