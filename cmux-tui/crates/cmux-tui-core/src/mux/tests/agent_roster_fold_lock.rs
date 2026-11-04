@@ -27,6 +27,25 @@ fn journal_head(mux: &Mux) -> u64 {
     mux.workspace_registry.lock().unwrap().session_journal_head().unwrap()
 }
 
+fn roster_cursor(mux: &Mux) -> u64 {
+    mux.agent_roster.lock().unwrap().cursor
+}
+
+/// `append_journal_hook` that returns the hook record's journal sequence: the
+/// roster folds through it. The hook's projection commits a journal record of its
+/// own after it, which no fold asks for, so the journal head is not the target.
+fn append_hook(mux: &Mux, terminal_id: &TerminalPublicId, event: &str, session_id: &str) -> u64 {
+    let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        event,
+        Some(terminal_id.as_str()),
+        serde_json::json!({ "session_id": session_id }),
+    )
+    .unwrap();
+    let key = format!("roster-fold-hook-{}", crate::workspace_registry::new_uuid_v4());
+    mux.append_journal_ingress(&ingress, "test", &key).unwrap().sequence
+}
+
 #[test]
 fn a_roster_fold_reads_the_journal_tail_with_the_registry_and_roster_locks_free() {
     let root = std::env::temp_dir()
@@ -196,7 +215,7 @@ fn a_hook_recorded_while_the_roster_runs_a_pass_that_makes_no_progress_is_folded
     );
     let no_agent = TerminalPublicId::parse(format!("term_{:032x}", 7)).unwrap();
 
-    let (paused, hooked) = std::thread::scope(|scope| {
+    let (paused, hook_sequence) = std::thread::scope(|scope| {
         let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
         let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
         mux.pause_agent_roster_fold_after_head_for_test(entered_sender, release_receiver);
@@ -207,26 +226,26 @@ fn a_hook_recorded_while_the_roster_runs_a_pass_that_makes_no_progress_is_folded
         let (done_sender, done) = std::sync::mpsc::channel();
         let (mux_ref, agent_ref) = (&mux, &agent_terminal);
         scope.spawn(move || {
-            append_journal_hook(mux_ref, agent_ref, "UserPromptSubmit", Some("agent-fold-lost"));
-            let _ = done_sender.send(());
+            let sequence = append_hook(mux_ref, agent_ref, "UserPromptSubmit", "agent-fold-lost");
+            let _ = done_sender.send(sequence);
         });
-        let hooked = done.recv_timeout(Duration::from_secs(5)).is_ok();
+        let hook_sequence = done.recv_timeout(Duration::from_secs(5)).ok();
         // The paused pass goes on.
         drop(release);
         close.join().unwrap();
-        (paused, hooked)
+        (paused, hook_sequence)
     });
     assert!(paused, "the close's pass reads the journal head");
-    assert!(hooked, "the hook answered while the close's pass held the fold");
+    let hook_sequence =
+        hook_sequence.expect("the hook answered while the close's pass held the fold");
     // Maintenance is stopped and no other request comes: only the roster's own work can fold it.
     assert!(mux.settle_agent_roster_for_test(), "the roster owner settles");
-    let head = journal_head(&mux);
-    let cursor = mux.agent_roster.lock().unwrap().cursor;
+    let cursor = roster_cursor(&mux);
     let state = roster_agent_state(&mux, &agent_terminal);
     assert!(
-        cursor >= head,
+        cursor >= hook_sequence,
         "a hook recorded while a pass that made no progress held the fold was left behind: \
-         journal head {head}, roster cursor {cursor} (head before the hook {head_before}), \
+         hook at {hook_sequence}, roster cursor {cursor} (head before the hook {head_before}), \
          state {state:?}"
     );
     assert_eq!(state.as_deref(), Some("working"), "the hook's prompt makes the agent working");
@@ -261,19 +280,21 @@ fn a_terminal_close_and_an_agent_hook_answer_before_the_roster_reads_the_journal
     }
 
     let budget = Duration::from_millis(500);
-    let (closed, hooked) = std::thread::scope(|scope| {
+    let (closed, hooked, hook_sequence) = std::thread::scope(|scope| {
         let (entered_sender, entered) = std::sync::mpsc::sync_channel(0);
         let (release, release_receiver) = std::sync::mpsc::sync_channel(0);
         mux.pause_agent_roster_fold_after_page_for_test(entered_sender, release_receiver);
         let (done_sender, done) = std::sync::mpsc::channel();
         let (mux_ref, agent_ref, doomed_ref) = (&mux, &agent_terminal, &doomed_terminal);
-        scope.spawn(move || {
+        let requests = scope.spawn(move || {
             let started = Instant::now();
             mux_ref.purge_terminal_side_tables(doomed_ref);
             let _ = done_sender.send(("close", started.elapsed()));
             let started = Instant::now();
-            append_journal_hook(mux_ref, agent_ref, "UserPromptSubmit", Some("agent-request-tail"));
+            let sequence =
+                append_hook(mux_ref, agent_ref, "UserPromptSubmit", "agent-request-tail");
             let _ = done_sender.send(("hook", started.elapsed()));
+            sequence
         });
         let mut results = HashMap::new();
         let deadline = Instant::now() + budget;
@@ -286,10 +307,11 @@ fn a_terminal_close_and_an_agent_hook_answer_before_the_roster_reads_the_journal
                 Err(_) => break,
             }
         }
-        // The thread that waits at the page seam goes on once both ends are gone, so the scope
-        // joins whether or not a request waited there.
+        // The thread that waits at the page seam goes on once both ends are gone, so the
+        // requests end whether or not one of them waited there.
         drop((entered, release));
-        (results.get("close").copied(), results.get("hook").copied())
+        let hook_sequence = requests.join().unwrap();
+        (results.get("close").copied(), results.get("hook").copied(), hook_sequence)
     });
     assert!(
         closed.is_some(),
@@ -301,11 +323,9 @@ fn a_terminal_close_and_an_agent_hook_answer_before_the_roster_reads_the_journal
         "an agent hook read the roster's journal tail on its own thread before it answered \
          (budget {budget:?})"
     );
-    assert_eq!(
-        saved_roster_cursor(&mux),
-        journal_head(&mux),
-        "the roster reaches the journal head"
-    );
+    let cursor = saved_roster_cursor(&mux);
+    assert_eq!(cursor, roster_cursor(&mux), "the saved snapshot is at the roster's cursor");
+    assert!(cursor >= hook_sequence, "the roster folds the hook (at {hook_sequence}): {cursor}");
     assert_eq!(roster_agent_state(&mux, &doomed_terminal), None, "the closed terminal's entry");
     assert_eq!(
         roster_agent_state(&mux, &agent_terminal).as_deref(),
@@ -340,16 +360,16 @@ fn only_the_roster_owner_reads_the_journal_or_saves_the_roster_for_a_close_or_a_
 
     // A close and a hook on a request thread of their own name.
     let (mux_ref, agent_ref, doomed_ref) = (&mux, &agent_terminal, &doomed_terminal);
-    std::thread::scope(|scope| {
+    let hook_sequence = std::thread::scope(|scope| {
         std::thread::Builder::new()
             .name("cmux-test-request".into())
             .spawn_scoped(scope, move || {
                 mux_ref.purge_terminal_side_tables(doomed_ref);
-                append_journal_hook(mux_ref, agent_ref, "UserPromptSubmit", Some("agent-owner-io"));
+                append_hook(mux_ref, agent_ref, "UserPromptSubmit", "agent-owner-io")
             })
             .unwrap()
             .join()
-            .unwrap();
+            .unwrap()
     });
     assert!(mux.settle_agent_roster_for_test(), "the roster owner settles");
     let io_threads = mux.take_agent_roster_io_threads_for_test();
@@ -363,11 +383,9 @@ fn only_the_roster_owner_reads_the_journal_or_saves_the_roster_for_a_close_or_a_
          owner thread {ROSTER_OWNER_THREAD} (every read and save: {io_threads:?})"
     );
     assert!(!io_threads.is_empty(), "the roster's owner folded the hook and retired the close");
-    assert_eq!(
-        saved_roster_cursor(&mux),
-        journal_head(&mux),
-        "the roster reaches the journal head"
-    );
+    let cursor = saved_roster_cursor(&mux);
+    assert_eq!(cursor, roster_cursor(&mux), "the saved snapshot is at the roster's cursor");
+    assert!(cursor >= hook_sequence, "the roster folds the hook (at {hook_sequence}): {cursor}");
     assert_eq!(roster_agent_state(&mux, &doomed_terminal), None, "the closed terminal's entry");
     assert_eq!(
         roster_agent_state(&mux, &agent_terminal).as_deref(),
