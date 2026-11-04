@@ -476,7 +476,9 @@ test("successive sends retain a recorded body until a later uncertain mutation",
     "bash -c 'true || acpmux send unsafe -' < /tmp/reused.md",
   ]) {
     const unsafe = item({ title: "Bash", kind: "execute", command, startedAt: 11, endedAt: 12 });
-    const invalidated = sendEntries(toolGroups([writer, ...sends, unsafe, after])).filter((entry) => entry.type === "send");
+    const invalidated = sendEntries(toolGroups([writer, ...sends, unsafe, after])).filter(
+      (entry) => entry.type === "send",
+    );
     expect(invalidated.slice(-2).map((group) => group.send.text)).toEqual([undefined, undefined]);
   }
   for (const fields of [{ status: "failed" }, { exitCode: 1 }, { startedAt: undefined }, { startedAt: 1 }]) {
@@ -488,7 +490,9 @@ test("successive sends retain a recorded body until a later uncertain mutation",
       endedAt: 12,
       ...fields,
     });
-    const groups = sendEntries(toolGroups([writer, ...sends, uncertain, after])).filter((entry) => entry.type === "send");
+    const groups = sendEntries(toolGroups([writer, ...sends, uncertain, after])).filter(
+      (entry) => entry.type === "send",
+    );
     expect(groups.at(-1)?.send.text).toBeUndefined();
   }
 });
@@ -518,11 +522,13 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
   expect(unknownOrder?.type).toBe("send");
   if (unknownOrder?.type === "send") expect(unknownOrder.send.text).toBeUndefined();
 
-  const overlap = sendEntries(toolGroups([
-    first,
-    { ...alias, tool: { ...alias.tool!, endedAt: 8 } },
-    { ...send, tool: { ...send.tool!, startedAt: 5 } },
-  ])).find((entry) => entry.type === "send");
+  const overlap = sendEntries(
+    toolGroups([
+      first,
+      { ...alias, tool: { ...alias.tool!, endedAt: 8 } },
+      { ...send, tool: { ...send.tool!, startedAt: 5 } },
+    ]),
+  ).find((entry) => entry.type === "send");
   expect(overlap?.type).toBe("send");
   if (overlap?.type === "send") expect(overlap.send.text).toBeUndefined();
 });

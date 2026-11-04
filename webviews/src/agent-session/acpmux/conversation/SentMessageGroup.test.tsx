@@ -114,7 +114,11 @@ test("adjacent calls that each sent one message group too; a lone send keeps its
   const a = call("acpmux send --no-wait ux-a 'Rebase first.'", { id: "a" });
   const b = call("acpmux send --no-wait ux-b 'Then land it.'", { id: "b" });
   expect(toolGroups([a, b]).map((group) => group.type)).toEqual(["sendGroup"]);
-  const read = { kind: "tool" as const, text: "Read", tool: { id: "r", title: "Read a", kind: "read", status: "completed" } };
+  const read = {
+    kind: "tool" as const,
+    text: "Read",
+    tool: { id: "r", title: "Read a", kind: "read", status: "completed" },
+  };
   expect(toolGroups([a, read, b]).map((group) => group.type)).toEqual(["send", "item", "send"]);
 });
 

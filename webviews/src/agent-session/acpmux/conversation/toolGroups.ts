@@ -316,11 +316,10 @@ export function sendEntries(groups: readonly ToolGroup[]): Extract<ToolGroup, { 
 /// keeps its own row.
 function withSendGroups(groups: ToolGroup[]): ToolGroup[] {
   let sends = 0;
-  for (let at = 0; at < groups.length && sends < 2; at += 1)
-    sends = groups[at]!.type === "send" ? sends + 1 : 0;
+  for (let at = 0; at < groups.length && sends < 2; at += 1) sends = groups[at]!.type === "send" ? sends + 1 : 0;
   if (sends < 2) return groups;
   const out: ToolGroup[] = [];
-  for (let at = 0; at < groups.length; ) {
+  for (let at = 0; at < groups.length;) {
     let end = at;
     while (end < groups.length && groups[end]!.type === "send") end += 1;
     if (end - at < 2) {

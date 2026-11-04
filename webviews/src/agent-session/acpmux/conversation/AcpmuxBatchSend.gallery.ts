@@ -108,7 +108,6 @@ const openTurn: Play = async (ctx) => {
 
 const GROUP = ".cv-sent-group .cv-message-group__head";
 
-
 /// Opens the turn, then the first message's call (behind Raw when the message has words): the whole
 /// shell function stays at most one click away.
 const openRaw: Play = async (ctx) => {
@@ -155,11 +154,11 @@ export default agentPaneEntry({
       play: openRaw,
     },
     "loop-eight": {
-      note: "A shell loop of sends to 8 sessions and one other command: one closed line, \"Sent 8 messages · and 1 more command\", the recipients muted after it; no Copy.",
+      note: 'A shell loop of sends to 8 sessions and one other command: one closed line, "Sent 8 messages · and 1 more command", the recipients muted after it; no Copy.',
       snapshot: turn([LOOP_EIGHT]),
     },
     "loop-eight-open": {
-      note: "The same group opened: a row per recipient, none repeating \"and 1 more command\", no Copy on any row.",
+      note: 'The same group opened: a row per recipient, none repeating "and 1 more command", no Copy on any row.',
       snapshot: turn([LOOP_EIGHT]),
       play: openTurn,
     },
