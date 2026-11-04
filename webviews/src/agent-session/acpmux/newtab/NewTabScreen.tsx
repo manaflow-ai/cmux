@@ -1,4 +1,5 @@
 import { SignInContext, useSignIn } from "../signIn";
+import type { ExtraFolderControl } from "../extraFolders";
 import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
@@ -274,6 +275,8 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
+  extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
   /// Lazily load the chosen harness's actual commands in a deferred chat.
   onCommands?(harness: string, cwd?: string): void;
@@ -1646,6 +1649,7 @@ export function NewTabScreen(props: Props) {
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && runMode ? { runMode } : {})}
+        {...(props.extraFolders ? { extraFolders: props.extraFolders } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1815,6 +1819,7 @@ export function NewTabScreen(props: Props) {
       <div
         ref={setComposer}
         className="nt-composer"
+        data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
         data-attachment-view={attachmentView}

@@ -39,14 +39,22 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var states: [String] = []
         /// The newest message's words (a one-line preview).
         var latest: String?
+        /// Each agent's title, in `peers` order (``HomeAgentMessageRow/peerTitles``).
+        var titles: [String] = []
     }
 
     /// The header style this provider draws (DEBUG: the Agent Messages Playground registers another).
     let style: Int
 
-    /// - Parameter style: The header style (`HomeAgentFoldStyle` raw value in DEBUG); 0, the shipped look.
-    init(style: Int = 0) {
+    /// A click on an agent's pill (DEBUG pill styles): the agent's id and the row, on the main actor.
+    let onPill: (@MainActor @Sendable (String, PartRef) -> Void)?
+
+    /// - Parameters:
+    ///   - style: The header style (`HomeAgentFoldStyle` raw value in DEBUG); 0, the shipped look.
+    ///   - onPill: What a click on an agent's pill does (the Agent Messages Playground); nil: the click folds as before.
+    init(style: Int = 0, onPill: (@MainActor @Sendable (String, PartRef) -> Void)? = nil) {
         self.style = style
+        self.onPill = onPill
     }
 
     /// The registered provider (nil: fold rows stay text bubbles).
@@ -79,10 +87,11 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         }
         if payload.role != "note" { payload.states = row.peerStates.map { "\($0)" } }
         payload.latest = row.latest
+        payload.titles = row.peerTitles
         payload.style = style
         let key = [String(describing: payload.style), payload.role, "\(payload.chevron)", "\(payload.open)", payload.label,
                    payload.chips.joined(separator: ","), payload.peers.joined(separator: ","), payload.states.joined(separator: ","),
-                   payload.latest ?? ""].joined(separator: "\u{0}")
+                   payload.latest ?? "", payload.titles.joined(separator: "\u{1}")].joined(separator: "\u{0}")
         guard let custom = try? CustomPart(kind: Self.kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
     }
@@ -133,5 +142,18 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         }
         #endif
         HomeAgentFoldLine(payload, width: rect.width).draw(ctx, at: rect.origin)
+    }
+
+    /// DEBUG pill styles: a click on a pill goes to ``onPill`` with that agent; elsewhere the row folds as before.
+    func tapped(_ part: CustomPart, ref: PartRef, at point: CGPoint, width: CGFloat) -> Bool {
+        #if DEBUG
+        guard let onPill, let payload = Self.payload(part), payload.role != "note",
+              let shape = HomeAgentFoldStyle.drawing(payload)?.pillShape,
+              let peer = HomeAgentPills(payload, shape: shape, width: width).peer(at: point) else { return false }
+        Task { @MainActor in onPill(peer, ref) }
+        return true
+        #else
+        return false
+        #endif
     }
 }
