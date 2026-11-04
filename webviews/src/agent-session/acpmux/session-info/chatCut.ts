@@ -11,7 +11,8 @@
 //
 // One ResizeObserver on the panel and the transcript's scroller (the panel's foot follows the
 // composer; the chat narrows as a pushed panel slides in), set up while the panel shows and
-// disconnected when it goes. It writes one shell property only when the cut changes.
+// disconnected when it goes, plus a re-measure where its enter slide ends. It writes one shell
+// property only when the cut changes.
 import { useLayoutEffect, type RefObject } from "react";
 
 /// The shell property the transcript's scroller clips by (conversation.css `.acpmux-scroll`).
@@ -54,12 +55,20 @@ export function useChatCut(frame: RefObject<HTMLElement | null>, on: boolean, la
       write(scroller ? chatCut(scroller.getBoundingClientRect(), panel.getBoundingClientRect()) : undefined);
     };
     measure();
-    if (typeof ResizeObserver !== "function") return () => write(undefined);
+    // The panel opens sliding in (ui/presence.ts), which moves it without resizing it: the cut is
+    // measured again where the slide ends, or it stays at the enter offset.
+    panel.addEventListener("transitionend", measure);
+    if (typeof ResizeObserver !== "function")
+      return () => {
+        panel.removeEventListener("transitionend", measure);
+        write(undefined);
+      };
     const observer = new ResizeObserver(measure);
     observer.observe(panel);
     const scroller = shell.querySelector<HTMLElement>(SCROLLER);
     if (scroller) observer.observe(scroller);
     return () => {
+      panel.removeEventListener("transitionend", measure);
       observer.disconnect();
       write(undefined);
     };
