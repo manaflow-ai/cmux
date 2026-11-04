@@ -269,8 +269,12 @@ pub struct Supervisor {
     /// Test hook: the emit on this thread runs this right after its locked
     /// read, before it tells the observers (a race of two emits).
     #[cfg(test)]
-    pub(super) emit_pause: Mutex<Option<(std::thread::ThreadId, Box<dyn FnOnce() + Send>)>>,
+    pub(super) emit_pause: Mutex<Option<EmitPause>>,
 }
+
+/// The test pause of one emit: the thread it is armed for, and what it runs.
+#[cfg(test)]
+pub(super) type EmitPause = (std::thread::ThreadId, Box<dyn FnOnce() + Send>);
 
 pub(super) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()

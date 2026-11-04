@@ -21,17 +21,18 @@ fn refusal_streak_needs_count_and_span() {
 }
 
 /// R-LIFECYCLE S1b (review of #34188, finding 2): only a terminal whose
-/// runtime this owner holds can be a kept tab of an ended command. An old
-/// exited keep row of an earlier owner (no row is ever deleted) is never
-/// read for the count, so even one this build cannot read leaves the count
-/// readable: an unreadable count keeps an app session's owner forever
-/// (server/owner_keepers.rs).
+/// runtime this owner holds can be a kept tab of an ended command, so the
+/// count never reads the row of a terminal this owner holds no runtime for
+/// (an earlier owner's exited rows stay: no row is ever deleted). The row
+/// here is written after this owner started, with a receipt no build can
+/// read: a read of it would make the count an error, and an unreadable
+/// count keeps an app session's owner forever (server/owner_keepers.rs).
 #[test]
-fn an_old_unreadable_exited_row_leaves_the_kept_terminal_count_readable() {
-    let root = std::env::temp_dir()
-        .join(format!("cmux-kept-count-{}", WorkspacePublicId::random().unwrap()));
-    let registry = WorkspaceRegistry::open(&root, "kept-count").unwrap();
-    registry
+fn the_kept_terminal_count_reads_no_row_this_owner_holds_no_runtime_for() {
+    let mux = Mux::new_for_test("kept-count", SurfaceOptions::default());
+    mux.workspace_registry
+        .lock()
+        .unwrap()
         .connection
         .get()
         .execute(
@@ -42,19 +43,9 @@ fn an_old_unreadable_exited_row_leaves_the_kept_terminal_count_readable() {
             [],
         )
         .unwrap();
-    let mux = Mux::from_workspace_registry(
-        "kept-count".to_owned(),
-        SurfaceOptions::default(),
-        registry,
-        ProviderWorkspaceState::default(),
-        true,
-    )
-    .unwrap();
     assert_eq!(
         mux.kept_terminal_count().ok(),
         Some(0),
-        "an old exited row this owner holds no runtime for made the count unreadable"
+        "the count read an exited row this owner holds no runtime for"
     );
-    drop(mux);
-    let _ = std::fs::remove_dir_all(&root);
 }
