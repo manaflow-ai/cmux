@@ -82,15 +82,17 @@ function streamingLists(): AcpmuxSessionEntry[][] {
 test("a page whose chats stream writes the store at most twice a second, the newest list last", async () => {
   jest.useFakeTimers();
   const store = await import("../src/agent-session/acpmux/newtab/chatStore");
-  const setItem = window.localStorage.setItem.bind(window.localStorage);
+  // Assigning `localStorage.setItem` would store an item named "setItem": spy on the prototype.
+  const proto = window.Storage.prototype;
+  const setItem = proto.setItem;
   let writes = 0;
   let bytes = 0;
-  window.localStorage.setItem = (key: string, value: string) => {
+  proto.setItem = function (this: Storage, key: string, value: string) {
     if (key === store.CHAT_STORE_KEY_FOR_TESTS) {
       writes += 1;
       bytes += value.length;
     }
-    setItem(key, value);
+    setItem.call(this, key, value);
   };
   try {
     const lists = streamingLists();
@@ -100,6 +102,8 @@ test("a page whose chats stream writes the store at most twice a second, the new
     }
     jest.advanceTimersByTime(1_000);
     console.log(`chat store, ${FRAMES} frames over ${(FRAMES * FRAME_MS) / 1000} s: writes=${writes} bytes=${bytes}`);
+    // Every frame changes the list: it reached the store at least once a window.
+    expect(writes).toBeGreaterThanOrEqual((FRAMES * FRAME_MS) / 500 - 1);
     expect(writes).toBeLessThanOrEqual((FRAMES * FRAME_MS) / 500 + 1);
     // The store ends on the newest list.
     store.reloadChatStoreForTests();
@@ -108,7 +112,7 @@ test("a page whose chats stream writes the store at most twice a second, the new
     expect(store.sharedSessions([])[0]?.sessionId).toBe(head.sessionId);
     expect(store.sharedSessions([])[0]?.updatedAt).toBe(head.updatedAt);
   } finally {
-    window.localStorage.setItem = setItem;
+    proto.setItem = setItem;
   }
 });
 
