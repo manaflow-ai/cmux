@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "4185261809301",
+  "notes": "notes/4185261809301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 35329,
+      "title": "bench: daemon request latency through a journal step, and head-of-line (cmux-ad m11 2)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35416,
+      "title": "acpmux: the resume tick parks while no turn runs; an idle daemon no longer wakes every 10 s",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35442,
+      "title": "Running tray: one row per agent again, what needs you first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35512,
+      "title": "view shell live code: refuse a patch that changes a type's stored properties",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35200,
+      "title": "cmux VM: production migrates, deploys and smokes on every push; the smoke takes the product create path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35471,
+      "title": "base red: webview tests follow #34607, #34866, #35113 and #34911; icons back on the scale",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35515,
+      "title": "test(model-stub): {{prompt}} templates for exact-reply checks (v2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35496,
+      "title": "cloud-journey: Codex in stub mode (login copy and model provider), the stub on a free port, backend.yml watches the journey's inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35405,
+      "title": "fix(workflow): recover garbled final journal record",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35489,
+      "title": "fix(ios): ChiefConversationHooksTests imports Testing and the Chief module on macOS too",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35359,
+      "title": "acpmux: an adopted agent host on a moved binary restarts on this one between turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 35465,
+      "title": "ci(base-red): judge another repo's rollups from its own workflows at the base",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
