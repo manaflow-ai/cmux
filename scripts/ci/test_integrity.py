@@ -133,8 +133,8 @@ def resolve_base(explicit: str | None) -> str:
 
 
 def run(base: str) -> list[Finding]:
-    name_status = _git("diff", "--name-status", "--no-renames", base, "HEAD", "--")
-    diff = _git("diff", "--unified=0", "--no-renames", base, "HEAD", "--")
+    name_status = _git("diff", "--name-status", "--find-renames", base, "HEAD", "--")
+    diff = _git("diff", "--unified=0", "--find-renames", base, "HEAD", "--")
     return analyze(name_status, diff)
 
 

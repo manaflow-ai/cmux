@@ -17,7 +17,7 @@ concurrency:
 jobs:
   deleted-or-weakened-tests:
     name: deleted-or-weakened-tests
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout pull request head
@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           base="${TEST_INTEGRITY_BASE_SHA:-HEAD^1}"
-          if ! git fetch --no-tags --depth=1 origin "$base"; then
+          if ! git fetch --no-tags origin "$base"; then
             echo "test-integrity: base commit is unavailable" >&2
             exit 2
           fi
@@ -45,5 +45,6 @@ jobs:
             echo "test-integrity: base predates this guard; no comparison yet"
             exit 0
           fi
+          merge_base="$(git merge-base "$base" HEAD)"
           git show "$base:scripts/ci/test_integrity.py" > "$RUNNER_TEMP/test_integrity.py"
-          python3 "$RUNNER_TEMP/test_integrity.py" --base "$base" --strict
+          python3 "$RUNNER_TEMP/test_integrity.py" --base "$merge_base" --strict
