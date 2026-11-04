@@ -646,6 +646,19 @@ fn policy_puts_the_policy_path_and_never_sends_a_value() {
         );
         assert_eq!(ran.code.unwrap_err().code, failure);
     }
+    // `set --host` gets the same message for hosts the platform refuses.
+    let (origin, _requests) =
+        fake(Arc::new(|_: &str| (400, json!({"code": "vault.invalid_hosts"}).to_string())));
+    let failure = run_vault(
+        &["machine", "vault", "set", "API_KEY", "--host", "a.example.com"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_vault.invalid_hosts");
+    no_value(&failure.message);
 }
 
 #[test]

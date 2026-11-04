@@ -169,6 +169,10 @@ fn vault_failure(error: &CallError, what: &str) -> Failure {
         | CallError::Status { code: "vault.too_large", .. } => {
             Failure::new("machine_vault.too_large", "the platform refused the value: too large")
         }
+        CallError::Status { code: "vault.invalid_hosts", .. } => Failure::new(
+            "machine_vault.invalid_hosts",
+            "the platform refused the hosts: give DNS names like api.github.com or *.example.com",
+        ),
         error => error.failure(what),
     }
 }
@@ -291,10 +295,6 @@ pub(super) fn run(
                     CallError::Status { code: "vault.no_entry" | "vault.not_found", .. } => {
                         Failure::new("machine_vault.not_found", format!("your vault has no {name}"))
                     }
-                    CallError::Status { code: "vault.invalid_hosts", .. } => Failure::new(
-                        "machine_vault.invalid_hosts",
-                        "the platform refused the hosts: give DNS names like api.github.com or *.example.com",
-                    ),
                     e => vault_failure(&e, "the policy"),
                 })?;
             // What the platform stored; an answer without a policy is what was sent.
