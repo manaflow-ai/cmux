@@ -268,6 +268,19 @@ def main(argv: list[str] | None = None):
                 print(f"PERF-RELAUNCH mode={mode} round={index + 1} live_ms={phases.get('first live event')} "
                       f"{json.dumps(phases)}", flush=True)
     finally:
+        # Probe (hq#6338): the acpmux home's logs, for a daemon that did not start.
+        for path in sorted(glob.glob(os.path.join(acpmux_home, "**", "*.log"), recursive=True)):
+            try:
+                with open(path, errors="replace") as handle:
+                    print(f"--- {path}\n" + "".join(handle.readlines()[-40:]), file=sys.stderr)
+            except OSError:
+                pass
+        if scratch:
+            for path in glob.glob(os.path.join(scratch, "tmp", "acpmux-bin", "*", "*")):
+                print(f"--- probe copy: {path}", file=sys.stderr)
+            print(subprocess.run(["/usr/bin/log", "show", "--last", "5m", "--style", "compact", "--predicate",
+                                  'subsystem == "com.cmuxterm.app.next" AND category == "agent-pane.acpmux"'],
+                                 capture_output=True, text=True, timeout=120).stdout[-6000:], file=sys.stderr)
         bm.end_bundle(args.app)
         if scratch:
             shutil.rmtree(scratch, ignore_errors=True)
