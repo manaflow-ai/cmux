@@ -678,6 +678,8 @@ ROWS=(
   "entry_point_file|native shell: main.swift (the loop and its options)|main.swift|edit_entry_point"
 )
 want=("$@")
+# ROW arguments pick rows; none picks every row. Both the diffs-only and the measured runs use it.
+wanted() { (( ${#want[@]} == 0 )) || [[ " ${want[*]} " == *" $1 "* ]]; }
 
 # The badge's rendered width for generation N in LOG (empty when it was not drawn).
 width_of() { grep "rendered .*generation-$2\.png" "$1" 2>/dev/null | sed -n 's/.*width=\([0-9]*\).*/\1/p' | tail -1; }
@@ -694,6 +696,7 @@ diffs_only="${LIVE_APPLY_MATRIX_DIFFS_ONLY:-}"
 if [[ -n "$diffs_only" ]]; then
   for spec in "${ROWS[@]}"; do
     IFS='|' read -r name category names edit <<<"$spec"
+    wanted "$name" || continue
     dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
     seed
     cp "$fixture" "$dir/MatrixFixture.before.swift"; cp "$badge" "$dir/Badge.before.swift"; cp "$main_swift" "$dir/main.before.swift"
@@ -723,7 +726,7 @@ export CMUX_VIEW_SHELL_BUILD="$work/prebuilt/debug"
 : >"$out/rows.jsonl"
 for spec in "${ROWS[@]}"; do
   IFS='|' read -r name category names edit <<<"$spec"
-  if (( ${#want[@]} )) && [[ " ${want[*]} " != *" $name "* ]]; then continue; fi
+  wanted "$name" || continue
   dir="$out/$name"; mkdir -p "$dir"; : >"$dir/change.diff"
   seed
   # Every row starts from the very tree the prebuilt was built from.
