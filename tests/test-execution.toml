@@ -2584,3 +2584,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_classic_api_guard.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_chat_proof_failure_evidence.py"
+lane = "manual"
+reason = "Run by hand when cloud-chat-proof.py changes: python3 tests/test_cloud_chat_proof_failure_evidence.py (fake app CLI and log tool, no app)."
