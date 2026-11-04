@@ -7,7 +7,7 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { TURN_RETRY, type AcpmuxActivity, type AcpmuxRow } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { findRowIndex } from "./chatFind";
@@ -35,6 +35,7 @@ import { turnCopyParts } from "./turnCopy";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
+  BACKGROUND_TURN,
   backgroundTurnRowId,
   collectFoldedBackgroundId,
   foldBackgroundTurns,
@@ -477,6 +478,28 @@ function openFolds(rows: readonly AcpmuxRow[], start: number, end: number, expan
   return "";
 }
 
+/// `rows` with each agent reply of a lone "." marked `answersPerson` when `user` is the person's own
+/// prompt, so it still draws (visibleMessage.ts): a reply to the person is theirs to see, however
+/// short (Leo, 2026-11-03, on hiding punctuation-only replies: "well there are cases (rare) that you
+/// would want to see it..."). The "." answering another agent's message stays hidden: the walk stops
+/// at the turn's summary, the first background row or another agent's steered message, since what
+/// follows is not an answer to the person. Only a bare reply is copied; without one, `rows` itself.
+function answeringPerson(user: AcpmuxRow, rows: AcpmuxRow[]): AcpmuxRow[] {
+  if (user.kind !== "user" || user.incoming || user.received || user.inBackground !== undefined) return rows;
+  let out: AcpmuxRow[] | undefined;
+  for (let at = 0; at < rows.length; at += 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary" || row.kind === BACKGROUND_TURN || row.kind === "backgroundTask") break;
+    // Another agent's message steered into the turn: what follows answers it.
+    if (row.kind === "user" && row.incoming) break;
+    if (row.kind !== "assistant" || row.inBackground !== undefined || row.answersPerson) continue;
+    if (!isVisiblyEmptyMessage(row) || isVisiblyEmptyMessage({ ...row, answersPerson: true })) continue;
+    out ??= rows.slice();
+    out[at] = { ...row, answersPerson: true };
+  }
+  return out ?? rows;
+}
+
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
 function shapedTurn(
   rows: readonly AcpmuxRow[],
@@ -539,7 +562,7 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  const turn = foldBackgroundTurns(kept, expanded);
+  const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -1038,6 +1061,8 @@ const staysOut = (row: AcpmuxRow) =>
   // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
   // see it happened.
   row.kind === "failover" ||
+  // A recap is about the whole chat, not the turn above it.
+  row.kind === "recap" ||
   // A policy the harness cannot keep: the agent runs without the asks the person chose.
   row.kind === "policyUnenforced" ||
   // A paused agent pair waits for the person's Resume.
@@ -1105,6 +1130,39 @@ function withoutDrafts(row: AcpmuxRow): AcpmuxRow[] {
 /// With `sessionStatus` and a todo list, the list sits under the work and the activity line under
 /// it takes the status's place (cx-ncc.102, Claude Code desktop's in-session status).
 function liveTurn(
+  user: AcpmuxRow,
+  turn: AcpmuxRow[],
+  clockOffset: number,
+  liveRuns = false,
+  sessionStatus = false,
+  lineBelow = false,
+  trayAgents = 0,
+): AcpmuxRow[] {
+  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, liveRuns, sessionStatus, lineBelow, trayAgents));
+}
+
+/// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
+/// while its harness retries a failed model request the line says the model cannot be reached,
+/// never "Thinking" (Leo, 2026-11-03, on "Thinking 7m 49s" for a chat whose model gateway was down:
+/// "i feel like this mac session just keeps "thinking""). Once the model answers, the time the
+/// retries took leaves the line's "Thinking" clock, which before the first output times the turn
+/// from its prompt. A fresh line object, so the memoized row draws again.
+export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
+  const retryRow = turn.find((row) => row.id === TURN_RETRY);
+  if (!retryRow?.retry && !retryRow?.retriedMs) return shaped;
+  const at = shaped.length - 1;
+  const line = shaped[at];
+  if (line?.kind !== THINKING) return shaped;
+  const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
+  const next: AcpmuxRow = {
+    ...line,
+    ...(retryRow.retry && { retry: retryRow.retry }),
+    ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
+  };
+  return [...shaped.slice(0, at), next];
+}
+
+function shapeLiveTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
   clockOffset: number,
@@ -1238,11 +1296,14 @@ function codexLiveTurn(
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
-    if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
+    if (call.kind === "execute" && !line.doingDraft && call.background === undefined) line.doingCommand = true;
     Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") {
     line.quietKey = `${last.id}:${last.version}`;
+    // When that reply was written, so a chat opened long after it paused reads "Thinking" at once
+    // rather than "Writing" for WRITING_MS from the open (Thinking.tsx).
+    line.quietAt = last.at + clockOffset;
     // Past the streaming text's pause the line says the agent writes, never "Thinking".
     line.liveState = "writing";
   }
@@ -1442,7 +1503,8 @@ function activityLine(
     ? runningLabel(running.tool, running.text)
     : (plan.plan?.find((entry) => entry.status === "in_progress")?.content ?? "");
   // A started command offers ⌃B here, as on the turn's other live lines (ActivityLine.tsx).
-  const command = running?.tool?.kind === "execute" && !isDraftCall(running.tool);
+  const command =
+    running?.tool?.kind === "execute" && !isDraftCall(running.tool) && running.tool.background === undefined;
   let version = 1;
   for (let index = 0; index < label.length; index += 1) version = (version * 31 + label.charCodeAt(index)) % 1_000_003;
   const line: AcpmuxRow = {

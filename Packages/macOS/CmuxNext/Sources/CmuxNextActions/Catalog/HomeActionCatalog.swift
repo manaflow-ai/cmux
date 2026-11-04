@@ -473,6 +473,32 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .debug, isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug > MCP Connect Card Playground (plans/cmux-next/mcp-connect-DESIGN.md section 8): the card's
+            // styles for each kind of server, in each phase, light and dark.
+            ActionDescriptor(
+                id: "home.mcpConnectPlayground", title: t("action.home.mcpConnectPlayground", "MCP Connect Card Playground"),
+                keywords: ["home", "chief", "mcp", "connect", "server", "card", "playground", "variants", "debug"],
+                category: .window, symbol: "square.stack.3d.up", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "style", title: t("argument.home.mcpPlaygroundStyle", "Card Style"), kind: .int(1...6), isRequired: false),
+                    ActionArgument(name: "fixture", title: t("argument.home.mcpPlaygroundServer", "Server"), kind: .int(0...5), isRequired: false),
+                    ActionArgument(name: "phase", title: t("argument.home.mcpPlaygroundPhase", "Phase"), kind: .int(0...6), isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Debug > Chief Teleport Playground: the Chief's location chip variants in every state
+            // (This Mac, cmux Cloud, a Mac mini, moving, failed, rolled back), light and dark.
+            ActionDescriptor(
+                id: "home.chiefTeleportPlayground", title: t("action.home.chiefTeleportPlayground", "Chief Teleport Playground"),
+                keywords: ["home", "chief", "teleport", "move", "location", "cloud", "mac mini", "playground", "variants", "debug"],
+                category: .window, symbol: "location.circle", surfaces: [.palette, .menu],
+                arguments: [
+                    ActionArgument(name: "state", title: t("argument.home.teleportPlaygroundState", "Menu State"), kind: .int(0...7), isRequired: false),
+                ],
+                mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
         ]
         #else
         []

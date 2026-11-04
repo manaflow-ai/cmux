@@ -196,8 +196,18 @@ public struct CloudConfiguration: Sendable, Equatable {
     /// The cmux APIs a share room takes tokens from (cmux-tui `platform::share_owner_api`).
     static let shareAPIHosts: Set<String> = ["cloud-api.cmux.dev", "cloud-api-staging.cmux.dev", "cmux-api-development.debussy.workers.dev"]
 
-    /// `benchHooks`: whether this compile has the bench hooks (`CMUX_BENCH_HOOKS`, never in a shipped app).
-    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = false) -> CloudConfiguration {
+    /// Whether this compile has the bench hooks (`reload.sh --config bench`: `CMUX_BENCH_HOOKS`, never in a
+    /// shipped app). With them, a `cap<sha10>` capture build's Cloud is configured as a Debug build's (``isCaptureBuild(bundleID:benchHooks:)``).
+    public static var benchHooksCompiled: Bool {
+        #if CMUX_BENCH_HOOKS
+        true
+        #else
+        false
+        #endif
+    }
+
+    /// `benchHooks`: whether this compile has the bench hooks (``benchHooksCompiled`` unless a test says).
+    public static func current(bundle: Bundle = .main, isDebugBuild: Bool, benchHooks: Bool = benchHooksCompiled) -> CloudConfiguration {
         let bundled = bundle.object(forInfoDictionaryKey: "LSEnvironment") as? [String: String] ?? [:]
         let debug = isDebugBuild || isCaptureBuild(bundleID: bundle.bundleIdentifier, benchHooks: benchHooks)
         return resolve(bundleID: bundle.bundleIdentifier, bundled: bundled,

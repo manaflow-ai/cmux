@@ -10,16 +10,20 @@ public import CmuxNextDesign
 ///   judges whether a key or click is the person's from it, never by a system call per event.
 /// - `apps`: the app supervisor's client; each page gets its own ``AppsPanelsPageProvider`` over it (Session Info
 ///   app sections). Nil (tests): the page has no `cmux.apps.panels.*` ops.
+/// - `actAsMe`: the app's one "Computer use can act as me" grant (``AgentPaneActAsMe``); nil (tests) grants nothing.
 public struct AgentPaneShared {
     public let openPanel: MadeAheadOpenPanel?
     public let eventSources: EventSourceProcesses
     public let apps: AppsClient?
+    public let actAsMe: AgentPaneActAsMe?
 
-    /// The defaults (tests): no open panel, a posting-process table of the pane's own, and no apps.
-    public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil) {
+    /// The defaults (tests): no open panel, a posting-process table of the pane's own, no apps and no grant.
+    public init(openPanel: MadeAheadOpenPanel? = nil, eventSources: EventSourceProcesses = EventSourceProcesses(), apps: AppsClient? = nil,
+                actAsMe: AgentPaneActAsMe? = nil) {
         self.openPanel = openPanel
         self.eventSources = eventSources
         self.apps = apps
+        self.actAsMe = actAsMe
     }
 }
 
@@ -29,5 +33,7 @@ extension AgentPaneView {
                              pageHost: Bool = false, shared: AgentPaneShared) {
         self.init(model: model, source: source, renderRate: renderRate, pageHost: pageHost, panelProvider: shared.apps.map(AppsPanelsPageProvider.init(client:)),
                   openPanel: shared.openPanel, eventSources: shared.eventSources)
+        model.transport.gestures.actAsMe = shared.actAsMe
+        showActAsMe(shared.actAsMe)
     }
 }

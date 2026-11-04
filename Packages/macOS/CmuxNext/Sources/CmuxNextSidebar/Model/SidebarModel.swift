@@ -524,7 +524,7 @@ public final class SidebarModel {
         }
     }
 
-    private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
+    func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {
         if rowIndex == nil { rowIndex = SidebarRowIndex(storedSections) }
         return rowIndex?.paths(of: id) ?? []
     }

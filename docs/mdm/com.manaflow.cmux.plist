@@ -1086,6 +1086,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.</string>
+			<key>pfm_name</key>
+			<string>cloud.agentsStartWithoutAsking</string>
+			<key>pfm_title</key>
+			<string>Let Agents Start Cloud Sessions Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>An agent can start other agent sessions to work on parts of a task in parallel. They show under its session in the sidebar.</string>
@@ -8046,6 +8058,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.</string>
+			<key>pfm_name</key>
+			<string>feed.needsYouInChief</string>
+			<key>pfm_title</key>
+			<string>Pin Needs You in Chief</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>steady</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>
@@ -8789,6 +8813,30 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click.</string>
+			<key>pfm_name</key>
+			<string>imessage.enabled</string>
+			<key>pfm_title</key>
+			<string>Connect iMessage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Remember skipping the Messages Automation step. This does not grant access or authorize sending.</string>
+			<key>pfm_name</key>
+			<string>imessage.automationSkipped</string>
+			<key>pfm_title</key>
+			<string>Skip Messages Automation</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.</string>
 			<key>pfm_name</key>
@@ -8913,6 +8961,16 @@
 			<string>DisableTelemetry</string>
 			<key>pfm_title</key>
 			<string>DisableTelemetry</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Computer use can act as me: clicks and key presses computer use makes in a chat count as the person's for Send, Retry and Approve, and nothing else. Off by default. Honored only as a forced value from an installed profile; the person can still turn it off until cmux restarts, and every action it lets through is logged.</string>
+			<key>pfm_name</key>
+			<string>ComputerUseActsAsPerson</string>
+			<key>pfm_title</key>
+			<string>ComputerUseActsAsPerson</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
