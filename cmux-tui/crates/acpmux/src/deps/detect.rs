@@ -94,7 +94,8 @@ pub struct Plan {
 
 /// The first line a command prints, or None when it cannot run.
 fn output(argv: &[&str], dir: &Path) -> Option<String> {
-    let out = Command::new(argv[0]).args(&argv[1..]).current_dir(dir).output().ok()?;
+    let (program, args) = argv.split_first()?;
+    let out = Command::new(program).args(args).current_dir(dir).output().ok()?;
     if !out.status.success() {
         return None;
     }
@@ -113,7 +114,25 @@ fn split(path: PathBuf) -> Option<(PathBuf, PathBuf)> {
     Some((path.parent()?.to_owned(), name))
 }
 
+/// A cache folder set by tool config (pnpm's `store-dir`, uv's `cache-dir`,
+/// which a repo can choose) that is the filesystem root, the home folder or
+/// one of its ancestors, or a credentials name, would pack far more than
+/// dependencies: such a plan is refused.
+fn too_broad(plan: &Plan) -> bool {
+    let home = home();
+    plan.include.iter().any(|rel| {
+        let full = plan.root.join(rel);
+        full.parent().is_none()
+            || home.as_deref().is_some_and(|h| h.starts_with(&full))
+            || rel.components().any(|c| super::archive::denied(&c.as_os_str().to_string_lossy()))
+    })
+}
+
 pub fn plan(project: &Project) -> Option<Plan> {
+    plan_of(project).filter(|plan| !too_broad(plan))
+}
+
+fn plan_of(project: &Project) -> Option<Plan> {
     let dir = &project.dir;
     let tool = |argv: &[&str]| output(argv, dir);
     let strings = |argv: &[&str]| argv.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
@@ -257,5 +276,27 @@ mod tests {
             assert_ne!(base, other);
         }
         assert!(key_of(Ecosystem::Uv, "zstd", &v("x"), b"lock").starts_with("uv-"));
+    }
+
+    #[test]
+    fn refuses_a_cache_folder_that_holds_the_home_folder() {
+        let plan = |root: &str, rel: &str| Plan {
+            root: root.into(),
+            include: vec![rel.into()],
+            replaces: false,
+            install: vec![],
+        };
+        let home = home().expect("HOME");
+        let parent = home.parent().expect("home has a parent");
+        let name = home.file_name().expect("home has a name").to_string_lossy().into_owned();
+        assert!(too_broad(&plan(&parent.to_string_lossy(), &name)));
+        let grand = parent.parent().unwrap_or(Path::new("/"));
+        let first =
+            parent.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if !first.is_empty() {
+            assert!(too_broad(&plan(&grand.to_string_lossy(), &first)));
+        }
+        assert!(too_broad(&plan(&home.to_string_lossy(), ".ssh")));
+        assert!(!too_broad(&plan(&home.join(".cache").to_string_lossy(), "uv")));
     }
 }

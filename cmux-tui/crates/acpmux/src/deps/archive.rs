@@ -30,10 +30,18 @@ const DENIED: &[&str] = &[
     ".docker",
     ".aws",
     ".ssh",
+    // cmux's own machine credential and the GitHub CLI's token file.
+    "machine-credential.json",
+    "hosts.yml",
 ];
 
-/// Folders that are build output or tool scratch, not installed dependencies.
+/// Folders under a `node_modules` that are tool scratch, not installed
+/// dependencies. Elsewhere `.cache` is kept: Cargo's sparse index lives in one.
 const SKIPPED_DIRS: &[&str] = &[".cache"];
+
+fn piped<T>(pipe: Option<&mut T>) -> io::Result<&mut T> {
+    pipe.ok_or_else(|| io::Error::other("zstd pipe closed"))
+}
 
 /// Whether a name may hold a credential: one of `DENIED`, or `.env.<anything>`.
 pub fn denied(name: &str) -> bool {
@@ -86,13 +94,13 @@ enum Sink {
 impl Write for Sink {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
-            Sink::Zstd(child) => child.stdin.as_mut().expect("piped").write(buf),
+            Sink::Zstd(child) => piped(child.stdin.as_mut())?.write(buf),
             Sink::Gzip(gz) => gz.write(buf),
         }
     }
     fn flush(&mut self) -> io::Result<()> {
         match self {
-            Sink::Zstd(child) => child.stdin.as_mut().expect("piped").flush(),
+            Sink::Zstd(child) => piped(child.stdin.as_mut())?.flush(),
             Sink::Gzip(gz) => gz.flush(),
         }
     }
@@ -171,7 +179,8 @@ fn walk(
                 packed.denied.push(child.to_string_lossy().into_owned());
                 continue;
             }
-            if SKIPPED_DIRS.contains(&name_str.as_ref())
+            if rel.starts_with("node_modules")
+                && SKIPPED_DIRS.contains(&name_str.as_ref())
                 && entry.file_type().is_ok_and(|t| t.is_dir())
             {
                 continue;
@@ -202,7 +211,7 @@ enum Source {
 impl Read for Source {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
-            Source::Zstd(child) => child.stdout.as_mut().expect("piped").read(buf),
+            Source::Zstd(child) => piped(child.stdout.as_mut())?.read(buf),
             Source::Gzip(gz) => gz.read(buf),
         }
     }
@@ -248,7 +257,8 @@ pub fn unpack(
     let mut out = Unpacked::default();
     let result = (|| {
         let mut tar = tar::Archive::new(&mut source);
-        tar.set_preserve_permissions(true);
+        // Mode bits only: an archive from a shared scope never plants a setuid file.
+        tar.set_preserve_permissions(false);
         tar.set_preserve_mtime(true);
         tar.set_overwrite(true);
         tar.set_unpack_xattrs(false);
@@ -271,7 +281,14 @@ pub fn unpack(
         Ok(())
     })();
     if let Source::Zstd(mut child) = source {
-        // Stop reading first: a child blocked on a full pipe would never exit.
+        // On success read to the end, so zstd's last write never meets a closed
+        // pipe; on an error stop reading and kill it, since a child blocked on
+        // a full pipe would never exit.
+        if result.is_ok()
+            && let Some(mut stdout) = child.stdout.take()
+        {
+            let _ = io::copy(&mut stdout, &mut io::sink());
+        }
         drop(child.stdout.take());
         if result.is_err() {
             let _ = child.kill();

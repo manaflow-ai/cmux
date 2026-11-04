@@ -1707,7 +1707,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 /// After a seed checks out a folder on this machine: restore its dependencies
 /// from the cache and run its install, in the background
 /// (`acpmux machine deps warm --if-joined`, which does nothing on a machine
-/// that is not joined). `CMUX_DEPS_WARM=0` turns it off.
+/// that is not joined). `CMUX_DEPS_WARM=0` turns it off. Seeds and `acp` are
+/// unix-only.
+#[cfg(unix)]
 fn warm_seeded_deps(folder: &Path) {
     if std::env::var_os("CMUX_DEPS_WARM").is_some_and(|v| v == "0") {
         return;
@@ -1747,6 +1749,7 @@ pub fn main() -> std::process::ExitCode {
     cmux_tui_core::server::install_build_stamp(build_stamp());
     cmux_tui_core::release::install_distribution_version(version_report::DISTRIBUTION_STAMP);
     acpmux::hub::install_build(acpmux_build_id::build());
+    #[cfg(unix)]
     cmux_tui_core::git_seed::on_seeded(warm_seeded_deps);
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]

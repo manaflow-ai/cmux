@@ -43,9 +43,10 @@ impl TreeHasher {
         while !data.is_empty() {
             let room = (self.part_bytes - self.current_len) as usize;
             let take = room.min(data.len());
-            self.current.update(&data[..take]);
+            let (head, rest) = data.split_at(take);
+            self.current.update(head);
             self.current_len += take as u64;
-            data = &data[take..];
+            data = rest;
             if self.current_len == self.part_bytes {
                 self.close_part();
             }
