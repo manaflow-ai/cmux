@@ -31,10 +31,9 @@ test("the Updated card reports no height until the notes of its span have loaded
       disconnect() {}
       unobserve() {}
     },
-    requestAnimationFrame: (callback: () => void) => {
-      queueMicrotask(callback);
-      return 0;
-    },
+    // The card's page is hidden until it reports (the host shows it once it has a height): it gets no
+    // animation frame, so it must report without one.
+    requestAnimationFrame: () => 0,
   };
   const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
   Object.assign(scope, globals);
