@@ -52,7 +52,17 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 300,
   covers: ["agent-session/acpmux/conversation/TurnRows.tsx#TurnFooter", "agent-session/acpmux/failureCopy.ts"],
-  keywords: ["error", "failure", "unreachable", "retry", "disk full", "tailscale", "agent process closed", "context window", "compact"],
+  keywords: [
+    "error",
+    "failure",
+    "unreachable",
+    "retry",
+    "disk full",
+    "tailscale",
+    "agent process closed",
+    "context window",
+    "compact",
+  ],
   variants: {
     "cloud-missing": {
       note: "Owner VM without a Claude login: explains the missing credential and offers confirmed setup. Compare the three existing surfaces; keep the glass card.",
