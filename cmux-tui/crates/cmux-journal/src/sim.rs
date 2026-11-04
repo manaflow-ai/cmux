@@ -13,6 +13,11 @@
 //! changed an entry of that folder, and so every change before it. A rename between two folders
 //! is one change: it never comes back twice or not at all.
 //!
+//! [`SimStorage::fail_next_sync`] fails the next sync of a write that spans pages, and the disk
+//! gets none of them (the worst case). [`SimStorage::crash_after_failure`] puts the crash point
+//! right after an injected failure: in the writer's backoff, at its first operation when it tries
+//! again.
+//!
 //! [`SimStorage::crash_after`] makes the n-th storage operation from now the crash point: an
 //! append there writes a random prefix of its bytes, a create, rename, truncate or sync there
 //! takes effect or not at random, and every later operation fails. [`SimStorage::restart`] then
@@ -166,10 +171,13 @@ impl SimFile {
         self.synced.push((number, self.disk.clone()));
     }
 
-    /// A sync that failed: a random part of the dirty pages reached the disk; the cache dropped
-    /// the rest as clean, so no later sync writes them.
-    fn failed_sync(&mut self, rng: &mut SimRng) {
-        let pages: Vec<usize> = self.dirty.iter().copied().filter(|_| rng.coin()).collect();
+    /// A sync that failed: a random part of the dirty pages reached the disk (none, without
+    /// `rng`); the cache dropped the rest as clean, so no later sync writes them.
+    fn failed_sync(&mut self, rng: Option<&mut SimRng>) {
+        let pages: Vec<usize> = match rng {
+            Some(rng) => self.dirty.iter().copied().filter(|_| rng.coin()).collect(),
+            None => Vec::new(),
+        };
         self.write_back(&pages);
         self.dirty.clear();
     }
@@ -392,8 +400,12 @@ struct Fs {
     /// Open files now, and the most at once.
     open_files: u64,
     peak_open_files: u64,
-    /// Failures `fail_after` caused.
+    /// Failures `fail_after` and `fail_next_sync` caused.
     failures: u64,
+    /// The next file sync with at least this many dirty pages fails once with this error.
+    fail_sync: Option<(usize, io::ErrorKind)>,
+    /// Once an injected failure happened, the operation this many after it crashes.
+    crash_after_failure: Option<u64>,
 }
 
 /// What an operation does: run, fail once, or crash the process.
@@ -417,6 +429,16 @@ impl Fs {
             open_files: 0,
             peak_open_files: 0,
             failures: 0,
+            fail_sync: None,
+            crash_after_failure: None,
+        }
+    }
+
+    /// An injected failure happened: count it, and arm the crash that waits for it.
+    fn note_failure(&mut self) {
+        self.failures = self.failures.saturating_add(1);
+        if let Some(n) = self.crash_after_failure.take() {
+            self.crash_at = Some(self.ops.saturating_add(n.max(1)));
         }
     }
 
@@ -434,7 +456,7 @@ impl Fs {
             && at == self.ops
         {
             self.fail_at = None;
-            self.failures = self.failures.saturating_add(1);
+            self.note_failure();
             return Ok(Step::Fail(kind));
         }
         Ok(Step::Run)
@@ -521,7 +543,22 @@ impl SimStorage {
         lock(&self.fs).reads.get(path).copied().unwrap_or(0)
     }
 
-    /// Operations that `fail_after` made fail.
+    /// The next file sync that has at least `pages` dirty pages fails once with `kind`, and the
+    /// disk gets none of them: the worst case of a write-back error ([module docs](self)).
+    pub fn fail_next_sync(&self, pages: usize, kind: io::ErrorKind) {
+        lock(&self.fs).fail_sync = Some((pages, kind));
+    }
+
+    /// Once the next injected failure happened, the `n`-th operation after it (1 = the next one)
+    /// is the crash point: a crash in the writer's backoff, at its retry. It replaces a crash point
+    /// set before.
+    pub fn crash_after_failure(&self, n: u64) {
+        let mut fs = lock(&self.fs);
+        fs.crash_at = None;
+        fs.crash_after_failure = Some(n);
+    }
+
+    /// Operations that `fail_after` and `fail_next_sync` made fail.
     pub fn failures(&self) -> u64 {
         lock(&self.fs).failures
     }
@@ -850,7 +887,17 @@ impl StorageFile for SimHandle {
 
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let mut fs = lock(&self.fs);
-        let done = match fs.begin()? {
+        let step = fs.begin()?;
+        if let (Step::Run, Some((pages, kind))) = (&step, fs.fail_sync) {
+            let file = fs.machine.file(self.inode)?;
+            if file.dirty.len() >= pages {
+                file.failed_sync(None);
+                fs.fail_sync = None;
+                fs.note_failure();
+                return Err(failed(kind));
+            }
+        }
+        let done = match step {
             Step::Run => true,
             Step::Fail(kind) => {
                 let Fs { machine, .. } = &mut *fs;
@@ -858,7 +905,7 @@ impl StorageFile for SimHandle {
                     .files
                     .get_mut(&self.inode)
                     .ok_or_else(|| failed(io::ErrorKind::Other))?;
-                file.failed_sync(&mut machine.rng);
+                file.failed_sync(Some(&mut machine.rng));
                 return Err(failed(kind));
             }
             Step::Crash => fs.machine.rng.coin(),

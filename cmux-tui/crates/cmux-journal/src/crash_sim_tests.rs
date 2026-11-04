@@ -14,10 +14,20 @@
 //!
 //! `CMUX_JOURNAL_CRASH_SEEDS` seeds per test (default 200; the acceptance run in
 //! R-DURABILITY/DESIGN.md section 7 uses 100000 on the fleet). A failing seed prints itself:
-//! rerun it alone with `CMUX_JOURNAL_CRASH_SEED=<seed>`.
+//! rerun it with `CMUX_JOURNAL_CRASH_SEED=<seed>`. The clients run on threads, so a seed fixes the
+//! faults and the record sizes but not where batches end: a rerun can take another path and pass.
+//! The random runs are the acceptance property. The forced run below is the red/green proof: it
+//! fails every seed on the code before the S1 fix.
 //!
-//! The last tests check the simulated machine itself: the write-back error behavior and the
-//! ordered log of names that the crash runs depend on.
+//! The S1 review found an order (F4) that the random faults reached in 1 of 800 runs: a sync
+//! fails and drops its pages, the process is killed in the writer's backoff, the next open goes
+//! on from the page cache, and an OS crash or a power loss follows. So one epoch in four of the
+//! random runs aims the failed sync and the crash at it (only the mixed run has both a process
+//! crash and an OS crash, so only it can fail on that order), and one more run forces the order on
+//! every seed.
+//!
+//! The last tests check the simulated machine itself: the write-back error behavior, the aimed
+//! faults, and the ordered log of names that the crash runs depend on.
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -92,7 +102,26 @@ fn seeds() -> Vec<u64> {
     (0..count).collect()
 }
 
+/// What goes wrong in each epoch of a crash run.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Faults {
+    /// In each epoch, at random: a crash at a random operation, sometimes after a failed write or
+    /// sync; or (one epoch in four) the aimed fault below, with the crash at one of the three
+    /// operations after the failed sync and a crash of any kind after it.
+    Random,
+    /// In the first epoch, the first sync of a write that spans pages fails and the disk gets none
+    /// of them; the process is killed at the next storage operation (the writer's retry, after
+    /// its backoff). The open after the kill does not crash, so it reads the failed segment from
+    /// the page cache. The next epoch ends in an OS crash, which loses every page the failed sync
+    /// dropped, and a third open checks what is left. The code before the S1 fix fails every seed.
+    FailedSyncThenKill,
+}
+
 fn crash_run(seed: u64, kinds: &[Crash]) -> Result<(), String> {
+    crash_run_with(seed, kinds, Faults::Random)
+}
+
+fn crash_run_with(seed: u64, kinds: &[Crash], faults: Faults) -> Result<(), String> {
     let mut rng = SimRng::new(seed);
     let mut storage = SimStorage::new(rng.next_u64());
     let config = Config {
@@ -107,13 +136,16 @@ fn crash_run(seed: u64, kinds: &[Crash]) -> Result<(), String> {
     let mut kept: Vec<Lsn> = Vec::new();
     let mut last: Option<Epoch> = None;
     let mut worst = Crash::Process;
-    let epochs = 1 + rng.below(3);
+    let epochs = match faults {
+        Faults::FailedSyncThenKill => 2,
+        Faults::Random => 1 + rng.below(3),
+    };
     for epoch in 0..=epochs {
         // The open, which may crash inside recovery; the next process tries again.
         let mut attempts = 0;
         let (journal, report, seen) = loop {
             attempts += 1;
-            if attempts < 4 && rng.below(2) == 0 {
+            if faults == Faults::Random && attempts < 4 && rng.below(2) == 0 {
                 storage.crash_after(1 + rng.below(40));
             }
             match open(&storage, &config) {
@@ -132,15 +164,27 @@ fn crash_run(seed: u64, kinds: &[Crash]) -> Result<(), String> {
         if epoch == epochs {
             return Ok(());
         }
-        // This epoch's crash point (it replaces one the open did not reach), and sometimes a
-        // failed write or sync before it.
-        storage.crash_after(1 + rng.below(80));
-        if rng.below(2) == 0 {
-            let kind = if rng.below(2) == 0 { ErrorKind::StorageFull } else { ErrorKind::Other };
-            storage.fail_after(1 + rng.below(40), kind);
+        // This epoch's faults. Each replaces a crash point the open did not reach.
+        let aimed = match faults {
+            Faults::FailedSyncThenKill => epoch == 0,
+            Faults::Random => rng.below(4) == 0,
+        };
+        if aimed {
+            // The first sync of a batch: every record spans two pages (`appends`), so it has two.
+            storage.fail_next_sync(2, ErrorKind::Other);
+            let after = if faults == Faults::Random { 1 + rng.below(3) } else { 1 };
+            storage.crash_after_failure(after);
+        } else {
+            storage.crash_after(1 + rng.below(80));
+            if rng.below(2) == 0 {
+                let kind =
+                    if rng.below(2) == 0 { ErrorKind::StorageFull } else { ErrorKind::Other };
+                storage.fail_after(1 + rng.below(40), kind);
+            }
         }
         let start = report.next_lsn;
-        let (durable, full_durable) = appends(seed ^ epoch, &journal, &storage, &model, &mut rng);
+        let (durable, full_durable) =
+            appends(seed ^ epoch, &journal, &storage, &model, &mut rng, aimed);
         let stats = journal.stats();
         last = Some(Epoch {
             start,
@@ -150,7 +194,17 @@ fn crash_run(seed: u64, kinds: &[Crash]) -> Result<(), String> {
             failed: storage.failures() > 0,
         });
         drop(journal);
-        let crash = pick(kinds, &mut rng);
+        if faults == Faults::FailedSyncThenKill
+            && aimed
+            && (storage.failures() == 0 || !storage.is_crashed())
+        {
+            return Err(format!("epoch {epoch}: the aimed failed sync and kill did not happen"));
+        }
+        let crash = match faults {
+            Faults::FailedSyncThenKill if epoch == 0 => Crash::Process,
+            Faults::FailedSyncThenKill => Crash::Os,
+            Faults::Random => pick(kinds, &mut rng),
+        };
         worst = crash;
         storage = storage.restart(crash);
     }
@@ -165,6 +219,7 @@ fn appends(
     storage: &SimStorage,
     model: &Model,
     rng: &mut SimRng,
+    large: bool,
 ) -> (Lsn, Lsn) {
     let durable = AtomicU64::new(0);
     let full_durable = AtomicU64::new(0);
@@ -176,9 +231,15 @@ fn appends(
             scope.spawn(move || {
                 for index in 0..30u64 {
                     let class = if rng.below(4) == 0 { Class::Stream } else { Class::Ack };
-                    // Now and then a record over several pages.
-                    let size =
-                        if rng.below(10) == 0 { 2000 + rng.index(8000) } else { rng.index(64) };
+                    // Now and then a record over several pages; when `large`, every record spans
+                    // two pages, so the first batch's sync has two dirty pages.
+                    let size = if large {
+                        5000 + rng.index(5000)
+                    } else if rng.below(10) == 0 {
+                        2000 + rng.index(8000)
+                    } else {
+                        rng.index(64)
+                    };
                     let body = format!("{seed}-{client}-{index}-{}", "y".repeat(size));
                     let lsn = {
                         // The append and the model's copy are one step, so the model never misses
@@ -302,6 +363,23 @@ fn mixed_crashes_keep_what_the_worst_of_them_keeps() {
     crash_runs(&[Crash::Process, Crash::Os, Crash::PowerLoss]);
 }
 
+/// F4 of the S1 review: a sync fails and drops its pages, the process is killed before the writer
+/// tries again, and later an OS crash comes. Every record the open after the kill replayed, and
+/// every record acked after it, must survive. With random faults this order is rare (the random
+/// runs found it once in 800 runs on the code before the fix), so each seed here forces it.
+#[test]
+fn a_kill_after_a_failed_sync_then_os_crashes_keep_every_acked_record() {
+    let failures: Vec<String> = seeds()
+        .into_iter()
+        .filter_map(|seed| {
+            crash_run_with(seed, &[Crash::Os], Faults::FailedSyncThenKill)
+                .err()
+                .map(|error| format!("seed {seed}: {error}"))
+        })
+        .collect();
+    assert!(failures.is_empty(), "{} runs failed:\n{}", failures.len(), failures.join("\n"));
+}
+
 // ---------------------------------------------------------------- the simulated machine
 
 /// A folder with one empty file in it, all durable.
@@ -340,6 +418,25 @@ fn the_sim_never_writes_the_pages_a_failed_sync_dropped() {
         }
     }
     assert!(dropped > 0, "no failed sync dropped a page");
+}
+
+#[test]
+fn the_sim_fails_the_aimed_sync_and_crashes_in_the_backoff() {
+    let path = dir().join("file");
+    let (storage, mut file) = machine_with_file(9, &path);
+    storage.fail_next_sync(2, ErrorKind::Other);
+    storage.crash_after_failure(2);
+    // One dirty page: the aimed failure waits for a sync of more.
+    file.append(&[1; 100]).unwrap_or_else(|e| panic!("{e}"));
+    file.sync(SyncLevel::Barrier).unwrap_or_else(|e| panic!("{e}"));
+    file.append(&vec![2; 2 * SIM_PAGE]).unwrap_or_else(|e| panic!("{e}"));
+    assert!(file.sync(SyncLevel::Barrier).is_err(), "the aimed sync did not fail");
+    assert_eq!(storage.failures(), 1);
+    assert!(file.size().is_ok(), "the first operation after the failure must run");
+    assert!(file.size().is_err() && storage.is_crashed(), "the second must be the crash");
+    // None of the failed sync's pages reached the disk.
+    let after = storage.restart(Crash::Os).contents(&path).unwrap_or_default();
+    assert!(after.iter().skip(100).all(|byte| *byte != 2), "a dropped page reached the disk");
 }
 
 #[test]
