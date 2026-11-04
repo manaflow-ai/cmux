@@ -129,10 +129,10 @@ pub(super) fn transfer_epoch_marker(dir: &Path) -> Result<Option<u64>, RpcError>
 /// Reject a delayed request from an older owner. Missing epochs remain accepted for old clients;
 /// all current clients include one, and any supplied value must match exactly.
 pub(super) fn check_epoch(expected: u64, supplied: Option<u64>) -> Result<(), RpcError> {
-    if supplied.is_some_and(|epoch| epoch != expected) {
+    if let Some(supplied) = supplied.filter(|epoch| *epoch != expected) {
         return Err(transfer_error(
             "stale_epoch",
-            format!("ownership epoch is {expected}, request carried {}", supplied.unwrap()),
+            format!("ownership epoch is {expected}, request carried {supplied}"),
         )
         .with_data(json!({"epoch": expected})));
     }
@@ -580,16 +580,6 @@ impl Hub {
 
     /// The chat lives on the target now: its queue is withdrawn here (the target runs it), its
     /// draft and bookmarks cleared, and it closes.
-    pub(super) async fn transfer_commit(
-        &self,
-        session: &Arc<Session>,
-        transfer_id: &str,
-        to: Value,
-    ) -> Result<Value, RpcError> {
-        self.transfer_commit_with_epoch(session, transfer_id, to, Some(session.ownership_epoch()))
-            .await
-    }
-
     pub(super) async fn transfer_commit_with_epoch(
         &self,
         session: &Arc<Session>,
@@ -651,20 +641,6 @@ impl Hub {
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
     /// why when the source ended it itself (`transfer_watch.rs`). A policy that changed while it
     /// moved (a deny-all default skips a moving chat, `policy_mode.rs`) is followed now.
-    pub(super) fn transfer_abort(
-        self: &Arc<Self>,
-        session: &Arc<Session>,
-        transfer_id: &str,
-        reason: Option<&str>,
-    ) -> Result<Value, RpcError> {
-        self.transfer_abort_with_epoch(
-            session,
-            transfer_id,
-            reason,
-            Some(session.ownership_epoch()),
-        )
-    }
-
     pub(super) fn transfer_abort_with_epoch(
         self: &Arc<Self>,
         session: &Arc<Session>,
