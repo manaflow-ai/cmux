@@ -79,6 +79,12 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
                 ).utf8)
                 try await connection.sendAll(request)
                 let (head, rest) = try await handshakeResponse(from: connection)
+                // 407: the route's credential is not the proxy's (a newer cmux-cloud, a new link):
+                // the route is gone, so its owner may ask for it again (CloudBrowserRoute).
+                if Self.status(head) == 407 {
+                    connection.cancel()
+                    throw LoopbackTunnelFailure.unavailable("Cloud browser route expired")
+                }
                 guard Self.isEstablished(head), Self.hasValidServerProof(
                     head,
                     secret: credential.password,
@@ -140,12 +146,16 @@ public struct CloudProxyLoopbackOpener: LoopbackTunnelOpening {
         throw LoopbackTunnelFailure.other("Cloud browser proxy returned an invalid response")
     }
 
-    private static func isEstablished(_ head: Data) -> Bool {
+    private static func isEstablished(_ head: Data) -> Bool { status(head) == 200 }
+
+    /// The status code of a response head, nil when it is not an HTTP/1 status line.
+    static func status(_ head: Data) -> Int? {
         guard let text = String(data: head, encoding: .utf8), let first = text.components(separatedBy: "\r\n").first else {
-            return false
+            return nil
         }
         let parts = first.split(separator: " ", omittingEmptySubsequences: true)
-        return parts.count >= 2 && parts[0].starts(with: "HTTP/1.") && parts[1] == "200"
+        guard parts.count >= 2, parts[0].starts(with: "HTTP/1."), parts[1].count == 3 else { return nil }
+        return Int(parts[1])
     }
 
     private static func authenticationCode(secret: String, message: String) -> String {
