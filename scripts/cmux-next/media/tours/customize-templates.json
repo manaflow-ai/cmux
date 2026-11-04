@@ -63,7 +63,7 @@
         "current",
         "write",
         "--text",
-        "clear; cp {repo}/skills/cmux-customization/templates/starter/cmux-app.json {repo}/skills/cmux-customization/templates/starter/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved starter\r"
+        "clear; cp \"{repo}\"/skills/cmux-customization/templates/starter/cmux-app.json \"{repo}\"/skills/cmux-customization/templates/starter/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved starter\r"
       ],
       "wait": 6
     },
@@ -83,7 +83,7 @@
         "current",
         "write",
         "--text",
-        "clear; cp {repo}/skills/cmux-customization/templates/sidebar-section/cmux-app.json {repo}/skills/cmux-customization/templates/sidebar-section/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved sidebar-section\r"
+        "clear; cp \"{repo}\"/skills/cmux-customization/templates/sidebar-section/cmux-app.json \"{repo}\"/skills/cmux-customization/templates/sidebar-section/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved sidebar-section\r"
       ],
       "wait": 5
     },
@@ -121,7 +121,7 @@
         "current",
         "write",
         "--text",
-        "clear; cp {repo}/skills/cmux-customization/templates/command-button/cmux-app.json {repo}/skills/cmux-customization/templates/command-button/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved command-button\r"
+        "clear; cp \"{repo}\"/skills/cmux-customization/templates/command-button/cmux-app.json \"{repo}\"/skills/cmux-customization/templates/command-button/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved command-button\r"
       ],
       "wait": 5
     },
@@ -150,7 +150,7 @@
         "current",
         "write",
         "--text",
-        "clear; python3 {repo}/scripts/cmux-next/media/fixtures/customize-reload-latency.py\r"
+        "clear; python3 \"{repo}\"/scripts/cmux-next/media/fixtures/customize-reload-latency.py\r"
       ],
       "wait": 30
     },
@@ -174,15 +174,17 @@
         "current",
         "write",
         "--text",
-        "clear; cp {repo}/skills/cmux-customization/templates/pane/cmux-app.json {repo}/skills/cmux-customization/templates/pane/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved pane\r"
+        "clear; cp \"{repo}\"/skills/cmux-customization/templates/pane/cmux-app.json \"{repo}\"/skills/cmux-customization/templates/pane/main.js \"$CMUX_CUSTOMIZE_DIR\"/ && echo saved pane\r"
       ],
       "wait": 5
     },
     {
-      "title": "Open the pane: cmux app open local/customize",
+      "title": "Open the pane: cmux action run app.open --app local/customize",
       "cmux": [
-        "app",
-        "open",
+        "action",
+        "run",
+        "app.open",
+        "--app",
         "local/customize"
       ],
       "wait": 4

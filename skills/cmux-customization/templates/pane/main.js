@@ -1,5 +1,5 @@
 // A pane: the customize app's page, opened as a tab with "Open My views" in the Command
-// Palette (no scope needed), `cmux app open local/customize`, or the sidebar button below
+// Palette (no scope needed), `cmux action run app.open --app local/customize`, or the sidebar button below
 // (which needs actions:run). The checklist is kept with storage:local when it is on, and
 // lives only until the next reload when it is off. Both are in Settings > Apps > My views.
 
@@ -13,7 +13,8 @@ function load() {
   if (loaded) return
   loaded = true
   cmux.storage.get("items").then(
-    (saved) => Array.isArray(saved) && setItems(saved),
+    // Items added before the read finished stay, after the saved ones.
+    (saved) => Array.isArray(saved) && setItems([...saved, ...items()]),
     () => (saving = false)
   )
 }

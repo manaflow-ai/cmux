@@ -39,6 +39,7 @@ with open(log, "a") as out:
     markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
                if key in os.environ}
     out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
+    out.write(json.dumps({"method": "_customize", "params": {"dir": os.environ.get("CMUX_CUSTOMIZE_DIR")}}) + "\n")
     home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
     zshrc = os.path.join(home, ".zshrc")
     out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
@@ -420,6 +421,36 @@ class AppWindowCaptureTests(unittest.TestCase):
                 self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):
                     tour.load_tour(self.tour)
+
+    def test_customize_gives_the_launch_its_own_empty_customize_folder(self) -> None:
+        # The customize-templates tour writes a customize app there; without the key the
+        # launch never names one, so a tour never reads the runner's own ~/.config/cmux/customize.
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([e["params"] for e in entries if e["method"] == "_customize"], [{"dir": None}])
+        self.log.unlink()
+        data = json.loads(self.tour.read_text(encoding="utf-8"))
+        self.tour.write_text(json.dumps({**data, "customize": True}), encoding="utf-8")
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [folder] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(folder and folder.endswith("/customize"), folder)
+        self.assertFalse(Path(folder).is_relative_to(self.root / "out"), "never published as media")
+
+    def test_customize_must_be_true_or_false_and_repo_fills_step_words(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": "yes", "steps": [{"title": "Launch"}]}),
+                             encoding="utf-8")
+        with self.assertRaisesRegex(tour.TourError, "`customize` must be true or false"):
+            tour.load_tour(self.tour)
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": True, "steps": [
+            {"title": "Copy", "cmux": ["terminal", "write", "--text", "cp \"{repo}\"/a ."]}]}), encoding="utf-8")
+        loaded = tour.load_tour(self.tour)
+        self.assertTrue(loaded["customize"])
+        self.assertEqual(loaded["steps"][0]["cmux"], ["terminal", "write", "--text", f'cp "{ROOT}"/a .'])
 
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [

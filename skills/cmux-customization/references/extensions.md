@@ -29,7 +29,9 @@ cp templates/<name>/cmux-app.json templates/<name>/main.js ~/.config/cmux/custom
 Read scopes (`workspace:read`, `integration:github:read`, ...) are granted at
 install. Every other scope stays off until the person turns it on in
 Settings > Apps > My views; an agent cannot. Each template still renders with
-them off, and a click that needs one shows a toast that says which.
+them off; `command-button` toasts which scope a click needs, `sidebar-section`
+toasts that it cannot focus the tab, and the pane keeps its list only until it
+closes when `storage:local` is off.
 
 `skills/cmux-customization/templates` is validated as written:
 `cmux-tui/crates/cmux-app-manifest/tests/customize_example.rs` checks each
@@ -59,7 +61,7 @@ timer or on load.
 ### Opening the pane
 
 `cmux.pane/1` is the customize app's page. It opens as a tab with "Open My
-views" in the Command Palette (no scope), `cmux app open local/customize`, or
+views" in the Command Palette (no scope), `cmux action run app.open --app local/customize`, or
 `cmux.actions.run("app.open", { app: "local/customize" })` from a click (needs
 `actions:run`). One app has one pane kind.
 

@@ -94,6 +94,14 @@ def main() -> int:
     folder.mkdir(parents=True, exist_ok=True)
     sys.stdout.write("\033[?25l")  # no blinking cursor in the window's pixels
     sys.stdout.flush()
+    try:
+        return measure(folder, sock, png)
+    finally:
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
+
+
+def measure(folder: Path, sock: str, png: Path) -> int:
     (folder / "cmux-app.json").write_text(json.dumps(MANIFEST, indent=2), encoding="utf-8")
     (folder / "main.js").write_text(script(0), encoding="utf-8")
     time.sleep(3)  # first install and mount
@@ -101,8 +109,11 @@ def main() -> int:
     snaps: list[float] = []
     for revision in range(1, ROUNDS + 1):
         before = settle(sock, png)
-        with open(folder / "main.js", "w", encoding="utf-8") as handle:
-            handle.write(script(revision))
+        # Saved the way most editors save: a whole new file renamed over the old
+        # one, so the reload never reads a half-written script.
+        draft = folder.parent / "main.js.draft"
+        draft.write_text(script(revision), encoding="utf-8")
+        os.replace(draft, folder / "main.js")
         saved = time.monotonic()
         while True:
             started = time.monotonic()
@@ -115,7 +126,8 @@ def main() -> int:
             if ended - saved > TIMEOUT:
                 print(f"revision {revision}: no change within {TIMEOUT:.0f}s")
                 break
-    sys.stdout.write("\033[?25h")
+        if not samples and revision >= 2:
+            break  # nothing reloads: stop before the tour's next step types into this terminal
     if not samples:
         print("no samples")
         return 1
