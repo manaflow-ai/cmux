@@ -13,8 +13,9 @@ extension NewFrontendBrowserTabRequest {
     /// late reply was dropped, and the app never opened the page of the tab
     /// the daemon made. A daemon with `frontend-browser-tab-keys-v1` gets an
     /// idempotency key (derived from the action's key when it has one), and a
-    /// missed deadline, a lost connection or a reconnect asks again with the
-    /// same key until ``lateReplyBudget`` passes. cmux-tui makes keyed
+    /// lost connection or a reconnect asks again with the same key until
+    /// ``lateReplyBudget`` passes (a missed 30 s reply deadline comes after that
+    /// 10 s budget, so it ends the create). cmux-tui makes keyed
     /// creates one at a time and answers a repeated key with the tab the
     /// first request made (`replayed`), so a late commit makes one tab.
     /// Callers that make several tabs in one action make them in order, so

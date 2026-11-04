@@ -38,9 +38,11 @@ extension DaemonRequest {
 
 /// A command whose reply waits for cmux-tui to launch a terminal host.
 /// cmux-tui bounds that launch by its own host handshake (2 s) and connect
-/// retry (1 s) windows, so these use `Configuration.spawnTimeout` instead of
-/// the 2 s control-plane deadline: a client that gives up first reports a
-/// failure for a tab the daemon then creates.
+/// retry (1 s) windows, so these use `Configuration.spawnTimeout` (5 s), set
+/// when the control-plane deadline was 2 s: a client that gave up first
+/// reported a failure for a tab the daemon then created. Since #35075 the
+/// control-plane deadline is 30 s, so a spawn now gives up before any other
+/// request.
 public protocol TerminalSpawningRequest: DaemonRequest {}
 
 /// `{}` responses.

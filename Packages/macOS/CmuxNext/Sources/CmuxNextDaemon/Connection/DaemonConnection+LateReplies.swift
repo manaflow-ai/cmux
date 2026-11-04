@@ -12,8 +12,10 @@ extension DaemonConnection {
     private static let lateReplyLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
     /// When a change that starts now stops asking again: one budget for every step of it (Cmd-N's
-    /// pin, create and first tab share one), so a daemon that never answers holds the window's
-    /// create lane about this long, not this long per step.
+    /// pin, create and first tab share one). With the 30 s request deadline (#35075) a missed
+    /// reply comes after this 10 s budget and ends the change, so a daemon that never answers
+    /// holds the window's create lane one request deadline; the budget bounds the re-sends after a
+    /// lost connection.
     public static func lateReplyDeadline() -> ContinuousClock.Instant {
         ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
     }
