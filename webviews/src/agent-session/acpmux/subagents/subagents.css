@@ -203,7 +203,7 @@ button.cv-subagent > :last-child {
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. Its text goes back to the parent's view; its × closes the subagent's view
-   (the summary card's Subagents tab close: 18px, 12px glyph, its hover on the × alone). */
+   (an icon-only control: the --ds-control-icon box, 12px glyph, its hover on the × alone). */
 .cv-subagent-of {
   box-sizing: border-box;
   height: 44px;
@@ -258,9 +258,9 @@ button.cv-subagent > :last-child {
   flex: none;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  margin: 0 var(--ds-space-1) 0 2px;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  margin: 0 var(--ds-space-1) 0 0;
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-sm);
