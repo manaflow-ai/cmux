@@ -11,7 +11,7 @@
 // budget, not a CI gate (CLAUDE.md: no new CI gates or budgets): run it yourself before and after a
 // change, on the fleet (`cmux-ci test ...`, see ENTRIES.md), never on a laptop.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { extname, resolve } from "node:path";
+import { extname, resolve, sep } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 
 type Budget = { firstFrameMs?: number; readyMs?: number; longTaskMaxMs?: number; idleCpuPct?: number; cls?: number; heapMb?: number };
@@ -251,7 +251,7 @@ async function serve(root: string): Promise<{ baseUrl: string; close: () => void
     async fetch(request) {
       const requested = decodeURIComponent(new URL(request.url).pathname).replace(/^\/+/, "") || "index.html";
       const file = resolve(root, requested);
-      if (!file.startsWith(resolve(root))) return new Response("forbidden", { status: 403 });
+      if (file !== resolve(root) && !file.startsWith(resolve(root) + sep)) return new Response("forbidden", { status: 403 });
       try {
         return new Response(await readFile(file), { headers: { "content-type": types[extname(file)] ?? "application/octet-stream" } });
       } catch {

@@ -13,8 +13,9 @@ import { SCRIPTS, SLOTS } from "../frame/scripts";
 
 export type Axis = {
   key: string;
-  /** The window (`app`) or every pane's stage (`frame`). */
-  to: "app" | "frame";
+  /** The window (`app`), every pane's stage (`frame`), or the main pane's stage only (`main`: the
+   * chat that `fixture` names; the panes share one main thread, so contention runs once). */
+  to: "app" | "frame" | "main";
   /** The values it takes, when they are a closed set (else free text, described in `note`). */
   values?: readonly string[];
   default?: string;
@@ -117,22 +118,22 @@ export const AXES: readonly Axis[] = [
   // Dynamic states and load.
   {
     key: "script",
-    to: "frame",
+    to: "main",
     values: Object.keys(SCRIPTS),
     note: "The chat comes alive on a loop: a reply streams, tools run, a turn fails (frame/scripts.ts).",
   },
   {
     key: "loop",
-    to: "frame",
+    to: "main",
     values: ["1", "0"],
     default: "1",
     note: "`0` plays the script once and stays on its last beat.",
   },
-  { key: "cpu", to: "frame", note: "Simulated main-thread contention: the page gets 1/N of the thread (2, 4, 6)." },
+  { key: "cpu", to: "main", note: "Simulated main-thread contention: the page gets 1/N of the thread (2, 4, 6)." },
   // Extensions.
   {
     key: "slot",
-    to: "frame",
+    to: "main",
     values: Object.keys(SLOTS),
     note: "An extension's renderer in the transcript, through the pane's real registry (registry.js).",
   },
@@ -153,11 +154,16 @@ export function parseFixture(value: string): { entry: string; variant?: string }
   return slash < 0 ? { entry: value } : { entry: value.slice(0, slash), variant: value.slice(slash + 1) };
 }
 
-/** The stage frame URL for one pane: every `frame` axis in `params`, then the pane's entry. */
-export function paneFrameQuery(params: URLSearchParams, fixture: string): string {
+/** The stage frame URL for one pane: every `frame` axis in `params` (and the `main` ones for the main
+ * pane), then the pane's entry, in a window of `options.window` (each window of `windows=` its own). */
+export function paneFrameQuery(
+  params: URLSearchParams,
+  fixture: string,
+  options: { main: boolean; window: string },
+): string {
   const out = new URLSearchParams();
   for (const axis of AXES) {
-    if (axis.to !== "frame") continue;
+    if (axis.to === "app" || (axis.to === "main" && !options.main)) continue;
     const value = params.get(axis.key);
     if (value !== null && value !== "") out.set(axis.key, value);
   }
@@ -166,7 +172,8 @@ export function paneFrameQuery(params: URLSearchParams, fixture: string): string
   if (variant) out.set("variant", variant);
   // Window mode with the window's size and layout: a picture behind the glass lines up with the
   // window's own (frame/background.ts places it from the same geometry).
-  for (const key of ["window", "layout"]) if (params.get(key)) out.set(key, params.get(key)!);
+  out.set("window", options.window);
+  if (params.get("layout")) out.set("layout", params.get("layout")!);
   return out.toString();
 }
 

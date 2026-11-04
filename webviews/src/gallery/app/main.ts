@@ -71,8 +71,9 @@ type PaneData = { title: string; sessions: AcpmuxSessionEntry[]; selected?: stri
 /** The fixture's chats and title, read from its gallery entry (one entry file, by the index). */
 async function paneData(fixture: string): Promise<PaneData> {
   const { entry: id, variant } = parseFixture(fixture);
-  const store = createFrameEntryStore(entryIndex[id]);
-  const { entry } = await store.find(id);
+  // The index names the entry's file; when its guess is stale, the whole registry finds it.
+  let { entry } = await createFrameEntryStore(entryIndex[id]).find(id);
+  if (!entry && entryIndex[id]) ({ entry } = await createFrameEntryStore().find(id));
   const state = entry?.variants[variant ?? Object.keys(entry.variants)[0] ?? ""] as AgentPaneVariant | undefined;
   const snapshot = state?.snapshot;
   if (!snapshot) return { title: id, sessions: [] };
@@ -168,22 +169,29 @@ function drawWindow(
     strip.append(tab, el("span", "app-strip-plus", "+"));
     const iframe = el("iframe", "app-pane-frame");
     iframe.title = fixture;
-    iframe.src = `frame.html?${paneFrameQuery(params, fixture)}`;
+    iframe.src = `frame.html?${paneFrameQuery(params, fixture, { main: index === 0, window: spec.size })}`;
     box.append(strip, iframe);
     frame.append(box);
-    void paneData(fixture).then((data) => {
-      tabTitle.textContent = data.title;
-      if (index === 0 && sidebarShown) drawSidebar(sidebar, data);
-    });
+    paneData(fixture)
+      .then((data) => {
+        tabTitle.textContent = data.title;
+        if (index === 0 && sidebarShown) drawSidebar(sidebar, data);
+      })
+      .catch((error: unknown) => {
+        tabTitle.textContent = fixture;
+        console.error(`mock app: could not read ${fixture}`, error);
+      });
     return { box, strip, tab, iframe };
   });
   // The stage says when it is ready (frame/main.ts markReady).
-  let pending = paneCount;
+  // Each pane counts once, however often it reports (a live reload of one stage reports again).
+  const reported = new Set<MessageEventSource>();
   const onMessage = (event: MessageEvent) => {
     const data = event.data as { type?: string; status?: string };
     if (data?.type !== "cmux-gallery-stage" || (data.status !== "ready" && data.status !== "error")) return;
-    if (!boxes.some(({ iframe }) => iframe.contentWindow === event.source)) return;
-    if (--pending === 0) {
+    if (!event.source || !boxes.some(({ iframe }) => iframe.contentWindow === event.source)) return;
+    reported.add(event.source);
+    if (reported.size === paneCount) {
       window.removeEventListener("message", onMessage);
       onReady();
     }

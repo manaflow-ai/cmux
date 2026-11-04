@@ -231,8 +231,9 @@ app.html?fixture=agent-pane.turn-error-card/disk-full&cpu=4&slot=custom-element&
 ```
 
 Every key is an axis in `src/gallery/app/axes.ts` (`AXES`). A `frame` axis goes to every pane's
-`frame.html` unchanged, so any control a stage reads (env.ts) works here too; an `app` axis shapes
-the window. Adding an axis the stage already reads is one row in `AXES`; a new script or extension
+`frame.html` unchanged, so any control a stage reads (env.ts) works here too; a `main pane` axis
+goes only to the pane `fixture` names (the panes share one main thread, so a script plays and CPU
+contention runs once); an `app` axis shapes the window. Adding an axis the stage already reads is one row in `AXES`; a new script or extension
 slot is one entry in `SCRIPTS` or `SLOTS` (`src/gallery/frame/scripts.ts`), and the URL then names
 it. `script=` also works on a plain `frame.html` stage.
 
@@ -246,9 +247,9 @@ it. `script=` also works on a plain `frame.html` stage.
 | `chrome`                                                                                  | app        | `web` (default) draws the window frame in the page; `native` lets a native host window (the view shell, `cmux preview open`) draw the frame and glass, and the page fills it |
 | `density`, `scale`, `interfaceScale`, `fontFamily`, `fontSize`                            | frame      | density and size, as in the gallery                                                                                                                                          |
 | `theme`, `colorScheme`, `accent`, `background`, `locale`, `reducedMotion`, `highContrast` | frame      | theme and customization, as in the gallery; the chrome takes the same theme                                                                                                  |
-| `script`, `loop`                                                                          | frame      | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once)                                                      |
-| `cpu`                                                                                     | frame      | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP)                                                                    |
-| `slot`                                                                                    | frame      | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind                                                        |
+| `script`, `loop`                                                                          | main pane  | `streaming`, `tools` or `error`: the chat comes alive on a loop through the pane's real `receive` (`loop=0` plays once)                                                      |
+| `cpu`                                                                                     | main pane  | simulated main-thread contention: each pane gets 1/N of its thread (a harness can also throttle with CDP)                                                                    |
+| `slot`                                                                                    | main pane  | `custom-element`: an extension's renderer (a custom element) through the pane's real registry, with a row of its kind                                                        |
 | `exp`, `arm`                                                                              | frame      | an experiment's arm                                                                                                                                                          |
 
 The page sets `data-mock-app-ready="1"` on its root and posts `{type: "cmux-mock-app", status:
