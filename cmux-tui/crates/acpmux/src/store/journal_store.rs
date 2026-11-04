@@ -77,6 +77,9 @@ const UNAPPLIED_DIR: &str = "journal-unapplied";
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
 /// Journal bytes past the last checkpoint that wake the checkpointer at once.
 const CHECKPOINT_BYTES: u64 = 64 * 1024 * 1024;
+/// The most journal a failed repair holds past it (`Order::held`): the next open holds what is past
+/// the checkpoint in memory. Past it, the chat's lines stay only in `journal-unapplied/`.
+const HOLD_MAX_BYTES: u64 = 4 * CHECKPOINT_BYTES;
 /// Checkpoints in a row that fail before the store asks the daemon to stop: the journal past the
 /// last one (what the next open holds in memory) must not grow without end.
 const CHECKPOINT_FAILURES_TO_STOP: u32 = 10;
@@ -121,6 +124,8 @@ struct Inner {
     durable: tokio::sync::watch::Receiver<u64>,
     /// The store is being dropped: its writer's end is not a failure.
     dropping: Arc<AtomicBool>,
+    /// The checkpointer sleeps until a change (`Inner::touched`), with nothing to checkpoint.
+    idle: AtomicBool,
     /// Held while a chat's folder is removed or its `session.json` written from the overlay
     /// (`journal_store/meta.rs`).
     folders: Mutex<()>,
@@ -167,9 +172,31 @@ struct Order {
     failures: u32,
     /// The open reported damage: cleared (`Journal::clear_damage`) after the next checkpoint.
     damage: bool,
+    /// The first LSN of a chat whose repair failed at the open (0: none): the checkpoint stays
+    /// below it, so the next start repairs that chat again, until [`HOLD_MAX_BYTES`] of journal
+    /// came after it.
+    held: Lsn,
+    /// Journal payload bytes appended since `held` was set.
+    held_bytes: u64,
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
+}
+
+impl Order {
+    /// The LSN a checkpoint may reach now: every record with its effect done, below a failed
+    /// repair's hold.
+    fn target(&self) -> Lsn {
+        match self.held {
+            0 => self.applied,
+            held => self.applied.min(held.saturating_sub(1)),
+        }
+    }
+
+    /// Whether a checkpoint has anything to do.
+    fn has_work(&self) -> bool {
+        self.target() > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
+    }
 }
 
 #[derive(Default)]
@@ -232,6 +259,7 @@ impl JournalStore {
             durable,
             dropping,
             folders: Mutex::new(()),
+            idle: AtomicBool::new(false),
         });
         inner.apply(replay)?;
         if let Err(error) = inner.checkpoint() {
@@ -414,6 +442,7 @@ impl Store for JournalStore {
         if full {
             inner.want_checkpoint();
         }
+        inner.touched();
         Ok(())
     }
     /// The chat's log and metadata durable on disk: its overlay image written to `session.json`
@@ -542,6 +571,7 @@ impl Store for JournalStore {
             order.applied = lsn;
             order.metas.remove(id);
         }
+        inner.touched();
         // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
         let _folder = inner.folders.lock_or_recover();
         Store::delete(&inner.local, id)

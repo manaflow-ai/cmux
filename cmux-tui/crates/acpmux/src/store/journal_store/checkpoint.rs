@@ -98,10 +98,19 @@ impl Inner {
                 !order.frozen,
                 "the event journal's checkpoint is frozen (a log sync failed): a restart writes the logs again"
             );
-            if order.applied <= order.checkpointed
-                && order.dirty.is_empty()
-                && order.metas.is_empty()
-            {
+            // A failed repair's hold: bounded by the journal that came after it.
+            if order.held > 0 {
+                order.held_bytes = order.held_bytes.saturating_add(order.bytes);
+                if order.held_bytes > HOLD_MAX_BYTES {
+                    tracing::error!(
+                        held = order.held,
+                        "the journal past a chat whose repair failed is over {HOLD_MAX_BYTES} bytes: its lines stay only in journal-unapplied/"
+                    );
+                    order.held = 0;
+                    order.held_bytes = 0;
+                }
+            }
+            if !order.has_work() {
                 let checkpointed = order.checkpointed;
                 drop(order);
                 self.retire(checkpointed);
@@ -109,7 +118,7 @@ impl Inner {
             }
             // A failed checkpoint waits for the timer or another `CHECKPOINT_BYTES`.
             order.bytes = 0;
-            (order.applied, std::mem::take(&mut order.dirty), order.metas.clone())
+            (order.target(), std::mem::take(&mut order.dirty), order.metas.clone())
         };
         // Every record up to `lsn` durable first (one group commit, on this background thread):
         // the checkpoint is never past the journal's durable end, and a metadata image written
@@ -203,7 +212,26 @@ impl Inner {
             if timer.stop {
                 return;
             }
+            if !timer.wanted && !self.order.lock_or_recover().has_work() {
+                // Idle (cmux-ad m9: no periodic wake): asleep until a change (`touched`). The flag
+                // goes up before the second look, so a change either shows in that look or finds
+                // the flag and wakes this wait (it notifies under the timer lock held here).
+                self.idle.store(true, AtomicOrdering::SeqCst);
+                if !self.order.lock_or_recover().has_work() {
+                    timer = self
+                        .wake
+                        .wait_while(timer, |timer| {
+                            !timer.stop && !timer.wanted && self.idle.load(AtomicOrdering::SeqCst)
+                        })
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if timer.stop {
+                        return;
+                    }
+                }
+                self.idle.store(false, AtomicOrdering::SeqCst);
+            }
             if !timer.wanted {
+                // One period after the first change: a burst shares one checkpoint.
                 timer = self
                     .wake
                     .wait_timeout(timer, checkpoint_every())
@@ -221,6 +249,15 @@ impl Inner {
                 tracing::warn!("event journal checkpoint: {error:#}");
             }
             timer = self.timer.lock_or_recover();
+        }
+    }
+
+    /// A change was appended: wakes an idle checkpointer (`run_checkpointer`). One atomic read
+    /// when it is not idle. Never called with the appends' lock held.
+    pub(super) fn touched(&self) {
+        if self.idle.load(AtomicOrdering::SeqCst) && self.idle.swap(false, AtomicOrdering::SeqCst) {
+            let _timer = self.timer.lock_or_recover();
+            self.wake.notify_all();
         }
     }
 

@@ -95,7 +95,15 @@ impl Inner {
                 }
                 Err(RepairError::Chat { error, keep }) => {
                     let kept = self.keep_aside(&chat, first_lsn, &keep)?;
-                    tracing::error!(session = %chat, kept = %kept.display(), "the chat's log could not be repaired: {error:#}");
+                    // Its records stay in the journal until a later start repairs the log (the
+                    // checkpoint holds below them, `journal_store/checkpoint.rs`).
+                    let mut order = self.order.lock_or_recover();
+                    order.held = match order.held {
+                        0 => first_lsn,
+                        held => held.min(first_lsn),
+                    };
+                    drop(order);
+                    tracing::error!(session = %chat, kept = %kept.display(), "the chat's log could not be repaired; its journaled lines stay for the next start: {error:#}");
                 }
                 #[cfg(test)]
                 Err(RepairError::Stopped) => anyhow::bail!("stopped after the cut (a test)"),
@@ -301,19 +309,23 @@ fn read_pieces(path: &Path, segment: u32, from: u64, out: &mut Vec<Piece>) -> Re
         }
         let len = u64::try_from(read).unwrap_or(u64::MAX);
         let whole = line.last() == Some(&b'\n');
-        // A hole of zeros an OS crash left runs into the next line: the zeros are one piece, the
-        // line after them another.
-        let zeros = line.iter().take_while(|byte| **byte == 0).count();
-        let after_zeros = line.get(zeros..).unwrap_or_default();
+        // A hole of zeros an OS crash left runs into the next line, after a torn line or not: the
+        // bytes up to the hole's last zero are one piece, the line after them another. A whole
+        // line holds no zero byte (JSON escapes every control character).
+        let after_hole = line
+            .iter()
+            .rposition(|byte| *byte == 0)
+            .and_then(|at| at.checked_add(1))
+            .and_then(|at| Some((at, line.get(at..)?)));
         if whole && let Some(seq) = piece_seq(&line) {
             out.push(Piece { segment, offset, line: Some((seq, line.clone())) });
         } else if whole
-            && zeros > 0
-            && let Some(seq) = piece_seq(after_zeros)
+            && let Some((at, after)) = after_hole
+            && let Some(seq) = piece_seq(after)
         {
             out.push(Piece { segment, offset, line: None });
-            let at = offset.saturating_add(u64::try_from(zeros).unwrap_or(u64::MAX));
-            out.push(Piece { segment, offset: at, line: Some((seq, after_zeros.to_vec())) });
+            let at = offset.saturating_add(u64::try_from(at).unwrap_or(u64::MAX));
+            out.push(Piece { segment, offset: at, line: Some((seq, after.to_vec())) });
         } else {
             out.push(Piece { segment, offset, line: None });
         }

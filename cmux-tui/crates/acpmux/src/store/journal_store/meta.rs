@@ -187,6 +187,7 @@ impl Inner {
         if full {
             self.want_checkpoint();
         }
+        self.touched();
         Ok(())
     }
 
