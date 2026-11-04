@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 import WebKit
@@ -13,30 +14,24 @@ import WebKit
 /// reloads in it while the app's own windows keep the bundled pages. Updating the app's own windows on the
 /// fly is `web-dev.json` (``WebDevOverride``). Each `open` is a new window, offset from the last, so
 /// several sizes can sit side by side.
-@MainActor public final class ViewWindow {
+@MainActor public final class ViewWindow: NSObject, NSWindowDelegate {
     /// The gallery dev server's port (`bun run gallery:dev`).
-    public static let defaultPort = 4210
+    public nonisolated static let defaultPort = 4210
 
     private var windows: [NSWindow] = []
-    private var closing: [NSObjectProtocol] = []
 
-    public init() {}
+    override public init() {}
 
     /// Opens one view window now; its page loads once the person's look is read off the main thread.
-    /// - Parameters:
-    ///   - port: The loopback port of the gallery dev server; nil is ``defaultPort``.
-    ///   - size: The window's content size in points; nil is 1280×800.
-    ///   - query: Mock app keys (`fixture`, `density`, `script`, ...) that win over the person's look.
-    public func open(port: Int? = nil, size: CGSize? = nil, query: [(String, String)] = []) {
+    /// - Parameter arguments: The action's arguments: `port` (the gallery dev server's loopback port,
+    ///   default ``defaultPort``), `width` and `height` (points, default 1280×800), and every other key a
+    ///   mock app key (`fixture`, `density`, `script`, ...) that wins over the person's look.
+    public func open(arguments: [String: String]) {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let port = port.flatMap { (1...65_535).contains($0) ? $0 : nil } ?? Self.defaultPort
-        let (window, webView) = makeWindow(size: Self.clamped(size ?? CGSize(width: 1280, height: 800)))
-        let token = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window,
-                                                           queue: .main) { [weak self] note in
-            MainActor.assumeIsolated { self?.forget(note.object as? NSWindow) }
-        }
+        let (port, size, query) = Self.parse(arguments)
+        let (window, webView) = makeWindow(size: size)
+        window.delegate = self
         windows.append(window)
-        closing.append(token)
         window.makeKeyAndOrderFront(nil)
         let file = CmuxConfigFile.defaultURL()
         Task { [weak webView] in
@@ -46,10 +41,8 @@ import WebKit
         }
     }
 
-    private func forget(_ window: NSWindow?) {
-        guard let window, let index = windows.firstIndex(where: { $0 === window }) else { return }
-        windows.remove(at: index)
-        NotificationCenter.default.removeObserver(closing.remove(at: index))
+    public func windowWillClose(_ notification: Notification) {
+        windows.removeAll { $0 === notification.object as? NSWindow }
     }
 
     private func makeWindow(size: CGSize) -> (NSWindow, WKWebView) {
@@ -117,6 +110,16 @@ import WebKit
         return sides[dark ? "dark" : "light"] ?? sides[dark ? "light" : "dark"] ?? theme
     }
 
+    /// The port, the clamped size and the mock app keys (sorted) of the action's arguments.
+    nonisolated static func parse(_ arguments: [String: String]) -> (port: Int, size: CGSize, query: [(String, String)]) {
+        let port = arguments["port"].flatMap(Int.init).flatMap { (1...65_535).contains($0) ? $0 : nil } ?? defaultPort
+        let width = arguments["width"].flatMap(Double.init) ?? 1280
+        let height = arguments["height"].flatMap(Double.init) ?? 800
+        let query = arguments.filter { !["port", "width", "height"].contains($0.key) }.map { ($0.key, $0.value) }
+            .sorted { $0.0 < $1.0 }
+        return (port, clamped(CGSize(width: width, height: height)), query)
+    }
+
     /// Each side between 320 and 5120 points, as the view shell takes them.
     nonisolated static func clamped(_ size: CGSize) -> CGSize {
         CGSize(width: min(max(size.width, 320), 5120), height: min(max(size.height, 320), 5120))
@@ -124,7 +127,7 @@ import WebKit
 
     /// ``lookQuery(config:dark:)`` of `file` (`cmux-next.json`, JSON5), read off the main thread.
     @concurrent nonisolated static func readLook(_ file: URL, dark: Bool) async -> [(String, String)] {
-        let data = try? Data(contentsOf: file)
+        let data = try? Data(blockingContentsOf: file)
         let config = data.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.json5Allowed]) } as? [String: Any]
         return lookQuery(config: config, dark: dark)
     }

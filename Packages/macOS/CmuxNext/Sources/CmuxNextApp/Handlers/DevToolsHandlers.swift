@@ -20,17 +20,8 @@ enum DevToolsHandlers {
                 ActionTargetTitles.setPaletteState(id, in: registry) { isOn(command, context) }
             }
         }
-        // `port`, `width` and `height` place the window; every other string argument is a mock app key.
-        registry.bindEffect("debug.viewWindow", effect: { [viewWindow = ViewWindow()] invocation in
-            let size = invocation["width"]?.intValue.flatMap { width in
-                invocation["height"]?.intValue.map { CGSize(width: width, height: $0) }
-            }
-            let query = invocation.arguments.compactMap { key, value -> (String, String)? in
-                ["port", "width", "height"].contains(key) ? nil : value.stringValue.map { (key, $0) }
-            }.sorted { $0.0 < $1.0 }
-            viewWindow.open(port: invocation["port"]?.intValue, size: size, query: query)
-            return .done
-        })
+        registry.bindEffect("debug.viewWindow", effect: { [viewWindow = ViewWindow()] in
+            viewWindow.open(arguments: $0.arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) }); return .done })
     }
 
     // MARK: Target

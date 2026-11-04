@@ -42,6 +42,14 @@ struct ViewWindowTests {
         #expect(await ViewWindow.readLook(file.appending(path: "missing"), dark: true).isEmpty)
     }
 
+    @Test func argumentsPlaceTheWindowAndTheRestAreMockAppKeys() {
+        let parsed = ViewWindow.parse(["port": "4300", "width": "900", "height": "700", "script": "streaming", "density": "compact"])
+        #expect(parsed.port == 4300 && parsed.size == CGSize(width: 900, height: 700))
+        #expect(parsed.query.map(\.0) == ["density", "script"])
+        let defaults = ViewWindow.parse(["port": "99999"])
+        #expect(defaults.port == ViewWindow.defaultPort && defaults.size == CGSize(width: 1280, height: 800) && defaults.query.isEmpty)
+    }
+
     @Test func sizesAreClampedLikeTheShells() {
         #expect(ViewWindow.clamped(CGSize(width: 100, height: 9000)) == CGSize(width: 320, height: 5120))
         #expect(ViewWindow.clamped(CGSize(width: 900, height: 700)) == CGSize(width: 900, height: 700))
