@@ -110,6 +110,14 @@ class PerTest(unittest.TestCase):
                     "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
         self.assertEqual(reds.read(whole).truncated, [])
 
+    def test_a_suite_end_after_a_zero_width_space_is_whole(self):
+        # PR 35296's app-host shard 2: Swift Testing printed "\u200b✔ Suite ... passed" after interleaved app logs.
+        whole = log('◇ Suite "Cloud sidebar recorded interaction" started.',
+                    '\u200b✔ Suite "Cloud sidebar recorded interaction" passed after 0.001 seconds.', SUMMARY)
+        self.assertEqual(reds.read(whole).truncated, [])
+        cut = log('\u200b◇ Suite "s" started.', SUMMARY)
+        self.assertIn('1 suite(s) started and never finished: "s"', reds.read(cut).truncated)
+
     def test_a_run_cut_off_between_tests_is_the_heads_own(self):
         cut = log("◇ Test run started.", "◇ Suite S started.", "◇ Test a() started.", failed("a()"),
                   "✘ Test a() failed after 0.1 seconds with 1 issue.")
