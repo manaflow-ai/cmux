@@ -107,3 +107,49 @@ fn queued_terminal_notifications_post_in_order_once_the_registry_is_free() {
     wait_for("the queued notifications posted", || titles().len() == 4);
     assert_eq!(titles(), ["Bell", "first", "second", "third"]);
 }
+
+/// #35765 review: a hosted terminal's exit commits the directory its shell reported last, as the reader did when it
+/// published inline before it handled the host's Exit frame. A publication that the reader queued and the publisher
+/// runs after the exit commits nothing (an ended terminal settles without publishing), so `cd x; exit` kept the old
+/// directory on the exited tab, in its exit record and for its restart.
+#[cfg(unix)]
+#[test]
+fn a_terminal_exit_commits_the_directory_its_shell_reported_last() {
+    const TERMINAL: &str = "00000000000040008000000000035765";
+    const INCARNATION: &str = "10000000000040008000000000035765";
+    let mux = test_mux();
+    let workspace = mux
+        .create_empty_workspace(
+            Some("exit-cwd".into()),
+            Some("018f6e21-7b70-7e70-8000-000000035765".into()),
+            None,
+        )
+        .unwrap();
+    let surface_id = mux
+        .seed_running_terminal_with_on_exit_for_test(
+            TERMINAL,
+            INCARNATION,
+            &workspace.key,
+            TerminalOnExit::Keep,
+        )
+        .unwrap();
+    let surface = mux.surface(surface_id).expect("the seeded terminal");
+    let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let dir_text = dir.to_string_lossy().into_owned();
+    {
+        // The shell's last report reaches the reader, which queues its publication; the host's Exit frame is next.
+        let _held = mux.hold_terminal_publisher_for_test();
+        surface.set_test_pwd(Some(format!("file://localhost{dir_text}")));
+        surface.queue_pending_publications();
+        mux.surface_exited(surface_id);
+    }
+    assert!(
+        mux.wait_for_terminal_publisher_for_test(Duration::from_secs(10)),
+        "the publisher did not finish"
+    );
+    assert_eq!(
+        surface.presented_directory().as_deref(),
+        Some(dir_text.as_str()),
+        "the exited terminal kept the directory from before its shell's last report"
+    );
+}

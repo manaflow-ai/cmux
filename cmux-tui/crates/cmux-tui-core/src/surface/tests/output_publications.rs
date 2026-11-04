@@ -49,15 +49,15 @@ fn hold_registry(mux: &Arc<Mux>) -> (SyncSender<()>, std::thread::JoinHandle<()>
     (release, holder)
 }
 
-#[test]
-fn hosted_output_reaches_the_terminal_while_the_registry_is_held() {
-    let mux = Mux::new_for_test("output-publications-hosted", SurfaceOptions::default());
+/// A hosted terminal on a fake host connection (the host end is the second value). It has a public terminal id:
+/// its publications are resource commits, as every terminal's are in the daemon.
+fn hosted_surface(name: &str) -> (Arc<Mux>, Arc<Surface>, std::os::unix::net::UnixStream) {
+    let mux = Mux::new_for_test(name, SurfaceOptions::default());
     let workspace = mux.create_empty_workspace(None, None, None).unwrap();
-    let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
     let terminal_id = attachment.record.terminal_id.clone();
     attachment.record.workspace_key = workspace.key.clone();
     mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
-    // A public terminal id: its publications are resource commits, as every terminal's are in the daemon.
     let surface = Surface::spawn_hosted(
         1,
         SurfaceOptions::default(),
@@ -75,17 +75,25 @@ fn hosted_output_reaches_the_terminal_while_the_registry_is_held() {
     )
     .unwrap();
     host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
-    let send = |host: &mut std::os::unix::net::UnixStream, sequence: u64, text: &str| {
-        let mut output = Frame::new(MessageKind::Output, text.as_bytes().to_vec());
-        output.sequence = sequence;
-        crate::terminal_host_protocol::write_frame(host, &output).unwrap();
-        Instant::now()
-    };
+    (mux, surface, host)
+}
+
+/// Writes `text` as the host's Output frame `sequence`; returns when it was written.
+fn send_output(host: &mut std::os::unix::net::UnixStream, sequence: u64, text: &str) -> Instant {
+    let mut output = Frame::new(MessageKind::Output, text.as_bytes().to_vec());
+    output.sequence = sequence;
+    crate::terminal_host_protocol::write_frame(host, &output).unwrap();
+    Instant::now()
+}
+
+#[test]
+fn hosted_output_reaches_the_terminal_while_the_registry_is_held() {
+    let (mux, surface, mut host) = hosted_surface("output-publications-hosted");
 
     let (release, holder) = hold_registry(&mux);
-    let first = send(&mut host, 1, "first-output ");
+    let first = send_output(&mut host, 1, "first-output ");
     let first_shown = shown_after(&surface, "first-output", first);
-    let echo = send(&mut host, 2, "key-echo");
+    let echo = send_output(&mut host, 2, "key-echo");
     let echo_shown = shown_after(&surface, "key-echo", echo);
     release.send(()).unwrap();
     holder.join().unwrap();
@@ -95,6 +103,51 @@ fn hosted_output_reaches_the_terminal_while_the_registry_is_held() {
         echo_shown.is_some(),
         "the next output frame did not reach the terminal within {APPLIED_WITHIN:?} while another thread held the \
          workspace registry: the reader waited in the durable publication of the first frame"
+    );
+}
+
+/// #35765 review: a program's OSC 7501 alert posts after the notifications of the output before it, as when the
+/// reader published inline. The publication job that commits the alert's record ran ahead of the notification job
+/// an earlier frame queued, and it took and posted the alert itself, so a later alert could post first.
+#[test]
+fn a_programs_alert_posts_after_the_notifications_of_earlier_output() {
+    let (mux, surface, mut host) = hosted_surface("output-publications-order");
+    let titles = || {
+        let mut titles = mux
+            .resource_notifications(16)
+            .into_iter()
+            .map(|notification| notification.title)
+            .collect::<Vec<_>>();
+        titles.reverse();
+        titles
+    };
+
+    let (release, holder) = hold_registry(&mux);
+    let first = send_output(&mut host, 1, "\x1b]9;first-note\x07first-frame ");
+    let first_shown = shown_after(&surface, "first-frame", first);
+    // A terminal's notifications are at least 1 s apart (its rate limit): the alert must pass it.
+    std::thread::sleep(Duration::from_millis(1_100));
+    let second = send_output(
+        &mut host,
+        2,
+        "\x1b]7501;state=blocked:kind=question:app=make\x1b\\second-frame",
+    );
+    let second_shown = shown_after(&surface, "second-frame", second);
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    assert!(
+        first_shown.is_some() && second_shown.is_some(),
+        "an output frame never reached the terminal"
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while titles().len() < 2 && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(
+        titles(),
+        ["first-note", "make asks a question"],
+        "notifications out of output order"
     );
 }
 

@@ -46,8 +46,12 @@ struct PublisherQueue {
     worker: Option<std::thread::ThreadId>,
     /// The worker runs a job it took off `jobs`.
     busy: bool,
-    /// The terminal readers stopped (shutdown or drop): no job is taken.
+    /// The terminal readers stopped (shutdown or drop): no new job is
+    /// queued. The worker still runs the jobs queued before, then exits.
     closed: bool,
+    /// Test seam: the worker takes no job while a test holds the publisher.
+    #[cfg(test)]
+    held: bool,
 }
 
 enum PublisherJob {
@@ -161,7 +165,11 @@ impl PublisherShared {
             let job = {
                 let mut queue = self.queue.lock().unwrap_or_else(PoisonError::into_inner);
                 loop {
-                    if let Some(job) = queue.jobs.pop_front() {
+                    #[cfg(test)]
+                    let held = queue.held && !queue.closed;
+                    #[cfg(not(test))]
+                    let held = false;
+                    if !held && let Some(job) = queue.jobs.pop_front() {
                         queue.busy = true;
                         break job;
                     }
@@ -215,5 +223,40 @@ impl Mux {
     /// `deadline`), then take no more.
     pub(super) fn finish_terminal_publications(&self, deadline: Instant) {
         self.terminal_publisher.finish(deadline);
+    }
+}
+
+/// Releases a held publisher when dropped (`Mux::hold_terminal_publisher_for_test`).
+#[cfg(test)]
+pub(crate) struct TerminalPublisherHold<'a>(&'a TerminalPublisher);
+
+#[cfg(test)]
+impl Drop for TerminalPublisherHold<'_> {
+    fn drop(&mut self) {
+        self.0.shared.queue.lock().unwrap_or_else(PoisonError::into_inner).held = false;
+        self.0.shared.changed.notify_all();
+    }
+}
+
+#[cfg(test)]
+impl Mux {
+    /// The publisher takes no job until the returned hold drops: what readers queue meanwhile waits.
+    pub(crate) fn hold_terminal_publisher_for_test(&self) -> TerminalPublisherHold<'_> {
+        self.terminal_publisher.shared.queue.lock().unwrap_or_else(PoisonError::into_inner).held =
+            true;
+        TerminalPublisherHold(&self.terminal_publisher)
+    }
+
+    /// Waits (at most `timeout`) until the publisher ran every job queued so far. False on the timeout.
+    pub(crate) fn wait_for_terminal_publisher_for_test(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let shared = &self.terminal_publisher.shared;
+        let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
+        while queue.busy || !queue.jobs.is_empty() {
+            let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
+            queue =
+                shared.changed.wait_timeout(queue, left).unwrap_or_else(PoisonError::into_inner).0;
+        }
+        true
     }
 }
