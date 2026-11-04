@@ -404,7 +404,7 @@ extension AgentTabStore {
         if services.cloud.auth.isSignedIn {
             tryAnotherApproach = { [weak services] (chat: String, throughSeq: Int) async throws -> [String: Any] in
                 guard let services else { throw CancellationError() }
-                return try await CloudTryAnotherApproach.run(chat: chat, throughSeq: throughSeq, services: services)
+                return try await cloudTryAnotherApproach(chat: chat, throughSeq: throughSeq, services: services)
             }
         } else {
             tryAnotherApproach = nil
