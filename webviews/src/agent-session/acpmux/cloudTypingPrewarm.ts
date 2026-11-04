@@ -1,0 +1,44 @@
+/**
+ * Hints the Cloud machine as soon as a person starts a prompt.
+ *
+ * This is deliberately a hint, rather than part of delivery. The platform's predictive wake
+ * policy may ignore it (the machine may already be live, or the hint may race a send), and a
+ * rejected native request must never hold the draft or change the send path.
+ */
+
+export const CLOUD_TYPING_PREWARM_REFRESH_MS = 2_000;
+
+export type CloudTypingPrewarmPort = { prewarm(machineID: string): void };
+
+export type CloudTypingTarget = { machineID: string; sessionID?: string };
+
+const sameTarget = (left: CloudTypingTarget | undefined, right: CloudTypingTarget) =>
+  left?.machineID === right.machineID && left?.sessionID === right.sessionID;
+
+export class CloudTypingPrewarm {
+  private last?: { target: CloudTypingTarget; at: number };
+
+  constructor(
+    private readonly port: CloudTypingPrewarmPort,
+    private readonly now: () => number = Date.now,
+  ) {}
+
+  /** Hint once for the first non-empty edit, then refresh only after the short dedupe window. */
+  typed(text: string, target: CloudTypingTarget | undefined): void {
+    if (!text.trim() || !target?.machineID) return;
+    const at = this.now();
+    if (this.last && sameTarget(this.last.target, target) && at - this.last.at < CLOUD_TYPING_PREWARM_REFRESH_MS)
+      return;
+    this.last = { target, at };
+    try {
+      this.port.prewarm(target.machineID);
+    } catch {
+      // A prewarm is best effort. Native or transport failure must not affect the draft or send.
+    }
+  }
+
+  /** Clear a previous target when the pane leaves its chat. */
+  reset(): void {
+    this.last = undefined;
+  }
+}
