@@ -48,6 +48,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.ref }}
           BODY: ${{ github.event.pull_request.body }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          MERGE_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/classic_api_guard.py ]; then
@@ -56,9 +58,24 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          # A rename counts as both its old and its new path.
-          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          # The changed paths come from the event's merge commit without blobs, as
+          # pr-design-spec-check.yml reads them: no API call, so a spent REST quota cannot fail the
+          # guard. --no-renames lists a rename as its old and its new path. Nothing from the head is
+          # checked out or run; git only lists paths. git's list has no length cap, so the
+          # --expected-files cross-check (GitHub's file listing stops at 3,000 entries) is passed only
+          # on the REST fallback, the one listing that can be cut short.
+          expected=()
+          if git fetch --no-tags --quiet --depth=2 --filter=blob:none origin "$MERGE_SHA" \
+            && [ "$(git rev-parse "$MERGE_SHA^2")" = "$HEAD_SHA" ] \
+            && git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/paths.txt"; then
+            echo "changed paths: $(wc -l < "$RUNNER_TEMP/paths.txt" | tr -d ' ') from the merge commit (git)"
+          else
+            echo "::notice title=classic API guard::git could not list the changed paths; reading them over the API"
+            # A rename counts as both its old and its new path.
+            gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+            expected=(--expected-files "$CHANGED_FILES")
+          fi
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
-            --expected-files "$CHANGED_FILES"
+            "${expected[@]}"

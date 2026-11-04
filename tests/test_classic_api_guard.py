@@ -114,6 +114,9 @@ class ClassicApiGuardTests(unittest.TestCase):
         self.assertIn("edited", text)
         self.assertNotIn("changes.body", text)
         self.assertIn("--expected-files", text)
+        # The changed paths come from git, renames as both paths; REST is only the fallback.
+        self.assertIn('git diff --name-only -z --no-renames "$MERGE_SHA^1" "$MERGE_SHA"', text)
+        self.assertLess(text.index("git diff --name-only"), text.index("gh api --paginate"))
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
         self.assertNotIn("pull_request_target", text)
