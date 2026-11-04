@@ -324,6 +324,15 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         layoutTitlebarAccessories(midY: midY)
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // Pixel-aligned titlebar frames depend on the window's current scale. A
+        // display move can change it without changing the view bounds, so mark
+        // the whole chrome for a fresh layout instead of leaving half-point
+        // edges until the next unrelated token update.
+        needsLayout = true
+    }
+
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
 

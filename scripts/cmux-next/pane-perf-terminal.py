@@ -177,6 +177,7 @@ WINDOW_RESTORE = None  # before each window-zoom, checked after its paired windo
 WINDOW_TARGET_HZ = 120.0
 WINDOW_REFRESH_TOLERANCE = 0.15
 WINDOW_MAX_STEP = MOTION_THRESHOLDS["window_resize"]["max_step"]
+WINDOW_MIN_INTERMEDIATE = MOTION_THRESHOLDS["window_resize"]["min_intermediate"]
 
 
 def finite_nonnegative(value):
@@ -500,6 +501,9 @@ def measure(label, name):
             error = error or f"window zoom display probe has invalid missed-frame count {monitor_missed!r}"
         elif monitor_missed:
             error = error or f"window zoom display probe missed {monitor_missed} frame(s)"
+        if travel["intermediate"] < WINDOW_MIN_INTERMEDIATE:
+            error = error or (f"window zoom had {travel['intermediate']} intermediate display frames; "
+                              f"expected at least {WINDOW_MIN_INTERMEDIATE}")
         result["error"] = error
     extra = ""
     if name in WINDOW_ACTIONS:
