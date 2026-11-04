@@ -4,7 +4,7 @@ public import CmuxNextWakeups
 /// click and never waits for the daemon. A slow save (the reply missed its deadline, so it may still apply)
 /// is sent again in the background a few times, with no notice; only a refusal puts the daemon's look back
 /// and says why. Leo, 2026-11-03, on "Collapse/Expand Workspace Group did not apply: ... timed out".
-public enum SidebarFoldPersist: Equatable, Sendable {
+public nonisolated enum SidebarFoldPersist: Equatable, Sendable {
     /// Send the same fold again (after the backoff's next delay).
     case retry
     /// The daemon refused it: drop the fold and report.
@@ -24,7 +24,7 @@ public enum SidebarFoldPersist: Equatable, Sendable {
     }
 }
 
-extension SidebarFoldPersist {
+nonisolated extension SidebarFoldPersist {
     /// Runs `send`, a save that sets an absolute value (a fold, a workspace's place), so a second send of it is
     /// harmless; a reply that missed its deadline (`mayHaveApplied`) sends it again on the fold's policy and backoff,
     /// with no notice. Throws the refusal at once, or the last missed deadline once the retries are spent (the caller
