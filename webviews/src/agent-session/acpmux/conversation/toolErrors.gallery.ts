@@ -183,6 +183,76 @@ const failedStep = chat(
   { harness: "claude", model: "claude-opus-5-5" },
 );
 
+/// Failed calls whose labels are longer than the line: the label takes the ellipsis and the failure
+/// word stays whole after it, as a command's "Failed" does (ToolRow.tsx; cmux#24339 put it inside
+/// the cut words).
+const longLabels = calls("Read the retry notes and the old reference", [
+  [
+    tool(
+      "Read /Users/you/src/atlas-web/packages/network/src/retry/strategies/exponential-backoff/exponential-backoff-with-full-jitter-and-retry-budget.ts",
+      "read",
+      "failed",
+      {
+        output:
+          "<tool_use_error>File does not exist. Current working directory: /Users/you/src/atlas-web</tool_use_error>",
+        ...times(5.8),
+      },
+    ),
+    "That file moved.",
+  ],
+  [
+    tool(
+      "Fetch https://docs.example.com/reference/networking/client-behaviour/retries/exponential-backoff-and-full-jitter-with-retry-budgets",
+      "fetch",
+      "failed",
+      { output: "Request failed with status code 404 Not Found", ...times(5.4) },
+    ),
+    "The old reference is gone.",
+  ],
+  [
+    tool(
+      "Edit packages/network/src/retry/strategies/exponential-backoff/exponential-backoff-with-full-jitter-and-retry-budget.test.ts",
+      "edit",
+      "failed",
+      { output: "The user doesn't want to proceed with this tool use.", ...times(5) },
+    ),
+    "You declined the test edit.",
+  ],
+]);
+
+/// A run where a Read and a command failed, opened: both steps say "Failed", capitalised alike
+/// (conversation.css; cmux#33759 capitalised only the command's).
+const mixedFailedStep = chat(
+  [
+    user("Check the retry notes and run the checks", 6),
+    activity(
+      [
+        ok("acpmux ls --json > /tmp/ls.json", "Check states of my routed lanes", 5.8),
+        tool("Read docs/retry-notes.md", "read", "failed", {
+          output: "<tool_use_error>File does not exist.</tool_use_error>",
+          ...times(5.6),
+        }),
+        shell("bun test src/net", "Run the network tests", "Exit code 1\n1 fail", 5.4),
+        ok("git status --short", "Check the branch is clean", 5.2),
+      ],
+      5.8,
+    ),
+    assistant("The notes file is missing and one network test fails.", 5),
+  ],
+  { harness: "claude", model: "claude-opus-5-5" },
+);
+
+/// Opens a run's line, whatever it counts, to show its steps.
+const openAnyRun = async (ctx: PlayContext) => {
+  const run = () => ctx.document.querySelector<HTMLElement>("button.cv-tool.is-run[aria-expanded]");
+  await ctx.waitFor(run);
+  if (run()!.getAttribute("aria-expanded") !== "true")
+    await ctx.click({ selector: "button.cv-tool.is-run[aria-expanded]" });
+  await ctx.waitFor(
+    () => ctx.document.querySelectorAll(".cv-steps .cv-tool__failed, .cv-steps .cv-command__failed").length >= 2,
+  );
+};
+
 /// Opens the run, to show its steps. A turn with no summary row draws as it came (turns.ts
 /// `shapeTurn`), so this group already starts open: a click then closed it, and the wait raced its
 /// close (it held only while the closing steps were still drawn; the reply under it rose as it shut).
@@ -229,6 +299,15 @@ export default agentPaneEntry({
       note: 'A run of four commands with one failure, opened: the group says "1 failed", the failed step is one plain line with "failed" at its edge, and its error output ("(eval):1: ==== not found") waits behind its own chevron. A lone command still says Exit 1 and the cause.',
       snapshot: failedStep,
       play: openRun,
+    },
+    "long-label": {
+      note: "Failed calls whose labels run past the line: each label takes the ellipsis and its failure word (Failed, Denied) stays whole after it.",
+      snapshot: longLabels,
+    },
+    "failed-step-mixed": {
+      note: 'A run where a Read and a command failed, opened: both steps say "Failed", capitalised alike, right after their titles.',
+      snapshot: mixedFailedStep,
+      play: openAnyRun,
     },
     "exit-opened": {
       note: "The traceback's call opened: the Shell block says Exit code 1 once, under the output.",

@@ -29,6 +29,9 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     { entry: "agent-pane.transcript-spacing-table", variant: "shipped" },
     { entry: "agent-pane.transcript-spacing-table", variant: "peer-lines" },
     { entry: "agent-pane.transcript-chevron-after-label", variant: "chatgpt" },
+    // An opened lead thought: "Thought for 6s" and its chevron right after it (cmux#27896 parked it
+    // at the row's far edge).
+    { entry: "agent-pane.claude-desktop-organization", variant: "shared" },
   ];
   const WIDTHS = [760, 420];
 
@@ -126,9 +129,7 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       };
       const out: Chevron[] = [];
       for (const chevron of document.querySelectorAll(".acpmux-row .cv-rotor")) {
-        // An opened thought step has no label line: its chevron tops the thought's text at the row's
-        // end (conversation.css .cv-step-thought.is-open), a follow-up to this rule.
-        if (!laidOut(chevron) || chevron.closest(".cv-step-thought.is-open")) continue;
+        if (!laidOut(chevron)) continue;
         const path = chevron.matches("svg") ? chevron.querySelector("path") : chevron.querySelector("svg path");
         if (!path) continue;
         const glyph = path.getBoundingClientRect();
