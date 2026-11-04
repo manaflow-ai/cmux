@@ -444,7 +444,7 @@ mod tests {
             resync.version = version;
             let mut capability = frame(MessageKind::Capability, 11, version);
             capability.payload = vec![7; 32];
-            read_stream(stream_of(&[resync, capability]), &responses, version, early, &queue);
+            read_stream(stream_of(&[resync, capability]), &responses, version, early, &queue, "");
             let reply = mint
                 .recv_timeout(Duration::from_secs(1))
                 .expect("the Capability reply after ResyncRequired was dropped");
@@ -489,7 +489,7 @@ mod tests {
         output.version = version;
         let mut frames = vec![output; 12];
         frames.push(frame(MessageKind::KittyGraphicsLimitsAck, 3, version));
-        read_stream(stream_of(&frames), &responses, version, SMART, &queue);
+        read_stream(stream_of(&frames), &responses, version, SMART, &queue, "");
         assert!(kitty.recv_timeout(Duration::from_secs(1)).is_ok());
         let state = queue.state.lock().unwrap();
         assert!(state.frames.is_empty() && state.queued_payload == 0);
@@ -608,6 +608,7 @@ mod tests {
             version,
             SMART,
             &queue(),
+            "",
         );
         assert_eq!(responses.pending_clipboard_read(), None);
         assert_eq!(signals.lock().unwrap().last(), Some(&ClipboardReadSignal::Cancel(9)));
@@ -633,7 +634,7 @@ mod tests {
             let queue = queue();
             let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
             output.version = version;
-            read_stream(stream_of(&[cancel, output]), &responses, version, SMART, &queue);
+            read_stream(stream_of(&[cancel, output]), &responses, version, SMART, &queue, "");
             let state = queue.state.lock().unwrap();
             assert!(state.ended && state.frames.is_empty(), "the connection must end there");
         }
@@ -662,7 +663,7 @@ mod tests {
             let queue = queue();
             let mut output = Frame::new(MessageKind::Output, b"after".to_vec());
             output.version = version;
-            read_stream(stream_of(&[request, output]), &responses, version, SMART, &queue);
+            read_stream(stream_of(&[request, output]), &responses, version, SMART, &queue, "");
             assert_eq!(responses.pending_clipboard_read(), None);
             let state = queue.state.lock().unwrap();
             assert!(state.ended && state.frames.is_empty(), "the connection must end there");
