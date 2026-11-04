@@ -15,7 +15,8 @@ test("background activity has one secondary tone and lifts on hover or focus; a 
   expect(css).toMatch(/\.cv-tool\.is-run:hover > \.cv-tool__text \{\s*color: var\(--cv-text\);/);
   // A step row draws nothing more on hover (agent-pane-step-rows.test.ts).
   expect(css).not.toMatch(/\.cv-tool:hover(,| \.cv-tool__(chevron|detail))/);
-  expect(css).toContain(".cv-worked:hover,");
+  // Only the "Worked for" button lifts; the live line has nothing behind it (transcript-row-hover-scope.test.ts).
+  expect(css).toContain("button.cv-worked:hover,");
   // A received message keeps one tone under the pointer and focus (Leo, 2026-11-03).
   expect(css).not.toMatch(/\.cv-received:is\(:hover/);
   expect(css).toContain(".cv-received__text :is(.cv-md, .cv-h),");

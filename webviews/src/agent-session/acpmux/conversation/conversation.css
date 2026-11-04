@@ -2064,6 +2064,11 @@ pre.cv-math-source {
 }
 /* Past the turn's first step its clock reads as the total ("· 4m total", Thinking.tsx): the words
    around it sit at the count's own gap. */
+/* The words around the turn's total ("· 12m 9s total") read at the time's own dim tone: one
+   tone for the whole count, never a brighter "total" after a dim clock (Leo, 2026-11-03). */
+.cv-worked__total {
+  color: var(--cv-text-dim);
+}
 .cv-worked__total .cv-worked__time {
   margin-inline: 0;
 }
@@ -2405,9 +2410,12 @@ pre.cv-math-source {
 /* A message row keeps one steady tone (design/chat-transcript.md, as a received message's line):
    a sent row the reader clicked never reads brighter than the ones around it (Leo, 2026-11-02, on
    rows "in bright and dim text with no clear rule": "i also think this is quite weird looking"). */
+/* Only the "Worked for" button lifts: the live line (`div.cv-worked`, Thinking.tsx) has nothing
+   behind it, so it never lights up under the pointer (Leo, 2026-11-03: "this thing appears/lights
+   up on hover for no reason!?"). */
 .cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)),
-.cv-worked:hover,
-.cv-worked:focus-visible {
+button.cv-worked:hover,
+button.cv-worked:focus-visible {
   color: var(--cv-text);
 }
 .cv-tool:not(.is-run, .cv-sent):focus-within:not(:has(.cv-agent-tag.is-open:focus)) .cv-tool__chevron,
