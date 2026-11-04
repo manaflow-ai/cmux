@@ -464,7 +464,8 @@ fn idle_session_resident_memory_benchmark() {
                 ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"][i as usize % 3],
                 ["low", "medium", "high", "xhigh"][i as usize % 4],
             );
-            catalogs.push((translator.config_options_value().await, translator.modes_value().await));
+            catalogs
+                .push((translator.config_options_value().await, translator.modes_value().await));
         }
         catalogs
     });

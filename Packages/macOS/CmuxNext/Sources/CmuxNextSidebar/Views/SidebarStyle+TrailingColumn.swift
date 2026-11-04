@@ -22,13 +22,14 @@ extension SidebarStyle {
     static var trailingSlotSide: CGFloat { controlSize }
 
     /// Inset from the fill edge to the control slot's end that the column never comes nearer than: the
-    /// larger of the row's own inset and the resize clearance. The slot never ends outside the row's
-    /// inset (Lawrence: the hover close is the row's × at the end of the title's line, inside the
-    /// row's inset), and never nearer the edge than the resize band's reach plus Search's overhang
-    /// (#27954: Search can be wider than the slot, and a trailing click must not grab the resize edge).
-    /// The grid's 24 pt line clears it at the default text size. Both are measured from the place the fill
-    /// ended before rows kept a gap from the edge (`trailingClearanceEdge`), so the gap moves the fill, never the
-    /// column: the marks stay on the grid's line at every density and text size, as before 2026-11-02.
+    /// larger of the row's own inset and the resize clearance (#27954: Search can be wider than the slot,
+    /// and a trailing click must not grab the resize edge), measured from `trailingClearanceEdge`, where the
+    /// fill ended before rows kept a gap from the sidebar's edge. The gap moves the fill, never the column
+    /// (#32647): the marks stay on the grid's 24 pt line at every density and text size, as before 2026-11-02.
+    /// So this floor now sits inside the fill by the old clearance less the gap (1.5 pt comfortable, 2.5 compact),
+    /// not by the full row inset. The grid's line, not the floor, places the marks: at comfortable density the
+    /// hover close (the row's × at the end of the title's line) ends 7 pt inside a fill whose inset is 8
+    /// (24 - 8 - 9), at compact 9 pt inside a fill whose inset is 6.
     static var trailingColumnInset: CGFloat {
         max(0, trailingClearanceEdge - rowEdgeGap + max(horizontalInset, Metrics.space1 + SidebarResizeBand.contentInset +
             max(0, (searchHeight - trailingSlotSide) / 2)))
