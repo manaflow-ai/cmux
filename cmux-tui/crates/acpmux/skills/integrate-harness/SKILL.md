@@ -14,7 +14,7 @@ until every step passes.
 
 1. Ask the user which program they run and how they log in. Find it:
    `command -v <program>`. Read its `--help` and look for an ACP mode
-   (`acp`, `--acp`, `--experimental-acp`, `--mode acp`) or a published ACP
+   (`acp`, `--acp`, `--mode acp`) or a published ACP
    adapter (`<name>-acp`).
 2. Start the file: `cmux harness add <id> --command <program>` (ACP) or
    `cmux harness add <id> --command <program> --protocol terminal` (no ACP).

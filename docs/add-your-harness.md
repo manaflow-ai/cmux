@@ -291,7 +291,7 @@ over the agent's stdin and stdout. The minimum:
   `session/set_config_option` (effort and similar).
 
 Write logs to stderr, never to stdout. Start from an existing adapter (`codex-acp`, `pi-acp`,
-`gemini --experimental-acp`) and the examples above, then check it with
+`gemini --acp`) and the examples above, then check it with
 `cmux harness doctor <id>`.
 
 ## Troubleshooting
