@@ -276,3 +276,28 @@ fn a_batch_sends_one_layout_changed_event() {
         "a batch of two values sent {layout_changes} layout-changed events"
     );
 }
+
+/// #34928 review B, on the path it named: a tree split (no viewport column, so no implied width to refuse a NaN)
+/// takes the ratio as it is. A NaN or infinite ratio is refused there too, and nothing changes.
+#[test]
+fn a_non_finite_ratio_on_a_tree_split_is_refused() {
+    let mux = test_mux();
+    let (_, _, _, root_split, _) = seed_split_ratio_tree(&mux);
+    let root_ratio = |mux: &Arc<Mux>| {
+        mux.with_state(|state| state.workspaces[0].screens[0].root.split_ratio(root_split))
+    };
+    let before = root_ratio(&mux);
+    assert!(before.is_some(), "the seed's root is a split");
+    for ratio in [f32::NAN, f32::INFINITY] {
+        let error = mux
+            .set_layout_sizes_in_transaction_checked_as(
+                &Actor::Daemon,
+                &[LayoutSizeValue::SplitRatio { split: root_split, ratio }],
+                7,
+                20,
+            )
+            .expect_err("a non-finite ratio on a tree split was taken");
+        assert_eq!(error.index(), Some(0), "{error}");
+        assert_eq!(root_ratio(&mux), before, "a refused ratio changed the split");
+    }
+}
