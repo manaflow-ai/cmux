@@ -549,7 +549,7 @@ record("cloud start-chat", code, "", failure_text(err, out) if code != 0 else ""
        session_id=clean(answer.get("session_id") or "") or None,
        guest_host=clean(answer.get("host") or "") or None,
        elapsed_ms=round((time.monotonic() - chat_started) * 1000),
-       **({"app_link_log": app_link_log(chat_started_at), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
+       **({"app_link_log": app_link_log(LINK_LOG_SINCE), "app_link_state": app_link_state(args.tag)} if code != 0 else {}))
 # A failed chat answers on stderr: the machine it made is at details.machine_id (chat.turn_failed)
 # or details.answer.machine_id (the other failures).
 failure = error_object(err, out).get("details") or {}
