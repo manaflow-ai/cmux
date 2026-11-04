@@ -28,7 +28,8 @@ if (origin.protocol !== "https:" || origin.pathname !== "/") {
   process.exit(2);
 }
 
-const runId = process.env["GITHUB_RUN_ID"] ?? `local-${Date.now()}`;
+// The attempt too: a re-run of the job must not replay the first attempt's create (deleted by then) under its key.
+const runId = process.env["GITHUB_RUN_ID"] === undefined ? `local-${Date.now()}` : `${process.env["GITHUB_RUN_ID"]}-${process.env["GITHUB_RUN_ATTEMPT"] ?? "1"}`;
 const STEP_TIMEOUT_MS = 120_000;
 const BOOT_TIMEOUT_MS = 300_000;
 
