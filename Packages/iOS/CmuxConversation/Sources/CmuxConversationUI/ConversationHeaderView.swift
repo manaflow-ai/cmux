@@ -211,11 +211,13 @@ final class ConversationHeaderView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
-            nameLabel.font = Self.nameFont
-            setNeedsLayout()
-        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) { applyScaledFonts() }
         if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
+    }
+
+    func applyScaledFonts() {
+        nameLabel.font = Self.nameFont
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
