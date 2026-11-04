@@ -51,9 +51,16 @@ export const HOST_ERROR_DEADLINE_MS = 25_000;
 /// another build's daemon, a refused chat) is said at once; a recovery only after the deadline.
 /// A chat whose machine is unreachable is said only once the person can act (hostLine.ts
 /// `peerLinkFailureShows`): never while the machine is slow or restarting, else after two minutes.
-export function hostErrorShows(error: unknown, failingForMs: number): boolean {
+///
+/// `asleep` says whether the named machine is a Cloud machine the account says is paused or
+/// resuming; such a machine is never said to be unreachable.
+export function hostErrorShows(
+  error: unknown,
+  failingForMs: number,
+  asleep: (peer: string | undefined) => boolean = () => false,
+): boolean {
   const peer = peerLinkFailure(error);
-  if (peer) return peerLinkFailureShows(peer, failingForMs);
+  if (peer) return peerLinkFailureShows(peer, failingForMs, asleep(peer.peer));
   return !hostIsReconnecting(error) || failingForMs >= HOST_ERROR_DEADLINE_MS;
 }
 
