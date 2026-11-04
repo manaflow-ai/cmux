@@ -148,7 +148,11 @@ export function messageMenuTarget(
     // A prompt copies as its bubble reads: a Codex skill `/name`, not `/$name` as sent.
     row.kind === "user"
       ? { text: withoutSkillDollars(row.text, snapshot.commands) }
-      : { text: plainText(row.text), markdown: row.text, replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()) };
+      : {
+          text: plainText(row.text),
+          markdown: row.text,
+          replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+        };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
   // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
