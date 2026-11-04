@@ -160,6 +160,19 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           }
         }
       };
+      // A row the scroll brings back (the live "Working" line included) must not play an enter, fade
+      // or shimmer restart as it comes into view: the transcript's own finite animations, by row.
+      const known = new Set(scroller.getAnimations({ subtree: true }));
+      const rowAnimations: string[] = [];
+      const readRows = () => {
+        for (const animation of scroller.getAnimations({ subtree: true })) {
+          if (known.has(animation)) continue;
+          known.add(animation);
+          const target = (animation.effect as KeyframeEffect | null)?.target;
+          const label = (animation as CSSAnimation).animationName ?? (animation as CSSTransition).transitionProperty;
+          rowAnimations.push(`${label ?? "animation"} on ${target ? describe(target) : "?"}`);
+        }
+      };
       read();
       const start = scroller.scrollTop;
       const frames = 100;
@@ -168,6 +181,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
         window.cmuxAfterPaint(
           () => {
             read();
+            readRows();
             frame += 1;
             if (frame < frames) return true;
             done();
@@ -185,6 +199,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
       return {
         start,
         end: scroller.scrollTop,
+        rowAnimations: [...new Set(rowAnimations)],
         surfaces: Object.fromEntries(
           Object.entries(seen).map(([name, entry]) => [
             name,
@@ -228,6 +243,7 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
           const result = await scrollAndWatch(page);
           console.log(`${name} ${width}px running chrome while scrolling: ${JSON.stringify(result)}`);
           expect(result.surfaces).toEqual({ tray: still, sessionInfo: still });
+          expect(result.rowAnimations).toEqual([]);
         } finally {
           await page.close();
         }
