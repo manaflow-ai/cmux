@@ -37,9 +37,11 @@ public final class CreationInputBuffer {
     /// New workspaces past the reply bound (``replyWaitLimit``) the person moved on from (or asked for over no terminal,
     /// ``pressLanes``): their keys are counted and logged, never typed into anything (dogfood v2.2.3, m12).
     private var strandedWorkspaces: Set<Int> = []
-    /// The terminal the person typed into when they asked for each new workspace, and their intent target then, by ticket:
-    /// at the reply bound its keys go there only while that target did not change (#35275).
+    /// The terminal the person typed into when they asked for each new workspace, and the count of their focus choices then,
+    /// by ticket: at the reply bound its keys go there only if the count did not change (#35275).
     private var pressLanes: [Int: (lane: HeldLane, personMoves: UInt64)] = [:]
+    /// The tickets whose keys the reply bound gave their press-time terminal: typed into it, never run again (key window).
+    private var pressDelivered: Set<Int> = []
     /// Keys typed for a new workspace's terminal that no terminal could take: counted, never typed.
     public private(set) var untypedTerminalKeys = 0
     /// The longest the newest creation's reply keeps the keys (``replyWaitBound``; the coordinator's setting).
@@ -397,6 +399,7 @@ public final class CreationInputBuffer {
                 (laneTabs[id], laneMachines[id]) = (nil, nil) // run as typed in what has the keyboard (its provisional view)
             } else if let press = pressLanes[id], press.personMoves == personMoves, shows(press.lane.tab) {
                 (laneTabs[id], laneMachines[id]) = (press.lane.tab, press.lane.machine) // the person did not move: the press terminal
+                pressDelivered.insert(id)
             } else {
                 strandedWorkspaces.insert(id) // the person moved on, or no terminal: never typed into anything
             }
@@ -430,7 +433,7 @@ public final class CreationInputBuffer {
         var keys: [HeldKey] = []
         for (event, id) in events where kept == nil || id != kept {
             if isStranded(id) { untypedTerminalKeys += 1; continue } // the person moved on, or no terminal: counted, never typed
-            guard let lane = heldLane(id), lane.tab != focused else {
+            guard let lane = heldLane(id), lane.tab != focused || id.map(pressDelivered.contains) == true else { // a run goes to the KEY window
                 keys.append(.run(event, lane: heldLane(id)))
                 continue
             }
@@ -445,5 +448,4 @@ public final class CreationInputBuffer {
         events.removeAll { kept == nil || $0.creation != kept }
         return keys
     }
-
 }
