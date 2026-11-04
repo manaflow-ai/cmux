@@ -2,6 +2,9 @@
 
 use super::*;
 
+// Verification-only fallback: restore the pre-fix pooled-start hazard.
+const START_BUDGET: std::time::Duration = std::time::Duration::from_secs(90);
+
 impl Pooled {
     /// Whether this agent, started from `argv`, runs in full access (`runs_full_access`): its
     /// argv, the mode and config options its harness session came up in, and what it reported
@@ -149,11 +152,12 @@ impl Hub {
         )
         .await;
         host_spec.orphan_exit = servers.orphan_exit(self.orphan_exit());
-        // `link::spawn` waits for the host while its process is alive. Do not
-        // wrap that wait in a wall-clock cutoff: a loaded machine can take
-        // minutes to schedule the host and that is still a valid start. The
-        // host exits (or daemon shutdown) remain the terminal conditions.
-        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
+        let record = tokio::time::timeout(
+            START_BUDGET,
+            agent_host::program_wait::spawn(&launcher, &host_spec),
+        )
+        .await
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("no pooled agent host within {START_BUDGET:?}")))?;
         // Not at a background class another process set (`cpu_class.rs`, item 1). Its host reaps
         // it: a harness that already ended leaves the pid to a process of this user at most.
         if let Some(pid) = record.harness_pid {
@@ -207,10 +211,9 @@ impl Hub {
         let (inbound, target) = holding_inbound();
         let attach =
             ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);
-        // `agent_host::link::connect` owns the hello/liveness decision. An
-        // outer 90 s timeout used to turn a slow but live host into a failed
-        // prewarm, so let the link settle or report its peer exit.
-        let attached = attach.await;
+        let attached = tokio::time::timeout(START_BUDGET, attach)
+            .await
+            .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
         let child = match attached {
             Ok(Attached::Ready(child, _, _)) => child,
             Ok(Attached::Incompatible { .. }) => {
@@ -243,13 +246,21 @@ impl Hub {
             let slot = held.lock().unwrap_or_else(|e| e.into_inner());
             matches!(&*slot, TapSlot::Held(h) if held_reports_full_access(h, None))
         };
-        let outcome = tokio::select! {
-            started = Self::wait_for_start(&child, started) => {
-                started.map_err(|e| anyhow::anyhow!("{}", e.message))
+        let outcome = tokio::time::timeout(START_BUDGET, async {
+            tokio::select! {
+                started = started => started.map_err(|e| anyhow::anyhow!("{}", e.message)),
+                () = latch.reported_under_off(&reported, held_full) => {
+                    Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
+                }
             }
-            () = latch.reported_under_off(&reported, held_full) => {
-                Err(anyhow::anyhow!("its harness reported full access, which MDM forces off"))
-            }
+        })
+        .await;
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(_) => Err(anyhow::anyhow!(
+                "no harness session within {START_BUDGET:?}{}",
+                child.harness_seen().await.detail()
+            )),
         };
         let (init, new_result) = match outcome {
             Ok(v) => v,
