@@ -156,28 +156,30 @@ pub(super) fn place(
 }
 
 /// Seed receipts once, before startup installs any defaults or customization.
-/// Only metadata is written: an upgrade must not add, move or remove sections.
+/// Only metadata is written: an upgrade must not add, move or remove sections. So it is
+/// written as metadata, not as a sidebar commit: it takes no resource revision and
+/// publishes no change (a fresh daemon's first real change is revision 1).
 pub(super) fn initialize(mux: &crate::Mux, existing: &[Section]) -> anyhow::Result<()> {
     if mux.read_registry_state(|connection| has_receipt(connection, INITIALIZED))? {
         return Ok(());
     }
-    mux.commit_sidebar_ops(
-        &WorkspaceMutation::daemon_local("apps.sidebar.initialize"),
-        "apps.sidebar.initialize",
-        &json!({"existing": existing}),
-        |transaction, _| {
-            if !has_receipt(transaction, INITIALIZED)? {
-                for section in existing {
-                    if let Some(key) = receipt_key(section) {
-                        write_receipt(transaction, &key)?;
-                    }
+    mux.write_registry_meta(|transaction| {
+        // A migration that failed at open leaves no document: no marker, so the next
+        // start initializes again and automatic placement stays off meanwhile.
+        anyhow::ensure!(
+            crate::state::sidebar_doc_store::is_migrated(transaction)?,
+            "sidebar document unavailable: its migration did not complete"
+        );
+        if !has_receipt(transaction, INITIALIZED)? {
+            for section in existing {
+                if let Some(key) = receipt_key(section) {
+                    write_receipt(transaction, &key)?;
                 }
-                write_receipt(transaction, INITIALIZED)?;
             }
-            Ok(Vec::new())
-        },
-    )?;
-    Ok(())
+            write_receipt(transaction, INITIALIZED)?;
+        }
+        Ok(())
+    })
 }
 
 fn receipt_key(section: &Section) -> Option<String> {

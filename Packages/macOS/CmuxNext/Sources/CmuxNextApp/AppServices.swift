@@ -116,7 +116,7 @@ final class AppServices {
     private(set) lazy var windowHomes = WindowHomes(host: self)
     /// Hibernates idle workspaces (plans/cmux-next/workspace-hibernation-DESIGN.md).
     private(set) lazy var workspaceHibernation = WorkspaceHibernation(host: self, keepAwake: WorkspaceKeepAwakeStore(defaults: .standard),
-                                                                  deadline: DemandTimer(owner: "workspace-hibernation"))
+                                                                  deadline: DemandTimer(owner: "workspace-hibernation"), memoryPressure: memoryPressure)
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild, mainWork: mainWork, work: work, loginKeychain: loginKeychain, authCaptureFixture: environment.authCaptureFixture)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(
@@ -713,9 +713,7 @@ final class AppServices {
         }
         (NSApp as? CmuxApplication)?.keyUpOrClickInterceptor = { [weak self] in self?.linkHints.inputWillDispatch($0) ?? false }
         (NSApp as? CmuxApplication)?.crossWindowKeyGuard = { [weak self] event, keyWindow in
-            // Keys typed after New Window follow its new window on purpose (NewTabInputCoordinator).
-            guard let self, !keyRouter.newTabInputCoordinator.followsNewWindow else { return false }
-            return CrossWindowInputGuard(windows: windows).dropsKey(event, keyWindow: keyWindow)
+            CrossWindowInputGuard.drops(keyTypedInto: event.window, keyWindow: keyWindow, router: self?.keyRouter)
         }
         (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
             guard let self else { return body() }

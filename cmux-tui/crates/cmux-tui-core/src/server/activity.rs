@@ -107,6 +107,13 @@ impl ActivityStream {
         self.update(|state| state.agent_action_ms = Some(now_ms()));
     }
 
+    /// The agent roster changed. Its owner folds after the request that
+    /// changed it answered (mux/agent_roster_worker.rs), so an event sent in
+    /// between counted the old live agents: the next event counts again.
+    pub(crate) fn note_roster_changed(&self) {
+        self.update(|_| {});
+    }
+
     /// Runs `hold` while this thread holds the stream's lock (tests: a person's key must not wait for it).
     #[cfg(test)]
     pub(crate) fn hold_for_test(&self, hold: &dyn Fn()) {

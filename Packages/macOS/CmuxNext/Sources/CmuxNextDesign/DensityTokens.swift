@@ -75,6 +75,24 @@ public nonisolated struct DensityTokens: Sendable, Hashable, Codable, Identifiab
         return (compact + (comfortable - compact) * CGFloat(level)).rounded()
     }
 
+    /// The icon scale every glyph box sits on (design/grid.md "The icon scale is 12, 14, 16, 20;
+    /// artwork is 24 or larger").
+    public static let iconScale: [CGFloat] = [12, 14, 16, 20, 24]
+
+    /// An icon metric at this density: `resolve`, then the nearest `iconScale` step, so a level
+    /// between two densities never draws a 13, 15 or 18 pt glyph next to its rows (Leo 2026-11-04:
+    /// "ofc we'll want to be doing proportion/scales per compact/comfortable/whatever ui scaling
+    /// modes too"). A tie goes to the family's side: down below level 0.5, up from it, so Cozy's
+    /// glyphs are Comfortable's as its `family` is. `tokens[token]` stays exact.
+    public func resolveGlyph(compact: CGFloat, comfortable: CGFloat, token: String? = nil) -> CGFloat {
+        if let token, tokens[token] != nil { return resolve(compact: compact, comfortable: comfortable, token: token) }
+        let value = (compact + (comfortable - compact) * CGFloat(level)).rounded()
+        return Self.iconScale.min { a, b in
+            let da = abs(a - value), db = abs(b - value)
+            return da == db ? (family == .compact ? a < b : a > b) : da < db
+        } ?? value
+    }
+
     /// The body text size at this density's level, before `fontSize`: 12 at Compact, 13 at
     /// Comfortable.
     public var levelBodySize: CGFloat { Self.textAtLevel(12, 13, level) }

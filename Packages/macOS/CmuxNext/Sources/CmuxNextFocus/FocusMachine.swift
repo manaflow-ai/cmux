@@ -44,21 +44,11 @@ public nonisolated final class FocusMachine {
         }
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
+        // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry or the responder report
+        // of their click; a key's responder change, automation's and the app's events never do.
+        if event.choosesFocusAsPerson { state.personMoveSeq &+= 1 }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
-    }
-
-    /// The focus started or stopped waiting for another tab (``FocusState/awaitsOtherTab``: a creation's new tab the
-    /// window does not show yet): the responder applies again in this reduction, so the page the person left gives up
-    /// the keys in the key's turn, and takes them back when the wait ends without landing (P0 INVERSE-KEY). The rule
-    /// reads only the state the machine returned; `cmux-focus-core` itself emits no effect for a wait.
-    private static func reapplyingOnWaitChange(_ result: Reduction, waited: Bool, state: FocusState) -> Reduction {
-        let moves = result.effects.contains { if case .moveResponder = $0 { true } else { false } }
-        guard waited != state.awaitsOtherTab, !moves else { return result }
-        var reapplied = result
-        reapplied.changed = true
-        reapplied.effects.append(.moveResponder(state.resolved))
-        return reapplied
     }
 
     private func set(_ topology: FocusTopology, into state: inout FocusState) -> Reduction? {

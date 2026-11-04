@@ -90,6 +90,16 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["accent", "color", "colour", "highlight", "selection", "personality", "rose pine", "ansi"]
             ),
             SettingDescriptor(
+                ThemeFileSetting.path, section: .appearance, group: appTheme,
+                title: SettingsText.keyed("settings.appearance.themeFile", "Theme File"),
+                help: SettingsText.keyed("settings.appearance.themeFile.help",
+                                        "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."),
+                summary: SettingsText.keyed("settings.appearance.themeFile.summary", "A look from ~/.config/cmux/themes"),
+                kind: .text, default: nil,
+                defaultLabel: SettingsText.keyed("settings.choice.none", "None"),
+                keywords: ["theme file", "rice", "ricing", "dotfile", "dotfiles", "look", "config", "themes folder", "json"]
+            ),
+            SettingDescriptor(
                 HighlightColorSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.keyed("settings.appearance.highlightColor", "Highlight Color"),
                 help: SettingsText.keyed("settings.appearance.highlightColor.help",
