@@ -154,12 +154,13 @@ fn a_terminal_exit_commits_the_directory_its_shell_reported_last() {
     );
 }
 
-/// #35765 review 3 (should-fix 2): a notification a terminal's last output asked for posts with its terminal, as
-/// the reader posted it before the exit. Queued for the terminal publisher, it posted after the exit removed the
-/// terminal's tab, with no terminal: the notification named nothing to open.
+/// #35765 review 3 (should-fix 2): a notification a terminal's last output asked for posts before the terminal's
+/// exit commits, as the reader posted it before it handled the exit, and once. Queued for the terminal publisher, it
+/// posted after the exit (here: only once the held publisher ran), so a client saw the terminal end before the
+/// notification its last output raised.
 #[cfg(unix)]
 #[test]
-fn a_notification_queued_before_an_exit_names_its_terminal() {
+fn a_notification_queued_before_an_exit_posts_before_the_exit() {
     const TERMINAL: &str = "00000000000040008000000000357653";
     const INCARNATION: &str = "10000000000040008000000000357653";
     let mux = test_mux();
@@ -174,8 +175,15 @@ fn a_notification_queued_before_an_exit_names_its_terminal() {
         mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
     let terminal =
         mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
-    {
-        // The last output asks for a notification; the host's Exit frame is next. The terminal closes on exit.
+    let posted = |mux: &Mux| {
+        mux.resource_notifications(16)
+            .into_iter()
+            .filter(|notification| notification.title == "build done")
+            .collect::<Vec<_>>()
+    };
+    let at_exit = {
+        // The last output asks for a notification; the host's Exit frame is next. The publisher runs nothing until
+        // the hold drops, so what posted by the end of the exit posted on the exit's own turn.
         let _held = mux.hold_terminal_publisher_for_test();
         mux.queue_terminal_notifications(
             surface_id,
@@ -186,19 +194,17 @@ fn a_notification_queued_before_an_exit_names_its_terminal() {
             }],
         );
         mux.surface_exited(surface_id);
-    }
+        posted(&mux).len()
+    };
+    assert_eq!(
+        at_exit, 1,
+        "the notification its last output asked for did not post before the terminal's exit"
+    );
     assert!(
         mux.wait_for_terminal_publisher_for_test(Duration::from_secs(10)),
         "the publisher did not finish"
     );
-    let posted = mux
-        .resource_notifications(16)
-        .into_iter()
-        .find(|notification| notification.title == "build done")
-        .expect("the notification posted");
-    assert_eq!(
-        posted.terminal_id.as_ref(),
-        Some(&terminal),
-        "the notification posted after its terminal's exit, with no terminal"
-    );
+    let all = posted(&mux);
+    assert_eq!(all.len(), 1, "the notification posted more than once");
+    assert_eq!(all[0].terminal_id.as_ref(), Some(&terminal), "the notification names its terminal");
 }
