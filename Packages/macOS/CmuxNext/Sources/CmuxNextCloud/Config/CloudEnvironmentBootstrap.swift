@@ -1,7 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextWakeups
-import Foundation
+public import Foundation
 
 /// Thin process adapter: Rust resolves and validates the selected environment before app services start.
 public struct CloudEnvironmentBootstrap {
