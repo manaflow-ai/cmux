@@ -280,6 +280,33 @@ struct ChiefDisabledHomeTests {
         #expect(workspace.holdsChiefPane)
     }
 
+    @Test func openChiefShortcutIsHiddenAndNeverConflictsWhileChiefIsUnavailable() throws {
+        #expect(KeyboardShortcutSettings.isOffered(.openChief, isChiefAvailable: true))
+        #expect(!KeyboardShortcutSettings.isOffered(.openChief, isChiefAvailable: false))
+        #expect(KeyboardShortcutSettings.isOffered(.newTab, isChiefAvailable: false))
+        #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: false) == [.openChief])
+        #expect(KeyboardShortcutSettings.unavailableSettingsActions(isChiefAvailable: true).isEmpty)
+
+        KeyboardShortcutSettings.resetShortcut(for: .openChief)
+        defer { KeyboardShortcutSettings.resetShortcut(for: .openChief) }
+        let chiefShortcut = KeyboardShortcutSettings.shortcut(for: .openChief)
+        #expect(!chiefShortcut.isUnbound)
+        #expect(KeyboardShortcutSettings.conflictingAction(
+            for: chiefShortcut, excluding: .renameTab, isChiefAvailable: true
+        ) == .openChief)
+        #expect(KeyboardShortcutSettings.conflictingAction(
+            for: chiefShortcut, excluding: .renameTab, isChiefAvailable: false
+        ) != .openChief)
+    }
+
+    @Test func dockCreateRefusesChiefBeforeRevealWhileChiefIsOff() {
+        #expect(TerminalController.dockAcceptsSurfaceType(.chief, chiefEnabled: true))
+        #expect(!TerminalController.dockAcceptsSurfaceType(.chief, chiefEnabled: false))
+        #expect(TerminalController.dockAcceptsSurfaceType(.terminal, chiefEnabled: false))
+        #expect(TerminalController.dockAcceptsSurfaceType(.browser, chiefEnabled: false))
+        #expect(!TerminalController.dockAcceptsSurfaceType(.notifications, chiefEnabled: true))
+    }
+
     @Test func recentlyClosedHidesChiefOnlyRecordsWhileChiefIsOff() throws {
         let setting = ChiefEnabledOverride(true)
         defer { setting.restore() }

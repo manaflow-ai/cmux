@@ -42,8 +42,20 @@ enum KeyboardShortcutSettings {
 
     static var settingsVisibleActions: [Action] {
         orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows && ($0 != .openChief || ChiefSettings.isAvailable) }
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows && isOffered($0) }
         )
+    }
+
+    /// False for an action whose feature the build doesn't offer now: Open
+    /// Chief while Chief's release flag is off. Such an action is hidden from
+    /// settings and never reported as a conflict.
+    static func isOffered(_ action: Action, isChiefAvailable: Bool = ChiefSettings.isAvailable) -> Bool {
+        action != .openChief || isChiefAvailable
+    }
+
+    /// The Settings package's view of ``isOffered(_:isChiefAvailable:)``.
+    static func unavailableSettingsActions(isChiefAvailable: Bool) -> Set<ShortcutAction> {
+        isChiefAvailable ? [] : [.openChief]
     }
 
     private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
@@ -933,11 +945,13 @@ enum KeyboardShortcutSettings {
         return normalized
     }
 
-    private static func conflictingAction(
+    static func conflictingAction(
         for proposedShortcut: StoredShortcut,
-        excluding currentAction: Action
+        excluding currentAction: Action,
+        isChiefAvailable: Bool = ChiefSettings.isAvailable
     ) -> Action? {
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases
+        where action != currentAction && isOffered(action, isChiefAvailable: isChiefAvailable) {
             let configuredShortcut = shortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,

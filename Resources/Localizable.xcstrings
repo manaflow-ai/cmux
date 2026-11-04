@@ -7384,6 +7384,65 @@
         }
       }
     },
+    "socket.chief.error.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief isn't available."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ist nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief n'est pas disponible."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief غير متاح."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief no está disponible."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 不可用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief は利用できません。"
+          }
+        }
+      }
+    },
     "socket.surfaceSelection.noFocusedSurface": {
       "extractionState": "manual",
       "localizations": {
@@ -666304,6 +666363,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用法: cmux chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>]\n                         [--worktree <repo> [--branch <name>]] [--agent-arg <arg>]...\n                         [--focus|--no-focus] [--wait-working [--timeout <seconds>]] [--json]\n                         (-- <task words...> | --prompt-file <path|->)\n\n新しいワークスペースで、1 つのタスクに 1 つのコーディングエージェントを起動します。ワークスペースの\nタイトルは --name(既定: タスクの 1 行目)で、説明は空のままです。\n\nタスクはシェルを通さず 1 つの引数としてエージェントに渡されるため、引用符、$、改行は\nそのまま届きます。--prompt-file - は stdin からタスクを読み込みます。\nタスクはエージェントのコマンドラインの最後の引数なので、エージェントの実行中は\nこの Mac の `ps` などのツールで見えます。秘密情報は含めないでください。\n\nオプション:\n  --agent codex|claude   既定は codex。通常の権限確認付きで起動します。\n  --agent-arg <arg>      エージェントのコマンドに引数を 1 つ追加します(繰り返し可)。\n                       Chief の危険な権限確認スキップ設定をユーザーが明示的に\n                       有効にした場合のみ `--agent-arg --yolo` を追加してください。\n  --cwd <dir>            エージェントのディレクトリ(既定: アプリの既定)。\n  --worktree <repo>      まず `git -C <repo> worktree add -b <branch> <repo>-<slug>` を実行し、\n                         そこでエージェントを起動します。<slug> はタイトルから作ります。\n  --branch <name>        --worktree で作る新しいブランチ(既定: <slug>)。\n  --focus, --no-focus    新しいワークスペースに切り替えるか、今の場所に留まります。既定では、\n                         人がターミナルでコマンドを実行したときだけ切り替えます。\n  --wait-working         ターミナルにエージェントの作業中表示が出るまで待ちます\n                         (Codex の \"Working (…)\"、Claude Code のアクティビティ行)。\n  --timeout <seconds>    --wait-working の待ち時間(既定 60、最大 600)。\n  --json                 workspace_id、workspace_ref、surface_id、agent、status を出力します。\n\nstatus は working(作業中を確認)、started(未確認)、failed(理由付き:\ntimeout、trust_prompt、sign_in、agent_not_found)のいずれかです。確認に失敗すると終了コード 1 で終わります。\n\n例:\n  cmux chief dispatch --agent codex --name \"#123: fix login\" --cwd ~/src/app --wait-working -- 'Fix the login bug and open a PR.'\n  cmux chief dispatch --agent claude --worktree ~/src/app --wait-working --prompt-file task.md"
+          }
+        }
+      }
+    },
+    "cli.chief.dispatch.error.chiefUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief isn't available in this cmux build."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief ist in diesem cmux-Build nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief n'est pas disponible dans cette version de cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief غير متاح في إصدار cmux هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief no está disponible en esta compilación de cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本無法使用 Chief。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux 版本不提供 Chief。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 빌드에서는 Chief를 사용할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux ビルドでは Chief を利用できません。"
           }
         }
       }

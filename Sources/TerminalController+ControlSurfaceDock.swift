@@ -34,6 +34,15 @@ extension TerminalController {
         )
     }
 
+    /// Surface types a Dock create accepts: terminal and browser, plus Chief
+    /// while Chief is on.
+    static func dockAcceptsSurfaceType(
+        _ panelType: PanelType,
+        chiefEnabled: Bool = ChiefSettings.isEnabled
+    ) -> Bool {
+        panelType == .terminal || panelType == .browser || (panelType == .chief && chiefEnabled)
+    }
+
     func validateDockCreateRouting<Resolution>(
         routing: ControlRoutingSelectors,
         tabManager: TabManager,
@@ -42,7 +51,8 @@ extension TerminalController {
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
-        guard panelType == .terminal || panelType == .browser || panelType == .chief else {
+        // Refused here, before any Dock reveal, while Chief is off.
+        guard Self.dockAcceptsSurfaceType(panelType) else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
