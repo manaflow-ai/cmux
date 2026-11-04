@@ -202,6 +202,10 @@ extension ScreenContentView {
             let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
+            // A key press's rest size reaches the content before its host moves (S1B: the press's first tick, where the key's
+            // turn used to do it): the content takes its final size once, at the edge that stays, never the frame's first.
+            let announcesFirst = restChanged && springing && holdsContentForKeyResize
+            if announcesFirst { host.announceRest() }
             if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
@@ -220,7 +224,7 @@ extension ScreenContentView {
             }
             // A spring that starts or retargets (a press during the motion) to a new size: the content
             // hears the size it will rest at now, once (a terminal sends its final grid at the start).
-            if restChanged, springing { host.announceRest() }
+            if restChanged, springing, !announcesFirst { host.announceRest() }
             if host.alphaValue != frame.alpha.value {
                 host.alphaValue = frame.alpha.value
                 changed = true
