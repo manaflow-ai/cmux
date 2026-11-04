@@ -5,6 +5,11 @@
 //! The app connects with a role-main `client-hello`; this test plays that
 //! client. Before the stage, the owner of `cmux-app-*` ran until reboot after
 //! its app quit (STATUS 1370, 8519).
+//!
+//! R-LIFECYCLE ORPHANS: the rule is on by default, for the app session and
+//! for the app's Chief session (`cmux-chief-*`). Behind its switch it never
+//! reached an app: a quit, a crash or a kill of an app with no terminal left
+//! both owners running (fleet repro on build 3a43a131, 2026-11-04).
 
 #![cfg(any(target_vendor = "apple", target_os = "linux"))]
 
@@ -37,6 +42,8 @@ struct Owner {
     identity: Option<(u32, u64)>,
     /// More environment for `ensure` (the owner it starts inherits it).
     env: Vec<(&'static str, &'static str)>,
+    /// `CMUX_TUI_OWNER_KEEPERS` for `ensure`; `None`: unset (the default).
+    switch: Option<&'static str>,
 }
 
 impl Owner {
@@ -45,16 +52,28 @@ impl Owner {
     }
 
     fn ensure_with(name: &str, env: Vec<(&'static str, &'static str)>) -> Self {
+        Self::ensure_session(&format!("cmux-app-okp-{name}"), name, env, Some("1"))
+    }
+
+    /// An owner of `session` started with the switch as `switch` (`None`:
+    /// unset, as the app starts it).
+    fn ensure_session(
+        session: &str,
+        name: &str,
+        env: Vec<(&'static str, &'static str)>,
+        switch: Option<&'static str>,
+    ) -> Self {
         let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() % 1_000_000;
         let root = PathBuf::from(format!("/tmp/okp-{name}-{}-{stamp}", std::process::id()));
         fs::create_dir_all(root.join("home")).unwrap();
         fs::create_dir_all(root.join("state")).unwrap();
         let mut owner = Self {
             root,
-            session: format!("cmux-app-okp-{name}"),
+            session: session.to_string(),
             socket: PathBuf::new(),
             identity: None,
             env,
+            switch,
         };
         let output = owner
             .command()
@@ -85,7 +104,7 @@ impl Owner {
             .env("TMPDIR", &self.root)
             .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
             .env("CMUX_TUI_CONFIG", self.root.join("home/no-config.toml"))
-            .env("CMUX_TUI_OWNER_KEEPERS", "1")
+            .envs(self.switch.map(|value| ("CMUX_TUI_OWNER_KEEPERS", value)))
             .envs(self.env.iter().copied());
         command
     }
@@ -368,6 +387,71 @@ mod owner_keepers {
         );
         drop(cli);
         owner.assert_stops("its kept tab closed");
+    }
+
+    #[test]
+    fn an_app_owner_started_as_the_app_starts_it_stops_when_its_app_leaves() {
+        // The app's `ensure` sets no switch: the rule must hold by default.
+        let owner = Owner::ensure_session("cmux-app-okp-default", "default", Vec::new(), None);
+        let app = Client::app(&owner.socket);
+        owner.assert_kept("the app's connection");
+        drop(app);
+        owner.assert_stops("its app's last connection closed with no terminal (no switch set)");
+    }
+
+    #[test]
+    fn a_chief_owner_stops_when_its_app_leaves() {
+        // The app's Home connects to its Chief session (`cmux-chief-<home
+        // hash>`, ChiefConversationOwner.swift) with the same role-main hello.
+        let owner = Owner::ensure_session("cmux-chief-0c4e0f2a", "chief", Vec::new(), None);
+        let app = Client::app(&owner.socket);
+        owner.assert_kept("the app's Home connection");
+        drop(app);
+        owner.assert_stops("its app's Home connection closed and nothing keeps the Chief owner");
+    }
+
+    #[test]
+    fn the_switch_set_to_0_leaves_the_owner_running() {
+        // `CMUX_TUI_OWNER_KEEPERS=0` (the app's `CMUX_NEXT_TUI_OWNER_KEEPERS=0`)
+        // turns the rule off: the owner runs on as before it.
+        let owner = Owner::ensure_session("cmux-app-okp-off", "off", Vec::new(), Some("0"));
+        let app = Client::app(&owner.socket);
+        drop(app);
+        owner.assert_kept("its switched-off rule");
+    }
+
+    #[test]
+    fn a_signal_exit_within_the_shutdown_lead_keeps_the_owner_until_it_settles() {
+        // A shell ended by a signal shortly before the owner begins a session
+        // shutdown counts as lost with the session (session_shutdown.rs), so
+        // its exit waits out the lead before its tab detaches. An owner that
+        // stopped in that wait began a shutdown that covers the exit: the next
+        // owner read it as a host loss and gave the person a new shell in a
+        // tab whose shell they had just killed (review of #34188). Until the
+        // exit settles, it keeps the owner.
+        let owner =
+            Owner::ensure_with("settle", vec![("CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS", "8000")]);
+        let mut app = Client::app(&owner.socket);
+        let created = app.request(serde_json::json!({"cmd": "new-workspace", "name": "settle"}));
+        assert_eq!(created["ok"], true, "new-workspace: {created}");
+        let (record_path, record) = owner.wait_for_host(None, STOP_BOUND);
+        let shell = request_terminal_host_pty_custody(&record, &record_path).unwrap().child_pid;
+        // The person kills the shell; its host records the signal exit.
+        signal(shell, libc::SIGKILL);
+        let deadline = Instant::now() + STOP_BOUND;
+        loop {
+            let resolved = app.request(
+                serde_json::json!({"cmd": "resolve-terminal", "terminal_id": record.terminal_id}),
+            );
+            if resolved["data"]["lifecycle"] == "exited" {
+                break;
+            }
+            assert!(Instant::now() < deadline, "the shell's exit was never committed: {resolved}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        drop(app);
+        owner.assert_kept("a signal exit that has not settled");
+        owner.assert_stops("the signal exit settled with nothing else to keep the owner");
     }
 }
 
