@@ -187,6 +187,7 @@ final class WorkspaceRowView: SidebarRowView {
         case .swatch?: "swatch"
         case .emoji?: "emoji"
         case .favicon?: "favicon"
+        case .pagePlaceholder?: "pagePlaceholder"
         }
     }
 
