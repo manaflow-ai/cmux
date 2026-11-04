@@ -22,6 +22,6 @@ describe("Cloud preview port cards", () => {
   test("does not add a card for a port already known by the machine", () => {
     seedCloudPreviewPorts([{ port: 3000, process: "vite" }]);
     expect(addCloudPreviewPort({ port: 3000, process: "vite" })).toBe(false);
-    expect(cloudPreviewPorts()).toEqual([{ port: 3000, process: "vite" }]);
+    expect(cloudPreviewPorts()).toEqual([]);
   });
 });

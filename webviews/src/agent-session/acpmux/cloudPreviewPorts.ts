@@ -4,6 +4,7 @@ export type CloudPreviewPort = { port: number; process?: string };
 
 const NONE: readonly CloudPreviewPort[] = [];
 let current: readonly CloudPreviewPort[] = NONE;
+const knownPorts = new Set<number>();
 const listeners = new Set<() => void>();
 
 function validPort(value: unknown): value is number {
@@ -20,20 +21,18 @@ export function readCloudPreviewPort(value: unknown): CloudPreviewPort | undefin
 
 export function addCloudPreviewPort(value: unknown): boolean {
   const port = readCloudPreviewPort(value);
-  if (!port || current.some((item) => item.port === port.port)) return false;
+  if (!port || knownPorts.has(port.port)) return false;
+  knownPorts.add(port.port);
   current = [...current, port];
   for (const listener of listeners) listener();
   return true;
 }
 
 export function seedCloudPreviewPorts(values: readonly unknown[]): void {
-  const next: CloudPreviewPort[] = [];
   for (const value of values) {
     const port = readCloudPreviewPort(value);
-    if (port && !next.some((item) => item.port === port.port)) next.push(port);
+    if (port) knownPorts.add(port.port);
   }
-  current = next.length ? next : NONE;
-  for (const listener of listeners) listener();
 }
 
 export function cloudPreviewPorts(): readonly CloudPreviewPort[] {
@@ -42,6 +41,7 @@ export function cloudPreviewPorts(): readonly CloudPreviewPort[] {
 
 export function resetCloudPreviewPorts(): void {
   current = NONE;
+  knownPorts.clear();
   for (const listener of listeners) listener();
 }
 

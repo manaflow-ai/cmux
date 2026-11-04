@@ -1,12 +1,9 @@
-import { useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 import { OpenAppCard } from "./OpenAppCard";
-import { seedCloudPreviewPorts } from "./cloudPreviewPorts";
+import { addCloudPreviewPort } from "./cloudPreviewPorts";
 
 function OpenAppCardGallery() {
-  useEffect(() => {
-    seedCloudPreviewPorts([{ port: 3000, process: "vite" }]);
-  }, []);
+  addCloudPreviewPort({ port: 3000, process: "vite" });
   return (
     <div className="acpmux-stage" style={{ minHeight: 120, paddingTop: 24 }}>
       <OpenAppCard />
