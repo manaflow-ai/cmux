@@ -125,7 +125,9 @@ export function Listbox<T>({
       className={cx("ui-listbox ui-scroll-edge-fade", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
       role="listbox"
-      tabIndex={0}
+      // Controlled highlights belong to a field that keeps virtual focus (for example the
+      // composer editor). Keep that list out of the Tab order; the field owns keyboard focus.
+      tabIndex={activeIndex === undefined ? 0 : undefined}
       aria-label={label}
       aria-busy={ariaBusy || undefined}
       aria-activedescendant={activeId}
