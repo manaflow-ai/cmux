@@ -133,6 +133,20 @@ pub(super) fn set_split_ratio(
     Ok(json!({}))
 }
 
+/// `set-layout-sizes`: every value as one change, or none (a refused value answers with its single command's error
+/// code, and the message names its index).
+pub(super) fn set_layout_sizes(
+    mux: &Arc<Mux>,
+    client: u64,
+    actor: Actor,
+    values: Vec<super::LayoutSizeWire>,
+    transaction: u64,
+) -> anyhow::Result<Value> {
+    let values: Vec<crate::mux::LayoutSizeValue> = values.into_iter().map(Into::into).collect();
+    mux.set_layout_sizes_in_transaction_checked_as(&actor, &values, client, transaction)?;
+    Ok(json!({}))
+}
+
 pub(super) fn set_viewport_pane_width(
     mux: &Arc<Mux>,
     client: u64,

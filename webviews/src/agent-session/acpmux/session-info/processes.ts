@@ -339,6 +339,11 @@ const PORTS = [
 ];
 const SHORT_PORT = /(?:^|\s)-p\s+(\d{2,5})\b/g;
 
+/// Whether `command` serves something, as `serverOf` tells a server: a server command, or one that
+/// names a port.
+export const servesCommand = (command: string): boolean =>
+  SERVER_COMMAND.test(command) || PORTS.some((pattern) => command.match(pattern) !== null);
+
 export type SessionInfoServer = SessionInfoProcess & {
   /// The ports the command names, in the order named; empty when it names none (the default port
   /// is never guessed).
