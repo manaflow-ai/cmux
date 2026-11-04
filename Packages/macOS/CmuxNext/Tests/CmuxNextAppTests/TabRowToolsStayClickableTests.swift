@@ -16,15 +16,11 @@ import Testing
     final class RowChat: NSView, PaneTabRowSharing {
         let need: CGFloat
         private(set) var shared: CGFloat = 0
-        private(set) var tabsShown = true
         var onTabRowToolsChange: (() -> Void)?
-        var tabRowHoleFill: CGColor?
         init(need: CGFloat) {
             self.need = need
             super.init(frame: .zero)
         }
-
-        func setTabRowTabs(shown: Bool) { tabsShown = shown }
 
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -97,17 +93,29 @@ import Testing
             pane.stripView.syncFromModel()
             pane.stripView.layoutSubtreeIfNeeded()
             let strip = pane.stripView
-            #expect(!strip.isHidden, "\(count) tab(s): the strip hid")
-            #expect(strip.frame.height > 0, "\(count) tab(s): the strip has no height")
-            #expect(chat.tabsShown, "\(count) tab(s): the chat was told the pane draws no tabs")
+            // What Leo sees: the strip and its + in the pane, and a tab for each tab.
+            #expect(!strip.isHiddenOrHasHiddenAncestor, "\(count) tab(s): the strip hid")
+            #expect(strip.frame.height > 0 && pane.bounds.contains(strip.frame), "\(count) tab(s): the strip is out of the pane: \(strip.frame)")
             #expect(pane.contentHost.frame.minY < strip.frame.maxY, "\(count) tab(s): the chat shares the row")
-            frames[count] = strip.frame
-            // The empty space at the strip's trailing end moves the window; a tab and + take their own press.
-            #expect(strip.titlebarHit(at: CGPoint(x: strip.bounds.maxX - 2, y: strip.bounds.midY)) == .empty,
-                    "\(count) tab(s): the strip's empty space is no titlebar")
-            for rect in strip.mouseRects() {
-                #expect(strip.titlebarHit(at: CGPoint(x: rect.midX, y: strip.bounds.midY)) == .strip)
+            let plus = strip.newTabButton
+            #expect(!plus.isHiddenOrHasHiddenAncestor, "\(count) tab(s): + hid") // hover mode may fade it at rest; it still takes the press
+            let plusFrame = strip.contentView.convert(plus.frame, to: strip)
+            #expect(plusFrame.width > 0 && strip.bounds.contains(plusFrame), "\(count) tab(s): + is out of the strip: \(plusFrame)")
+            #expect(strip.cells.count == count, "\(count) tab(s): the strip draws \(strip.cells.count) tab cell(s)")
+            let tabFrames = strip.cells.values.map { strip.tabsClip.convert($0.frame, to: strip) }
+            for tab in tabFrames {
+                #expect(tab.width > 0 && strip.bounds.contains(CGPoint(x: tab.midX, y: tab.midY)), "\(count) tab(s): a tab is out of the strip: \(tab)")
             }
+            frames[count] = strip.frame
+            // A tab and + take their own press; the empty space past + moves the window.
+            for tab in tabFrames {
+                #expect(strip.titlebarHit(at: CGPoint(x: tab.midX, y: tab.midY)) == .strip, "\(count) tab(s): the tab at \(tab) is titlebar")
+            }
+            #expect(strip.titlebarHit(at: CGPoint(x: plusFrame.midX, y: plusFrame.midY)) == .strip, "\(count) tab(s): + is titlebar")
+            let runEnd = strip.mouseRects().map(\.maxX).max() ?? plusFrame.maxX
+            #expect(runEnd < strip.bounds.maxX - 2, "\(count) tab(s): no empty space past +")
+            #expect(strip.titlebarHit(at: CGPoint(x: (runEnd + strip.bounds.maxX) / 2, y: strip.bounds.midY)) == .empty,
+                    "\(count) tab(s): the strip's empty space past + is no titlebar")
         }
         #expect(frames[0] == frames[1] && frames[1] == frames[2], "the strip moved with its tab count: \(frames)")
     }
@@ -143,43 +151,5 @@ import Testing
         pane.themeDidChange()
         let fill = try #require(pane.stripView.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.usingColorSpace(.sRGB) })
         #expect(abs(fill.blueComponent - barColor.blue) < 0.01, "the strip paints \(fill), not the tab bar's \(barColor)")
-    }
-
-    /// #33261: a Chromium chat alone in its pane paints its surface across the row and leaves the pane's "…" a
-    /// hole; the toolbar fills its frame with the chat's fill (`tabRowHoleFill`), so the row is one surface, and
-    /// goes clear again when the chat leaves the row or gives no fill.
-    @Test func theToolbarPaintsTheChatsHoleFill() throws {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 500), styleMask: [.titled],
-                              backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.orderOut(nil); window.close() }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("t0"), title: "Chat")]), reveal: LaunchReveal(deadline: .zero))
-        pane.frame = window.contentLayoutRect
-        window.contentView = pane
-        pane.toolbar = PaneToolbar(registry: { nil }, newTabMenu: { nil })
-        let chat = RowChat(need: 220)
-        let fill = ThemeRGB(hex: 0x282938).cgColor
-        chat.tabRowHoleFill = fill
-        _ = pane.show(chat)
-        let settle = {
-            for _ in 0..<4 {
-                pane.needsLayout = true
-                pane.layoutSubtreeIfNeeded()
-            }
-        }
-        settle()
-        let toolbar = try #require(pane.toolbar?.view)
-        let plate = { toolbar.layer?.sublayers?.first { $0.backgroundColor != nil && $0.backgroundColor == fill } }
-        #expect(pane.contentHost.frame.minY < pane.stripView.frame.maxY, "the chat shares the row")
-        let shown = try #require(plate(), "the toolbar paints the chat's surface")
-        // The window's lit top rim runs on over the toolbar (#33346): the fill starts below it.
-        let rim = PaneTabRowRim.height, bounds = toolbar.bounds
-        let top = toolbar.isFlipped ? shown.frame.minY : bounds.height - shown.frame.maxY
-        #expect(abs(top - rim) < 0.01 && abs(shown.frame.height - (bounds.height - rim)) < 0.01 && shown.frame.width == bounds.width,
-                "the fill \(shown.frame) in \(bounds) covers the rim")
-        #expect(toolbar.layer?.backgroundColor == nil, "the toolbar's own background stays clear")
-        chat.tabRowHoleFill = nil
-        settle()
-        #expect(plate() == nil)
     }
 }

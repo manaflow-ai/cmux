@@ -197,6 +197,28 @@ class RoutingTableTests(unittest.TestCase):
             self.assertEqual(problems, [])
             self.assertEqual(len(allowed), 1)
 
+    def test_hosted_light_policy_takes_the_trusted_selector_retry_only_without_secrets(self):
+        # A reusable workflow cannot fromJSON a variable, so its secretless light job may retry on
+        # the reviewed CI_TRUSTED_RUNNER selector (resolve-runners.yml#resolve).
+        import yaml
+        route = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'ubuntu-24.04' || "
+                 "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+                 "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}")
+        widened = route.replace('\"ubuntu-24.04\",', '\"ubuntu-24.04\",\"self-hosted\",')
+        for runs_on, env, accepted in ((route, {}, True), (route, {"T": "${{ secrets.T }}"}, False), (widened, {}, False)):
+            with self.subTest(runs_on=runs_on, env=env), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); workflows = root / "workflows"; workflows.mkdir()
+                policy = root / "runners.json"
+                policy.write_text(json.dumps({"job_classes": {"portable-checks": {"needs": "any"}},
+                    "hosted_light_jobs": {"resolve-runners.yml#resolve": {
+                        "class": "portable-checks", "reason": "resolver", "allowed_secrets": ["T"]}}}))
+                (workflows / "resolve-runners.yml").write_text(yaml.safe_dump({"jobs": {"resolve": {
+                    "runs-on": runs_on, "steps": [{"run": "python3 resolve.py", "env": env}]}}},
+                    sort_keys=False, width=10000))
+                problems, allowed = table.hosted_light_policy(policy, workflows)
+                self.assertEqual(not problems, accepted, problems)
+                self.assertEqual(len(allowed), int(accepted))
+
     def test_hosted_light_policy_checks_inherited_workflow_environment(self):
         import yaml
         route = "${{ github.run_attempt == 1 && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}"
