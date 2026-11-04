@@ -106,6 +106,23 @@ import UIKit
         #expect(view.numberOfItems(inSection: 1) == 60)
         window.isHidden = true
     }
+
+    /// A query that sums frames for a new width (rotation) before UIKit asks whether the bounds
+    /// change invalidates the layout must not hide the change: the header and the rows get the
+    /// new width, and the pass still runs.
+    @Test func aWidthChangeSeenByAQueryStillInvalidates() {
+        let layout = FeedListLayout()
+        let host = ShrinkHost(layout: layout, rows: 3)
+        let ids = ["a", "b", "c"]
+        layout.headerHeight = 50
+        layout.setHeights(order: ids, heights: Dictionary(uniqueKeysWithValues: ids.map { ($0, CGFloat(100)) }), changed: nil)
+        host.view.layoutIfNeeded()
+        host.view.bounds.size.width = 600
+        let shown = layout.layoutAttributesForElements(in: CGRect(x: 0, y: 0, width: 600, height: 1000)) ?? []
+        #expect(shown.allSatisfy { $0.frame.width == 600 })
+        #expect(shown.contains { $0.indexPath.section == 0 })
+        #expect(layout.shouldInvalidateLayout(forBoundsChange: CGRect(x: 0, y: 0, width: 600, height: 844)))
+    }
 }
 
 /// A plain two-section data source whose row count the test sets, so UIKit's count can lag

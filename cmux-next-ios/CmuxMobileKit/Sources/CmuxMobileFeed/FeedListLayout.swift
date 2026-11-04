@@ -46,10 +46,14 @@ final class FeedListLayout: UICollectionViewLayout {
     }
     private var width: CGFloat = 0
     private var total: CGFloat = 0
+    /// The width of the last layout pass. A query may sum frames for a new width before UIKit asks
+    /// `shouldInvalidateLayout(forBoundsChange:)`; that answer compares with this, so the pass still runs.
+    private var preparedWidth: CGFloat = 0
 
     override func prepare() {
         super.prepare()
         sumFrames()
+        preparedWidth = width
     }
 
     /// Sums the frames again when the heights or the width changed since the last sum. UIKit may
@@ -78,7 +82,7 @@ final class FeedListLayout: UICollectionViewLayout {
     }
 
     override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-        newBounds.width != width
+        newBounds.width != preparedWidth
     }
 
     /// The event rows UIKit has now: a query during a batch update may still see the old count.
@@ -93,11 +97,11 @@ final class FeedListLayout: UICollectionViewLayout {
     }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        sumFrames()
         let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
         if indexPath.section == 0 {
             attributes.frame = CGRect(x: 0, y: 0, width: width, height: headerHeight)
         } else {
-            sumFrames()
             guard tops.indices.contains(indexPath.item) else { return nil }
             attributes.frame = frame(row: indexPath.item)
         }
@@ -105,13 +109,13 @@ final class FeedListLayout: UICollectionViewLayout {
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
+        sumFrames()
         var result: [UICollectionViewLayoutAttributes] = []
         if headerHeight > 0, rect.minY < headerHeight, collectionView?.numberOfSections ?? 0 > 0 {
             let header = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: 0, section: 0))
             header.frame = CGRect(x: 0, y: 0, width: width, height: headerHeight)
             result.append(header)
         }
-        sumFrames()
         let limit = rowLimit
         guard limit > 0 else { return result }
         // The first row whose bottom is below rect.minY.
