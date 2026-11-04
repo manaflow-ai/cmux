@@ -105,7 +105,7 @@ impl Runs {
 
 /// What `profile` (named `name`) runs: a Claude Code kind is Claude; a host's
 /// exact shape is a host; else the agents its command line names exactly
-/// ([`argv_families`]), and only when that names none, its profile name's
+/// ([`argv_family`]), and only when that names none, its profile name's
 /// first word (`claude-sr` running `sr` is Claude, `cursor` running `agent`
 /// is Cursor). The `family` label never decides.
 pub(crate) fn classify(name: &str, profile: &HarnessProfile) -> Runs {
