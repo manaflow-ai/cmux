@@ -45,9 +45,13 @@ extension PaneContentView {
     /// Puts `view` on screen as the pane's content: unhides it when it is parked here, else adds it (also from another
     /// pane, a moved tab). `leaving`, retired right after, does not count as content above it.
     func install(_ view: NSView, replacing leaving: NSView? = nil) {
-        guard view.superview === contentHost else {
+        // In a key hold a row-sharing chat keeps its parked frame top-held (its row above the area); otherwise (bottom-held, or
+        // from another pane) it joins the held rect rowless, unsized until the landing sizes it once (S1B, Codex #34247).
+        let local = view.superview === contentHost, held = contentHost.isHolding, topHeld = local && contentHost.hold?.bottom == false
+        if held, !topHeld, let row = view as? PaneTabRowSharing { row.setTabRow(height: 0, trailingInset: 0) }
+        guard local else {
             view.frame = contentHost.contentBounds(for: view)
-            view.autoresizingMask = [.width, .height]
+            view.autoresizingMask = held && parkedFrame(of: view) != nil ? [] : [.width, .height]
             contentHost.addSubview(view)
             refreshNativeToolOwner()
             // Parked in the pane it came from.
@@ -55,10 +59,6 @@ extension PaneContentView {
             return
         }
         parked.removeAll { $0.view == nil || $0.view === view }
-        // A top-held key hold keeps a row-sharing chat's parked frame to the landing; bottom-held, it joins the held rect
-        // rowless and the landing sizes it once (no autoresizing, so the area's release leaves it) (S1B).
-        let topHeld = contentHost.hold?.bottom == false, held = contentHost.isHolding
-        if held, !topHeld, let row = view as? PaneTabRowSharing { row.setTabRow(height: 0, trailingInset: 0) }
         if let frame = parkedFrame(of: view), held ? topHeld : view.frame == frame && frame != contentHost.bounds {
             // A chat parked at the size it shows at (`layoutParked`) keeps it: the pane's next layout moves the host under the
             // tab row and puts the chat at its origin, same size (sized to the host first, its page jumped as it showed).
