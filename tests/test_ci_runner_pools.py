@@ -144,29 +144,27 @@ class Declared(unittest.TestCase):
         self.assertNotIn("needs", rescue)
         self.assertEqual(rescue["permissions"], {"actions": "write", "contents": "read"})
         self.assertNotIn("secrets.", path.read_text())
+        self.assertIn("vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || vars.LINUX_RUNNER", rescue["runs-on"])
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
 
-    def test_the_watch_runs_the_pinned_hosted_light_rescue_without_failing(self) -> None:
+    def test_the_independent_rescue_uses_the_reviewed_bounded_helper(self) -> None:
         # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
-        steps = workflow["jobs"]["watch"]["steps"]
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text())
+        steps = workflow["jobs"]["rescue"]["steps"]
         [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
         self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
         self.assertEqual(checkout["with"]["persist-credentials"], False)
         self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
                          {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
-        self.assertTrue(checkout.get("continue-on-error"))
         [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
-        self.assertTrue(step.get("continue-on-error"))
-        self.assertIn("steps.hosted-light-tooling.outcome == 'success'", str(step.get("if")))
         self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
-        self.assertEqual(workflow["jobs"]["watch"]["permissions"].get("actions"), "write")
+        self.assertEqual(workflow["jobs"]["rescue"]["permissions"].get("actions"), "write")
         names = [s.get("name") for s in steps]
         self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
-        self.assertLess(names.index(step["name"]), names.index("End this run's stuck probe"))
+        self.assertIn("--workflows .rescue-workflows/.github/workflows", step["run"])
 
 
 class Evidence(unittest.TestCase):
