@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
+/* cmux-tui mux protocol 12, IR 6f37208dc82e6a7dc146e40a18c300a49a824470d73b8e6e650d9e9e6cf175ea. */
 
 
 import type * as T from "./types.js";
@@ -2400,6 +2400,14 @@ export interface SetHostSizePolicyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface SetLayoutSizesRequest extends CmuxRequestBase {
+  cmd: "set-layout-sizes";
+  "transaction": bigint;
+  "values": Array<T.LayoutSizeValue>;
+}
+export type SetLayoutSizesResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
   cmd: "set-personal-terminal";
   "session_id": string;
@@ -3156,6 +3164,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
+  | SetLayoutSizesRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -5070,6 +5079,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "host-size-policy-v1";
+    stream: null;
+  };
+  "set-layout-sizes": {
+    request: SetLayoutSizesRequest;
+    result: SetLayoutSizesResult;
+    authority: "control";
+    since: 12;
+    capability: "layout-sizes-batch-v1";
     stream: null;
   };
   "set-personal-terminal": {

@@ -3,7 +3,13 @@ import { componentEntry } from "../../gallery/format";
 import type { HistoryLayout } from "./ImportHistory";
 import type { Phase } from "./model";
 
-type Props = { layout?: HistoryLayout; phase?: Phase; empty?: boolean; paste?: boolean };
+type Props = {
+  layout?: HistoryLayout;
+  phase?: Phase;
+  empty?: boolean;
+  paste?: boolean;
+  autodetected?: boolean;
+};
 
 export default componentEntry<Props>({
   id: "pages.import-history",
@@ -40,5 +46,9 @@ export default componentEntry<Props>({
     done: { props: { phase: "done" } },
     error: { props: { phase: "error" } },
     "paste-summary": { props: { paste: true } },
+    autodetected: {
+      note: "Archives found in the usual export folders are checked inline; manual pick remains available on each archive row.",
+      props: { autodetected: true },
+    },
   },
 });

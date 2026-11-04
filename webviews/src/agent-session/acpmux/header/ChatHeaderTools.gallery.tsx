@@ -638,7 +638,7 @@ export default componentEntry<HeaderToolsProps>({
       play: sessionInfoOpen(true),
     },
     "panel-icon-list": {
-      note: "Panel icon option: two list rows with circular markers, centred on the icon grid; this is the shipped choice (Leo 2026-11-04: \"make our session info button 2 rows too\").",
+      note: 'Panel icon option: two list rows with circular markers, centred on the icon grid; this is the shipped choice (Leo 2026-11-04: "make our session info button 2 rows too").',
       props: { ...base, summary: panelToggle(false, "view.list.short") },
     },
     "panel-icon-list-three": {

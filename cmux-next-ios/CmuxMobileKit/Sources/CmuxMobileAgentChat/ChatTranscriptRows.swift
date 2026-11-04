@@ -37,6 +37,9 @@ struct ChatRow: Equatable, Identifiable, Sendable {
         case stopped
         case failed(prompt: String, errorText: String?)
         case actions(AgentTurn, isLast: Bool)
+        /// The tagged ask a finished turn's answer ended on (the Mac's next-step card):
+        /// `answer` once a prompt followed it (the card folds), `canAnswer` while its buttons send.
+        case nextStep(NextStepAsk, answer: String?, canAnswer: Bool)
     }
 
     /// The session line's text: "Session started …", or "Showing messages since …" when
@@ -65,6 +68,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var askOpen: Bool
     /// The permission whose card offers the choices (the bar is out of the composer's place).
     var choicesFor: String?
+    /// The next turn's prompt: a next-step card this turn ended on folds to the answer it gave.
+    var nextPrompt: String?
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -114,7 +119,8 @@ final class ChatTranscriptBuilder {
             let isLast = index == turns.count - 1
             let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
-                                          choicesFor: isLast ? choicesFor : nil)
+                                          choicesFor: isLast ? choicesFor : nil,
+                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt))
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -134,6 +140,12 @@ final class ChatTranscriptBuilder {
             memos = memos.filter { live.contains($0.key) }
         }
         return out
+    }
+
+    /// A prompt that answers a card: nil when it is blank (a turn a notice or another agent
+    /// started), so an earlier ask stays in its answer's text, as on the Mac.
+    static func reply(_ prompt: String) -> String? {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : prompt
     }
 
     /// The space after the last row (the old transcript's padding under its last turn).
@@ -158,15 +170,30 @@ final class ChatTranscriptBuilder {
                             gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
         let turnRows = turn.rows
         let running = turn.status == .running
+        // A finished turn's answer that ends on one tagged ask: the ask draws as a card under it.
+        var nextStep: (rowID: String, ask: NextStepAsk)?
+        // An earlier turn's card shows only with the reply that answered it (the Mac's rule).
+        if turn.status == .completed, context.isLast || context.nextPrompt != nil,
+           let index = turnRows.lastIndex(where: { if case .message = $0 { true } else { false } }),
+           case .message(_, let markdown) = turnRows[index], let ask = NextStepAsk.parse(markdown) {
+            nextStep = (turnRows[index].id, ask)
+        }
         for (index, row) in turnRows.enumerated() {
             let isLastRow = index == turnRows.count - 1
             switch row {
             case .message(let messageID, let markdown):
-                var parse = parses[row.id] ?? MarkdownStreamParse()
-                parse.update(markdown, isStreaming: running && isLastRow)
-                parses[row.id] = parse
+                let ask = nextStep?.rowID == row.id ? nextStep?.ask : nil
+                // The answer without the ask's lines parses on its own key (its text is no prefix of the stream's).
+                let key = ask == nil ? row.id : "\(row.id)#next"
+                var parse = parses[key] ?? MarkdownStreamParse()
+                parse.update(ask?.rest ?? markdown, isStreaming: running && isLastRow)
+                parses[key] = parse
                 for (blockIndex, block) in parse.displayed.enumerated() {
                     add("\(row.id)#\(block.id)", .block(messageID: messageID, block: block), gap: blockIndex == 0 ? nil : 12)
+                }
+                if let ask {
+                    let answer = context.nextPrompt.map { ask.chosenAnswer($0) }
+                    add("n-\(row.id)", .nextStep(ask, answer: answer, canAnswer: answer == nil && context.isLast))
                 }
             case .thought(_, let text):
                 add(row.id, .thought(text: text, isLive: running && isLastRow))
@@ -235,8 +262,17 @@ enum ChatNativeEligibility {
     /// Drawn natively: a native kind in its resting state at a standard text size. At
     /// accessibility sizes every row is SwiftUI (its views stack and wrap there); an open tool
     /// row, group or thought shows its SwiftUI view. `isOpen` reads a disclosure by key.
-    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?) -> Bool {
+    /// `isSettling`: a disclosure the person just tapped, opening or closing (`ChatDisclosures.settle`):
+    /// its row is SwiftUI until the animation completes.
+    static func drawsNatively(_ row: ChatRow, accessibilitySize: Bool, wrapCode: Bool = false, isOpen: (String) -> Bool?,
+                              isSettling: (String) -> Bool = { _ in false }) -> Bool {
         guard !accessibilitySize, isCandidate(row.kind) else { return false }
+        switch row.kind {
+        case .tool(let call) where isSettling("tool-\(call.id)"): return false
+        case .toolGroup(let calls, _) where isSettling("group-\(calls.first?.id ?? "")"): return false
+        case .thought where isSettling("thought-\(row.id)"): return false
+        default: break
+        }
         switch row.kind {
         // The native snippet draws its lines unwrapped; with "Wrap code and diff lines" on, the
         // SwiftUI snippet wraps them.
