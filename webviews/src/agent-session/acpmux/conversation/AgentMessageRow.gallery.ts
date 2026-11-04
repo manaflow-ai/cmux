@@ -334,7 +334,9 @@ export default agentPaneEntry({
       note: "Opened, the message grows in place under its line, with no box, and nothing else draws: no status block, no result JSON.",
       snapshot: sends(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        // Stacked (#33249), a shut row's toggle holds no words and sits on the recipient's chip, which
+        // opens the subagent; the person clicks the message's first line under the row, which toggles it.
+        await ctx.click({ selector: ".cv-agentmsg__below" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
       },
     },
@@ -342,7 +344,7 @@ export default agentPaneEntry({
       note: "A long message opens capped near eight lines, the rest a scroll away under a fade.",
       snapshot: long(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        await ctx.click({ selector: ".cv-agentmsg__below" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
     },

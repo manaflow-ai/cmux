@@ -2,6 +2,7 @@ import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
 import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } from "./subagents/retryState";
 import { isModelRouterKind } from "./routerKinds";
@@ -203,6 +204,7 @@ export function newSessionParams(
   harness?: string,
   noProject = false,
   model?: string,
+  additionalDirectories?: readonly string[],
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -212,6 +214,9 @@ export function newSessionParams(
   return {
     ...(host.cwd ? { cwd: host.cwd } : {}),
     mcpServers: [],
+    // The folders the chat sees beside its own (extraFolders.ts, cmux#32811): the machine's own
+    // paths, never its cwd; left out for none.
+    ...(additionalDirectories?.length ? { additionalDirectories: [...additionalDirectories] } : {}),
     _meta: {
       acpmux: {
         harness,
@@ -6911,6 +6916,8 @@ export class AcpmuxDirectClient {
           // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
           branch: text(summary.branch) ?? text(summary.gitBranch),
           worktree: text(summary.worktree),
+          // The folders it sees beside its own (acpmux `additionalDirectories`), for Session Info.
+          additionalDirectories: summaryExtraFolders(summary.additionalDirectories),
           title: summary.title,
           name: summary.name,
           goal: taskGoal(summary.goal),
@@ -8788,6 +8795,13 @@ export class AcpmuxDirectClient {
     this.creating = tracked;
     return started;
   }
+  /// The folders the next new chat sees beside its own (the composer's Add folder…, extraFolders.ts),
+  /// and the machine they are on: sent in its `session/new` as `additionalDirectories` only when it
+  /// starts on that machine (another machine's paths mean nothing there), then dropped once it started.
+  private newChatFolders?: ExtraFolderDraft;
+  setNewChatFolders(draft: ExtraFolderDraft | undefined): void {
+    this.newChatFolders = draft?.folders.length ? draft : undefined;
+  }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
   /// `again` re-runs the caller's step after a Trust answer (the trust route).
@@ -8800,11 +8814,16 @@ export class AcpmuxDirectClient {
     model?: string,
     declined?: () => void,
   ): Promise<string | undefined> {
+    const target = newSessionHost(this.host, cwd, peer, noProject);
+    const folders = this.newChatFolders;
+    const onMachine = folders && folders.machine === (target.peer || "local") ? folders.folders : undefined;
     const result = await this.newSession(
-      newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
+      newSessionParams(target, harness, noProject, model, extraFoldersParam(onMachine, target.cwd)),
       again,
       declined,
     );
+    // The folders were this start's (a failed one keeps them for its retry).
+    if (result?.sessionId && onMachine && this.newChatFolders === folders) this.newChatFolders = undefined;
     // Startup picks handed to this new-chat page are one-shot defaults: consume them only after
     // session/new succeeds, so a failed start can retry with the same picks. The inherited cwd
     // keeps its existing first-chat behavior for local starts. A peer's explicit folder is
