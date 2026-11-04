@@ -435,6 +435,7 @@ export async function raceState(host: AutomationHost, requestedRaceId?: string, 
     }
     if (host.snapshot().sessionId !== parent) return { error: "the page session changed before reading race stats" };
     const stats = await client.getRaceStats(parent);
+    if (host.snapshot().sessionId !== parent) return { error: "the page session changed while reading race stats" };
     return { race, stats, ...(timedOut ? { timedOut: true } : {}) };
   } finally {
     unsubscribe();
