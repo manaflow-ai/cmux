@@ -1692,6 +1692,7 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         self.assertIn("--trusted-branch feat-cmux-next", lookup["run"])
         self.assertIn("--trusted-event push", lookup["run"])
         self.assertIn("--trusted-workflow .github/workflows/cmux-next.yml", lookup["run"])
+        self.assertIn("\n", lookup["run"], "the planner command must stay a YAML block scalar for shell continuations")
         argv = shlex.split(lookup["run"])
         self.assertEqual(argv[argv.index("--trusted-workflow") + 1], ".github/workflows/cmux-next.yml")
         self.assertIn("steps.reuse-key.outputs.candidate_key", lookup["env"]["KEY"])
