@@ -65,6 +65,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserAgentMouse = AgentMouseSetting().fallback
     /// `home.attachments.keepLocation` (off: strip location) and `home.channelsEnabled`; off when unset.
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
+    /// `home.clipboardHistory`: the Chief composer's + menu lists recent copies; on when unset.
+    public var homeClipboardHistory = HomeClipboardHistorySetting.defaultEnabled
     /// `home.feedInChief`: the main Chief's conversation shows the Feed's notices; on when unset.
     public var homeFeedInChief = true
     /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
