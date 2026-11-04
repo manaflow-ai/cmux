@@ -37,7 +37,8 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
             let created = try await NativeCloudRoute.make(team: team, identity: identity, paths: paths,
                                                            session: { [auth] in try await auth.tokens().access },
                                                            deviceName: deviceName, bundle: bundle,
-                                                           directory: directory, home: FileManager.default.homeDirectoryForCurrentUser)
+                                                           directory: directory, home: FileManager.default.homeDirectoryForCurrentUser,
+                                                           temporaryDirectory: DaemonLauncher.userTemporaryDirectory())
             route = created
             routeTeam = team
         }
@@ -60,7 +61,8 @@ public final class CloudNativeRouteHolder: CloudLinkLaunching {
 /// The app server link's Native device route, the default (`CMUX_NEXT_CLOUD_NATIVE_LINK=0` turns it off),
 /// with this Mac's `cmux link` for an install whose Native route fails to start (a team the Worker has no
 /// Native mesh for answers 400), so Native never leaves such a team with no machine. The fallback holds for
-/// `retryNativeAfter`, then the next `ensure` tries Native again: a new team has no mesh until its first machine
+/// `retryNativeAfter` (doubling after each failed retry, up to 15 min), then the next `ensure` stops the link
+/// (the two share one state folder and its lock) and tries Native again: a new team has no mesh until its first machine
 /// is made, and that happens after the link first starts, so a fallback held until sign-out (``archive(install:)``)
 /// would never reach that machine. `onFallback` says why each fallback was taken. Native is the default because it
 /// is the only route that reaches a Worker machine today: `connect_info` answers no gateway, VPC endpoint or
@@ -74,6 +76,12 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     private let retryNativeAfter: Duration
     /// When the link took over; nil while Native is in use.
     private var linkSince: ContinuousClock.Instant?
+    /// Native failures in a row: each doubles the hold before the next try.
+    private var failures = 0
+    private static let longestHold: Duration = .seconds(15 * 60)
+    private var hold: Duration {
+        min(retryNativeAfter * (1 << min(max(failures - 1, 0), 10)), max(retryNativeAfter, Self.longestHold))
+    }
     private var usingLink: Bool { linkSince != nil }
     /// Why the Native route did not start, when the link took over (for `cloud.machines`' `link_route`).
     public private(set) var fallbackReason: String?
@@ -101,16 +109,16 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
     }
 
     public func ensure(install: String) async throws -> CloudLinkLauncher.Ensured {
-        if let since = linkSince, let link, ContinuousClock.now - since < retryNativeAfter {
-            return try await link.ensure(install: install)
+        if let since = linkSince, let link {
+            if ContinuousClock.now - since < hold { return try await link.ensure(install: install) }
+            // The Native child serves from the link's state folder, which a running link holds locked.
+            await link.stop(install: install)
         }
         do {
             let ensured = try await native.ensure(install: install)
-            if usingLink {
-                await link?.stop(install: install)
-                linkSince = nil
-                fallbackReason = nil
-            }
+            linkSince = nil
+            fallbackReason = nil
+            failures = 0
             return ensured
         } catch {
             // Signed out or cancelled is not a route failure: the link would refuse the same way.
@@ -119,6 +127,7 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
             onFallback(error)
             fallbackReason = String(describing: error)
             linkSince = ContinuousClock.now
+            failures += 1
             // Stop, never revoke: the retry reuses this enrollment, since the server keeps one host network
             // binding per install and refuses to retarget it to a new device ("cannot be retargeted").
             await native.stop(install: install)
@@ -134,5 +143,6 @@ public final class CloudNativeFirstLauncher: CloudLinkLaunching {
         await native.archive(install: install)
         await link?.archive(install: install)
         linkSince = nil
+        failures = 0
     }
 }

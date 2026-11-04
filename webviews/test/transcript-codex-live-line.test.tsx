@@ -79,6 +79,7 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
   expect(words(renderToStaticMarkup(<Thinking since={line.at} now={() => line.at + 18_000} />))).toBe("Thinking 18s");
 });
 
+// One count, as Claude Code's live line says it (claude-code-tool-rows.test.tsx).
 test("the live line carries the turn's tokens while it times the turn, beside a call too", () => {
   const start = 1_000_000;
   const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
@@ -88,15 +89,15 @@ test("the live line carries the turn's tokens while it times the turn, beside a 
         <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
-  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M out");
+  expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s · 2.1M tokens");
   // The same clock and count go on across steps (Leo, 2026-11-01: "it should just keep going").
   expect(
     drawn(
       <Thinking since={start} doing="cargo test" doingShell doingAt={start + 350_000} now={() => start + 354_000} />,
     ),
-  ).toBe("Running cargo test 5m 54s · 2.1M out");
+  ).toBe("Running cargo test 5m 54s · 2.1M tokens");
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
-    "Ran cargo test 6m · 2.1M out",
+    "Ran cargo test 6m · 2.1M tokens",
   );
 });
 
@@ -204,8 +205,11 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
-  // Behind streaming text it keeps its height but draws nothing.
-  expect(renderToStaticMarkup(<Thinking untimed quietKey="a:7" />)).toContain("cv-worked is-quiet");
+  // Under streaming text it stays shown and reads "Writing" (Leo, 2026-11-04: "it appears and
+  // disappears????").
+  const writing = renderToStaticMarkup(<Thinking untimed quietKey="a:7" liveState="writing" />);
+  expect(writing).not.toContain("is-quiet");
+  expect(words(writing)).toBe("Writing");
 });
 
 test("shortCommand drops the setup a script starts with", () => {

@@ -145,8 +145,8 @@ enum SidebarSectionHandlers {
             guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
             _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
         })
-        // The sidebar has no bottom-left area (Lawrence 2026-10-10, cx-n0i9): a section after the
-        // workspaces would not draw, so new and moved sections go above the workspaces.
+        // The bottom slot draws app sections. Generic item sections remain unavailable (cx-n0i9);
+        // new and moved item sections go above the workspaces.
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
             guard region != .bottom else { throw ActionFailure(message: SidebarSectionStrings.noBottomArea) }

@@ -670,6 +670,19 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Four of these tests and the registry check read workflows with PyYAML. Fleet Linux and Blacksmith images
+      # carry it, but a mini's python3 does not (ModuleNotFoundError: yaml on cmux14, 2026-11-03), so the job
+      # puts its own copy first on PATH wherever it lands.
+      - name: Prepare tooling-test Python (PyYAML)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/tooling-tests-venv"
+          "$RUNNER_TEMP/tooling-tests-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            PyYAML==6.0.3
+          echo "$RUNNER_TEMP/tooling-tests-venv/bin" >> "$GITHUB_PATH"
+
       - name: nightly-next's App ID and profile through the ASC API
         run: python3 tests/test_asc_developer_id_app.py
 
@@ -721,6 +734,11 @@ jobs:
       # feat-cmux-next unseen (#23430). A fake bun stands in; no web test runs.
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
+
+      # The TAP health classifier and its base-red integration stay on the same
+      # tooling-tests PR lane as the producer's published snapshot contract.
+      - name: The TAP test-health classifier and base-red evidence
+        run: python3 tests/test_tap_test_health.py
 
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).

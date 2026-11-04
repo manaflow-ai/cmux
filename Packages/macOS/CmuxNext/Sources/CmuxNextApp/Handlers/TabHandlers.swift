@@ -7,6 +7,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextFiles
 import CmuxNextLayout
+import CmuxNextTabs
 
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
 /// select, reorder, rename, pin, and move to other panes, splits, columns,
@@ -21,6 +22,7 @@ enum TabHandlers {
         TabHandlers.bindMoreActions(into: registry, context: ctx)
         PaneTabBarHandlers.bind(into: registry, context: ctx)
         TabRestart.bind(into: registry, context: ctx)
+        registry.bindEffect("debug.tabBarPlayground", effect: { [playground = TabBarPlaygroundWindow()] _ in playground.show(); return .done })
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {

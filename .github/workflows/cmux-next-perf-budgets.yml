@@ -233,7 +233,7 @@ jobs:
           IFS=',' read -r -a requested <<<"$PARTS"
           for part in "${requested[@]}"; do
             case "$part" in
-              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=panes) ;;
+              transcript-scroll) args=(--app-cache --vdisplay=120 --suite=budgets --only=acp --raw=acp) ;;
               sidebar) args=(--app-cache --vdisplay=120 --suite=budgets --only=sidebar) ;;
               startup) args=(--app-cache --vdisplay=120 --suite=launch --profile empty --mode warm --runs 5 --timeout 20) ;;
               *) echo "unsupported part: $part" >&2; exit 2 ;;
@@ -540,7 +540,7 @@ jobs:
       - name: Install Playwright browsers
         if: ${{ needs.plan.outputs.linux_part == 'web-ui' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       # The measured commit's own benches; the perf cron script from the branch tip judges them.
       - name: Fetch the perf cron script of the branch tip

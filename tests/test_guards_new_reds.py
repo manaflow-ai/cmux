@@ -68,6 +68,76 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("::error title=Webview test red on this change::lint", done.stdout)
 
+    def run_rerun(self, head, base, rerun, *extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base), ("rerun", rerun)):
+                path = Path(tmp) / f"{name}.json"
+                if results is not None:
+                    path.write_text(json.dumps(results))
+                paths.append(str(path))
+            return subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", *extra,
+                                   "--head-rerun", paths[2], paths[0], paths[1]], capture_output=True, text=True)
+
+    def test_a_head_red_that_passes_alone_on_the_head_is_a_warning(self):
+        # #27710 (run 41525196343): three gallery-frame timeouts on long head shards with no retry budget left,
+        # each passing on the base replay; the base push after the merge passed all three.
+        red = "test/reasoning-own-control.test.ts"
+        named = "test/session-info-per-pane.test.ts > chromium: closing Session Info in one pane leaves the other pane's open"
+        done = self.run_rerun({red: False, named: False, "test/ok.test.ts": True}, {red: True, named: True},
+                              {red: True, "test/session-info-per-pane.test.ts": True})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test passed again alone on the head::{red}", done.stdout)
+        self.assertIn(f"webview test red step (flaky): {named}", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 0 red on the base too, 2 flaky on the base", done.stdout)
+        self.assertIn("2 of the flaky passed again when re-run alone on the head", done.stdout)
+
+    def test_a_head_red_not_on_the_base_that_fails_again_on_the_head_is_the_changes(self):
+        red = "test/composer-history.test.ts > older page"
+        for rerun in ({"test/composer-history.test.ts > older page": False}, {}, None):
+            done = self.run_rerun({red: False}, {"test/composer-history.test.ts": True}, rerun)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+            self.assertNotIn("passed again", done.stdout)
+
+    def test_a_head_rerun_never_clears_a_base_red_or_another_files_red(self):
+        done = self.run_rerun({"test/a.test.ts > x": False, "test/b.test.ts > y": False},
+                              {"test/a.test.ts > x": False, "test/b.test.ts > y": True}, {"test/a.test.ts": True})
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("webview test red step (base): test/a.test.ts > x", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/b.test.ts > y", done.stdout)
+
+    def test_a_named_pass_in_a_failed_rerun_clears_only_that_test(self):
+        done = self.run_rerun(
+            {"test/a.test.ts > passed": False, "test/a.test.ts > remains": False},
+            {"test/a.test.ts": True},
+            {"test/a.test.ts > passed": True, "test/a.test.ts > remains": False},
+        )
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
+        self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
+
+    def test_a_green_head_with_reds_only_on_the_base_is_green(self):
+        done = self.run_it({"test/a.test.ts": True, "test/b.test.ts": True}, {"test/a.test.ts": False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+
+    def test_new_files_lists_the_files_of_the_changes_reds_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            head, base, flaky = (Path(tmp) / name for name in ("head.json", "base.json", "flaky"))
+            head.write_text(json.dumps({"test/a.test.ts > x": False, "test/a.test.ts > y": False, "test/b.test.ts": False,
+                                        "test/c.test.ts > z": False, "test/d.test.ts > w": False, "test/e.test.ts": True}))
+            base.write_text(json.dumps({"test/b.test.ts": False}))
+            flaky.write_text("test/c.test.ts > z\n")
+            done = subprocess.run([sys.executable, str(SCRIPT), "--new-files", "--flaky", str(flaky), str(head), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(done.stdout.splitlines(), ["test/a.test.ts", "test/d.test.ts"])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(Path(tmp) / "none.json"), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual((done.returncode, done.stdout), (0, ""))
+
     def test_a_step_red_only_on_the_head_fails(self):
         done = self.run_it({"lint": False, "wired": True}, {"lint": True, "wired": True})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

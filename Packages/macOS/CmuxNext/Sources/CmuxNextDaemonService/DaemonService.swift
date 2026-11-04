@@ -143,7 +143,7 @@ public final class DaemonService {
     @ObservationIgnored public var createReplyBound: Duration = DaemonConnection.closeReplyBound
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     /// The last failed connect attempt until a connection succeeds (`notConnectedReason`).
-    @ObservationIgnored private(set) var lastStartupError: DaemonError?
+    @ObservationIgnored public private(set) var lastStartupError: DaemonError?
     /// Events that may let a failed connect succeed: the daemon socket
     /// changing (watched by the connection), the app becoming active, and
     /// for a Cloud machine a network path change. Retries past their timed
@@ -533,7 +533,9 @@ public final class DaemonService {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-            return "\(label): \(notConnectedReason ?? DaemonError.notConnected.description)"
+            var failure = ActionWorkFailure("\(label): \(notConnectedReason ?? DaemonError.notConnected.description)")
+            failure.cause = .connection
+            return failure
         }
         do {
             try await body(connection)
@@ -549,6 +551,9 @@ public final class DaemonService {
     /// Receives every command task `send` starts, so an action run from the
     /// control socket can await it (`ActionRegistry.track`).
     @ObservationIgnored public var workTracker: ((ActionWork) -> Void)?
+    /// How many times the connection was shut down (`detachConnection`): a write sent again while unanswered stops
+    /// at the next one (`performUntilAnswered`).
+    @ObservationIgnored var shutdowns = 0
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``) when no open action scope
     /// answers it; the app sets it (the refusal path: log + HUD). Gets the localized reason.
     @ObservationIgnored public var onPaneNotReady: ((_ reason: String) -> Void)?
@@ -602,6 +607,7 @@ public final class DaemonService {
     }
 
     private func detachConnection() -> DaemonConnection? {
+        shutdowns += 1
         // Nothing may start an owner again behind the shutdown (the unresponsive owner's restart).
         recovery.detach()
         startupDeadlineTimer?.cancel()

@@ -151,6 +151,15 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 keywords: ["group", "sort", "folder", "path", "directory", "order"], category: .workspace, symbol: "folder",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group sort-by-directory"
             ),
+            // How the group keeps its workspaces listed (the document's `extra.sort`), unlike the one-shot sorts
+            // above, which rewrite the stored order once. The group editor's Sort row opens these choices.
+            ActionDescriptor(
+                id: "workspaceGroup.setSort",
+                title: String(localized: "action.workspaceGroup.setSort", defaultValue: "Set Workspace Group Sort Order…", table: "WorkspaceActions", bundle: .module),
+                keywords: ["group", "sort", "order", "keep sorted", "alphabetical", "name", "recent", "manual"], category: .workspace,
+                symbol: "arrow.up.arrow.down", surfaces: [.palette, .contextMenu], arguments: [sortChoice], targets: [.workspaceGroup],
+                cliName: "workspace-group set-sort"
+            ),
             ActionDescriptor(
                 id: "workspaceGroup.moveToWindow",
                 title: String(localized: "action.workspaceGroup.moveToWindow", defaultValue: "Move Workspace Group to Window…", bundle: .module),
@@ -247,5 +256,18 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], targets: [.workspaceGroup], cliName: "workspace-group color-orange"
             ),
         ]
+    }
+
+    /// A group's sort, the sidebar's `SidebarGroupSort` values: the stored order, A to Z, or latest activity first.
+    static var sortChoice: ActionArgument {
+        ActionArgument(name: "sort", title: t("argument.workspaceGroup.sort", "Sort Order"), kind: .enumeration([
+            ActionEnumCase(value: "manual", title: t("argument.value.groupSort.manual", "Manual")),
+            ActionEnumCase(value: "name", title: t("argument.value.groupSort.name", "Name")),
+            ActionEnumCase(value: "recent", title: t("argument.value.groupSort.recent", "Recent")),
+        ]))
+    }
+
+    private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
+        String(localized: key, defaultValue: english, table: "WorkspaceActions", bundle: .module)
     }
 }

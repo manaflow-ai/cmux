@@ -98,8 +98,9 @@ final class SidebarItemListRowView: SidebarRowView {
         let columns = SidebarStyle.columns(rowWidth: b.width)
         let leading = columns.lead
         let side: CGFloat = hasIcon ? SidebarStyle.iconColumnBox : 0
+        icon.leadsWithInk = SidebarStyle.leadingColumnLook != .centered
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
-        let textX = columns.text(hasLeadingMark: hasIcon) - WorkspaceRowView.labelInset
+        let textX = columns.text(hasLeadingMark: hasIcon || SidebarStyle.textOnlyKeepsIconSlot) - WorkspaceRowView.labelInset
         // The badge and the status trail it, as on the item's band row.
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeHeight = badge.state == .dot ? badgeWidth : SidebarStyle.badgeHeight

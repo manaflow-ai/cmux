@@ -40,7 +40,9 @@ import Testing
         #expect(sent.prompts.isEmpty, "an agent's refused create showed an upgrade prompt: \(sent.prompts)")
     }
 
-    @Test func theFreePlanGetsTheUpgradeCardAndSendsNothing() async throws {
+    /// A refused person's create sends nothing and shows no prompt here: it throws, and ``CloudService/createMachine``
+    /// shows the cap card (``CloudMachineCap``: Upgrade or Run on This Mac on a free plan).
+    @Test func theFreePlanSendsNothingAndLeavesTheCardToTheCapCard() async throws {
         let sent = Sent()
         await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.freePlan)) {
             try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .upgrade(.init(reason: .freePlan)) },
@@ -48,17 +50,22 @@ import Testing
                                                     create: { sent.send() })
         }
         #expect(sent.count == 0, "a Free-plan create went out")
-        #expect(sent.prompts == [.upgrade(.init(reason: .freePlan))], "no single upgrade prompt: \(sent.prompts)")
+        #expect(sent.prompts.isEmpty, "the flow prompted: \(sent.prompts)")
     }
 
-    @Test func aServerPlanRefusalBecomesTheUpgradeCard() async throws {
+    @Test func aServerPlanRefusalThrowsForTheCapCard() async throws {
         let sent = Sent()
         await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.server)) {
-            try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: false, gate: { .allowed },
+            try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .allowed },
                                                     confirm: { sent.prompts.append($0); return false },
                                                     create: { () async throws -> String in throw CloudAPIError.http(status: 402, code: "vm_active_limit_exceeded", message: "full") })
         }
-        #expect(sent.prompts == [.upgrade(.init(reason: .server))])
+        #expect(sent.prompts.isEmpty)
+        // cmux#32710: the pool refusal is the classic one a Pause can lift (the pool counts only running machines).
+        await #expect(throws: CloudMachineCreateFlow.Failure.upgradeRequired(.pool)) {
+            try await CloudMachineCreateFlow.legacy(name: nil, startedByPerson: true, gate: { .allowed }, confirm: { _ in false },
+                                                    create: { () async throws -> String in throw CloudAPIError.http(status: 402, code: "vm_resource_pool_exceeded", message: "full") })
+        }
     }
 
     @Test func gateReadsThePlanLimits() {
@@ -67,37 +74,8 @@ import Testing
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 0, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: nil, activeVmCount: 0, planId: "free")) == .upgrade(.init(reason: .freePlan)))
         #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 2, activeVmCount: 2, planId: "go")) == .upgrade(.init(reason: .atLimit(2))))
-    }
-
-    /// With no window to ask in, a refused create that no person started must not open pricing by itself.
-    @Test func aRefusedAgentCreateWithNoWindowOpensNoPricingPage() async throws {
-        var opened: [URL] = []
-        let answer = await CloudPresenter.confirmCreate(.upgrade(.init(reason: .freePlan)), in: nil, asks: nil, openPricing: { opened.append($0) })
-        #expect(opened.isEmpty, "a pricing page opened by itself: \(opened)")
-        #expect(answer == false)
-    }
-
-    @Test func theUpgradeCardNamesThePlanAndPriceAndUpgradeOpensPricing() async throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let asks = services.machineAsks
-        var opened: [URL] = []
-        let answer = Task { @MainActor in
-            await CloudPresenter.confirmCreate(.upgrade(.init(reason: .freePlan)), in: window, asks: asks, openPricing: { opened.append($0) })
-        }
-        let deadline = ContinuousClock.now + .seconds(5)
-        while asks.card == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) } // test-only, bounded
-        let card = try #require(asks.card, "no upgrade card")
-        #expect(card.title == CloudStrings.upgradeTitle)
-        #expect(card.detail?.contains("$10") == true, "the card names no price: \(card.detail ?? "nil")")
-        #expect(card.actions.map(\.title) == [CloudStrings.upgradeButton, CloudStrings.notNow])
-        #expect(!card.actions.map(\.title).contains(CloudStrings.createConfirmButton), "the upgrade card offers a plain Create")
-        let upgrade = try #require(card.actions.first { $0.prominent })
-        SidebarCardFeed.handle(.noticeAction(card: card.id, action: upgrade.id), services: services)
-        #expect(await answer.value)
-        #expect(opened == [StaticURL.pricing.url], "Upgrade did not open pricing")
+        // The app-server link's backend pauses the person's idle machine at the cap itself: the create goes out.
+        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 2, activeVmCount: 2, planId: "go"), makesRoom: true) == .allowed)
+        #expect(CloudMachineCreateFlow.gate(.init(maxActiveVms: 0, activeVmCount: 0, planId: "free"), makesRoom: true) == .upgrade(.init(reason: .freePlan)))
     }
 }

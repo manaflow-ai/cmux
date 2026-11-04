@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
+use cmux_json::JsonSet as _;
 use std::collections::BTreeMap;
 
 async fn daemon() -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
@@ -71,10 +72,15 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "team_send",
             "team_inbox",
             "team_ack",
+            "search",
+            "github_status",
             "bg_start",
             "bg_list",
             "bg_output",
-            "bg_stop"
+            "bg_stop",
+            "run_wait",
+            "pr_state",
+            "wrap_up"
         ]
     );
     let send = tools[0]["description"].as_str().unwrap();
@@ -106,7 +112,19 @@ fn the_send_schema_keeps_its_first_shape() {
     names.sort_unstable();
     assert_eq!(
         names,
-        ["class", "file", "messages", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        [
+            "class",
+            "file",
+            "messages",
+            "notice",
+            "pr",
+            "steer",
+            "supersede",
+            "tag",
+            "text",
+            "thread",
+            "to"
+        ]
     );
     assert!(tools()[0]["inputSchema"].get("required").is_none());
     let item = &props["messages"]["items"]["properties"];
@@ -114,8 +132,10 @@ fn the_send_schema_keeps_its_first_shape() {
     item_keys.sort_unstable();
     assert_eq!(
         item_keys,
-        ["class", "file", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
+        ["class", "file", "notice", "pr", "steer", "supersede", "tag", "text", "thread", "to"]
     );
+    assert_eq!(props["notice"]["required"], json!(["severity", "title"]));
+    assert_eq!(props["notice"]["properties"]["severity"]["enum"], json!(["info", "warn", "fire"]));
     assert_eq!(props["messages"]["maxItems"], json!(send::MAX_MESSAGES));
 }
 
@@ -207,7 +227,86 @@ fn top_level_fields_are_each_items_defaults() {
     assert!(send::items(&json!({"messages": many})).unwrap_err().contains("at most 32"));
 }
 
-/// `file`: the message is the file's contents, read from a file of the caller's, bounded.
+/// `notice`: a tool's notice, checked as the daemon checks it, its sender this session's name by
+/// default, its links `{url, label?}` or `--link` strings; the text (optional) is its body.
+#[tokio::test]
+async fn a_notice_argument_is_checked_and_defaults_its_sender_and_host() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |k: &str| pairs.iter().find(|(key, _)| *key == k).map(|(_, v)| (*v).to_owned())
+    };
+    let given = json!({"severity": "fire", "title": "fast tier failed", "host": "ci-mini-3",
+                       "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, "https://x.dev/run/2=run 2"]});
+    let notice =
+        send::notice_arg(Some(&given), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap().unwrap();
+    assert_eq!(
+        notice,
+        json!({"sender": "lane-1", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed",
+               "links": [{"url": "https://x.dev/pull/1", "label": "#1"}, {"url": "https://x.dev/run/2", "label": "run 2"}]})
+    );
+    let named = json!({"sender": "base-red-watch", "severity": "info", "title": "t", "host": "h"});
+    let kept = send::notice_arg(Some(&named), env(&[("ACPMUX_SESSION_NAME", "lane-1")])).unwrap();
+    assert_eq!(kept.unwrap()["sender"], "base-red-watch");
+    assert_eq!(send::notice_arg(None, env(&[])).unwrap(), None);
+    assert_eq!(send::notice_arg(Some(&Value::Null), env(&[])).unwrap(), None);
+    let no_sender = json!({"severity": "info", "title": "t"});
+    assert!(send::notice_arg(Some(&no_sender), env(&[])).unwrap_err().contains("sender"));
+    let loud = json!({"sender": "s", "severity": "loud", "title": "t"});
+    assert!(send::notice_arg(Some(&loud), env(&[])).unwrap_err().contains("severity"));
+    assert!(send::notice_arg(Some(&json!("fire")), env(&[])).is_err());
+
+    // In a call: the item carries it, its body is optional, and the text is the rendered notice.
+    let args = json!({"to": "coord", "notice": {"sender": "s", "host": "h", "severity": "warn", "title": "T"}});
+    let mut items: Vec<send::Item> =
+        send::items(&args).unwrap().into_iter().map(Result::unwrap).collect();
+    assert_eq!(items[0].notice.as_ref().unwrap()["severity"], "warn");
+    assert_eq!(send::body(&mut items[0]).await.unwrap().0, "[notice from s on h · WARN] T");
+    let dir = tempfile::tempdir().unwrap();
+    let empty = dir.path().join("empty.txt");
+    std::fs::write(&empty, "").unwrap();
+    let mut from_file = send::Item {
+        file: Some(empty.to_str().unwrap().to_owned()),
+        notice: items[0].notice.clone(),
+        ..Default::default()
+    };
+    assert_eq!(send::body(&mut from_file).await.unwrap().0, "[notice from s on h · WARN] T");
+    let bad = json!({"to": "coord", "text": "x", "notice": {"sender": "s", "severity": "fire"}});
+    let errors: Vec<String> =
+        send::items(&bad).unwrap().into_iter().map(Result::unwrap_err).collect();
+    assert!(errors[0].contains("title"), "{errors:?}");
+}
+
+/// A notice sent with the tool reaches the receiver as one: its `user_message` carries the notice
+/// provenance and the rendered text.
+#[tokio::test]
+async fn a_notice_sent_with_the_tool_is_recorded_as_a_notice() {
+    let (hub, client, _dir) = daemon().await;
+    let coord = session(&client, "notice-coord").await;
+    let args = json!({"to": "notice-coord", "text": "3 PRs red", "notice": {
+        "sender": "base-red-watch", "host": "ci-mini-3", "severity": "fire", "title": "fast tier failed"}});
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(received(&hub, &coord, "fast tier failed").await, "never received");
+    let events = hub.events(&coord, 0, 1000).unwrap();
+    let message = events
+        .iter()
+        .filter(|e| e.kind == "user_message" || e.kind == "inbox")
+        .find(|e| e.msg.to_string().contains("fast tier failed"))
+        .expect("its record");
+    let provenance = &message.msg["_meta"]["provenance"];
+    assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+    assert_eq!(provenance["fromName"], "base-red-watch", "{}", message.msg);
+    assert_eq!(provenance["notice"]["severity"], "fire", "{}", message.msg);
+    assert!(
+        message
+            .msg
+            .to_string()
+            .contains("[notice from base-red-watch on ci-mini-3 · FIRE] fast tier failed"),
+        "{}",
+        message.msg
+    );
+}
+
+/// `file`: small text stays inline, while large files arrive as attachments.
 #[tokio::test]
 async fn a_message_can_be_a_file_of_yours() {
     let (hub, client, _dir) = daemon().await;
@@ -228,8 +327,6 @@ async fn a_message_can_be_a_file_of_yours() {
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
     assert!(received(&hub, &lane, "Brief: land #1 when green.").await, "the file never arrived");
 
-    let big = dir.path().join("big.md");
-    std::fs::write(&big, "x".repeat(usize::try_from(send::MAX_FILE_BYTES).unwrap() + 1)).unwrap();
     let binary = dir.path().join("bin");
     std::fs::write(&binary, [0xff, 0xfe, 0x00]).unwrap();
     let empty = dir.path().join("empty");
@@ -239,7 +336,6 @@ async fn a_message_can_be_a_file_of_yours() {
     )
     .unwrap();
     let cases = [
-        (big.clone(), "more than 256 KiB"),
         (binary, "not UTF-8 text"),
         (empty, "the file is empty"),
         (dir.path().to_owned(), "not a regular file"),
@@ -272,6 +368,113 @@ async fn a_message_can_be_a_file_of_yours() {
     let both = json!({"to": "file-lane", "text": "x", "file": brief});
     let r = call(&client, &tool("send", both)).await;
     assert_eq!(text(&r), "give text or file, not both", "{r}");
+}
+
+/// Past both the old 256 KiB file refusal and the 31 MiB RPC envelope: the agent
+/// receives the complete file by reference, through the same durable outbox.
+#[tokio::test]
+async fn a_large_message_file_is_uploaded_and_reaches_the_agent_intact() {
+    large_message_arrives(true, false).await;
+}
+
+#[tokio::test]
+async fn text_past_the_rpc_envelope_reaches_the_agent_intact() {
+    large_message_arrives(false, false).await;
+}
+
+#[tokio::test]
+async fn a_large_notice_keeps_its_metadata_and_complete_body() {
+    large_message_arrives(true, true).await;
+    large_message_arrives(false, true).await;
+}
+
+#[test]
+fn json_expansion_is_counted_before_deciding_to_upload_text() {
+    let plain = "a".repeat(6 << 20);
+    assert!(!send::text_needs_file(&plain));
+    let escaped = "\0".repeat(6 << 20);
+    assert!(send::text_needs_file(&escaped));
+}
+
+async fn large_message_arrives(from_file: bool, notice: bool) {
+    use sha2::Digest;
+    use std::io::{Read, Write};
+    let (hub, client, _socket) = daemon().await;
+    let lane = session(&client, "large-file-lane").await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("instructions.md");
+    let chunk = b"Read every part of these instructions.\n".repeat(2048);
+    let mut expected = sha2::Sha256::new();
+    {
+        let mut file = std::fs::File::create(&path).unwrap();
+        for _ in 0..540 {
+            file.write_all(&chunk).unwrap();
+            expected.update(&chunk);
+        }
+    }
+    assert!(std::fs::metadata(&path).unwrap().len() > 40 << 20);
+    let mut args = if from_file {
+        json!({"to": "large-file-lane", "file": path})
+    } else {
+        json!({"to": "large-file-lane", "text": std::fs::read_to_string(&path).unwrap()})
+    };
+    if notice {
+        args.set(
+            "notice",
+            json!({"sender": "audit", "host": "test", "severity": "warn", "title": "large brief"}),
+        );
+    }
+    let name = if from_file { "instructions.md" } else { "message.txt" };
+    let started = std::time::Instant::now();
+    let r = call(&client, &tool("send", args)).await;
+    assert_eq!(r["isError"], false, "{r}");
+    eprintln!(
+        "41.133 MiB MCP message (from_file={from_file}) delivered in {:?}",
+        started.elapsed()
+    );
+    assert!(received(&hub, &lane, name).await, "file was not recorded");
+    if notice {
+        let events = hub.events(&lane, 0, 1000).unwrap();
+        let message = events
+            .iter()
+            .find(|e| e.kind == "user_message" && e.msg.to_string().contains("large brief"))
+            .expect("notice message");
+        let provenance = &message.msg["_meta"]["provenance"];
+        assert_eq!(provenance["kind"], "notice", "{}", message.msg);
+        assert_eq!(provenance["notice"]["severity"], "warn", "{}", message.msg);
+        assert!(message.msg.to_string().contains("[notice from audit on test · WARN] large brief"));
+    }
+    let finished = client
+        .request(
+            method::MUX_WAIT,
+            json!({"sessions": [lane], "until": ["ready"], "timeoutMs": 20000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(finished["timedOut"], false, "{finished}");
+    let reply = last_replies(&client, &lane, 1).await.unwrap().pop().unwrap();
+    // The fake agent prints resource_link:name:mime:file:///path.
+    let uri = reply
+        .split_whitespace()
+        .find_map(|word| {
+            word.strip_prefix("resource_link:")?
+                .split_once(":file://")
+                .map(|(_, path)| format!("file://{path}"))
+        })
+        .unwrap_or_else(|| panic!("agent got no file reference: {reply}"));
+    let saved = reqwest::Url::parse(&uri).unwrap().to_file_path().unwrap();
+    assert_eq!(saved.file_name().unwrap(), name);
+    let mut file = std::fs::File::open(saved).unwrap();
+    let mut actual = sha2::Sha256::new();
+    let mut bytes = [0u8; 65536];
+    loop {
+        let n = file.read(&mut bytes).unwrap();
+        if n == 0 {
+            break;
+        }
+        actual.update(bytes.get(..n).unwrap());
+    }
+    assert_eq!(actual.finalize(), expected.finalize());
 }
 
 /// `supersede`: a second message under the same key replaces the first while it still waits.
@@ -325,6 +528,7 @@ fn target(index: usize, to: &str, key: &str) -> send::Target {
         key: key.to_owned(),
         tag: None,
         text: "x".to_owned(),
+        file: None,
         item: send::Item::default(),
     }
 }
@@ -604,6 +808,73 @@ async fn ls_last_and_info_read_the_sessions() {
     assert!(text(&r).lines().any(|l| l.starts_with("lane-b  [")), "{r}");
     let r = call(&client, &tool("info", json!({"name": "lane-b"}))).await;
     assert_eq!(r["structuredContent"]["sessionId"], json!(lane), "{r}");
+    // `search` reads the named session, or this server's own chat when none is named.
+    let r = search_tool(&client, "", &json!({"query": "HELLO echo", "name": "lane-b"})).await;
+    assert_eq!(r["isError"], false, "{r}");
+    assert!(text(&r).ends_with("(assistant): echo: hello"), "{r}");
+    let r = search_tool(&client, &lane, &json!({"query": "hello", "role": "user"})).await;
+    let hits = r["structuredContent"]["hits"].as_array().unwrap();
+    assert_eq!(hits.len(), 1, "{r}");
+    assert_eq!(hits[0]["snippet"], "hello", "{r}");
+    let r = search_tool(&client, "", &json!({"query": "hello"})).await;
+    assert_eq!(r["isError"], true, "no chat and no name: {r}");
+}
+
+/// A fleet-sized list (thousands of closed sessions, each row carrying its last prompt and
+/// receipts) answers in a reply small enough for any harness's MCP pipe: live sessions only by
+/// default, newest first, slim rows, a cap that says how many more there are. The whole list
+/// once came to 29 MB and every `acpmux_ls` call in a Chief turn ended in "Connection closed".
+#[test]
+fn a_fleet_sized_list_answers_small_and_live_first() {
+    let big = "x".repeat(4000);
+    let mut sessions: Vec<Value> = (0..3000)
+        .map(|i| {
+            json!({"name": format!("old-{i}"), "status": "closed", "title": "done", "peer": "peer-a",
+                "sessionId": format!("c{i}"), "updatedAt": i, "lastPrompt": big, "sessionReceipt": big})
+        })
+        .collect();
+    for i in 0..300 {
+        sessions.push(
+            json!({"name": format!("lane-{i}"), "status": if i % 2 == 0 {"idle"} else {"running"},
+            "title": format!("Lane {i}"), "sessionId": format!("l{i}"), "updatedAt": 10_000 + i,
+            "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
+        );
+    }
+    let all = json!({"sessions": sessions});
+
+    let r = ls_result(&all, &json!({}));
+    let size = r.to_string().len();
+    assert!(size < 64 * 1024, "reply is {size} bytes");
+    let rows = r["structuredContent"]["sessions"].as_array().unwrap();
+    assert_eq!(rows.len(), LS_DEFAULT_LIMIT, "{}", text(&r));
+    assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
+    assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
+    assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
+    assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
+
+    // query narrows by name or title; status=closed still reaches the closed ones.
+    let r = ls_result(&all, &json!({"query": "LANE 7"}));
+    let names: Vec<&str> = r["structuredContent"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| s["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"lane-7") && names.iter().all(|n| n.starts_with("lane-7")),
+        "{names:?}"
+    );
+    let r = ls_result(&all, &json!({"status": "closed", "limit": 5}));
+    assert_eq!(r["structuredContent"]["sessions"].as_array().unwrap().len(), 5);
+    assert!(text(&r).starts_with("peer-a/old-2999  [closed]"), "{}", text(&r));
+    assert!(text(&r).contains("raise limit (up to 500)"), "{}", text(&r));
+
+    // A closed session is found by query once status asks for closed ones, and only then.
+    let r = ls_result(&all, &json!({"query": "old-42", "status": "closed"}));
+    assert!(text(&r).lines().any(|l| l.starts_with("peer-a/old-42  [closed]")), "{}", text(&r));
+    let r = ls_result(&all, &json!({"query": "old-42"}));
+    assert_eq!(text(&r), "No sessions.", "{r}");
 }
 
 #[tokio::test]
@@ -734,4 +1005,33 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(names(&chief), ["send", "inbox_read", "inbox_reply", "ls", "last", "info"]);
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
+}
+
+/// Every chat's `acpmux` server lists `github_status` and tells the agent when to call it, and a
+/// Chief turn's allowlist (which does not name it) leaves it out like any other tool.
+#[test]
+fn github_status_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == crate::github_status::TOOL));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call github_status"), "{text}");
+    assert!(text.contains("bg_start"), "{text}");
+    assert!(text.contains("as one batch of independent tool calls"), "{text}");
+    let scoped = allowed(all.clone(), Some("acpmux_github_status"));
+    assert_eq!(crate::mcp_hint::names(&scoped).collect::<Vec<_>>(), ["github_status"]);
+    assert_eq!(instructions(&scoped).unwrap(), crate::github_status::STEER);
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == crate::github_status::TOOL));
+}
+
+/// Every chat's `acpmux` server lists `wrap_up` and tells the agent to end a turn with it; a Chief
+/// turn's allowlist leaves it out like any other tool.
+#[test]
+fn wrap_up_is_listed_with_its_instruction() {
+    let all = tools_with_artifacts(false);
+    assert!(crate::mcp_hint::names(&all).any(|n| n == "wrap_up"));
+    let text = instructions(&all).unwrap();
+    assert!(text.contains("call wrap_up as your last step"), "{text}");
+    let chief = allowed(all, Some(crate::agent_tools::CHIEF_TURN_TOOLS));
+    assert!(!crate::mcp_hint::names(&chief).any(|n| n == "wrap_up"));
 }

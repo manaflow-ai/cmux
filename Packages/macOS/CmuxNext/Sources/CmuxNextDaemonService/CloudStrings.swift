@@ -80,7 +80,7 @@ public enum CloudStrings {
         switch reason {
         case .freePlan, .server:
             String(localized: "cloud.upgrade.detail.free", defaultValue: "Your plan has no Cloud machines. The Go is $10 a month and includes machines; Pro is $50 a month.", table: "Cloud", bundle: .module)
-        case .atLimit:
+        case .atLimit, .pool:
             String(localized: "cloud.upgrade.detail.limit", defaultValue: "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one.", table: "Cloud", bundle: .module)
         }
     }
@@ -90,6 +90,8 @@ public enum CloudStrings {
         String(localized: "cloud.upgrade.required", defaultValue: "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing.", table: "Cloud", bundle: .module)
     }
     public static var createConfirmButton: String { String(localized: "cloud.create.confirm.button", defaultValue: "Create", table: "Cloud", bundle: .module) }
+    /// The create card's switch: creates the machine and stops asking (`cloud.agentsStartWithoutAsking` back on).
+    public static var createStopAsking: String { String(localized: "cloud.create.request.stopAsking", defaultValue: "Don't Ask Again", table: "Cloud", bundle: .module) }
     nonisolated public static var createStillPending: String {
         String(localized: "cloud.create.stillPending", defaultValue: "The machine still waits for approval. Try again in a minute.", table: "Cloud", bundle: .module)
     }
@@ -169,4 +171,6 @@ public enum CloudStrings {
 public nonisolated enum CloudUpgradeReason: Equatable, Sendable {
     case freePlan, server
     case atLimit(Int)
+    /// The classic link's 402 for the plan's shared vCPU and memory pool, which counts only running machines.
+    case pool
 }

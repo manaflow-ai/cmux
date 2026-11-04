@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
 
-/// Decode only authenticated tell tools and the Chief producer's report-note namespace.
+/// Decode only authenticated tell tools (with the prompt's `_meta.cmux.sender`) and the Chief producer's report-note namespace.
 nonisolated enum HomeAgentRunMapping {
     static func run(_ run: ConversationRunSummary, conversation: String, steps: [ConversationRunRows.Step],
                     author: (String) -> ParticipantID) -> HomeAgentRun {
@@ -11,6 +11,7 @@ nonisolated enum HomeAgentRunMapping {
                      turn: run.turn.map { IdempotencyKey($0) }, answers: (run.answers ?? []).map { MessageID($0) },
                      threadRoot: run.threadRoot.map { MessageID($0) }, revision: run.rev ?? 0, messages: steps.compactMap { step in
             let peer: String, text: String, outgoing: Bool
+            var sender: String?
             if step.kind == "tool", let tool = step.tool,
                (["tell", "optchat.tell", "mcp__optchat__tell"].contains(tool.name) || tool.input?.isTellEnvelope == true),
                let id = tool.input?.id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -24,6 +25,7 @@ nonisolated enum HomeAgentRunMapping {
                     body += reason.isEmpty ? "\n[\(failureLabel)]" : "\n[\(failureLabel): \(reason)]"
                 }
                 (peer, text, outgoing) = (id, body, true)
+                sender = tool.input?.sender
             } else if step.kind == "note", step.id.hasPrefix("report:"), let body = step.text,
                       body.hasPrefix("["), let end = body.range(of: "] ") {
                 peer = String(body.dropFirst().prefix(upTo: end.lowerBound))
@@ -34,7 +36,8 @@ nonisolated enum HomeAgentRunMapping {
             }
             return HomeAgentRun.Message(id: step.id, sequence: step.seq ?? 0, revision: step.rev ?? 0,
                                         peer: peer, outgoing: outgoing, text: text,
-                                        date: Date(timeIntervalSince1970: (step.at ?? step.tool?.startedAt ?? run.startedAt ?? 0) / 1000))
+                                        date: Date(timeIntervalSince1970: (step.at ?? step.tool?.startedAt ?? run.startedAt ?? 0) / 1000),
+                                        sender: sender)
         })
     }
 }

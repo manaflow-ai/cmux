@@ -45,6 +45,8 @@ pub use agent_session_trust::{
 };
 
 pub const AGENT_SESSION_ATTACH_CAPABILITY: &str = "agent-session-attach-v1";
+/// Ordered ACP content on `agent-session-prompt`; older clients keep sending `text`.
+pub const AGENT_SESSION_CONTENT_CAPABILITY: &str = "agent-session-content-v1";
 /// A Cloud mobile carrier connection may use the native agent-session JSON
 /// verbs over an authenticated remote link. The carrier is still constrained
 /// to tab-scoped attach/events/prompt/cancel/detach; it never receives a raw
@@ -107,8 +109,10 @@ pub(crate) struct AgentSessions {
     pub(super) inventory_reads: AtomicUsize,
     pub(super) inventory_watches: super::agent_inventory::watch::Watches,
     state: Mutex<AttachState>,
-    /// WhoIs attestations from the same-user host proxy, fixed for each link.
-    proxy_authors: Mutex<HashMap<u64, Value>>,
+    /// WhoIs attestations from the same-user host proxy, fixed for each link. Every line of every connection asks
+    /// whether it is a proxy's link, so with publishing on (R-DAEMON-STATE stage S1) that read loads the published
+    /// copy and never waits for a bind or for another client's disconnect.
+    proxy_authors: crate::published::Published<HashMap<u64, Value>, HashMap<u64, Value>>,
     /// Link shares for guests (`agent-session-share-*`, agent_session_shares.rs).
     link_shares: proxy::shares::LinkShares,
     /// Unix connections past their first line: a proxy binds only on its first.
@@ -141,6 +145,24 @@ impl AttachState {
 }
 
 impl AgentSessions {
+    /// The attachments of a daemon whose stage S1 switch (R-DAEMON-STATE) is `publish_proxy_authors`.
+    pub(crate) fn new(publish_proxy_authors: bool) -> Self {
+        Self {
+            proxy_authors: crate::published::Published::new(
+                HashMap::new(),
+                HashMap::clone,
+                publish_proxy_authors,
+            ),
+            ..Self::default()
+        }
+    }
+
+    /// Turns the stage S1 publication of the proxy authors on or off (tests).
+    #[cfg(test)]
+    pub(crate) fn set_publishing_for_test(&self, on: bool) {
+        self.proxy_authors.set_publishing_for_test(on);
+    }
+
     /// The live attachment of `surface` on `client`; an ended one is dropped.
     fn attachment(&self, client: u64, surface: SurfaceId) -> Option<Arc<Attachment>> {
         let mut state = self.lock();
@@ -181,10 +203,23 @@ impl AgentSessions {
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
     }
 
+    /// Runs `hold` while this thread holds the host proxy authors (tests that prove a key does not wait for them).
+    #[cfg(test)]
+    pub(crate) fn hold_proxy_authors_for_test(&self, hold: &dyn Fn()) {
+        let _held = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
+        hold();
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
-        self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        {
+            let mut authors = self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner());
+            // A client that never bound (all but a proxy's links) changes nothing, so it publishes nothing.
+            if authors.contains_key(&client) {
+                authors.remove(&client);
+            }
+        }
         self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
@@ -536,7 +571,8 @@ struct MediaParams {
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
-    text: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
 }
 
 #[derive(Deserialize)]
@@ -942,6 +978,10 @@ fn page_params(session: &str, params: &PageParams, attach: bool) -> Result<Value
     }
     if attach {
         out.insert("eventStream", json!(true));
+        // The page opening the chat asks for its newest records at once, as the app's local
+        // attach does (`direct.ts` `sendAttach`): waiting for a restarted daemon's log restore
+        // of a long chat outlasted `CALL_TIMEOUT`, and the remote chat opened empty.
+        out.insert("waitLogs", json!(false));
     }
     Ok(out)
 }
@@ -1223,8 +1263,8 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             page.map_err(Refusal::of)
                 .and_then(|page| attachment.private(bound_page(page, newest_first)))
         }
-        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
-            prompt(attachment, prompt_id, text)
+        AgentSessionCommand::Prompt(PromptParams { prompt_id, text, content, .. }) => {
+            prompt(attachment, prompt_id, text, content)
         }
         AgentSessionCommand::Permission(PermissionParams {
             permission_id,
@@ -1355,14 +1395,59 @@ fn setting(
     attachment.link.call(method, attachment.stamp(params), CALL_TIMEOUT).map_err(Refusal::of)
 }
 
-/// Sends one text prompt and answers once acpmux recorded it. The turn's
+/// Only content fields, never ACP routing or provenance. Preserve the ordered blocks verbatim.
+fn valid_prompt_block(block: &Value) -> bool {
+    let Some(object) = block.as_object() else { return false };
+    let nonempty =
+        |key| block.get(key).and_then(Value::as_str).is_some_and(|s| !s.trim().is_empty());
+    let allowed: &[&str] = match block.get("type").and_then(Value::as_str) {
+        Some("text") if block.get("text").is_some_and(Value::is_string) => {
+            if block.get("_meta").is_some_and(|meta| meta != &json!({"cmux": {"pasted": true}})) {
+                return false;
+            }
+            &["type", "text", "_meta"]
+        }
+        Some("image" | "audio" | "document") if nonempty("mimeType") && nonempty("data") => {
+            &["type", "mimeType", "data", "name"]
+        }
+        Some("resource_link") if nonempty("uri") => &["type", "uri", "name"],
+        _ => return false,
+    };
+    object.keys().all(|key| allowed.contains(&key.as_str()))
+        && block.get("name").is_none_or(Value::is_string)
+}
+
+/// Sends one prompt and answers once acpmux recorded it. The turn's
 /// reply streams as records; the `session/prompt` result (at the end of the
 /// turn) is not waited for.
-fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Value, Refusal> {
+fn prompt(
+    attachment: &Attachment,
+    prompt_id: String,
+    text: Option<String>,
+    content: Option<Vec<Value>>,
+) -> Result<Value, Refusal> {
     let valid_id = (1..=128).contains(&prompt_id.len())
         && prompt_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    if !valid_id || text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+    if !valid_id {
         return Err(Refusal::BadRequest);
+    }
+    let blocks = match (text, content) {
+        (Some(text), None) if !text.trim().is_empty() && text.len() <= MAX_PROMPT_BYTES => {
+            vec![json!({"type": "text", "text": text})]
+        }
+        (None, Some(blocks)) if !blocks.is_empty() && blocks.iter().all(valid_prompt_block) => {
+            blocks
+        }
+        _ => return Err(Refusal::BadRequest),
+    };
+    if blocks.iter().all(|block| {
+        block["type"] == "text" && block["text"].as_str().is_some_and(|text| text.trim().is_empty())
+    }) {
+        return Err(Refusal::BadRequest);
+    }
+    // Guests previously supplied text only. Do not grant access to files on the owner's host.
+    if attachment.author.is_some() && blocks.iter().any(|block| block["type"] != "text") {
+        return Err(Refusal::NotTrusted);
     }
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     {
@@ -1372,11 +1457,9 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         }
         prompts.insert(prompt_id.clone(), sender);
     }
-    // Only a text content block: the client sends content, never a command,
-    // a path or an MCP server.
     let mut params = json!({
         "sessionId": attachment.session,
-        "prompt": [{"type": "text", "text": text}],
+        "prompt": blocks,
         "_meta": {"acpmux": {"promptId": prompt_id}},
     });
     // The native daemon connection is Local, but the authenticated Cloud

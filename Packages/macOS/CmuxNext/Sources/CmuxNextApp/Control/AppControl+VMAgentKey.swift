@@ -100,7 +100,7 @@ extension AppControl {
     nonisolated static func vmText(_ text: VMText) -> String {
         switch text {
         case .notSignedIn:
-            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
         case .noTeam:
             String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module)
         case .unreachable:

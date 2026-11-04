@@ -34,11 +34,15 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
   styles: () => Promise.all([import("./styles.css"), import("./conversation/conversation.css")]),
   load: () => import("./CloudStartView").then((module) => module.CloudStartView),
   widths: { narrow: 400, normal: 620, wide: 760 },
-  height: 300,
+  height: 380,
   variants: {
     sent: {
-      note: "Just sent, before the host says anything: the message, a spinner, and the folder it copies.",
+      note: "Just sent: the message is already in the chat shell with one compact Preparing machine line.",
       props: { start: begun },
+    },
+    preparing: {
+      note: "The shell remains stable while the machine is being prepared; startup details stay behind the disclosure.",
+      props: { start: { ...begun, step: "machine", machine: known.machine, size: known.size } },
     },
     machine: {
       note: "The host is getting a machine: the step and the machine with its size.",
@@ -54,6 +58,18 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
     },
     failed: {
       note: "The start failed: the host's words where the spinner was; the message stays in the composer.",
+      props: {
+        start: {
+          ...begun,
+          step: "folder",
+          ...known,
+          state: "failed",
+          message: "Couldn't copy paint to paint-dev: the machine stopped answering.",
+        },
+      },
+    },
+    "failed-open": {
+      note: "A failed step opens the startup disclosure so the failed row and host details are immediately visible.",
       props: {
         start: {
           ...begun,
@@ -141,8 +157,52 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
         },
       },
     },
+    "checklist-harness": {
+      note: "Last step: the machine, repository and setup are done (checks) and the harness row spins, reading Starting Claude Code until it has (no start time in the fixture: a running row times against the page clock).",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          machineStartedAt: 10_000,
+          machineFinishedAt: 12_400,
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+        },
+      },
+    },
+    "checklist-harness-failed": {
+      note: "The harness failed to start: earlier steps keep their checks, the harness row shows the error mark.",
+      props: {
+        start: {
+          ...begun,
+          step: "opening",
+          state: "failed",
+          agent: "Claude Code",
+          hasRepository: true,
+          repository: "manaflow-ai/cmux",
+          clone: { state: "done", ...timing },
+          setup: { state: "done", ...timing },
+          message: "Claude Code exited before the session opened.",
+        },
+      },
+    },
     initialized: {
       note: "Once the harness starts, the checklist folds to one quiet line.",
+      props: {
+        start: {
+          ...begun,
+          initialized: true,
+          agent: "Claude Code",
+          harnessStartedAt: 12_400,
+          harnessFinishedAt: 12_900,
+        },
+      },
+    },
+    ready: {
+      note: "The remote harness is ready: the same shell shows a ready line before the live transcript takes over.",
       props: {
         start: {
           ...begun,

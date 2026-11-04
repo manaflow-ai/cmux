@@ -258,6 +258,8 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
     const jobs = (await gh(`/actions/runs/${run.id}/jobs?per_page=100`)).jobs as Array<any>
     const job = jobs.find((j) => j.name === "deploy-staging")
     if (!job || job.conclusion === "skipped") continue
+    // A source-fenced stale run made no staging mutation and contributes no soak evidence.
+    if ((job.steps as Array<any>).some((s) => s.name === "Newer deployment inputs already queued; skip" && s.conclusion === "success")) continue
     const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
     // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
     const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")
