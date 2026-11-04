@@ -672,7 +672,7 @@ pub struct Hub {
     pub(super) idle_wake: Arc<Notify>,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
-    pub(super) resume_watch: StdMutex<crate::resume::ResumeWatch>,
+    pub(super) resume_watch: Arc<resume::ResumeState>,
     pub(super) resumes: tokio::sync::watch::Sender<u64>,
     /// When a person last prompted a chat here, Unix ms, 0 for never (`person_prompt_at.rs`).
     pub(super) person_prompts: tokio::sync::watch::Sender<u64>,
