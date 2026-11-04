@@ -39,6 +39,8 @@ const SHAPES = new Set([
   ".acpmux-effort-track",
   ".acpmux-effort-fill",
   ".acpmux-context-card-bar",
+  // The plan usage card's 4 px limit bars (PlanUsageCard.tsx), drawn like the context card's bar.
+  ".acpmux-plan-usage-bar",
   ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
