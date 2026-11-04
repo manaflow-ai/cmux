@@ -115,7 +115,17 @@ def main(argv: list[str]) -> int:
         for file in sorted({test_file(step) for step in new}):
             print(file)
         return 0
-    passed_again = [step for step in new if rerun and rerun.get(test_file(step)) is True]
+    def passed_in_rerun(step: str) -> bool:
+        if not rerun:
+            return False
+        # Newer result files include named outcomes for a failed file.  Respect an
+        # explicit test result first so a named failure cannot be hidden by the
+        # legacy whole-file pass fallback.
+        if step in rerun:
+            return rerun[step] is True
+        return rerun.get(test_file(step)) is True
+
+    passed_again = [step for step in new if passed_in_rerun(step)]
     new = [step for step in new if step not in passed_again]
     flaked = sorted(flaked + passed_again)
     old = sorted(step for step, ok in head.items() if not ok and base.get(step) is False)

@@ -25,6 +25,7 @@ import re
 import sys
 
 FAIL_BYTES = re.compile(rb"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+PASS_BYTES = re.compile(rb"^\(pass\) (.+?)(?: \[[0-9.]+m?s\])?$")
 RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
 RETRY_BYTES = RETRY.encode()
 LOG_CHUNK_BYTES = 64 * 1024
@@ -33,9 +34,14 @@ ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 MAX_LINE_BYTES = 1 * 1024 * 1024
 
 
-def _named_failures(log: Path) -> set[str]:
-    """Read a failure log in bounded chunks, including logs with no newline for hundreds of MB."""
-    named: set[str] = set()
+def _named_outcomes(log: Path) -> tuple[set[str], set[str]]:
+    """Read named pass/fail outcomes in bounded chunks, including huge diagnostic logs.
+
+    The runner may retry a file after the first attempt; only the final attempt is evidence,
+    so both sets are reset at the retry marker.
+    """
+    passed: set[str] = set()
+    failed: set[str] = set()
     line = bytearray()
     oversized = False
 
@@ -54,11 +60,16 @@ def _named_failures(log: Path) -> set[str]:
         if not oversized:
             raw = bytes(line).rstrip(b"\r")
             if raw == RETRY_BYTES:
-                named.clear()
+                passed.clear()
+                failed.clear()
             else:
-                match = FAIL_BYTES.fullmatch(raw)
-                if match:
-                    named.add(match.group(1).decode("utf-8", errors="replace"))
+                fail = FAIL_BYTES.fullmatch(raw)
+                if fail:
+                    failed.add(fail.group(1).decode("utf-8", errors="replace"))
+                else:
+                    success = PASS_BYTES.fullmatch(raw)
+                    if success:
+                        passed.add(success.group(1).decode("utf-8", errors="replace"))
         line.clear()
         oversized = False
 
@@ -70,7 +81,7 @@ def _named_failures(log: Path) -> set[str]:
                 finish()
                 append(part)
     finish()
-    return named
+    return passed, failed
 
 
 def collect(summary: Path) -> dict[str, bool]:
@@ -83,13 +94,21 @@ def collect(summary: Path) -> dict[str, bool]:
         if result == "PASS":
             results[file] = True
             continue
+        log_path = Path(log)
         try:
-            named = _named_failures(Path(log))
+            passed, failed = _named_outcomes(log_path)
+            complete = result == "FAIL" and bool(_completed(log_path))
         except OSError:
-            named = set()
-        if result != "FAIL" or not named:
+            passed, failed = set(), set()
+            complete = False
+        # A named pass is evidence only after the file reached Bun's closing tally.
+        # A cut-short or crashed file remains a file-level red and must not hide it.
+        if result != "FAIL" or not failed:
             results[file] = False
-        for name in named:
+        if complete:
+            for name in passed:
+                results[f"{file} > {name}"] = True
+        for name in failed:
             results[f"{file} > {name}"] = False
     return results
 
