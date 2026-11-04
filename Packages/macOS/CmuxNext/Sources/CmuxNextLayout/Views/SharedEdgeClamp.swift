@@ -19,6 +19,8 @@ struct SharedEdgeClamp {
     /// How far each frame's low and high edges move along the axis for each point the line moves; frames it moves only.
     var panes: [PaneID: (low: CGFloat, high: CGFloat)]
     var dividers: [DividerHandleView.Kind: (low: CGFloat, high: CGFloat)]
+    /// The press measures the shares with the drag's own value alone (`DividerDrag.catchShown`'s probes): the plain
+    /// mode. Option and Command move other edges with the line, so the hold ends in them (`DividerDrag.apply`).
     /// The edge across the pane the line springs away from (the anchor: an edge of a pane the line resizes that does not
     /// move with the line, on the side opposite `free`), and which of that pane's edges it is. Nil: none (a clamp at a
     /// widest share has no edge behind the line).
@@ -51,9 +53,14 @@ struct SharedEdgeClamp {
     /// toward its target, never back.
     func push(on screen: ScreenContentView) { // perf-hot: 4ms motion-frame
         guard let line = line(on: screen), let anchor = anchorState(on: screen), (line.left - anchor.left) * free < floor - 0.001 else { return }
-        // The line's leftover and speed become the anchor's (at the floor's distance); a line already faster keeps its speed.
-        let speed = (line.speed - anchor.speed) * free < 0 ? line.speed - anchor.speed : 0
-        drop(line.left - anchor.left - floor * free, speed, on: screen)
+        // The push takes at most the line's own leftover: an anchor that overshoots its target (a bouncy spring) does not
+        // carry the line past the clamp. At the clamp the line keeps the speed it has; short of it, it takes the anchor's
+        // when the anchor is faster.
+        let push = min(floor - (line.left - anchor.left) * free, -line.left * free)
+        guard push > 0.001 else { return }
+        let reaches = push >= -line.left * free - 0.001
+        let speed = !reaches && (line.speed - anchor.speed) * free < 0 ? line.speed - anchor.speed : 0
+        drop(-push * free, speed, on: screen)
     }
 
     /// The anchor's leftover (its edge's distance to its target) and speed along the axis.
