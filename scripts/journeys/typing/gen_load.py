@@ -99,18 +99,20 @@ def switch_short(key):
     return "".join(c for c in key.split(".")[-1].lower() if c.isalnum()) or "switch"
 
 
-def switch_variant(key, profile="L6"):
-    """typing-load-<profile> with KEY ON from the relaunch on: px_switch right after the relaunch's smoke_ready."""
+def switch_variant(key, profile="L6", on=True):
+    """typing-load-<profile> with KEY ON (or OFF: an A/B of the same app state in one build) from the relaunch on:
+    px_switch right after the relaunch's smoke_ready, read back; a switch that does not take makes the round not run."""
     spec = journey(profile, True)
     steps = spec["steps"]
     i = next(n for n, st in enumerate(steps) if st["do"] == "probe_relaunch")
     assert steps[i + 1]["do"] == "smoke_ready", steps[i + 1]
-    steps.insert(i + 2, {"do": "px_switch", "key": key, "value": True,
-                         "title": f"set-up: {key} ON (after the relaunch: a bench build keeps tunables in memory only)"})
-    spec["id"] = f"{spec['id']}-sw-{switch_short(key)}"
+    state = "ON" if on else "OFF"
+    steps.insert(i + 2, {"do": "px_switch", "key": key, "value": bool(on),
+                         "title": f"set-up: {key} {state} (after the relaunch: a bench build keeps tunables in memory only)"})
+    spec["id"] = f"{spec['id']}-sw-{switch_short(key)}" + ("" if on else "-off")
     # P1: dogfood-gate.py needs every P0 journey to pass on a build, and the switch exists only on its stage's builds.
     spec["priority"] = "P1"
-    spec["title"] += f", with {key} ON"
+    spec["title"] += f", with {key} {state}"
     spec["finally"] = [{"do": "px_tunable", "key": key, "value": None, "title": f"clean-up: {key} back to its default"}] + spec["finally"]
     return spec
 
@@ -119,10 +121,13 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--switch", help="a boolean Debug tunable: write typing-load-l6-sw-<short> with it ON")
+    ap.add_argument("--off", action="store_true", help="with --switch: typing-load-l6-sw-<short>-off, the switch set OFF")
     ap.add_argument("--out", help="the folder for --switch (default the journeys' video folder)")
     a = ap.parse_args()
+    if a.off and not a.switch:
+        ap.error("--off needs --switch")
     if a.switch:
-        spec = switch_variant(a.switch)
+        spec = switch_variant(a.switch, on=not a.off)
         out = Path(a.out) if a.out else OUT
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{spec['id']}.json").write_text(json.dumps(spec, indent=2) + "\n")

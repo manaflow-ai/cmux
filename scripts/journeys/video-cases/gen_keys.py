@@ -13,7 +13,9 @@ judged from the trace and the movie by judge_keys.py: the step in points and dev
 jump back, gap or overlap, edges on device pixels, repeats that never queue, one reflow, focus kept, the first moved
 frame in the refresh after the key.
 
-The open-p0 line's journey resize-keyboard is case 1 (the single presses of both key sets).
+The open-p0 line's journey resize-keyboard is case 1 (the single presses of both key sets). rk-splits is the same case
+for the KEYS films (P1): only a resize film skips the first-run page (gen_cases.skips_first_run), and an open P0 journey
+never does (the page eating Ctrl-` is a product P0 of its own, #34547).
 """
 import argparse
 import json
@@ -70,7 +72,7 @@ def after_check(pane):
 CASES = []
 
 
-def case(cid, title, build, play, notes, seconds, budget=125, jid=None, after="p1"):
+def case(cid, title, build, play, notes, seconds, budget=125, jid=None, after="p1", priority="P0"):
     jid = jid or f"rk-{cid}"
     lead = 0
     while lead < len(play) and play[lead]["do"] in ("use_pane", "rk_focus"):
@@ -86,7 +88,7 @@ def case(cid, title, build, play, notes, seconds, budget=125, jid=None, after="p
               {"do": "rpc", "method": "debug.frames", "params": {"action": "stop", "raw": True}, "title": "probe: per-frame main thread (raw)"},
               panes_note(notes, "after")]
     steps += after_check(after)
-    CASES.append({"id": jid, "priority": "P0", "title": title,
+    CASES.append({"id": jid, "priority": priority, "title": title,
                   "why": "cmux-ad 2026-11-02 (P0): \"still dont have pixel perfect ctrl shift hjkl for resizing\". Each key press is "
                          "judged per frame (judge_keys.py): equal steps on device pixels, the declared curve, no jump back, no "
                          "queue, one reflow, focus kept, first frame in the next refresh.",
@@ -132,6 +134,11 @@ def browser_agent(h):
 case("keyboard", "Single presses of Ctrl-Shift-L/H/J/K, then Ctrl-Cmd-Right/Left/Down/Up, on p1 of p0 | (p1 over p2)",
      row2_down, [focus("p1")] + singles([L, H, J, K], "shift") + singles([RIGHT, LEFT, DOWN, UP], "arrow"),
      ["p0", "p1", "p2"], seconds=14, jid="resize-keyboard")
+# 1b. The same presses for the KEYS films: a resize film id, so it skips the first-run page (resize-keyboard, an open P0
+# journey, meets the page as a person does). P1: the dogfood gate needs every P0 journey to pass, not this film.
+case("splits", "Single presses of Ctrl-Shift-L/H/J/K, then Ctrl-Cmd-Right/Left/Down/Up, on p1 of p0 | (p1 over p2) (KEYS films)",
+     row2_down, [focus("p1")] + singles([L, H, J, K], "shift") + singles([RIGHT, LEFT, DOWN, UP], "arrow"),
+     ["p0", "p1", "p2"], seconds=14, priority="P1")
 # 2. Fast alternating presses (H L H L ...): each motion goes on from where it shows.
 def alternate(mark, count, gap_ms):
     return {"do": "rk_press", "keys": [{"key": H[0], "modifiers": list(H[1])}, {"key": L[0], "modifiers": list(L[1])}], "count": count,

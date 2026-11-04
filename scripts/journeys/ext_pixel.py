@@ -869,6 +869,7 @@ def step_px_hold_tab_close(j, step):
 
 
 KEY_STEP = 0.05  # PaneResize.step: a key resize moves a column's width by 5% of the viewport
+HIT_WIDTH_KEY = "metrics.dividerHitWidth"  # the divider drag area's width; only the hit bands read it (no pane frame)
 KEY_DOWN_S = 0.025  # a CuaDriver key reaches the app 20-28 ms after its call starts (cmux22 sweeps)
 DRAG_DOWN_S = 0.33  # a CuaDriver drag's mouse-down reaches the app 260-400 ms after its call starts (12 drags, cmux22)
 MOVING_PT = 0.25  # an edge moved this far in the 3 refreshes before the mouse-down is still moving (half a device px at 2x)
@@ -952,6 +953,12 @@ def _journal(j, last=200):
     return sorted((e for e in reply.get("entries") or [] if isinstance(e, dict)), key=lambda e: int(e.get("seq") or 0))
 
 
+def _hit_width(st):
+    rec = (st.get("tunables") or {}).get(HIT_WIDTH_KEY) or {}
+    return {"key": HIT_WIDTH_KEY, "pt": rec.get("value"), "default_pt": rec.get("default"), "applied": bool(rec.get("applied")),
+            "frames": "none: only the divider hit bands read it"}
+
+
 def step_px_key_then_drag(j, step):
     """One real HID key, then a real HID drag whose call starts AFTER_MS after the key-down (see the module doc)."""
     st = _state(j)
@@ -996,6 +1003,8 @@ def step_px_key_then_drag(j, step):
             "spring": {"response": response, "damping": float(spring.get("damping", 1.0))},
             "planned": {"after_ms": round(after * 1000, 3), "mouse_down_after_key_ms": round(expect * 1000, 3),
                         "moved_pt": round(moved, 3)},
+            # The press tolerance the verdict depends on: the case's hit width as the app read it back (px_tunable).
+            "hit_width": _hit_width(st),
             "clock": "host seconds (CLOCK_UPTIME_RAW): the trace's t0_s, the scan's frame times and the journal's uptimeNanos"}
     video = getattr(j, "video", None)
     if video is not None:
