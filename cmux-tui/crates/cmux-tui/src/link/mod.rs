@@ -488,7 +488,7 @@ pub(super) fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
     if token.trim().is_empty() {
         bail!("Cloud token file is empty");
     }
-    Ok(token)
+    Ok(token.trim().to_owned())
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
