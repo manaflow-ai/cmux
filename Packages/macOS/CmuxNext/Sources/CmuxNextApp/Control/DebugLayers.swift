@@ -30,13 +30,12 @@ enum DebugLayers {
         ].merging(band.flatMap { JSONValue(foundation: $0) }.map { ["titlebar_band": $0] } ?? [:]) { $1 })
     }
 
-    /// `LayoutPassGuard`: the most layout calls one view had in one
-    /// window layout (one `layoutIfNeeded`), the loops it caught (view class, window, ancestry)
-    /// and the busiest view classes since launch or the last reset.
+    /// `LayoutPassGuard`: the most layout calls one view had in one window layout, the loops it caught, the busiest classes.
     static func layoutPasses() -> JSONValue {
         let guardian = LayoutPassGuard.shared
         return .object([
             "installed": .bool(guardian.isInstalled),
+            "first_frame": guardian.firstFrame.map(JSONValue.string) ?? .null,
             "bound": .number(Double(LayoutPassGuard.bound)),
             "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
             "max_view_class": guardian.maxPassesClass.map(JSONValue.string) ?? .null,
