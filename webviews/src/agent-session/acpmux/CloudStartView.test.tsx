@@ -202,3 +202,9 @@ test("row state words are screen-reader only, hidden by the card's own sheet", a
   );
   expect(html).toContain('<span class="visually-hidden">');
 });
+
+test("a start this Mac refused before it reached Cloud marks no step failed", () => {
+  const failed = { key: "k", task: "hey", state: "failed" as const, folder: "paint" };
+  expect(startupChecklist(failed)[0]?.status).toBe("error");
+  expect(startupChecklist({ ...failed, refusedHere: true }).map((row) => row.status)).not.toContain("error");
+});

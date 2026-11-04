@@ -306,6 +306,7 @@ import { SubagentTray } from "./subagents/SubagentTray";
 import { agentProgressSource } from "./subagents/agentProgressSource";
 import { AgentProgressContext, AgentProgressStore } from "./subagents/agentProgressStore";
 import { BackgroundTasksPanel } from "./backgroundTasks/BackgroundTasksPanel";
+import { isBackgroundPane, openBackgroundPane } from "./backgroundTasks/backgroundPane";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
 import { backgroundTasksLook } from "./backgroundTasks/backgroundTasksLook.experiment";
 import { settleTrayExit, TRAY_GHOST } from "./subagents/trayMotion";
@@ -380,7 +381,6 @@ import {
   foldHoldTarget,
   foldHolding,
   foldRoomFor,
-  opensBody,
   foldToggleAt,
   holdFold,
   keepFold,
@@ -670,6 +670,7 @@ import {
   SubagentStopContext,
   running,
 } from "./subagents/SubagentGroup";
+import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
@@ -752,7 +753,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
-import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
+import { holdWebSwap, pageReleaseHold, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
@@ -1570,6 +1571,7 @@ const ThinkingRow = memo(
         quietAt={row.quietAt}
         below={row.below}
         command={row.doingCommand}
+        retry={row.retry}
       />
     );
   },
@@ -1594,7 +1596,8 @@ const ThinkingRow = memo(
     a.row.quietKey === b.row.quietKey &&
     a.row.quietAt === b.row.quietAt &&
     a.row.below === b.row.below &&
-    a.row.doingCommand === b.row.doingCommand,
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.retry === b.row.retry,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {
@@ -2538,7 +2541,9 @@ function holdUnderStack(
   if (stack.line === undefined) {
     const still = rows.filter((each) => {
       const was = stack.drawn.get(each);
-      return was !== undefined && was - each.getBoundingClientRect().top < stack.from / 2;
+      // Opening moves the rows above up (`from` > 0), closing moves them down (`from` < 0): the rows
+      // that kept their place either way are the ones under the line.
+      return was !== undefined && Math.abs(was - each.getBoundingClientRect().top) < Math.abs(stack.from) / 2;
     });
     stack.line = still.length
       ? Math.min(...still.map((each) => each.getBoundingClientRect().top - hostTop))
@@ -2834,6 +2839,7 @@ export function VirtualTranscript({
   earlier,
   promptCount,
   loadThrough,
+  loadPromptIndex,
   sessionId,
   onToggleActivity,
   onOpenDiff,
@@ -2881,6 +2887,8 @@ export function VirtualTranscript({
   promptCount?: number;
   /// Pages history in until the prompt at `seq` is held (a click on an earlier prompt's tick).
   loadThrough?: (seq: number) => Promise<boolean>;
+  /// Asks for the chat's prompt index (a hover or click on a pending tick): true once it named them.
+  loadPromptIndex?: () => Promise<boolean>;
   sessionId?: string;
   /// Where the transcript opens instead of the latest message, when that row is loaded.
   openAt?: ScrollAnchor;
@@ -3873,15 +3881,11 @@ export function VirtualTranscript({
   /// when the line was clicked. Closing a body at the transcript's end leaves that much room under
   /// the rows instead of letting the browser clamp the offset, which brought every row down by what
   /// closed (Leo, ask-a736047107: "WHEN I COLLAPSE IT JUMPS ME UP"). The room shrinks with the view's
-  /// end as the reader scrolls up unless this was a bottom tool collapse. Bottom room stays until
-  /// the rows grow into it again; a send or Jump to latest releases either kind.
+  /// end as the reader scrolls up; a send or Jump to latest releases it. A close at the very bottom
+  /// keeps none: it pins the bottom instead (`beginBottomStackFold`, Leo 2026-11-03).
   const [foldRoom, setFoldRoom] = useState(0);
   const foldRoomRef = useRef(0);
   foldRoomRef.current = foldRoom;
-  /// A bottom collapse keeps the end created by its open body. Unlike the transient room used to
-  /// hold a line clicked away from the end, this room remains while the reader scrolls up and back.
-  /// It is released only when the rows grow into it, or an explicit latest/send transition drops it.
-  const stickyFoldRoom = useRef<{ shrunk: boolean } | undefined>(undefined);
   /// The content's end without that room, as of the last render.
   const rowsEndRef = useRef(0);
   /// Shrinks the kept room to the view's end at `node`'s offset, and lets it go once nothing holds
@@ -3889,7 +3893,6 @@ export function VirtualTranscript({
   /// Lets the kept room go: a send or Jump to latest heads for the rows' own end. `now` commits it
   /// before the caller reads the layout (Jump to latest's target).
   const dropFoldRoom = useCallback((now = false) => {
-    stickyFoldRoom.current = undefined;
     if (!foldRoomRef.current) return;
     foldRoomRef.current = 0;
     if (now) flushSync(() => setFoldRoom(0));
@@ -3900,20 +3903,6 @@ export function VirtualTranscript({
   const trimFoldRoom = useCallback((node: HTMLElement) => {
     const kept = foldRoomRef.current;
     if (!kept) return;
-    // A tool body opened at the end gives the transcript a larger physical end. Keep that end when
-    // its body closes, including through an upward scroll and a return to the latest row. The room
-    // is still released once the rows themselves grow back to it.
-    if (stickyFoldRoom.current) {
-      // A wheel can release the clicked-line anchor before the collapse's first measurement.
-      // Only growth after an observed shrink may consume this room.
-      if (rowsEndRef.current < kept - 0.5) stickyFoldRoom.current.shrunk = true;
-      if (stickyFoldRoom.current.shrunk && !foldHolding(foldAnchor.current) && rowsEndRef.current >= kept - 0.5) {
-        stickyFoldRoom.current = undefined;
-        foldRoomRef.current = 0;
-        setFoldRoom(0);
-      }
-      return;
-    }
     const holding = foldHolding(foldAnchor.current);
     // A view that follows the latest row again (the reader scrolled back to it) ends at the rows.
     if (followingRef.current && !holding) {
@@ -5454,22 +5443,11 @@ export function VirtualTranscript({
       foldRoomRef.current = end;
       setFoldRoom(end);
     };
-    const keepBottomFoldRoom = () => {
-      if (!node) return;
-      const end = foldRoomFor(node.scrollTop, node.clientHeight, foldRoomRef.current);
-      stickyFoldRoom.current = { shrunk: rowsEndRef.current < end - 0.5 };
-      if (end === foldRoomRef.current) return;
-      foldRoomRef.current = end;
-      setFoldRoom(end);
-    };
     const beginBottomStackFold = (toggle: HTMLElement, line: HTMLElement): boolean => {
-      // Tool/work disclosures, and any line that opens (Leo, 2026-11-02: "YOU EXPAND UP WHILE YOUR
-      // SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"): a thought, the edits card, a cut row.
-      // Closing other controls (Show less) keeps its established row anchor and the room it needs.
-      if (!toggle.matches(".cv-tool.is-toggle, .cv-worked, .cv-subagents") && !opensBody(toggle)) {
-        stopBottomStackFold();
-        return false;
-      }
+      // At the very bottom every disclosure pins the bottom, opening or closing (Leo, 2026-11-02:
+      // "YOU EXPAND UP WHILE YOUR SCCROLL IS AT THE VERY BOTTOM ... JUST THAT CASE"; 2026-11-03:
+      // "it's weird to collapse and get all that empty space at the bottom"). What opens pushes the
+      // text above it up; what closes pulls it down. No blank room is left under the rows.
       if (!atFoldBottom(node.scrollTop, node.clientHeight, node.scrollHeight, FOLLOW_BOTTOM_DEADBAND_PX)) {
         stopBottomStackFold();
         return false;
@@ -5479,15 +5457,9 @@ export function VirtualTranscript({
       stopBottomStackFold();
       followGlide.current?.stop();
       stopJump();
-      // A closing tool keeps its expanded extent and clicked line rather than sliding down.
-      if (toggle.matches(".cv-tool.is-toggle") && toggle.getAttribute("aria-expanded") === "true") {
-        keepBottomFoldRoom();
-        return false;
-      }
-      // Reopening at the physical bottom consumes any room retained by a prior collapse. The
-      // expanded body itself supplies the height; keeping the old blank room would add a second,
-      // jarring gap while the stack moves up.
-      if (!stickyFoldRoom.current || opensBody(toggle)) dropFoldRoom();
+      // The body itself supplies the height: any room kept by an older collapse goes, so neither
+      // a second gap opens nor one stays after the close.
+      dropFoldRoom();
       const drawn = new Map<Element, number>();
       for (const each of thread.current?.children ?? []) drawn.set(each, each.getBoundingClientRect().top);
       const stack: BottomStackFold = {
@@ -5744,7 +5716,12 @@ export function VirtualTranscript({
     restingDock.current.space = dockSpace;
   // A stack not measured since it came (the latch's 0) reads as it is now.
   // Below a floating tab row (`topInset`): the rail centers in the view the row leaves (threadMinimap.css).
-  const railBox = { height: height - topInset, foot: height - topInset - (restingDock.current.space || dockSpace) };
+  // `live` is the stack's top now: the rail's foot and its card stay above it (ThreadMinimap `railBox`).
+  const railBox = {
+    height: height - topInset,
+    foot: height - topInset - (restingDock.current.space || dockSpace),
+    live: height - topInset - dockSpace,
+  };
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
     <ReadOnlyBoundary readOnly={readOnly}>
@@ -5785,6 +5762,7 @@ export function VirtualTranscript({
             earlier={earlier}
             promptCount={promptCount}
             loadThrough={loadThrough}
+            loadPromptIndex={loadPromptIndex}
             sessionId={sessionId}
             layout={layout}
             scroller={ref}
@@ -6488,6 +6466,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     dismissed: ReadonlySet<string>;
   }>();
   if (backgroundPanel && snapshot.sessionId !== backgroundPanel.sessionId) setBackgroundPanel(undefined);
+  /// This page is the chat's Background tasks tab in the right column (a `subagent:` reveal of the
+  /// reserved pane id, backgroundTasks/backgroundPane.ts): it shows the panel alone, filling the tab.
+  const [ownBackgroundPane, setOwnBackgroundPane] = useState(false);
+  if (ownBackgroundPane && !backgroundPanel && snapshot.sessionId)
+    setBackgroundPanel({ sessionId: snapshot.sessionId, expanded: false, dismissed: new Set<string>() });
   const backgroundOpen = backgroundPanel !== undefined;
   const backgroundCache = useRef<TaskCache>(new WeakMap());
   const artifactSession = snapshot.sessionId;
@@ -6657,6 +6640,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     }
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
+    if (isBackgroundPane(agent)) {
+      setOwnBackgroundPane(true);
+      return;
+    }
     subagentPane.current = true;
     setOwnSubagentPane(true);
     setRequestedSubagent(agent);
@@ -7607,11 +7594,21 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The Background tasks panel opens from the chat's ⋯ menu and from the running tray's header
   // (SubagentTray.tsx `onOpenPanel`). A workflow's side tab would cover it (a full-height overlay):
   // it closes. Already open, it stays as it is (expanded, cleared and drilled in alike).
+  // It opens as a tab in the chat's right column (Leo, 2026-11-03: "it should be opening up on the
+  // right pane as a tab instead of this"), or focuses the one open there; a host that opens no tab
+  // (the gallery, Quick Chat's panel, an older app) keeps it in this pane's right column.
   const panelSession = snapshot.sessionId;
-  const openBackgroundPanel = useCallback(() => {
+  const backgroundTabTitle = t("backgroundTasks.title");
+  const openBackgroundHere = useCallback(() => {
     clearWorkflowSideTab();
     setBackgroundPanel((panel) => panel ?? { sessionId: panelSession, expanded: false, dismissed: new Set<string>() });
   }, [clearWorkflowSideTab, panelSession]);
+  const openBackgroundPanel = useCallback(() => {
+    if (ownBackgroundPane) return openBackgroundHere();
+    void openBackgroundPane(callNative, backgroundTabTitle).then((opened) => {
+      if (!opened) openBackgroundHere();
+    });
+  }, [ownBackgroundPane, openBackgroundHere, backgroundTabTitle]);
   const closeWorkflowSideTab = useCallback(() => {
     workflowSideTabFocusOnClose.current = true;
     setWorkflowSideTabId(undefined);
@@ -8604,6 +8601,22 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sandbox.setMode(mode);
     },
   };
+  /// The composer's Run as rows: picking Cloud there is the person's pick of the chat's folder too,
+  /// so the host grants it (workspace.useFolder) and the Cloud start may copy it (the same folder
+  /// sendToCloud names). A folder Cloud never copies (home or above, agent-home) asks nothing.
+  /// The last Cloud pick's folder grant (workspace.useFolder), still out or done: a Cloud start waits
+  /// for it, so a Return right after picking Cloud never races the grant into path_outside_roots.
+  const cloudFolderGrant = useRef<Promise<unknown> | undefined>(undefined);
+  const composerModeRows = {
+    mode: sandboxModeRows.mode,
+    onMode: (mode: RunMode) => {
+      if (mode === "cloud") {
+        const folder = cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd);
+        if ("cwd" in folder) cloudFolderGrant.current = pickFolder(callNative, folder.cwd, () => undefined);
+      }
+      sandboxModeRows.onMode(mode);
+    },
+  };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
   /// code (the prompt stays where it was typed); false: nothing was sent.
   const startSandbox = (text: string, attachmentCount: number, harness: string | undefined): string | boolean =>
@@ -8615,7 +8628,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
-  const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [startCloud] = useState(() =>
+    oneCloudStart((method, params) =>
+      (cloudFolderGrant.current ?? Promise.resolve()).catch(() => undefined).then(() => callNative(method, params)),
+    ),
+  );
   const [cloudStartKeys] = useState(() => makeCloudStartKeys());
   const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   /// A Cloud start is out: the composer takes no edits until it ends (#28686 review). On success the
@@ -8770,6 +8787,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }),
     [autoOpenSubagents],
   );
+  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  useEscapeClosesSubagent(!quick && !!subagentView, () => setSubagentView(undefined));
   // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
   // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
   // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
@@ -11957,6 +11976,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             const released = quitting === true ? held.release() : [];
             const chips = released.length ? await giveBackTrustHeld.current(released, false, true, until) : [];
             await settleDraftWithin(composerHandle.current, Math.max(0, until - Date.now()));
+            // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
+            // sends, composition and popups; quit and close still hand back their state.
+            if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
@@ -13421,6 +13443,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                 Promise.resolve(false)
                                                             : undefined
                                                         }
+                                                        loadPromptIndex={
+                                                          !childRows
+                                                            ? () =>
+                                                                directClient.current?.loadPromptIndex() ??
+                                                                Promise.resolve(false)
+                                                            : undefined
+                                                        }
                                                         sourceRows={childRows ? undefined : sourceRows}
                                                         endReserve={previewBeside ? COMPUTER_USE_PREVIEW_RESERVE : 0}
                                                         working={snapshot.isWorking}
@@ -14289,7 +14318,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             }
             localName={thisMacName(localMachineName, machineName, composerSnapshot.summary)}
             environments
-            {...(sandboxOffered ? { runMode: sandboxModeRows } : {})}
+            {...(sandboxOffered ? { runMode: composerModeRows } : {})}
             onBrowseFolder={
               canMove ? () => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd) : undefined
             }
@@ -14615,6 +14644,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         className="acpmux-shell"
         data-tab-row={inTabRow ? "" : undefined}
         data-solo-tab={soloTab ? "" : undefined}
+        data-background-pane={ownBackgroundPane ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
         style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
@@ -14761,7 +14791,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // (never home or above it, cloudStartFolder), and whenever Cloud may be offered, the
                   // host's sandbox check still out included (newTabProjectPick); a home or root answer
                   // asks nothing here (the local start still asks on Return).
-                  {...newTabProjectPick(callNative, sandboxOfferable)}
+                  {...newTabProjectPick(callNative, sandboxOfferable, (grant) => {
+                    cloudFolderGrant.current = grant;
+                  })}
                   {...(!handshaken ? { startPending: true } : {})}
                   {...(newTabChatsPending ? { chatsPending: true } : {})}
                   {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
@@ -15204,8 +15236,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               onClearFinished={(ids) =>
                 setBackgroundPanel((panel) => panel && { ...panel, dismissed: new Set([...panel.dismissed, ...ids]) })
               }
-              onExpand={() => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })}
-              onClose={() => setBackgroundPanel(undefined)}
+              // Its own tab has the tab's own close and the whole tab already: no Expand or Close.
+              onExpand={
+                ownBackgroundPane
+                  ? undefined
+                  : () => setBackgroundPanel((panel) => panel && { ...panel, expanded: !panel.expanded })
+              }
+              onClose={ownBackgroundPane ? undefined : () => setBackgroundPanel(undefined)}
               onOpenSession={openOfferChat}
               onOpenCommand={(task) => {
                 const command = panelCommands.find((candidate) => candidate.id === task.id);
