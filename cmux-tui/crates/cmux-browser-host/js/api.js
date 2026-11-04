@@ -557,8 +557,11 @@
       const preview = await session.newPage(undefined, { background: true });
       try {
         await preview.goto(url, { waitUntil: "load", timeout: options.timeout });
-        if (options.settleMs > 0) await session.sleep(options.settleMs);
+        // Capture the rendered load state before waiting for late errors. A
+        // page exception can leave Chromium's compositor unable to answer a
+        // later capture, while the error buffers remain readable.
         const image = await screenshot(preview, options.screenshot || {});
+        if (options.settleMs > 0) await session.sleep(options.settleMs);
         const consoleErrors = (await preview.consoleMessages({ level: "error" })).map((message) => ({
           type: message.type(),
           text: message.text(),
