@@ -22,6 +22,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "HOME": home.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                // Assertions match English CLI output.
+                "AppleLanguages": "(en)",
+                "AppleLocale": "en_US",
             ].merging(extra) { _, new in new }
         }
     }
