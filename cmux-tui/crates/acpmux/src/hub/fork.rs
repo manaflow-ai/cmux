@@ -384,6 +384,7 @@ impl Hub {
             usage: None,
             context_breakdown: None,
             cmux_context,
+            cmux_context_delivered: !empty && parent_meta.cmux_context_delivered,
             // The account's limits, which the fork shares.
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),

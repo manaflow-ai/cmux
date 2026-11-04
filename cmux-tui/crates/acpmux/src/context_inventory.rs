@@ -149,7 +149,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
     if let Some(breakdown) = breakdown {
         push_breakdown(&mut parts, breakdown);
     }
-    let project_key = meta.cwd.to_string_lossy().into_owned();
+    let project_key = crate::config::ContextOverrides::project_key(&meta.cwd);
     let user = cfg.context_overrides.user.clone();
     let project = cfg.context_overrides.projects.get(&project_key).cloned();
     // These are the additions captured at creation, not settings edited since then.
@@ -193,7 +193,7 @@ pub fn inventory(meta: &SessionMeta, cfg: &Config) -> ContextInventory {
             user,
             project,
             project_key: project_key.clone(),
-            cwd: project_key,
+            cwd: meta.cwd.to_string_lossy().into_owned(),
         },
     }
 }
@@ -312,6 +312,22 @@ mod tests {
         assert!(crate::prompt_context::is_context(&block));
         assert!(crate::prompt_context::is_context_text(block["text"].as_str().unwrap()));
         assert_eq!(estimated_tokens("12345678"), 2);
+    }
+
+    #[test]
+    fn project_override_uses_one_key_for_lexical_and_symlink_paths() {
+        let dir = cmux_unix_socket::short_test_dir("context-project-key");
+        let cwd = dir.path();
+        let lexical = cwd.join(".");
+        let mut overrides = ContextOverrides::default();
+        overrides.set("project", Some(cwd), Some("project text".into())).unwrap();
+        assert_eq!(overrides.for_project(&lexical), Some(("project", "project text")));
+        #[cfg(unix)]
+        {
+            let link = cwd.join("link");
+            std::os::unix::fs::symlink(cwd, &link).unwrap();
+            assert_eq!(overrides.for_project(&link), Some(("project", "project text")));
+        }
     }
 
     #[test]
