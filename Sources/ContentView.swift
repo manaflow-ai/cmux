@@ -11465,7 +11465,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
-    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly) { !NotificationsPopoverVisibilityState.shared.isShown(in: $0.windowNumber) } // Popover owns ⌘digits.
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(

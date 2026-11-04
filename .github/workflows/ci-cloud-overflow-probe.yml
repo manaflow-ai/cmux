@@ -237,9 +237,9 @@ jobs:
         continue-on-error: true
         timeout-minutes: 4
         env:
-          # Cancel and re-run with the job's token (actions: write); read on the route App's budget.
+          # All rescue reads and writes use the job token. The route App's shared
+          # installation budget is reserved for runner and repository-variable operations.
           GH_TOKEN: ${{ github.token }}
-          READ_TOKEN: ${{ steps.switch-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && (inputs.dry_run || inputs.probe_label != '') && 'true' || 'false' }}
         run: >-
