@@ -67,29 +67,11 @@ impl Mux {
         self.agent_prompts.lock().unwrap().forget(terminal_id);
         self.output_store.forget(terminal_id);
         // Terminal lifecycle does not flow through `agent.*` journal events
-        // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry.
-        // The fold lock orders this save with `fold_agent_roster`'s, so
-        // neither writes an older snapshot over the other's. The write takes
-        // the registry connection alone, never the workspace registry lock,
-        // so state commits do not wait behind it (issue 23038).
-        let fold = self.agent_roster_fold.lock().unwrap_or_else(PoisonError::into_inner);
-        let retired = {
-            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
-            let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
-        };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.registry_connection.put_journal_reducer_state(
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                cursor,
-                &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        drop(fold);
+        // yet, so a closed terminal retires its roster entry explicitly, and
+        // the snapshot persists so a restart does not resurrect it. Without
+        // waiting for a fold another thread runs (cmux-ad m11 2): that fold
+        // retires it before it lets go (`agent_roster_fold.rs`).
+        self.retire_roster_terminal(terminal_id);
         // Read the terminal's open local items and drop its ring together.
         self.close_terminal_feed_items(terminal_id);
     }
