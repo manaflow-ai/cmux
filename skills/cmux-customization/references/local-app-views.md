@@ -150,8 +150,8 @@ changes. Nothing in the script picks a color or a size.
 | `Toggle(value, { label?, onChange })` | A switch row: the label leading, the native switch trailing. |
 | `Slider(value, { min, max, step, onChange })` | A native slider; set `step` so a drag sends few changes. |
 | `TextField(value, { placeholder, onSubmit })`, `Badge`, `EmptyState`, `ProgressView`, `Text`, `Icon` | Input, counts, empty and loading states, labels, SF Symbols. |
-| `cmux.toast({ title, message?, tone? })` | A short notice in the app's own toast at the bottom of the window. One slot per app: a new toast replaces the app's last. The message shows when the pointer is on it. Needs no scope. |
-| `cmux.theme` | The tone names color props accept: `accent`, `text.primary`, `text.secondary`, `text.tertiary`, `success`, `warning`, `danger`, `separator`. |
+| `cmux.toast({ title, message?, tone? })` | A short notice in the app's own toast at the bottom of the window. One slot per app: a new toast replaces the app's last. The message shows when the pointer is on it, with the app's id. Needs no scope. |
+| `cmux.theme` | The tone names color props accept: `accent`, `text.primary`, `text.secondary`, `text.tertiary`, `success`, `warning`, `danger`, `separator`, `hover`, `selected`. |
 
 Rules:
 
@@ -204,6 +204,7 @@ pane that ...". `customize_example.rs` validates them too.
 ```js
 const [minutes, setMinutes] = signal(25)
 const [left, setLeft] = signal(null) // seconds left while a session runs, else null
+const [total, setTotal] = signal(0) // the running session's length in seconds
 const [notify, setNotify] = signal(true)
 const [done, setDone] = signal(0)
 const running = computed(() => left() !== null) // the slots below rebuild on start and stop, not every second
@@ -223,7 +224,8 @@ function stop(finished) {
 
 function start() {
   stop(false)
-  setLeft(minutes() * 60)
+  setTotal(minutes() * 60)
+  setLeft(total())
   tick = cmux.timer.every(1000, () => {
     const next = (left() ?? 0) - 1
     if (next <= 0) stop(true)
@@ -233,12 +235,12 @@ function start() {
 }
 
 function renderFocus() {
-  return VStack({ spacing: 4 }, [
+  return VStack([
     Panel({ title: "Focus" }, [
       Text(() => clock(left() ?? minutes() * 60)).font("headline").monospaced(),
       () => (!running()
         ? Slider(minutes, { min: 5, max: 60, step: 5, onChange: setMinutes })
-        : ProgressView(() => 1 - (left() ?? 0) / (minutes() * 60))),
+        : ProgressView(() => 1 - (left() ?? 0) / total())),
       Toggle(notify, { label: "Toast when done", onChange: setNotify }),
       HStack([
         () => (!running() ? Button("Start", start) : Button("Stop", () => stop(false))),

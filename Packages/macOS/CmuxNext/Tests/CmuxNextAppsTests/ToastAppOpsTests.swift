@@ -23,7 +23,7 @@ struct ToastAppOpsTests {
         let toast = try #require(shown.toasts.first)
         #expect(toast.id == "app:local/customize", "one slot per app: the next toast replaces it")
         #expect(toast.message == "Focus started")
-        #expect(toast.detail == "25 minutes")
+        #expect(toast.detail == "25 minutes\nFrom local/customize", "the detail names the app that sent it")
         #expect(toast.action == nil)
     }
 

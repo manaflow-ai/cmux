@@ -6,7 +6,8 @@ public import CmuxNextDesign
 /// app's one toast presenter (`CmuxToastCenter`) in the active window. Each app has one slot: the
 /// toast's id is `app:<app id>`, so a new toast from the same app replaces its last, and the
 /// presenter's own limits hold (three per window, a closed notice stays quiet for a while). The
-/// title is the toast's text and the message its detail (shown when the pointer is on it). `tone`
+/// title is the toast's text and the message its detail (shown when the pointer is on it),
+/// followed by the app's id. `tone`
 /// is accepted and not drawn yet: the presenter has one look until the unified notice system lands.
 /// Local and non-network, so the op needs no scope (`scopes.json` scope `none`).
 public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
@@ -55,6 +56,8 @@ public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
         if let tone = request.params["tone"]?.stringValue, !tones.contains(tone) {
             throw AppHostCapabilityError(code: "invalid_params", message: "a toast tone is success, warning or danger")
         }
-        return CmuxToast(id: "app:\(request.app)", message: title, detail: message)
+        // The detail names the app, so an app's notice never passes for one of cmux's own.
+        let source = "From \(request.app)"
+        return CmuxToast(id: "app:\(request.app)", message: title, detail: message.map { "\($0)\n\(source)" } ?? source)
     }
 }

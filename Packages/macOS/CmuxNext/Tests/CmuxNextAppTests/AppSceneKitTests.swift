@@ -96,8 +96,9 @@ import Testing
         let (window, root) = try Self.host(model, "s")
         defer { window.contentView = nil; window.close() }
         let slider = try #require(Self.all(NSSlider.self, in: root).first, "the native slider")
-        #expect(slider.minValue == 5 && slider.maxValue == 60)
-        #expect(abs(slider.doubleValue - 25) < 0.001)
+        // SwiftUI may drive the NSSlider over a normalized range: compare the thumb's fraction, 25 in 5...60.
+        let fraction = (slider.doubleValue - slider.minValue) / (slider.maxValue - slider.minValue)
+        #expect(abs(fraction - 20.0 / 55.0) < 0.001)
     }
 
     @Test func aGlassPanelIsTheSidebarCardsSurfaceAndACardIsNot() throws {

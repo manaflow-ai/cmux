@@ -3,15 +3,24 @@ import CmuxNextDesign
 import SwiftUI
 
 /// `Toggle`: the native switch, two-way bound like `TextField`. The scene's
-/// `value` is the state; a flip shows at once and sends `change {value}`,
-/// and a later `value` from the app wins. Inked with the scope's primary
-/// text, the emphasis cmux chrome uses (never system blue).
+/// `value` is the state; with `onChange`, a flip shows at once and sends
+/// `change {value}`, and the next `value` the app sends wins. Without
+/// `onChange` it only shows the app's value: a click does not flip it.
+/// Inked with the scope's primary text, the emphasis cmux chrome uses (never
+/// system blue).
 struct AppSceneToggle: View {
     @Environment(\.appSceneColors) private var colors
     let model: AppSceneModel
     let id: String
     let node: AppSceneNode
-    @State private var isOn = false
+    @State private var isOn: Bool
+
+    init(model: AppSceneModel, id: String, node: AppSceneNode) {
+        self.model = model
+        self.id = id
+        self.node = node
+        _isOn = State(initialValue: node.flag("value"))
+    }
 
     var body: some View {
         // A settings row: the label leading, the switch trailing, as the app's own switch rows.
@@ -21,15 +30,15 @@ struct AppSceneToggle: View {
                 Spacer(minLength: 0)
             }
             Toggle(node.string("label") ?? "", isOn: Binding(get: { isOn }, set: { new in
+                guard node.flag("onChange") else { return }
                 isOn = new
-                if node.flag("onChange") { model.send(id, "change", ["value": .bool(new)]) }
+                model.send(id, "change", ["value": .bool(new)])
             }))
             .toggleStyle(.switch)
             .controlSize(.mini)
             .tint(colors.primary)
             .labelsHidden()
         }
-        .onAppear { isOn = node.flag("value") }
         .onChange(of: node.flag("value")) { _, new in if new != isOn { isOn = new } }
     }
 }
@@ -37,28 +46,47 @@ struct AppSceneToggle: View {
 /// `Slider`: the native slider over `min...max`, snapped to `step` (a
 /// hundredth of the range when absent, so a drag sends at most about a
 /// hundred `change {value}` events). Tracked in the scope's primary ink.
+/// While a drag runs, the app's echoes of earlier values do not move the
+/// thumb; the app's value is applied when the drag ends. Without `onChange`
+/// it only shows the app's value.
 struct AppSceneSlider: View {
     @Environment(\.appSceneColors) private var colors
     let model: AppSceneModel
     let id: String
     let node: AppSceneNode
-    @State private var value = 0.0
+    @State private var value: Double
+    @State private var editing = false
+
+    init(model: AppSceneModel, id: String, node: AppSceneNode) {
+        self.model = model
+        self.id = id
+        self.node = node
+        let range = Self.range(node)
+        _value = State(initialValue: Self.snap(node.number("value") ?? range.lowerBound, range, Self.step(node, range)))
+    }
 
     var body: some View {
         let range = Self.range(node)
         let step = Self.step(node, range)
         Slider(value: Binding(get: { value }, set: { new in
+            guard node.flag("onChange") else { return }
             let snapped = Self.snap(new, range, step)
             guard snapped != value else { return }
             value = snapped
-            if node.flag("onChange") { model.send(id, "change", ["value": .number(snapped)]) }
-        }), in: range)
+            model.send(id, "change", ["value": .number(snapped)])
+        }), in: range, onEditingChanged: { active in
+            editing = active
+            if !active { sync(range, step) }
+        })
         .controlSize(.small)
         .tint(colors.primary)
-        .onAppear { value = Self.snap(node.number("value") ?? range.lowerBound, range, step) }
-        .onChange(of: node.number("value")) { _, new in
-            if let new, new != value { value = Self.snap(new, range, step) }
-        }
+        .onChange(of: node.number("value")) { _, _ in if !editing { sync(range, step) } }
+    }
+
+    /// Shows the app's value (snapped), unless it already shows.
+    private func sync(_ range: ClosedRange<Double>, _ step: Double) {
+        let shown = Self.snap(node.number("value") ?? range.lowerBound, range, step)
+        if shown != value { value = shown }
     }
 
     /// `min...max`; an empty or reversed range is the default 0...1.
@@ -76,7 +104,10 @@ struct AppSceneSlider: View {
     static func snap(_ value: Double, _ range: ClosedRange<Double>, _ step: Double) -> Double {
         let clamped = min(max(value, range.lowerBound), range.upperBound)
         let snapped = range.lowerBound + ((clamped - range.lowerBound) / step).rounded() * step
-        return min(snapped, range.upperBound)
+        // Round to the step's own decimals, so a 0.1 step sends 0.3, not 0.30000000000000004.
+        let decimals = Double(min(max(Int((-log10(step)).rounded(.up)) + 6, 0), 12))
+        let scale = pow(10, decimals)
+        return min((snapped * scale).rounded() / scale, range.upperBound)
     }
 }
 
