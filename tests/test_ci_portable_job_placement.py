@@ -469,6 +469,26 @@ class Decide(unittest.TestCase):
                                   idle(1), snapshot(), NOW)
         self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
 
+    def test_supported_light_rescue_bots_attempt_three_is_placed_afresh(self):
+        for actor in sorted(placement.pool.RESCUE_ACTORS):
+            with self.subTest(actor=actor):
+                placed = placement.decide(env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor,
+                                              PORTABLE_ATTEMPT3_RESCUE="1"),
+                                          idle(1), snapshot(), NOW)
+                self.assertEqual(placed.mini_jobs, ("ci-guard-group",))
+
+    def test_attempt_three_without_the_light_workflow_marker_stays_fail_closed(self):
+        for actor in sorted(placement.pool.RESCUE_ACTORS):
+            with self.subTest(actor=actor):
+                environment = env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor)
+                self.assertEqual(placement.attempt_refusal(environment), "attempt 3 keeps its Blacksmith route")
+                self.assertEqual(placement.decide(environment, idle(1), snapshot(), NOW).mini_jobs, ())
+        for actor in ("leo", "austinywang"):
+            with self.subTest(actor=actor):
+                environment = env(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR=actor,
+                                  PORTABLE_ATTEMPT3_RESCUE="1")
+                self.assertEqual(placement.attempt_refusal(environment), "attempt 3 keeps its Blacksmith route")
+
     def test_outputs_delimit_whole_job_keys(self):
         with tempfile.TemporaryDirectory() as scratch:
             output = Path(scratch) / "out"
@@ -820,6 +840,7 @@ class Wiring(unittest.TestCase):
                 side_label = placement_job["steps"][-1]["env"]["SIDE_LABEL"]
                 self.assertIn("vars.CI_LIGHT_LANE_RUNNER", side_label)
                 self.assertIn("vars.CI_SIDE_LANE_RUNNER", side_label)
+                self.assertEqual(placement_job["steps"][-1]["env"]["PORTABLE_ATTEMPT3_RESCUE"], "1")
                 for name in consumers:
                     condition = str(workflow_jobs[name]["if"])
                     if name == "web-validation":
@@ -827,6 +848,12 @@ class Wiring(unittest.TestCase):
                     else:
                         self.assertIn("always()", condition)
                         self.assertIn("!cancelled()", condition)
+
+    def test_other_portable_callers_do_not_opt_into_bot_attempt_three(self):
+        for workflow in ("ci.yml", "cmux-next.yml"):
+            with self.subTest(workflow=workflow):
+                step = jobs(workflow)["portable-placement"]["steps"][-1]
+                self.assertNotIn("PORTABLE_ATTEMPT3_RESCUE", step.get("env", {}))
 
     def test_merge_group_skips_placement_but_keeps_web_rollup(self):
         workflow_jobs = jobs("web-validation.yml")
