@@ -47,7 +47,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     ///   - chiefHome: The home of the Chief whose conversations this owner holds: its spawn records and
     ///     acpmux say where its agents run.
     public func connectionChanged(_ connection: DaemonConnection?, chiefHome: ChiefHome? = nil) {
-        let agents = chiefHome.map(HomeAgentSessionReader.init(home:))
+        let agents = chiefHome.map { HomeAgentSessionReader(home: $0) }
         state.withLock {
             $0.connection = connection
             $0.agents = agents
