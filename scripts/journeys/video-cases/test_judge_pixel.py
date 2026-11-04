@@ -29,7 +29,11 @@ divider rect 2 pt right of that gap's middle in samples 30-35, 0.5 pt (1 px) in 
 film unchanged; and a pane below the window whose edge is in the gap); closing-slot puts a closing pane's
 rect (pc, not a fixture pane, its slot drawn as its black ground) between A and B, with a divider on each side of it;
 closing-key is the same film with the closing pane's ground only in the S3d trace key `closing` (its host is not in
-`panes`, as the S3 sampler skips a host that shows a closing ground).
+`panes`, as the S3 sampler skips a host that shows a closing ground). The m6 films (3e), all with the tab strips on time:
+strip-page-late (B's page one sample late: its left edge the previous frame's), strip-tui-b-late (B a terminal one sample
+late), strip-whole-late (frames 15-18 show the previous sample, strips and content: late as a whole), strip-repeat
+(B's page one sample late in frames 11-20, frame 20 a copy of frame 19: a dropped refresh), strip-stretch (B's page rings twice as wide in
+frames 20-22) and strip-hidden (B's tab strip not drawn in frames 20-22).
 """
 import collections
 import json
@@ -129,24 +133,25 @@ def draw_tui(img, x0, w, picture_w=None, y0=0):
             img[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = color
 
 
-def draw_tui_at(img, x0, w, fill):
-    """tui_border.py's picture with FILL in [x0, x0 + w) (a second terminal pane)."""
+def draw_tui_at(img, x0, w, fill, y0=0):
+    """tui_border.py's picture with FILL in [x0, x0 + w) x [y0, H) (a second terminal pane)."""
     x0, w = int(round(x0)), int(round(w))
-    img[:, x0:x0 + w] = CYAN
-    cols, rows = (w - 2 * PAD) // CW, (H - 2 * PAD) // CH
+    img[y0:, x0:x0 + w] = CYAN
+    cols, rows = (w - 2 * PAD) // CW, (H - y0 - 2 * PAD) // CH
     for r in range(rows):
         for c in range(cols):
             k = min(r, c, rows - 1 - r, cols - 1 - c)
-            img[PAD + r * CH:PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = [RED, WHITE, BLACK][k] if k < 3 else fill
+            img[y0 + PAD + r * CH:y0 + PAD + (r + 1) * CH, x0 + PAD + c * CW:x0 + PAD + (c + 1) * CW] = \
+                [RED, WHITE, BLACK][k] if k < 3 else fill
 
 
-def draw_page(img, x0, w, y0=0, fill=GREEN):
-    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px of red, white, black, then the fill."""
+def draw_page(img, x0, w, y0=0, fill=GREEN, rings=(2, 4, 6)):
+    """page.html at DPR 2 in [x0, x0 + w) x [y0, H): 2, 4, 6 device px (RINGS) of red, white, black, then the fill."""
     x0, w = int(round(x0)), int(round(w))
     x0c = max(x0, 0)
     img[y0:, x0c:x0 + w] = fill
     inset = 0
-    for color, width in ((RED, 2), (WHITE, 4), (BLACK, 6)):
+    for color, width in zip((RED, WHITE, BLACK), rings):
         a, b = x0 + inset, x0 + w - inset
         top, bottom = y0 + inset, H - inset
         img[top:top + width, max(a, 0):b] = color
@@ -163,7 +168,10 @@ CLOCK_SHIFT = {"clock-late": 1, "strip-clock-late": 1, "clock-early": -1, "clock
 
 def frame(k, variant):
     """The picture shown at refresh k (sample k - 1 committed; the clock films shift it by CLOCK_SHIFT)."""
-    s = min(max(k - 1 - CLOCK_SHIFT.get(variant, 0), 0), N - 1)
+    if variant == "strip-repeat" and k == 20:
+        return frame(19, variant)  # a dropped refresh: frame 20 repeats frame 19
+    shift = CLOCK_SHIFT.get(variant, 0) + (1 if variant == "strip-whole-late" and 15 <= k <= 18 else 0)
+    s = min(max(k - 1 - shift, 0), N - 1)
     aw = a_width(s, variant)
     img = np.zeros((H, W, 3), np.uint8)
     img[:] = MAGENTA
@@ -184,6 +192,9 @@ def frame(k, variant):
             # A's right rings and ground strip gone (its view shrank before the program redrew): the shell after the fill.
             img[:, int(round(aw)) - 60:int(round(aw))] = MAGENTA
     b_x = aw + DIV_PX + (1 if inset else 0)  # and B's 1 px inside its own
+    b_strip_x = b_x  # B's tab strip: on time in the m6 films (its content may be late)
+    if variant in ("strip-page-late", "strip-tui-b-late") or (variant == "strip-repeat" and k <= 20):
+        b_x = a_width(max(s - 1, 0), variant) + DIV_PX  # B's content one sample late
     if variant in ("closing-slot", "closing-key"):
         img[:, int(round(aw)) + DIV_PX:int(round(aw)) + DIV_PX + SLOT_PX] = BLACK  # the closing pane's ground
         b_x = aw + DIV_PX + SLOT_PX + DIV_PX
@@ -197,6 +208,10 @@ def frame(k, variant):
         b_x += 1 if k == 40 else 4  # B's page right of its pane edge after the divider has landed (1 px: just off)
     if variant == "d4-cover" and s >= 30:
         draw_page(img, b_x - 1, W - b_x + 1, y0=y0)  # the page window 0.5 pt left of its host (and as much wider)
+    elif variant == "strip-tui-b-late":
+        draw_tui_at(img, b_x, W - b_x, GREEN, y0=y0)  # B: a terminal below its strip, one sample late
+    elif variant == "strip-stretch" and 20 <= k <= 22:
+        draw_page(img, b_x, W - b_x, y0=y0, rings=(4, 8, 12))  # B's page stretched: its rings twice as wide
     elif variant == "samefill":
         if not 30 <= k <= 32:
             draw_tui_at(img, b_x, W - b_x, YELLOW)  # B: a terminal of A's own fill; it shows nothing for 3 frames
@@ -209,8 +224,9 @@ def frame(k, variant):
     if has_strip(variant):
         late = a_width(max(k - 2, 0), variant) + DIV_PX if 11 <= k <= 30 else b_x
         draw_strip(img, -SCROLL_PX if variant == "strip-scrolled" else 0, aw, 0)
-        strip_x = late if variant == "strip-lag" else b_x
-        draw_strip(img, strip_x, W, late if variant in ("strip-lag", "pill-lag") else b_x)
+        strip_x = late if variant == "strip-lag" else b_strip_x
+        if not (variant == "strip-hidden" and 20 <= k <= 22):
+            draw_strip(img, strip_x, W, late if variant in ("strip-lag", "pill-lag") else b_strip_x)
         if touching(variant):
             # The divider band on the strip row is the neighbour's strip ground, not the shell: the strips touch.
             img[:STRIP_PX, int(round(aw)):int(round(b_x))] = BLACK
@@ -291,6 +307,8 @@ def build(root, name, variant):
             "speed": 1, "reduce": False, "input": "drag", "window_frame": [WINDOW_X, 50, 300, 150], "page_backdrop": False}
     if variant == "samefill":
         note["panes"]["pb"] = {"kind": "tui", "fill": "#FFFF00", "label": "p1"}
+    if variant == "strip-tui-b-late":
+        note["panes"]["pb"] = {"kind": "tui", "fill": "#00FF00", "label": "p1"}
     if variant.startswith("reduce"):
         note.update(reduce=True, speed=1.0, input="drag" if variant == "reduce-drag" else "keys")
     journal = []
@@ -893,6 +911,107 @@ class ClockTests(unittest.TestCase):
         r = self.reports["still"]
         self.assertEqual(r["clock"]["offset"], 0)
         self.assertIn("no edge moved", r["clock"]["why"])
+
+
+class M6ContractTests(unittest.TestCase):
+    """3e (FRAME OWNER; cmux-ad m6 1d, the judge part): per film frame and content kind (terminal, page, agent), each
+    content edge against its pane edge as cmux's own layer shows it in the same film frame (the tab strip; y edges and
+    panes with no strip row: the trace sample on the 3d clock). E2: a lo edge on the current frame's pane edge (a page
+    also on the previous frame's: "page late 1", the interim browser contract). E3: a hi edge on the current pane edge,
+    or late: on the previous frame's size anchored top-left, clipped. E4: never the shell beyond it (gap). E5: never
+    stretched (a ring wider than at rest). The previous frame is the last one whose strip differs (a dropped refresh
+    does not widen the allowance). E7: frames where every strip is one sample late are late as a whole."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="judge-pixel-m6-")
+        cls.reports = {v: jp.judge(build(cls.tmp, v, v), all_frames=True)
+                       for v in ("strip", "strip-page-late", "strip-tui-b-late", "strip-whole-late", "strip-repeat",
+                                 "strip-stretch", "strip-hidden", "gap2", "clean", "strip-lag")}
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def kind(self, variant, kind):
+        return self.reports[variant]["m6"]["kinds"][kind]
+
+    def test_content_on_its_strips_passes(self):
+        for kind in ("terminal", "page"):
+            row = self.kind("strip", kind)
+            self.assertGreater(row["frames"], 50, kind)
+            self.assertEqual((row["pass"], row["late"], row["page_late_1"], row["fail"], row["not_judged"]),
+                             (row["frames"], 0, 0, 0, 0), kind)
+            self.assertGreater(row["sources"]["strip"], 0, kind)
+        self.assertEqual(self.reports["strip"]["m6"]["late_as_a_whole"], 0)
+        self.assertNotIn("m6 contract", [f["check"] for f in self.reports["strip"]["findings"]])
+
+    def test_a_page_one_frame_late_is_page_late_1(self):
+        row = self.kind("strip-page-late", "page")
+        self.assertEqual((row["fail"], row["page_late_1"], row["page_late_1_ranges"]), (0, 20, "11-30"))
+        self.assertEqual(self.kind("strip-page-late", "terminal")["fail"], 0)
+
+    def test_a_terminal_lo_edge_one_frame_late_fails(self):
+        row = self.kind("strip-tui-b-late", "terminal")
+        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E2"] >= 20), ("11-30", True))
+        found = {(f["check"], f["where"]): f["detail"] for f in self.reports["strip-tui-b-late"]["findings"]}
+        self.assertIn("20 of", found[("m6 contract", "terminal content")])
+
+    def test_a_frame_late_as_a_whole_is_counted_not_failed(self):
+        r = self.reports["strip-whole-late"]
+        self.assertEqual((r["m6"]["late_as_a_whole"], r["m6"]["late_as_a_whole_ranges"]), (4, "15-18"))
+        for kind in ("terminal", "page"):
+            self.assertEqual(self.kind("strip-whole-late", kind)["fail"], 0, kind)
+        self.assertIn("late as a whole", [f["check"] for f in r["info"]])
+        # strip-lag: B's strip one sample late while A's moves on time: one layer late, not the whole frame.
+        self.assertEqual(self.reports["strip-lag"]["m6"]["late_as_a_whole"], 0)
+
+    def test_the_edge_rules(self):
+        v = jp.m6_edge_verdict
+        # E2: a lo edge on the current pane edge, within 1 device px (inclusive); a page also on the previous frame's.
+        self.assertEqual(v("terminal", "lo", 11.0, (10, 100), (8, 100)), ("pass", None))
+        self.assertEqual(v("terminal", "lo", 8.0, (10, 100), (8, 100)), ("fail", "E2"))
+        self.assertEqual(v("page", "lo", 8.0, (10, 100), (8, 100)), ("page late 1", None))
+        self.assertEqual(v("page", "lo", 6.0, (10, 100), (8, 100)), ("fail", "E2"))
+        # E3: a hi edge on the current pane edge, or the previous size anchored at the current lo edge, clipped.
+        self.assertEqual(v("terminal", "hi", 99.0, (0, 100), (0, 90)), ("pass", None))
+        self.assertEqual(v("terminal", "hi", 90.0, (0, 100), (0, 90)), ("late", None))  # a growing pane
+        self.assertEqual(v("terminal", "hi", 80.0, (0, 100), (0, 90)), ("fail", "E3"))
+        self.assertEqual(v("terminal", "hi", 100.0, (0, 100), (0, 110)), ("pass", None))  # shrinking: clipped
+        self.assertEqual(v("terminal", "hi", 110.0, (0, 100), (0, 110)), ("fail", "E3"))  # not clipped: past its pane
+        # A pane that moved without a resize: the previous size anchored at the current lo edge is the current hi edge;
+        # the content's hi edge at the previous place is neither.
+        self.assertEqual(v("terminal", "hi", 100.0, (10, 110), (0, 100)), ("fail", "E3"))
+
+    def test_a_dropped_refresh_does_not_widen_the_allowance(self):
+        # Frame 20 repeats frame 19 (the whole screen): its page is late as frame 19's is, against the last frame whose
+        # strip differs (18), not against frame 19 (the same strip as its own).
+        row = self.kind("strip-repeat", "page")
+        self.assertEqual((row["fail"], row["page_late_1_ranges"]), (0, "11-20"))
+
+    def test_stretched_content_fails(self):
+        row = self.kind("strip-stretch", "page")
+        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E5"] > 0), ("20-22", True))
+
+    def test_a_pane_whose_strip_is_not_shown_is_not_judged_never_passed(self):
+        # B's tab strip is not drawn in 20-22: B's x edges (2 row lines, lo and hi) have no pane edge there: not judged,
+        # never a pass (12 edges). Its top edge (the trace) is judged, and the shell where the strip was is a gap (E4).
+        hidden, shown = self.kind("strip-hidden", "page"), self.kind("strip", "page")
+        self.assertEqual((hidden["edges"].get("not judged", 0), shown["edges"].get("not judged", 0)), (12, 0))
+        self.assertEqual(hidden["sources"]["strip"], shown["sources"]["strip"] - 12)
+        self.assertEqual((hidden["fail_ranges"], hidden["fail_by_rule"]["E4"]), ("20-22", 3))
+
+    def test_a_shell_gap_fails_even_when_the_edge_is_late(self):
+        # gap2 (no strip: the trace on the 3d clock): A's content 2 px short in 20-25, the shell beyond it.
+        row = self.kind("gap2", "terminal")
+        self.assertEqual((row["fail_ranges"], row["fail_by_rule"]["E4"] > 0), ("20-25", True))
+        self.assertGreater(row["sources"]["trace"], 0)
+        self.assertEqual(row["sources"].get("strip", 0), 0)
+
+    def test_a_film_with_no_strip_is_judged_on_the_trace(self):
+        row = self.kind("clean", "page")
+        self.assertEqual((row["fail"], row["not_judged"]), (0, 0))
+        self.assertEqual(row["pass"], row["frames"])
 
 
 class TraceDividerTests(unittest.TestCase):
