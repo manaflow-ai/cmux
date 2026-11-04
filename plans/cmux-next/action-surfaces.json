@@ -25627,9 +25627,9 @@
     {
       "cli" : "offered",
       "cli_name" : "share invite",
-      "context_menu" : "familyMember",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "tab"
       ],
       "default_aliases" : [
 
@@ -46636,14 +46636,28 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "agent.share.invite",
+              "kind" : "action",
+              "label" : "Invite People…",
+              "order" : 19,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 19
+              "order" : 20
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.clearTabName",
               "kind" : "action",
-              "order" : 20,
+              "order" : 21,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46657,7 +46671,7 @@
               "id" : "agentChat.subagentLimit",
               "kind" : "action",
               "label" : "Subagent Limit…",
-              "order" : 21,
+              "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46671,7 +46685,7 @@
               "id" : "tab.setIcon",
               "kind" : "action",
               "label" : "Set Icon…",
-              "order" : 22,
+              "order" : 23,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46750,7 +46764,7 @@
               "enabled_when" : "can_perform",
               "id" : "tab.setTint",
               "kind" : "choices",
-              "order" : 23,
+              "order" : 24,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46764,7 +46778,7 @@
               "id" : "tab.clearIcon",
               "kind" : "action",
               "label" : "Remove Icon",
-              "order" : 24,
+              "order" : 25,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46777,7 +46791,7 @@
               "enabled_when" : "can_perform",
               "id" : "tab.pictureInPicture",
               "kind" : "action",
-              "order" : 25,
+              "order" : 26,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46788,13 +46802,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 26
+              "order" : 27
             },
             {
               "enabled_when" : "can_perform",
               "id" : "disconnectRemoteTab",
               "kind" : "action",
-              "order" : 27,
+              "order" : 28,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "remoteHosts",
@@ -46805,13 +46819,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 28
+              "order" : 29
             },
             {
               "enabled_when" : "can_perform",
               "id" : "tab.showResources",
               "kind" : "action",
-              "order" : 29,
+              "order" : 30,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -46822,7 +46836,7 @@
             },
             {
               "kind" : "separator",
-              "order" : 30
+              "order" : 31
             },
             {
               "children" : [
@@ -47011,20 +47025,20 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 31,
+              "order" : 32,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 32
+              "order" : 33
             },
             {
               "enabled_when" : "can_perform",
               "id" : "closeTabsToLeft",
               "kind" : "action",
-              "order" : 33,
+              "order" : 34,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -47035,24 +47049,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 34
+              "order" : 35
             },
             {
               "enabled_when" : "can_perform",
               "id" : "tab.stash",
-              "kind" : "action",
-              "order" : 35,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "tab.stashToRight",
               "kind" : "action",
               "order" : 36,
               "visible_when" : {
@@ -47065,9 +47066,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "tab.stashOthers",
+              "id" : "tab.stashToRight",
               "kind" : "action",
               "order" : 37,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "tab.stashOthers",
+              "kind" : "action",
+              "order" : 38,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
