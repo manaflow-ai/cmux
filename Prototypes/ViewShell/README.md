@@ -1,0 +1,40 @@
+# cmux NEXT view shell
+
+The UI of cmux NEXT in real, draggable, resizable macOS windows, without the app: no terminals,
+Ghostty, daemons, Cloud or Chief. Leo, 2026-11-04: "a dragabble window that is legit the app
+through and through without the heavy bits".
+
+Each window is an `NSWindow` with the system titlebar, traffic lights and vibrancy. Its content is
+the webviews mock app (`webviews/src/gallery/app.html`, see `webviews/src/gallery/ENTRIES.md`, "The
+mock app") with `chrome=native`: the sidebar, tab strips and every pane's real web surface (agent
+pane, transcript, composer, menus, Session Info, New Tab, Home) on the in-page mock host. The
+shell is one Swift file and links nothing of the app, so it builds in seconds and only when this
+folder changes. Everything else (the fixture, scripts, density, theme, CPU contention, extension
+slots) is a URL key the web side reads, so changing it never needs a native build.
+
+```sh
+Prototypes/ViewShell/launch.sh --size 1512x982 --size 1280x800 --size 900x700 --script streaming
+cmux preview open --fixture app.window/new-tab --density compact     # the same, through the CLI
+```
+
+- **Hot reload.** With no `--url`/`--dist`, the launcher uses the gallery dev server on
+  `127.0.0.1:4210` (`bun run gallery:dev`) and starts it when none answers. Vite's hot reload and
+  the gallery's per-entry reload (`dev-server/galleryLive.ts`) update every open window when a web
+  file is saved, with no restart.
+- **Built bundle.** `--dist webviews/dist/gallery` serves a built gallery (`bun run gallery:build`)
+  from the shell itself; nothing listens on a port.
+- **Your look.** The shell reads `appearance.theme` (a light/dark pair takes the system's side) and
+  `appearance.accent` from `~/.config/cmux/cmux-next.json` (or `CMUX_NEXT_CONFIG_FILE`); a flag on
+  the command line wins.
+- **Several sizes.** One window per `--size WxH`; each plays its `--script` on a loop.
+- **Captures.** `--capture DIR` saves `DIR/<W>x<H>.png` per window once its panes are ready
+  (`--quit` exits after the last), and every window prints `ready_ms=` (load to ready).
+- **Any axis.** `--KEY VALUE` passes a mock app key: `--fixture`, `--fixture2`, `--layout`,
+  `--density`, `--scale`, `--theme`, `--colorScheme`, `--script`, `--cpu`, `--slot`, and the rest
+  in `webviews/src/gallery/app/axes.ts`.
+
+How it differs from the gallery: the gallery shows one entry's states, each alone in a frame; the
+shell shows the whole app, one window per state, at real sizes, in real windows.
+
+Not yet: the person's background picture (`appearance.background`) behind the glass, and the
+read-only attach to the person's real acpmux (the mock host is the only model today).
