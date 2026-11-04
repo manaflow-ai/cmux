@@ -39,16 +39,15 @@ fn projected_view(mux: &Arc<Mux>, source: &Arc<crate::Surface>) -> Arc<crate::Su
 struct App {
     client: u64,
     writer: MessageWriter,
-    outbound: Arc<BoundedOutbound>,
 }
 
 impl App {
     fn connect(mux: &Arc<Mux>, device_name: &str) -> Self {
-        let capabilities = vec![SHARED_SIZING_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY];
+        let capabilities = [SHARED_SIZING_CAPABILITY, VIEW_ATTACHMENT_LEASE_CAPABILITY];
         let outbound = Arc::new(BoundedOutbound::default());
-        let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+        let writer = MessageWriter::new(QueuedSink { outbound, control: None });
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let app = Self { client, writer, outbound };
+        let app = Self { client, writer };
         app.run(
             mux,
             json!({
@@ -145,7 +144,7 @@ fn sizing_participants_two_views_of_one_terminal_on_one_connection_are_two_parti
     assert!(mux.detach_terminal_own_view(projected.id, app.client).is_some());
     assert_eq!(participant_ids(&mux, source.id), [app.participant()]);
     assert_eq!(
-        mux.reattach_terminal_own_view(projected.id, app.client).unwrap(),
+        mux.reattach_terminal_own_view(projected.id, app.client, None).unwrap(),
         projected_participant
     );
     assert_eq!(participant_ids(&mux, source.id), expected);
