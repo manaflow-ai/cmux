@@ -176,6 +176,82 @@ fn viewport_width_failures_have_stable_error_codes() {
     assert_eq!(response["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
 }
 
+/// `set-layout-sizes` (`layout-sizes-batch-v1`, R-DAEMON-STATE DESIGN 2.10.1): a key trade's two widths go as one
+/// request; a refused value answers with its single command's error code and index, and nothing changes.
+#[test]
+fn set_layout_sizes_applies_a_trade_whole_or_refuses_it_whole() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 22))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let right = mux.new_pane_right(pane, 0.5, Some((38, 22))).unwrap();
+    let right_pane = mux.with_state(|state| state.pane_of(right.id).unwrap());
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let widths = |mux: &Arc<Mux>| {
+        mux.with_state(|state| {
+            state.workspaces[0].screens[0]
+                .layout_columns
+                .iter()
+                .map(|column| column.width)
+                .collect::<Vec<_>>()
+        })
+    };
+    let before = widths(&mux);
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 41,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"pane": right_pane, "width": 1.5}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let refused: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(refused["id"], 41);
+    assert_eq!(refused["ok"], false);
+    assert_eq!(refused["error_code"], ViewportWidthError::OUT_OF_RANGE_CODE);
+    assert!(refused["error"].as_str().unwrap().starts_with("value 1: "), "{refused}");
+    assert_eq!(widths(&mux), before, "a refused batch changed a width");
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 42,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"split_or_pane": 1}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let malformed: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(malformed["id"], 42);
+    assert_eq!(malformed["ok"], false, "a value that is neither a ratio nor a width was taken");
+    assert_eq!(widths(&mux), before);
+
+    handle_message(
+        &mux,
+        mux.local_test_client(7),
+        &json!({
+            "id": 43,
+            "cmd": "set-layout-sizes",
+            "values": [{"pane": pane, "width": 0.4}, {"pane": right_pane, "width": 0.6}],
+            "transaction": 3
+        })
+        .to_string(),
+        &writer,
+    );
+    let applied: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+    assert_eq!(applied["id"], 43);
+    assert_eq!(applied["ok"], true, "{applied}");
+    assert_eq!(widths(&mux), vec![0.4, 0.6]);
+}
+
 #[test]
 fn create_terminal_rejects_partial_dimensions() {
     let mux = test_mux();

@@ -43,6 +43,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_client_session;
+#[cfg(unix)]
+mod cloud_environment;
 mod cloud_help;
 #[cfg(unix)]
 mod cloud_machine_io;
@@ -524,6 +526,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
+        .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
