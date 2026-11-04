@@ -288,6 +288,17 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("pass or do not run on the base: c()", verdict.reasons[0])
 
+    def test_display_named_swift_testing_reds_are_compared_by_name(self):
+        # PR 35296's shard 2: `@Test("…")` names print quoted, with no `()`.
+        shared = '✘ Test "A capped plan shows used/limit" recorded an issue at X.swift:25:9: Expectation failed'
+        param = ('✘ Test "Hovering shows help" recorded an issue with 2 arguments activeCount → 1, help → "x" '
+                 'at X.swift:1:2: Expectation failed')
+        self.assertEqual(reds.read(log(shared, param, SUMMARY)).failed,
+                         {'"A capped plan shows used/limit"', '"Hovering shows help"'})
+        self.assertFalse(reds.classify(log(shared, SUMMARY), log(shared, SUMMARY)).own)
+        new = log(shared, '✘ Test "Another" recorded an issue at X.swift:3:4: Expectation failed', SUMMARY)
+        self.assertIn('"Another"', reds.classify(new, log(shared, SUMMARY)).reasons[0])
+
     def test_a_crash_on_both_sides_is_still_the_heads_own(self):
         both = log(failed("a()"), ABORT, "*** Terminating app due to uncaught exception 'NSInternalInconsistencyException'")
         verdict = reds.classify(both, both)
@@ -334,6 +345,14 @@ class PerTest(unittest.TestCase):
                     "✔ Test f(_:) with 2 test cases passed after 0.1 seconds.", failed("a()"),
                     "✘ Test a() failed after 0.1 seconds with 1 issue.", SUMMARY)
         self.assertEqual(reds.read(whole).truncated, [])
+
+    def test_a_suite_end_after_a_zero_width_space_is_whole(self):
+        # PR 35296's app-host shard 2: Swift Testing printed "\u200b✔ Suite ... passed" after interleaved app logs.
+        whole = log('◇ Suite "Cloud sidebar recorded interaction" started.',
+                    '\u200b✔ Suite "Cloud sidebar recorded interaction" passed after 0.001 seconds.', SUMMARY)
+        self.assertEqual(reds.read(whole).truncated, [])
+        cut = log('\u200b◇ Suite "s" started.', SUMMARY)
+        self.assertIn('1 suite(s) started and never finished: "s"', reds.read(cut).truncated)
 
     def test_a_run_cut_off_between_tests_is_the_heads_own(self):
         cut = log("◇ Test run started.", "◇ Suite S started.", "◇ Test a() started.", failed("a()"),

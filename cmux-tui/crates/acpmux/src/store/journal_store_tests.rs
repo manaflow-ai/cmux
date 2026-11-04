@@ -7,7 +7,9 @@
 //! in a temporary folder; an OS crash of them is modelled as the worst case: every log file goes
 //! back to its length at the last `flush` (the kernel lost every write since).
 
-use super::journal_store::{FencedStorage, JournalStore, STOP_AFTER_CUT, checkpointer_seams};
+use super::journal_store::{
+    FAIL_NEXT_FOLDER_REMOVAL, FencedStorage, JournalStore, STOP_AFTER_CUT, checkpointer_seams,
+};
 use super::log_sync::FAIL_NEXT_LOG_SYNC;
 use super::sync_model;
 use super::*;
@@ -1233,4 +1235,200 @@ fn a_chat_deleted_after_its_failed_repair_does_not_get_its_old_lines() {
         .map(|record| record.kind)
         .collect();
     assert_eq!(kinds, vec!["created-again".to_owned()], "the new chat got the old chat's lines");
+}
+
+// ---------------------------------------------------------------- delta review of #35562 (D1 to D4)
+
+/// The link goes: the segment is a file again.
+fn unlink_first_segment(segment: &Path, copy: &Path) {
+    std::fs::remove_file(segment).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::copy(copy, segment).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// The seqs of every line in any file of `journal-unapplied/`.
+fn kept_seqs(home: &Path) -> BTreeSet<u64> {
+    let Ok(entries) = std::fs::read_dir(home.join("journal-unapplied")) else {
+        return BTreeSet::new();
+    };
+    let mut seqs = BTreeSet::new();
+    for entry in entries.flatten() {
+        let bytes = std::fs::read(entry.path()).unwrap_or_default();
+        seqs.extend(bytes.split(|b| *b == b'\n').filter_map(record_seq));
+    }
+    seqs
+}
+
+/// The repair files of chat `id` in `journal-unapplied/`.
+fn repair_files(home: &Path, id: &str) -> Vec<String> {
+    std::fs::read_dir(home.join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .filter(|name| {
+                    name.starts_with(&format!("{id}.")) && name.ends_with(".repair.ndjson")
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// chat-b at an OS crash: its log keeps line 1, the journal lines 1 to `last`. Then its segment
+/// is a link, so the next open cannot repair it. Returns the journal after the crash and the link.
+fn crash_with_a_broken_chat(home: &Path, seed: u64, last: u64) -> (SimStorage, PathBuf, PathBuf) {
+    let journal = SimStorage::new(seed);
+    let store = open(home, &journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    for seq in 2..=last {
+        store.append("chat-b", &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let crashed = journal.restart(Crash::Os);
+    drop(store);
+    sync_model::os_crash(&home.join("sessions"));
+    let (segment, copy) = link_first_segment(home, "chat-b");
+    (crashed, segment, copy)
+}
+
+/// D1 (the reviewer's test): a chat whose repair failed, and whose folder is aside at the next
+/// open (a replacing transfer staged it, `hub/transfer_in.rs`, and the daemon was killed before
+/// the import committed; `Hub::recover_staged_replacements` renames it back after the store's
+/// open). Its kept lines must not be lost: in its log once the folder is back, or still kept.
+#[test]
+fn a_failed_repairs_lines_survive_a_folder_that_is_aside_at_the_open() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 90, 3);
+    // This open cannot repair chat-b: its lines 2 and 3 are kept.
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // The folder is aside at the next open, and back after it.
+    let sessions = home.path().join("sessions");
+    let aside = sessions.join(".chat-b.replacement-backup");
+    std::fs::rename(sessions.join("chat-b"), &aside).unwrap_or_else(|e| panic!("{e}"));
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    std::fs::rename(&aside, sessions.join("chat-b")).unwrap_or_else(|e| panic!("{e}"));
+    unlink_first_segment(&segment, &copy);
+    let store = open(home.path(), &crashed);
+    let logged = seqs(store.as_ref(), "chat-b");
+    let kept = kept_seqs(home.path());
+    assert!(
+        logged == vec![1, 2, 3] || (kept.contains(&2) && kept.contains(&3)),
+        "chat-b's kept lines are lost: its log holds {logged:?}, journal-unapplied/ holds {kept:?}"
+    );
+}
+
+/// D1, the other half: a failed repair's lines belong to the folder they were kept for. A
+/// transfer that replaced that folder (the old one aside, another chat's in its place) must not
+/// get them, and they stay kept.
+#[test]
+fn a_failed_repairs_lines_never_go_into_a_folder_that_replaced_it() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, _segment, _copy) = crash_with_a_broken_chat(home.path(), 92, 3);
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    // A transfer replaces the folder: the old one aside, the incoming chat's in its place.
+    let sessions = home.path().join("sessions");
+    std::fs::rename(sessions.join("chat-b"), sessions.join(".chat-b.replacement-backup"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let local = LocalStore::new(sessions.clone(), 1 << 20).unwrap_or_else(|e| panic!("{e:#}"));
+    Store::append(&local, "chat-b", &record(1, "transferred")).unwrap_or_else(|e| panic!("{e:#}"));
+    Store::flush(&local).unwrap_or_else(|e| panic!("{e:#}"));
+    drop(local);
+    let store = open(home.path(), &crashed);
+    let kinds: Vec<String> = store
+        .events("chat-b", 0, 100)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .into_iter()
+        .map(|record| record.kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        vec!["transferred".to_owned()],
+        "the old chat's kept lines went into the folder that replaced it"
+    );
+    let kept = kept_seqs(home.path());
+    assert!(kept.contains(&2) && kept.contains(&3), "the old chat's kept lines are lost: {kept:?}");
+}
+
+/// D2 (the reviewer's test): an OS crash before a repair file's sync could leave its last line
+/// torn. No checkpoint ran after the file, so the journal still holds the chat's records. The
+/// next open must still repair the chat.
+#[test]
+fn a_torn_repair_file_does_not_stop_the_chats_repair() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 91, 3);
+    // The state of a crash right after the next open wrote its repair file: the journal and the
+    // checkpoint as before that open, the file torn in its last line.
+    let checkpoint_path = home.path().join("journal-projected.json");
+    let checkpoint = std::fs::read(&checkpoint_path).unwrap_or_else(|e| panic!("{e}"));
+    let before = crashed.snapshot(Crash::Process);
+    let store = open(home.path(), &crashed);
+    drop(store);
+    std::fs::write(&checkpoint_path, &checkpoint).unwrap_or_else(|e| panic!("{e}"));
+    let unapplied = home.path().join("journal-unapplied");
+    for entry in std::fs::read_dir(&unapplied).unwrap_or_else(|e| panic!("{e}")).flatten() {
+        let len = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(entry.path())
+            .unwrap_or_else(|e| panic!("{e}"));
+        file.set_len(len.saturating_sub(10)).unwrap_or_else(|e| panic!("{e}"));
+    }
+    // The cause goes: the chat can be repaired now.
+    unlink_first_segment(&segment, &copy);
+    let store = open(home.path(), &before);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        vec![1, 2, 3],
+        "a torn repair file stopped the chat's repair"
+    );
+}
+
+/// D3: a delete whose folder removal fails keeps the chat's repair file in its hands, so the
+/// delete that succeeds later removes it.
+#[test]
+fn a_delete_that_succeeds_after_a_failed_one_removes_the_repair_file() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, _segment, _copy) = crash_with_a_broken_chat(home.path(), 93, 3);
+    let store = open(home.path(), &crashed);
+    assert!(!repair_files(home.path(), "chat-b").is_empty(), "no repair file");
+    FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.set(true));
+    assert!(store.delete("chat-b").is_err(), "the folder removal did not fail");
+    FAIL_NEXT_FOLDER_REMOVAL.with(|fail| fail.set(false));
+    store.delete("chat-b").unwrap_or_else(|e| panic!("{e:#}"));
+    assert_eq!(
+        repair_files(home.path(), "chat-b"),
+        Vec::<String>::new(),
+        "a deleted chat's repair file was left"
+    );
+}
+
+/// D4: a repair file larger than what the journal takes at once (`max_pending_bytes`) is still
+/// applied: the open waits for the journal's writer instead of failing at its backlog.
+#[test]
+fn a_repair_file_larger_than_the_journal_queue_is_applied() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let (crashed, segment, copy) = crash_with_a_broken_chat(home.path(), 94, 300);
+    // This open cannot repair chat-b: its lines 2 to 300 go to its repair file.
+    let store = open(home.path(), &crashed);
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    unlink_first_segment(&segment, &copy);
+    // The next open's journal takes at most 4 KiB of records at once, and its syncs are slow.
+    crashed.set_sync_delay(Duration::from_millis(20));
+    let small = cmux_journal::Config { max_pending_bytes: 4096, ..journal_config() };
+    let store = open_with_journal(&config(), home.path(), Arc::new(crashed.clone()), small)
+        .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    crashed.set_sync_delay(Duration::ZERO);
+    assert_eq!(
+        seqs(store.as_ref(), "chat-b"),
+        (1..=300).collect::<Vec<_>>(),
+        "a repair file larger than the journal's queue was not applied"
+    );
 }
