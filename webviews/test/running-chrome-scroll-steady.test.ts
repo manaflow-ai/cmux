@@ -183,7 +183,9 @@ await requireBrowserLane("running-chrome-scroll-steady.test.ts", async () => {
             const drawn = ((Number(animation.currentTime) % period) + period) % period;
             const off = Math.min(Math.abs(phase - drawn), period - Math.abs(phase - drawn));
             if (off < 50) continue;
-            rowAnimations.push(`${label} on ${target ? describe(target) : "?"} ${Math.round(off)}ms off the shared phase`);
+            rowAnimations.push(
+              `${label} on ${target ? describe(target) : "?"} ${Math.round(off)}ms off the shared phase`,
+            );
             continue;
           }
           rowAnimations.push(`${label ?? "animation"} on ${target ? describe(target) : "?"}`);
