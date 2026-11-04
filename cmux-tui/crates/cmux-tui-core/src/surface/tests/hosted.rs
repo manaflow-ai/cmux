@@ -1281,6 +1281,34 @@ fn a_viewer_size_settle_ends_by_its_own_deadline_behind_a_held_frame() {
     );
 }
 
+/// R-DAEMON-STATE S1.6d (#35413 review; DESIGN 2.6.1): the input port's writer carries the person's keys from the
+/// daemon to the host, so once it takes one it runs at user-interactive QoS, as the connection threads that carried
+/// the key do (server/input_qos.rs, TYPING FIX 2 F7). Under full CPU a default-QoS thread waits for a CPU. A port
+/// that only automation writes to (a `Written` write: a script's `cmux send`) keeps the default QoS.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_input_ports_writer_runs_at_user_interactive_qos_once_it_carries_a_persons_key() {
+    let (_mux, surface, _host) = hosted_typing_surface("hosted-input-port-writer-qos", true);
+    let pty = surface.as_pty().expect("a terminal");
+    let interactive = libc::qos_class_t::QOS_CLASS_USER_INTERACTIVE as u32;
+    surface.write_bytes(b"a").expect("automation's write was written");
+    let automation = pty.input_port.writer_qos_for_test();
+    assert!(automation.is_some(), "the writer recorded no QoS for automation's write");
+    assert_ne!(
+        automation,
+        Some(interactive),
+        "automation's write ran the writer at user-interactive QoS"
+    );
+    surface.write_bytes_replying(b"k", InputReply::Accepted).expect("the port took the key");
+    wait_until("the writer took the key", || pty.input_port.queued_frames_for_test() == 0);
+    surface.write_bytes(b"b").expect("the next write was written");
+    assert_eq!(
+        pty.input_port.writer_qos_for_test(),
+        Some(interactive),
+        "the writer that carried the person's key does not run at user-interactive QoS"
+    );
+}
+
 /// A viewer size of 97x31 queued on the input port behind a key its writer took, and then that writer waiting for a
 /// reconnect (the route it writes on is dead).
 #[cfg(unix)]

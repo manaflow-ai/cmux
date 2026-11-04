@@ -37,9 +37,11 @@ async fn a_claude_background_shell_reports_how_it_ended() {
         ends(&hub, &id),
         vec![
             json!({"sessionUpdate": "background_task_update", "taskId": "b1", "toolCallId": "toolu_bg1",
-                   "command": "npm run dev", "state": "stopped", "reason": "Stopped by the agent"}),
+                   "command": "npm run dev", "description": "Run npm run dev", "state": "stopped",
+                   "reason": "Stopped by the agent"}),
             json!({"sessionUpdate": "background_task_update", "taskId": "b2", "toolCallId": "toolu_bg2",
-                   "command": "cargo test", "state": "completed", "summary": "Tests passed"}),
+                   "command": "cargo test", "description": "Run cargo test", "state": "completed",
+                   "summary": "Tests passed"}),
         ]
     );
     hub.shutdown_all().await;
@@ -104,7 +106,8 @@ async fn a_shell_moved_to_the_background_reports_how_it_ended() {
     c.request(method::SESSION_PROMPT, prompt).await.unwrap();
     let want = vec![json!({"sessionUpdate": "background_task_update", "taskId": "m1",
                            "toolCallId": "toolu_mv", "command": "npm run build",
-                           "state": "completed", "summary": "Build finished"})];
+                           "description": "Build", "state": "completed",
+                           "summary": "Build finished"})];
     assert_eq!(ends(&hub, &id), want);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);

@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-2e0b6acc359319c06eddc608d50e84895de41cc7/CCmuxAppFFI.xcframework.zip",
-    checksum: "62eb4a41502fd55f15b35bfd3e8be2056bfdfa01c4fe21eeff38d9a481923eba"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b24aac2c507d072ac3b5cf35fb3c3b93bd039acf/CCmuxAppFFI.xcframework.zip",
+    checksum: "5aa92a5b76b173dce2a254ab9e437c0b086d3b4d07fd9754ab3d72b0f14b9481"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -217,7 +217,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudCredentials",
             // CCmuxAppFFI: the Cloud start's harness login decision (cmux-cloud-start-core).
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CCmuxAppFFI"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextCompat", "CmuxNextWakeups", "CCmuxAppFFI"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
@@ -1061,7 +1061,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -1154,6 +1154,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextRemoteViewTests",
             dependencies: ["CmuxNextRemoteView"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
+        .testTarget(
+            name: "CmuxNextMacScreenTests",
+            dependencies: ["CmuxNextMacScreen", "CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
@@ -1251,7 +1257,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextCloudTests",
-            dependencies: ["CmuxNextCloud", "CmuxNextDaemon"],
+            dependencies: ["CmuxNextCloud", "CmuxNextDaemon", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(

@@ -549,7 +549,7 @@ pub(crate) async fn ensure(
     if let (Some(h), Some(from)) = (&host, &harness_from) {
         return Err(AppError::usage(format!(
             "--harness-from copies a session on this machine only: run \
-             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --host {h}"
+             `ssh {h} acpmux ensure {name} --harness-from {from}` there instead of --machine {h}"
         ))
         .into());
     }

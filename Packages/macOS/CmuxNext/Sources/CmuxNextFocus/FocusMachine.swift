@@ -3,13 +3,16 @@ import Foundation
 
 /// One window's focus machine: `cmux-focus-core`'s state and rules
 /// (cmux-tui/crates/cmux-focus-core; plans/cmux-next/focus.md section 4)
-/// behind the app FFI's `cmux_focus_*` handle. The machine owns the state;
+/// in the app's input router (``FocusInput``, `cmux_input_*`), under this
+/// machine's own window key. The router keeps the state;
 /// the app sends one small typed event per focus change (a topology only
 /// when it changed) and reads a typed reply: no JSON, no copy of the whole
 /// state, no buffer per call. One in-process call on the caller's thread,
 /// no daemon round trip. Not thread-safe: one per window, on the main actor.
 public nonisolated final class FocusMachine {
-    private let handle: OpaquePointer
+    /// The router that keeps this window's focus, and the window's key there (each call names it).
+    let input: FocusInput
+    let window: [UInt8]
 
     /// One reduction's reply: whether the focus changed, the effects to apply, and what the
     /// window's address bar memory (Chrome's per-tab omnibox focus, kept by the machine) asks:
@@ -20,12 +23,19 @@ public nonisolated final class FocusMachine {
     /// The event that asks for a remembered tab's address bar back.
     public static let returnToOmnibar = FocusEvent.focusTarget(.addressBar, source: .programmatic)
 
-    public init() {
-        handle = cmux_focus_new()
+    /// A machine whose focus `input` keeps (the app's one router); with none, a router of its own.
+    public init(input: FocusInput = FocusInput()) {
+        self.input = input
+        window = input.openWindow()
     }
 
     deinit {
-        cmux_focus_free(handle)
+        input.closeWindow(window)
+    }
+
+    /// `body` with the router's handle and this window's key bytes (no copy).
+    func call<T>(_ body: (OpaquePointer, UnsafePointer<UInt8>?, Int) -> T) -> T {
+        window.withUnsafeBufferPointer { body(input.handle, $0.baseAddress, $0.count) }
     }
 
     /// Reduces `event` and refreshes `state` (its topology and focus-mode
@@ -39,26 +49,18 @@ public nonisolated final class FocusMachine {
         let reply = list.withUnsafeBufferPointer { list in
             encoded.list = list.baseAddress
             return wire.bytes.withUnsafeBufferPointer { bytes in
-                withUnsafePointer(to: &encoded) { cmux_focus_send(handle, $0, bytes.baseAddress, bytes.count) }
+                withUnsafePointer(to: &encoded) { event in
+                    call { cmux_input_focus_send($0, $1, $2, event, bytes.baseAddress, bytes.count) }
+                }
             }
         }
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
+        // The person's focus choice counts (``FocusState/personMoveSeq``): a move from their own entry or the responder report
+        // of their click; a key's responder change, automation's and the app's events never do.
+        if event.choosesFocusAsPerson { state.personMoveSeq &+= 1 }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
-    }
-
-    /// The focus started or stopped waiting for another tab (``FocusState/awaitsOtherTab``: a creation's new tab the
-    /// window does not show yet): the responder applies again in this reduction, so the page the person left gives up
-    /// the keys in the key's turn, and takes them back when the wait ends without landing (P0 INVERSE-KEY). The rule
-    /// reads only the state the machine returned; `cmux-focus-core` itself emits no effect for a wait.
-    private static func reapplyingOnWaitChange(_ result: Reduction, waited: Bool, state: FocusState) -> Reduction {
-        let moves = result.effects.contains { if case .moveResponder = $0 { true } else { false } }
-        guard waited != state.awaitsOtherTab, !moves else { return result }
-        var reapplied = result
-        reapplied.changed = true
-        reapplied.effects.append(.moveResponder(state.resolved))
-        return reapplied
     }
 
     private func set(_ topology: FocusTopology, into state: inout FocusState) -> Reduction? {
@@ -96,7 +98,7 @@ public nonisolated final class FocusMachine {
                                 column_panes: columnPanes.baseAddress, pane_count: UInt32(panes.count), tab_count: UInt32(tabs.count),
                                 column_count: UInt32(columns.count), column_pane_count: UInt32(columnPanes.count),
                                 screen_count: screenCount, reserved: 0)
-                            return cmux_focus_set_topology(handle, &encoded, bytes.baseAddress, bytes.count)
+                            return call { cmux_input_focus_set_topology($0, $1, $2, &encoded, bytes.baseAddress, bytes.count) }
                         }
                     }
                 }
@@ -109,43 +111,20 @@ public nonisolated final class FocusMachine {
         return result
     }
 
-    // MARK: Close Tab aim (PaneCloseAim)
-
-    /// The focused pane moved from `from` to the machine's focused pane; returns the move's serial.
-    func paneMoved(from: String?) -> UInt64 {
-        guard let from else { return cmux_focus_pane_moved(handle, nil, 0, 0) }
-        return Array(from.utf8).withUnsafeBufferPointer { cmux_focus_pane_moved(handle, $0.baseAddress, $0.count, 1) }
-    }
-
-    /// The frame that shows move `serial` was presented at `time` (seconds of system uptime).
-    func framePresented(_ serial: UInt64, at time: Double) {
-        cmux_focus_frame_presented(handle, serial, time)
-    }
-
-    /// `press` closed the last tab of `pane`.
-    func paneEmptied(_ pane: String, by press: PaneCloseAim.Press) {
-        Array(pane.utf8).withUnsafeBufferPointer {
-            cmux_focus_pane_emptied(handle, $0.baseAddress, $0.count, press.time, press.isKey ? 1 : 0, press.isRepeat ? 1 : 0)
-        }
-    }
-
-    /// Whether `press` is aimed at a pane a close emptied, not at the machine's focused pane.
-    func aimsAtEmptiedPane(_ press: PaneCloseAim.Press) -> Bool {
-        cmux_focus_aims_at_emptied_pane(handle, press.time, press.isKey ? 1 : 0, press.isRepeat ? 1 : 0) != 0
-    }
-
     /// `layout.closeFocus`, the successor rule when the focused pane closes:
     /// the most recently focused pane, else the previous neighbor.
     public func setCloseFocus(mostRecent: Bool) {
-        cmux_focus_set_close_focus(handle, mostRecent ? 1 : 0)
+        call { cmux_input_focus_set_close_focus($0, $1, $2, mostRecent ? 1 : 0) }
     }
 
     /// The focus history of `workspace` (nil: the shown one), newest first.
     public func recentPanes(in workspace: String? = nil) -> [String] {
         let list: UnsafePointer<CmuxFocusStrings>? = if let workspace {
-            Array(workspace.utf8).withUnsafeBufferPointer { cmux_focus_recent_panes(handle, $0.baseAddress, $0.count, 1) }
+            Array(workspace.utf8).withUnsafeBufferPointer { name in
+                call { cmux_input_focus_recent_panes($0, $1, $2, name.baseAddress, name.count, 1) }
+            }
         } else {
-            cmux_focus_recent_panes(handle, nil, 0, 0)
+            call { cmux_input_focus_recent_panes($0, $1, $2, nil, 0, 0) }
         }
         guard let list = list?.pointee, list.count > 0, let items = list.items, let bytes = list.bytes else { return [] }
         return (0..<Int(list.count)).map { Self.string(items[$0], bytes, Int(list.bytes_len)) ?? "" }
@@ -153,7 +132,7 @@ public nonisolated final class FocusMachine {
 
     /// The last focused pane of each workspace (a window record save).
     public func remembered() -> [String: String] {
-        guard let list = cmux_focus_remembered(handle)?.pointee, list.count > 1, let items = list.items,
+        guard let list = call({ cmux_input_focus_remembered($0, $1, $2) })?.pointee, list.count > 1, let items = list.items,
               let bytes = list.bytes else { return [:] }
         var out: [String: String] = [:]
         for index in stride(from: 0, to: Int(list.count) - 1, by: 2) {
@@ -165,7 +144,7 @@ public nonisolated final class FocusMachine {
 
     /// The whole state as JSON: journal checkpoints only, never per event.
     public func checkpoint() -> FocusCheckpoint {
-        guard let text = cmux_focus_export_json(handle) else { return FocusCheckpoint(json: "{}") }
+        guard let text = call({ cmux_input_focus_export_json($0, $1, $2) }) else { return FocusCheckpoint(json: "{}") }
         defer { cmux_focus_string_free(text) }
         return FocusCheckpoint(json: String(cString: text))
     }
@@ -173,13 +152,15 @@ public nonisolated final class FocusMachine {
     /// Replaces the state with a checkpoint (journal replay) and returns its
     /// view. Nil when it does not decode.
     public func restore(_ checkpoint: FocusCheckpoint) -> FocusState? {
-        let code = Array(checkpoint.json.utf8).withUnsafeBufferPointer { cmux_focus_import_json(handle, $0.baseAddress, $0.count) }
+        let code = Array(checkpoint.json.utf8).withUnsafeBufferPointer { json in
+            call { cmux_input_focus_import_json($0, $1, $2, json.baseAddress, json.count) }
+        }
         guard code == CMUX_LAYOUT_REDUCER_OK else { return nil }
         var state = FocusState()
         let saved = checkpoint.saved
         state.topology = saved?.topology ?? FocusTopology()
         state.browserFocusMode = Set(saved?.browserFocusMode ?? [])
-        guard read(cmux_focus_current(handle), into: &state) != nil else { return nil }
+        guard read(call { cmux_input_focus_current($0, $1, $2) }, into: &state) != nil else { return nil }
         return state
     }
 
@@ -287,7 +268,7 @@ public nonisolated final class FocusMachine {
     }
 }
 
-/// A focus machine's whole state as JSON (`cmux_focus_export_json`): the
+/// A focus machine's whole state as JSON (`cmux_input_focus_export_json`): the
 /// input journal's checkpoint, so replay can start mid-ring.
 public nonisolated struct FocusCheckpoint: Hashable, Sendable, Codable {
     public var json: String
@@ -323,7 +304,7 @@ private nonisolated struct FocusWire {
     }
 
     /// `event` in `CmuxFocusEvent` form (the header's codes). Not for a
-    /// topology (`cmux_focus_set_topology`).
+    /// topology (`cmux_input_focus_set_topology`).
     mutating func event(_ event: FocusEvent) -> CmuxFocusEvent {
         var out = CmuxFocusEvent()
         let absent = CmuxFocusStr(offset: UInt32.max, len: 0)

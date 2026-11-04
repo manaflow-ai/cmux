@@ -16,7 +16,7 @@
 //! `alive` (touched by begin and each read), `read` (each file read to its end), `to` and
 //! `to-ssh` and `to-host`.
 
-use super::transfer_out::{bundle_files, names_a_move, transfers_dir};
+use super::transfer_out::{bundle_files, names_a_move, transfer_epoch_marker, transfers_dir};
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -45,6 +45,12 @@ fn fully_read(dir: &Path) -> Option<bool> {
     let read: Vec<&str> = read.lines().collect();
     // An empty file needs no page: the target has it whole without one.
     Some(files.iter().all(|(path, size)| *size == 0 || read.contains(&path.as_str())))
+}
+
+/// A marker newer than the durable event log means the daemon crashed between writing the
+/// marker and appending `transfer_out`; that bundle was never offered to another owner.
+fn marker_is_uncommitted(marker: Option<u64>, durable_epoch: u64) -> bool {
+    marker.is_some_and(|marker| marker > durable_epoch)
 }
 
 /// The client heard from the move in `dir`: begin, or a page read (`path` to its end with `eof`).
@@ -122,6 +128,19 @@ impl Hub {
                 else {
                     continue;
                 };
+                // A crash after the epoch marker was written but before `transfer_out` was
+                // appended leaves a bundle with no durable ownership authority. Do not restore
+                // that half-move as live: discard it and let the chat remain local.
+                if session.ownership_epoch_is_valid()
+                    && marker_is_uncommitted(
+                        transfer_epoch_marker(&entry.path()).ok().flatten(),
+                        session.ownership_epoch(),
+                    )
+                {
+                    tracing::warn!(session = %session.id, transfer_id, "discarding transfer marker without durable transfer_out");
+                    let _ = std::fs::remove_dir_all(entry.path());
+                    break;
+                }
                 let mut moving = session.moving.lock().unwrap_or_else(|e| e.into_inner());
                 if moving.is_none() && session.meta().moved_to.is_none() {
                     *moving = Some(transfer_id.clone());
@@ -189,10 +208,37 @@ impl Hub {
         transfer_id: &str,
         dir: &Path,
     ) -> bool {
+        let epoch = match transfer_epoch_marker(dir) {
+            Ok(Some(epoch)) => epoch,
+            Ok(None) => session.ownership_epoch(),
+            Err(error) => {
+                tracing::warn!(session = %session.id, transfer_id, "stalled move epoch unreadable: {}", error.message);
+                return false;
+            }
+        };
+        // A durable transfer_out from an older daemon can outlive its bundle directory (for
+        // example, a crash between the event and export). There is no target to query in that
+        // case, so abort the fenced move rather than leaving the chat frozen forever.
+        if !dir.is_dir() {
+            if let Err(error) = self.transfer_abort_with_epoch(
+                session,
+                transfer_id,
+                Some("missing_bundle"),
+                Some(epoch),
+            ) {
+                tracing::warn!(session = %session.id, transfer_id, "aborting move with missing bundle: {}", error.message);
+            }
+            return true;
+        }
         {
             let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
             if fully_read(dir) == Some(false) {
-                if let Err(e) = self.transfer_abort(session, transfer_id, Some("stalled")) {
+                if let Err(e) = self.transfer_abort_with_epoch(
+                    session,
+                    transfer_id,
+                    Some("stalled"),
+                    Some(epoch),
+                ) {
                     tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
                 }
                 return true;
@@ -222,11 +268,14 @@ impl Hub {
                 if let Ok(host) = std::fs::read_to_string(dir.join("to-host")) {
                     to.set("host", json!(host.trim()));
                 }
-                self.transfer_commit(session, transfer_id, to).await.map(|_| ())
+                self.transfer_commit_with_epoch(session, transfer_id, to, Some(epoch))
+                    .await
+                    .map(|_| ())
             }
             Some(false) => {
                 let _pages = PAGES.lock().unwrap_or_else(|e| e.into_inner());
-                self.transfer_abort(session, transfer_id, Some("stalled")).map(|_| ())
+                self.transfer_abort_with_epoch(session, transfer_id, Some("stalled"), Some(epoch))
+                    .map(|_| ())
             }
             None => return false,
         };
@@ -234,5 +283,17 @@ impl Hub {
             tracing::warn!(session = %session.id, transfer_id, "ending a stalled move: {}", e.message);
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::marker_is_uncommitted;
+
+    #[test]
+    fn marker_ahead_of_durable_epoch_is_not_resumed() {
+        assert!(marker_is_uncommitted(Some(1), 0));
+        assert!(!marker_is_uncommitted(Some(1), 1));
+        assert!(!marker_is_uncommitted(None, 0));
     }
 }

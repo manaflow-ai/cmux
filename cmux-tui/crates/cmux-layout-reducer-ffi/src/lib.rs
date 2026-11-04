@@ -35,9 +35,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
 pub mod close_focus;
+pub mod closing_panes;
 mod cloud_config;
 pub mod focus;
 mod imessage;
+pub mod input;
 pub mod scroll;
 pub mod sidebar_face;
 pub mod sidebar_mirror;

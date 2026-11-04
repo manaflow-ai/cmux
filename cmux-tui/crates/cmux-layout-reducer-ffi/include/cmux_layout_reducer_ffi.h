@@ -370,6 +370,36 @@ void cmux_focus_pane_emptied(CmuxFocus *focus, const uint8_t *pane, size_t pane_
 uint8_t cmux_focus_aims_at_emptied_pane(CmuxFocus *focus, double time, uint8_t is_key, uint8_t is_repeat);
 
 /*
+ * The app's one input handle (R-INPUT stage S2): the input router of
+ * cmux-focus-core, which owns every window's focus. Each cmux_input_focus_*
+ * call is the cmux_focus_* call of the same name for the window `window`
+ * (UTF-8 id bytes), with the same requests and the same reply bytes. A reply
+ * is valid until the next cmux_input_* call for that window; never free it.
+ * A call for a window that is not open returns null (0 for a number; CMUX_LAYOUT_REDUCER_ERR_INVALID
+ * from cmux_input_focus_import_json, ERR_NULL for a null handle or bad id bytes).
+ * memory: the machine's physical memory in bytes (it bounds the key lanes).
+ */
+typedef struct CmuxInput CmuxInput;
+CmuxInput *cmux_input_new(uint64_t memory);
+void cmux_input_free(CmuxInput *input);
+/* opens a window (a second open changes nothing); its first reply, as cmux_focus_current's */
+const CmuxFocusReply *cmux_input_window_open(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_window_close(CmuxInput *input, const uint8_t *window, size_t window_len);
+const CmuxFocusReply *cmux_input_focus_send(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusEvent *event, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_set_topology(CmuxInput *input, const uint8_t *window, size_t window_len, const CmuxFocusTopology *topology, const uint8_t *strings, size_t strings_len);
+const CmuxFocusReply *cmux_input_focus_current(CmuxInput *input, const uint8_t *window, size_t window_len);
+void cmux_input_focus_set_close_focus(CmuxInput *input, const uint8_t *window, size_t window_len, uint8_t policy); /* 0 previous neighbor, 1 most recent */
+const CmuxFocusStrings *cmux_input_focus_recent_panes(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *workspace, size_t workspace_len, uint8_t has_workspace);
+const CmuxFocusStrings *cmux_input_focus_remembered(CmuxInput *input, const uint8_t *window, size_t window_len);
+/* Journal checkpoints and replay only, never per event; free the string with cmux_focus_string_free. */
+char *cmux_input_focus_export_json(CmuxInput *input, const uint8_t *window, size_t window_len);
+int32_t cmux_input_focus_import_json(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *json, size_t json_len);
+uint64_t cmux_input_focus_pane_moved(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *from, size_t from_len, uint8_t has_from);
+void cmux_input_focus_frame_presented(CmuxInput *input, const uint8_t *window, size_t window_len, uint64_t serial, double time);
+void cmux_input_focus_pane_emptied(CmuxInput *input, const uint8_t *window, size_t window_len, const uint8_t *pane, size_t pane_len, double time, uint8_t is_key, uint8_t is_repeat);
+uint8_t cmux_input_focus_aims_at_emptied_pane(CmuxInput *input, const uint8_t *window, size_t window_len, double time, uint8_t is_key, uint8_t is_repeat);
+
+/*
  * The close successor rules (cmux-focus-core close_focus), one call per
  * close, no handle. Ids are the caller's own uint32_t numbering of its tab
  * or workspace ids; CMUX_FOCUS_NONE is none. A null array with a nonzero
@@ -600,6 +630,121 @@ CmuxScrollEffects cmux_scroll_wheel(CmuxScroll *scroll, CmuxScrollSpring *spring
 CmuxScrollEffects cmux_scroll_page(CmuxScroll *scroll, CmuxScrollSpring *spring, double to, uint8_t animated);
 CmuxScrollStatus cmux_scroll_status(const CmuxScroll *scroll);
 uint8_t cmux_scroll_gesture_active(const CmuxScroll *scroll); /* per frame: no focus lookup */
+
+/*
+ * The springing-close rules (cmux-layout-reducer closing_panes; FRAME OWNER
+ * S3c/S3d): which panes border a closing pane and the gaps it keeps, the panes
+ * nothing moves over, where every closing pane shows this frame (per display
+ * frame during a close), the strip's carries and a row column's stop, and a
+ * taken-back close. One handle per screen; panes, scroll areas and row columns
+ * are numbers the caller hands out (0: none). No JSON; a call allocates
+ * nothing once the handle's buffers have grown.
+ *
+ * Return codes: begin and remove return 1 when they answer and 0 when they do
+ * not, with nothing written. 1 and 0 are answers, not
+ * CMUX_LAYOUT_REDUCER_OK (also 0): check for 1. settle and rects return
+ * CMUX_LAYOUT_REDUCER_OK and write a list that borrows the handle's buffer,
+ * valid until the next call on the same handle. Any call returns ERR_NULL,
+ * ERR_INVALID (an unknown handle kind) or ERR_PANIC with nothing written.
+ * Each input array holds `count` elements; an `out` pointer must not overlap
+ * an input array or the handle. One thread at a time per handle.
+ */
+typedef struct CmuxClosingPanes CmuxClosingPanes;
+
+#define CMUX_CLOSING_HANDLE_SPLIT 0
+#define CMUX_CLOSING_HANDLE_COLUMN_EDGE 1
+#define CMUX_CLOSING_HANDLE_ROW_EDGE 2
+
+typedef struct CmuxClosingEdges {
+    double min_x;
+    double max_x;
+    double min_y;
+    double max_y;
+} CmuxClosingEdges;
+
+typedef struct CmuxClosingRect {
+    double x;
+    double y;
+    double width;
+    double height;
+} CmuxClosingRect;
+
+typedef struct CmuxClosingPane {
+    uint64_t id;
+    uint64_t area;
+    uint64_t row_column;
+    CmuxClosingEdges edges;
+    uint8_t scrolls;
+    uint8_t reserved[7];
+} CmuxClosingPane;
+
+typedef struct CmuxClosingHandle {
+    CmuxClosingEdges hit;
+    double mid_x;
+    double mid_y;
+    uint64_t area;   /* a split's scroll area (0: none) */
+    uint64_t column; /* a row edge's column */
+    uint8_t kind;    /* CMUX_CLOSING_HANDLE_* */
+    uint8_t horizontal;
+    uint8_t kept;
+    uint8_t fixed_split;
+    uint8_t docked;
+    uint8_t reserved[3];
+} CmuxClosingHandle;
+
+typedef struct CmuxClosingFrame {
+    uint64_t id;
+    CmuxClosingEdges now;
+    CmuxClosingEdges target;
+    double vx;
+    double vy;
+    double vw;
+    double vh;
+    uint8_t moving;
+    uint8_t reserved[7];
+} CmuxClosingFrame;
+
+typedef struct CmuxClosingRow {
+    uint64_t column;
+    double now;
+    double target;
+} CmuxClosingRow;
+
+typedef struct CmuxClosingPlaced {
+    uint64_t pane;
+    CmuxClosingRect rect;
+} CmuxClosingPlaced;
+
+typedef struct CmuxClosingTaken {
+    CmuxClosingRect rect;
+    double vx;
+    double vw;
+    double vy;
+    double vh;
+} CmuxClosingTaken;
+
+typedef struct CmuxClosingIds {
+    const uint64_t *ids;
+    size_t count;
+} CmuxClosingIds;
+
+typedef struct CmuxClosingPlacedList {
+    const CmuxClosingPlaced *placed;
+    size_t count;
+} CmuxClosingPlacedList;
+
+CmuxClosingPanes *cmux_closing_panes_new(void);
+void cmux_closing_panes_free(CmuxClosingPanes *closing);
+int32_t cmux_closing_panes_begin(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingEdges *shown, const CmuxClosingPane *panes, size_t pane_count, const CmuxClosingHandle *handles, size_t handle_count, double max_gap, uint8_t has_view_shift, double view_shift);
+int32_t cmux_closing_panes_settle(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingIds *out);
+int32_t cmux_closing_panes_rects(CmuxClosingPanes *closing, const CmuxClosingFrame *frames, size_t frame_count, const CmuxClosingRow *rows, size_t row_count, CmuxClosingPlacedList *out);
+int32_t cmux_closing_panes_carry(CmuxClosingPanes *closing, double drift, uint8_t has_view_shift, double view_shift);
+int32_t cmux_closing_panes_settle_carried(CmuxClosingPanes *closing, double strip_shift);
+int32_t cmux_closing_panes_shift_y(CmuxClosingPanes *closing, uint64_t column, double delta);
+int32_t cmux_closing_panes_remove(CmuxClosingPanes *closing, uint64_t pane, const CmuxClosingFrame *frames, size_t frame_count, CmuxClosingTaken *out);
+int32_t cmux_closing_panes_drop(CmuxClosingPanes *closing, uint64_t pane);
+uint8_t cmux_closing_panes_has_awaiting(const CmuxClosingPanes *closing);
+uint64_t cmux_closing_panes_state_hash(const CmuxClosingPanes *closing); /* tests: the whole state, hashed */
 
 /*
  * The sidebar row face (cmux-layout-reducer sidebar_face): which tab a

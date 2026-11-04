@@ -9,6 +9,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -39,6 +40,9 @@ with open(log, "a") as out:
     markers = {key: os.environ[key] for key in ("CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "CMUX_TAG", "MUX_AGENT_TOKEN_FILE")
                if key in os.environ}
     out.write(json.dumps({"method": "_markers", "params": markers}) + "\n")
+    customize_dir = os.environ.get("CMUX_CUSTOMIZE_DIR")
+    out.write(json.dumps({"method": "_customize", "params": {"dir": customize_dir,
+                                                             "made": bool(customize_dir) and os.path.isdir(customize_dir)}}) + "\n")
     home = os.environ.get("CMUX_CAPTURE_SHELL_HOME") or ""
     zshrc = os.path.join(home, ".zshrc")
     out.write(json.dumps({"method": "_fixture", "params": {"shell_home": home,
@@ -420,6 +424,59 @@ class AppWindowCaptureTests(unittest.TestCase):
                 self.tour.write_text(json.dumps({"title": "Demo", "env": env, "steps": [{"title": "Launch"}]}), encoding="utf-8")
                 with self.assertRaisesRegex(tour.TourError, "`env` maps"):
                     tour.load_tour(self.tour)
+
+    def test_every_tour_gets_its_own_customize_folder_and_customize_makes_it(self) -> None:
+        # With no CMUX_CUSTOMIZE_DIR the daemon falls back to the runner's own
+        # ~/.config/cmux/customize, so a personal extension there would draw itself into every
+        # tour's shots. Each tour therefore names its own folder, whether or not it writes an app
+        # there; `customize: true` is what makes the folder before the launch.
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [plain] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(plain and plain.endswith("/customize"), plain)
+        self.assertFalse(Path(plain).is_relative_to(Path.home() / ".config"), "never the runner's own")
+        [made] = [e["params"]["made"] for e in entries if e["method"] == "_customize"]
+        self.assertFalse(made, "no folder until a tour says it writes an app there")
+        self.log.unlink()
+        data = json.loads(self.tour.read_text(encoding="utf-8"))
+        self.tour.write_text(json.dumps({**data, "customize": True}), encoding="utf-8")
+        done, _ = self.run_tour()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        entries = [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
+        [folder] = [e["params"]["dir"] for e in entries if e["method"] == "_customize"]
+        self.assertTrue(folder and folder.endswith("/customize"), folder)
+        self.assertNotEqual(folder, plain, "each run gets its own work directory")
+        self.assertTrue([e["params"]["made"] for e in entries if e["method"] == "_customize"] == [True],
+                        "customize: true makes the folder before the launch")
+        self.assertFalse(Path(folder).is_relative_to(self.root / "out"), "never published as media")
+
+    def test_customize_must_be_true_or_false_and_repo_fills_step_words(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": "yes", "steps": [{"title": "Launch"}]}),
+                             encoding="utf-8")
+        with self.assertRaisesRegex(tour.TourError, "`customize` must be true or false"):
+            tour.load_tour(self.tour)
+        self.tour.write_text(json.dumps({"title": "Demo", "customize": True, "steps": [
+            {"title": "Copy", "cmux": ["terminal", "write", "--text", "cp {repo}/a ."]},
+            {"title": "Import", "cmux": ["browser", "import", "--from", "{repo}/fixture"]}]}), encoding="utf-8")
+        loaded = tour.load_tour(self.tour)
+        self.assertTrue(loaded["customize"])
+        # Typed into a shell: quoted, so a checkout path with a space stays one word.
+        self.assertEqual(loaded["steps"][0]["cmux"],
+                         ["terminal", "write", "--text", f"cp {shlex.quote(str(ROOT))}/a ."])
+        # An argv word is handed over as it is; the shell never sees it.
+        self.assertEqual(loaded["steps"][1]["cmux"], ["browser", "import", "--from", f"{ROOT}/fixture"])
+
+    def test_repo_in_typed_text_is_quoted_and_the_tour_must_not_quote_it(self) -> None:
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        quoted = tour.fill_repo(["terminal", "write", "--text", "cp {repo}/a ."], "/tmp/my checkout", "t")
+        self.assertEqual(quoted, ["terminal", "write", "--text", "cp '/tmp/my checkout'/a ."])
+        for text in ("cp \"{repo}\"/a .", "cp '{repo}'/a ."):
+            with self.assertRaisesRegex(tour.TourError, "drop the quotes"):
+                tour.fill_repo(["terminal", "write", "--text", text], "/tmp/checkout", "t")
 
     def test_display_must_be_true_or_false(self) -> None:
         self.tour.write_text(json.dumps({"title": "Demo", "steps": [
@@ -905,6 +962,32 @@ class WindowVideoTests(unittest.TestCase):
             self.assertFalse(recording.stop())
             process.kill.assert_called_once_with()
             self.assertIsNone(recording.process)
+
+class CustomizeTemplatesTourTests(unittest.TestCase):
+    """The customize-templates tour types each template into the app's terminal (base64, so
+    no shell expansion touches it, and no checkout is needed on the capture Mac); what it
+    types must be the files in skills/cmux-customization/templates as they are now."""
+
+    def test_the_tour_writes_the_checked_in_templates_and_probe(self) -> None:
+        import base64
+        tour = json.loads((ROOT / "scripts/cmux-next/media/tours/customize-templates.json").read_text(encoding="utf-8"))
+        texts = [step["cmux"][step["cmux"].index("--text") + 1] for step in tour["steps"]
+                 if "--text" in step.get("cmux", [])]
+        written = {}
+        for text in texts:
+            for payload, target in re.findall(r'echo ([A-Za-z0-9+/=]+) \| base64 -d > "([^"]+)"', text):
+                name = re.search(r"saved (\S+)", text)
+                key = f"{name.group(1)}/{Path(target).name}" if name else Path(target).name
+                written[key] = base64.b64decode(payload).decode("utf-8")
+        templates = ROOT / "skills/cmux-customization/templates"
+        expected = {f"{folder.name}/{file}": (folder / file).read_text(encoding="utf-8")
+                    for folder in templates.iterdir() if folder.is_dir() for file in ("cmux-app.json", "main.js")}
+        probe = ROOT / "scripts/cmux-next/media/fixtures/customize-reload-latency.py"
+        expected[probe.name] = probe.read_text(encoding="utf-8")
+        self.assertEqual(sorted(written), sorted(expected))
+        for key, text in expected.items():
+            self.assertEqual(written[key], text, f"{key}: regenerate the tour's payload from the file")
+
 
 if __name__ == "__main__":
     unittest.main()

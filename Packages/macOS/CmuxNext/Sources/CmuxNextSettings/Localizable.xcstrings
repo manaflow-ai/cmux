@@ -4204,6 +4204,87 @@
         }
       }
     },
+    "settings.appearance.themeFile": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Theme File"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ملف السمة"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Datoteka teme"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Temafil"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Theme-Datei"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Archivo de tema"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Fichier de thème"}},
+        "it": {"stringUnit": {"state": "translated", "value": "File del tema"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "テーマファイル"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ឯកសារ​រូបរាង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "테마 파일"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Temafil"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Plik motywu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Arquivo de tema"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Файл темы"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ไฟล์ธีม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Tema Dosyası"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Файл теми"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tệp chủ đề"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "主题文件"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "主題檔案"}}
+      }
+    },
+    "settings.appearance.themeFile.help": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر من ملف في ~/.config/cmux/themes، مثل \"tokyo\" للملف tokyo.json. تُطبَّق قيمه فوق هذه الإعدادات مباشرةً عند حفظه. إذا لم يُضبط، فلا يُطبَّق أي ملف."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izgled iz datoteke u ~/.config/cmux/themes, npr. \"tokyo\" za tokyo.json. Njene vrijednosti se primjenjuju preko ovih postavki, uživo čim je sačuvate. Ako nije postavljeno, ne primjenjuje se nijedna datoteka."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Et udseende fra en fil i ~/.config/cmux/themes, f.eks. \"tokyo\" for tokyo.json. Dens værdier gælder over disse indstillinger, live når du gemmer den. Uden værdi anvendes ingen fil."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein Look aus einer Datei in ~/.config/cmux/themes, etwa \"tokyo\" für tokyo.json. Ihre Werte gelten über diesen Einstellungen, live beim Speichern. Ohne Wert gilt keine Datei."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un aspecto de un archivo en ~/.config/cmux/themes, como \"tokyo\" para tokyo.json. Sus valores se aplican sobre estos ajustes, en vivo al guardarlo. Sin valor, no se aplica ningún archivo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une apparence issue d'un fichier de ~/.config/cmux/themes, comme « tokyo » pour tokyo.json. Ses valeurs s'appliquent par-dessus ces réglages, en direct à chaque enregistrement. Sans valeur, aucun fichier ne s'applique."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un aspetto da un file in ~/.config/cmux/themes, come \"tokyo\" per tokyo.json. I suoi valori si applicano sopra queste impostazioni, dal vivo quando lo salvi. Se non impostato, non si applica alcun file."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes にあるファイルの外観です（tokyo.json なら \"tokyo\"）。保存するとすぐに、これらの設定の上に値が適用されます。未設定のときはファイルを適用しません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបរាង​ពី​ឯកសារ​ក្នុង ~/.config/cmux/themes ដូចជា \"tokyo\" សម្រាប់ tokyo.json។ តម្លៃ​របស់​វា​អនុវត្ត​លើ​ការកំណត់​ទាំងនេះ ភ្លាមៗ​ពេល​អ្នក​រក្សាទុក។ បើ​មិន​កំណត់ គ្មាន​ឯកសារ​ណា​អនុវត្ត​ទេ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes에 있는 파일의 모양입니다(tokyo.json이면 \"tokyo\"). 저장하는 즉시 이 설정 위에 값이 적용됩니다. 설정하지 않으면 파일이 적용되지 않습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Et utseende fra en fil i ~/.config/cmux/themes, for eksempel \"tokyo\" for tokyo.json. Verdiene gjelder over disse innstillingene, direkte når du lagrer den. Uten verdi brukes ingen fil."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wygląd z pliku w ~/.config/cmux/themes, np. \"tokyo\" dla tokyo.json. Jego wartości obowiązują ponad tymi ustawieniami, na żywo po zapisaniu. Bez wartości żaden plik nie obowiązuje."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma aparência de um arquivo em ~/.config/cmux/themes, como \"tokyo\" para tokyo.json. Os valores dele se aplicam sobre estes ajustes, ao vivo quando você salva. Sem valor, nenhum arquivo se aplica."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Оформление из файла в ~/.config/cmux/themes, например \"tokyo\" для tokyo.json. Его значения применяются поверх этих настроек, сразу при сохранении. Если не задано, файл не применяется."}},
+        "th": {"stringUnit": {"state": "translated", "value": "รูปลักษณ์จากไฟล์ใน ~/.config/cmux/themes เช่น \"tokyo\" สำหรับ tokyo.json ค่าในไฟล์จะใช้ทับการตั้งค่าเหล่านี้ทันทีที่บันทึก ถ้าไม่ได้ตั้งค่า จะไม่ใช้ไฟล์ใด"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes içindeki bir dosyadan görünüm; örneğin tokyo.json için \"tokyo\". Değerleri, kaydettiğiniz anda bu ayarların üzerine uygulanır. Ayarlanmazsa hiçbir dosya uygulanmaz."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд із файлу в ~/.config/cmux/themes, наприклад \"tokyo\" для tokyo.json. Його значення застосовуються поверх цих налаштувань одразу після збереження. Якщо не задано, файл не застосовується."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giao diện từ một tệp trong ~/.config/cmux/themes, ví dụ \"tokyo\" cho tokyo.json. Các giá trị của tệp áp dụng lên trên các cài đặt này ngay khi bạn lưu. Nếu không đặt, không tệp nào được áp dụng."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "来自 ~/.config/cmux/themes 中文件的外观，例如 tokyo.json 对应 \"tokyo\"。保存后其值会立即覆盖这些设置。未设置时不应用任何文件。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "來自 ~/.config/cmux/themes 中檔案的外觀，例如 tokyo.json 對應 \"tokyo\"。儲存後其值會立即覆蓋這些設定。未設定時不套用任何檔案。"}}
+      }
+    },
+    "settings.appearance.themeFile.summary": {
+      "comment": "Settings > Theme > App Theme: the theme file (appearance.themeFile) row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A look from ~/.config/cmux/themes"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر من ~/.config/cmux/themes"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izgled iz ~/.config/cmux/themes"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Et udseende fra ~/.config/cmux/themes"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Ein Look aus ~/.config/cmux/themes"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Un aspecto de ~/.config/cmux/themes"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une apparence de ~/.config/cmux/themes"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Un aspetto da ~/.config/cmux/themes"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes の外観"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបរាង​ពី ~/.config/cmux/themes"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes의 모양"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Et utseende fra ~/.config/cmux/themes"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wygląd z ~/.config/cmux/themes"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma aparência de ~/.config/cmux/themes"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Оформление из ~/.config/cmux/themes"}},
+        "th": {"stringUnit": {"state": "translated", "value": "รูปลักษณ์จาก ~/.config/cmux/themes"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "~/.config/cmux/themes içinden bir görünüm"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд із ~/.config/cmux/themes"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giao diện từ ~/.config/cmux/themes"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "来自 ~/.config/cmux/themes 的外观"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "來自 ~/.config/cmux/themes 的外觀"}}
+      }
+    },
     "settings.appearance.highlightColor": {
       "extractionState": "manual",
       "localizations": {
@@ -162204,6 +162285,666 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理程式工作時，其工作清單顯示在最新訊息下方，而不是輸入框上方的列中。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayTucked": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tuck Away Running Tray"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إخفاء شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skloni traku rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste mit laufender Arbeit wegklappen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replier la barre du travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi la barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーをしまう"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대 접어 두기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjul linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schowaj pasek trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recolher a barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать панель текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บซ่อนแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunu gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сховати панель поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu gọn thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起正在运行的工作栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起進行中的工作列"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayTucked.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hides the bar of running work over the composer. Hover the top middle of the composer and click its chevron to bring it back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي شريط العمل الجاري فوق مربع الكتابة. مرّر المؤشر فوق منتصف أعلى مربع الكتابة وانقر على السهم لإظهاره مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriva traku rada u toku iznad polja za pisanje. Pređite mišem preko sredine vrha polja i kliknite strelicu da je vratite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler bjælken med igangværende arbejde over skrivefeltet. Hold markøren over midten af skrivefeltets top, og klik på pilen for at vise den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet die Leiste mit laufender Arbeit über dem Eingabefeld aus. Zeige oben in der Mitte des Eingabefelds und klicke auf den Pfeil, um sie zurückzuholen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta la barra de trabajo en curso sobre el campo de redacción. Pasa el puntero por el centro superior del campo y haz clic en su flecha para mostrarla de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque la barre du travail en cours au-dessus de la zone de saisie. Survolez le haut de la zone, au milieu, puis cliquez sur sa flèche pour la rétablir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde la barra del lavoro in corso sopra il campo di scrittura. Passa il puntatore al centro in alto del campo e fai clic sulla freccia per mostrarla di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄の上にある実行中の作業バーを隠します。入力欄の上端中央にポインタを置き、山形のボタンをクリックすると元に戻ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "លាក់របារការងារកំពុងដំណើរការនៅលើប្រអប់សរសេរ។ ដាក់ទស្សន៍ទ្រនិចលើកណ្ដាលផ្នែកខាងលើនៃប្រអប់ ហើយចុចព្រួញដើម្បីបង្ហាញវាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "입력창 위의 실행 중인 작업 막대를 숨깁니다. 입력창 위쪽 가운데에 포인터를 올리고 화살표를 클릭하면 다시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler linjen med pågående arbeid over skrivefeltet. Hold pekeren over midten av toppen av skrivefeltet og klikk pilen for å hente den tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa pasek trwającej pracy nad polem tekstowym. Najedź na środek górnej krawędzi pola i kliknij strzałkę, aby go przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta a barra de trabalho em andamento acima do campo de texto. Passe o cursor no centro do topo do campo e clique na seta para trazê-la de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает панель текущей работы над полем ввода. Наведите указатель на середину верхнего края поля и нажмите на стрелку, чтобы вернуть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแถบงานที่กำลังทำเหนือช่องพิมพ์ วางเมาส์ที่กึ่งกลางด้านบนของช่องพิมพ์แล้วคลิกลูกศรเพื่อแสดงกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yazma alanının üstündeki süren iş çubuğunu gizler. Geri getirmek için alanın üst ortasının üzerine gelip okuna tıklayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ховає панель поточної роботи над полем введення. Наведіть вказівник на середину верхнього краю поля й натисніть стрілку, щоб повернути її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ẩn thanh công việc đang chạy phía trên ô soạn thảo. Di chuột vào giữa cạnh trên của ô và bấm mũi tên để hiện lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏输入框上方正在运行的工作栏。将指针移到输入框顶部中间，点按箭头即可重新显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏輸入框上方進行中的工作列。將指標移到輸入框頂部中間，按一下箭頭即可重新顯示。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayHandle": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running Tray Handle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقبض شريط العمل الجاري"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ručka trake rada u toku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndtag til bjælken med igangværende arbejde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Griff der Leiste mit laufender Arbeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Asa de la barra de trabajo en curso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poignée de la barre de travail en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maniglia della barra del lavoro in corso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーのハンドル"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដៃចាប់របារការងារកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대 핸들"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Håndtak for linjen med pågående arbeid"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uchwyt paska trwającej pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alça da barra de trabalho em andamento"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ручка панели текущей работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ที่จับแถบงานที่กำลังทำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunun tutamacı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ручка панелі поточної роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tay cầm thanh công việc đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在进行的工作栏的把手"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "進行中工作列的把手"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.trayHandle.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the handle that tucks the running tray away and brings it back sits along the top of the composer."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع المقبض الذي يخفي شريط العمل الجاري ويعيده، على امتداد أعلى مربع الكتابة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdje uz vrh polja za pisanje stoji ručka koja sklanja traku rada u toku i vraća je."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor langs toppen af skrivefeltet håndtaget sidder, der skjuler bjælken med igangværende arbejde og henter den frem igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo am oberen Rand des Eingabefelds der Griff sitzt, der die Leiste mit laufender Arbeit wegklappt und zurückholt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se sitúa, a lo largo del borde superior del editor, el asa que oculta la barra de trabajo en curso y la vuelve a mostrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où se trouve, le long du haut de la zone de saisie, la poignée qui replie la barre de travail en cours et la fait revenir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si trova, lungo il bordo superiore del compositore, la maniglia che nasconde la barra del lavoro in corso e la riporta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中の作業バーをしまったり戻したりするハンドルを、入力欄の上辺のどこに置くか。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងនៃដៃចាប់ដែលលាក់ និងបង្ហាញរបារការងារកំពុងដំណើរការវិញ នៅតាមគែមខាងលើនៃប្រអប់សរសេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 작업 막대를 접어 두거나 다시 꺼내는 핸들이 입력창 위쪽 가장자리 어디에 놓이는지."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor langs toppen av skrivefeltet håndtaket sitter, som skjuler linjen med pågående arbeid og henter den fram igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gdzie wzdłuż górnej krawędzi pola pisania stoi uchwyt, który chowa pasek trwającej pracy i przywraca go."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde fica, ao longo da borda superior do compositor, a alça que recolhe a barra de trabalho em andamento e a traz de volta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Где вдоль верхнего края поля ввода находится ручка, которая убирает панель текущей работы и возвращает её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งของที่จับซึ่งเก็บซ่อนและเรียกแถบงานที่กำลังทำกลับมา ตามแนวขอบบนของช่องพิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Süren iş çubuğunu gizleyen ve geri getiren tutamacın, yazma alanının üst kenarında nerede durduğu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Де вздовж верхнього краю поля введення розташована ручка, яка ховає панель поточної роботи й повертає її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí của tay cầm thu gọn và mở lại thanh công việc đang chạy, dọc theo cạnh trên của ô soạn thảo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起和展开正在进行的工作栏的把手，位于输入框顶部边缘的哪个位置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "收起和展開進行中工作列的把手，位於輸入框頂端邊緣的哪個位置。"
+          }
+        }
+      }
+    },
+    "settings.choice.middle": {
+      "comment": "Settings: a choice of where a control sits along an edge: its middle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middle"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوسط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sredina"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Milieu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中央"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កណ្ដាល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가운데"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Midten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Środek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centro"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По центру"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรงกลาง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посередині"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中間"
           }
         }
       }

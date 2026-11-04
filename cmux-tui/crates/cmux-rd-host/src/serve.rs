@@ -27,8 +27,8 @@ use cmux_rd_core::service::{negotiate, SERVICE_DESKTOP};
 use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
 use cmux_rd_link::net::{Candidate, Net, NetConfig, NetEvent};
 use cmux_rd_link::{EndpointEvent, Event, KeyPair, Role};
+use cmux_rd_proto::app_line::{AppLine, LinePath};
 use serde::Deserialize;
-use serde_json::json;
 use std::io::{self, BufRead, Read, Write};
 use std::net::SocketAddr;
 use std::os::fd::RawFd;
@@ -76,9 +76,10 @@ struct Later {
     stop: bool,
 }
 
-fn say(line: serde_json::Value) {
+/// Prints one line for the app (`AppLine`, the type the app's line reader reads back).
+fn say(line: AppLine) {
     let mut out = io::stdout().lock();
-    let _ = writeln!(out, "{line}");
+    let _ = writeln!(out, "{}", line.to_json());
     let _ = out.flush();
 }
 
@@ -148,10 +149,13 @@ impl ServeCarrier {
     fn report_paths(&mut self) {
         for event in self.link.paths.drain(..) {
             if let EndpointEvent::PathChanged { kind, rtt_us, .. } = event {
-                say(json!({"path": {
-                    "kind": kind.map(|k| k.wire_name()),
-                    "rtt_ms": rtt_us.map(|us| us as f64 / 1000.0),
-                }}));
+                say(AppLine {
+                    path: Some(LinePath {
+                        kind: kind.map(|k| k.wire_name().to_owned()),
+                        rtt_ms: rtt_us.map(|us| us as f64 / 1000.0),
+                    }),
+                    ..AppLine::default()
+                });
             }
         }
     }
@@ -198,11 +202,18 @@ pub fn run(opts: &Opts) -> Res<()> {
     // The displays first, so the viewer can offer a display picker; then the session key.
     #[cfg(target_os = "macos")]
     match crate::mac::capture::displays() {
-        Ok((sizes, current)) => say(json!({"displays": sizes, "current": current})),
-        Err(e) => say(json!({"displays": [], "current": 0, "error": e.to_string()})),
+        Ok((sizes, current)) => {
+            say(AppLine { displays: Some(sizes), current: Some(current), ..AppLine::default() })
+        }
+        Err(e) => say(AppLine {
+            displays: Some(Vec::new()),
+            current: Some(0),
+            error: Some(e.to_string()),
+            ..AppLine::default()
+        }),
     }
     let keys = KeyPair::generate()?;
-    say(json!({"key": hex(&keys.public)}));
+    say(AppLine { key: Some(hex(&keys.public)), ..AppLine::default() });
     let net = Net::start(NetConfig {
         role: Role::Responder,
         session: setup.session.as_bytes().to_vec(),
@@ -230,7 +241,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         Err(e) => format!("failed: {e}"),
     };
     let _ = carrier.send_control(&Control::Ended { reason: reason.clone() });
-    say(json!({"ended": reason}));
+    say(AppLine { ended: Some(reason), ..AppLine::default() });
     // Dropping the carrier closes the link (the viewer sees the close at once).
     drop(carrier);
     Ok(())
@@ -258,10 +269,14 @@ fn serve_session(
         carrier.pump_app().map_err(|e| e.to_string())?;
         for event in carrier.link.net.events() {
             match event {
-                NetEvent::Candidate(c) => say(json!({"candidate": c.to_wire()})),
-                NetEvent::CandidatesDone => say(json!({"candidates_done": true})),
+                NetEvent::Candidate(c) => {
+                    say(AppLine { candidate: Some(c.to_wire()), ..AppLine::default() })
+                }
+                NetEvent::CandidatesDone => {
+                    say(AppLine { candidates_done: true, ..AppLine::default() })
+                }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Established)) => {
-                    say(json!({"connected": true}))
+                    say(AppLine { connected: true, ..AppLine::default() })
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {
                     match serde_json::from_slice::<Control>(&record) {

@@ -107,6 +107,10 @@ concurrency:
   group: ${{ github.event_name == 'push' && format('cmux-next-media-merge-{0}', github.sha) || github.event_name == 'pull_request' && github.event.action == 'labeled' && (github.event.label.name == 'media-tour' || github.event.label.name == 'no-media-tour') && format('cmux-next-media-{0}', github.event.pull_request.number) || format('cmux-next-media-idle-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   route:
     name: Pick the tour runner

@@ -53,16 +53,24 @@ Prototypes/ViewShell/inject.sh --live ~/.cache/cmux-view-shell/live Sources/View
 ```
 
 `inject.sh` compiles the module with the Debug build's settings, links only the edited files into a
-signed dylib and moves it into the live folder. The shell (`LiveCode.swift`) loads it, interposes
+signed dylib and moves it into the live folder. It also links, unnamed, every file the running
+Debug build never compiled (a new file) and every file changed since that build (it prints
+`also X.swift` for each), so each patch holds all of the new code: a new view in a new file,
+used from an edited one, applies, and patching again never leaves an earlier patch's copy behind. The shell (`LiveCode.swift`) loads it, interposes
 every Swift function the patch defines onto the executable's own (and onto an earlier patch's
 copy, so the same file can be patched again and again), and redraws. The patch can be compiled on another Mac at the same commit and copied
 into the folder; it is the same file.
 
-What applies live: any change inside a function or computed property, a view's body included. A
+What applies live: any change inside a function or computed property, a view's body included,
+and new files with new types and functions. A
 view whose `body` is `AnyView(content)` (`PreviewBadge`) may also change what it builds, its
 modifiers and their types. What needs a rebuild: a new or changed stored property, a changed
-function signature, a new type used from another file, `main.swift` and `LiveCode.swift`
-themselves, resources and the package manifest. Nothing in the shell checks for those: such a
-patch is applied anyway and can corrupt memory, so the tool that sends patches has to refuse them. `--live-render DIR` draws the badge offscreen
+function signature, a new type, conformance or enum case in an existing file, `main.swift` and `LiveCode.swift`
+themselves, resources and the package manifest. A patch whose internal or public
+types change size (a stored property added or removed, or retyped to another size) is refused before anything
+is repointed: the shell compares each type's size and stride, or a class's instance size, with
+this build's and prints `refused: stored properties changed`. A reorder, a same-size retype or a
+change to a `private` type (its symbols are local, so the check does not see it) still needs a
+rebuild (`scripts/cmux-next/try-pr.sh` classifies a PR's diff and says so). `--live-render DIR` draws the badge offscreen
 after each patch (`generation-N.png`), and `--headless` runs the loop with no windows, so a host
 without a screen can measure it (`scripts/measure/live-code-shell.sh`).

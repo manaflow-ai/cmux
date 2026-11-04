@@ -1137,6 +1137,7 @@ impl Hub {
                 let kept = super::fallback_start::ConversationMark::of(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
+                self.resume_before_turn();
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                 self.set_status(session, SessionStatus::Running);
                 {
@@ -1250,6 +1251,7 @@ impl Hub {
                     (Err(e2), _) => {
                         let turn = session.turn();
                         self.detach_child(session).await;
+                        self.resume_before_turn();
                         *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
                         self.set_status(session, SessionStatus::Running);
                         kept.restore(session);

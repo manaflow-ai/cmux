@@ -388,6 +388,7 @@
               "appearance.favoriteThemes",
               "appearance.rotateFavoriteThemes",
               "appearance.accent",
+              "appearance.themeFile",
               "appearance.highlightColor"
             ],
             "title" : {
@@ -22113,6 +22114,148 @@
       "title" : {
         "key" : "settings.appearance.accent",
         "text" : "Accent"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.none",
+        "text" : "None"
+      },
+      "group" : {
+        "key" : "settings.group.appTheme",
+        "text" : "App Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.themeFile.help",
+        "text" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.themeFile",
+      "keywords" : [
+        "theme file",
+        "rice",
+        "ricing",
+        "dotfile",
+        "dotfiles",
+        "look",
+        "config",
+        "themes folder",
+        "json"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "themeFile"
+      ],
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.appearance.themeFile.summary",
+        "text" : "A look from ~/.config/cmux/themes"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:appearance.themeFile"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.themeFile",
+        "text" : "Theme File"
       },
       "validation" : "portable"
     },

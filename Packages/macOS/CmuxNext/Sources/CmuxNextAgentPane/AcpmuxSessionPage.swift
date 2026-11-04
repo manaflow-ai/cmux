@@ -48,7 +48,7 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
     /// One session's whole summary by exact id (`_acpmux/resolve`), open or closed, on this Mac or a peer it
     /// mirrors; nil when acpmux has no such session. Home reads its `movedTo` and `moveEpoch` to follow a
     /// Chief's agent where it moved.
-    @concurrent public func summary(_ id: String, deadline: Duration = .seconds(2)) async throws -> sending [String: Any]? {
+    @concurrent public func summary(_ id: String, deadline: Duration = AcpmuxEnvironment.answerDeadline) async throws -> sending [String: Any]? {
         try await AcpmuxStatusClient.sessionSummary(socketPath: socketPath, sessionId: id, deadline: deadline)
     }
 

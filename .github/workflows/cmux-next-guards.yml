@@ -27,6 +27,8 @@ permissions:
 # freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}

@@ -287,11 +287,9 @@ impl Translator {
                                     .map(str::to_owned),
                                 task: None,
                                 background: monitor
-                                    || input.get("run_in_background")
-                                        == Some(&Value::Bool(true)),
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
                                 launched: monitor
-                                    || input.get("run_in_background")
-                                        == Some(&Value::Bool(true)),
+                                    || input.get("run_in_background") == Some(&Value::Bool(true)),
                                 asked: false,
                                 announced: false,
                                 output: None,

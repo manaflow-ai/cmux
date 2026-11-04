@@ -89,6 +89,7 @@ pub(super) async fn check(
         | method::SESSION_SET_MODE
         | method::SESSION_SET_CONFIG_OPTION
         | method::MUX_SET_TOOLS
+        | method::MUX_SET_DIRECTORIES
         // A reconnect starts the server's configured command again, in the chat's folder.
         | method::MUX_MCP_RECONNECT => session_key(params).ok().map(str::to_owned),
         method::MUX_HANDOFF_START => params
@@ -116,6 +117,7 @@ pub(super) async fn check(
             | method::SESSION_SET_MODE
             | method::SESSION_SET_CONFIG_OPTION
             | method::MUX_SET_TOOLS
+            | method::MUX_SET_DIRECTORIES
             | method::MUX_MCP_RECONNECT
     );
     if same_agent && !web && running(&session) { pending_passes(answered) } else { answered }

@@ -95,6 +95,7 @@ import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
+import { attentionFirst } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "./trayPanel.experiment";
@@ -114,6 +115,7 @@ import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
+import type { TrayHandleSide } from "../chatDisplay";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -153,6 +155,8 @@ export const SubagentTray = memo(function SubagentTray({
   enters = false,
   chat,
   plan,
+  onTuck,
+  tuckSide = "middle",
 }: {
   /// What runs or waits on the person (runningTray.ts `trayItems`): the lines the header counts.
   items: readonly TrayItem[];
@@ -193,6 +197,13 @@ export const SubagentTray = memo(function SubagentTray({
   /// and, opened, as its checklist over the lines (Leo, 2026-11-03: "did we like/prefer that tho to
   /// the little composer hat we have rn"). Unset between turns: the ended list folds in the transcript.
   plan?: readonly AcpmuxPlanEntry[];
+  /// Tucks the hat away to a pull tab on the composer's top edge (TrayPullTab.tsx): a chevron
+  /// on the hat's own top edge, shown on hover (Leo, 2026-11-04: "at the top of the hat, there's
+  /// some sort of little thing ... a special kind of chevron"). Unset, the hat can't tuck away.
+  onTuck?: () => void;
+  /// Where the tuck chevron sits along the hat's top edge, as the pull tab does along the composer's
+  /// (chatDisplay.ts TRAY_HANDLE_KEY).
+  tuckSide?: TrayHandleSide;
 }) {
   const t = useT();
   const language = usePaneLanguage();
@@ -353,6 +364,7 @@ export const SubagentTray = memo(function SubagentTray({
     };
   }, []);
   const newest = useMemo(() => newestNames(t, items), [t, items]);
+  const ordered = useMemo(() => attentionFirst(items, finished, waiting), [items, finished, waiting]);
   const headMarks = useMemo(
     () => (head === "stack" ? stackMarks(t, items, finished, chatHarness) : NO_MARKS),
     [t, head, items, finished, chatHarness],
@@ -430,24 +442,23 @@ export const SubagentTray = memo(function SubagentTray({
   };
   // A fully folded tray has only its header. Avoid building hundreds of hidden row
   // elements on each header clock tick; keep them while a close animation still plays.
+  // What waits on the person or failed leads (trayAttention.ts), so the list's cap never hides it.
+  let firstFinished = true;
   const cards = fold.present
-    ? [
-        ...items.map((item) => (
-          <li key={itemKey(item)} {...arriving(itemKey(item))}>
-            {line(item)}
-          </li>
-        )),
-        ...finished.map((item, index) => (
+    ? ordered.map(({ item, finished: ended }) => {
+        const first = ended && firstFinished;
+        if (ended) firstFinished = false;
+        return (
           <li
             key={itemKey(item)}
-            data-finished=""
-            data-first-finished={index === 0 || undefined}
+            data-finished={ended ? "" : undefined}
+            data-first-finished={first || undefined}
             {...arriving(itemKey(item))}
           >
             {line(item)}
           </li>
-        )),
-      ]
+        );
+      })
     : [];
   // The header's mark is in the accent while anything under it runs.
   const runs = running > 0 || commands > 0 || planned;
@@ -479,6 +490,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-head={head}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
+      data-tucks={onTuck ? tuckSide : undefined}
       style={gutter > 0 ? ({ "--acpmux-tray-gutter": `${gutter}px` } as CSSProperties) : undefined}
     >
       {headed && (
@@ -587,6 +599,17 @@ export const SubagentTray = memo(function SubagentTray({
           </ul>
         </div>
       )}
+      {onTuck && (
+        <button
+          type="button"
+          className="acpmux-running-tray__tuck"
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="disclosure.expanded" size={12} />
+        </button>
+      )}
       {headed && opensPanel === "button" && (
         <button
           type="button"
@@ -657,7 +680,7 @@ export const SubagentTray = memo(function SubagentTray({
           label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
           chevron
           trayColumns
-          // A narrow tray's second line is its time and controls: the stats wrap under the title.
+          // A narrow tray's workflow progress wraps under the title, above its time and controls.
           progressAt={row === "below" || narrow ? "below" : "meta"}
           // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
           latest={latestAt === "tooltip" ? undefined : latestLine(t, item.agent, awaitsOwnWork(item.agent))}

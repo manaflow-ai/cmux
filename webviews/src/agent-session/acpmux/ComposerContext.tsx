@@ -1126,7 +1126,7 @@ function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={10} loading className="acpmux-env-live-spinner" />
+          <Spinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{t("composer.envResuming")}</span>
         </span>
       )}

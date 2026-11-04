@@ -213,6 +213,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
         untyped(method::MUX_FORUM_RULES, Request),
         untyped(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_MCP_RECONNECT, Request),
         untyped(method::MUX_SUBAGENT_STOP, Request),
         untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
