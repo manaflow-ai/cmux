@@ -172,13 +172,10 @@ function rowPackedToEnd(chip: HTMLElement): boolean {
 
 /** Close a sibling composer popover before the columns trigger opens its own. */
 function closeSiblingComposerPopovers(button: HTMLButtonElement) {
-  const composer = button.closest<HTMLElement>(".acpmux-composer, .nt-composer");
-  if (!composer) return;
-  for (const sibling of composer.querySelectorAll<HTMLButtonElement>(
+  const siblings = [...button.ownerDocument.querySelectorAll<HTMLButtonElement>(
     '[aria-haspopup][aria-expanded="true"]',
-  )) {
-    if (sibling !== button) sibling.click();
-  }
+  )].filter((sibling) => sibling !== button && sibling.closest(".acpmux-composer, .nt-composer"));
+  for (const sibling of siblings) sibling.click();
 }
 
 function Columns({
