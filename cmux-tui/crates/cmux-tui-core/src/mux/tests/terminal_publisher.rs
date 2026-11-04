@@ -2,7 +2,7 @@
 //! output asks for and never waits for the workspace registry; the publisher still commits each of them, in output
 //! order, once the registry is free.
 
-use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+use std::sync::mpsc::sync_channel;
 
 use super::*;
 
