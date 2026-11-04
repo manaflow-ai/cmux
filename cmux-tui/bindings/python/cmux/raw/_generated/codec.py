@@ -556,6 +556,7 @@ MODEL_BY_PATH = {
     'events/agent-inventory-changed/payload': models.AgentInventoryChangedEvent,
     'events/agent-inventory-watch-ended/payload': models.AgentInventoryWatchEndedEvent,
     'events/agent-presence-changed/payload': models.AgentPresenceChangedEvent,
+    'events/agent-session-share-changed/payload': models.AgentSessionShareChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,
     'events/browser-state/payload': models.BrowserStateEvent,

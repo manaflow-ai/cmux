@@ -12,6 +12,7 @@
     "agent-session-observe-v1",
     "agent-session-presence-v1",
     "agent-session-settings-v1",
+    "agent-session-share-events-v1",
     "agent-session-start-keyed-reason-v1",
     "agent-session-start-model-v1",
     "agent-session-start-no-cwd-v1",

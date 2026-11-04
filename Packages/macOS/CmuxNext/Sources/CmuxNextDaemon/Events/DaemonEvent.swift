@@ -70,6 +70,9 @@ public enum DaemonEvent: Sendable, Hashable {
     case historyChanged(revision: UInt64, kinds: [String])
     /// keybindings.json changed (`keybindings-v1`): a hand edit or a write.
     case keybindingsChanged(revision: UInt64)
+    /// The link shares or invites of acpmux session `session`'s chat changed
+    /// (`agent-session-share-events-v1`): an open Invite People sheet reads them again.
+    case agentSessionShareChanged(session: String)
     /// One committed op on a local conversation (`local-conversations-v1`).
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).
@@ -108,6 +111,9 @@ extension DaemonEvent {
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
         // Terminal outcomes live outside list-workspaces, including background jobs.
         case .terminalRegistryChanged: true
+        // A chat's shares are not in the tree snapshot: dropped behind one, an open Invite People
+        // sheet would keep a join, a departure or an expiry stale.
+        case .agentSessionShareChanged: true
         // Agent state and presence are not in the tree snapshot (only `list-agents` at connect
         // and these events carry them). A blocked hook also posts a notification, whose tree
         // change resyncs; dropping its `agent-changed` behind that snapshot left the row on

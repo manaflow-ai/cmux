@@ -1113,12 +1113,14 @@ impl ClientRegistry {
     }
 }
 
-/// An attached agent session's presence (`agent-session-presence`), which only a unix host serves,
-/// as it alone attaches agent sessions.
+/// An attached agent session's presence (`agent-session-presence`) and its shares' changes
+/// (`agent-session-share-changed`), which only a unix host serves, as it alone attaches agent
+/// sessions.
 fn agent_session_presence(capability: &str) -> bool {
     #[cfg(unix)]
     {
         capability == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY
+            || capability == agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY
     }
     #[cfg(not(unix))]
     {

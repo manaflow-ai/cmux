@@ -67,6 +67,12 @@ pub const AGENT_SESSION_SETTINGS_CAPABILITY: &str = "agent-session-settings-v1";
 /// teammate or link guest and never a read-only attachment. acpmux's refusal reason comes back
 /// in the answer (`refused.reason`), so the card can say why.
 pub const AGENT_SESSION_LOGIN_CAPABILITY: &str = "agent-session-login-v1";
+/// The `agent-session-share-changed` event on `subscribe`: a chat's link shares or invites
+/// changed (made, invited, uninvited, joined, kicked, revoked, expired, ended by the room or the
+/// chat), so the owner's open Invite People sheet reads its rows again instead of polling. Only
+/// to the owner's own connections that may run the share verbs and echoed it in
+/// `set-client-info`.
+pub const AGENT_SESSION_SHARE_EVENTS_CAPABILITY: &str = "agent-session-share-events-v1";
 /// How long a login's finish may wait: Codex's waits for the person's approval in the browser.
 const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
@@ -922,6 +928,16 @@ fn command_surface(command: &AgentSessionCommand) -> SurfaceId {
 /// True when `client` is a host proxy's link for a teammate (`agent-session-proxy-bind`).
 pub(super) fn proxy_bound(mux: &Mux, client: u64) -> bool {
     proxy::author(mux, client).is_some()
+}
+
+/// Whether `client` hears `agent-session-share-changed`: one of the owner's connections that may
+/// run the share verbs (same-user unix, not bound, not a remote relay) and echoed
+/// [`AGENT_SESSION_SHARE_EVENTS_CAPABILITY`]. Read at each event, as a bind can come later.
+pub(super) fn hears_share_events(mux: &Mux, client: u64) -> bool {
+    mux.control_clients.is_unix(client)
+        && !mux.is_remote_client(client)
+        && !proxy_bound(mux, client)
+        && mux.control_clients.supports_capability(client, AGENT_SESSION_SHARE_EVENTS_CAPABILITY)
 }
 
 /// A frame of a teammate's link: the agent-session verbs [`try_handle`] allows it, and a refusal

@@ -78,6 +78,8 @@ extension DaemonEvent {
                 return .historyChanged(revision: e.revision, kinds: e.kinds ?? [])
             case "keybindings-changed":
                 return .keybindingsChanged(revision: try d(EventPayload.KeybindingsChanged.self).revision)
+            case "agent-session-share-changed":
+                return .agentSessionShareChanged(session: try d(EventPayload.SessionField.self).session)
             case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
             case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "conversation-draft": return .conversationDraft(try d(ConversationDraft.self))
@@ -126,6 +128,10 @@ private enum EventPayload {
 
     struct KeybindingsChanged: Decodable {
         var revision: UInt64
+    }
+
+    struct SessionField: Decodable {
+        var session: String
     }
 
     struct BookmarksChanged: Decodable {

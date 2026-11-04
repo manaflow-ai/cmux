@@ -126,7 +126,8 @@ extension AgentShareActions {
             list: { try await Self.connected(chat.connection).request(AgentSessionShareListRequest(surface: chat.surface)).shares },
             invite: { account, role in _ = try await Self.inviteWork(chat, account: account, role: role, ttl: nil, host: host) },
             remove: { account in _ = try await Self.uninviteWork(account: account, shareID: nil, chat: chat, connection: chat.connection) },
-            copy: { host.shareCopy($0) }
+            copy: { host.shareCopy($0) },
+            changes: { host.shareChanges($0) }
         ))
     }
 }

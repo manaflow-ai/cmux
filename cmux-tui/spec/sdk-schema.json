@@ -30444,6 +30444,36 @@
     "additional_properties": false
    }
   },
+  "agent-session-share-changed": {
+   "since": 12,
+   "capability": "agent-session-share-events-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "agent-session-share-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "conversation-draft": {
    "since": 12,
    "capability": "conversation-draft-events-v1",

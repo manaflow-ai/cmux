@@ -8,14 +8,16 @@ import CmuxNextNotifications
 /// ``AgentShareInviteCard`` over the active window as a centered dialog, like Share cmux.
 @MainActor
 enum AgentShareInviteSheetPresenter {
-    /// Shows the sheet over the active window and reads who is invited.
+    /// Shows the sheet over the active window and reads who is invited, again on every change the
+    /// daemon reports to the chat's shares until the sheet closes, however it closes.
     static func present(_ model: AgentShareInviteSheetModel, services: AppServices) {
         let host = services.windows.active?.window.map(WindowOverlayHost.host(for:)) ?? WindowOverlayHost.appHost()
         let card = AgentShareInviteCard(model: model, closeImage: NSImage.icon(.actionClose, size: 12))
         let handle = host.present(card, options: .dialog())
         card.onClose = { [weak handle] in handle?.dismiss() }
+        handle.onDismiss = { model.close() }
         card.focusField()
         // task-owner: the sheet's first read of the chat's shares; ends with the read
-        Task { await model.load() }
+        Task { await model.open() }
     }
 }

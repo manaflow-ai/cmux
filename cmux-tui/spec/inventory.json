@@ -878,6 +878,12 @@
       ]
     },
     {
+      "name": "agent-session-share-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "personal-changed",
       "streams": [
         "subscribe"

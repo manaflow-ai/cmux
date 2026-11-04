@@ -133,6 +133,12 @@ pub enum MuxEvent {
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// The link shares of acpmux session `session`'s chat changed
+    /// (`agent-session-share-events-v1`; server/agent_session_shares.rs): the
+    /// owner's Invite People sheet reads `agent-session-share-list` again.
+    AgentSessionShareChanged {
+        session: String,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
