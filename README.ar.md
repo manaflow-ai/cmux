@@ -403,7 +403,7 @@ cmux مجاني ومفتوح المصدر، وسيظل كذلك دائمًا. إ
 
 طرق للمشاركة:
 
-- تابعنا على X للتحديثات � [@lawrencecchen](https://x.com/lawrencecchen)، و[@austinywang](https://x.com/austinywang)
+- تابعنا على X للتحديثات [@lawrencecchen](https://x.com/lawrencecchen)، و[@austinywang](https://x.com/austinywang)
 - انضم إلى المحادثة على [Discord](https://discord.gg/xsgFEVrWCZ)
 - أنشئ وشارك في [قضايا GitHub](https://github.com/manaflow-ai/cmux/issues) و[المناقشات](https://github.com/manaflow-ai/cmux/discussions)
 - أخبرنا بما تبنيه باستخدام cmux

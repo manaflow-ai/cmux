@@ -403,7 +403,7 @@ cmux 免費且開放原始碼，並將一直如此。如果您想支持開發並
 
 參與方式：
 
-- 在 X 上追蹤我們：��[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
+- 在 X 上追蹤我們：[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
 - 加入 [Discord](https://discord.gg/xsgFEVrWCZ) 討論
 - 建立和參與 [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) 和[討論](https://github.com/manaflow-ai/cmux/discussions)
 - 告訴我們您在用 cmux 建構什麼

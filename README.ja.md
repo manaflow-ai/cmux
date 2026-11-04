@@ -403,7 +403,7 @@ cmuxは無料でオープンソースであり、今後もそうあり続けま�
 
 参加方法：
 
-- Xでフォロー：��[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
+- Xでフォロー：[@lawrencecchen](https://x.com/lawrencecchen)、[@austinywang](https://x.com/austinywang)
 - [Discord](https://discord.gg/xsgFEVrWCZ)で会話に参加
 - [GitHubのIssues](https://github.com/manaflow-ai/cmux/issues)や[ディスカッション](https://github.com/manaflow-ai/cmux/discussions)に参加
 - cmuxで何を構築しているか教えてください
