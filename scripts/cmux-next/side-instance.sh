@@ -22,7 +22,7 @@
 #                   nightly, so its web overlay works), named LABEL (default "cmux NAME"), updates
 #                   off (no feed, no key), no document types or login items, one URL scheme of its
 #                   own for sign-in callbacks (cmux links stay with the original), re-sealed ad hoc
-#                   with its entitlements
+#                   with its unrestricted entitlements (no Keychain group)
 #   config/         its cmux-next.json and web-dev.json (CMUX_NEXT_CONFIG_FILE in its LSEnvironment)
 #   web-overlay/    its web overlay (CMUX_WEB_OVERLAY_DIR), web-slot/ its dev server state
 # A side instance starts signed out with fresh settings; the original's data is never read.
@@ -105,10 +105,20 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
-    # The seal covers Info.plist: re-sign the outer bundle ad hoc, keeping its entitlements (nested
-    # code keeps its own signatures), and check it.
+    # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
+    # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one
+    # that needs the team's provisioning profile (the Keychain group, application-identifier, any
+    # com.apple.developer key) gets the copy killed at launch, so those go, with the profile. The
+    # copy then has no Keychain items of the original's group: it starts signed out.
     xattr -cr "$app" 2>/dev/null || true
-    codesign --force --sign - --timestamp=none --preserve-metadata=entitlements "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
+    rm -f "$app/Contents/embedded.provisionprofile"
+    entitlements="$dir/entitlements.plist"
+    codesign -d --entitlements :- "$from" 2>/dev/null | python3 -c '
+import plistlib, sys
+data = sys.stdin.buffer.read()
+kept = {k: v for k, v in (plistlib.loads(data) if data.strip() else {}).items() if k.startswith("com.apple.security.")}
+sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
+    codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
     codesign --verify --strict "$app" || die "the re-sealed copy does not verify"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
