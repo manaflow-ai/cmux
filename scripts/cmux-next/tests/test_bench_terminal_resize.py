@@ -22,6 +22,11 @@ light layout dragged a divider while something else showed in front, so no termi
    whose arm the bench could not set (`debug.tunables set`) fails; terminal_resize_arms alternates the arm order per
    round and pools each arm's per-frame data into p50/p95/p99/max.
 
+5. A terminal resized when its full rebuilds for a new grid grew: full_resize (the drawn grid changed size) or
+   full_swap (the reflow preview started or ended: a held grid's new size). Job b5834b1d on cmux24 counted only
+   full_resize, which stays 0 in a key resize (full_swap grew by the grids sent), so every keys round and both probes
+   failed although the terminals resized.
+
 No app and no GUI: the state root is under a temporary base (BENCH_LAUNCH_STATE_BASE), and the results are data.
 
     python3 scripts/cmux-next/tests/test_bench_terminal_resize.py
@@ -180,6 +185,24 @@ class KeyLayouts(unittest.TestCase):
     def test_measured_key_layouts_pass(self):
         self.assertEqual(verdict.problems({"layout": "keys", "rounds": [key_round(), key_round(arm=True)]}), [])
         self.assertEqual(verdict.problems({"layout": "keys-stress", "rounds": [key_round(resized=6)]}), [])
+
+
+def surface_row(ident, full_resize=0, full_swap=0, fit="80x24"):
+    return {"id": ident, "fit": fit, "counters": {"full_resize": full_resize, "full_swap": full_swap}}
+
+
+class ResizeCount(unittest.TestCase):
+    def test_cmux24_key_resize_shows_as_a_swap(self):
+        # Job b5834b1d on cmux24 (8c981e32979): in every keys round full_resize stayed 0 and full_swap grew by the grids
+        # sent (4 terminals x 2 presses): a held grid's new size draws through the reflow preview (a swap).
+        before = [surface_row(f"p{i}/t") for i in range(4)]
+        after = [surface_row(f"p{i}/t", full_swap=2) for i in range(4)]
+        self.assertEqual(verdict.resized(before, after), 4)
+
+    def test_a_grid_change_counts_once_per_terminal(self):
+        before = [surface_row("a/t", 3, 1), surface_row("b/t", 0, 0), surface_row("c/t", 5, 5)]
+        after = [surface_row("a/t", 4, 1), surface_row("b/t", 1, 1), surface_row("c/t", 5, 5), surface_row("new/t", 9, 9)]
+        self.assertEqual(verdict.resized(before, after), 2, "a, b resized; c did not; a terminal only in `after` is not paired")
 
 
 class Arms(unittest.TestCase):
