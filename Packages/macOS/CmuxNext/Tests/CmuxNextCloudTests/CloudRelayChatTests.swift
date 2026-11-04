@@ -58,6 +58,16 @@ import Testing
         #expect(quiet.firstText == .seconds(5))
     }
 
+    @Test func aBrokenStreamMayHaveReachedTheMachine() {
+        // The relay answered 200 and then the stream broke, before its `sent` reached the Mac: never sent again.
+        var answer = CloudRelayChat.Answer()
+        answer.apply(line: #"{"kind":"queued","reason":"machine_offline"}"#, at: .seconds(1))
+        answer.broken = true
+        answer.errorCode = "cloud.relay.closed"
+        #expect(answer.ended)
+        #expect(answer.delivered)
+    }
+
     @Test func onlyAMachineIDIsSent() {
         #expect(CloudRelayChat.isMachineID("vm_0123456789abcdefghij"))
         #expect(!CloudRelayChat.isMachineID("vm_short"))

@@ -42,9 +42,12 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// The platform sent the chat down the machine's socket (`sent`).
         public var sent = false
         public var ended: Bool { stopReason != nil || errorCode != nil }
-        /// Whether the prompt may be on the machine. False only when it certainly is not (the turn ended before the
-        /// platform sent it): then it may be sent another way. A turn still open may yet be sent, so it counts.
-        public var delivered: Bool { sent || session != nil || !ended }
+        /// The stream broke or closed before the turn ended (`cloud.relay.closed`): the platform may have sent it.
+        public var broken = false
+        /// Whether the prompt may be on the machine. False only when it certainly is not: the platform itself ended
+        /// the turn (a refusal, or an `error` event) before it sent it. Then it may be sent another way. A turn still
+        /// open may yet be sent, and one whose stream broke may have been, so both count.
+        public var delivered: Bool { sent || session != nil || !ended || broken }
 
         public init() {}
 
@@ -185,6 +188,7 @@ public nonisolated struct CloudRelayChat: Sendable {
             broken = error.localizedDescription
         }
         if !answer.ended {
+            answer.broken = true
             answer.errorCode = "cloud.relay.closed"
             answer.errorMessage = broken.map { "the relay broke before the turn ended: \($0)" } ?? "the relay closed before the turn ended"
             answer.total = clock.now - start
