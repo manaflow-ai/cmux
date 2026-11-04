@@ -1,0 +1,31 @@
+{
+  "cpuThrottle": 1,
+  "settleMs": 2000,
+  "idleWindowMs": 5000,
+  "scenarios": [
+    {
+      "id": "shell-landing",
+      "title": "Gallery landing (one entry)",
+      "url": "index.html#/agent-pane.composer",
+      "budget": { "firstFrameMs": 500, "longTaskMaxMs": 50, "idleCpuPct": 1, "cls": 0 }
+    },
+    {
+      "id": "app-scene",
+      "title": "App window scene (chat + Session Info)",
+      "url": "index.html#/app.window/chat-session-info",
+      "budget": { "firstFrameMs": 500, "longTaskMaxMs": 50, "idleCpuPct": 1, "cls": 0 }
+    },
+    {
+      "id": "app-scene-variants",
+      "title": "App window scene, every variant",
+      "url": "index.html#/app.window/chat-session-info?view=variants",
+      "budget": { "firstFrameMs": 500, "longTaskMaxMs": 50, "idleCpuPct": 1, "cls": 0 }
+    },
+    {
+      "id": "browse",
+      "title": "Whole gallery (browse, 24 live previews)",
+      "url": "index.html#/agent-pane.composer?view=browse",
+      "budget": { "firstFrameMs": 500, "longTaskMaxMs": 50, "idleCpuPct": 1, "cls": 0 }
+    }
+  ]
+}
