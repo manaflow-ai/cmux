@@ -227,13 +227,29 @@ struct ChiefDisabledHomeTests {
         let dock = try #require(workspace.dockSplit)
         dock.ensureLoaded()
         let pane = try #require(dock.bonsplitController.allPaneIds.first)
+        let history = dock.closedItemHistoryStore
+
+        // Control: an ordinary close of a Chief Dock tab enters closed-tab
+        // history, so the empty-history check below is not vacuous.
+        let userClosedTab = try #require(dock.newSurface(kind: .chief, inPane: pane, focus: false))
+        #expect(dock.closePanel(userClosedTab))
+        #expect(dock.panels[userClosedTab] == nil)
+        #expect(history.menuSnapshot().totalItemCount == 1)
+        history.removeAll()
+        #expect(history.menuSnapshot().totalItemCount == 0)
+
         let chiefTab = try #require(dock.newSurface(kind: .chief, inPane: pane, focus: false))
         let tabId = try #require(dock.surfaceId(forPanelId: chiefTab))
         dock.bonsplitController.updateTab(tabId, isPinned: true)
+        // A user close already in flight marks the tab history-eligible;
+        // turning Chief off must still not record it.
+        dock.markDockCloseHistoryEligible(panelId: chiefTab)
 
         ChiefSettings.setEnabled(false)
         dock.removeChiefPanels()
         #expect(dock.panels[chiefTab] == nil)
+        #expect(dock.surfaceId(forPanelId: chiefTab) == nil)
+        #expect(history.menuSnapshot().totalItemCount == 0)
     }
 
     @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
