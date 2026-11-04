@@ -14,7 +14,17 @@ const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+  // test/preload.ts installs the real pane table; restore it after, never delete it.
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "IS_REACT_ACT_ENVIRONMENT",
+    "__cmuxPaneStrings",
+  ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -43,7 +53,6 @@ async function resetDom(): Promise<void> {
   root = undefined;
   dom?.window.close();
   dom = undefined;
-  delete globalThis.__cmuxPaneStrings;
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

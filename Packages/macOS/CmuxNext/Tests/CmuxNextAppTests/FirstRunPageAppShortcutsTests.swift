@@ -65,6 +65,31 @@ struct FirstRunPageAppShortcutsTests {
         }
     }
 
+    /// The action budget sees the leave: the `newSurface` run that Ctrl-` starts over the page is
+    /// timed from before the window leaves the page (ActionBudgetMonitor, < 10 ms to the commit).
+    @Test func theNewTerminalKeysTimingIncludesTheLeave() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let controller = try #require(services.windows.active)
+            try Self.showFirstRunPage(services, controller)
+            @MainActor final class Seen { var sample: ActionTimingSample?; var leftAt: UInt64? }
+            let seen = Seen()
+            let previous = controller.root.onContentChange
+            controller.root.onContentChange = { if seen.leftAt == nil { seen.leftAt = ActionBudgetMonitor.now() }; previous?() }
+            defer { controller.root.onContentChange = previous }
+            let stream = services.actionBudget.samples(everyRun: true)
+            let reader = Task { @MainActor in
+                for await sample in stream where sample.id == "newSurface" { seen.sample = sample; break }
+            }
+            defer { reader.cancel() }
+
+            let reply = Self.press("`", ["control"], services)
+            try await PasswordManagerRouteTests.until({ seen.sample != nil && seen.leftAt != nil },
+                                                      report: { "sample \(String(describing: seen.sample)), left \(String(describing: seen.leftAt)), \(Self.report(services, controller, reply))" })
+            let sample = try #require(seen.sample), leftAt = try #require(seen.leftAt)
+            #expect(sample.startUptimeNanos <= leftAt, "the run's timing started \(Double(sample.startUptimeNanos) - Double(leftAt)) ns after the leave")
+        }
+    }
+
     /// The class, not one key: New Tab (Cmd-T) over the page opens a tab in the workspace too.
     @Test func newTabKeyOverTheFirstRunPageOpensATab() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
