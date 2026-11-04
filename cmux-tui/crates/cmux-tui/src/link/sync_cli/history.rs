@@ -26,9 +26,11 @@
 //! what is staged is still the newest snapshot's. Nothing is written into
 //! the repository: a snapshot never changes what the next push sends.
 //!
-//! A restore changes only paths whose state differs between the snapshot
-//! and the newest one, and only when each of those is here still as the
-//! newest snapshot says: a file changed here since the last sync stops it
+//! A restore changes only paths a sync changed here since the snapshot (a
+//! pull or another restore; a push changes nothing here) whose state differs
+//! between the snapshot and the newest one, and git only when a sync since
+//! moved it: what this Mac changed itself is never put back. Each of those
+//! paths must be here still as the newest snapshot says: a file changed here since the last sync stops it
 //! and nothing changes (`sync_restore_conflict`). It goes through the same
 //! transaction as a pull ([`super::place`]), so a failure puts everything
 //! back. `undo` restores the snapshot before the newest one that differs
@@ -100,6 +102,14 @@ pub(super) struct Snapshot {
     pub paths: BTreeMap<String, Held>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub git: Option<GitAt>,
+    /// The paths this sync changed here (a pull or a restore; a push
+    /// changes nothing here). Only these are ever put back: a path a sync
+    /// never changed is this Mac's own, whatever a snapshot inherited for it.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub touched: BTreeSet<String>,
+    /// Whether this sync moved the branch or the staged changes here.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub moved_git: bool,
 }
 
 impl Snapshot {
@@ -315,6 +325,13 @@ pub(super) fn newest(local: &Path, remote_root: &str) -> Option<Snapshot> {
     list(local, remote_root).ok().and_then(|mut all| all.pop())
 }
 
+/// What a sync changed here: its paths, and whether it moved git.
+#[derive(Default)]
+pub(super) struct Changed {
+    pub paths: BTreeSet<String>,
+    pub git: bool,
+}
+
 /// Keeps a snapshot of `paths` and `git` for `local` synced to
 /// `remote_root`, unless it is the newest one's state again (a `restore`
 /// is always kept: it moves the undo point). Older ones beyond [`KEEP`] go,
@@ -327,6 +344,7 @@ pub(super) fn record(
     paths: BTreeMap<String, Held>,
     git: Option<GitAt>,
     restored: Option<u64>,
+    changed: Changed,
 ) -> anyhow::Result<Option<u64>> {
     let dir = history_dir(local, remote_root)?;
     make_dir(&dir)?;
@@ -335,7 +353,19 @@ pub(super) fn record(
     let at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_secs());
-    let snapshot = Snapshot { version: 1, seq, at, action: action.into(), restored, paths, git };
+    let touched = changed.paths.into_iter().filter(|relative| is_worktree_path(relative)).collect();
+    let moved_git = changed.git;
+    let snapshot = Snapshot {
+        version: 1,
+        seq,
+        at,
+        action: action.into(),
+        restored,
+        paths,
+        git,
+        touched,
+        moved_git,
+    };
     if restored.is_none() && all.last().is_some_and(|last| last.same_state(&snapshot)) {
         return Ok(None);
     }
@@ -456,6 +486,26 @@ fn refused(code: &'static str, error: String, paths: Vec<String>) -> anyhow::Err
     Refused { code, error, paths }.into()
 }
 
+/// What putting `target` back changes, out of `all` (oldest first, ending
+/// with the newest): the paths that differ between it and the newest that a
+/// sync after it changed here, and whether a sync after it moved git.
+fn plan(all: &[Snapshot], target: &Snapshot) -> (Vec<String>, bool) {
+    let Some(newest) = all.last() else { return (Vec::new(), false) };
+    let since: Vec<&Snapshot> = all.iter().filter(|snapshot| snapshot.seq > target.seq).collect();
+    let touched: BTreeSet<&String> = since.iter().flat_map(|snapshot| &snapshot.touched).collect();
+    let changing = touched
+        .into_iter()
+        .filter(|relative| newest.paths.get(*relative) != target.paths.get(*relative))
+        .cloned()
+        .collect();
+    let git = since.iter().any(|snapshot| snapshot.moved_git)
+        && match (&newest.git, &target.git) {
+            (Some(now), Some(then)) => !now.same(then),
+            _ => false,
+        };
+    (changing, git)
+}
+
 /// The snapshot `which` names, out of `all` (oldest first, not empty).
 fn target<'a>(all: &'a [Snapshot], which: &Which) -> anyhow::Result<&'a Snapshot> {
     let newest = all.last().context("no snapshot")?;
@@ -465,12 +515,17 @@ fn target<'a>(all: &'a [Snapshot], which: &Which) -> anyhow::Result<&'a Snapshot
         }),
         Which::Undo => {
             // After an undo, the state is the snapshot it put back: the next
-            // one goes further back from there.
+            // one goes further back from there. One that would change
+            // nothing a sync changed is passed over.
             let from = newest.restored.unwrap_or(newest.seq);
             all.iter()
                 .rev()
                 .filter(|snapshot| snapshot.seq < from && snapshot.action != "restore")
-                .find(|snapshot| !snapshot.same_state(newest))
+                .filter(|snapshot| !snapshot.same_state(newest))
+                .find(|snapshot| {
+                    let (changing, git) = plan(all, snapshot);
+                    !changing.is_empty() || git
+                })
                 .ok_or_else(|| {
                     refused(
                         "sync_no_snapshot",
@@ -499,16 +554,9 @@ pub(super) fn restore(local: &Path, remote_root: &str, which: &Which) -> anyhow:
     let target = target(&all, which)?.clone();
     let root = Dir::open(&local)?;
 
-    // The paths that differ, each here still as the newest snapshot says.
-    let changing: Vec<String> = newest
-        .paths
-        .keys()
-        .chain(target.paths.keys())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .filter(|relative| newest.paths.get(*relative) != target.paths.get(*relative))
-        .cloned()
-        .collect();
+    // The paths a sync since changed that differ, each here still as the
+    // newest snapshot says.
+    let (changing, git_changing) = plan(&all, &target);
     let mut changed_here = Vec::new();
     for relative in &changing {
         if held_here(&root, relative)? != Ok(newest.paths.get(relative).cloned()) {
@@ -549,18 +597,29 @@ pub(super) fn restore(local: &Path, remote_root: &str, which: &Which) -> anyhow:
         Ok(counts) => counts,
         Err(error) => return Err(rolled_back(transaction, &staging, error)),
     };
-    let git_moved = match restore_git(&local, newest.git.as_ref(), target.git.as_ref()) {
+    let git_target = if git_changing { target.git.as_ref() } else { None };
+    let git_moved = match restore_git(&local, newest.git.as_ref(), git_target) {
         Ok(moved) => moved,
         Err(error) => return Err(rolled_back(transaction, &staging, error)),
     };
     transaction.finish();
+    // The folder now: the newest state with the changed paths put back.
+    let mut paths = newest.paths.clone();
+    for relative in &changing {
+        match target.paths.get(relative) {
+            Some(held) => paths.insert(relative.clone(), held.clone()),
+            None => paths.remove(relative),
+        };
+    }
+    let git_after = if git_moved { git_now(&local) } else { newest.git.clone() };
     let recorded = record(
         &local,
         remote_root,
         "restore",
-        target.paths.clone(),
-        target.git.clone(),
+        paths,
+        git_after,
         Some(target.seq),
+        Changed { paths: changing.iter().cloned().collect(), git: git_moved },
     )?;
     Ok(json!({
         "ok": true,
@@ -641,57 +700,98 @@ fn rolled_back(
     error
 }
 
-/// Moves the branch and staged tree from `now` back to `then`, each only
-/// while git is still at `now`. Whether anything moved.
+/// Moves the branch and staged changes from `now` back to `then`, each
+/// only while git is still at `now`. The index is locked (git's own
+/// `index.lock`) before anything moves and what is staged is read again
+/// under the lock; when the index cannot be put back, the branch moves back
+/// to where it was. Whether anything moved.
 fn restore_git(local: &Path, now: Option<&GitAt>, then: Option<&GitAt>) -> anyhow::Result<bool> {
     let (Some(now), Some(then)) = (now, then) else { return Ok(false) };
     if now.same(then) {
         return Ok(false);
     }
     let here = git_back::base_of(local)?;
-    let mut moved = false;
-    if now.head != then.head
+    let head = (now.head != then.head
         && here.head_ref == now.head_ref
         && here.head == now.head
-        && now.head_ref == then.head_ref
-        && let (Some(old), Some(new)) = (&now.head, &then.head)
-    {
-        let mut command = git_back::local(local);
-        command.args(["update-ref", "-m", "cmux sync restore"]);
-        match &now.head_ref {
-            Some(name) => command.arg(name),
-            None => command.args(["--no-deref", "HEAD"]),
-        };
-        let status = command.args([new, old]).status().context("cannot run git")?;
-        if !status.success() {
+        && now.head_ref == then.head_ref)
+        .then(|| now.head.clone().zip(then.head.clone()))
+        .flatten();
+    let index = if now.staged != then.staged && here.staged == now.staged {
+        match (then.index.as_deref().and_then(blob), GitDirs::of(local)?) {
+            (Some(blob), Some(dirs)) => Some((blob, dirs)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    // Lock the index first: no other git process stages anything while the
+    // staged changes are compared and replaced.
+    let locked = match index {
+        Some((blob, dirs)) => {
+            let lock = dirs.own.join("index.lock");
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o644)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&lock)
+                .context("git's index is locked")?;
+            let unlock = |error: anyhow::Error| {
+                let _ = std::fs::remove_file(&lock);
+                error
+            };
+            let staged = git_back::base_of(local).map_err(unlock)?.staged;
+            if staged == now.staged {
+                Some((file, blob, lock.clone(), dirs.own.join("index")))
+            } else {
+                let _ = std::fs::remove_file(&lock);
+                None
+            }
+        }
+        None => None,
+    };
+    let mut moved = false;
+    if let Some((old, new)) = &head {
+        let status = update_ref(local, now.head_ref.as_deref(), new, old);
+        if !status {
+            if let Some((_, _, lock, _)) = &locked {
+                let _ = std::fs::remove_file(lock);
+            }
             bail!("cannot move the branch back");
         }
         moved = true;
     }
-    // The staged changes: the index file as it was, while what is staged
-    // is still the newest snapshot's (git's own lock name keeps git out).
-    if now.staged != then.staged
-        && here.staged == now.staged
-        && let Some(index) = then.index.as_deref().and_then(blob)
-        && let Some(dirs) = GitDirs::of(local)?
-    {
-        let lock = dirs.own.join("index.lock");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o644)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&lock)
-            .context("git's index is locked")?;
-        let written = std::io::copy(&mut std::fs::File::open(&index)?, &mut file)
-            .and_then(|_| file.sync_all());
-        if let Err(error) = written.and_then(|()| std::fs::rename(&lock, dirs.own.join("index"))) {
+    if let Some((mut file, blob, lock, index)) = locked {
+        let written = std::fs::File::open(&blob)
+            .and_then(|mut source| std::io::copy(&mut source, &mut file))
+            .and_then(|_| file.sync_all())
+            .and_then(|()| std::fs::rename(&lock, &index));
+        if let Err(error) = written {
             let _ = std::fs::remove_file(&lock);
+            if let Some((old, new)) = &head
+                && !update_ref(local, now.head_ref.as_deref(), old, new)
+            {
+                return Err(error).context(format!(
+                    "cannot put the staged changes back, nor the branch (it is at {new}, was {old})"
+                ));
+            }
             return Err(error).context("cannot put the staged changes back");
         }
         moved = true;
     }
     Ok(moved)
+}
+
+/// Moves `head_ref` (or a detached HEAD) to `new` while it is at `old`.
+fn update_ref(local: &Path, head_ref: Option<&str>, new: &str, old: &str) -> bool {
+    let mut command = git_back::local(local);
+    command.args(["update-ref", "-m", "cmux sync restore"]);
+    match head_ref {
+        Some(name) => command.arg(name),
+        None => command.args(["--no-deref", "HEAD"]),
+    };
+    command.args([new, old]).status().is_ok_and(|status| status.success())
 }
 
 /// The answer line of `cmux link sync history`.

@@ -377,8 +377,27 @@ pub(super) fn pull_kept(
             }
         }
         // A snapshot that could not be kept never undoes the pull.
-        let _ = history::record(&local, remote_root, "before_pull", paths, git_before, None);
-        let _ = history::record(&local, remote_root, "pull", after, history::git_now(&local), None);
+        let touched: BTreeSet<String> =
+            changing.iter().map(|(relative, _, _)| relative.clone()).collect();
+        let git_after = history::git_now(&local);
+        let _ = history::record(
+            &local,
+            remote_root,
+            "before_pull",
+            paths,
+            git_before,
+            None,
+            history::Changed::default(),
+        );
+        let _ = history::record(
+            &local,
+            remote_root,
+            "pull",
+            after,
+            git_after,
+            None,
+            history::Changed { paths: touched, git: git_plan.is_some() },
+        );
     }
     let (skipped_files, skipped_counts) = skips.json();
     let head = git_plan.as_ref().and_then(|plan| plan.settled.head.clone());

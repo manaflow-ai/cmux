@@ -753,7 +753,16 @@ fn snapshot_push(
         }
     }
     let git = if git { history::git_now(local) } else { None };
-    let _ = history::record(local, remote_root, "push", history::paths_of(next), git, None);
+    // A push changes nothing here: nothing it records is ever put back.
+    let _ = history::record(
+        local,
+        remote_root,
+        "push",
+        history::paths_of(next),
+        git,
+        None,
+        history::Changed::default(),
+    );
 }
 
 /// Saves the manifest of a push still going on the machine: what it wrote

@@ -254,3 +254,58 @@ fn an_undo_in_git_moves_the_branch_back() {
     assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "one\n");
     assert_eq!(git(&setup.folder, &["status", "--porcelain"]), "");
 }
+
+/// An undo puts back only what a sync changed: a file edited here before
+/// the pull, and a file made here, keep this Mac's version after a push.
+#[test]
+fn an_undo_never_puts_back_what_this_mac_changed_itself() {
+    let setup = setup("mine");
+    std::fs::write(setup.folder.join("a.txt"), "a\n").unwrap();
+    std::fs::write(setup.folder.join("b.txt"), "b\n").unwrap();
+    synced(&setup, "push");
+
+    // Edited and made here, while the machine changes b.
+    std::fs::write(setup.folder.join("a.txt"), "a edited here\n").unwrap();
+    std::fs::write(setup.folder.join("c.txt"), "made here\n").unwrap();
+    std::fs::write(setup.remote.join("b.txt"), "b from the machine\n").unwrap();
+    synced(&setup, "pull");
+    synced(&setup, "push");
+
+    let (ok, undone) = local_only(&setup, &["undo"]);
+    assert!(ok, "{undone}");
+    assert_eq!(std::fs::read_to_string(setup.folder.join("b.txt")).unwrap(), "b\n");
+    assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "a edited here\n");
+    assert_eq!(std::fs::read_to_string(setup.folder.join("c.txt")).unwrap(), "made here\n");
+}
+
+/// A locked git index stops an undo before the branch moves: HEAD, the
+/// index and the files stay as the pull left them.
+#[test]
+fn a_locked_index_stops_an_undo_before_the_branch_moves() {
+    let setup = setup("locked");
+    git(&setup.folder, &["init", "-q", "-b", "main"]);
+    std::fs::write(setup.folder.join("a.txt"), "one\n").unwrap();
+    git(&setup.folder, &["add", "-A"]);
+    git(&setup.folder, &["commit", "-q", "-m", "first"]);
+    let first = git(&setup.folder, &["rev-parse", "HEAD"]);
+    synced(&setup, "push");
+    std::fs::write(setup.remote.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&setup.remote, &["commit", "-q", "-am", "second"]);
+    let pulled = synced(&setup, "pull");
+    assert_eq!(pulled["fast_forwarded"], json!(true), "{pulled}");
+    let second = git(&setup.folder, &["rev-parse", "HEAD"]);
+
+    let lock = setup.folder.join(".git/index.lock");
+    std::fs::write(&lock, "").unwrap();
+    let (ok, refused) = local_only(&setup, &["undo"]);
+    assert!(!ok, "{refused}");
+    assert_eq!(git(&setup.folder, &["rev-parse", "HEAD"]), second);
+    assert_eq!(std::fs::read_to_string(setup.folder.join("a.txt")).unwrap(), "one\ntwo\n");
+    assert!(lock.exists(), "the undo removed a lock it did not make");
+
+    std::fs::remove_file(&lock).unwrap();
+    let (ok, undone) = local_only(&setup, &["undo"]);
+    assert!(ok, "{undone}");
+    assert_eq!(git(&setup.folder, &["rev-parse", "HEAD"]), first);
+    assert_eq!(git(&setup.folder, &["status", "--porcelain"]), "");
+}
