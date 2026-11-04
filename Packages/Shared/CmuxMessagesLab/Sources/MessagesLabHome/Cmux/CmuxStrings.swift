@@ -163,24 +163,6 @@ enum CmuxStrings {
         String(format: String(localized: "home.agentMessages.hide", defaultValue: "Hide agent messages (%lld)",
                               table: "CmuxHome", bundle: .module), count)
     }
-    /// A notes row's label: why its `count` agents stopped with no report ("Disconnected (5)");
-    /// nil `reason`: they stopped for different reasons.
-    static func agentNotes(_ reason: HomeAgentMessageRow.StatusNote?, _ count: Int) -> String {
-        let format: String
-        switch reason {
-        case .stopped(let session)? where session == "Disconnected":
-            format = String(localized: "home.agentNotes.disconnected", defaultValue: "Disconnected (%lld)", table: "CmuxHome", bundle: .module)
-        case .stopped(let session)? where session == "Closed":
-            format = String(localized: "home.agentNotes.closed", defaultValue: "Session closed (%lld)", table: "CmuxHome", bundle: .module)
-        case .gone?:
-            format = String(localized: "home.agentNotes.gone", defaultValue: "Gone (%lld)", table: "CmuxHome", bundle: .module)
-        case .unreadable?:
-            format = String(localized: "home.agentNotes.unreadable", defaultValue: "Report unreadable (%lld)", table: "CmuxHome", bundle: .module)
-        default:
-            format = String(localized: "home.agentNotes.stopped", defaultValue: "Stopped without a report (%lld)", table: "CmuxHome", bundle: .module)
-        }
-        return String(format: format, count)
-    }
     /// A link's Open Link and Copy Link Address rows (a link in text, a link card, a link preview).
     static var openLink: String {
         String(localized: "home.menu.openLink", defaultValue: "Open Link", table: "CmuxHome", bundle: .module)

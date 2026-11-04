@@ -75,6 +75,7 @@ VARS = {
     "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER": ("glaeda-nightly-only-m4pro-builder", ""),
     "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ("glaeda-nightly-std-xcode-26.6", ""),
     "vars.CI_SIDE_LANE_RUNNER": ("glaeda-side-std-xcode-26.6", ""),
+    "vars.CI_NIGHTLY_SIGN_RUNNER": ("glaeda-trusted-next-signing", ""),
     "vars.CI_SEED_TRUSTED_POOL": ("glaeda-trusted-std-xcode-26.6", ""),
     "vars.CI_PR_POOL_OWNED": ("1", "0"),
 }
