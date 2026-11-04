@@ -207,3 +207,40 @@ for (const mode of ["cloud", "sandboxed"] as const) {
     }
   });
 }
+
+// cmux#34527: a pick of an account Cloud machine that is still starting drops this machine's folders
+// at once, not only once it arrives (or never, when it fails to start).
+test("picking a starting Cloud machine drops this machine's extra folders at once", async () => {
+  const cloud: string[] = [];
+  const { root, changes } = await renderTray(
+    {
+      sessions: [],
+      onConnect: () => undefined,
+      onCloudMachine: (machine: { id: string }) => cloud.push(machine.id),
+      cloudMachines: [{ id: "vm-ready", name: "eval box", stage: "ready" }],
+    },
+    { machine: "local", folders: ["/Users/me/notes"] },
+  );
+  try {
+    expect(face()).toContain("+1");
+    const machine = [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find(
+      (button) => (button.getAttribute("aria-label") ?? "").includes(":"),
+    );
+    expect(machine).toBeDefined();
+    await act(async () => {
+      machine!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      machine!.click();
+    });
+    await settle();
+    const row = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].find(
+      (item) => item.textContent?.includes("eval box"),
+    );
+    expect(row).toBeDefined();
+    await press(row!);
+    expect(cloud).toEqual(["vm-ready"]);
+    expect(changes.at(-1)).toBeUndefined();
+    expect(changes.length).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

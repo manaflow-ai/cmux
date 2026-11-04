@@ -508,6 +508,8 @@ export function ComposerContext({
   const pickCloudMachine = (id: string) => {
     const machine = computers.find((computer) => computer.id === id)?.cloudMachine;
     if (machine && !readOnly) {
+      // Folders are the machine's: the pick drops this machine's at once, not when (or if) it arrives (cmux#34527).
+      if (extraFolders?.draft) extraFolders.onChange(undefined);
       onCloudMachine(machine);
       setWaiting({ key: pickKey, id: machine.id, name: machine.name });
     }
