@@ -46,18 +46,23 @@ struct CreationHoldReplyBoundTests {
 
     /// What moves the focus after the typed line and before the reply bound. The person's own moves are the ones that run
     /// while the hold keeps every key but Cmd-W (a Cmd-digit or a palette key typed then waits in the hold, in typing
-    /// order): a click on another pane's view, a tab of the strip or a sidebar row; the Window menu's numbered workspace
-    /// item; a palette pick. And a script's focus move.
+    /// order): a click on another pane's view, a tab of the strip, a sidebar row or another text field; the Window menu's
+    /// numbered workspace item; a palette pick. And a script's focus move, or its tab switch in the press-time terminal's
+    /// pane. `backToPrevious`: the person clicked the other pane before the press and a script then put the focus on the
+    /// press-time terminal; after the line the person clicks the other pane again (the same target as before the press).
     enum Move: String, CaseIterable, Sendable, CustomTestStringConvertible {
         case noMove, paneClick, tabClick, workspaceClick, numberedWorkspaceItem, paletteWorkspacePick, script, scriptThenTyping
+        case textFieldClick, backToPrevious, scriptHidesTab
         var testDescription: String { rawValue }
     }
 
-    /// Each move of the person's before the bound changes their intent target, or hides the press-time terminal's workspace:
-    /// at the bound the line typed for the new workspace runs in no terminal (dropped and logged), never in the press-time
-    /// one the person left (review of #35275: a tab or pane click left the moved-on flag unset, and the held `rm -rf build`
-    /// ran in a hidden shell).
-    @Test(arguments: [Move.paneClick, .tabClick, .workspaceClick, .numberedWorkspaceItem, .paletteWorkspacePick])
+    /// Each move of the person's before the bound, and each switch that hides the press-time terminal (whoever made it): at
+    /// the bound the line typed for the new workspace runs in no terminal (dropped and logged), never in the press-time one
+    /// the person left (reviews of #35275: a tab or pane click left the moved-on flag unset; a move that ends on the same
+    /// person target as before the press, a click into a field or back onto the previous terminal, looked like no move;
+    /// a script's tab switch left the terminal listed but hidden, and the held `rm -rf build` ran in a hidden shell).
+    @Test(arguments: [Move.paneClick, .tabClick, .workspaceClick, .numberedWorkspaceItem, .paletteWorkspacePick, .textFieldClick,
+                      .backToPrevious, .scriptHidesTab])
     func aMoveOfThePersonsBeforeTheBoundMeansTheLineRunsNowhere(_ move: Move) async throws {
         try await Self.cmdNNeverAnswered(then: move) { end, read in
             #expect(end == "replyBoundReached", "\(move): the hold ended \(end), not at its reply bound")
@@ -128,7 +133,7 @@ struct CreationHoldReplyBoundTests {
             let other = try #require(terminals().first { $0.pane !== pressed.pane })
             try await settled()
             var secondTab: String?
-            if move == .tabClick { // a second terminal tab in the first pane; the first one selected again
+            if move == .tabClick || move == .scriptHidesTab { // a second terminal tab in the first pane; the first one selected again
                 let first = pressed.tab
                 pressed.pane.newTerminalTab()
                 try await PasswordManagerRouteTests.until({
@@ -148,6 +153,11 @@ struct CreationHoldReplyBoundTests {
                 try await PasswordManagerRouteTests.until({ daemon.store.workspace(key: created.key) != nil }, report: { "the second workspace never listed" })
                 secondWorkspace = daemon.store.workspace(key: created.key)?.id
             }
+            if move == .backToPrevious { // the person's click in the other pane, before the press; then a script focuses the first
+                controller.focus.responderDidChange(.content(pane: other.pane.paneKey), source: .mouse)
+                try await PasswordManagerRouteTests.until({ content.focus.state.resolved == .terminal(pane: other.pane.paneKey, tab: other.tab) },
+                                                          report: { "the click in the other pane did not move the focus: \(content.focus.state.resolved)" })
+            }
             try await focus(pressed)
             let ticket = try #require(coordinator.beginWorkspace(in: controller), "a person's new workspace opened no key hold")
             @MainActor func typeLine(_ line: String) throws {
@@ -163,8 +173,10 @@ struct CreationHoldReplyBoundTests {
             try typeLine("echo hel''d\r")
             switch move {
             case .noMove: break
-            case .paneClick: // a click in the other pane's view: the window's report of its new first responder, from a mouse-down
+            case .paneClick, .backToPrevious: // a click in the other pane's view: the window's report of its new first responder
                 controller.focus.responderDidChange(.content(pane: other.pane.paneKey), source: .mouse)
+            case .textFieldClick: // a click into another text field of the window (no terminal): the mouse responder report
+                controller.focus.responderDidChange(.textField, source: .mouse)
             case .tabClick: // TabStripView's mouse-down select (selectOnPress), with the source its mouse-down dispatch gives
                 let tab = try #require(secondTab)
                 pressed.pane.select(CmuxNextTabs.TabID(tab), source: .mouse)
@@ -183,6 +195,9 @@ struct CreationHoldReplyBoundTests {
                 PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: workspace)
             case .script, .scriptThenTyping: // a script's focus move (the CLI): not the person's, still not the press-time target
                 controller.focus.send(.focusPane(other.pane.paneKey, source: .cli))
+            case .scriptHidesTab: // a script selects the second tab of the first pane: the press-time terminal is listed, hidden
+                let tab = try #require(secondTab)
+                pressed.pane.select(CmuxNextTabs.TabID(tab), source: .cli)
             }
             if move != .noMove { // the move ran: the keys' target, as a key typed now sees it, is not the press-time terminal
                 try await PasswordManagerRouteTests.until({ controller.focus.currentState().typingTab != pressed.tab }, within: .seconds(4),
