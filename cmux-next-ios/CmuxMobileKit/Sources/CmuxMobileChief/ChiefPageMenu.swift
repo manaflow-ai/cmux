@@ -24,12 +24,11 @@ enum ChiefPageMenu {
     }
 
     /// Reply with Selection: the reply to that message opens with the
-    /// selected words quoted (the Mac's Markdown quote), then what the person
-    /// had already typed, so nothing typed is lost.
+    /// selected words quoted (the Mac's Markdown quote) before what the
+    /// person had already typed, so nothing typed is lost.
     @MainActor
     static func replyWithSelection(_ reply: ConversationSelectionReply, in conversation: ConversationViewController) {
-        let typed = (conversation.view.chiefFirstSubview { $0.accessibilityIdentifier == "conversation.composer.text" } as? UITextView)?.text ?? ""
-        conversation.beginReply(toMessageID: reply.messageID, composerText: reply.markdownQuote + typed)
+        conversation.beginReply(toMessageID: reply.messageID, prefix: reply.markdownQuote)
     }
 }
 

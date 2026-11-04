@@ -171,6 +171,37 @@ struct ChiefConversationHooksTests {
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
     }
 
+    @Test(.timeLimit(.minutes(1))) func editModeKeepsTheTrailingTapForEndingTheEdit() async throws {
+        let source = ConversationMessage(id: "m1", seq: 1, clientMessageID: nil, senderID: "me", sentAt: Date(), text: "Mine to edit")
+        let (controller, window) = try await loaded([source])
+        defer { controller.store.stop(); window.isHidden = true }
+        let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
+        controller.headerActionMenu = menu
+        controller.enterEditMode(for: source)
+        try #require(controller.editingMessageID == "m1")
+        #expect(controller.header.trailingButton.menu == nil)
+        controller.header.trailingButton.sendActions(for: .touchUpInside)
+        #expect(controller.editingMessageID == nil)
+        #expect(controller.header.trailingButton.menu === menu)
+    }
+
+    /// The theme's text size is the front conversation's: a sheet's conversation without one
+    /// takes it, and the zoomed one under it gets it back (and re-measures) when the sheet goes.
+    @Test(.timeLimit(.minutes(1))) func theFrontConversationOwnsTheThemeTextSize() async throws {
+        let (zoomed, window) = try await loaded([Self.message("m1", "Zoomed", seq: 1)])
+        defer { zoomed.store.stop(); window.isHidden = true; zoomed.textSize = nil }
+        zoomed.textSize = .accessibilityLarge
+        #expect(ConversationTheme.textSizeTraits?.preferredContentSizeCategory == .accessibilityLarge)
+        let sheet = ConversationViewController(store: ConversationStore(backend: HooksBackend(messages: [])), options: .chief)
+        defer { sheet.store.stop() }
+        sheet.loadViewIfNeeded()
+        ConversationTextSizeOwners.appeared(sheet)
+        #expect(ConversationTheme.textSizeTraits == nil)
+        ConversationTextSizeOwners.disappeared(sheet)
+        #expect(ConversationTheme.textSizeTraits?.preferredContentSizeCategory == .accessibilityLarge)
+        #expect(ConversationTheme.bubbleFont.pointSize == 33)
+    }
+
     @Test(.timeLimit(.minutes(1))) func chiefScreenPutsInviteAndTheZoomInItsPageMenu() throws {
         let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: ChiefOutbox(file: nil))
         let conversation = ConversationViewController(store: session.store, options: .chief)

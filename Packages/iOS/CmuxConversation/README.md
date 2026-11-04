@@ -27,12 +27,14 @@ bubble's selected text (the long-press menu's Select). It ends the selection
 and hands the host a `ConversationSelectionReply`: the message id and the
 selected words, trimmed. `markdownQuote` writes them as the Mac's quote
 ("> " before each line, then an empty line). A host usually answers with
-`beginReply(toMessageID:composerText:)`, which opens that message's reply as
-the long-press Reply does, with the quote in the composer. Unset, the menu is
-the system's alone.
+`beginReply(toMessageID:prefix:)`, which opens that message's reply as the
+long-press Reply does and puts the quote at the start of the composer, before
+anything already typed. Unset, the menu is the system's alone.
 
 `textSize` (a `ConversationTextSize`, one per Dynamic Type category) draws
 the conversation at that size instead of the person's own: the controller's
-traits carry it and every row re-measures as for a Dynamic Type change.
+traits carry it and every row re-measures as for a Dynamic Type change. The
+theme's fonts follow the conversation in front; one under a sheet or a push
+re-measures when it is in front again.
 `stepped(by:)` and `percent(of:)` give a host Zoom In, Zoom Out and Actual
 Size. nil, the default, follows the system.

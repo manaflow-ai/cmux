@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationGeometry
+import os
 import UIKit
 
 /// Metrics and colors matched to iOS 26 Messages.
@@ -19,13 +20,20 @@ enum ConversationTheme {
         return UIFontMetrics(forTextStyle: style).scaledValue(for: value, compatibleWith: traits)
     }
 
-    /// The traits text styles resolve with while the conversation on screen
+    /// The traits text styles resolve with while the conversation in front
     /// has a text size from its host (`ConversationViewController.textSize`):
     /// that size and the controller's legibility weight (Bold Text). nil,
-    /// the default, leaves every font exactly as the system sizes it. Set by
-    /// the controller (main thread only), like `displayScale`; read off the
-    /// main thread too, by rows measured ahead (a trait collection is immutable).
-    nonisolated(unsafe) static var textSizeTraits: UITraitCollection?
+    /// the default, leaves every font exactly as the system sizes it. Only
+    /// `ConversationTextSizeOwners` sets it (main thread); rows measured
+    /// ahead read it off the main thread, so the slot is behind a lock.
+    static var textSizeTraits: UITraitCollection? {
+        get { textSizeSlot.withLockUnchecked { $0 } }
+        set { textSizeSlot.withLockUnchecked { $0 = newValue } }
+    }
+    private static let textSizeSlot = OSAllocatedUnfairLock<UITraitCollection?>(uncheckedState: nil)
+    /// Counts `textSizeTraits` changes (main thread), so work measured
+    /// under an older size is not kept.
+    nonisolated(unsafe) static var textSizeEpoch = 0
 
     /// `style`'s font at the host's size, or the system's when none is set.
     private static func preferredFont(_ style: UIFont.TextStyle) -> UIFont {
@@ -77,12 +85,16 @@ enum ConversationTheme {
         guard Thread.isMainThread else { return make() }
         let environment = MainActor.assumeIsolated {
             let current = UITraitCollection.current
+            let hostSize = textSizeTraits?.preferredContentSizeCategory
+            // A host size decides every text style: the system's own sizes
+            // (which differ inside and outside the controller's traits) do
+            // not, so they do not empty the cache.
             return FontEnvironment(
-                appCategory: UIApplication.shared.preferredContentSizeCategory,
-                currentCategory: current.preferredContentSizeCategory,
+                appCategory: hostSize == nil ? UIApplication.shared.preferredContentSizeCategory : .unspecified,
+                currentCategory: hostSize == nil ? current.preferredContentSizeCategory : .unspecified,
                 legibility: current.legibilityWeight,
                 boldText: UIAccessibility.isBoldTextEnabled,
-                textSize: textSizeTraits?.preferredContentSizeCategory
+                textSize: hostSize
             )
         }
         if environment != fontCacheEnvironment {
