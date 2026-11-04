@@ -74,7 +74,7 @@ JOURNEY_SECONDS = LEASE_SECONDS - SETUP_RESERVE - 40
 RESULT_FILE = re.compile(r"(?:\./)?((?:[a-z0-9][a-z0-9-]*/)?(?:result\.json|check-\d{2,3}\.png|clip/frame-\d{5}\.png"
                          r"|restore-trace\.json|diag-[a-z]+\.(?:json|png|txt)|diag-app-sample\.txt"
                          # PIXEL films (ext_pixel px_film `keep`): a film's measurement read, kept whole beside result.json
-                         r"|px-[a-z0-9-]+\.(?:frames|layers|cef-before|cef-after)\.json"
+                         r"|px-[a-z0-9-]+\.(?:frames|layers|cef-before|cef-after|tdisplay)\.json"
                          # TYPING UNDER LOAD (ext_load.py): the echo log, the in-app probe, the flow trace and the load
                          r"|echo\.jsonl|probe\.csv|probe-[a-z]+\.json|flows/(?:flows-\d+\.jsonl|[a-z0-9_-]+-\d+\.(?:blackbox|recording)\.cmxtrace)"
                          r"|load/L[0-9](?:\.stdout|\.stderr|/(?:[A-Za-z0-9_-]+/)?[a-z_-]+\.(?:json|jsonl)))"
