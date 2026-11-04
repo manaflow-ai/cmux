@@ -110,7 +110,21 @@ fn a_spare_waits_its_own_idle_time_and_a_shorter_role_never_shortens_it() {
     spare_ready(&mut pool, a.clone(), 0, "claude-a");
     pool.want(Role::LastUsed, a.clone(), Duration::from_secs(1));
     assert!(pool.expire(IDLE * 2).is_empty(), "a spare outlives the pool's idle time");
-    assert_eq!(pool.expire(IDLE * 6), vec!["claude-a"]);
+    assert_eq!(pool.expire(IDLE * 6 + Duration::from_secs(1)), vec!["claude-a"]);
+}
+
+#[test]
+fn a_last_used_entry_the_spare_moved_off_waits_only_the_pool_idle_time() {
+    let mut pool = Pool::new(IDLE);
+    pool.set_spare_idle(IDLE * 6);
+    let a = key("/a", "claude");
+    spare_ready(&mut pool, a.clone(), 0, "claude-a");
+    pool.want(Role::LastUsed, a.clone(), Duration::ZERO);
+    // A newer session of the harness elsewhere takes the spare role.
+    pool.want(Role::Spare, key("/b", "claude"), Duration::from_secs(1));
+    let kept = pool.view().into_iter().find(|v| v.key == a).expect("still last used");
+    assert!(kept.last_used && !kept.spare, "{kept:?}");
+    assert_eq!(pool.expire(IDLE), vec!["claude-a"]);
 }
 
 #[test]

@@ -262,18 +262,18 @@ impl Hub {
         // disallowed tools, nor in a folder a sub-session start checked: a pooled harness started
         // wherever the path led. Never for an agent's create (`starter`): the warm agent is kept
         // for the person's next chat, which never waits behind a lane's start.
-        let pooled = match (&fixed_id, &adopt) {
-            (None, None)
-                if starter.is_none()
-                    && meta.session_env.is_empty()
-                    && route.is_none()
-                    && meta.tools.off.is_empty()
-                    && meta.additional_directories.is_empty()
-                    && checked_cwd.is_none() =>
-            {
-                self.pool_claim(&meta, &profile, &defaults.env).await
-            }
-            _ => None,
+        let claimable = fixed_id.is_none()
+            && adopt.is_none()
+            && starter.is_none()
+            && meta.session_env.is_empty()
+            && route.is_none()
+            && meta.tools.off.is_empty()
+            && meta.additional_directories.is_empty()
+            && checked_cwd.is_none();
+        let pooled = if claimable {
+            self.pool_claim(&meta, &profile, &defaults.env).await
+        } else {
+            None
         };
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
@@ -491,7 +491,7 @@ impl Hub {
         }
         // An agent's create warms nothing: the pool is the person's (`pool/`).
         if adopt.is_none() && starter.is_none() {
-            self.pool_note_used(&session);
+            self.pool_note_used(&session, claimable);
         }
         creation_guard.disarm();
         Ok(session)

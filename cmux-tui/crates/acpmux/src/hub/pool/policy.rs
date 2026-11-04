@@ -218,17 +218,22 @@ impl<T> Pool<T> {
                 .iter_mut()
                 .filter(|e| e.key.origin == key.origin && e.key.harness == key.harness)
             {
+                let was = e.spare;
                 e.spare = e.key == key;
+                // A role that only the spare held longer falls back to the pool's idle time.
+                if was && !e.spare {
+                    e.deadline = e.deadline.min(now + self.idle);
+                }
             }
         }
         if role == Role::Hinted {
             self.cap_hinted(&key);
         }
-        let idle = if role == Role::Spare { self.spare_idle.max(self.idle) } else { self.idle };
+        let (idle, spare_idle) = (self.idle, self.spare_idle.max(self.idle));
         let start = match self.entries.iter_mut().find(|e| e.key == key) {
             Some(e) => {
-                // Never sooner than a role already holds it (a spare's longer wait).
-                e.deadline = e.deadline.max(now + idle);
+                // A spare waits its own (longer) time, whichever role wanted it now.
+                e.deadline = now + if e.spare { spare_idle } else { idle };
                 if matches!(e.slot, Slot::Empty) {
                     let generation = self.next_generation;
                     self.next_generation += 1;
@@ -248,7 +253,7 @@ impl<T> Pool<T> {
                     hinted_at: now,
                     key,
                     slot: Slot::Warming(generation),
-                    deadline: now + idle,
+                    deadline: now + if role == Role::Spare { spare_idle } else { idle },
                     ready_at: now,
                     settled: watch::channel(0).0,
                 });
@@ -463,6 +468,11 @@ impl<T> Pool<T> {
         let Slot::Ready(t) = std::mem::replace(&mut e.slot, Slot::Empty) else { return None };
         e.settle();
         Some(t)
+    }
+
+    /// A local entry of `harness` holds the spare role (ready, warming or empty).
+    pub fn has_spare(&self, harness: &str) -> bool {
+        self.entries.iter().any(|e| e.spare && e.key.origin == Origin::Local && e.key.harness == harness)
     }
 
     /// Spares holding nothing (a start failed, or a dead one was removed): their keys, to start again.
