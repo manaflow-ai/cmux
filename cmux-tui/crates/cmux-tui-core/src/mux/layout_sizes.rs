@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use serde_json::json;
+
 use super::*;
 
 /// The most values one batch takes.
@@ -30,11 +32,14 @@ pub enum LayoutSizesError {
     Width { index: usize, error: ViewportWidthError },
     /// The value at `index` is on another screen than the first value.
     OtherScreen { index: usize },
+    /// The commit failed (the store refused it); nothing changed.
+    NotPersisted { reason: String },
 }
 
 impl LayoutSizesError {
     pub const BAD_COUNT_CODE: &'static str = "invalid-argument";
     pub const OTHER_SCREEN_CODE: &'static str = "layout-sizes-other-screen";
+    pub const NOT_PERSISTED_CODE: &'static str = "layout-sizes-not-persisted";
 
     /// The single command's error code for a refused value, else the batch's own.
     pub fn code(&self) -> &'static str {
@@ -43,13 +48,14 @@ impl LayoutSizesError {
             Self::Ratio { error, .. } => error.code(),
             Self::Width { error, .. } => error.code(),
             Self::OtherScreen { .. } => Self::OTHER_SCREEN_CODE,
+            Self::NotPersisted { .. } => Self::NOT_PERSISTED_CODE,
         }
     }
 
     /// The index of the refused value, when one value was refused.
     pub fn index(&self) -> Option<usize> {
         match self {
-            Self::BadCount { .. } => None,
+            Self::BadCount { .. } | Self::NotPersisted { .. } => None,
             Self::Ratio { index, .. } | Self::Width { index, .. } | Self::OtherScreen { index } => {
                 Some(*index)
             }
@@ -68,6 +74,9 @@ impl fmt::Display for LayoutSizesError {
             Self::Width { index, error } => write!(formatter, "value {index}: {error}"),
             Self::OtherScreen { index } => {
                 write!(formatter, "value {index} is on another screen than value 0")
+            }
+            Self::NotPersisted { reason } => {
+                write!(formatter, "could not persist layout sizes: {reason}")
             }
         }
     }
@@ -88,28 +97,84 @@ impl Mux {
         if values.is_empty() || values.len() > MAX_LAYOUT_SIZE_VALUES {
             return Err(LayoutSizesError::BadCount { count: values.len() });
         }
-        // Today's behavior, as the app sends a trade: one commit per value, in order.
-        for (index, value) in values.iter().enumerate() {
-            match *value {
-                LayoutSizeValue::SplitRatio { split, ratio } => self
-                    .set_split_ratio_in_transaction_checked_as(
-                        actor,
-                        split,
-                        ratio,
-                        client,
-                        transaction,
-                    )
-                    .map_err(|error| LayoutSizesError::Ratio { index, error })?,
-                LayoutSizeValue::PaneWidth { pane, width } => self
-                    .set_viewport_pane_width_in_transaction_checked_as(
-                        actor,
-                        pane,
-                        width,
-                        client,
-                        transaction,
-                    )
-                    .map_err(|error| LayoutSizesError::Width { index, error })?,
+        // The screen's pane that names it to the resource path: the first value's pane, or the active pane of the
+        // first ratio's screen. The plan checks that every value is on that screen.
+        let pane = match values.first().copied() {
+            Some(LayoutSizeValue::PaneWidth { pane, .. }) => pane,
+            Some(LayoutSizeValue::SplitRatio { split, .. }) => self
+                .with_state(|state| {
+                    let (workspace, screen, _) = state.split_screens.get(&split).copied()?;
+                    state
+                        .workspaces
+                        .get(workspace)
+                        .and_then(|item| item.screens.get(screen))
+                        .map(|screen| screen.active_pane)
+                })
+                .ok_or(LayoutSizesError::Ratio {
+                    index: 0,
+                    error: LayoutRatioError::UnknownSplit { split },
+                })?,
+            None => return Err(LayoutSizesError::BadCount { count: 0 }),
+        };
+        let not_resizable = || LayoutSizesError::Width {
+            index: 0,
+            error: ViewportWidthError::PaneNotResizable { pane },
+        };
+        let selectors = self.ordinary_pane_selectors(pane).ok_or_else(not_resizable)?;
+        let wire_values: Vec<Value> = values
+            .iter()
+            .map(|value| match *value {
+                LayoutSizeValue::SplitRatio { split, ratio } => {
+                    json!({"split": split, "ratio": ratio})
+                }
+                LayoutSizeValue::PaneWidth { pane, width } => json!({"pane": pane, "width": width}),
+            })
+            .collect();
+        let fingerprint = json!({
+            "operation": "screen.layout_sizes.set",
+            "selectors": selectors,
+            "fields": {
+                "values": wire_values,
+                "resize_owner_kind": "control-client",
+                "resize_owner": client,
+                "resize_transaction": transaction,
+            },
+        });
+        let coalesce = Some(LayoutMutationKey::Resize {
+            owner: LayoutResizeOwner::ControlClient(client),
+            transaction,
+        });
+        let mutation = WorkspaceMutation::local("cmux-tui", actor.clone());
+        let commit = match self.resource_set_layout_sizes(
+            selectors,
+            values.to_vec(),
+            coalesce,
+            &mutation,
+            &fingerprint,
+        ) {
+            Ok(commit) => commit,
+            Err(error) if error.is::<resource_topology::LayoutSizesUnchanged>() => return Ok(()),
+            Err(error) => {
+                return Err(error.downcast::<LayoutSizesError>().unwrap_or_else(|error| {
+                    self.emit(MuxEvent::Status(format!(
+                        "could not persist layout sizes: {error:#}"
+                    )));
+                    LayoutSizesError::NotPersisted { reason: format!("{error:#}") }
+                }));
             }
+        };
+        // The echo names the request's transaction as its decimal form.
+        let echo = Some(Arc::<str>::from(transaction.to_string()));
+        if let Some(screen) = commit
+            .result
+            .get("screen")
+            .and_then(Value::as_str)
+            .and_then(|id| ScreenPublicId::parse(id.to_string()).ok())
+            .and_then(|id| {
+                self.with_state(|state| state.resource_indexes.screens.get(&id).copied())
+            })
+        {
+            self.emit_layout_changed(screen, echo);
         }
         Ok(())
     }
