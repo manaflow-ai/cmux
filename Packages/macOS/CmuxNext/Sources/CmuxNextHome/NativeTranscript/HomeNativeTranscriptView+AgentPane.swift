@@ -17,6 +17,8 @@ extension HomeNativeTranscriptView {
         }
         agentPane.open(peer)
         agentPaneView?.apply()
+        // task-owner: one place read for the open tabs (a moved agent re-attaches); ends when the owner answers
+        Task { [agentPane] in await agentPane.followSessions() }
         needsLayout = true
     }
 
