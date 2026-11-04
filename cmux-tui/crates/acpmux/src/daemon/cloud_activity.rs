@@ -31,11 +31,30 @@
 //!   daemon on the machine and adds them instead of letting an idle daemon's renewal replace a
 //!   busy one's.
 //!
+//! Each line also says what every session at work waits on (`"phases"`, capability
+//! `activity-phases`), so the Cloud can tell a turn that only waits on the model from one that
+//! runs a tool in the guest (cmux#34298):
+//! `{"relayed": false, "turns": [{"phase", "since", "processes", "attached"}]}`, one entry per
+//! session at work, in the order of their ids.
+//! - `phase`: `tool` while one of its ACP tool calls is open (`tool_call` / `tool_call_update`
+//!   at `in_progress`, until `completed` or `failed`; a call still `pending` streams its input,
+//!   so the model is still at work); else `pinned` while processes the agent left running (a
+//!   background shell or task) or a background subagent or sub-session work, or while it is at
+//!   work with no turn; else `person` while a permission or question waits; else `model-wait`.
+//! - `since`: when this daemon first saw it in that phase (Unix ms).
+//! - `processes`: how many processes it left running; `attached`: an attached client shows it.
+//! - `relayed`: whether every turn's model stream ends outside this machine. No relay exists
+//!   yet, so it is false and the Cloud never sleeps a machine inside a turn on it.
+//!
+//! A tool call a lagged event stream missed is forgotten at the turn's end or when the session
+//! stops being at work, so a missed `completed` never holds `tool` past its turn.
+//!
 //! A machine without the agent's socket (every machine that is not a Cloud machine) sends nothing.
 
-use crate::hub::Hub;
+use crate::hub::{Hub, SessionAtWork};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -58,6 +77,21 @@ pub(super) struct Tracker {
     observed: Option<u64>,
     /// When this daemon's agents last acted (Unix ms).
     last_action: Option<u64>,
+    /// Each session's open tool calls (`in_progress`, not yet `completed` or `failed`).
+    open_tools: BTreeMap<String, BTreeSet<String>>,
+    /// Each session at work's phase and since when, once [`Self::observe`] ran.
+    phases: Option<BTreeMap<String, TurnPhase>>,
+    /// The phases the agent last got, by session: (phase, since).
+    sent_phases: Option<Vec<(String, &'static str, u64)>>,
+}
+
+/// What one session at work waits on (the module doc's `phases`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct TurnPhase {
+    pub phase: &'static str,
+    pub since: u64,
+    pub processes: usize,
+    pub attached: bool,
 }
 
 impl Tracker {
@@ -82,6 +116,70 @@ impl Tracker {
         }
     }
 
+    /// An ACP record `kind` of session `sid` (`tool_call` or `tool_call_update`, `msg` its raw
+    /// JSON-RPC message): opens or closes a tool call. True when the session's phase may have
+    /// changed (its first call opened or its last closed).
+    pub(super) fn tool_event(&mut self, sid: &str, kind: &str, msg: &Value) -> bool {
+        if !matches!(kind, "tool_call" | "tool_call_update") {
+            return false;
+        }
+        let update = msg.pointer("/params/update").unwrap_or(msg);
+        let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return false };
+        let status = update.get("status").and_then(Value::as_str);
+        let open = self.open_tools.get(sid).is_some_and(|s| !s.is_empty());
+        match status {
+            Some("in_progress") => {
+                self.open_tools.entry(sid.to_owned()).or_default().insert(id.to_owned());
+            }
+            Some("completed" | "failed") => {
+                if let Some(set) = self.open_tools.get_mut(sid) {
+                    set.remove(id);
+                    if set.is_empty() {
+                        self.open_tools.remove(sid);
+                    }
+                }
+            }
+            _ => return false,
+        }
+        open != self.open_tools.get(sid).is_some_and(|s| !s.is_empty())
+    }
+
+    /// Session `sid`'s turn ended: whatever call it left open (cancelled, or a `completed` the
+    /// event stream dropped) is closed. True when one was open.
+    pub(super) fn turn_ended(&mut self, sid: &str) -> bool {
+        self.open_tools.remove(sid).is_some()
+    }
+
+    /// The sessions at work as read at `now_ms`: each one's phase, its since kept while the
+    /// phase holds. A session no longer at work forgets its open calls.
+    pub(super) fn observe(&mut self, at_work: &[SessionAtWork], now_ms: u64) {
+        let ids: BTreeSet<&str> = at_work.iter().map(|s| s.id.as_str()).collect();
+        self.open_tools.retain(|sid, _| ids.contains(sid.as_str()));
+        let before = self.phases.take().unwrap_or_default();
+        let mut phases = BTreeMap::new();
+        for s in at_work {
+            let phase = if self.open_tools.contains_key(&s.id) {
+                "tool"
+            } else if s.processes > 0 || s.below || !s.turn {
+                "pinned"
+            } else if s.person {
+                "person"
+            } else {
+                "model-wait"
+            };
+            let since = before.get(&s.id).filter(|p| p.phase == phase).map_or(now_ms, |p| p.since);
+            let entry = TurnPhase { phase, since, processes: s.processes, attached: s.shown };
+            phases.insert(s.id.clone(), entry);
+        }
+        self.phases = Some(phases);
+    }
+
+    /// The phases as the agent gets them: by session id, phase and since.
+    fn phase_key(&self) -> Option<Vec<(String, &'static str, u64)>> {
+        let phases = self.phases.as_ref()?;
+        Some(phases.iter().map(|(id, p)| (id.clone(), p.phase, p.since)).collect())
+    }
+
     /// The line to send with `turns` sessions at work observed at `now_ms`, or None: on a
     /// renewal (`renew`), when the count changed, and with none at work when an agent acted since
     /// the last line. The first 0 after a count above 0 (or after none) counts as an action at
@@ -96,10 +194,14 @@ impl Tracker {
             Some((sent, _)) if sent != turns => true,
             Some((_, at)) => turns == 0 && at != self.last_action,
         };
-        if !(changed || renew) {
+        // Every phase change goes at once (the Cloud reads the last report on a timer).
+        let phases = self.phase_key();
+        let phases_changed = phases.is_some() && phases != self.sent_phases;
+        if !(changed || phases_changed || renew) {
             return None;
         }
         self.sent = Some((turns, self.last_action));
+        self.sent_phases = phases;
         let mut activity = json!({"turns": turns});
         if let Some(at) = self.last_action {
             activity.set("last_agent_action_at", json!(at));
@@ -107,12 +209,23 @@ impl Tracker {
         if !self.daemon.is_empty() {
             activity.set("daemon", json!(self.daemon));
         }
+        if let Some(phases) = &self.phases {
+            let turns: Vec<Value> = phases
+                .values()
+                .map(|p| {
+                    json!({"phase": p.phase, "since": p.since, "processes": p.processes,
+                        "attached": p.attached})
+                })
+                .collect();
+            activity.set("phases", json!({"relayed": false, "turns": turns}));
+        }
         Some(json!({"acp_activity": activity}))
     }
 
     /// The agent did not take the last line: send the count again with the next chance.
     pub(super) fn unsent(&mut self) {
         self.sent = None;
+        self.sent_phases = None;
     }
 }
 
@@ -141,9 +254,13 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
                 if Tracker::is_action(dir, kind) {
                     tracker.acted(ev.record.at);
                 }
-                // Only acpmux's own records change what is at work; an agent's stream (every
-                // token) never counts sessions.
-                if dir != "mux" {
+                if dir == "mux" && kind == "turn_result" {
+                    tracker.turn_ended(&ev.session_id);
+                }
+                // Only acpmux's own records change what is at work, and a tool call's start or
+                // end what a session waits on; an agent's stream (every token) never does.
+                let phase = dir == "in" && tracker.tool_event(&ev.session_id, kind, &ev.record.msg);
+                if dir != "mux" && !phase {
                     continue;
                 }
                 false
@@ -155,13 +272,20 @@ pub(super) async fn activity_loop(hub: Arc<Hub>) {
         if !path.exists() {
             continue;
         }
-        let at_work = {
+        let detail = {
             let hub = hub.clone();
+            tokio::task::spawn_blocking(move || hub.sessions_at_work_detail()).await.ok()
+        };
+        let now = crate::store::now_ms();
+        let at_work = match &detail {
+            Some(detail) => {
+                tracker.observe(detail, now);
+                detail.len()
+            }
             // A count that cannot be read is not a known 0.
-            tokio::task::spawn_blocking(move || hub.sessions_at_work()).await.unwrap_or(1)
+            None => 1,
         };
         let at_work = reported_at_work(at_work, hub.startup_settled());
-        let now = crate::store::now_ms();
         let Some(line) = tracker.line(at_work as u64, renew, now) else { continue };
         if !send(&path, &line).await {
             tracker.unsent();

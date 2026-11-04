@@ -35,14 +35,17 @@ const snapshot = (items: AcpmuxActivity[]) => {
   return { ...base, summary: { ...base.summary!, family: "claude" } };
 };
 
-/// Opens the turn's work, so its rows show.
+/// Opens the turn's work, so its rows show: its Worked for, then the run inside it.
 const openWork: Play = async (ctx) => {
   const fold = () =>
     [...ctx.document.querySelectorAll<HTMLButtonElement>("button[aria-expanded='false']")].find((node) =>
       /Worked for|Ran \d/.test(node.textContent ?? ""),
     );
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
-  for (let i = 0; i < 3 && fold(); i++) fold()!.click();
+  await ctx.waitFor(() => fold(), { capMs: 10_000 });
+  for (let i = 0; i < 3 && fold(); i++) {
+    fold()!.click();
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-tool"), { capMs: 10_000 });
+  }
 };
 
 export default agentPaneEntry({

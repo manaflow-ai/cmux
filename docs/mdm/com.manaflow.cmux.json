@@ -34,6 +34,14 @@
       "title" : "Chat Code Size",
       "type" : "number"
     },
+    "agentPane.display.commandLabels" : {
+      "default" : [
+
+      ],
+      "description" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label.",
+      "title" : "Command Labels",
+      "type" : "string"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
@@ -4750,6 +4758,12 @@
       ],
       "title" : "Command-1 to 9 Select",
       "type" : "string"
+    },
+    "tabs.hideLoneChatTab" : {
+      "default" : false,
+      "description" : "When a pane holds only one chat, hide its tab so the chat fills the tab bar. A second tab brings the tab bar back.",
+      "title" : "Hide the Tab of a Chat Alone in Its Pane",
+      "type" : "boolean"
     },
     "tabs.nativeNewTabPage" : {
       "default" : false,

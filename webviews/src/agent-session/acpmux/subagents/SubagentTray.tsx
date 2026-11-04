@@ -81,6 +81,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { arrivalKey, type BackgroundCommand, sendLabel } from "../session-info/processes";
 import { commandRead } from "../session-info/commandRules";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStateText, subagentStatus } from "../summary/SubagentStatusList";
 import { retrying, retryLabel, sessionRetry } from "./retryState";
@@ -637,7 +638,7 @@ export const SubagentTray = memo(function SubagentTray({
       const processId = item.command.processId;
       // Named in words (session-info/commandRules.ts); the command as typed is its tooltip and the
       // first line of its tail.
-      const read = commandRead(t, item.command);
+      const read = commandRead(t, item.command, undefined, currentCommandRules());
       return (
         <>
           {menu(
@@ -763,7 +764,7 @@ function newestNames(t: Translate, items: readonly TrayItem[]): readonly string[
       item.kind === "agent"
         ? subagentTaskLabel(t, item.agent)
         : item.kind === "command"
-          ? (sendLabel(t, item.command) ?? commandRead(t, item.command).label)
+          ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
           : item.session.title,
     );
 }
