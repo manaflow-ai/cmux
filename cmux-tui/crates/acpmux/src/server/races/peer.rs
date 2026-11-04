@@ -164,10 +164,10 @@ pub(in crate::server) fn qualify_reply(peer: &str, answer: &mut Value) {
 
 /// Applied only at the local client boundary, never persisted or forwarded to another peer.
 pub(in crate::server) fn qualify_event(peer: &str, event: &mut Value) {
-    if event.get("kind").and_then(Value::as_str) == Some("race") {
-        if let Some(race) = event.get_mut("msg") {
-            qualify_reply(peer, race);
-        }
+    if event.get("kind").and_then(Value::as_str) == Some("race")
+        && let Some(race) = event.get_mut("msg")
+    {
+        qualify_reply(peer, race);
     }
 }
 

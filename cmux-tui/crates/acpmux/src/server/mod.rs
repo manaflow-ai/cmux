@@ -1909,10 +1909,10 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // Attached peer updates retain the raw wire id, but also identify its owner so
     // clients can key live transcripts by the same route as their session rows.
     let routed = |mut params: Value| {
-        if conn.origin != Origin::Peer {
-            if let Some(remote) = &ev.remote {
-                races::peer::qualify_event(&remote.peer, &mut params);
-            }
+        if conn.origin != Origin::Peer
+            && let Some(remote) = &ev.remote
+        {
+            races::peer::qualify_event(&remote.peer, &mut params);
         }
         if let Some(obj) = params.as_object_mut() {
             obj.remove("peer");
