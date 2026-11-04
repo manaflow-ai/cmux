@@ -259,7 +259,7 @@ What a marker proves and what it does not: that this run's terminal output reach
 grid, in colors a capture keeps. It draws cell backgrounds only, so it does not prove that glyphs render: a build that
 draws no text would still show markers. Journeys that check the app's own text keep `frame_text` (with its fold of
 look-alike letters, `OCR_FOLD`; the P0 journey runner reports a `frame_text` miss whose daemon and app checks of the
-same text passed as "not judged: reader misread"). Real-app rounds (2026-11-03), 0 unreadable markers in 1154 reads:
+same text passed as "not judged: reader misread"). Real-app rounds (2026-11-03), 0 unreadable markers in 1155 reads (both journeys of each round):
 1x on cmux21 and 2x on cmux23 (16 x 34 px cells, the lease's own 120 Hz display) with the first layout (no blank
 lines), and 1x on cmux21 with this layout (8 x 17 px cells). A frame check at 2x took about 1.5-1.8 s on a mini (the
 standard-library reader of a 2200x1440 snapshot).
