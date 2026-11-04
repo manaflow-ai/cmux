@@ -83,11 +83,10 @@ describe("a trusted job", () => {
     const token = await t.githubToken(CLAIMS);
     const response = await create(t, token, {}, { "x-cmux-team-id": TEAM });
     expect(response.status).toBe(201);
-    const vm = await response.json<{ labels: Record<string, string>; idleTimeoutSeconds: number | null; maxRunSeconds: number; autoDeleteSeconds: number; bootImage: unknown }>();
+    const vm = await response.json<{ labels: Record<string, string>; idleTimeoutSeconds: number | null; bootImage: unknown }>();
     expect(vm.labels).toMatchObject({ role: "cloud", "cmux.ci": "product-smoke" });
     expect(vm.idleTimeoutSeconds === null || vm.idleTimeoutSeconds < 0).toBe(true);
-    expect(vm.maxRunSeconds).toBe(900);
-    expect(vm.autoDeleteSeconds).toBe(0);
+    expect(t.upstream.callsTo("POST", /^\/v5\/vms$/)[0]?.json).toMatchObject({ maxRunSeconds: 900, autoDeleteSeconds: 0 });
     expect(vm.bootImage).toMatchObject(IMAGE);
     const audit = t.audit.find((row) => row.action === "vm.create");
     expect(audit).toMatchObject({ tenantId: TEAM, actor: "service:ci-product-smoke" });
@@ -96,14 +95,14 @@ describe("a trusted job", () => {
   it("keeps a shorter run cap it asks for and replaces no cap or a longer one", async () => {
     const t = await harness({ ciTrust: JSON.stringify([{ ...ROW, maxVms: 3 }]) });
     const token = await t.githubToken(CLAIMS);
-    const caps = [];
     for (const asked of [120, -1, 7200]) {
-      const response = await create(t, token, { maxRunSeconds: asked, autoDeleteSeconds: -1 });
-      expect(response.status).toBe(201);
-      const vm = await response.json<{ maxRunSeconds: number; autoDeleteSeconds: number }>();
-      caps.push([vm.maxRunSeconds, vm.autoDeleteSeconds]);
+      expect((await create(t, token, { maxRunSeconds: asked, autoDeleteSeconds: -1 })).status).toBe(201);
     }
-    expect(caps).toEqual([[120, 0], [900, 0], [900, 0]]);
+    const sent = t.upstream.callsTo("POST", /^\/v5\/vms$/);
+    expect(sent).toHaveLength(3);
+    expect(sent[0]?.json).toMatchObject({ maxRunSeconds: 120, autoDeleteSeconds: 0 });
+    expect(sent[1]?.json).toMatchObject({ maxRunSeconds: 900, autoDeleteSeconds: 0 });
+    expect(sent[2]?.json).toMatchObject({ maxRunSeconds: 900, autoDeleteSeconds: 0 });
   });
 
   it("stops at its live VM cap and may not fork", async () => {
