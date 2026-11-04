@@ -790,18 +790,23 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     func applyDisplay(_ display: ChatDisplaySettings) {
         appliedDisplay = display
         let system = traitCollection.preferredContentSizeCategory
-        if let category = display.category(system: system) {
-            if scrollView.traitOverrides.preferredContentSizeCategory != category {
+        // Reading an override that was never set raises (UIKit asserts): the category applied is kept here.
+        let category = display.category(system: system)
+        if category != appliedCategory {
+            appliedCategory = category
+            if let category {
                 scrollView.traitOverrides.preferredContentSizeCategory = category
+            } else if scrollView.traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
+                scrollView.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
             }
-        } else if scrollView.traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
-            scrollView.traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
         }
         list.setColumnCap(display.fullWidth ? nil : ChatDisplaySettings.standardColumn)
     }
 
     /// The last display applied, again when the person's own text size changes under it.
     private var appliedDisplay: ChatDisplaySettings?
+    /// The text size override set on the transcript (nil: none).
+    private var appliedCategory: UIContentSizeCategory?
 
     /// The prompt row of the turn being read: the last one whose top is at or above the top of
     /// what shows under the header (the Mac's minimap "current turn"). `turnIDs` in order.

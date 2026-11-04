@@ -16,7 +16,7 @@ import UIKit
         var marks: [(seq: Int, on: Bool)] = []
         var refuseMarks = false
         var refreshed = 0
-        var details = AgentSessionDetails(name: "fix-tests", sessionID: "s1", harnessSessionID: "h-9", cwd: "/w/proj", host: "Studio",
+        var details = AgentSessionDetails(name: "fix-tests", sessionID: "acpmux-1", harnessSessionID: "h-9", cwd: "/w/proj", host: "Studio",
                                           status: AgentSessionStatus(harness: "claude", fields: []))
         func events() -> AsyncStream<AgentSessionEvent> { AsyncStream { _ in } }
         func send(_ intent: AgentClientIntent) { sent.append(intent) }
@@ -56,12 +56,12 @@ import UIKit
             "Copy Session Details", "Copy Working Directory", "Copy Chat Host",
         ])
         #expect(try await AgentChatCopy.agentName.text(for: store) == "fix-tests")
-        #expect(try await AgentChatCopy.sessionID.text(for: store) == "s1")
+        #expect(try await AgentChatCopy.sessionID.text(for: store) == "acpmux-1", "the acpmux id, never the tab's")
         #expect(try await AgentChatCopy.harnessSessionID.text(for: store) == "h-9")
         #expect(try await AgentChatCopy.workingDirectory.text(for: store) == "/w/proj")
         #expect(try await AgentChatCopy.host.text(for: store) == "Studio")
         #expect(try await AgentChatCopy.details.text(for: store) ==
-            "Agent name: fix-tests\nAgent identifier: s1\nHarness session ID: h-9\nCWD: /w/proj\nHost: Studio")
+            "Agent name: fix-tests\nAgent identifier: acpmux-1\nHarness session ID: h-9\nCWD: /w/proj\nHost: Studio")
         #expect(try await AgentChatCopy.conversation.text(for: store) == "**User:**\nReply ONE\n\n**Assistant:**\nONE")
         source.details.harnessSessionID = nil
         await #expect(throws: AgentFeatureUnavailable.self) { try await AgentChatCopy.harnessSessionID.text(for: store) }

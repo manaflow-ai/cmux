@@ -48,16 +48,16 @@ public enum AgentChatCopy: String, CaseIterable, Identifiable, Sendable {
     @MainActor
     public func text(for store: AgentChatStore) async throws -> String {
         switch self {
-        case .sessionID:
-            return store.summary.id
         case .conversation:
             let text = Self.conversationMarkdown(store.turns)
             guard !text.isEmpty else { throw AgentFeatureUnavailable(String(localized: "This chat has no conversation to copy yet.")) }
             return text
-        case .agentName, .harnessSessionID, .details, .workingDirectory, .host:
+        case .agentName, .sessionID, .harnessSessionID, .details, .workingDirectory, .host:
+            // The chat's acpmux id (a workspace tab's chat is listed under its tab's id).
             let details = try await store.source.sessionDetails()
             let value: String? = switch self {
             case .agentName: details.name
+            case .sessionID: details.sessionID
             case .harnessSessionID: details.harnessSessionID
             case .workingDirectory: details.cwd
             case .host: details.host
