@@ -1,9 +1,11 @@
 import AppKit
+@testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextSignposts
+@testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextTestSupport
 import Foundation
@@ -15,36 +17,29 @@ import Testing
 /// never stretched, never a background gap); the PROGRAM's grid (the PTY's size) changes at most once per press. Pixels
 /// per frame; program size per press.
 ///
-/// Before: the key resize's hold (RESIZE KEYS K3, `TerminalSurfaceView.restAt`) held each surface at the press's final
-/// size for the whole spring, so a terminal's pixels changed size once per press while its pane (and, with FRAME OWNER
-/// S3, its host and tab strip) moved every frame: the content froze, then jumped.
+/// Before: the key resize's hold (RESIZE KEYS K3) kept each surface at one size per press (S3's host follows its pane,
+/// but its surface keeps the press's final size, or its start size, on the hold's still edges), so the terminal froze,
+/// then jumped. Film on dogfood 437f5a22 (px-keys-single-3k-s1r): the terminal right of the divider had its left ring on
+/// its pane's left edge in 14 of 50 motion frames, off by -8 to +21 px in 20, cut off in 16.
 ///
-/// The real path, in a window on screen: p1 | p2 in a ``LayoutRootView`` (Reduce Motion off, S3's content policy on), a
-/// terminal in each, and one Ctrl-Shift-L press on p2 (`PaneResize.press`): the divider moves, so p2's LEFT edge moves
-/// (the film's case: dogfood 437f5a22, px-keys-single-3k-s1r, p2's left ring on its pane edge in 14 of 50 motion frames,
-/// off by -8 to +21 px in 20, cut off in 16). The test steps the spring itself, one frame per step. After each frame's
-/// commit it reads, per terminal, in the committed layer tree: the surface's top-left must be on its area's top-left
-/// (1 device px), and its size must be one its pane had in this press, this frame or earlier (the newest frame drawn or
-/// an older one kept: never a size the pane has not had yet). After the landing each terminal shows its final size, and
-/// each PTY got at most one grid for the press. It prints each frame's main time (step and layout, p50, p95, max).
+/// The app's own pane content (`PaneContentView`: its tab strip over its content area, which a key hold follows, FRAME
+/// OWNER S1/S3) with a terminal in each of p1 | p2, in a window on screen; one Ctrl-Shift-L press on p2
+/// (`PaneResize.press`): the divider moves, so p2's LEFT edge moves. The test steps the spring itself, one frame per step
+/// (a display-link spring may not animate on a CI host). After each frame's commit it reads, per terminal, in the
+/// committed layer tree:
+/// - the surface's top-left within 1 device px of its host area's top-left;
+/// - a size its pane had in this press, this frame or earlier (the newest frame drawn, or an older one kept until then:
+///   never a size the pane has not had yet), and never stretched (the layer's pixels are the frame's pixels);
+/// - after the landing, each terminal at its final size; each PTY at most one grid for the press.
+/// It prints each frame's main time (step and layout: p50, p95, max).
 ///
 /// It needs a window on a display (a display worker: `cmux-ci run --display --label gui-session-v1`).
 @MainActor @Suite(.serialized, .closesItsWindows, .timeLimit(.minutes(1)),
                   .enabled(if: ["CMUX_TEST_REQUIRE_GUI", "CMUX_CI_DISPLAY_ROUTED"].contains { ProcessInfo.processInfo.environment[$0] == "1" }))
 struct TerminalKeyResizeFrameTests {
-    typealias KeyScreen = TerminalSurfaceCommitSizeTests.KeyScreen
-
     @Test func aKeyResizeShowsEachTerminalAtItsPanesSizeInEveryFrameAndResizesItsProgramOnce() async throws {
-        let screen = try await KeyScreen()
+        let screen = try await PaneScreen()
         defer { screen.close() }
-        // A spring, as a person sees it (KeyScreen pins Reduce Motion on), with S3's containers following their panes.
-        screen.root.context.reduceMotionOverride = false
-        screen.root.context.contentPolicyOverride = true
-        // The test is the clock, as in TabStripFollowsPaneTickTests: one spring frame per step (1/120 s), its layout
-        // pass, then that frame's Core Animation commit. A display-link spring may not animate on a CI host (its
-        // animation speed setting); stepping it shows every frame the spring has.
-        screen.root.driver.isManual = true
-        defer { screen.root.driver.isManual = false }
         // Warm-up press: one-time setup is not the press under test.
         _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
         _ = await Self.step(screen, record: nil)
@@ -56,12 +51,11 @@ struct TerminalKeyResizeFrameTests {
         var frames: [[Sample]] = [before]
         let (steps, intervals) = await Self.step(screen) { frames.append($0) }
         try #require(steps >= 4, "the press's spring ran \(steps) frames: no spring ran")
-        // Per frame and terminal (the film gate, pixel-perfect on dogfood 437f5a22: p2's left ring off its pane's left edge
-        // in 36 of 50 motion frames): the surface's top-left is on its area's top-left (1 device px), and it shows a size
-        // its pane had in this press, this frame or earlier (the newest frame drawn, or an older one kept until then:
-        // never a size the pane has not had yet, never stretched). At the end every terminal shows its final size.
+        try #require(frames.contains { $0.map(\.area) != before.map(\.area) }, "the press changed no pane's area")
+
         var misplaced: [String] = []
         var unsized: [String] = []
+        var stretched: [String] = []
         for index in 1..<frames.count {
             for (terminal, sample) in frames[index].enumerated() {
                 let scale = sample.scale
@@ -73,32 +67,37 @@ struct TerminalKeyResizeFrameTests {
                 if !had.contains(where: { near(sample.layer.width, $0.width) && near(sample.layer.height, $0.height) }) {
                     unsized.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)), area \(Self.text(sample.area))")
                 }
+                if let shown = sample.shownPixels, abs(sample.layer.width * scale - shown.width) > 1 || abs(sample.layer.height * scale - shown.height) > 1 {
+                    stretched.append("frame \(index) p\(terminal + 1): layer \(Self.text(sample.layer)) at \(scale)x, frame \(Self.text(shown)) px")
+                }
             }
         }
-        let landed = (frames.last ?? []).enumerated().filter { _, sample in
-            abs(sample.layer.width - sample.area.width) * sample.scale > 1 || abs(sample.layer.height - sample.area.height) * sample.scale > 1
-        }.map { "p\($0.offset + 1): layer \(Self.text($0.element.layer)), area \(Self.text($0.element.area))" }
         // The press's grid reaches the IO through the ordered input stream: read it after the panes rest.
         await Self.settle(screen)
+        let rested = screen.sessions.map(Sample.init)
+        let landed = rested.enumerated().filter { _, sample in
+            abs(sample.layer.width - sample.area.width) * sample.scale > 1 || abs(sample.layer.height - sample.area.height) * sample.scale > 1
+        }.map { "p\($0.offset + 1): layer \(Self.text($0.element.layer)), area \(Self.text($0.element.area))" }
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let sorted = intervals.sorted()
         let p = { (q: Double) in sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * q))] }
         print("S4 key resize: \(steps) spring frames; main ms per frame (step + layout) p50 \(p(0.5)) p95 \(p(0.95)) max \(sorted.last ?? 0); " +
-              "PTY grids per terminal \(resizes); misplaced \(misplaced.count), unsized \(unsized.count)")
+              "PTY grids per terminal \(resizes); misplaced \(misplaced.count), unsized \(unsized.count), stretched \(stretched.count)")
         #expect(misplaced.isEmpty, "\(misplaced.count) frames showed a terminal off its pane's top-left: \(misplaced.prefix(8))")
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
+        #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
         #expect(resizes.allSatisfy { $0 <= 1 }, "a press resized a terminal's program more than once: \(resizes)")
-        #expect(screen.mismatches.isEmpty, "turns with the layer and its frame at different sizes: \(screen.mismatches.prefix(6))")
     }
 
-    /// One terminal in one committed frame: its surface layer's size and top-left, and its host's area size and top-left
-    /// (points; top-lefts in the window's root layer, the committed model).
+    /// One terminal in one committed frame: its surface layer's size and top-left, its host's area size and top-left
+    /// (points; top-lefts in the window's root layer, the committed model), and the size of the frame it shows (px).
     struct Sample {
         var layer: CGSize
         var area: CGSize
         var topLeft: CGPoint
         var areaTopLeft: CGPoint
+        var shownPixels: CGSize?
         var scale: CGFloat
 
         @MainActor init(_ session: TerminalSession) {
@@ -107,14 +106,98 @@ struct TerminalKeyResizeFrameTests {
             layer = surface.layer?.bounds.size ?? .zero
             area = host.surfaceSize(forHostSize: host.bounds.size)
             scale = surface.layer?.contentsScale ?? 2
+            shownPixels = surface.presentedFrame.map { CGSize(width: $0.width, height: $0.height) }
             // The host is not flipped: its area's top is its bounds' maxY (an accessory strip sits at its bottom).
-            func top(_ layer: CALayer?, _ rect: CGRect) -> CGPoint {
+            func top(_ layer: CALayer?) -> CGPoint {
                 guard let layer, let root = host.window?.contentView?.layer else { return .zero }
-                let shown = layer.convert(rect, to: root)
+                let shown = layer.convert(layer.bounds, to: root)
                 return CGPoint(x: shown.minX, y: root.isGeometryFlipped ? shown.minY : shown.maxY)
             }
-            topLeft = top(surface.layer, surface.layer?.bounds ?? .zero)
-            areaTopLeft = top(host.layer, host.layer?.bounds ?? .zero)
+            topLeft = top(surface.layer)
+            areaTopLeft = top(host.layer)
+        }
+    }
+
+    /// p1 | p2 in a window on screen, each pane the app's `PaneContentView` with a terminal in its content area; the
+    /// switch on, Reduce Motion off, S3's content policy on, the spring stepped by the test.
+    final class PaneScreen {
+        final class Panes: LayoutPaneContentProvider {
+            let reveal: LaunchReveal = {
+                let reveal = LaunchReveal()
+                reveal.markAllReady()
+                return reveal
+            }()
+            var views: [PaneID: PaneContentView] = [:]
+
+            func makeContentView(for pane: PaneID) -> NSView {
+                let tab = TabItem(id: TabID("tab-\(pane.rawValue)"), title: "zsh")
+                let view = PaneContentView(stripModel: TabStripModel(tabs: [tab], selectedID: tab.id), reveal: reveal)
+                views[pane] = view
+                return view
+            }
+        }
+
+        let provider = Panes()
+        let model: LayoutModel
+        let root: LayoutRootView
+        let window: NSWindow
+        var sessions: [TerminalSession] = []
+        var ios: [ScriptedTerminalIO] = []
+        private let drew: Bool
+
+        init() async throws {
+            _ = NSApplication.shared
+            TunableStore.shared.activate(file: nil)
+            TunableStore.shared.register(TerminalDragTunables.all)
+            drew = WindowDrawPolicy.drawsWhenOccluded
+            WindowDrawPolicy.drawsWhenOccluded = true
+            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p2")
+            root = LayoutRootView(model: model, contentProvider: provider)
+            root.context.reduceMotionOverride = false
+            root.context.contentPolicyOverride = true
+            window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 1000, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = root
+            window.orderFrontRegardless()
+            root.layoutSubtreeIfNeeded() // sync-layout: the panes exist before their terminals attach
+            root.layoutSubtreeIfNeeded() // sync-layout: what joined the window in that pass lays out in this one
+            root.driver.isManual = true
+            let on = TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, .bool(true))
+            if on != .bool(true) { close() }
+            try #require(on == .bool(true), "the switch motion.frameOwner.terminals is not registered")
+            let line = String(repeating: "y", count: 40)
+            let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
+            for pane: PaneID in ["p1", "p2"] {
+                let io = ScriptedTerminalIO()
+                let session = TerminalSession(io: io)
+                ios.append(io)
+                guard session.surfaceView.surface != nil, let content = provider.views[pane] else {
+                    close()
+                    try #require(Bool(false), "libghostty created no surface, or pane \(pane) has no content")
+                    return
+                }
+                _ = content.show(session.view)
+                content.layoutSubtreeIfNeeded() // sync-layout: the attach's own layout pass
+                io.send(.output(Data(text.utf8)))
+                sessions.append(session)
+            }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while ContinuousClock.now < deadline, sessions.contains(where: { $0.surfaceView.presentedFrame == nil }) {
+                await TerminalKeyResizeFrameTests.commit()
+            }
+            let drawn = !sessions.contains { $0.surfaceView.presentedFrame == nil }
+            if !drawn { close() }
+            try #require(drawn, "a terminal never showed its first frame")
+        }
+
+        func close() {
+            root.driver.isManual = false
+            for io in ios { io.finish() }
+            window.close()
+            WindowDrawPolicy.drawsWhenOccluded = drew
+            TunableStore.shared.set(TerminalDragTunables.framesOwnedByCommit.key, nil)
         }
     }
 
@@ -128,7 +211,7 @@ struct TerminalKeyResizeFrameTests {
     /// Steps the spring to its landing, one frame per step: the step, its layout pass, its commit (`record` gets each
     /// committed frame), then 6 commits for the landing's release. Returns the frames stepped and each frame's main
     /// time (step and layout, ms).
-    static func step(_ screen: KeyScreen, record: (([Sample]) -> Void)?) async -> (Int, [Double]) {
+    static func step(_ screen: PaneScreen, record: (([Sample]) -> Void)?) async -> (Int, [Double]) {
         var intervals: [Double] = []
         var moving = true
         var steps = 0
@@ -149,7 +232,7 @@ struct TerminalKeyResizeFrameTests {
     }
 
     /// Commits until the panes and their terminals have not changed for 300 ms of wall-clock time (at most 3 s).
-    static func settle(_ screen: KeyScreen) async {
+    static func settle(_ screen: PaneScreen) async {
         let deadline = ContinuousClock.now.advanced(by: .seconds(3))
         var last: [CGSize] = []
         var changed = ContinuousClock.now
