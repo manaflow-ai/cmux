@@ -384,16 +384,25 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
         let mut chunk = [0_u8; 4096];
         let read_len = available.min(chunk.len());
-        match connection.read(&mut chunk[..read_len]) {
+        // `read_len` never exceeds the chunk, and `Read` never reports more
+        // bytes than the buffer holds; a reader that breaks that contract
+        // is not evidence authorizing replacement either.
+        let Some(buffer) = chunk.get_mut(..read_len) else {
+            return Probe::Answered;
+        };
+        match connection.read(buffer) {
             Ok(0) => return Probe::Answered,
             Ok(count) => {
+                let Some(received) = buffer.get(..count) else {
+                    return Probe::Answered;
+                };
                 let previous_len = line.len();
-                line.extend_from_slice(&chunk[..count]);
+                line.extend_from_slice(received);
                 if line.len() > super::identify::RESPONSE_LIMIT {
                     // Malformed input is not evidence authorizing replacement.
                     return Probe::Answered;
                 }
-                if let Some(end) = chunk[..count].iter().position(|byte| *byte == b'\n') {
+                if let Some(end) = received.iter().position(|byte| *byte == b'\n') {
                     line.truncate(previous_len + end + 1);
                     return if super::identify::is_refusal(&line) {
                         Probe::Refused
