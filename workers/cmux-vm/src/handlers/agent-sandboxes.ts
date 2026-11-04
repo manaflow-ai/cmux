@@ -38,6 +38,17 @@ export const withAgentLabels = (principal: Principal, requested: CreateVmRequest
   });
 
 /**
+ * A caller on a run cap (a CI trust row) creates only VMs that pause within the cap and are deleted as soon as they
+ * stop: a smaller run cap it asks for stands, no cap or a longer one becomes the cap, and auto-delete is always 0.
+ */
+export const withRunCap = (principal: Principal, requested: CreateVmRequest): CreateVmRequest => {
+  const cap = principal.maxRunSeconds;
+  if (cap === undefined) return requested;
+  const asked = requested.maxRunSeconds;
+  return { ...requested, maxRunSeconds: asked !== undefined && asked > 0 && asked < cap ? asked : cap, autoDeleteSeconds: 0 };
+};
+
+/**
  * Whether one more VM of `size` fits the agent key's budget: fewer live VMs than
  * maxVms, and the estimated USD/h of the live ones (as the provider reports their
  * size) plus the new one at most maxUsdPerHour. Not atomic with the create: two

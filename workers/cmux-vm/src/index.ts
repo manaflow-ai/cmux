@@ -5,6 +5,7 @@
 import { Effect, Layer, Redacted } from "effect";
 import { makeWebHandler } from "./app.ts";
 import { stackLayers } from "./auth/credentials.ts";
+import { ciTrustLayer } from "./auth/ci-trust.ts";
 import { serviceKeysLayer } from "./auth/service-keys.ts";
 import { checkSchema, makeSchemaGate } from "./db/schema-check.ts";
 import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
@@ -66,6 +67,8 @@ export interface Env {
   readonly CMUX_VM_SERVICE_KEYS?: string;
   /** JSON object of service key id to extra scopes, limited to acl:read and acl:write. See src/auth/service-keys.ts. */
   readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
+  /** GitHub Actions jobs trusted by their OIDC token, a JSON array of trust rows (no secret). See src/auth/ci-trust.ts. */
+  readonly CMUX_VM_CI_TRUST?: string;
 }
 
 const liveServices = (env: Env) => {
@@ -86,6 +89,7 @@ const liveServices = (env: Env) => {
     policy,
     vmImagesLayer(env.VM_BOOT_IMAGES),
     serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS),
+    ciTrustLayer(env.CMUX_VM_CI_TRUST),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),

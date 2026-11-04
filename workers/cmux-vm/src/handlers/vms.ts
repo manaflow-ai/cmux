@@ -35,7 +35,7 @@ import { visibleVmImages, vmImageAllowed, vmImageEvidenceOf, type VmImageAllowed
 import { CmuxVmApi, CreatedVm, Vm, VmList, type CreateVmRequest, type ForkVmRequest, type VmState } from "../api.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { MeshStore } from "../db/mesh.ts";
-import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels } from "./agent-sandboxes.ts";
+import { agentBudgetAllows, revokeVmClientSessions, withAgentLabels, withRunCap } from "./agent-sandboxes.ts";
 import { actorRef, carriesRequiredLabels, CurrentPrincipal, type Principal } from "../domain/principal.ts";
 import {
   badRequest,
@@ -310,7 +310,8 @@ const createVm = (requested: CreateVmRequest, idempotencyKey: string | undefined
       const principal = caller.value;
       yield* forbidAllowlisted(principal);
       // An agent key's VMs get its labels without asking; a label naming another agent is refused.
-      const payload = yield* withAgentLabels(principal, requested);
+      // A CI trust row's VMs pause within its run cap and are deleted once stopped, whatever was asked.
+      const payload = withRunCap(principal, yield* withAgentLabels(principal, requested));
       yield* requireServiceLabels(principal, payload.labels ?? {});
       if (payload.image !== undefined && payload.snapshotId !== undefined) return yield* Effect.fail(badRequest("Choose either an approved image or a tenant snapshot"));
       const network = payload.initialNetwork === undefined ? undefined : yield* vmNetworkAllowed(caller, payload.initialNetwork);

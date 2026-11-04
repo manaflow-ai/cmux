@@ -127,18 +127,26 @@
         // (Lawrence Chen's workspace, AUSTIN, Aziz Albahar's Team). Add a team id here in a reviewed change.
         "MANAFLOW_TEAM_TENANT_IDS": "d13acd51-c77d-438a-9610-5369455e2a2f,eff137f0-2e49-409e-bd6e-6e2d46cf3f1d,8e288bf9-264c-44a3-9d85-f22cbff2a6ad,50c7631c-c546-45d8-9b98-2a5744b4cdad",
         // JSON object of Stack team id to live VM limit; the default is 20.
-        "TENANT_VM_QUOTAS": "{}",
+        "TENANT_VM_QUOTAS": "{\"cmux-vm-product-smoke\":2}",
         "STACK_API_URL": "https://api.stack-auth.com",
         "UPSTREAM_API_URL": "https://api.freestyle.sh",
         // NEXT Cloud in production: the same Cloud Native image staging runs (cloud-native-5e57723, bake run 41701438675,
-        // smoke 28 checks), approved only for cmux-platform production's service key.
-        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-5e57723\",\"revision\":\"ci-41701438675-1\",\"displayName\":\"Cloud Native (cmux-tui 5e577237)\",\"snapshotId\":\"sh-cfe10f461d074570b4ab4d781597e0a8\",\"services\":[\"cloud-platform-production\"]}]",
+        // smoke 28 checks), approved for cmux-platform production's service key and for the CI product smoke (CMUX_VM_CI_TRUST), which boots exactly
+        // what the product boots.
+        "VM_BOOT_IMAGES": "[{\"id\":\"cloud-native-5e57723\",\"revision\":\"ci-41701438675-1\",\"displayName\":\"Cloud Native (cmux-tui 5e577237)\",\"snapshotId\":\"sh-cfe10f461d074570b4ab4d781597e0a8\",\"services\":[\"cloud-platform-production\",\"ci-product-smoke\"]}]",
         // The production counterpart of staging's guest coderouter.cmux.internal proxy origin.
         "VM_HTTPS_PROXY_ORIGINS": "[\"https://cmux.com\"]",
         // A request made with these service keys (CMUX_VM_SERVICE_KEYS ids, never key material) is entitled for the team it
         // acts for: cmux-platform has already decided that team's plan (the company grant for @cmux.com members), so a
         // member's personal team needs no entry in MANAFLOW_TEAM_TENANT_IDS. The key's teams, scopes and labels still apply.
-        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production",
+        // ci-product-smoke is the CI trust row below, entitled for its own team only (its row names one team).
+        "CMUX_VM_ENTITLED_SERVICE_IDS": "cloud-platform-production,ci-product-smoke",
+        // GitHub Actions jobs trusted by their OIDC token (src/auth/ci-trust.ts); no key exists to leak or rotate, and
+        // removing a row revokes it. ci-product-smoke: cmux-vm.yml's smoke-production job on feat-cmux-next in the
+        // cmux-vm-production environment. It acts only for cmux-vm-product-smoke (no Stack team, not dev/test, so its
+        // VMs take the product's never-pause idle default), only on VMs labelled cmux.ci=product-smoke, at most 2 live
+        // (and TENANT_VM_QUOTAS above), each paused after 15 minutes and deleted once stopped.
+        "CMUX_VM_CI_TRUST": "[{\"id\":\"ci-product-smoke\",\"audience\":\"https://vm.cmux.dev\",\"repository\":\"manaflow-ai/cmux\",\"environment\":\"cmux-vm-production\",\"workflowRef\":\"manaflow-ai/cmux/.github/workflows/cmux-vm.yml@refs/heads/feat-cmux-next\",\"team\":\"cmux-vm-product-smoke\",\"scopes\":[\"vm:read\",\"vm:write\",\"vm:exec\"],\"labels\":{\"cmux.ci\":\"product-smoke\"},\"maxVms\":2,\"maxUsdPerHour\":1,\"maxRunSeconds\":900}]",
         // Mesh experiment (cx-0op): on for cmux-platform production's own requests only, as staging has it for its
         // platforms: each team's Cloud mesh is made in that team's personal tenant, which no hand-kept list knows in
         // advance. No tenant is listed, so every other caller still gets 404.
