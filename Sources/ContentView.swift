@@ -6199,7 +6199,7 @@ struct ContentView: View {
         return TerminalDirectoryOpenTarget.availableTargets()
     }
 
-    private nonisolated static func resolveCommandPaletteAgentLauncherProviders(
+    nonisolated static func resolveCommandPaletteAgentLauncherProviders(
         environment: [String: String],
         bundleResourceURL: URL?,
         configuredExecutablePaths: [AgentSessionProviderID: String]
