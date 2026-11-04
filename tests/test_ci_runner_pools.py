@@ -144,27 +144,28 @@ class Declared(unittest.TestCase):
         self.assertNotIn("needs", rescue)
         self.assertEqual(rescue["permissions"], {"actions": "write", "contents": "read"})
         self.assertNotIn("secrets.", path.read_text())
-        self.assertIn("vars.CI_LIGHT_LANE_RUNNER || vars.CI_SIDE_LANE_RUNNER || vars.LINUX_RUNNER", rescue["runs-on"])
+        self.assertNotIn("CI_LIGHT_LANE_RUNNER", rescue["runs-on"])
+        self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
+        self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
+        self.assertIn("ephemeral-required", path.read_text())
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
 
-    def test_the_independent_rescue_uses_the_reviewed_bounded_helper(self) -> None:
-        # cmux#32023, #32120: a hosted light job GitHub never assigns fails over to its re-run route.
+    def test_the_independent_rescue_uses_the_bounded_local_helper(self) -> None:
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-hosted-light-rescue.yml").read_text())
         steps = workflow["jobs"]["rescue"]["steps"]
-        [checkout] = [s for s in steps if s.get("id") == "hosted-light-tooling"]
-        self.assertRegex(checkout["with"]["ref"], r"^[0-9a-f]{40}$")
-        self.assertEqual(checkout["with"]["persist-credentials"], False)
-        self.assertEqual(set(checkout["with"]["sparse-checkout"].split()),
-                         {"scripts/ci/hosted_light_rescue.py", ".github/runners.json"})
         [step] = [s for s in steps if "hosted_light_rescue.py" in str(s.get("run", ""))]
-        self.assertIn("--runners .hosted-light-tooling/.github/runners.json", step["run"])
+        self.assertIn("python3 scripts/ci/hosted_light_rescue.py", step["run"])
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertIn("inputs.dry_run", step["env"]["DRY_RUN"])
-        self.assertEqual(workflow["jobs"]["rescue"]["permissions"].get("actions"), "write")
-        names = [s.get("name") for s in steps]
-        self.assertLess(names.index(checkout["name"]), names.index(step["name"]))
+        self.assertIn("--runners .rescue-workflows/.github/runners.json", step["run"])
         self.assertIn("--workflows .rescue-workflows/.github/workflows", step["run"])
+
+    def test_the_minute_sweeper_isolates_light_rescue_from_the_routing_app(self) -> None:
+        doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        [step] = [s for s in doc["jobs"]["rescue"]["steps"] if "owned_pool_rescue.py" in str(s.get("run", ""))]
+        self.assertEqual(step["env"]["HOSTED_LIGHT_TOKEN"], "${{ github.token }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_DISABLED"], "${{ vars.CI_HOSTED_LIGHT_RESCUE_DISABLED }}")
+        self.assertEqual(step["env"]["HOSTED_LIGHT_POLICY"], ".rescue-workflows/.github")
 
 
 class Evidence(unittest.TestCase):
