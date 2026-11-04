@@ -44,9 +44,9 @@ public nonisolated final class FocusMachine {
         }
         let waited = state.awaitsOtherTab
         guard let result = read(reply, into: &state) else { return nil }
-        // Every focus event with a person source tag sets their intent target (``FocusState/personTarget``), also the
-        // responder report of their click in another pane's view; automation's and the app's events never do.
-        if event.isPersonsOwn { state.personTarget = state.typingTab }
+        // The person's focus choice sets their intent target (``FocusState/personTarget``): a move from their own entry or
+        // the responder report of their click; a key's responder change, automation's and the app's events never do.
+        if event.choosesFocusAsPerson { state.personTarget = state.typingTab }
         for effect in result.effects { Self.mirror(effect, into: &state) }
         return Self.reapplyingOnWaitChange(result, waited: waited, state: state)
     }
