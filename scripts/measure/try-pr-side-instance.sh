@@ -37,6 +37,8 @@ for pr in "$@"; do
   pid="" loaded="" done_at=""
   for _ in $(seq 1 3000); do
     [[ -z "$pid" && -f "$CMUX_SIDE_ROOT/pr-$pr/pid" ]] && pid="$(cat "$CMUX_SIDE_ROOT/pr-$pr/pid")"
+    # try-pr.sh takes the next free port when the usual one is in use, and records it.
+    if [[ -f "$CMUX_SIDE_ROOT/pr-$pr/port" ]]; then port="$(cat "$CMUX_SIDE_ROOT/pr-$pr/port")"; fi
     # A client of the dev server other than the server itself: the app or its web content.
     if [[ -n "$pid" ]] && lsof -nP -iTCP:"$port" -sTCP:ESTABLISHED -Fc 2>/dev/null | sed -n 's/^c//p' | grep -qv -E '^(bun|node)$'; then
       loaded=$(now); break

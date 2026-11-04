@@ -163,6 +163,13 @@ case "$verdict" in
     fi
     app="$(find "$out/bundle" -maxdepth 2 -name '*.app' -type d | head -1)"
     [[ -n "$app" ]] || { echo "job $job returned no app bundle" >&2; exit 1; }
+    if [[ -z "$here" ]] && "$side" path "$name" >/dev/null 2>&1; then
+      # A web-live try of an earlier head left a dev server and web-dev.json pointing at it, which
+      # would serve that head's web code over the build's own: both go before the build opens.
+      side_env
+      run "$ROOT/scripts/cmux-next/web-overlay.sh" server off
+      run "$ROOT/scripts/cmux-next/web-overlay.sh" off
+    fi
     if [[ -n "$here" ]]; then
       echo "built: $app (dev-build-try $pr installs and opens it as cmux DEV try)"
     else

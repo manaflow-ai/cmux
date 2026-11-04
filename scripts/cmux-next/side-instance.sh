@@ -57,6 +57,8 @@ running() {
 }
 # Every process running from the copy: the app, its terminal daemon and its helpers.
 copy_pids() { local app; app="$(app_of)"; ps -axo pid=,comm= | awk -v p="$app/" 'index($0, p) { print $1 }'; }
+# PlistBuddy takes the rest of a Set or Add command as the value, spaces and # included (checked
+# with "cmux PR #35" and an Application Support path), so VALUE needs no quoting.
 plist_set() { # FILE KEY VALUE: set a string key, adding it when missing
   "$buddy" -c "Set :$2 $3" "$1" 2>/dev/null || "$buddy" -c "Add :$2 string $3" "$1"
 }
