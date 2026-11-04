@@ -846,6 +846,86 @@ fn a_recovery_copy_above_a_quarantine_never_reuses_a_quarantined_lsn() {
     assert_names_every_quarantined_file(&killed, &report);
 }
 
+/// G9 of the fifth review: an open skips LSNs (damaged synced records in the last segment) and
+/// copies the records before the damage into a new segment; the empty segment after the copy
+/// carried the skip in its header alone. With that header damaged, the next open must still skip.
+#[test]
+fn a_skip_hidden_behind_a_recovery_copy_is_never_given_out_again() {
+    let storage = SimStorage::new(59);
+    let config = Config { stream_sync_delay: Duration::from_secs(60), ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, &payload(1)), Ok(1));
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
+    // 2..10 written, not synced; 11's sync covers them all: one synced run, marker 11 after it.
+    for lsn in 2..=10 {
+        assert_eq!(journal.append(1, Class::Stream, &payload(lsn)), Ok(lsn));
+    }
+    assert_eq!(journal.append(1, Class::Ack, &payload(11)), Ok(11));
+    assert_eq!(journal.seal(WAIT), Ok(11));
+    drop(journal);
+    // Media damage in a payload byte of record 5.
+    let record = |lsn: Lsn| format::RECORD_HEADER_LEN + payload(lsn).len();
+    let at = SEGMENT_HEADER_LEN
+        + record(1)
+        + format::RECORD_HEADER_LEN
+        + (2..=4).map(record).sum::<usize>()
+        + format::RECORD_HEADER_LEN
+        + 1;
+    let storage = storage.restart(Crash::Process);
+    storage.corrupt(&dir().join(format::segment_name(1)), at);
+    // Open #1: (4, 11] reported, 2..4 copied into segment 2, the empty segment 3 from 12.
+    let (journal, report, _) =
+        open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    let reported = report
+        .damage
+        .iter()
+        .any(|damage| matches!(damage, Damage::Corrupt { lost_after: 4, lost_through: 11, .. }));
+    assert!(reported, "{report:?}");
+    assert_eq!((report.next_lsn, report.rewritten), (12, 3), "{report:?}");
+    drop(journal);
+    let storage = storage.restart(Crash::Process);
+    storage.corrupt(&dir().join(format::segment_name(3)), 20);
+    // Open #2.
+    let (journal, report, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, b"after"), Ok(12), "{report:?}");
+}
+
+/// The same for torn records (an OS crash wrote some pages of an unsynced write): their LSNs are
+/// never given out again, also when a copy hides the segment that holds them.
+#[test]
+fn torn_lsns_hidden_behind_a_recovery_copy_are_never_given_out_again() {
+    let storage = SimStorage::new(60);
+    let config = Config { stream_sync_delay: Duration::from_secs(60), ..quick() };
+    let (journal, _, _) = open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, &payload(1)), Ok(1));
+    journal.wait_durable(1, WAIT).unwrap_or_else(|e| panic!("{e}"));
+    assert!(eventually(|| journal.full_durable_lsn() >= 1), "{:?}", journal.stats());
+    for lsn in 2..=3 {
+        assert_eq!(journal.append(1, Class::Stream, &payload(lsn)), Ok(lsn));
+    }
+    assert!(eventually(|| journal.stats().written_lsn >= 3), "{:?}", journal.stats());
+    let storage = storage.restart(Crash::Process);
+    drop(journal);
+    // A torn write after them: bytes that are not an entry, then record 5 whole.
+    let path = dir().join(format::segment_name(1));
+    let mut bytes = storage.contents(&path).unwrap_or_default();
+    bytes.extend_from_slice(&[0x5A; 13]);
+    let torn = payload(5);
+    format::encode_record(&mut bytes, 5, 1, Class::Stream, &torn, &format::payload_crc(&torn));
+    write_whole(&storage, &path, &bytes);
+    // Open #1: torn LSNs 4..5, 2..3 copied into segment 2, the empty segment 3 from 6.
+    let (journal, report, _) =
+        open_at(&storage, config.clone(), 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!((report.torn_lsns, report.next_lsn), (Some((4, 5)), 6), "{report:?}");
+    drop(journal);
+    let storage = storage.restart(Crash::Process);
+    storage.corrupt(&dir().join(format::segment_name(3)), 20);
+    // Open #2.
+    let (journal, report, _) = open_at(&storage, config, 0).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(journal.append(1, Class::Ack, b"after"), Ok(6), "{report:?}");
+}
+
 // ---------------------------------------------------------------- retirement (S2)
 
 /// 60 acked records over many 200-byte segments, sealed; and the config.
