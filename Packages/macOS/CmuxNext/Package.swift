@@ -175,8 +175,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-1f0abddf9f2ffad7dc2e996b68a9f7a5c5417bdd/CCmuxAppFFI.xcframework.zip",
-    checksum: "1d59defc46dfc67070450c474b4a33aeb71fe49edf258ebc4495e81829ab5784"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-df4352d75349a4374f29caac31458c83d4a0c6dc/CCmuxAppFFI.xcframework.zip",
+    checksum: "f31f6634638a23e3720563a811af4578d225fcd80431ba63f48ba9e0186a9314"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -194,14 +194,15 @@ let uiLayerPreviewDefine: [SwiftSetting] = [
 let uiLayerPreviewTargets: [Target] = [
     .target(
         name: "CmuxNextUiLayerPreview",
-        dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+        // Settings and CmuxTheme read the installed app's look (UiLayerAppLook).
+        dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", .product(name: "CmuxTheme", package: "CmuxTheme")],
         swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
     // The library compiles to nothing outside Debug, so its tests carry the
     // same define and compile to nothing there too.
     .testTarget(
         name: "CmuxNextUiLayerPreviewTests",
-        dependencies: ["CmuxNextUiLayerPreview"],
+        dependencies: ["CmuxNextUiLayerPreview", .product(name: "CmuxTheme", package: "CmuxTheme")],
         swiftSettings: uiSwiftSettings + uiLayerPreviewDefine
     ),
 ]
@@ -1060,7 +1061,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextAppsTests",
-            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextApps", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextWakeups", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // App permissions (plans/cmux-next/first-party-apps.md sections 4 and 5):
@@ -1846,7 +1847,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextMobileHostTests",
-            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextMobileHost", "CmuxNextMobile", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextAgentPane", "CmuxNextPages", "CmuxNextSettings", "CmuxNextTestSupport", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
