@@ -1111,3 +1111,126 @@ fn a_read_that_shows_a_line_covers_its_record() {
         );
     }
 }
+
+// ---------------------------------------------------------------- review of #35562 (the hold)
+
+/// Makes `id`'s first log segment a link to a copy of itself: the store never follows one, so the
+/// chat's repair fails at every open until the link goes.
+fn link_first_segment(home: &Path, id: &str) -> (PathBuf, PathBuf) {
+    let segment = home.join("sessions").join(id).join("events").join("000001.ndjson");
+    let copy = home.join(format!("{id}-elsewhere.ndjson"));
+    std::fs::copy(&segment, &copy).unwrap_or_else(|e| panic!("{e}"));
+    std::fs::remove_file(&segment).unwrap_or_else(|e| panic!("{e}"));
+    std::os::unix::fs::symlink(&copy, &segment).unwrap_or_else(|e| panic!("{e}"));
+    (segment, copy)
+}
+
+/// A store whose open could not repair chat-b (its segment a link): chat-b's line 2 was past the
+/// checkpoint at a kill.
+fn open_with_a_failed_repair(home: &Path, journal: &SimStorage) -> (Box<dyn Store>, SimStorage) {
+    let store = open(home, journal);
+    store.append("chat-b", &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(2, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let killed = journal.restart(Crash::Process);
+    drop(store);
+    link_first_segment(home, "chat-b");
+    (open(home, &killed), killed)
+}
+
+fn checkpoint_lsn(home: &Path) -> u64 {
+    let bytes = std::fs::read(home.join("journal-projected.json")).unwrap_or_default();
+    serde_json::from_slice::<Value>(&bytes).ok().and_then(|v| v["lsn"].as_u64()).unwrap_or(0)
+}
+
+/// F2 and F3 of the review of #35562, at the root: a chat whose repair failed keeps only its own
+/// lines for the next start; the checkpoint of every other chat goes on. (A hold of the global
+/// checkpoint kept every chat's records past it, so a start with the switch off replayed them
+/// again, a retention rewrite came undone, and the journal grew with each restart.)
+#[test]
+fn a_failed_repair_does_not_hold_the_checkpoint_of_other_chats() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(80);
+    let (store, _killed) = open_with_a_failed_repair(home.path(), &journal);
+    for seq in 1..=3 {
+        store.append(CHAT, &record(seq, "queued")).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    let durability = store.durability().unwrap_or_else(|| panic!("no durability"));
+    let last = durability.acked.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(
+        checkpoint_lsn(home.path()) >= last,
+        "the checkpoint stayed at {} below chat-a's records (the journal ends at {last})",
+        checkpoint_lsn(home.path())
+    );
+}
+
+/// A retention rewrite of another chat after a failed repair stays: the next open writes none of
+/// the lines it cut back, and keeps no copy of them aside.
+#[test]
+fn a_retention_rewrite_after_a_failed_repair_stays_after_a_restart() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(81);
+    let (store, killed) = open_with_a_failed_repair(home.path(), &journal);
+    store.append(CHAT, &record(1, "created")).unwrap_or_else(|e| panic!("{e:#}"));
+    let long = EventRecord {
+        seq: 2,
+        at: 1_002,
+        dir: "in".into(),
+        kind: "claude.assistant".into(),
+        msg: json!({ "text": "x".repeat(8 * 1024) }),
+        host_seq: None,
+    };
+    store.append(CHAT, &long).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    let staged = store
+        .stage_compaction(CHAT, CompactMode::Write { archive: None })
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .unwrap_or_else(|| panic!("nothing to compact"));
+    assert!(store.commit_compaction(CHAT, staged).unwrap_or_else(|e| panic!("{e:#}")));
+    let cut = std::fs::read(home.path().join("sessions").join(CHAT).join("events/000001.ndjson"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    drop(store);
+    let store = open(home.path(), &killed);
+    let after = std::fs::read(home.path().join("sessions").join(CHAT).join("events/000001.ndjson"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(seqs(store.as_ref(), CHAT), vec![1, 2]);
+    assert!(after == cut, "the open wrote lines a retention rewrite cut back into the log");
+    let kept: Vec<String> = std::fs::read_dir(home.path().join("journal-unapplied"))
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !kept.iter().any(|name| name.starts_with(CHAT)),
+        "the open kept a copy of a rewritten log aside: {kept:?}"
+    );
+}
+
+/// A chat whose repair failed, then deleted and made again under the same id in that run: the
+/// next start gives the new chat none of the old chat's kept lines.
+#[test]
+fn a_chat_deleted_after_its_failed_repair_does_not_get_its_old_lines() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(82);
+    let (store, killed) = open_with_a_failed_repair(home.path(), &journal);
+    store.delete("chat-b").unwrap_or_else(|e| panic!("{e:#}"));
+    store.append("chat-b", &record(1, "created-again")).unwrap_or_else(|e| panic!("{e:#}"));
+    assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
+    store.flush().unwrap_or_else(|e| panic!("{e:#}"));
+    drop(store);
+    let store = open(home.path(), &killed);
+    let kinds: Vec<String> = store
+        .events("chat-b", 0, 100)
+        .unwrap_or_else(|e| panic!("{e:#}"))
+        .into_iter()
+        .map(|record| record.kind)
+        .collect();
+    assert_eq!(kinds, vec!["created-again".to_owned()], "the new chat got the old chat's lines");
+}
