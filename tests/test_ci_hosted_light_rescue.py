@@ -90,10 +90,10 @@ def mutations(fake: Fake) -> list[tuple]:
     return [call for call in fake.calls if call[0] in ("cancel", "rerun")]
 
 
-def sweep(fake: Fake, *, dry_run: bool = False, workflows=("pr-checks.yml",)) -> list[str]:
+def sweep(fake: Fake, *, dry_run: bool = False, workflows=("pr-checks.yml",), cursor=None) -> list[str]:
     clock = iter(range(0, 10_000)).__next__
     return rescue.sweep(fake, list(workflows), now=NOW, dry_run=dry_run, sleep=lambda _s: None,
-                        clock=lambda: float(clock()))
+                        clock=lambda: float(clock()), scan_cursor=cursor)
 
 
 class Scope(unittest.TestCase):
@@ -229,6 +229,33 @@ class WorkflowToken(unittest.TestCase):
 
 
 class Sweep(unittest.TestCase):
+    def test_a_fair_cursor_reaches_a_newer_eligible_run_behind_40_gated_runs(self):
+        """Persistent gated runs must not consume every bounded minute-pass forever."""
+        gated = [run(100 + index) for index in range(rescue.MAX_RUNS)]
+        eligible = run(999)
+        fixture_runs = {"pr-checks.yml": gated + [eligible]}
+        fixture_jobs = {
+            item["id"]: [
+                job("PR size"),
+                job("build", status="in_progress", labels=("blacksmith-4vcpu-ubuntu-2404",), runner_id=7),
+            ]
+            for item in gated
+        }
+        fixture_jobs[eligible["id"]] = [job("PR size")]
+
+        def passes_until_rescue(fake, cursor=None, limit=3):
+            for count in range(1, limit + 1):
+                sweep(fake, cursor=cursor)
+                if ("rerun", eligible["id"]) in mutations(fake):
+                    return count
+            return None
+
+        before = passes_until_rescue(Fake(fixture_runs, fixture_jobs), limit=3)
+        cursor = [None]
+        after = passes_until_rescue(Fake(fixture_runs, fixture_jobs), cursor=cursor, limit=3)
+        self.assertIsNone(before)
+        self.assertEqual(after, 2)
+
     def test_a_stalled_report_job_is_cancelled_and_its_failed_jobs_re_run(self):
         jobs = [job("Changes", status="completed", runner_id=1, waited=900), job("PR size"), job("UI review advisory")]
         fake = Fake({"pr-checks.yml": [run(7)]}, {7: jobs}, settles_after=3)
