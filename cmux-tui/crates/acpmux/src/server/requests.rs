@@ -1029,6 +1029,11 @@ async fn dispatch_request_with_identity(
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
             }
+            // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
+            // owner app exited (`daemon/unused_exit.rs`, R-LIFECYCLE ORPHANS).
+            if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
+                conn.presence.observes();
+            }
             // A Mac that lends this machine its GitHub login: only over a link that read this
             // machine's peer token over ssh, never a paired device's (`hub/github_owner.rs`). It
             // counts from its `_acpmux/watch`, once the Mac's side of the handshake is done.

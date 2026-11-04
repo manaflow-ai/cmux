@@ -101,7 +101,9 @@ final class HomeAgentChatView: NSView {
 
     private func makeHeader() -> NSView {
         let title = label(content.title, size: TypeScale.body, weight: TypeScale.emphasis, color: .labelColor)
-        let status = label("\(content.peer) · \(content.status)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
+        // Where it runs once it moved (a machine name, not words): "a12 · Working · cmux-mini".
+        let placeText = content.place.map { " · " + $0 } ?? ""
+        let status = label("\(content.peer) · \(content.status)\(placeText)", size: TypeScale.caption, weight: TypeScale.regular, color: .secondaryLabelColor)
         let names = NSStackView(views: [title, status])
         names.orientation = .vertical
         names.alignment = .leading
