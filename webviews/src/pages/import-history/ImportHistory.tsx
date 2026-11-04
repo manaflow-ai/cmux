@@ -107,7 +107,8 @@ function SourceRow({
   const localizedTitle = t(`history.source.${row.id}`);
   const title = row.title ?? (localizedTitle === `history.source.${row.id}` ? titleFor(row.id) : localizedTitle);
   const unavailable = row.kind === "local" && !row.source;
-  const selected = row.kind === "text" ? Boolean(row.expanded) : row.selected;
+  const expanded = Boolean(row.expanded || (row.kind === "text" && row.detected));
+  const selected = row.kind === "text" ? expanded : row.selected;
   return (
     <section className={`history-source phase-${row.phase}`}>
       <div className="history-source-line">
@@ -158,7 +159,7 @@ function SourceRow({
         </div>
       </div>
       {row.name && <p className="history-file">{row.name}</p>}
-      {row.kind === "text" && row.expanded && (
+      {row.kind === "text" && expanded && (
         <div className="history-paste">
           <p>{t("history.pasteHelp")}</p>
           <button

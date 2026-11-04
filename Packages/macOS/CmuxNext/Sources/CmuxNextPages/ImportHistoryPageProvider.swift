@@ -45,7 +45,12 @@ public final class ImportHistoryPageProvider: PageProvider {
             let result = try await run(command.detect(exports: true), .seconds(60))
             let sources = result["sources"]?.arrayValue ?? []
             for source in sources {
-                if let name = source["source"]?.stringValue { admitted[name] = "" }
+                if let name = source["source"]?.stringValue {
+                    // Presence hints for no-export assistants are already text sources;
+                    // preserve their origin so the page can import the admitted path.
+                    let kind = source["kind"]?.stringValue ?? ""
+                    admitted[name] = ["grok-bot", "muse", "dots", "instinct"].contains(kind) ? kind : ""
+                }
             }
             return ["sources": .array(sources.map { source in
                 ["source": source["source"] ?? .null, "kind": source["kind"] ?? .null,

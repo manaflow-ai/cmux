@@ -128,7 +128,16 @@ export class ImportHistoryStore {
           const exportKind = row.id === "chatgpt" ? "chatgpt-export" : row.id === "claude" ? "claude-ai-export" : undefined;
           const exportFound = exportKind && detected.find((source) => source.kind === exportKind);
           const match = found ?? exportFound;
-          return match ? { ...row, selected: true, source: match.source, detected: true, name: match.title ?? match.path } : row;
+          return match
+            ? {
+                ...row,
+                selected: true,
+                expanded: row.kind === "text" ? true : row.expanded,
+                source: match.source,
+                detected: true,
+                name: match.title ?? match.path,
+              }
+            : row;
         }).concat(
           detected
             .filter((source) => source.source.startsWith("zip:") && !["chatgpt-export", "claude-ai-export"].includes(source.kind ?? ""))
@@ -237,14 +246,14 @@ export class ImportHistoryStore {
       try {
         const origin = row.kind === "text" ? (row.id as Origin) : undefined;
         const source = origin && !(row.source && !row.text?.trim())
-          ? (await client.call<{ source: string }>(OPS.prepareText, { summaryOrigin: origin, text: row.text ?? "" })).source
+          ? (await client.call<{ source: string }>(OPS.prepareText, { origin, text: row.text ?? "" })).source
           : row.source;
         if (this.stopped) return;
         if (!source) throw new Error("cmux.importHistory.missing_source");
         const report = await client.call<ImportReport>(OPS.dryRun, {
           source,
           batch,
-          ...(origin ? { summaryOrigin: origin } : {}),
+          ...(origin ? { origin } : {}),
         });
         if (this.stopped) return;
         if (
@@ -273,7 +282,7 @@ export class ImportHistoryStore {
         const result = await client.call<ImportReport>(OPS.write, {
           source,
           batch,
-          ...(origin ? { summaryOrigin: origin } : {}),
+          ...(origin ? { origin } : {}),
         });
         if (this.stopped) return;
         this.row(row.id, { phase: "done", report: result });

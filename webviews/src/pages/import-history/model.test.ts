@@ -144,9 +144,9 @@ describe("Bring your history", () => {
     await store.run();
     const ops = client.calls.slice(1);
     expect(ops.map(({ op }) => op)).toEqual([OPS.begin, OPS.prepareText, OPS.dryRun, OPS.write]);
-    expect(ops[1]?.params).toEqual({ summaryOrigin: "muse", text: "I work on a garden." });
-    expect(ops[2]?.params.summaryOrigin).toBe("muse");
-    expect(ops[3]?.params.summaryOrigin).toBe("muse");
+    expect(ops[1]?.params).toEqual({ origin: "muse", text: "I work on a garden." });
+    expect(ops[2]?.params.origin).toBe("muse");
+    expect(ops[3]?.params.origin).toBe("muse");
   });
   test("zero-new and unsafe-cost plans never write", async () => {
     const client = host(({ op, params }) =>
