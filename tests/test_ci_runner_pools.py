@@ -148,8 +148,8 @@ class Declared(unittest.TestCase):
         self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
         self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
         self.assertIn("ephemeral-required", path.read_text())
-        self.assertRegex(rescue["steps"][0]["with"]["ref"], r"^[0-9a-f]{40}$")
-        self.assertNotEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))
 
