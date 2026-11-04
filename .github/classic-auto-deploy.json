@@ -1,5 +1,5 @@
 {
-  "description": "What deploys classic cmux (cmux.com and its API, plus the shared relays) on its own when a commit lands, and which of those paths the classic API guard (scripts/ci/classic_api_guard.py, .github/workflows/classic-api-guard.yml) refuses without a reason. The one list: the guard, its test and the docs (cmuxterm-hq skills/infra/cloud-api-promote, leo-workspace design/cloud.md) read it. Leo, 2026-11-04: \"apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont change it for clasisc\".",
+  "description": "What deploys classic cmux (cmux.com and its API) on its own when a commit lands, and which of those paths the classic API guard (scripts/ci/classic_api_guard.py, .github/workflows/classic-api-guard.yml) refuses without a reason. The one list: the guard, its test and the docs (cmuxterm-hq skills/infra/cloud-api-promote, leo-workspace design/cloud.md) read it. Leo, 2026-11-04: \"apparently the api if we change it it'll auto deploy so we wanna make extra sure we dont change it for clasisc\".",
   "reason_line": "Classic API change: <reason>",
   "deploys": [
     {
@@ -20,6 +20,8 @@
         "web/orpc/**",
         "web/openapi/**",
         "web/db/**",
+        "web/data/mobile-mac-compat.ts",
+        "web/data/agent-models.ts",
         "web/proxy.ts",
         "web/instrumentation.ts",
         "web/next.config.ts",
@@ -42,7 +44,11 @@
       "trigger": "the same Vercel deploy as vercel-cmux-com",
       "target": "cmux.com pages, docs and messages (no API); listed, not guarded",
       "guarded": false,
-      "paths": ["web/**", "CHANGELOG.md", ".vercelignore"]
+      "paths": [
+        "web/**",
+        "CHANGELOG.md",
+        ".vercelignore"
+      ]
     },
     {
       "id": "docs-channels",
@@ -50,33 +56,41 @@
       "trigger": ".github/workflows/docs-channels.yml (push to main, web/** and CHANGELOG.md)",
       "target": "Vercel docs channel projects (nightly docs); listed, not guarded",
       "guarded": false,
-      "paths": ["web/**", "CHANGELOG.md"]
+      "paths": [
+        "web/**",
+        "CHANGELOG.md"
+      ]
     },
     {
       "id": "iroh-v2",
       "branch": "main",
-      "trigger": ".github/workflows/iroh-v2.yml (push to main)",
-      "target": "Cloudflare Worker iroh-v2, the relay classic clients connect through",
-      "guarded": true,
-      "paths": ["workers/iroh-v2/**", "Packages/Shared/CmuxIrxTransport/**"],
-      "exclude": ["**/*.md"]
+      "trigger": ".github/workflows/iroh-v2.yml: a push to main only dry-runs staging and production; development deploys by workflow_dispatch",
+      "target": "Cloudflare Worker iroh-v2 (relay); no auto-deploy, listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "workers/iroh-v2/**",
+        "Packages/Shared/CmuxIrxTransport/**"
+      ]
     },
     {
       "id": "cloudflare-relay",
       "branch": "main",
-      "trigger": ".github/workflows/cloudflare-relay.yml (push to main)",
-      "target": "Cloudflare Durable Object relay (cmux-tui/relays/cloudflare-do)",
-      "guarded": true,
-      "paths": ["cmux-tui/relays/cloudflare-do/**"],
-      "exclude": ["**/*.md"]
+      "trigger": ".github/workflows/cloudflare-relay.yml: a push to main only dry-runs",
+      "target": "Cloudflare Durable Object relay (cmux-tui/relays/cloudflare-do); no auto-deploy, listed, not guarded",
+      "guarded": false,
+      "paths": [
+        "cmux-tui/relays/cloudflare-do/**"
+      ]
     },
     {
       "id": "fleet-artifact-cdn",
       "branch": "main",
-      "trigger": ".github/workflows/fleet-artifact-cdn.yml (push to main)",
-      "target": "CI artifact CDN Worker (internal, no customer API); listed, not guarded",
+      "trigger": ".github/workflows/fleet-artifact-cdn.yml: deploys only by workflow_dispatch on main",
+      "target": "CI artifact CDN Worker (internal, no customer API); no auto-deploy, listed, not guarded",
       "guarded": false,
-      "paths": ["workers/fleet-artifacts/**"]
+      "paths": [
+        "workers/fleet-artifacts/**"
+      ]
     }
   ],
   "next_deploys_not_classic": [

@@ -63,10 +63,25 @@ class ClassicApiGuardTests(unittest.TestCase):
         code, lines = guard.check(CFG, "main", "", paths)
         self.assertEqual(code, 0, lines)
 
-    def test_relays_are_guarded(self) -> None:
+    def test_relays_only_dry_run_on_push_so_are_not_guarded(self) -> None:
         for path in ("workers/iroh-v2/src/index.ts", "cmux-tui/relays/cloudflare-do/src/lib.rs"):
             code, _ = guard.check(CFG, "main", "", [path])
+            self.assertEqual(code, 0, path)
+
+    def test_api_data_inputs_are_guarded(self) -> None:
+        for path in ("web/data/mobile-mac-compat.ts", "web/data/agent-models.ts"):
+            code, _ = guard.check(CFG, "main", "", [path])
             self.assertEqual(code, 1, path)
+
+    def test_truncated_listing_fails_into_main(self) -> None:
+        code, _ = guard.check(CFG, "main", "", ["Sources/A.swift"], expected_files=3500)
+        self.assertEqual(code, 1)
+        code, _ = guard.check(CFG, "main", "Classic API change: big refactor\n", ["Sources/A.swift"], expected_files=3500)
+        self.assertEqual(code, 0)
+        code, _ = guard.check(CFG, "feat-cmux-next", "", ["Sources/A.swift"], expected_files=3500)
+        self.assertEqual(code, 0)
+        code, _ = guard.check(CFG, "main", "", ["Sources/A.swift"], expected_files=1)
+        self.assertEqual(code, 0)
 
     def test_glob_semantics(self) -> None:
         self.assertTrue(guard.glob_regex("web/app/api/**").match("web/app/api/a/b.ts"))
@@ -97,7 +112,8 @@ class ClassicApiGuardTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn("branches: [main, feat-cmux-next]", text)
         self.assertIn("edited", text)
-        self.assertIn("github.event.changes.base != null", text)
+        self.assertNotIn("changes.body", text)
+        self.assertIn("--expected-files", text)
         self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", text)
         self.assertIn("scripts/ci/classic_api_guard.py", text)
         self.assertNotIn("pull_request_target", text)

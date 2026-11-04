@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Refuse a pull request into main that changes classic's auto-deployed API without a reason.
 
-Classic cmux (cmux.com and its API, the relays) deploys on its own when a commit lands on
-main. `.github/classic-auto-deploy.json` lists those deploys and the paths each guards. A
+Classic cmux.com and its API deploy on their own (Vercel) when a commit lands on main. `.github/classic-auto-deploy.json` lists those deploys and the paths each guards. A
 pull request into main that changes a guarded path fails unless its description has a line
 `Classic API change: <reason>`. Into feat-cmux-next the same change is a warning only:
 feat-cmux-next does not reach main today, so it deploys nothing classic, but the warning keeps
@@ -77,9 +76,25 @@ def reason(body: str) -> str | None:
     return None
 
 
-def check(config: dict, base: str, body: str, paths: list[str]) -> tuple[int, list[str]]:
-    """Return (exit code, annotation lines)."""
+def check(
+    config: dict, base: str, body: str, paths: list[str], expected_files: int | None = None
+) -> tuple[int, list[str]]:
+    """Return (exit code, annotation lines).
+
+    `expected_files` is the pull request's changed-file count. GitHub's files listing stops at
+    3,000 entries, so a shorter listing than that count may hide a guarded path: into main that
+    fails unless the description gives a reason."""
     hits = guarded_hits(config, paths)
+    listed = len(set(paths))
+    if expected_files is not None and listed < expected_files and not reason(body):
+        message = (
+            f"The changed-file listing has {listed} paths but the pull request changes {expected_files} files; "
+            "a guarded classic path may be past the listing's end."
+        )
+        if base == "main":
+            return 1, [f"::error::{message} Add a line `Classic API change: <reason>`, or split the pull request."]
+        if not hits:
+            return 0, [f"::warning::{message}"]
     if not hits:
         return 0, ["::notice::No classic auto-deployed API path changed."]
     lines = []
@@ -111,10 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--body-file", type=Path, required=True)
     parser.add_argument("--paths-file", type=Path, required=True, help="changed paths, one per line")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--expected-files", type=int, default=None, help="the pull request's changed_files")
     args = parser.parse_args(argv)
     body = args.body_file.read_text() if args.body_file.exists() else ""
     paths = [line.strip() for line in args.paths_file.read_text().splitlines() if line.strip()]
-    code, lines = check(load_config(args.config), args.base, body, paths)
+    code, lines = check(load_config(args.config), args.base, body, paths, args.expected_files)
     for line in lines:
         print(line)
     return code
