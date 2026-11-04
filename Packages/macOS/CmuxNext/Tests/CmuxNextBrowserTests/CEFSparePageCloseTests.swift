@@ -182,5 +182,23 @@ extension CEFSparePageSuites {
             #expect(host.lastActivated == link.browserID)
             #expect(runtime.spareWindow.page == nil)
         }
+
+        /// The switch is turned off while a page waits (re-review of #34252 at 82b52979, optional): the next new
+        /// tab joins with `tab_add` and the waiting page closes, so no frozen page is kept that nothing will take.
+        @Test func aPageLeftWaitingWhenTheSwitchIsTurnedOffClosesAtTheNextNewTab() throws {
+            let (runtime, root) = try Rig.runtime()
+            defer { Rig.tearDown(runtime, root) }
+            let (host, _, container) = try Rig.liveHost(runtime)
+            let page = try Rig.spareWithPage(runtime)
+            Rig.setSparePage(false)
+
+            let link = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
+            host.add(link)
+            host.present(link, in: container)
+            host.createDeferred()
+            #expect(SpareSpy.added.map(\.anchor) == [10], "the tab joins with tab_add")
+            #expect(SpareSpy.closed == [page], "the waiting page closes")
+            #expect(runtime.spareWindow.page == nil)
+        }
     }
 }
