@@ -170,9 +170,9 @@ fn classify(
             details.insert("lastSeenAt".into(), json!(crate::server::iso(at)));
         }
         let recovery = format!(
-            "Check that {peer} is on and online in `tailscale status`; `acpmux host doctor \
+            "Check that {peer} is on and online in `tailscale status`; `acpmux machine doctor \
              {peer}` checks the link step by step. acpmux reconnects by itself, and this request \
-             was not sent, so send it again once `acpmux host ls` shows {peer} connected."
+             was not sent, so send it again once `acpmux machine ls` shows {peer} connected."
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
     }
