@@ -191,3 +191,21 @@ fn a_stop_drops_the_socket_at_once() {
         assert!(started.elapsed() < Duration::from_secs(2), "not at the next ping tick");
     }
 }
+
+#[test]
+fn a_dropped_chat_cancels_its_turn_in_the_daemon() {
+    assert_eq!(cancel_args("s-1"), ["acp", "cancel", "s-1"]);
+}
+
+#[test]
+fn output_past_the_cap_is_drained_and_a_cut_reply_is_not_the_reply() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (kept, more) = rt.block_on(read_capped(&b"0123456789"[..], 4));
+    assert_eq!((kept.as_str(), more), ("0123", true));
+    let (kept, more) = rt.block_on(read_capped(&b"0123"[..], 4));
+    assert_eq!((kept.as_str(), more), ("0123", false));
+    let cut = final_event_of(Some(0), r#"{"reply": "par"#, true, "");
+    assert_eq!(cut, json!({"kind": "done", "stop_reason": "end_turn", "reply_cut": true}));
+    let whole = final_event_of(Some(0), r#"{"reply": "all", "stopReason": "end_turn"}"#, false, "");
+    assert_eq!(whole["reply"], "all");
+}

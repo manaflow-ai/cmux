@@ -169,6 +169,11 @@ pub fn send_args(chat: &Chat, session: &str) -> Vec<String> {
         .collect()
 }
 
+/// `acp cancel`'s arguments: ends the session's running turn in the acpmux daemon.
+pub fn cancel_args(session: &str) -> Vec<String> {
+    ["acp", "cancel", session].iter().map(|s| (*s).to_owned()).collect()
+}
+
 /// The acpmux session id `acp --json new` printed, else `None`.
 pub fn created_session(stdout: &str) -> Option<String> {
     let v: Value = serde_json::from_str(stdout.trim()).ok()?;
@@ -217,7 +222,16 @@ pub fn events_of(line: &str) -> Vec<Value> {
 /// ...}`. `done` carries the whole reply, which stands over the streamed text (a chunk may come before `tail` is
 /// attached).
 pub fn final_event(exit: Option<i32>, stdout: &str, stderr: &str) -> Value {
+    final_event_of(exit, stdout, false, stderr)
+}
+
+/// [`final_event`], where `cut` says the send's output passed [`MAX_SEND_OUT`]: its object is not whole, so
+/// `done` carries no `reply` (the streamed `text` events stand) and says so with `reply_cut`.
+pub fn final_event_of(exit: Option<i32>, stdout: &str, cut: bool, stderr: &str) -> Value {
     if exit == Some(0) {
+        if cut {
+            return json!({"kind": "done", "stop_reason": "end_turn", "reply_cut": true});
+        }
         let v = serde_json::from_str::<Value>(stdout.trim()).unwrap_or(Value::Null);
         let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
         let mut done = json!({"kind": "done", "stop_reason": stop});
@@ -438,6 +452,46 @@ async fn serve(url: &str, token: &str, runner: &Runner) -> Result<(), String> {
     }
 }
 
+/// How much of `acp send`'s output and errors a chat keeps; the rest is read and dropped, so the child never
+/// blocks on a full pipe.
+pub const MAX_SEND_OUT: u64 = 4 * 1024 * 1024;
+const MAX_SEND_ERR: u64 = 64 * 1024;
+
+/// Reads `r` to its end, keeping its first `cap` bytes; `true` when there was more.
+async fn read_capped(r: impl tokio::io::AsyncRead + Unpin, cap: u64) -> (String, bool) {
+    let mut kept = Vec::new();
+    let mut head = r.take(cap);
+    let _ = head.read_to_end(&mut kept).await;
+    let more =
+        tokio::io::copy(&mut head.into_inner(), &mut tokio::io::sink()).await.unwrap_or(0) > 0;
+    (String::from_utf8_lossy(&kept).into_owned(), more)
+}
+
+/// Ends the session's turn in the acpmux daemon when the chat is dropped before the turn ended (a `cancel`, the
+/// socket gone, a rebind): killing `acp send` only stops the client, and the daemon would run the turn on.
+struct CancelTurn {
+    runner: Runner,
+    session: String,
+    armed: bool,
+}
+
+impl Drop for CancelTurn {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // A plain process, not a task: this runs while the chat's task or the whole runtime is being dropped.
+        let mut cancel = self.runner.command(&cancel_args(&self.session));
+        let cancel =
+            cancel.as_std_mut().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        if let Ok(mut child) = cancel.spawn() {
+            let _ = std::thread::Builder::new()
+                .name("cmux-host-relay-cancel".to_owned())
+                .spawn(move || child.wait());
+        }
+    }
+}
+
 async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>) {
     let send = |event: Value| {
         let _ = tx.send(up(&chat.id, event));
@@ -491,6 +545,7 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
         Ok(c) => c,
         Err(e) => return send(final_event(None, "", &format!("acpmux: {e}"))),
     };
+    let mut turn = CancelTurn { runner: runner.clone(), session: session.clone(), armed: true };
     if let Some(mut stdin) = child.stdin.take() {
         let prompt = chat.prompt.clone();
         tokio::spawn(async move {
@@ -500,17 +555,18 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
     }
     let mut stderr = child.stderr.take();
     let err_task = tokio::spawn(async move {
-        let mut s = String::new();
-        if let Some(e) = stderr.as_mut() {
-            let _ = e.take(64 * 1024).read_to_string(&mut s).await;
+        match stderr.take() {
+            Some(e) => read_capped(e, MAX_SEND_ERR).await.0,
+            None => String::new(),
         }
-        s
     });
-    let mut out = String::new();
-    if let Some(stdout) = child.stdout.take() {
-        let _ = stdout.take(4 * 1024 * 1024).read_to_string(&mut out).await;
-    }
+    let (out, cut) = match child.stdout.take() {
+        Some(stdout) => read_capped(stdout, MAX_SEND_OUT).await,
+        None => (String::new(), false),
+    };
     let exit = child.wait().await.ok().and_then(|s| s.code());
+    // The turn ended on its own: nothing to cancel.
+    turn.armed = false;
     let err = err_task.await.unwrap_or_default();
     // The turn's last events reach `tail` just after `send` returns: a moment for them, then it stops.
     if let Some(events) = events {
@@ -519,7 +575,7 @@ async fn run_chat(chat: Chat, runner: Runner, tx: mpsc::UnboundedSender<String>)
     if let Some(mut tail) = tail {
         let _ = tail.kill().await;
     }
-    send(final_event(exit, &out, &err));
+    send(final_event_of(exit, &out, cut, &err));
 }
 
 /// How long `tail` may go on after the turn ended, for its last events.
