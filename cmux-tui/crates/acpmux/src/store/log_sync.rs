@@ -11,19 +11,33 @@ thread_local! {
     /// Tests: the next sync of this folder on this thread (`sync_directory`) fails.
     pub(crate) static FAIL_DIR_SYNC: std::cell::RefCell<Option<std::path::PathBuf>> =
         const { std::cell::RefCell::new(None) };
+    /// Tests: the next sync of this folder on this thread for which the test's condition holds
+    /// (it reads the folder) fails: a test names a sync by the state it runs in, not by its rank,
+    /// which differs between two versions of the code.
+    pub(crate) static FAIL_DIR_SYNC_WHEN: std::cell::RefCell<Option<(std::path::PathBuf, fn(&Path) -> bool)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Tests: whether this sync of the folder at `path` fails ([`FAIL_DIR_SYNC`]).
 #[cfg(test)]
 pub(super) fn fail_dir_sync(path: &Path) -> bool {
-    FAIL_DIR_SYNC.with(|fail| {
+    let plain = FAIL_DIR_SYNC.with(|fail| {
         let mut fail = fail.borrow_mut();
         let hit = fail.as_deref() == Some(path);
         if hit {
             *fail = None;
         }
         hit
-    })
+    });
+    plain
+        || FAIL_DIR_SYNC_WHEN.with(|fail| {
+            let mut fail = fail.borrow_mut();
+            let hit = fail.as_ref().is_some_and(|(folder, when)| folder == path && when(path));
+            if hit {
+                *fail = None;
+            }
+            hit
+        })
 }
 
 /// Syncs one log segment: its data, or with `all` its metadata too. The tests' crash model
