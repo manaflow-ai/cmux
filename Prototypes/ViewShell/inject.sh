@@ -41,20 +41,18 @@ started=$(python3 -c 'import time; print(f"{time.time():.3f}")')
 all=("$sources"/*.swift)
 (cd "$work" && xcrun swiftc -c "${all[@]}" -module-name ViewShell -target "$target" \
   -Onone -g -enable-testing -DDEBUG -DSWIFT_PACKAGE -swift-version 6)
-# What the running build compiled (SwiftPM's `sources` list) and when: a file it never compiled
-# is new, and one newer than the executable changed since.
+# What the running build compiled (an object per file in `ViewShell.build`) and when: a file with
+# no object is new, and one newer than the executable changed since.
 build="${CMUX_VIEW_SHELL_BUILD:-$package/.build/debug}"
-compiled="$build/ViewShell.build/sources"
+compiled="$build/ViewShell.build"
 executable="$build/cmux-view-shell"
 names=()
 for file in "${files[@]}"; do names+=("$(basename "$file" .swift)"); done
-if [[ -f "$compiled" && -f "$executable" ]]; then
-  # File names only (the module is one flat folder): SwiftPM quotes or escapes a path with a space.
-  built="$(sed -e 's/^"//' -e 's/"$//' -e 's/\\\(.\)/\1/g' -e 's#.*/##' "$compiled")"
+if [[ -d "$compiled" && -f "$executable" ]]; then
   for file in "${all[@]}"; do
     name="$(basename "$file" .swift)"
     why=""
-    if ! grep -qxF "$name.swift" <<<"$built"; then why="new since the build"
+    if [[ ! -f "$compiled/$name.swift.o" ]]; then why="new since the build"
     elif [[ "$file" -nt "$executable" ]]; then why="changed since the build"; fi
     [[ -n "$why" && " ${names[*]} " != *" $name "* ]] || continue
     names+=("$name")
