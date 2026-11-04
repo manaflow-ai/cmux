@@ -483,7 +483,8 @@ runs job migrate-production in environment cmux-vm-production
   whether cmux_vm.schema_migrations exists.
 - dry_run=true (the default): then `db-release.ts plan` and `rehearse` (with `--adopt-through 0009`
   when untracked) on a throwaway branch copy. Nothing on main changes.
-- dry_run=false: decides ownership before any write. It passes when cmux-vm-owner owns everything;
+- dry_run=false: holds the release advisory lock from the inspection through the owner change
+  (adopt and apply take it again themselves), and decides ownership before any write. It passes when cmux-vm-owner owns everything;
   reassigns (`pscale role reassign <id> --successor <cmux-vm-owner's pg role>`) when one other
   PlanetScale role owns all of cmux_vm and nothing outside it; refuses several owners, postgres,
   pscale_admin, a SQL role with no PlanetScale record, or an empty schema (bootstrap stays manual).

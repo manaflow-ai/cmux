@@ -13,6 +13,9 @@
     "cmux-next-batch.yml": {
       "batch": "next_batch.py merges in a worktree that inherits the sparse patterns; regenerate() adds with `git add -A -- .`, which skips skip-worktree paths; touches_tree reads scripts/cmux-next/cmux-tui-tree-inputs.txt"
     },
+    "cmux-vm.yml": {
+      "migrate-production": "works in scripts/cmux-next/release; the rails read workers/cmux-vm/migrations, the lock and schema-requirements.ts from git objects (git archive) and git grep a release tag, never cmux-next-ios/verify/"
+    },
     "cmux-next-car-guards.yml": {
       "plan": "focused_tests.plan reads Package.swift files, webviews/ and tests/; verify/ holds none of them",
       "mac": "fast-tier-cache-key.sh hashes `git ls-files -s` of Package.swift/Package.resolved (index, unchanged); the Swift packages built here do not include verify/"

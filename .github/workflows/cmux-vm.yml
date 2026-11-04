@@ -758,6 +758,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -807,15 +811,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$CMUX_RELEASE_RECEIPTS_DIR"
+          # Shell (unexported) copies: the cleanup below unsets every exported variable not in `keep`.
+          mode="$MODE"
           tools="$(dirname "$PSCALE_BIN"):$(dirname "$(command -v bun)"):$(dirname "$(command -v node)")${VERCEL_BIN_DIR:+:$VERCEL_BIN_DIR}"
+          keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
+          if [ "$mode" = migrate ]; then keep="$keep GH_TOKEN VERCEL_TOKEN CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD "; fi
           (
-            keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
-            [ "$MODE" = migrate ] && keep="$keep GH_TOKEN VERCEL_TOKEN CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD "
             for v in $(compgen -e); do
               case "$keep" in *" $v "*) ;; *) unset "$v" 2>/dev/null || true ;; esac
             done
             export PATH="$tools:/usr/local/bin:/usr/bin:/bin"
-            exec bun prod-owner.ts "$MODE"
+            exec bun prod-owner.ts "$mode"
           )
       - name: Upload the release receipts
         if: ${{ always() }}

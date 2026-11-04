@@ -21,7 +21,7 @@
  */
 import { must, roleUrl, type RoleJson } from "./branches.ts"
 import { contractReason, readMigrations } from "./lint.ts"
-import { connectUrl, trackingState, type Sql } from "./runner.ts"
+import { connectUrl, trackingState, withLock, type Sql } from "./runner.ts"
 import { REPO_ROOT, TREES } from "./trees.ts"
 
 const tree = TREES["cmux-vm"]
@@ -127,27 +127,29 @@ interface Inspection {
   readonly outside: Map<string, number>
 }
 
-const inspect = async (log: (l: string) => void): Promise<Inspection> => {
-  const workerUrl = process.env[WORKER_URL_ENV]
-  if (!workerUrl) throw new Refusal(`${WORKER_URL_ENV} is empty`)
+/** Read-only, on `sql` (the Worker's login): roles, cmux_vm's owners and what they own elsewhere, the tracking table. */
+const inspect = async (sql: Sql, log: (l: string) => void): Promise<Inspection> => {
   const roles = await listRoles()
   log(`PlanetScale roles on ${DB}/${BRANCH} (${roles.length}):`)
   for (const r of roles) log(`  ${r.name}  id=${r.id}  pg=${r.pgUser}`)
-  const sql = await connectUrl(workerUrl)
-  try {
-    const who = (await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
-    log(`catalog reads as the Worker role ${who}`)
-    const ownership = await readOwnership(sql)
-    log(`owners of the objects in schema ${tree.schema}:`)
-    if (!ownership.objects.length) log("  (none: the schema is absent or empty)")
-    for (const o of ownership.objects) log(`  ${o.owner}  ${o.kind}  ${o.n}`)
-    log(`${tree.trackingTable}: ${ownership.trackingTable ? "exists" : "absent"}`)
-    const outside = await outsideCounts(sql, ownersOf(ownership))
-    for (const [r, n] of outside) log(`  ${r} owns ${n} object(s) outside ${tree.schema}`)
-    return { roles, ownership, outside }
-  } finally {
-    await sql.end()
-  }
+  const who = (await sql.query<{ u: string }>("SELECT current_user AS u"))[0]?.u
+  log(`catalog reads as the Worker role ${who}`)
+  const ownership = await readOwnership(sql)
+  log(`owners of the objects in schema ${tree.schema}:`)
+  if (!ownership.objects.length) log("  (none: the schema is absent or empty)")
+  for (const o of ownership.objects) log(`  ${o.owner}  ${o.kind}  ${o.n}`)
+  log(`${tree.trackingTable}: ${ownership.trackingTable ? "exists" : "absent"}`)
+  const outside = await outsideCounts(sql, ownersOf(ownership))
+  for (const [r, n] of outside) log(`  ${r} owns ${n} object(s) outside ${tree.schema}`)
+  return { roles, ownership, outside }
+}
+
+const describeDecision = (decision: OwnerDecision, ownerRecord: PsRole | undefined) =>
+  `owner: ${decision.kind === "ok" ? `${tree.ownerRole} already owns ${tree.schema}` : decision.kind === "reassign" ? `would move ${tree.schema}'s objects from ${decision.from.name} (${decision.from.pgUser}) to ${tree.ownerRole}` : `refused: ${decision.why}`}${ownerRecord ? "" : `; ${tree.ownerRole} does not exist yet and would be created with no inherited roles`}`
+
+const decide = (seen: Inspection) => {
+  const ownerRecord = seen.roles.find((r) => r.name === tree.ownerRole)
+  return { ownerRecord, decision: decideOwner({ owner: ownerRecord, owners: ownersOf(seen.ownership), roles: seen.roles, outside: (r) => seen.outside.get(r) ?? 0 }) }
 }
 
 /** The contract migrations (`-- contract:` header) of the landed tree, for --allow-contract. */
@@ -167,18 +169,20 @@ const base = ["--tree", "cmux-vm", "--target", "production"]
 
 export const run = async (command: string | undefined, log = (l: string) => console.log(l), sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))): Promise<number> => {
   const err = (l: string) => console.error(process.env.GITHUB_ACTIONS ? `::error title=prod-owner::${l}` : `prod-owner: ${l}`)
+  let sql: Sql | undefined
   try {
     if (command !== "inspect" && command !== "dry-run" && command !== "migrate") throw new Refusal("usage: prod-owner.ts inspect|dry-run|migrate")
-    const seen = await inspect(log)
-    if (command === "inspect") return 0
+    const workerUrl = process.env[WORKER_URL_ENV]
+    if (!workerUrl) throw new Refusal(`${WORKER_URL_ENV} is empty`)
+    sql = await connectUrl(workerUrl)
     const allow = contractFiles().flatMap((f) => ["--allow-contract", f])
-    const through = adoptThrough(seen.ownership.trackingTable)
 
-    const ownerRecord = seen.roles.find((r) => r.name === tree.ownerRole)
-    const decision = decideOwner({ owner: ownerRecord, owners: ownersOf(seen.ownership), roles: seen.roles, outside: (r) => seen.outside.get(r) ?? 0 })
-    log(`owner: ${decision.kind === "ok" ? `${tree.ownerRole} already owns ${tree.schema}` : decision.kind === "reassign" ? `would move ${tree.schema}'s objects from ${decision.from.name} (${decision.from.pgUser}) to ${tree.ownerRole}` : `refused: ${decision.why}`}${ownerRecord ? "" : `; ${tree.ownerRole} does not exist yet and would be created with no inherited roles`}`)
-
-    if (command === "dry-run") {
+    if (command !== "migrate") {
+      const seen = await inspect(sql, log)
+      if (command === "inspect") return 0
+      const { ownerRecord, decision } = decide(seen)
+      log(describeDecision(decision, ownerRecord))
+      const through = adoptThrough(seen.ownership.trackingTable)
       // Read-only on main: plan through the Worker's login (catalogs and, if readable, the tracking rows),
       // then rehearse on a throwaway branch copy (deleted by exact name).
       await releaseMain(["plan", ...base, "--url-env", WORKER_URL_ENV], log).catch((e: Error) => log(`plan: ${e.message} (untracked is expected before the first adopt)`))
@@ -188,38 +192,41 @@ export const run = async (command: string | undefined, log = (l: string) => cons
       return 0
     }
 
-    if (decision.kind === "refuse") throw new Refusal(decision.why)
-    let changed = false
-    // 1. The owner role: created with no inherited roles, or its password reset (the only way to get a login for an existing role).
-    const created = ownerRecord
-      ? ownerUrlFrom(await must(["role", "reset", DB, BRANCH, ownerRecord.id, "--force"]))
-      : ownerUrlFrom(await must(["role", "create", DB, BRANCH, tree.ownerRole]))
-    log(ownerRecord ? `reset the password of ${tree.ownerRole} (${created.pgUser})` : `created ${tree.ownerRole} (${created.pgUser}) with no inherited roles`)
-    if (!ownerRecord) changed = true
-    // 2. Ownership: one other role that owns nothing outside cmux_vm hands its objects over (REASSIGN OWNED by pscale_admin).
-    if (decision.kind === "reassign") {
-      await must(["role", "reassign", DB, BRANCH, decision.from.id, "--successor", created.pgUser, "--force"])
-      changed = true
-      log(`reassigned the objects of ${decision.from.name} (${decision.from.pgUser}) to ${created.pgUser}`)
-    }
-    const workerSql = await connectUrl(process.env[WORKER_URL_ENV]!)
-    try {
-      const after = ownersOf(await readOwnership(workerSql))
-      if (after.length !== 1 || after[0] !== created.pgUser) throw new Refusal(`after the owner step, ${tree.schema}'s objects belong to ${after.join(", ") || "nobody"}, not ${created.pgUser}; nothing was migrated`)
-    } finally {
-      await workerSql.end()
-    }
-    if (changed) {
+    // migrate: the release lock (the advisory lock db-release.ts apply and adopt take) is held from the
+    // inspection through the owner change, so no other migration run sees or changes cmux_vm in between.
+    // adopt and apply take it again themselves (it is a try-lock) and re-check the owner and the plan.
+    const owned = await withLock(sql, tree, async () => {
+      const seen = await inspect(sql!, log)
+      const { ownerRecord, decision } = decide(seen)
+      log(describeDecision(decision, ownerRecord))
+      if (decision.kind === "refuse") throw new Refusal(decision.why)
+      // 1. The owner role: created with no inherited roles, or its password reset (the only way to get a login for an existing role).
+      const login = ownerUrlFrom(await must(ownerRecord ? ["role", "reset", DB, BRANCH, ownerRecord.id, "--force"] : ["role", "create", DB, BRANCH, tree.ownerRole]))
+      log(ownerRecord ? `reset the password of ${tree.ownerRole} (${login.pgUser})` : `created ${tree.ownerRole} (${login.pgUser}) with no inherited roles`)
+      // 2. Ownership: one other role that owns nothing outside cmux_vm hands its objects over (REASSIGN OWNED by pscale_admin).
+      if (decision.kind === "reassign") {
+        await must(["role", "reassign", DB, BRANCH, decision.from.id, "--successor", login.pgUser, "--force"])
+        log(`reassigned the objects of ${decision.from.name} (${decision.from.pgUser}) to ${login.pgUser}`)
+      }
+      const after = ownersOf(await readOwnership(sql!))
+      if (after.length !== 1 || after[0] !== login.pgUser) throw new Refusal(`after the owner step, ${tree.schema}'s objects belong to ${after.join(", ") || "nobody"}, not ${login.pgUser}; nothing was migrated`)
+      return { login, changed: !ownerRecord || decision.kind === "reassign", through: adoptThrough(seen.ownership.trackingTable) }
+    })
+    await sql.end()
+    sql = undefined
+    if (owned.changed) {
       log(`waiting ${PITR_WAIT_MS / 60_000} min so the rehearsal's point-in-time copy has the owner change (release-rails.md, "PITR lag")`)
       await sleep(PITR_WAIT_MS)
     }
     // 3. Track the hand-applied files, then apply the rest (the apply rehearses this exact set on a copy first).
-    if (through) await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", through, "--confirm-production"], log, created.url)
-    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow], log, created.url)
+    if (owned.through) await releaseMain(["adopt", ...base, "--url-env", OWNER_URL_ENV, "--through", owned.through, "--confirm-production"], log, owned.login.url)
+    await releaseMain(["apply", ...base, "--url-env", OWNER_URL_ENV, "--confirm-production", ...allow], log, owned.login.url)
     return 0
   } catch (e) {
     err((e as Error).message)
     return 1
+  } finally {
+    await sql?.end().catch(() => {})
   }
 }
 
