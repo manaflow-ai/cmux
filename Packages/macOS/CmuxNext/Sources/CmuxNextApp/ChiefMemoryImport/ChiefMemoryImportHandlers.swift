@@ -109,15 +109,18 @@ enum ChiefMemoryImportHandlers {
         return url
     }
 
-    /// What the first-run panel offers, read off the main thread (none without the tool): run at launch unasked, so never ~/Downloads (LAUNCH-NO-TCC-PROMPTS).
+    /// What the first-run panel offers, read off the main thread. The import
+    /// page is visible when this runs, so the CLI may inspect usual export
+    /// folders and surface any zips as checked sources.
     static func detectForOffer(muxHome: String) async -> [MemorySource] {
         guard let tool = bundledTool() else { return [] }
         let output = await run(tool, offerDetectArguments(muxHome: muxHome), timeout: .seconds(60))
         return MemorySource.parse(Data(output.stdout.utf8))
     }
 
-    /// The offer's detect: unasked, so never the export zips in ~/Downloads and ~/Desktop (LAUNCH-NO-TCC-PROMPTS).
-    static func offerDetectArguments(muxHome: String) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect() }
+    /// The offer's detect runs after the import page is shown. It may inspect
+    /// Downloads/Desktop/Documents to surface exports without a manual picker.
+    static func offerDetectArguments(muxHome: String) -> [String] { MemoryImportCommand(target: .local(muxHome: muxHome)).detect(exports: true) }
 
     /// A run's detect: only the person's own (``ActionInvocation/isPersonsOwnRun``) lists the export zips in the
     /// guarded ~/Downloads and ~/Desktop; automation names a zip instead (`source: zip:/path`) (LAUNCH-NO-TCC-PROMPTS).
