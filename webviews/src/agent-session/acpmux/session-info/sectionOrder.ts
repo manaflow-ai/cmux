@@ -43,6 +43,36 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "connectors",
 ];
 
+/// Leo's four, always in view: the machine, Context, what it runs, Sources (DEFAULT_ORDER above).
+export const PRIORITY_SECTIONS: readonly SessionInfoSectionId[] = [
+  "environment",
+  "context",
+  "subagents",
+  "tasks",
+  "sources",
+];
+
+/// The less-used sections, behind the panel's one Show more until the person opens it (Leo,
+/// 2026-11-03: "i feel like it's a bit too much stuff by default there's a bunch of things there that
+/// can be a bit more hidden under 'show more' or whatnot"). None is ever dropped: Show more lists them
+/// all, a reveal (a running line's count, the header's chip) opens it, and its choice stays.
+export const MORE_SECTIONS: readonly SessionInfoSectionId[] = ["usage", "changes", "outputs", "connectors"];
+
+/// The sections of `shown` that the panel's Show more hides while it is closed: every less-used one,
+/// unless the person's own order (a drag) put it above one of Leo's four that it follows by default;
+/// that one stays in view, so a drag still wins. `order` is the panel's whole order (sectionOrder).
+export function tuckedSections(
+  shown: readonly SessionInfoSectionId[],
+  order: readonly SessionInfoSectionId[] = shown,
+): SessionInfoSectionId[] {
+  const placed = (id: SessionInfoSectionId) =>
+    PRIORITY_SECTIONS.some(
+      (priority) =>
+        DEFAULT_ORDER.indexOf(priority) < DEFAULT_ORDER.indexOf(id) && order.indexOf(id) < order.indexOf(priority),
+    );
+  return shown.filter((id) => MORE_SECTIONS.includes(id) && !placed(id));
+}
+
 /// The block a section belongs to by default.
 export function sectionGroup(id: SessionInfoSectionId): SessionInfoGroupId {
   return GROUPS.find((group) => GROUP_SECTIONS[group].includes(id)) ?? "about";
@@ -99,6 +129,9 @@ function fill(
   return next;
 }
 
+export const isAppId = (id: unknown): id is `app:${string}#${string}` =>
+  typeof id === "string" && /^app:[^#]+#[^#]+$/.test(id);
+
 export function parseOrder(raw: string | null | undefined): Order {
   let value: unknown;
   try {
@@ -106,7 +139,7 @@ export function parseOrder(raw: string | null | undefined): Order {
   } catch {
     return [];
   }
-  if (Array.isArray(value)) return known(value, DEFAULT_ORDER);
+  if (Array.isArray(value)) return known(value, [...DEFAULT_ORDER, ...value.filter(isAppId)]);
   if (!value || typeof value !== "object") return [];
   // The per-block order of #27291: the blocks one after another, a block nobody dragged in its
   // default order.
@@ -146,13 +179,20 @@ function subscribe(listener: () => void) {
 
 /// Every section in the person's order. A section the saved order lacks (new since the drag) takes
 /// the place after the one it follows by default.
-export function sectionOrder(order: Order = read()): SessionInfoSectionId[] {
-  return fill(order, DEFAULT_ORDER);
+export function sectionOrder(
+  order: Order = read(),
+  apps: readonly SessionInfoSectionId[] = [],
+): SessionInfoSectionId[] {
+  const defaults = [...DEFAULT_ORDER];
+  // Keep the built-in order unchanged. With Show more closed, installed app sections follow
+  // Leo's four; with it open they still follow Sources. Saved positions always win.
+  defaults.splice(defaults.indexOf("sources") + 1, 0, ...apps.filter(isAppId));
+  return fill(order, defaults);
 }
 
-export function useSectionOrder(): SessionInfoSectionId[] {
+export function useSectionOrder(apps: readonly SessionInfoSectionId[] = []): SessionInfoSectionId[] {
   const order = useSyncExternalStore(subscribe, read, read);
-  return sectionOrder(order);
+  return sectionOrder(order, apps);
 }
 
 /// `shown` with `id` moved to index `to` of it.
@@ -173,10 +213,16 @@ export function mergeShown(full: readonly SessionInfoSectionId[], shown: readonl
 }
 
 /// Saves the order from the order of the shown sections: the hidden ones keep their slots.
-export function setSectionOrder(shown: readonly SessionInfoSectionId[]) {
-  const full = sectionOrder();
-  const next = mergeShown(full, shown);
-  if (next.every((id, at) => id === full[at])) return;
+export function setSectionOrder(
+  shown: readonly SessionInfoSectionId[],
+  full: readonly SessionInfoSectionId[] = sectionOrder(undefined, shown.filter(isAppId)),
+) {
+  // A pointer drag can outlive a catalog refresh or another pane's storage write. Read that
+  // write now, including uninstalled app IDs, and fill in every app the latest rendered list
+  // knows (or the drop itself shows). Never let a drag-start snapshot erase a newer saved slot.
+  const latest = sectionOrder(read(), [...full, ...shown].filter(isAppId));
+  const next = mergeShown(latest, shown);
+  if (next.every((id, at) => id === latest[at])) return;
   page = next;
   const store = storage();
   try {

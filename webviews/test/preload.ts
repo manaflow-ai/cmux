@@ -22,6 +22,9 @@ export {};
   // The feature tips table is build output too (gen-feature-tips.mjs): made from this tree's highlights.
   const { writeFeatureTips } = await import("../scripts/pages/gen-feature-tips.mjs");
   writeFeatureTips({ log: () => {} });
+  // The design scale's Tailwind theme and token list (gen-design-scale.mjs) are build output as well.
+  const { writeDesignScale } = await import("../scripts/pages/gen-design-scale.mjs");
+  writeDesignScale({ log: () => {} });
 }
 
 // react-dom picks the animationend event name once, when it first loads: without
@@ -89,8 +92,11 @@ if (!("Element" in scope)) {
 // Chromium launches run the system Google Chrome, not Playwright's bundled Chromium, which lacks
 // recent security fixes and runs unsandboxed (support/systemChrome.ts says why). Every file shares
 // playwright's one `chromium` object, so wrapping it here covers each launch.
+// On a Mac outside GitHub Actions no Playwright engine launches at all, system Chrome included (no
+// Playwright on Macs, Lawrence 2026-11-02; support/systemChrome.ts says why).
 {
-  const { useSystemChrome } = await import("./support/systemChrome");
-  const { chromium } = await import("playwright");
+  const { refusePlaywrightOnMacs, useSystemChrome } = await import("./support/systemChrome");
+  const { chromium, firefox, webkit } = await import("playwright");
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
+  refusePlaywrightOnMacs([chromium, webkit, firefox]);
 }

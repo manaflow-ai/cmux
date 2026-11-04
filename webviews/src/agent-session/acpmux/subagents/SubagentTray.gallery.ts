@@ -103,12 +103,13 @@ const described = activity(
   1.4,
 );
 
-/** A chat this chat's agent started (`acpmux new`), its turn running or ended. */
+/** A chat this chat's agent started with its `start_session` tool, its turn running or ended. */
 const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
     sessionId: id,
     title,
     spawnedBy: SESSION_ID,
+    startedBy: SESSION_ID,
     indicator: running ? "working" : "done",
     status: running ? "running" : "idle",
     createdAt: minutesAgo(minutes),
@@ -312,6 +313,42 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
     throw new Error(`opening the tray on the composer moved the transcript ${moved.toFixed(1)}px`);
 };
 
+/** A running line's look (Leo, 2026-11-03: "do we really need a running symbol vs just having the
+ *  time and a square stop button?"): opens the tray, gives it one trayStopLook arm, and checks each
+ *  running line with a time shows no spinner and no Running word, only its time and a filled Stop. */
+const runningStop = (arm: "solid" | "muted" | "boxed") => async (ctx: PlayContext) => {
+  await trayLines(2)(ctx);
+  ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!.dataset.stop = arm;
+  const running = [
+    ...ctx.document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line[data-timed]"),
+  ];
+  if (running.length !== 2) throw new Error(`two running lines with a time, not ${running.length}`);
+  for (const line of running) {
+    if (line.querySelector(".acpmux-lineage__icon .cv-spinner, .acpmux-lineage__icon [data-spinner]"))
+      throw new Error("a running line with its time draws no spinner");
+    if (line.querySelector(".acpmux-summary-agent__state")) throw new Error("a running line shows no Running word");
+    if (!line.querySelector(".acpmux-agent-line__time")?.textContent) throw new Error("a running line shows its time");
+    if (!line.querySelector(".acpmux-agent-line__stop-slot > button svg"))
+      throw new Error("a running subagent's line keeps its Stop");
+  }
+};
+
+/** Two subagents still running and one done, for the running line's Stop arms. */
+const runningStopChat = chat(
+  [
+    user("Fan the review out", 40),
+    group(
+      [
+        agent("Make autoland land again", 39, "running", { action: "Read land_ready.py" }),
+        agent("Run Codex review via router", 24, "running", { action: "Bash" }),
+        agent("Check the docs", 12, "completed", { ran: 0.6 }),
+      ],
+      39,
+    ),
+  ],
+  { isWorking: true },
+);
+
 export default agentPaneEntry({
   id: "agent-pane.subagent-tray",
   title: "Running subagents tray",
@@ -456,6 +493,21 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "running-stop-solid": {
+      note: 'The default running line (Leo, 2026-11-03: "do we really need a running symbol vs just having the time and a square stop button?"): its own mark, its task, its ticking time and a filled square Stop in the text colour, as Claude Desktop\'s Background tasks rows read; no spinner, no Running word. The done line keeps Done · its time.',
+      play: runningStop("solid"),
+      snapshot: runningStopChat,
+    },
+    "running-stop-muted": {
+      note: "The same running lines with the filled square Stop muted, the time's tone.",
+      play: runningStop("muted"),
+      snapshot: runningStopChat,
+    },
+    "running-stop-boxed": {
+      note: "The same running lines with the filled square Stop on a faint 10% box, as the Background tasks panel draws its Stop.",
+      play: runningStop("boxed"),
+      snapshot: runningStopChat,
+    },
     "row-menu": {
       note: "A running subagent has a fixed Stop square in its row track and the same action in its context menu. A right-click opens the menu on the click, and the line stays lit under it.",
       play: async (ctx) => {
@@ -587,9 +639,10 @@ export default agentPaneEntry({
       ),
     },
     "one-agent-two-commands": {
-      note: "One subagent and two background commands: the header reads exactly `1 subagent running · 2 commands` above the composer.",
+      note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 2 commands` above its lines (folded, it names them: agent-pane.subagent-tray-names).",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+        await ctx.click({ selector: ".acpmux-running-tray__head" });
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
         if (title !== "1 subagent running · 2 commands") throw new Error(`unexpected tray title: ${title}`);
       },
@@ -624,6 +677,7 @@ export default agentPaneEntry({
               sessionId: "child-1",
               title: "Migrate the settings store to SQLite",
               spawnedBy: SESSION_ID,
+              startedBy: SESSION_ID,
               indicator: "working",
               status: "running",
               createdAt: minutesAgo(5.5),
@@ -632,6 +686,7 @@ export default agentPaneEntry({
               sessionId: "child-2",
               title: "Port the history page to React Aria",
               spawnedBy: SESSION_ID,
+              startedBy: SESSION_ID,
               indicator: "working",
               status: "running",
               createdAt: minutesAgo(5.4),
@@ -640,14 +695,56 @@ export default agentPaneEntry({
         };
       })(),
     },
+    "dispatched-lane": {
+      note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        const lines = ctx.document.querySelectorAll(".acpmux-running-tray .acpmux-agent-line");
+        if (lines.length !== 1) throw new Error(`one line, the chat's own subagent; got ${lines.length}`);
+        if ((ctx.document.querySelector(".acpmux-running-tray")?.textContent ?? "").includes("mac-studio-ultras"))
+          throw new Error("a dispatched lane is never a running line");
+      },
+      snapshot: (() => {
+        const base = chat(
+          [
+            user("Audit the stack, and place a lane for the Mac Studio work", 3),
+            group(
+              [agent("Audit the bottom stack", 2.5, "running", { kind: "Explore", action: "Read bottomStack.css" })],
+              2.5,
+            ),
+            assistant("An auditor is on the stack; the Mac Studio lane is placed.", 2),
+          ],
+          { isWorking: true },
+        );
+        return {
+          ...base,
+          sessions: [
+            ...base.sessions,
+            session({
+              sessionId: "lane-mac-studio",
+              title: "mac-studio-ultras",
+              name: "mac-studio-ultras",
+              spawnedBy: SESSION_ID,
+              indicator: "working",
+              status: "running",
+              lane: "working",
+              createdAt: minutesAgo(2),
+            }),
+          ],
+        };
+      })(),
+    },
     "counts-equal-rows": {
-      note: "What Leo called lying, told straight: the header counts only what runs (2 subagents, 2 chats it started, all subagents; 2 commands) and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
+      note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, 2 commands), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         await ctx.click({ selector: ".acpmux-running-tray__head" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 3);
         const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-        if (title !== "4 subagents running · 2 commands") throw new Error(`the header must count the rows: ${title}`);
+        // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
+        // the list counts after what runs.
+        if (title !== "2 subagents running · 2 sessions · 2 commands · 3 done")
+          throw new Error(`the header must count the rows: ${title}`);
       },
       snapshot: (() => {
         const base = chat(

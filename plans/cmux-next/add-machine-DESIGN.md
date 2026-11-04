@@ -24,6 +24,11 @@ Linux. The app is one sheet on top of it.
 
 - `cmux-tui acp host enroll HOST [--name N] [--harness ID]... [--reverse] --json` runs the
   steps below, writing one JSON line per step and a final report.
+  `--accept-new-host-key` opts into first-contact SSH trust: only the initial `reach` uses
+  OpenSSH `StrictHostKeyChecking=accept-new`, which records an unknown key under the exact
+  destination and refuses a changed or revoked key. The app passes it after the Add click.
+  CLI enrollment without the flag, doctor (including `--fix`), candidate probes and subsequent
+  connections retain their normal host-key policy. No key is removed or replaced by this flow.
 - `cmux-tui acp host doctor NAME|HOST [--fix] [--reverse] --json` runs the checks alone. `--fix`
   re-runs only the steps whose checks failed.
 - `cmux-tui acp host candidates --json [--probe]` lists Tailscale peers (online, OS, DNS name)

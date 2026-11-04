@@ -500,6 +500,38 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette], isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Lawrence msgs 19596, 19605, 19613, 19627: a live Swift playground of tab bar designs (crowded
+            // tabs, the new-tab control, the trailing ⋮), each row the real tab strip (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.tabBarPlayground",
+                title: String(localized: "action.debug.tabBarPlayground", defaultValue: "Tab Bar Playground", bundle: .module),
+                keywords: ["tab bar", "tabs", "playground", "gallery", "variants", "crowded", "new tab", "plus", "chevron", "more", "debug"],
+                category: .settings, symbol: "rectangle.3.group", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // User 2026-11-03 ("we need to make sure every single theme, all the UI elements are colored properly"):
+            // every bundled theme as the App Theme, each element's ink on its grounds with its contrast, failures
+            // ringed red; the same audit EveryThemeElementContrastTests runs (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.allThemesPlayground",
+                title: String(localized: "action.debug.allThemesPlayground", defaultValue: "All Themes Playground", bundle: .module),
+                keywords: ["themes", "app theme", "contrast", "colors", "playground", "gallery", "audit", "debug"],
+                category: .settings, symbol: "paintpalette", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Lawrence msg 19746: "show me all the possible sidebar states, and i will critique their sizings": every
+            // sidebar row state at every density and text size, light and dark, each the real row with its trailing
+            // marks measured (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.sidebarStatesPlayground",
+                title: String(localized: "action.debug.sidebarStatesPlayground", defaultValue: "Sidebar States Playground", bundle: .module),
+                keywords: ["sidebar", "states", "rows", "playground", "gallery", "density", "text size", "dots", "spinner", "sizes", "debug"],
+                category: .settings, symbol: "sidebar.left", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
             // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
             ActionDescriptor(

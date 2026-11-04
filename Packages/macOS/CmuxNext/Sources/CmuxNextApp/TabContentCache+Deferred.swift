@@ -14,7 +14,7 @@ extension TabContentCache {
         let page = DeferredBrowserTab(id: BrowserTabID(rawValue: key), engine: engine, url: url, title: tab.title.isEmpty ? nil : tab.title)
         page.onStart = { [weak self] url in self?.startDeferred(key, url: url) }
         let entry = install(page, for: key)
-        entry.chrome.showNotice(CrashStrings.crashedPageNotice)
+        entry.state.showNotice(CrashStrings.crashedPageNotice)
         return entry
     }
 
@@ -50,9 +50,9 @@ extension TabContentCache {
         // (`moveBrowser`), which rebinds the chrome's key but not this closure.
         // A plain Reload starts on the page it shows; only another address was typed.
         page.onStart = { [weak self, weak entry] requested in
-            self?.retryChromium(entry?.chrome.addressBar.tabKey ?? key, shown: requested, typed: requested != url)
+            self?.retryChromium(entry?.state.tabKey ?? key, shown: requested, typed: requested != url)
         }
-        entry.chrome.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
+        entry.state.showNotice(BrowserEngineStrings.chromiumUnavailableRestoredTab)
         return entry
     }
 

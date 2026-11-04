@@ -483,6 +483,8 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
 
     // 3. The prompt: inside the command when it fits there, else from a file on the machine.
     let quoted = shell_quote(&request.prompt);
+    // The uploaded prompt's file words, when the prompt went to a file.
+    let mut uploaded = None;
     let send = if quoted.len() <= INLINE_PROMPT_BYTES {
         format!(
             "{GUEST_PRELUDE}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; echo @@send; \
@@ -504,6 +506,7 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 );
             }
         };
+        uploaded = Some(file.clone());
         format!(
             "{GUEST_PRELUDE}{file}echo @@history; \"$c\" acp history {sid} --json -n 1 2>&1; \
              echo @@send; \"$c\" acp send --no-wait {sid} - < \"$f\" 2>&1; echo \"@@exit $?\"; \
@@ -513,7 +516,14 @@ pub(super) fn run(runner: &mut dyn Runner, request: &Request) -> Outcome {
     };
     let sent = match exec(runner, machine_id, &send) {
         Ok(stdout) => stdout,
-        Err(error) => return sent_failure(error, answer),
+        Err(error) => {
+            // Refused before it started: the uploaded prompt does not stay on the machine. Any other
+            // failure (no answer) may be a send still reading the file, so the file stays.
+            if let Some(file) = uploaded.as_ref().filter(|_| refused_before_start(&error)) {
+                let _ = exec(runner, machine_id, &format!("{GUEST_PRELUDE}{file}rm -f \"$f\""));
+            }
+            return sent_failure(error, answer);
+        }
     };
     let reported = sections(&sent);
     let baseline = last_turn(reported.get("history")).map_or(0, |turn| turn.seq);
@@ -659,6 +669,14 @@ fn prompt_file(name: &str) -> String {
         .map(|ch| if ch.is_ascii_alphanumeric() || "-_.".contains(ch) { ch } else { '_' })
         .collect();
     format!("f=\"$HOME/.cmux/prompts/\"{}; ", shell_quote(&format!("{name}.prompt")))
+}
+
+/// Whether a `cloud exec` was refused before its command started: the machine busy, stopped or
+/// gone, the caller not allowed, or the command too long.
+fn refused_before_start(error: &Value) -> bool {
+    let code = at(error, "code").as_str().unwrap_or_default();
+    matches!(code, "vm_busy" | "vm_not_running" | "vm_not_found" | "vm_forbidden")
+        || command_too_long(error)
 }
 
 /// Whether a refused `cloud exec` was refused for its command's length (nothing of it ran).

@@ -4,10 +4,14 @@
 /// so the X may be tried again.
 export type TakeBack = "back" | "refused" | "failed";
 
+/// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
+/// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
+
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
-import { createContext } from "react";
+import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
@@ -67,6 +71,15 @@ export type TurnActions = {
   /// Continue a turn the reader stopped (the last turn's footer, when `resumable`): sends
   /// `CONTINUE_PROMPT` through the composer's send path, so it queues and shows as a prompt.
   resume?: () => Promise<void>;
+  /// Answer a tagged ask (NextStepCard.tsx): sends the answer's words through the composer's send
+  /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
+  /// send (View Only, a read-only pane); the card then draws no buttons.
+  answer?: (text: string) => Promise<void>;
+  /// A waiting tagged-ask card hands its first answer to the composer's ⌘↩ on an empty prompt, the
+  /// way the recap card's yes takes it (Composer.tsx `onEmptyCommandReturn`), so the composer's own
+  /// rules hold: never in the Quick Composer (whose ⌘↩ opens a window), shell mode or a running turn.
+  /// Returns the release, which clears it only while it is still that card's.
+  nextStepKey?: (fire: () => void) => () => void;
   /// Compact the chat (a context-full failure's Compact): sends the harness's own `/compact` through
   /// the composer's send path. Only where the agent lists `compact` among its slash commands.
   compact?: () => Promise<void>;
@@ -125,6 +138,16 @@ export const CONTINUE_PROMPT = "Continue";
 export const resumeThrough =
   (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) => (): Promise<void> =>
     callNative("chat.send", { text: CONTINUE_PROMPT }).then(
+      () => undefined,
+      () => undefined,
+    );
+
+/// A tagged ask's answer (NextStepCard.tsx) through the composer's send (`chat.send`), as Continue
+/// sends its prompt. Settles once the send does; a send that fails says so on its own row.
+export const answerThrough =
+  (callNative: (method: string, params: Record<string, unknown>) => Promise<unknown>) =>
+  (text: string): Promise<void> =>
+    callNative("chat.send", { text }).then(
       () => undefined,
       () => undefined,
     );

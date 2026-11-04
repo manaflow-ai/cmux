@@ -23,6 +23,8 @@ mod app_focus;
 #[cfg(unix)]
 mod apps_list;
 #[cfg(unix)]
+mod apps_place;
+#[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
 mod auth_token;
@@ -127,6 +129,8 @@ mod tab_capabilities;
 mod terminal_talk;
 mod topology_help;
 mod wire;
+#[cfg(unix)]
+mod workflow;
 use surface::MACHINE_CATALOG_HELP;
 pub(super) use surface::{BIN, Surface};
 
@@ -164,6 +168,7 @@ const PUBLIC_SCOPES: &[&str] = &[
     "settings",
     "config",
     "raw",
+    "workflow",
 ];
 
 /// Scopes only the `cmux-tui` name accepts. Cloud VM guest scripts
@@ -399,7 +404,7 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
-    "device",
+    "device", "workflow",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -492,8 +497,23 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         None => args,
     };
+    // `chat send` from a coding agent is the agent's message, not the owner's
+    // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
+    // the app action with its text labelled.
+    #[cfg(unix)]
+    let chat_args;
+    #[cfg(unix)]
+    let args = match chief::chat_scope::run_if_requested(args) {
+        Some(chief::chat_scope::Chat::Exit(code)) => return code,
+        Some(chief::chat_scope::Chat::Rewritten(rewritten)) => {
+            chat_args = rewritten;
+            chat_args.as_slice()
+        }
+        None => args,
+    };
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args)
+        .or_else(|| workflow::run_if_requested(args))
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
@@ -512,6 +532,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
+        .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
@@ -610,7 +631,7 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
         return extra_help::print(&command_args);
     }
     // Settings CRUD belongs to the daemon's v2 owner. Keep the app parser for
-    // local-only helpers (`list`, `schema`, `validate`) until those have daemon
+    // local-only helpers (`list --keys`, `schema`, `validate`) until those have daemon
     // equivalents on this surface.
     if daemon_settings_scope(&command_args) {
         return None;
@@ -1005,6 +1026,7 @@ fn scan_globals(
             _ => {
                 command.push(value.clone());
                 if option_takes_value(value)
+                    && !own_switch(&command, value)
                     && let Some(next) = args.get(index + 1)
                 {
                     command.push(next.clone());
@@ -1015,6 +1037,20 @@ fn scan_globals(
         }
     }
     Ok((global, command))
+}
+
+/// `machine add|vault`'s value-less switches (`machine_join::own_switch`); none on Windows,
+/// where those verbs do not exist.
+fn own_switch(command: &[String], flag: &str) -> bool {
+    #[cfg(unix)]
+    {
+        machine_join::own_switch(command, flag)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (command, flag);
+        false
+    }
 }
 
 /// Option arity is shared with resource tokenization. Values such as --help or
@@ -1167,6 +1203,8 @@ fn scope_help_for(
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
+        #[cfg(unix)]
+        "workflow" => Cow::Borrowed(workflow::HELP),
         _ => Cow::Owned(root_help(&catalog.local_server)),
     });
     docs::append_scope_help(scope, text)

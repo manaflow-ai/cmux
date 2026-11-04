@@ -11,6 +11,11 @@
 version = 1
 
 [[test]]
+path = "tests/test_prepush_fast_tier.py"
+lane = "manual"
+reason = "Bounded pre-push tier: cmux-ci test -- python3 tests/test_prepush_fast_tier.py; sandbox behavior needs warm Bun and Linux bubblewrap."
+
+[[test]]
 path = "tests/test_ci_fleet_compilation_cache.py"
 lane = "linux-guard"
 
@@ -527,6 +532,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_machine_join_e2e_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_machine_vault_e2e_workflow.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1239,6 +1248,10 @@ path = "tests/test_job_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_rebuild_mirror.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_dev_release_product_key.py"
 lane = "linux-guard"
 
@@ -1603,6 +1616,10 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_web_coalesce.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_test_reds.py"
 lane = "linux-guard"
 
@@ -1617,6 +1634,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_thanks.py"
+lane = "manual"
+reason = "No new CI tests (CLAUDE.md, CI section); run python3 tests/test_release_thanks.py (under 1 s, no network) before changing scripts/ci/release_thanks.py."
 
 [[test]]
 path = "tests/test_nightly_cmux_tui_resolve.py"
@@ -2393,6 +2415,10 @@ path = "tests/test_ci_warm_sources.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_checkout_lean.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
@@ -2491,6 +2517,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI gates. The file says so itself: run python3 tests/test_cmux_next_guardrails_qos.py yourself after changing guardrails.py's task-priority rule (about 2 s, no build)."
 
 [[test]]
+path = "tests/test_scroll_measurement_metrics.py"
+lane = "manual"
+reason = "Run through cmux-ci after changing native scroll receipt validation; isolated Python checks launch no app. No new CI gate."
+
+[[test]]
 path = "tests/test_cmux_next_perf_budgets.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. Checks scripts/cmux-next/perf-budgets.py's table and gate; run python3 tests/test_cmux_next_perf_budgets.py yourself after changing it (under 1 s, no build)."
@@ -2504,3 +2535,28 @@ reason = "Lawrence 2026-10-23: no new CI tests. Checks that cmux-tui compiles in
 path = "tests/test_playwright_system_chrome.py"
 lane = "manual"
 reason = "Static check run by the author on the fleet; no new CI tests (CLAUDE.md, 2026-10-23)."
+
+[[test]]
+path = "tests/test_fetch_run_artifact.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_publish_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_chat_probe_args.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Pins that scripts/ci/chat-probe.sh passes its prompt to acpmux after -- (a prompt like --cwd=/etc stays text); run python3 tests/test_ci_chat_probe_args.py after changing that script (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_nightly_next_rolling_dmg_identity.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_identity_probe.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_hosted_queue_wait.py"
+lane = "linux-guard"

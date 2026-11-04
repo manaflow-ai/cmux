@@ -29,8 +29,14 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(605);
 /// A parsed `cmux nightly` command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
-    List { limit: u32 },
-    Install { target: Target },
+    /// `--help`, `-h` or `help`: the usage text, with no app needed.
+    Help,
+    List {
+        limit: u32,
+    },
+    Install {
+        target: Target,
+    },
 }
 
 /// The build `install` goes to.
@@ -45,6 +51,11 @@ pub(crate) enum Target {
 pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
     let messages = &crate::localization::catalog().app_control;
     let usage = || UsageError::new(messages.nightly.usage);
+    if rest.first().map(String::as_str) == Some("help")
+        || rest.iter().any(|word| word == "--help" || word == "-h")
+    {
+        return Ok(Command::Help);
+    }
     match rest.first().map(String::as_str) {
         Some("list") => {
             let mut limit = 10;
@@ -94,6 +105,10 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
 /// Runs `command` against the app behind the socket.
 pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let messages = &crate::localization::catalog().app_control.nightly;
+    if *command == Command::Help {
+        println!("{}", messages.usage);
+        return 0;
+    }
     let mut stream = match super::connect_command(global) {
         Ok(stream) => stream,
         Err(error) => return super::super::wire::print_local_error(&error, global.output, 3),
@@ -101,7 +116,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     let limit = match command {
         Command::List { limit } => *limit,
         // `previous` and a named build are looked up among the most builds `updates.builds` lists.
-        Command::Install { .. } => 50,
+        Command::Help | Command::Install { .. } => 50,
     };
     let listing = match super::exchange(
         &mut stream,
@@ -114,6 +129,7 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
         Err(message) => return failure("app.transport", &message, global.output),
     };
     match command {
+        Command::Help => 0,
         Command::List { .. } => match global.output {
             OutputMode::Human => {
                 print!("{}", human(&listing, messages));

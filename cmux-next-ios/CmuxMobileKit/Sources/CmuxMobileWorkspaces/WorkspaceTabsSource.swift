@@ -1591,6 +1591,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The Chats list is pushed over the workspace.
     public var showsAgentChats = false
 
+    /// The command palette's sheet, and which list it opened on (nil: closed).
+    public var palette: PaletteScope?
+    /// The palette row picked: it runs once the sheet is gone (its content's `onDisappear`), so a row
+    /// that pushes a page or opens a dialog never races the sheet's dismissal.
+    @ObservationIgnored var pendingPaletteRun: (@MainActor () -> Void)?
+    /// The palette's action rows, taken when it opened (`openPalette`).
+    @ObservationIgnored public internal(set) var paletteActionRows: [PaletteCommand] = []
+
     /// Opens another workspace (the Chats list's Open in New Workspace); set by the screen.
     @ObservationIgnored public var openWorkspace: (@MainActor (Workspace) -> Void)?
 
@@ -1847,7 +1855,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
         // Panes and Screens: the workspace's layout pages; Send Message… (the Mac's tab and
         // chat row action): a message to the Chief with a link to this tab.
-        let layoutPages = panesItems() + screensItems(tab) + messageItems(tab, in: workspace)
+        // Command Palette…: every row of these menus, searchable (Cmd-Shift-P, Cmd-K).
+        let layoutPages = paletteItems + panesItems() + screensItems(tab) + messageItems(tab, in: workspace)
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let closes = [close] + sideCloseItems(tab)
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
@@ -1869,7 +1878,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     ? [TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }]
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
-                ] + chatItems(tab),
+                ] + chatItems(tab) + muteItems(tab),
                 [
                     TabsKitMenuItem(title: "Find in Chat…", systemImage: "magnifyingglass", isEnabled: !store.turns.isEmpty) {
                         surface.openFind()
