@@ -28,12 +28,14 @@
 //!   daemon's writes may be in the page cache only, and a failed sync's dropped pages still read
 //!   back). A chat whose folder is gone is not written again. A log that moved on
 //!   without the journal (a run with the switch off, or an older build, after a crash) is left as
-//!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`, as do the lines of a
-//!   chat whose log cannot be read or written. A crash in the middle is repaired by the next open
-//!   the same way.
+//!   it is, and the journal's lines for it go to `<home>/journal-unapplied/`. A chat whose log
+//!   cannot be read or written now keeps its lines there in a repair file
+//!   (`<id>.<lsn>.repair.ndjson`), which the next open journals again and repairs the chat with;
+//!   the checkpoint of every other chat goes on (review of #35562: a hold of the global checkpoint
+//!   kept every chat's records). A crash in the middle is repaired by the next open the same way.
 //! - Delete: a `forget` record (the replay then drops the chat's earlier journaled lines, so a
 //!   chat made again under the same id gets only its own), then the folder's removal, off the
-//!   appends' lock and without waiting for the record.
+//!   appends' lock and without waiting for the record, then the chat's repair file.
 //! - With the switch off, [`catch_up`] runs this recovery once on a journal left by a run with it
 //!   on, so every acknowledged line is in the logs before they are written alone.
 //!
@@ -82,9 +84,10 @@ const UNAPPLIED_DIR: &str = "journal-unapplied";
 const CHECKPOINT_EVERY: Duration = Duration::from_secs(30);
 /// Journal bytes past the last checkpoint that wake the checkpointer at once.
 const CHECKPOINT_BYTES: u64 = 64 * 1024 * 1024;
-/// The most journal a failed repair holds past it (`Order::held`): the next open holds what is past
-/// the checkpoint in memory. Past it, the chat's lines stay only in `journal-unapplied/`.
-const HOLD_MAX_BYTES: u64 = 4 * CHECKPOINT_BYTES;
+/// The end of a repair file's name in `journal-unapplied/` ([`Inner::keep_for_repair`]).
+const REPAIR_SUFFIX: &str = ".repair.ndjson";
+/// A repair file's first line: `{"schema": REPAIR_SCHEMA, "chat": <id>}`.
+const REPAIR_SCHEMA: &str = "acpmux.journal-repair.v1";
 /// Checkpoints in a row that fail before the store asks the daemon to stop: the journal past the
 /// last one (what the next open holds in memory) must not grow without end.
 const CHECKPOINT_FAILURES_TO_STOP: u32 = 10;
@@ -234,30 +237,18 @@ struct Order {
     failures: u32,
     /// The open reported damage: cleared (`Journal::clear_damage`) after the next checkpoint.
     damage: bool,
-    /// The first LSN of a chat whose repair failed at the open (0: none): the checkpoint stays
-    /// below it, so the next start repairs that chat again, until [`HOLD_MAX_BYTES`] of journal
-    /// came after it.
-    held: Lsn,
-    /// Journal payload bytes appended since `held` was set.
-    held_bytes: u64,
+    /// The repair files of the chats whose repair failed at the open (`journal-unapplied/`): a
+    /// delete removes its chat's.
+    repairs: BTreeMap<String, PathBuf>,
     /// Each chat's newest metadata image that its `session.json` does not hold yet (S3a,
     /// `journal_store/meta.rs`): reads see it first, the checkpoint writes it.
     metas: BTreeMap<String, meta::Pending>,
 }
 
 impl Order {
-    /// The LSN a checkpoint may reach now: every record with its effect done, below a failed
-    /// repair's hold.
-    fn target(&self) -> Lsn {
-        match self.held {
-            0 => self.applied,
-            held => self.applied.min(held.saturating_sub(1)),
-        }
-    }
-
     /// Whether a checkpoint has anything to do.
     fn has_work(&self) -> bool {
-        self.target() > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
+        self.applied > self.checkpointed || !self.dirty.is_empty() || !self.metas.is_empty()
     }
 }
 
@@ -278,7 +269,7 @@ impl JournalStore {
         remove_checkpoint_temporaries(home);
         let local = LocalStore::new(home.join("sessions"), config.segment_bytes)?;
         let from = read_checkpoint(home)?;
-        let (journal, report, replay) =
+        let (journal, report, mut replay) =
             open_journal(storage, &home.join(JOURNAL_DIR), journal_config, from)?;
         for damage in &report.damage {
             match damage {
@@ -325,6 +316,8 @@ impl JournalStore {
             folders: Mutex::new(()),
             idle: AtomicBool::new(false),
         });
+        // The lines of chats whose repair failed at an earlier open, journaled again first.
+        inner.take_repairs(&mut replay);
         inner.apply(replay)?;
         if let Err(error) = inner.checkpoint() {
             tracing::warn!("event journal checkpoint after the replay: {error:#}");
@@ -645,10 +638,13 @@ impl Store for JournalStore {
         Store::commit_compaction(&self.inner.local, id, staged)
     }
     /// The `forget` record under the appends' lock, then the folder's removal off it, without a
-    /// wait for the record: the replay never makes a folder that is gone again.
+    /// wait for the record: the replay never makes a folder that is gone again. Then the chat's
+    /// repair file, if its repair failed at the open: a chat made again under the same id must
+    /// not get the old chat's lines at the next open (after the folder, so a crash between the two
+    /// leaves a repair file of a chat that is gone, which the next open passes).
     fn delete(&self, id: &str) -> Result<()> {
         let inner = &self.inner;
-        {
+        let repair = {
             let mut order = inner.order.lock_or_recover();
             drop(inner.local.writable()?);
             let lsn = inner
@@ -658,11 +654,18 @@ impl Store for JournalStore {
             inner.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
             order.applied = lsn;
             order.metas.remove(id);
-        }
+            order.repairs.remove(id)
+        };
         inner.touched();
-        // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
-        let _folder = inner.folders.lock_or_recover();
-        Store::delete(&inner.local, id)
+        {
+            // Not while a checkpoint writes this chat's `session.json` (`journal_store/meta.rs`).
+            let _folder = inner.folders.lock_or_recover();
+            Store::delete(&inner.local, id)?;
+        }
+        if let Some(path) = repair {
+            inner.remove_repair(&path)?;
+        }
+        Ok(())
     }
     /// The chat's folder, for code that reads or moves its files directly: its overlay image is
     /// written to `session.json` first ([`meta`]).

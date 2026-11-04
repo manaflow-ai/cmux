@@ -94,16 +94,11 @@ impl Inner {
                     tracing::error!(session = %chat, kept = %kept.display(), "the chat's log moved on without the event journal ({why}); left as it is");
                 }
                 Err(RepairError::Chat { error, keep }) => {
-                    let kept = self.keep_aside(&chat, first_lsn, &keep)?;
-                    // Its records stay in the journal until a later start repairs the log (the
-                    // checkpoint holds below them, `journal_store/checkpoint.rs`).
-                    let mut order = self.order.lock_or_recover();
-                    order.held = match order.held {
-                        0 => first_lsn,
-                        held => held.min(first_lsn),
-                    };
-                    drop(order);
-                    tracing::error!(session = %chat, kept = %kept.display(), "the chat's log could not be repaired; its journaled lines stay for the next start: {error:#}");
+                    // Kept for the next open, which journals them again and repairs the chat; the
+                    // checkpoint of every other chat goes on ([`Inner::take_repairs`]).
+                    let kept = self.keep_for_repair(&chat, first_lsn, &keep)?;
+                    self.order.lock_or_recover().repairs.insert(chat.clone(), kept.clone());
+                    tracing::error!(session = %chat, kept = %kept.display(), "the chat's log could not be repaired; the next start tries again with its kept lines: {error:#}");
                 }
                 #[cfg(test)]
                 Err(RepairError::Stopped) => anyhow::bail!("stopped after the cut (a test)"),
@@ -265,8 +260,30 @@ impl Inner {
 
     /// Keeps `lines` of chat `id` (its journaled lines from LSN `first_lsn` on) in
     /// `<home>/journal-unapplied/<id>.<first_lsn>.ndjson`, owner-only and synced, and returns
-    /// that path.
+    /// that path: for a person, nothing applies it.
     fn keep_aside(&self, id: &str, first_lsn: Lsn, lines: &[Vec<u8>]) -> Result<PathBuf> {
+        self.write_kept(id, &format!("{first_lsn}.ndjson"), None, lines)
+    }
+
+    /// Keeps the lines of chat `id`, whose repair failed (its log could not be read or written),
+    /// in its repair file `<home>/journal-unapplied/<id>.<first_lsn>.repair.ndjson` (a header
+    /// line with the chat's id, then the lines), owner-only and synced: the next open journals
+    /// them again and repairs the chat with them ([`Inner::take_repairs`]).
+    fn keep_for_repair(&self, id: &str, first_lsn: Lsn, lines: &[Vec<u8>]) -> Result<PathBuf> {
+        let header =
+            serde_json::to_vec(&serde_json::json!({ "schema": REPAIR_SCHEMA, "chat": id }))?;
+        self.write_kept(id, &format!("{first_lsn}{REPAIR_SUFFIX}"), Some(&header), lines)
+    }
+
+    /// Writes `<home>/journal-unapplied/<id>.<rest>` whole: `header` (a line) and `lines`,
+    /// owner-only, synced with its folder.
+    fn write_kept(
+        &self,
+        id: &str,
+        rest: &str,
+        header: Option<&[u8]>,
+        lines: &[Vec<u8>],
+    ) -> Result<PathBuf> {
         let dir = self.home.join(UNAPPLIED_DIR);
         crate::config::refuse_lost_home(&dir)?;
         crate::config::private_state_dir(&dir)?;
@@ -274,7 +291,7 @@ impl Inner {
             .chars()
             .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '-' | '_') { c } else { '_' })
             .collect();
-        let path = dir.join(format!("{name}.{first_lsn}.ndjson"));
+        let path = dir.join(format!("{name}.{rest}"));
         let mut options = OpenOptions::new();
         options.write(true).create(true).truncate(true);
         #[cfg(unix)]
@@ -283,6 +300,10 @@ impl Inner {
             options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
         let mut file = options.open(&path).with_context(|| format!("write {}", path.display()))?;
+        if let Some(header) = header {
+            file.write_all(header)?;
+            file.write_all(b"\n")?;
+        }
         for line in lines {
             file.write_all(line)?;
         }
@@ -290,6 +311,101 @@ impl Inner {
         drop(file);
         sync_directory(&dir)?;
         Ok(path)
+    }
+
+    /// The open's first step after the journal's replay: each repair file in `journal-unapplied/`
+    /// (a chat whose repair failed at an earlier open) is journaled again, made durable and
+    /// removed, and its lines join the chat's replayed lines, so the repair below runs on them as
+    /// on any journaled line (a line in both is the same bytes, so a file journaled twice after a
+    /// crash changes nothing). A file that does not read, or whose lines the journal refuses, is
+    /// left as it is with an error: the next open tries again.
+    pub(super) fn take_repairs(&self, replay: &mut Replay) {
+        let dir = self.home.join(UNAPPLIED_DIR);
+        let Ok(entries) = std::fs::read_dir(&dir) else { return };
+        let mut paths: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.file_name().is_some_and(|name| name.to_string_lossy().ends_with(REPAIR_SUFFIX))
+            })
+            .collect();
+        paths.sort();
+        let mut taken = Vec::new();
+        for path in paths {
+            match self.journal_repair(&path) {
+                Ok((chat, lines)) => taken.push((path, chat, lines)),
+                Err(error) => {
+                    tracing::error!(kept = %path.display(), "a repair file could not be journaled again; the next start tries again: {error:#}");
+                }
+            }
+        }
+        let Some(last) =
+            taken.iter().flat_map(|(_, _, lines)| lines.iter().map(|(lsn, _)| *lsn)).max()
+        else {
+            return;
+        };
+        if let Err(error) = self.journal.wait_durable(last, REPAIR_WAIT) {
+            tracing::error!(
+                "the repair files' lines did not become durable; the next start tries again: {error}"
+            );
+            return;
+        }
+        let mut removed = false;
+        for (path, chat, lines) in taken {
+            replay.chats.entry(chat).or_default().extend(lines);
+            match crate::config::refuse_lost_home(&path)
+                .and_then(|()| std::fs::remove_file(&path).map_err(anyhow::Error::from))
+            {
+                Ok(()) => removed = true,
+                Err(error) => tracing::warn!("remove {}: {error:#}", path.display()),
+            }
+        }
+        if removed && let Err(error) = sync_directory(&dir) {
+            tracing::warn!("sync {}: {error:#}", dir.display());
+        }
+    }
+
+    /// Reads one repair file and appends its lines to the journal: the chat and each line's LSN.
+    fn journal_repair(&self, path: &Path) -> Result<(String, Vec<(Lsn, Vec<u8>)>)> {
+        #[derive(Deserialize)]
+        struct Header {
+            schema: String,
+            chat: String,
+        }
+        let reader = BufReader::new(crate::config::private_state_file(path)?);
+        let mut lines = reader.split(b'\n');
+        let header = lines.next().transpose()?.unwrap_or_default();
+        let header: Header = serde_json::from_slice(&header).context("its header")?;
+        anyhow::ensure!(header.schema == REPAIR_SCHEMA, "its schema is {}", header.schema);
+        let mut journaled = Vec::new();
+        for line in lines {
+            let mut line = line?;
+            if line.is_empty() {
+                continue;
+            }
+            line.push(b'\n');
+            let lsn = self
+                .journal
+                .append(KIND_LOG, Class::Ack, &encode_log(&header.chat, &line))
+                .map_err(|error| anyhow::anyhow!("journal a kept line: {error}"))?;
+            journaled.push((lsn, line));
+        }
+        Ok((header.chat, journaled))
+    }
+
+    /// Removes a repair file (`Store::delete` of its chat) and syncs its folder.
+    pub(super) fn remove_repair(&self, path: &Path) -> Result<()> {
+        crate::config::refuse_lost_home(path)?;
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(
+                    anyhow::Error::from(error).context(format!("remove {}", path.display()))
+                );
+            }
+        }
+        sync_directory(&self.home.join(UNAPPLIED_DIR))
     }
 }
 

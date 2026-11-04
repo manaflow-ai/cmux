@@ -875,9 +875,9 @@ fn a_failed_sync_in_flush_session_freezes_the_checkpoint() {
 
 // ---------------------------------------------------------------- review 3 of #34901 (follow-ups)
 
-/// Follow-up 1: a chat whose repair fails (its log cannot be read or written now) keeps its
-/// journaled records until a later start repairs it: the open's checkpoint does not retire them.
-/// Its lines also go to `journal-unapplied/` at once.
+/// Follow-up 1: a chat whose repair fails (its log cannot be read or written now) is repaired at a
+/// later start: its lines go to its repair file in `journal-unapplied/`, which the next open
+/// journals again (review of #35562: no hold of the global checkpoint).
 #[test]
 fn a_chat_whose_repair_failed_is_repaired_at_the_next_start() {
     let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
