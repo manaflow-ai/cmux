@@ -182,8 +182,6 @@ final class CEFRuntime {
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
     var pumpFrames: CEFPumpFrameSeams?  // the pump's frame-deadline seams (CEFPumpFrameDeadline), read at start; nil: static slice
-    /// The feature `chromiumSpareAfterFirstTab`, asked at start (the App supplies it).
-    var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
     let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40)
@@ -562,7 +560,7 @@ final class CEFRuntime {
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
-            spareAfterFirstTab: spareAfterFirstTabFeature(), embedderColorChooser: drawsChoosersInCmux,
+            embedderColorChooser: drawsChoosersInCmux,
             chromiumSpareOff: spareWindow.placeholderIsTheSpare,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtIn.folders,

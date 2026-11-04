@@ -27,10 +27,8 @@ extension AppServices {
     }
 
     /// Chromium's spare policy from the features, before anything can start Chromium: its switches read
-    /// them at start (`CEFRuntime.initialize`), and the first spare window its placeholder's kind.
+    /// them at start (`CEFRuntime.initialize`).
     func configureChromiumSpares() {
-        let spareAfterFirstTab = features.isEnabled(.chromiumSpareAfterFirstTab)
-        cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
         // At most one Chromium spare renderer: Chromium's own, or the placeholder's.
         cache.cef.setOneSpareRenderer(features.isEnabled(.chromiumOneSpareRenderer))
     }

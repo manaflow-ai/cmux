@@ -15,9 +15,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// `disable-features` entry and leave the `enable-features` entry, also a feature cmux itself names
     /// there: disable wins, as in Chromium's `FeatureList::InitFromCommandLine` (base/feature_list.cc).
     var disabledChromiumFeatures: [String] = []
-    /// The default-off feature `chromiumSpareAfterFirstTab`: pass the fork's spare renderer policy
-    /// (`spareRendererAfterFirstTab`).
-    var spareAfterFirstTab = false
     /// Host mode shows `<input type=color>` in cmux (``ChromiumHostChoosers``): the renderer asks the browser
     /// for a chooser (fork API 31's Blink feature), so the fork's handler gets it, not Blink's own popup.
     var embedderColorChooser = false
@@ -144,7 +141,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if rendererPaths, forkAPIVersion >= Self.pageSiteSharingForkAPI, !siteCaps.isEmpty {
             result.append(Self.pageSchemeProcessPerSiteArgument(siteCaps))
         }
-        if spareAfterFirstTab { result.append(Self.spareRendererAfterFirstTab) }
         // Chrome's memory caps on a shared renderer, from the app's budget: a main frame joins a same-site
         // renderer (and, in the fork, a cmux page a live renderer of the table above) only while the renderer's
         // footprint plus its estimate for one more main frame stays under the cap (render_process_host_impl.cc
@@ -387,7 +383,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         rendererPaths: Bool = false,
         chromiumFeatures: [String] = [],
         disabledChromiumFeatures: [String] = [],
-        spareAfterFirstTab: Bool = false,
         embedderColorChooser: Bool = false,
         chromiumSpareOff: Bool = false,
         bundleIdentifier: String?,
@@ -424,7 +419,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             rendererPaths: rendererPaths,
             chromiumFeatures: chromiumFeatures,
             disabledChromiumFeatures: disabledChromiumFeatures,
-            spareAfterFirstTab: spareAfterFirstTab,
             embedderColorChooser: embedderColorChooser,
             chromiumSpareOff: chromiumSpareOff,
             useMockKeychain: mockKeychain,

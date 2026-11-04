@@ -208,8 +208,7 @@ def phase_fresh(url):
 
 
 def phase_spare(url):
-    # The spare is built before any browser tab only with chromiumSpareAfterFirstTab off (its default).
-    job = FirstTabJob("spare", feature_on=True, disable=["chromiumSpareAfterFirstTab"])
+    job = FirstTabJob("spare", feature_on=True)
 
     def home():
         """Home starts Chromium for its cmux pages; the warmup then builds the default profile's spare window."""

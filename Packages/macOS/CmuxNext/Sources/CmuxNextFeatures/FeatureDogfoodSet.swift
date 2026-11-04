@@ -29,7 +29,6 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "chromiumHostPopupMenus",
         "chromiumHostSuggestions",
         "chromiumHostWidgets",
-        "chromiumSpareAfterFirstTab",
         "chromiumTabVisibility",
         "cmuxPageRendererSharing",
         "coldScrollbackCompression",
