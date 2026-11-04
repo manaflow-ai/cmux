@@ -2608,15 +2608,20 @@ async fn peer_pending_for_a_session_listed_after_it_is_relayed_once_listed() {
     a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
-    let mut got = Vec::new();
-    loop {
-        let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
-        let fresh = p["permissionId"] == "fresh";
-        got.push(p);
-        if fresh {
-            break;
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
         }
-    }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0]["sessionId"], "far-2", "{got:?}");
     assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
@@ -2649,15 +2654,20 @@ async fn peer_pending_decided_before_its_session_is_listed_is_not_relayed() {
     a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
-    let mut got = Vec::new();
-    loop {
-        let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
-        let fresh = p["permissionId"] == "fresh";
-        got.push(p);
-        if fresh {
-            break;
+    // One deadline for the whole read: `wait` restarts its own on every line the hub sends.
+    let got = tokio::time::timeout(Duration::from_secs(30), async {
+        let mut got = Vec::new();
+        loop {
+            let p = watcher.wait(method::MUX_PERMISSION_PENDING, |_| true).await;
+            let fresh = p["permissionId"] == "fresh";
+            got.push(p);
+            if fresh {
+                return got;
+            }
         }
-    }
+    })
+    .await
+    .expect("the held ask never reached the watcher");
     assert_eq!(got.len(), 1, "{got:?}");
     assert_eq!(got[0]["sessionId"], "far-3", "{got:?}");
 }
