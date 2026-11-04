@@ -17,6 +17,8 @@ mod repository;
 pub mod run;
 #[cfg(unix)]
 pub mod sync_barrier;
+#[cfg(unix)]
+pub mod native_hook;
 pub mod worktree_root;
 pub mod write_run;
 
