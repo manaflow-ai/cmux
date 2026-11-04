@@ -159,6 +159,24 @@ class HeldDrag(unittest.TestCase):
         result = {"layout": "light", "drag_holds_terminals": False, "rounds": [held_round()]}
         self.assertEqual(len(verdict.problems(result)), 2)
 
+    def test_the_hold_is_judged_per_round(self):
+        # Review of #35407, finding 2: --ab terminalDrag.holdSurface read the hold once, after all rounds, and judged
+        # every round by it: the off rounds (terminals resized) passed or failed by the on rounds' value.
+        resized = {"terminals": 2, "resized_terminals": 2, "frames": {"frames": 240, "view_layouts": 480},
+                   "counters": {"frames": 30}, "holds_terminals": False}
+        held = dict(held_round(), holds_terminals=True)
+        result = {"layout": "light", "drag_holds_terminals": False, "rounds": [resized, held]}
+        self.assertEqual(verdict.problems(result), [])
+        result = {"layout": "light", "drag_holds_terminals": True, "rounds": [dict(held_round(), holds_terminals=False)]}
+        self.assertEqual(len(verdict.problems(result)), 2, "a round that did not hold needs resized and drawn terminals")
+
+    def test_a_held_round_with_no_layout_count_fails(self):
+        # Review of #35407, finding 5: `== 0` let a reply without view_layouts pass.
+        entry = held_round()
+        del entry["frames"]["view_layouts"]
+        found = verdict.problems({"layout": "light", "drag_holds_terminals": True, "rounds": [entry]})
+        self.assertTrue(found and "laid out no view" in found[0], found)
+
     def test_a_probe_that_did_not_move_the_divider_fails(self):
         result = {"layout": "light", "error": "probe: the probe drag did not move the divider (moved 0.0 pt of -40)"}
         self.assertEqual(verdict.problems(result), [f"light: {result['error']}"])
