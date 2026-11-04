@@ -94,15 +94,20 @@ test("Settings Push always pushes wherever its whole room keeps the column, else
   expect(stage(1300, TALL, "push").stage).toBe("overlay");
 });
 
-test("an off-grid pushed width keeps the chat in push when the grid leaves it wider", () => {
-  const pane = { width: 1800, height: TALL };
-  const panel = 300;
-  expect(sessionInfoStage("push", pane, panel, STANDARD)).toBe("push");
-  const room = pushedRoom(pane.width, panel, STANDARD, 0, true);
-  expect(room).toBe(panel + 8);
-  expect(transcriptColumn(pane.width - room, STANDARD).width).toBeGreaterThanOrEqual(
-    transcriptColumn(pane.width, STANDARD).width,
-  );
+test("Push always stays flush and keeps its pinned column across adjacent pane and panel widths", () => {
+  for (let paneWidth = 1792; paneWidth <= 1816; paneWidth++) {
+    for (let panel = 296; panel <= 312; panel++) {
+      const pane = { width: paneWidth, height: TALL };
+      expect(sessionInfoStage("push", pane, panel, STANDARD)).toBe("push");
+      const room = pushedRoom(paneWidth, panel, STANDARD, 0, true);
+      expect(room).toBe(panel + 8);
+      expect(pushKeepsColumn(paneWidth, room, STANDARD, true)).toBe(true);
+      // This is the width CSS can draw while keeping the minimum page edge on either side.
+      expect(paneWidth - room - 2 * transcriptColumn(0, STANDARD).inset).toBeGreaterThanOrEqual(
+        transcriptColumn(paneWidth, STANDARD).width,
+      );
+    }
+  }
 });
 
 test("a short pane where it would lie over the chat makes it a popover; a wide short pane keeps the gutter", () => {

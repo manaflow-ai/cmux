@@ -275,13 +275,12 @@ export const pushKeepsColumn = (paneWidth: number, room: number, column?: ChatCo
   paneWidth <= 0 ||
   room <= 0 ||
   (room < paneWidth &&
-    // The 4px-grid inset can quantize the measured width by a few pixels even when the configured
-    // column span is unchanged. Push always pins the rendered column to the unpushed width, so it
-    // may tolerate one grid step of rounding; the default placement keeps the exact-width guard.
-    ((allowGridRounding &&
-      transcriptColumn(paneWidth - room, column).width >= transcriptColumn(paneWidth, column).width - 8) ||
-      (!allowGridRounding &&
-        transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width)) &&
+    // Push always takes an exact, user-dragged width. Its CSS pins the original column without
+    // rounding the inset, so check that width plus the two minimum page edges fits in the chat.
+    // Default placement still steps in 8s and keeps its existing exact-width guard.
+    (allowGridRounding
+      ? paneWidth - room >= transcriptColumn(paneWidth, column).width + 2 * transcriptColumn(0, column).inset
+      : transcriptColumn(paneWidth - room, column).width === transcriptColumn(paneWidth, column).width) &&
     // The column itself too, not only its drawn width: the 4 grid's 0-7 px leftover can make up a
     // column the narrower chat shrank, and that push is one a narrower column would need (Leo,
     // 2026-11-03: "if it would need to be then session info should be an overlay").
