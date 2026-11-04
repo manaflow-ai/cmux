@@ -49,7 +49,7 @@ extension SidebarController {
         guard let i = item(h), let c = Self.element(snapshot.items, i) else { return false }
         guard !Self.isExtra(c.id), delegate?.sidebar(self, actionsFor: c.id).contains(.pin) == true else { return false }
         let state = pinDragState
-        state.animates = CmuxSidebarView.animatesMovement
+        state.animates = animates && CmuxSidebarView.animatesMovement
         let frame: CGRect
         // Where the lifted avatar starts (ghost center and scale): a tile lifts in place; a row's
         // avatar leaves the row's own avatar and grows to a tile's under the pointer (no jump).
