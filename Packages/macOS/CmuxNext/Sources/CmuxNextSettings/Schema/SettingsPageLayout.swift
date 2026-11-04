@@ -417,7 +417,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // Phone access sits beside the account it signs in with and the machines list. The
         // Machines card draws Machine Colors on its rows (a color well per machine).
         groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors"),
-                 group("settings.group.cloudWorkspaces"), group("settings.group.cloudTunnel")],
+                 group("settings.group.cloudWorkspaces")],
         lead: [.accounts, .machines, .cloudEnvironments], actions: [.accounts, .machines], aliases: [.accounts, .machines])
 
     // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.

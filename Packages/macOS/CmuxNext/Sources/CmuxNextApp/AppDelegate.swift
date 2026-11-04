@@ -142,7 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.services = services
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), files: services.agentPaneStateFiles)
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         services.windowRecord.watchLaunch() // `--record-launch`: before the first window is made
         #endif
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -360,7 +360,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.configActions.start(settings: settings)
-        services.cloud.followTunnelSetting(settings) // opt-in Cloud Tunnel
         services.personInput.start()
         services.joinConsent.follow(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.

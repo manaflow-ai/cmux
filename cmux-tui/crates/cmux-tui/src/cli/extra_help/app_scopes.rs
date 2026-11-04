@@ -59,13 +59,6 @@ fn text(args: &[String]) -> Option<String> {
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
         ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
         ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
-        // Two-word Cloud verbs (`cloud tunnel on`) have their own help.
-        ["cloud", noun, verb]
-            if super::super::cloud_help::usage(&format!("{noun} {verb}")).is_some() =>
-        {
-            let japanese = crate::localization::catalog().is_japanese();
-            return super::super::cloud_help::verb_help(&format!("{noun} {verb}"), japanese);
-        }
         ["cloud", verb] => {
             let japanese = crate::localization::catalog().is_japanese();
             return Some(
@@ -82,6 +75,7 @@ fn text(args: &[String]) -> Option<String> {
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
         }
+        ["settings" | "config", ..] => return Some(format!("{}\n", messages.settings_usage)),
         [scope, ..] if super::super::app::APP_SCOPES.contains(scope) => app_usage(scope, messages)?,
         _ => return None,
     };
@@ -91,7 +85,6 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,

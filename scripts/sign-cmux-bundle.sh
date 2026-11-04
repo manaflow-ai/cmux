@@ -53,13 +53,9 @@
 #      signatures and re-introduce the app-id mismatch that amfi on
 #      notarized macOS 26 Tahoe rejects with errno 163.
 #
-# The opt-in Cloud Tunnel system extension (plans/cmux-next/cloud-tunnel-DESIGN.md)
-# ships only in a build made with CMUX_CLOUD_TUNNEL=YES. Such a bundle needs app
-# entitlements that request the tunnel and an app profile that grants it, plus
-# CMUX_CLOUD_TUNNEL_PROFILE (the extension's Developer ID profile, for
-# <app id>.tunnel) and CMUX_CLOUD_TUNNEL_ENTITLEMENTS; the extension is signed
-# with them before the app. Without an extension, entitlements that request the
-# tunnel fail signing.
+# cmux-next ships no Cloud tunnel system extension (the userspace
+# `cmux-tui wg hub` replaced it). Signing fails when the bundle carries
+# Contents/Library/SystemExtensions or the entitlements request the tunnel.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -126,22 +122,13 @@ else
     --output "$EFFECTIVE_APP_ENTITLEMENTS" --json > "$RECONCILE_SUMMARY"
 fi
 TUNNEL_REQUESTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_requested"] else "0")' "$RECONCILE_SUMMARY")"
-TUNNEL_SUPPORTED="$(python3 -c 'import json,sys; print("1" if json.load(open(sys.argv[1]))["tunnel_supported"] else "0")' "$RECONCILE_SUMMARY")"
-TUNNEL_PROFILE="${CMUX_CLOUD_TUNNEL_PROFILE:-}"
-TUNNEL_ENTITLEMENTS="${CMUX_CLOUD_TUNNEL_ENTITLEMENTS:-}"
 
+if [[ "$TUNNEL_REQUESTED" == "1" ]]; then
+  echo "error: $(basename "$APP_ENTITLEMENTS") requests the Cloud tunnel system extension, which cmux-next does not ship; remove the NetworkExtension and system-extension entitlements" >&2
+  exit 1
+fi
 if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  if [[ "$TUNNEL_SUPPORTED" != "1" ]]; then
-    echo "error: $SYSTEM_EXTENSIONS_DIR exists but $(basename "$APP_ENTITLEMENTS") does not request the Cloud Tunnel or the app's provisioning profile does not grant it; build without CMUX_CLOUD_TUNNEL=YES, or sign with the channel's tunnel entitlements and profile" >&2
-    exit 1
-  fi
-  if [[ ! -f "$TUNNEL_PROFILE" || ! -f "$TUNNEL_ENTITLEMENTS" ]]; then
-    echo "error: the bundled Cloud Tunnel needs CMUX_CLOUD_TUNNEL_PROFILE (the extension's provisioning profile) and CMUX_CLOUD_TUNNEL_ENTITLEMENTS (CloudTunnelExtension/cmux-cloud-tunnel.<channel>.entitlements)" >&2
-    exit 1
-  fi
-  "$SCRIPT_DIR/cmux-next/check-cloud-tunnel-bundle.sh" "$APP_PATH"
-elif [[ "$TUNNEL_REQUESTED" == "1" ]]; then
-  echo "error: $(basename "$APP_ENTITLEMENTS") requests the Cloud tunnel system extension, but the bundle has no Contents/Library/SystemExtensions; remove the NetworkExtension and system-extension entitlements or build with CMUX_CLOUD_TUNNEL=YES" >&2
+  echo "error: $SYSTEM_EXTENSIONS_DIR exists; cmux-next ships no system extension" >&2
   exit 1
 fi
 
@@ -206,15 +193,6 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       /usr/bin/codesign "${COMMON[@]}" --deep "$framework"
     done < <(find "$APP_PATH/Contents/Frameworks" -mindepth 1 -maxdepth 1 -print0)
   fi
-
-  # 4b. The opt-in Cloud Tunnel system extension: its own profile and
-  # entitlements (sandboxed packet tunnel provider), before the app seals it.
-  for extension in "$SYSTEM_EXTENSIONS_DIR"/*.systemextension; do
-    [[ -d "$extension" ]] || continue
-    echo "==> signing system extension $(basename "$extension")"
-    cp -f "$TUNNEL_PROFILE" "$extension/Contents/embedded.provisionprofile"
-    /usr/bin/codesign "${COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$extension"
-  done
 fi
 
 # 5. Main app bundle (no --deep), with the effective entitlements.
@@ -297,22 +275,12 @@ for entitlement in \
   fi
 done
 
-# A NetworkExtension entitlement may reach the signed app only with the bundled
-# Cloud Tunnel (its profile grants it, checked above); otherwise it would not
+# No NetworkExtension entitlement may reach the signed app: without a
+# provisioning profile that grants it and a bundled extension, it would not
 # launch.
-if [[ ! -d "$SYSTEM_EXTENSIONS_DIR" ]] && grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
-  echo "error: signed app carries a NetworkExtension entitlement but bundles no Cloud Tunnel system extension" >&2
+if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then
+  echo "error: signed app carries a NetworkExtension entitlement; cmux-next ships no Cloud tunnel system extension" >&2
   exit 1
-fi
-if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
-  for extension in "$SYSTEM_EXTENSIONS_DIR"/*.systemextension; do
-    /usr/bin/codesign --verify --strict --verbose=2 "$extension"
-    /usr/bin/codesign -d --entitlements :- "$extension" 2>/dev/null \
-      | grep -q "packet-tunnel-provider-systemextension" || {
-        echo "error: $(basename "$extension") is not signed with the packet tunnel entitlement" >&2
-        exit 1
-      }
-  done
 fi
 
 # Helpers must NOT carry the main app's application-identifier.
