@@ -258,6 +258,8 @@ extension ConversationViewController {
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return }
         if replyTarget != nil { exitReplyMode() }
         editingMessageID = message.id
+        // The trailing control cancels the edit; the host's page menu waits.
+        header.suppressesActionMenu = true
         revealRowID = message.rowID
         let overlay = MessageEditOverlay(text: message.text)
         overlay.onSave = { [weak self] text in
@@ -273,6 +275,7 @@ extension ConversationViewController {
 
     func exitEditMode() {
         editingMessageID = nil
+        header.suppressesActionMenu = false
         revealRowID = nil
         editOverlay?.dismiss {}
         editOverlay = nil

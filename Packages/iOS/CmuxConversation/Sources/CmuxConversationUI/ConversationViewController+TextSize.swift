@@ -6,7 +6,8 @@ import UIKit
 /// Type size instead of the person's own. Its traits carry the size, so
 /// UIKit text follows it and every row re-measures through the same path a
 /// Dynamic Type change takes; `ConversationTheme` resolves its text styles
-/// at the size too, including for rows measured off the main thread.
+/// at the size of the conversation in front (`ConversationTextSizeOwners`),
+/// including for rows measured off the main thread.
 extension ConversationViewController {
     func applyTextSize() {
         guard isViewLoaded else { return }
@@ -15,27 +16,69 @@ extension ConversationViewController {
         } else if traitOverrides.contains(UITraitPreferredContentSizeCategory.self) {
             traitOverrides.remove(UITraitPreferredContentSizeCategory.self)
         }
-        // On screen the theme takes the size at once, and the trait change
-        // that follows (next layout) re-measures the rows; otherwise it
-        // takes it when the conversation appears (`viewWillAppear`).
-        if view.window != nil { _ = adoptThemeTextSize() }
+        ConversationTextSizeOwners.changed(self)
     }
 
-    /// Points the theme at this controller's text size. Returns whether it
-    /// changed what the theme resolves fonts with.
-    func adoptThemeTextSize() -> Bool {
-        let wanted: UITraitCollection? = textSize.map { size in
-            let legibility = traitCollection.legibilityWeight
-            return UITraitCollection { traits in
-                traits.preferredContentSizeCategory = size.contentSizeCategory
-                traits.legibilityWeight = legibility
-            }
+    /// What the theme resolves fonts with while this conversation is in front.
+    var themeTextSizeTraits: UITraitCollection? {
+        guard let size = textSize else { return nil }
+        let legibility = traitCollection.legibilityWeight
+        return UITraitCollection { traits in
+            traits.preferredContentSizeCategory = size.contentSizeCategory
+            traits.legibilityWeight = legibility
         }
-        let current = ConversationTheme.textSizeTraits
-        guard wanted?.preferredContentSizeCategory != current?.preferredContentSizeCategory
-            || wanted?.legibilityWeight != current?.legibilityWeight else { return false }
+    }
+
+    /// The theme's text size changed. Rows, the composer and the header
+    /// measured under another conversation's size are laid out again once
+    /// the theme is this conversation's own (now, or when it is in front again).
+    func themeTextSizeDidChange() {
+        guard isViewLoaded else { return }
+        guard ConversationTextSizeOwners.sameSize(ConversationTheme.textSizeTraits, themeTextSizeTraits) else { return }
+        if composer.textView.font?.pointSize != ConversationTheme.bodyFont.pointSize { composer.applyScaledFonts() }
+        header.applyScaledFonts()
+        relayoutForTextMetrics()
+    }
+}
+
+/// The conversations on screen, front last. The theme's fonts follow the
+/// front one's host text size; when it goes (a sheet closes, a pushed one
+/// pops), the one under it takes the theme back and re-measures what it
+/// laid out meanwhile. With no host size anywhere the theme never changes.
+@MainActor
+enum ConversationTextSizeOwners {
+    private struct Owner { weak var controller: ConversationViewController? }
+    private static var owners: [Owner] = []
+
+    /// `controller` is in front now (`viewWillAppear`).
+    static func appeared(_ controller: ConversationViewController) {
+        owners.removeAll { $0.controller == nil || $0.controller === controller }
+        owners.append(Owner(controller: controller))
+        apply()
+    }
+
+    /// `controller` is off screen (`viewDidDisappear`).
+    static func disappeared(_ controller: ConversationViewController) {
+        owners.removeAll { $0.controller == nil || $0.controller === controller }
+        apply()
+    }
+
+    /// `controller`'s size (or Bold Text) changed.
+    static func changed(_ controller: ConversationViewController) {
+        guard owners.last?.controller === controller else { return }
+        apply()
+    }
+
+    static func sameSize(_ a: UITraitCollection?, _ b: UITraitCollection?) -> Bool {
+        a?.preferredContentSizeCategory == b?.preferredContentSizeCategory && a?.legibilityWeight == b?.legibilityWeight
+    }
+
+    private static func apply() {
+        let wanted = owners.last?.controller?.themeTextSizeTraits
+        guard !sameSize(ConversationTheme.textSizeTraits, wanted) else { return }
         ConversationTheme.textSizeTraits = wanted
-        return true
+        ConversationTheme.textSizeEpoch += 1
+        for owner in owners { owner.controller?.themeTextSizeDidChange() }
     }
 }
 

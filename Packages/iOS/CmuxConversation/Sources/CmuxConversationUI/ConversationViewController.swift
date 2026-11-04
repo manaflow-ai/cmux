@@ -57,7 +57,7 @@ public final class ConversationViewController: UIViewController {
     /// Reply with Selection. When set, the edit menu of a bubble's selected
     /// text offers "Reply with Selection", which ends the selection and hands
     /// the host the message and the selected words; the host usually answers
-    /// with `beginReply(toMessageID:composerText:)` and a quote of them. When
+    /// with `beginReply(toMessageID:prefix:)` and a quote of them. When
     /// unset the menu is the system's alone, as before.
     public var onReplyWithSelection: (@MainActor (ConversationSelectionReply) -> Void)?
     /// The transcript and composer's text size, in place of the person's own
@@ -397,12 +397,8 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        // Another conversation shown meanwhile may have set its own text size.
-        if adoptThemeTextSize() {
-            composer.applyScaledFonts()
-            header.applyScaledFonts()
-            relayoutForTextMetrics()
-        }
+        // In front: the theme takes this conversation's text size.
+        ConversationTextSizeOwners.appeared(self)
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -451,6 +447,7 @@ public final class ConversationViewController: UIViewController {
 
     public override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        ConversationTextSizeOwners.disappeared(self)
         // A send still in the air when the conversation goes lands now:
         // other people's changes wait for it (`ConversationLiveChangeGate`).
         landAllFlights()
@@ -486,10 +483,6 @@ public final class ConversationViewController: UIViewController {
 
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        // Before any row re-measures: the theme's fonts follow the host's
-        // size (the conversation on screen's; a covered one adopts its own
-        // when it shows again).
-        let themeTextSizeChanged = view.window != nil && adoptThemeTextSize()
         if traitCollection.displayScale > 0, traitCollection.displayScale != ConversationTheme.displayScale {
             ConversationTheme.displayScale = traitCollection.displayScale
             layoutCache.invalidateAll()
@@ -507,7 +500,12 @@ public final class ConversationViewController: UIViewController {
             forgetAllMessageReuseIDs()
             collectionView.reloadData()
         }
-        if traitCollection.changesTextMetrics(from: previousTraitCollection) || themeTextSizeChanged {
+        // Bold Text with a host size: the theme takes the new weight first
+        // (and re-measures); otherwise rows re-measure here as before.
+        if textSize != nil, previousTraitCollection?.legibilityWeight != traitCollection.legibilityWeight {
+            ConversationTextSizeOwners.changed(self)
+        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             relayoutForTextMetrics()
         }
     }
@@ -954,6 +952,7 @@ public final class ConversationViewController: UIViewController {
         // the measuring ends, these rows are still the store's rows.
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
+        let themeEpoch = ConversationTheme.textSizeEpoch
         let work = MeasureWork(models: pending)
         liveGate.beginMeasuring()
         Task { [weak self] in
@@ -969,7 +968,10 @@ public final class ConversationViewController: UIViewController {
             }.value
             guard let self else { return }
             let probeStart = self.probeClock()
-            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            // Measured under a text size that has changed since: measured again in place.
+            if themeEpoch == ConversationTheme.textSizeEpoch {
+                self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            }
             self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
@@ -1679,7 +1681,7 @@ public final class ConversationViewController: UIViewController {
             setSelecting(false)
         } else if replyTarget != nil {
             exitReplyMode()
-        } else {
+        } else if headerActionMenu == nil {
             onHeaderAction?(header.trailingButton)
         }
     }

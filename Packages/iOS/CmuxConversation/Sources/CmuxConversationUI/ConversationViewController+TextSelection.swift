@@ -174,18 +174,28 @@ extension ConversationViewController {
     }
 
     /// Starts a reply to `messageID` in its thread, as the long-press menu's
-    /// Reply does, with `composerText` (when given) in the composer; the
-    /// keyboard rises. Hosts call it from `onReplyWithSelection` with a quote
-    /// of the selection. Returns false when the message is not in the
-    /// transcript.
+    /// Reply does; the keyboard rises. `prefix` (a quote of the selection,
+    /// from `onReplyWithSelection`) goes in at the start of the composer,
+    /// before anything already typed, through the field's own editing path
+    /// (the draft's formatting and mentions stay), and the caret lands after
+    /// it. Returns false when the message is not in the transcript, or while
+    /// a message is being edited.
     @discardableResult
-    public func beginReply(toMessageID messageID: String, composerText: String? = nil) -> Bool {
+    public func beginReply(toMessageID messageID: String, prefix: String? = nil) -> Bool {
         // An open edit keeps its text; the reply waits until it is saved or cancelled.
         guard editOverlay == nil, let message = store.message(id: messageID) else { return false }
         endTextSelection()
         if isSelecting { setSelecting(false) }
         enterReplyMode(for: message)
-        if let composerText { composer.text = composerText }
+        if let prefix, !prefix.isEmpty {
+            let field = composer.textView
+            if let start = field.textRange(from: field.beginningOfDocument, to: field.beginningOfDocument) {
+                field.replace(start, withText: prefix)
+            }
+            field.selectedRange = NSRange(location: (prefix as NSString).length, length: 0)
+            // The composer follows its field (send button, height, draft).
+            field.delegate?.textViewDidChange?(field)
+        }
         return true
     }
 

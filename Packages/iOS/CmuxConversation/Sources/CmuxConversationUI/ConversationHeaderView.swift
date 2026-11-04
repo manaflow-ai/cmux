@@ -64,9 +64,13 @@ final class ConversationHeaderView: UIView {
     var actionMenu: UIMenu? {
         didSet { applyTrailingMenu() }
     }
+    /// Edit mode keeps the action glyph, but a tap there ends the edit.
+    var suppressesActionMenu = false {
+        didSet { applyTrailingMenu() }
+    }
 
     private func applyTrailingMenu() {
-        let menu = trailingMode == .action ? actionMenu : nil
+        let menu = trailingMode == .action && !suppressesActionMenu ? actionMenu : nil
         trailingButton.menu = menu
         trailingButton.showsMenuAsPrimaryAction = menu != nil
     }
