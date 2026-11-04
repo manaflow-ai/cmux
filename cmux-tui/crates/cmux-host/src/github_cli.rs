@@ -687,10 +687,14 @@ pub fn parse_gh_hosts(hosts_yml: &str) -> GhHosts {
     let mut out = GhHosts::default();
     let Some(first) = lines.first() else { return out };
     if first.trim_start().starts_with('{') {
-        match flow_keys(lines.join("\n").trim()) {
+        let text = lines.join("\n");
+        match flow_keys(text.trim()) {
             Some(keys) => out.hosts = keys,
             None => out.unread = true,
         }
+        // A flow parse that misses a github.com key anywhere in the text fails
+        // toward the person's own login, never toward the team's token.
+        out.unread |= !out.github_login() && mentions_github_key(&text);
         return out;
     }
     let indent = |line: &str| line.len() - line.trim_start().len();
@@ -750,14 +754,21 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
         key.clear();
     };
     let mut chars = body.chars();
-    let mut after_space = true;
+    // The char just before `c`, and the last one that was not whitespace,
+    // outside quotes: a `#` after whitespace or a separator starts a comment,
+    // and a quote starts a quoted scalar only where a scalar starts.
+    let (mut last, mut last_solid) = ('{', '{');
     while let Some(c) = chars.next() {
-        let was_after_space = std::mem::replace(&mut after_space, c.is_whitespace());
-        if quote.is_none() && c == '#' && was_after_space {
+        let (prev, prev_solid) = (last, last_solid);
+        last = c;
+        if !c.is_whitespace() {
+            last_solid = c;
+        }
+        if quote.is_none() && c == '#' && (prev.is_whitespace() || "{[,".contains(prev)) {
             if chars.by_ref().all(|c| c != '\n') {
                 return None;
             }
-            after_space = true;
+            (last, last_solid) = ('\n', prev_solid);
             continue;
         }
         if let Some(q) = quote {
@@ -773,7 +784,7 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
             }
         } else {
             match c {
-                '"' | '\'' => quote = Some(c),
+                '"' | '\'' if "{[,:".contains(prev_solid) => quote = Some(c),
                 '{' | '[' => depth += 1,
                 '}' | ']' if depth > 0 => depth -= 1,
                 '}' => {
@@ -806,6 +817,16 @@ fn flow_keys(s: &str) -> Option<Vec<String>> {
         }
     }
     None
+}
+
+/// Whether `github.com` appears anywhere in `text` as a key (optionally
+/// quoted, then `:`), at any depth.
+fn mentions_github_key(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.match_indices("github.com").any(|(at, m)| {
+        let rest = lower[at + m.len()..].trim_start_matches(['"', '\'']).trim_start();
+        rest.starts_with(':')
+    })
 }
 
 /// Whether gh's `hosts.yml` may hold a github.com login (a `github.com` key
@@ -1665,6 +1686,9 @@ mod tests {
             "{\"\\u0067ithub.com\": {user: me}}\n",
             "!!str github.com:\n  user: me\n",
             "{&a github.com: {user: me}}\n",
+            // A comment right after a separator, with an apostrophe in it.
+            "{ghe.example.com: {oauth_token: x,# Alice's account\n user: a},\ngithub.com:\n {oauth_token: y, # Bob's account\n user: b}}\n",
+            "{ghe.example.com: {user: it's me}, github.com: {user: b}}\n",
         ] {
             assert!(hosts_has_github(hosts), "{hosts:?}");
         }
