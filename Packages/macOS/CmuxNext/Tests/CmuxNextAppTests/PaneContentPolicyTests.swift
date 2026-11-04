@@ -256,8 +256,11 @@ struct PaneContentPolicyTests {
 
     /// Review of #35470 (F3): a terminal tab parked when a key press began (another tab showed) and shown again during the
     /// spring follows its pane from the frame it shows: it is unhidden before its area hands it the hold (in the next
-    /// layout pass), and `restAt` held its surface at the final size then, a size its pane did not have yet.
-    @Test func aParkedTerminalShownDuringAKeyHoldFollowsFromItsFirstFrame() async throws {
+    /// layout pass), and `restAt` held its surface at the final size then, a size its pane did not have yet. With the
+    /// switch off (the default; T5) the shown terminal takes at most one new size from the frame it shows (the final one,
+    /// held), and both states land at its area's size.
+    @Test(arguments: [false, true])
+    func aParkedTerminalShownDuringAKeyHoldFollowsFromItsFirstFrame(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -275,7 +278,7 @@ struct PaneContentPolicyTests {
         _ = pane.show(shown.view)
         rig.root.layoutSubtreeIfNeeded()
         try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
-        PaneGroundCoversPaneTests.ownFrames()
+        try #require(PaneGroundCoversPaneTests.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -283,16 +286,23 @@ struct PaneContentPolicyTests {
         // The tab switch back to the parked terminal, mid-spring.
         _ = pane.show(parked.view)
         rig.root.layoutSubtreeIfNeeded()
-        var off: [String] = []
+        var off: [String] = [], sizes: [CGSize] = []
         func check(_ label: String) {
-            let host = parked.view
+            let host = parked.view, size = parked.surfaceView.frame.size
             let area = host.surfaceSize(forHostSize: host.bounds.size)
-            if parked.surfaceView.frame.size != area { off.append("\(label): its surface \(parked.surfaceView.frame.size) in a \(area) area") }
+            if switchOn {
+                if size != area { off.append("\(label): its surface \(size) in a \(area) area") }
+            } else if size != sizes.last {
+                sizes.append(size)
+            }
         }
         check("the switch's frame")
         let frames = try Self.run(rig) { frame in check("frame \(frame)") }
         #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
         #expect(off.isEmpty, "the shown terminal did not follow its pane: \(off.prefix(3))")
+        #expect(sizes.count <= 2, "with the switch off the shown terminal took \(sizes.count - 1) new sizes after the frame it showed: \(sizes)")
+        let host = parked.view
+        #expect(parked.surfaceView.frame.size == host.surfaceSize(forHostSize: host.bounds.size), "the shown terminal did not land at its area's size")
     }
 
     /// Review of #35470 (F2): a pane that a key press grows down keeps a prompt on its last row in view, as S3 did (and as
@@ -300,7 +310,9 @@ struct PaneContentPolicyTests {
     /// surface at the pane's size in each frame showed that grid's top rows, cut off at the bottom, so the prompt was out
     /// of view for the whole spring. The surface keeps its final size on the moving bottom edge instead: the prompt rides
     /// the bottom of the pane, and the rows above it come into view as the pane grows.
-    @Test func aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown() async throws {
+    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): with it off, S3's hold keeps the same rule.
+    @Test(arguments: [false, true])
+    func aPromptOnTheLastRowRidesTheBottomOfAPaneAKeyGrowsDown(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -308,7 +320,7 @@ struct PaneContentPolicyTests {
         // A device attributes query after the prompt: its reply says the lines before it were parsed.
         terminal.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
         await terminal.io.nextWrite()
-        PaneGroundCoversPaneTests.ownFrames()
+        PaneGroundCoversPaneTests.ownFrames(switchOn)
         #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -331,7 +343,10 @@ struct PaneContentPolicyTests {
     /// surface keeps the final size on the bottom edge (F2); Ctrl-Shift-K before the landing reverses it. From the reverse
     /// press's first frame each surface has its pane's size again: the newest press's anchor (`.top`) wins. The bottom
     /// hold stayed until the landing, so the shrinking pane showed the text with its top step cut off over an empty band.
-    @Test func aReversePressAfterALowPromptGrowsDownFollowsItsPane() async throws {
+    /// With the switch off (the default; T5), the reverse press ends the bottom hold too: from its first frame each surface
+    /// keeps one size, the size the reverse press rests at (for p1 its start size, shorter than the bottom hold's).
+    @Test(arguments: [false, true])
+    func aReversePressAfterALowPromptGrowsDownFollowsItsPane(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.stack), focused: "p1")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -339,7 +354,8 @@ struct PaneContentPolicyTests {
         // A device attributes query after the prompt: its reply says the lines before it were parsed.
         terminal.io.send(.output(Data((String(repeating: "line\r\n", count: 200) + "$ \u{1b}[c").utf8)))
         await terminal.io.nextWrite()
-        PaneGroundCoversPaneTests.ownFrames()
+        PaneGroundCoversPaneTests.ownFrames(switchOn)
+        let startSize = terminal.session.surfaceView.frame.size
         #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         var held = 0
@@ -350,11 +366,28 @@ struct PaneContentPolicyTests {
         try #require(held > 0, "the grow-down press kept no bottom hold: the case under test did not happen")
         #expect(PaneResize.press("p1", .up, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
-        var off: [String] = []
-        let frames = try Self.run(rig) { frame in off += try Self.offTheirPanes(["p1", "p2"], in: rig, "reverse frame \(frame)") }
-        off += try Self.offTheirPanes(["p1", "p2"], in: rig, "after the landing")
+        var off: [String] = [], firstFrame: [PaneID: CGSize] = [:]
+        func check(_ label: String, frame: Int?) throws {
+            if switchOn {
+                off += try Self.offTheirPanes(["p1", "p2"], in: rig, label)
+                return
+            }
+            for pane: PaneID in ["p1", "p2"] {
+                let surface = try Self.surface(pane, in: rig)
+                if frame == 1 { firstFrame[pane] = surface.frame.size }
+                if let first = firstFrame[pane], surface.frame.size != first {
+                    off.append("\(label): \(pane)'s surface took \(surface.frame.size) after \(first) at the reverse press's first frame")
+                }
+            }
+        }
+        let frames = try Self.run(rig) { frame in try check("reverse frame \(frame)", frame: frame) }
+        try check("after the landing", frame: nil)
         #expect(frames > 3, "the reverse press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size after the reverse press: \(off.prefix(3))")
+        #expect(terminal.session.surfaceView.frame.size == startSize, "p1's surface rests at \(terminal.session.surfaceView.frame.size), not its start size \(startSize)")
+        if !switchOn {
+            #expect(firstFrame["p1"] == startSize, "from the reverse press p1's surface kept \(String(describing: firstFrame["p1"])), not its start size \(startSize): the bottom hold stayed")
+        }
     }
 
     /// Review of #35470 at 447f784c3cf (G1 b): a parked terminal tab shown again during a key hold is unhidden before its
@@ -362,7 +395,9 @@ struct PaneContentPolicyTests {
     /// at the press's final size; a second press before the landing left that hold, and the landing's release sized the
     /// surface from it: grid1, grid2, grid1, grid2 for two presses. Each press sends one grid, and none goes after the
     /// landing. (A tab added new mid-hold hears the follow in `didAddSubview`, before its surface joins: no hold.)
-    @Test func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress() async throws {
+    /// Both states of `motion.frameOwner.terminals` (review of #35470, T5): one grid per press with it off too.
+    @Test(arguments: [false, true])
+    func aTerminalThatJoinsAKeyHoldGetsOneGridPerPressThroughASecondPress(switchOn: Bool) async throws {
         let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
         defer { PaneGroundCoversPaneTests.releaseFrames() }
@@ -385,7 +420,7 @@ struct PaneContentPolicyTests {
         rig.root.layoutSubtreeIfNeeded()
         try #require(parked.view.isHidden && parked.view.superview != nil, "the second tab was not parked in the pane")
         _ = await marker()
-        PaneGroundCoversPaneTests.ownFrames()
+        PaneGroundCoversPaneTests.ownFrames(switchOn)
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
@@ -395,13 +430,13 @@ struct PaneContentPolicyTests {
         rig.root.layoutSubtreeIfNeeded()
         for _ in 1...2 { _ = rig.frame() }
         let atJoin = await marker()
-        PaneGroundCoversPaneTests.ownFrames()
+        PaneGroundCoversPaneTests.ownFrames(switchOn)
         // A second press before the landing.
         #expect(PaneResize.press("p2", .left, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
         _ = rig.frame()
         let atSecond = await marker()
-        PaneGroundCoversPaneTests.ownFrames()
+        PaneGroundCoversPaneTests.ownFrames(switchOn)
         let frames = try Self.run(rig)
         let afterLanding = await marker()
         let final = try #require(parked.surfaceView.fittedGrid)

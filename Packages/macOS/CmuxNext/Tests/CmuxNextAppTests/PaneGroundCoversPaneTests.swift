@@ -173,11 +173,14 @@ struct PaneGroundCoversPaneTests {
 
     static func column(_ root: SplitNode) -> ScreenLayout { .columns([LayoutColumn(id: "c0", width: 1, root: root)]) }
 
-    /// (a) One Ctrl-Shift-H/L/K/J press on p2: at every tick, each pane's terminal ground covers its content area.
-    @Test(arguments: [LayoutDirection.left, .right, .up, .down])
-    func aKeyPressShowsEachPanesOwnGroundInEveryFrame(direction: LayoutDirection) throws {
+    /// (a) One Ctrl-Shift-H/L/K/J press on p2: at every tick, each pane's terminal ground covers its content area. In both
+    /// states of `motion.frameOwner.terminals` (review of #35470, T5).
+    @Test(arguments: [LayoutDirection.left, .right, .up, .down], [false, true])
+    func aKeyPressShowsEachPanesOwnGroundInEveryFrame(direction: LayoutDirection, switchOn: Bool) throws {
         let rig = Rig(Self.column(direction == .left || direction == .right ? Self.pair : Self.stack), focused: "p2")
         defer { rig.close() }
+        defer { Self.releaseFrames() }
+        try #require(Self.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(rig.misses().isEmpty, "SETUP: at rest a pane's ground does not cover it: \(rig.misses())")
         #expect(PaneResize.press("p2", direction, model: rig.model, view: rig.root))
         rig.root.syncWithModel()
@@ -195,10 +198,14 @@ struct PaneGroundCoversPaneTests {
         #expect(found.isEmpty, "\(found.count) pane frames show no ground of their own (the shell shows there); first: \(found.prefix(3)), last: \(found.suffix(1))")
     }
 
-    /// (b) A held key: three Ctrl-Shift-L presses 4 frames apart retarget one spring.
-    @Test func aHeldKeyShowsEachPanesOwnGroundInEveryFrame() throws {
+    /// (b) A held key: three Ctrl-Shift-L presses 4 frames apart retarget one spring. In both states of
+    /// `motion.frameOwner.terminals` (review of #35470, T5).
+    @Test(arguments: [false, true])
+    func aHeldKeyShowsEachPanesOwnGroundInEveryFrame(switchOn: Bool) throws {
         let rig = Rig(Self.column(Self.pair), focused: "p1")
         defer { rig.close() }
+        defer { Self.releaseFrames() }
+        try #require(Self.ownFrames(switchOn), "the switch motion.frameOwner.terminals did not take \(switchOn)")
         #expect(rig.misses().isEmpty, "SETUP: at rest a pane's ground does not cover it: \(rig.misses())")
         var found: [String] = []
         var frames = 0
