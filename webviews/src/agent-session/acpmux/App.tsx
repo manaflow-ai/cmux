@@ -570,8 +570,21 @@ import { ThreadTitle } from "./header/ThreadTitle";
 import { deleteChatRow, moveMachineRow } from "./header/chatRows";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
+import { SubagentComposer } from "./subagents/SubagentComposer";
+import {
+  draftMessage as subagentDraftMessage,
+  subagentDraftUnsaved,
+  takeUnsavedSubagentDrafts,
+  wakeIntoSubagentDrafts,
+  wakeSubagentDrafts,
+} from "./subagents/subagentDrafts";
+import {
+  subagentRelayPrompt,
+  subagentRelaySteers,
+  subagentTarget,
+  workflowAgentTarget,
+} from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
-import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import {
@@ -1251,7 +1264,9 @@ const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { s
 
 /// The handshake's `wake` (AgentPaneWakeState.swift): what a released page held that acpmux does not.
 /// `scrollAnchor`: the transcript's place, null at its latest message, undefined when unknown.
-function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null } | undefined {
+function readWake(
+  value: unknown,
+): { composer: ComposerWake; scrollAnchor?: ScrollAnchor | null; subagentDrafts?: unknown } | undefined {
   if (!value || typeof value !== "object") return undefined;
   const wake = value as {
     attachments?: unknown;
@@ -1259,6 +1274,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
     shellText?: unknown;
     scrollAnchor?: unknown;
     atLatest?: unknown;
+    subagentDrafts?: unknown;
   };
   const anchor = wake.scrollAnchor as { rowId?: unknown; offset?: unknown } | null | undefined;
   return {
@@ -1273,6 +1289,7 @@ function readWake(value: unknown): { composer: ComposerWake; scrollAnchor?: Scro
         : wake.atLatest === true
           ? null
           : undefined,
+    subagentDrafts: wake.subagentDrafts,
   };
 }
 
@@ -6761,7 +6778,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
   /// This pane was opened on a subagent (a `subagent:` reveal): while it shows a subagent, it shows
-  /// it read only (`readOnlySubagent`).
+  /// the subagent's composer in place of the chat's (`readOnlySubagent`).
   const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   /// Brings one message's row into the transcript, the way a running line's count does, and says
   /// which row it asked for; undefined while this chat has no row for that message. Set below,
@@ -7869,8 +7886,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }, [requestedSubagent, shownSessionId]);
-  // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
-  // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
+  // A subagent's pane shows the subagent with its own composer (SubagentComposer.tsx), never the
+  // chat's composer, queue or pull request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
   const readOnlySubagent =
     workflowRequest !== undefined ||
@@ -7936,6 +7953,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
+  // The chat part of its subagents' draft keys (subagents/subagentDrafts.ts), for the wake state.
+  const subagentDraftChat = shownSessionId ?? chatName;
+  const subagentDraftChatRef = useRef(subagentDraftChat);
+  subagentDraftChatRef.current = subagentDraftChat;
   /// Opens the turn's changes in a diff tab right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"; Leo, 2026-11-03: "just put it in a tab???"): the chat folder's diff, on the chat's
@@ -8254,6 +8275,56 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
   });
+  // A subagent's own pane sends to the chat, which passes the message on (subagents/subagentMessage.ts):
+  // the chat Restart would send to, as the pane's composer reaches it.
+  const subagentRelayChat = restartOwner({
+    connected,
+    sessionId: snapshot.sessionId,
+    watching: Boolean(snapshot.summary?.watching),
+    readOnly: false,
+    canSend: remoteComposer(snapshot).canSend,
+  });
+  const shownSubagentId = subagentView ?? requestedSubagent;
+  const shownSubagentTarget = useMemo(() => {
+    if (!readOnlySubagent) return undefined;
+    if (workflowRequest)
+      return selectedWorkflowAgent && workflowAgentTarget(selectedWorkflowAgent, translate("tray.kind.subagent"));
+    const agent = freshAgents.find((entry) => entry.id === shownSubagentId);
+    return agent && subagentTarget(agent, snapshot.summary?.family ?? snapshot.summary?.harness?.split(/[-_/]/)[0]);
+  }, [
+    readOnlySubagent,
+    workflowRequest,
+    selectedWorkflowAgent,
+    freshAgents,
+    shownSubagentId,
+    snapshot.summary?.family,
+    snapshot.summary?.harness,
+  ]);
+  // Only to the chat the pane shows and the client has selected, and only once the pane knows which
+  // subagent it is for: a prompt never goes to a target the composer does not name.
+  const relaySteers = subagentRelaySteers(snapshot);
+  const sendToSubagent =
+    subagentRelayChat && shownSubagentTarget
+      ? ((owner: string, target: NonNullable<typeof shownSubagentTarget>) => (message: string) => {
+          if (!restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession))
+            return Promise.reject(new Error(translate("error.notOpen")));
+          // A steer only into a running turn (subagentRelaySteers), else a prompt of its own. A refusal
+          // the chat keeps as a row of its own (Retry, Edit) stays there, never also back in this composer.
+          // It settles once the chat took the message (`accepted`), not when the turn ends: from then the
+          // chat holds it, and the composer no longer keeps it as in flight (subagentDrafts.ts).
+          return new Promise<void>((resolve, reject) => {
+            callNative("chat.send", {
+              text: subagentRelayPrompt(target, message, translate),
+              expectedSessionId: owner,
+              steer: relaySteers,
+              accepted: () => resolve(),
+            }).then(
+              () => resolve(),
+              (error: unknown) => (keptInChat(error) ? resolve() : reject(error)),
+            );
+          });
+        })(subagentRelayChat, shownSubagentTarget)
+      : undefined;
   // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
   // below where the side chat is known; the cards read them as they draw.
   const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
@@ -11148,6 +11219,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A woken page (its last one let go while hidden) comes back as it was left.
         const wake = !reconnect ? readWake(host.wake) : undefined;
         if (wake) {
+          // Each subagent's unsent prompt comes back before its pane's composer reads it.
+          wakeIntoSubagentDrafts(wake.subagentDrafts);
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
@@ -12212,7 +12285,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The tab closes (AgentPageRetirer, while the bridge still answers): held prompts go
             // into their chats' drafts and kept chips, never its composer, which goes with it.
             if (closing === true) {
-              const all = held.release();
+              // A subagent's draft the storage refused lives only in this page: it goes into its
+              // chat's draft and kept chips the same way, a pasted chip's text in its place.
+              const subagents = takeUnsavedSubagentDrafts().map(({ chat, draft }) => ({
+                id: crypto.randomUUID(),
+                chat,
+                cwd: undefined,
+                text: subagentDraftMessage(draft),
+                attachments: draft.attachments.filter((chip) => chip.kind !== "pasted"),
+                ticket: Promise.resolve(undefined),
+              }));
+              const all = [...held.release(), ...subagents];
               if (all.length) await giveBackTrustHeld.current(all, false, true, until);
               return {};
             }
@@ -12228,12 +12311,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // Only untouched New Tabs are capped. Keep their page-owned drafts, attachments,
             // sends, composition and popups; quit and close still hand back their state.
             if (quitting !== true && newTabNow.current && pageReleaseHold()) return { holdsPageState: true };
+            // A subagent's draft the storage refused lives only in this page (subagentDrafts.ts).
+            if (quitting !== true && subagentDraftUnsaved()) return { holdsPageState: true };
             const anchor = transcriptAnchor.current?.();
             const composer = composerHandle.current?.wakeState();
             const attachments = [...chips, ...(composer?.attachments ?? [])];
+            // Subagents' unsent prompts have no acpmux session: the host keeps them with the tab, the
+            // ones this page kept and its chat's.
+            const subagentDrafts = wakeSubagentDrafts(subagentDraftChatRef.current);
             return {
               ...composer,
               ...(attachments.length ? { attachments } : {}),
+              ...(subagentDrafts ? { subagentDrafts } : {}),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
             };
           },
@@ -14075,9 +14164,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       });
   };
   // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
-  // request bars there were the chat's, and a prompt typed in it went to the chat.
+  // request bars there were the chat's, and a prompt typed in it went to the chat. It draws the
+  // subagent's composer instead, whose prompt the chat passes on to the subagent.
+  // The subagent's draft is its own, by keys that hold while its pane is open: the chat's session and
+  // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
+  // id, task name and connected chat arrive or change later and would remount the composer empty.
+  const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
   const composer = readOnlySubagent ? (
-    <SubagentPaneFooter chat={chatName} />
+    <SubagentComposer
+      key={subagentDraftKey}
+      subagent={shownSubagentTarget?.name ?? t("tray.kind.subagent")}
+      chat={chatName}
+      draftKey={subagentDraftKey}
+      onSend={sendToSubagent}
+    />
   ) : (
     !reviewing && (
       <>
