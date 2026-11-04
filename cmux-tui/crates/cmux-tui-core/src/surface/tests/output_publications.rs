@@ -13,6 +13,7 @@
 //! terminal at once.
 
 use super::*;
+use crate::workspace_registry::TerminalLifecycle;
 
 /// The most a frame may take to reach the terminal while the registry is held. Generous for a loaded runner:
 /// the reader that published inline did not apply the frame at all until the registry was free.
@@ -215,10 +216,9 @@ fn a_host_loss_commits_the_directory_the_shell_reported_last() {
     let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
     attachment.record.terminal_id = TERMINAL.into();
     attachment.record.incarnation = INCARNATION.into();
-    attachment.record.workspace_key = workspace.key.clone();
+    attachment.record.workspace_key = workspace.key;
     // A live reader for the running terminal, as adoption makes one: the terminal is adopting while its reader
     // starts, then running.
-    use crate::workspace_registry::TerminalLifecycle;
     mux.commit_terminal_lifecycle_for_test(TERMINAL, TerminalLifecycle::Adopting, INCARNATION)
         .unwrap();
     let surface = Surface::spawn_hosted(
