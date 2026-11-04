@@ -451,12 +451,13 @@ def held_close_play(speed):
     return [hold] + steps[1:]
 
 
-def key_then_drag_play(target, by, what):
+def key_then_drag_play(target, by, what, share=1.0):
     """Stage S2b: Ctrl-Shift-L on p0 (its column edge springs), then a real HID drag of TARGET by BY in 400 ms, its call
-    60 ms after the key-down (ext_pixel px_key_then_drag: the press where the spring will have the edge)."""
+    60 ms after the key-down (ext_pixel px_key_then_drag: the press where the spring will have the edge; SHARE of the
+    key's step: 0 for an edge the key does not move)."""
     def play(speed):
         return [{"do": "px_key_then_drag", "key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
-                 "drag": {"target": target, "by": list(by), "duration_ms": 400},
+                 "drag": {"target": target, "by": list(by), "duration_ms": 400, "share": share},
                  "spring_default": {"response": RESPONSE["move"], "damping": DAMPING["move"]}, "mark": "kd",
                  "title": f"Ctrl-Shift-L on p0, then 60 ms after its key-down a real drag of {what} by {list(by)} pt in 400 ms"},
                 rest(land(speed), "the key's spring and the drag land and rest")]
@@ -591,16 +592,19 @@ def cases():
                     "window resize (window_drag)", play_seconds=lambda s: 2.6))
     # Stage S2b (frame-owner-s2): a drag during a key spring. The shared edges keep their rest gaps, the dragged edge follows
     # the pointer; at x0.25 only (SPEEDS_S2B), a film whose spring had landed at the mouse-down is "not run".
-    for layout, target, by, what, name, hit in ((C3P, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True),
-                                                (C2S, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False)):
-        play, secs = key_then_drag_play(target, by, what)
+    # Since KEYS (#34123) Ctrl-Shift-L on p0 trades width between p0's and p1's columns: the p1|p2 column edge stays where
+    # it rests (share 0), while p1's left edge springs; a split divider in p1's column spans it (its middle moves less
+    # than the key's step, inside its span).
+    for layout, target, by, what, name, hit, share in ((C3P, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True, 0.0),
+                                                       (C2S, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False, 1.0)):
+        play, secs = key_then_drag_play(target, by, what, share)
         out.append(Case(f"px-keys-then-{name}-{layout.key}", f"Ctrl-Shift-L on p0, then {what} dragged {list(by)} pt during its "
                         f"spring ({layout.text})", layout, play, "move", "key then drag", before=[focus("p0")],
                         rebuild=key_then_drag_rebuild(target, by), play_seconds=secs,
                         fixture_tunables=[(HIT_WIDTH, 24)] if hit else [], speeds=SPEEDS_S2B))
-    for layout, target, by, what, name, hit in ((C3T, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True),
-                                                (C2ST, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False)):
-        play, secs = key_then_drag_play(target, by, what)
+    for layout, target, by, what, name, hit, share in ((C3T, {"divider": 1}, (150, 0), "the p1|p2 column edge", "drag", True, 0.0),
+                                                       (C2ST, {"row_divider": 0}, (0, 120), "the p1/p2 split divider", "split-drag", False, 1.0)):
+        play, secs = key_then_drag_play(target, by, what, share)
         out.append(Case(f"px-keys-then-{name}-{layout.key}", f"Ctrl-Shift-L on p0, then {what} dragged {list(by)} pt during its "
                         f"spring ({layout.text}; terminals only)", layout, play, "move", "key then drag", before=[focus("p0")],
                         rebuild=key_then_drag_rebuild(target, by, speed=SPEEDS_S2BT[0][1]), play_seconds=secs,

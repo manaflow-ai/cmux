@@ -103,14 +103,15 @@ Steps (`do`):
                and after, the first key-down, the planned and the real delay, and the close's send and return times on
                the host clock (CLOCK_UPTIME_RAW: the trace's t0_s and the scan's frame times), so the judge finds the
                first frame after the close; events.json gets it as kind tab_close.
-  px_key_then_drag {key, modifiers?, after_ms?: 60, drag: {target: {divider | row_divider: N}, by, duration_ms},
+  px_key_then_drag {key, modifiers?, after_ms?: 60, drag: {target: {divider | row_divider: N}, by, duration_ms, share?: 1},
                     spring_default?, mark?}
                Stage S2b (a drag during a key spring). One real HID key (rk_press), then a real HID drag (ext_video
                hid_drag, hold 0) whose call starts AFTER_MS after the key-down: one CuaDriver session serves one call at a
                time. Its mouse-down reaches the app DRAG_DOWN_S (260-400 ms, cmux22) after the call, and the app hit-tests
-               a divider at its shown frame, so the press goes where the edge will be then: its rest place plus the key's
-               step (KEY_STEP of the viewport, debug.pane_chrome main_pane) times the move spring's progress (this film's
-               response). A split divider spans its column: the same shift lands in its middle. After the drag: the
+               a divider at its shown frame, so the press goes where the edge will be then: its rest place plus SHARE
+               times the key's step (KEY_STEP of the viewport, debug.pane_chrome main_pane) times the move spring's
+               progress (this film's response). SHARE: how much of the key's step the dragged divider moves (1: it moves
+               with the key's edge; 0: it stays, as the edge past the two columns a resize key trades since KEYS #34123). A split divider spans its column: the same shift lands in its middle. After the drag: the
                journal's key-down and mouse-down, and the trace. The film is "not run" (px_film: recorded and rebuilt, never
                judged) when vertical divider 0 (the column edge right of p0, which the key springs) did not move in the 3
                refreshes before the mouse-down (no overlap), or the dragged divider did not follow the pointer (the press
@@ -1016,6 +1017,7 @@ def step_px_key_then_drag(j, step):
     st = _state(j)
     drag = dict(step["drag"])
     target, by = dict(drag["target"]), [float(v) for v in drag["by"]]
+    share = float(drag.get("share", 1.0))
     after = float(step.get("after_ms", 60)) / 1000.0
     spring = (st.get("springs") or {}).get("move") or step.get("spring_default") or {"response": 0.15, "damping": 1.0}
     response = 0.0 if st.get("reduce") else float(spring["response"])
@@ -1046,11 +1048,11 @@ def step_px_key_then_drag(j, step):
     cx, cy, w, h = rest[dragged]
     # Where the drag's mouse-down will find the edge: the key's spring moves every divider right of p0 by its step.
     expect = after + DRAG_DOWN_S
-    moved = step_pt * spring_fraction(expect, response) if response else step_pt
-    press = [cx + moved, cy]  # a column edge and a split divider right of p0 both shift right by the key's step
+    moved = share * (step_pt * spring_fraction(expect, response) if response else step_pt)
+    press = [cx + moved, cy]  # SHARE of the key's step: 1 for the key's own edge, 0 for an edge past the traded columns
     info = {"key": {"key": step["key"], "modifiers": list(step.get("modifiers", []))},
             "drag": {"target": target, "by": by, "duration_ms": int(drag["duration_ms"]), "divider": dragged,
-                     "rest": [cx, cy], "press": press},
+                     "rest": [cx, cy], "press": press, "share": share},
             "spring_edge": spring_edge, "spring_edge_rest": rest[spring_edge][0], "key_step_pt": step_pt,
             "spring": {"response": response, "damping": float(spring.get("damping", 1.0))},
             "planned": {"after_ms": round(after * 1000, 3), "mouse_down_after_key_ms": round(expect * 1000, 3),

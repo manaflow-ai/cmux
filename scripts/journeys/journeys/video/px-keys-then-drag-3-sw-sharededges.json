@@ -278,7 +278,8 @@
        150,
        0
       ],
-      "duration_ms": 400
+      "duration_ms": 400,
+      "share": 0.0
      },
      "spring_default": {
       "response": 0.15,
@@ -413,7 +414,8 @@
        150,
        0
       ],
-      "duration_ms": 400
+      "duration_ms": 400,
+      "share": 0.0
      },
      "spring_default": {
       "response": 0.15,

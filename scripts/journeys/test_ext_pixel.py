@@ -1699,13 +1699,16 @@ class SpringApp(FakeApp):
 
     S = round(0.05 * 1304, 2)
 
-    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.40, hit_pt=24.0, drag_ms=400, vsplit=False):
+    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.40, hit_pt=24.0, drag_ms=400, vsplit=False,
+                 trade=False):
         super().__init__()
         self.clock, self.offset, self.response, self.key_ms, self.latency_s = clock, offset, response, key_ms, latency_s
         self.hit_pt, self.drag_ms = hit_pt, drag_ms
         # vsplit: a vertical split divider x in column 2 (between the two column edges: vertical divider 1). It slides with
         # the key's spring; grabbed ("vsplit") it holds where the press found it and moves with the pointer.
         self.vsplit = vsplit
+        # trade: the key trades width between the first two columns (KEYS #34123): column:c1 stays where it rests.
+        self.trade = trade
         self.key_down = self.mouse_down = None
         self.grabbed = None  # "column" | "split" | None
         self.by = (0.0, 0.0)
@@ -1720,7 +1723,7 @@ class SpringApp(FakeApp):
 
     def dividers(self, t):
         d0 = self.edge(641.5, t)
-        d1 = self.edge(1075.5, t)
+        d1 = 1075.5 if self.trade else self.edge(1075.5, t)
         split_y = 300.0  # not the vertical dividers' middle (428.5): a column press that misses is no split press
         if self.mouse_down is not None and t >= self.mouse_down:
             share = min(1.0, (t - self.mouse_down) / (self.drag_ms / 1000.0))
@@ -1904,6 +1907,25 @@ class KeyThenDragTests(unittest.TestCase):
         self.assertIn("missed the edge", j.px["film_not_run"])
 
 
+    def test_an_edge_the_key_does_not_move_is_pressed_at_its_rest_place(self):
+        """Since KEYS (#34123) a resize key trades width between the two columns of its divider: the next column edge stays.
+        With share 0 the press goes to that edge's rest place and grabs it; with the old share (1) it went 45 pt past it
+        (round ab-s2bd-sw-813ac15: "the press missed the edge")."""
+        for share, grabs in ((0.0, True), (1.0, False)):
+            app = SpringApp(self.clock, 8000.0, trade=True, hit_pt=24.0)
+            j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
+            j.px = {"speed": 0.25, "reduce": False, "springs": {"move": {"response": 0.6, "damping": 1.0}},
+                    "springs_source": "overrides", "tunables": {}, "films": []}
+            X.step_px_key_then_drag(j, {"key": "l", "modifiers": ["control", "shift"], "after_ms": 60,
+                                        "drag": {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400, "share": share}})
+            note = j.video["notes"]["pixel"]["key_then_drag"]
+            self.assertEqual(note["drag"]["share"], share)
+            self.assertEqual(note["grabbed"], grabs, (share, note))
+            if grabs:
+                self.assertAlmostEqual(note["drag"]["press"][0], 1075.5, places=6)
+                self.assertEqual(note["verdict"], "overlap")
+                self.assertEqual(app.grabbed, "column")
+
     def still_drag(self, app):
         j = SpringJourney(app, tempfile.mkdtemp(), self.clock)
         j.px = {"speed": 0.125, "reduce": False, "springs": {"move": {"response": 1.2, "damping": 1.0}},
@@ -2022,16 +2044,17 @@ class SharedEdgeCaseTests(unittest.TestCase):
         return spec
 
     def test_keys_then_column_edge_drag(self):
-        spec = self.check_case("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400}, 2, 0, True)
+        # share 0: since KEYS (#34123) the key trades p0's and p1's widths, so the p1|p2 edge stays where it rests.
+        spec = self.check_case("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400, "share": 0.0}, 2, 0, True)
         self.assertEqual([st["do"] for st in spec["steps"]].count("px_page"), 1)
 
     def test_keys_then_split_drag(self):
-        self.check_case("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400}, 1, 1,
+        self.check_case("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400, "share": 1.0}, 1, 1,
                         False)
 
     def test_shared_edge_switch_variants(self):
-        for cid, drag, hit in (("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400}, True),
-                               ("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400},
+        for cid, drag, hit in (("px-keys-then-drag-3", {"target": {"divider": 1}, "by": [150, 0], "duration_ms": 400, "share": 0.0}, True),
+                               ("px-keys-then-split-drag-2s", {"target": {"row_divider": 0}, "by": [0, 120], "duration_ms": 400, "share": 1.0},
                                 False)):
             specs = self.specs(cid, "--switch", SHARED)
             self.assertEqual(sorted(specs), [f"{cid}-sw-sharededges"])
