@@ -104,3 +104,7 @@ fn send_presence(conn: &Conn, note: &serde_json::Value) {
         conn.send(&Message::notification(crate::rpc::method::MUX_PRESENCE, note.clone()));
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "durable_gate_tests.rs"]
+mod durable_gate_tests;

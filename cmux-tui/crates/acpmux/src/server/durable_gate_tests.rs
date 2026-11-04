@@ -1,0 +1,143 @@
+//! Replies and events wait for durability (R-DURABILITY S2c, DESIGN.md 3.3d): with the event
+//! journal on, an acknowledged change is answered only once its record is durable, and agent
+//! output to a connection that heard no acknowledged change is not held behind one.
+//!
+//! The journal runs on the simulated file system (`cmux_journal::SimStorage`) with every sync
+//! taking [`SYNC`], so "durable" takes a time a test can see.
+
+use crate::config::{Config, StoreMode};
+use crate::rpc::{Message, method};
+use crate::server::{Origin, serve_connection_with};
+use cmux_journal::SimStorage;
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+
+const CHAT: &str = "chat-a";
+const OTHER: &str = "chat-b";
+/// How long every journal sync takes once a test sets it.
+const SYNC: Duration = Duration::from_millis(400);
+
+/// A hub on a journal store with two chats.
+fn hub(home: &Path, journal: &SimStorage) -> Arc<crate::hub::Hub> {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Local;
+    config.store.journal = true;
+    let journal_config = cmux_journal::Config {
+        retry_min: Duration::from_millis(1),
+        retry_max: Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home,
+        Arc::new(journal.clone()),
+        journal_config,
+    )
+    .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    for id in [CHAT, OTHER] {
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap_or_else(|e| panic!("meta: {e}"));
+        store.save(&meta).unwrap_or_else(|e| panic!("{e:#}"));
+    }
+    crate::hub::Hub::new(config, store)
+}
+
+/// A local connection, initialized, and its outgoing lines.
+async fn connect(hub: &Arc<crate::hub::Hub>) -> (mpsc::Sender<String>, mpsc::Receiver<String>) {
+    let (input, incoming) = mpsc::channel(64);
+    let (output, mut outgoing) = mpsc::channel(256);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {},
+        "clientInfo": {"name": "test", "version": "0"}});
+    send(&input, Message::request(1, method::INITIALIZE, hello)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 1).await;
+    assert!(reply.get("error").is_none(), "initialize: {reply}");
+    (input, outgoing)
+}
+
+async fn send(input: &mpsc::Sender<String>, message: Message) {
+    input.send(message.to_line()).await.unwrap_or_else(|e| panic!("send: {e}"));
+}
+
+/// The next line `outgoing` sends that `stop` takes, within 10 s.
+async fn until(outgoing: &mut mpsc::Receiver<String>, stop: impl Fn(&Value) -> bool) -> Value {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let line = outgoing.recv().await.unwrap_or_else(|| panic!("the connection ended"));
+            let line: Value =
+                serde_json::from_str(&line).unwrap_or_else(|e| panic!("not JSON ({e}): {line}"));
+            if stop(&line) {
+                return line;
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("no such line within 10 s"))
+}
+
+/// A rename appends its `renamed` record (an acknowledged change): the reply waits until that
+/// record is durable, one sync after it was appended at the earliest.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_acked_change_is_answered_once_its_record_is_durable() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(60);
+    let hub = hub(home.path(), &journal);
+    let (input, mut outgoing) = connect(&hub).await;
+    journal.set_sync_delay(SYNC);
+    let started = Instant::now();
+    let rename = json!({"sessionId": CHAT, "newName": "renamed"});
+    send(&input, Message::request(2, method::MUX_RENAME, rename)).await;
+    let reply = until(&mut outgoing, |line| line["id"] == 2).await;
+    let took = started.elapsed();
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(reply.get("error").is_none(), "rename: {reply}");
+    assert!(
+        took >= SYNC.saturating_sub(Duration::from_millis(50)),
+        "the rename was answered after {took:?}, before its record could be durable"
+    );
+}
+
+/// Agent output (a `Stream` record) to a connection attached to its chat goes at once, while
+/// another chat's acknowledged change, which this connection does not hear, waits for its sync.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn agent_output_is_not_held_behind_another_chats_acked_change() {
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(61);
+    let hub = hub(home.path(), &journal);
+    let (viewer, mut viewer_out) = connect(&hub).await;
+    let attach = json!({"sessionId": CHAT, "visible": false, "waitLogs": false});
+    send(&viewer, Message::request(2, method::MUX_ATTACH, attach)).await;
+    let reply = until(&mut viewer_out, |line| line["id"] == 2).await;
+    assert!(reply.get("error").is_none(), "attach: {reply}");
+    let (other, mut other_out) = connect(&hub).await;
+    journal.set_sync_delay(SYNC);
+    let rename = json!({"sessionId": OTHER, "newName": "renamed"});
+    send(&other, Message::request(2, method::MUX_RENAME, rename)).await;
+    // The rename's record is appended; its reply waits for its sync.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let session = hub.resolve(CHAT).unwrap_or_else(|e| panic!("{e:?}"));
+    let started = Instant::now();
+    let _ = hub.append(
+        &session,
+        "in",
+        method::SESSION_UPDATE,
+        json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": {
+            "sessionId": CHAT,
+            "update": {"sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "hi"}}
+        }}),
+    );
+    let update = until(&mut viewer_out, |line| line["method"] == method::SESSION_UPDATE).await;
+    let took = started.elapsed();
+    let renamed = until(&mut other_out, |line| line["id"] == 2).await;
+    journal.set_sync_delay(Duration::ZERO);
+    assert!(renamed.get("error").is_none(), "rename: {renamed}");
+    assert_eq!(update["params"]["update"]["content"]["text"], "hi", "{update}");
+    assert!(took < SYNC / 2, "agent output waited {took:?} behind another chat's change");
+}
