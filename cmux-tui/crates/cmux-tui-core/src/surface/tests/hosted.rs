@@ -896,10 +896,7 @@ fn wait_until(what: &str, ready: impl Fn() -> bool) {
 
 /// The frames `host` reads until it reads nothing for `quiet` or its connection ends.
 #[cfg(unix)]
-fn frames_until_quiet(
-    host: &mut std::os::unix::net::UnixStream,
-    quiet: Duration,
-) -> Vec<crate::terminal_host_protocol::Frame> {
+fn frames_until_quiet(host: &mut std::os::unix::net::UnixStream, quiet: Duration) -> Vec<Frame> {
     host.set_read_timeout(Some(quiet)).unwrap();
     let mut frames = Vec::new();
     while let Ok(Some(frame)) = crate::terminal_host_protocol::read_frame(
@@ -913,7 +910,7 @@ fn frames_until_quiet(
 
 /// The payloads of the `Input` frames in `frames`, in order.
 #[cfg(unix)]
-fn input_payloads(frames: &[crate::terminal_host_protocol::Frame]) -> Vec<Vec<u8>> {
+fn input_payloads(frames: &[Frame]) -> Vec<Vec<u8>> {
     frames
         .iter()
         .filter(|frame| frame.kind == MessageKind::Input)
@@ -1100,10 +1097,7 @@ fn a_write_whose_wait_ends_before_the_port_takes_it_is_never_written() {
     let error =
         surface.write_bytes(b"x").expect_err("a write the port did not reach in time answered ok");
     assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "{error}");
-    assert!(
-        !input_port::input_may_be_written(&error),
-        "a frame the port never took may be written: {error}"
-    );
+    assert!(!input_may_be_written(&error), "a frame the port never took may be written: {error}");
     drop(resume);
     let written = input_payloads(&frames_until_quiet(&mut host, Duration::from_millis(500)));
     assert_eq!(
@@ -1125,7 +1119,7 @@ fn a_write_whose_wait_ends_during_its_write_may_be_written() {
     let resume = pty.input_port.pause_writes_for_test();
     let error = surface.write_bytes(b"y").expect_err("a write still being written answered ok");
     assert!(
-        input_port::input_may_be_written(&error),
+        input_may_be_written(&error),
         "a frame the port was writing was 'not written': {error}"
     );
     drop(resume);
