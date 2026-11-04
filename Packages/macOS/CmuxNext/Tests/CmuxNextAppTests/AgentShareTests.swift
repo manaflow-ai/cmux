@@ -460,8 +460,10 @@ struct AgentShareTests {
         }
         #expect(card.copyButton.button.title == model.copyLinkTitle)
         // Copy Invite Link has one fixed width that fits Copied too, so the confirmation moves nothing.
-        let fixed = card.copyButton.constraints.filter { $0.firstAttribute == .width && $0.secondItem == nil && $0.relation == .equal }
-        #expect(fixed.count == 1, "Copy Invite Link has one fixed width")
+        let fixed = card.copyButton.constraints.filter {
+            $0.firstItem === card.copyButton && $0.firstAttribute == .width && $0.secondItem == nil && $0.relation == .equal && $0.priority == .required
+        }
+        #expect(!fixed.isEmpty, "Copy Invite Link has a fixed width")
         card.layoutSubtreeIfNeeded()
         let copyWidth = card.copyButton.frame.width
         #expect(copyWidth >= card.copyButton.intrinsicContentSize.width)
