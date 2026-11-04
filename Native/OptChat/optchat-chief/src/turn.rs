@@ -315,6 +315,11 @@ const TRANSIENT_SESSION_FAILURES: [&str; 13] = [
     "the CLI exited",
 ];
 
+/// How long a turn's session starts before the app says the machine is busy, and how often that
+/// count moves after.
+const START_NOTICE_AFTER: Duration = Duration::from_secs(30);
+const START_NOTICE_EVERY: u64 = 10;
+
 /// Whether a turn's `session/new` error is worth a new try.
 pub fn is_transient_session_failure(error: &str) -> bool {
     TRANSIENT_SESSION_FAILURES.iter().any(|t| error.contains(t))
@@ -328,11 +333,12 @@ fn new_session_with_retry(
     spec: &SessionSpec,
     interrupt: &Interrupt,
     deadline: Option<Instant>,
+    keep_waiting: &mut dyn FnMut(Duration) -> bool,
     note: &dyn Fn(&str, Duration),
 ) -> Result<String, String> {
     let mut waits = NEW_SESSION_BACKOFF.iter();
     loop {
-        let error = match agents.new_session(spec) {
+        let error = match agents.new_session_watching(spec, keep_waiting) {
             Ok(id) => return Ok(id),
             Err(e) => e,
         };
@@ -389,11 +395,12 @@ pub fn run(
         trace,
         &|_| {},
         &|_| {},
+        &|_| {},
     )
 }
 
-/// `run`, publishing drafts of the reply as it streams (`draft.rs`) and the
-/// turn's run record as it changes (`run.rs`).
+/// `run`, publishing drafts of the reply as it streams (`draft.rs`), the turn's run record as it
+/// changes (`run.rs`), and how long a slow session start has taken (`starting`; None once it ended).
 #[allow(clippy::too_many_arguments)]
 pub fn run_with_drafts(
     agents: &dyn AgentPort,
@@ -405,6 +412,7 @@ pub fn run_with_drafts(
     trace: &Trace,
     draft: &dyn Fn(crate::draft::Draft),
     run: &dyn Fn(crate::run::RunUpdate),
+    starting: &dyn Fn(Option<u64>),
 ) -> TurnOutcome {
     let scope = serde_json::json!({"turn": start.key});
     let began = Instant::now();
@@ -479,17 +487,53 @@ pub fn run_with_drafts(
                     };
                 }
             }
-            match new_session_with_retry(agents, &spec, interrupt, deadline, &|e, wait| {
-                log(&format!(
-                    "turn {}: {e}; the session starts again in {} ms",
-                    start.key,
-                    wait.as_millis()
-                ))
-            }) {
+            // acpmux keeps the start going while its harness works: the wait has no wall clock of
+            // its own. It says how long it has taken, and ends on a stop or the turn's limit.
+            let past_limit = || deadline.is_some_and(|d| Instant::now() >= d);
+            let mut stopped = false;
+            let mut said = 0;
+            let mut keep_waiting = |waited: Duration| {
+                let tens = waited.as_secs() / START_NOTICE_EVERY;
+                if waited >= START_NOTICE_AFTER && tens != said {
+                    said = tens;
+                    starting(Some(tens * START_NOTICE_EVERY));
+                }
+                stopped = interrupt.is_set() || past_limit();
+                !stopped
+            };
+            let created = new_session_with_retry(
+                agents,
+                &spec,
+                interrupt,
+                deadline,
+                &mut keep_waiting,
+                &|e, wait| {
+                    log(&format!(
+                        "turn {}: {e}; the session starts again in {} ms",
+                        start.key,
+                        wait.as_millis()
+                    ))
+                },
+            );
+            starting(None);
+            match created {
                 Ok(id) => id,
                 Err(e) => {
+                    // Its start still runs under the name: ending the session ends it.
+                    if stopped && let Ok(Some(old)) = agents.find(&start.session.name) {
+                        let _ = agents.end_session(&old);
+                    }
+                    let cancelled = stopped && interrupt.is_set();
+                    let error = match (stopped, cancelled) {
+                        (_, true) => None,
+                        (true, false) => {
+                            Some("the session did not start within the turn's limit".to_owned())
+                        }
+                        (false, false) => Some(e),
+                    };
                     return TurnOutcome {
-                        error: Some(e),
+                        error,
+                        cancelled,
                         harness: Some(Box::new(admitted)),
                         ..TurnOutcome::default()
                     };
@@ -605,7 +649,7 @@ pub fn run_with_drafts(
                 start.key
             ));
             return run_with_drafts(
-                agents, chat, start, interrupt, log, progress, trace, draft, run,
+                agents, chat, start, interrupt, log, progress, trace, draft, run, starting,
             );
         }
         return TurnOutcome {
