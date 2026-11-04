@@ -419,7 +419,9 @@ def main():
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
             if paired and probe:
-                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, last.get("macName"))
+                # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
+                # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
+                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
                 note(f"- upload: {line}")
             if discovery and paired:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
