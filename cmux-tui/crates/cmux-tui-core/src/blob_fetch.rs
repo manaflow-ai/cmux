@@ -674,13 +674,13 @@ async fn write_file(
     if job.cancelled.load(Ordering::SeqCst) {
         return Err(superseded());
     }
-    // A symlink at the path: the write would land wherever it points. The
-    // file is named as failed, and the Mac skips it as the link copy does.
-    if std::fs::symlink_metadata(&file.path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err(("fs.symlink", format!("{} is a symlink", file.path)));
-    }
-    let mut pending = PendingWrite::begin(roots, &file.path, WriteMode::Overwrite, Some(file.size))
-        .map_err(fs)?;
+    // A symlink anywhere on the path, its last part or a folder, now or put
+    // there before the commit: the write would land wherever it points, so
+    // it is refused (`fs.symlink_in_path`). The file is named as failed, and
+    // the Mac sends it over the link, which skips it the same way.
+    let mut pending =
+        PendingWrite::begin_no_follow(roots, &file.path, WriteMode::Overwrite, Some(file.size))
+            .map_err(fs)?;
     pending.set_permissions(file.permissions).map_err(fs)?;
     let mut whole = Sha256::new();
     for chunk in file.blobs() {
