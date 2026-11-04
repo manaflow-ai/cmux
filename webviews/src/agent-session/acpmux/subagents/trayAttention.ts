@@ -18,8 +18,11 @@ export function needsPerson(item: TrayItem, waiting: ReadonlySet<string>): boole
   }
   // A failed chat acpmux is retrying (or deciding to) is about to run again, as a retrying
   // subagent reads "running" (retryState.ts): only one that stays failed needs the person.
-  if (item.kind === "session")
-    return (item.session.state === "waiting" && !item.session.waitsForSlot) || sessionRetry(item.session).kind === "failed";
+  if (item.kind === "session") {
+    // A chat queued for a run slot (`waitsForSlot`) reads "waiting" but waits on cmux, not the person.
+    const asks = item.session.state === "waiting" && !item.session.waitsForSlot;
+    return asks || sessionRetry(item.session).kind === "failed";
+  }
   return false;
 }
 
