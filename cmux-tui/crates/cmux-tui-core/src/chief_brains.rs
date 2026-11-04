@@ -342,6 +342,12 @@ pub(crate) struct Slot {
     /// The supervisor stopped ([`ChiefBrains::stop`]): no signal waits for
     /// it any more, and a new Chief's brain is answered at once.
     stopped: std::sync::atomic::AtomicBool,
+    /// Signals sent (or kept in `early`) that the supervisor has not handled
+    /// yet, apart from `Exited` and `Shutdown`: each may start a brain.
+    queued: std::sync::atomic::AtomicUsize,
+    /// Brains with a process, or waiting in their restart backoff, as the
+    /// supervisor last counted them.
+    live: std::sync::atomic::AtomicUsize,
 }
 
 /// What happened to a new Chief's brain (`chief.profile.create` and
@@ -390,17 +396,55 @@ impl BrainPending {
 const EARLY_MAX: usize = 256;
 
 impl Slot {
+    /// What keeps an app's Chief owner here (server/owner_keepers.rs): its
+    /// brains that run or wait for their restart, and the signals that may
+    /// start one and wait for the supervisor. A brain is a client of the
+    /// owner only while its link is up, and the owner's stop ends every
+    /// brain (cutting a turn), so a link gap, a start or a backoff must not
+    /// let the owner stop. 0 once the supervisor stopped.
+    pub(crate) fn kept(&self) -> usize {
+        use std::sync::atomic::Ordering;
+        if self.stopped.load(Ordering::Acquire) {
+            return 0;
+        }
+        self.queued.load(Ordering::Acquire).saturating_add(self.live.load(Ordering::Acquire))
+    }
+
+    /// Sends `signal` on `sender`, counted in [`Self::kept`] until the
+    /// supervisor handled it; false when the supervisor is gone.
+    fn queue(&self, sender: &mpsc::Sender<Signal>, signal: Signal) -> bool {
+        use std::sync::atomic::Ordering;
+        self.queued.fetch_add(1, Ordering::AcqRel);
+        if sender.send(signal).is_ok() {
+            return true;
+        }
+        self.handled();
+        false
+    }
+
+    /// Keeps `signal` until the supervisor starts, counted as [`Self::queue`] does.
+    fn keep_early(&self, early: &mut Vec<Signal>, signal: Signal) {
+        self.queued.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        early.push(signal);
+    }
+
+    /// One counted signal was handled (or never reached the supervisor).
+    fn handled(&self) {
+        use std::sync::atomic::Ordering;
+        let _ = self.queued.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_sub(1));
+    }
+
     fn send(&self, signal: Signal) {
         if self.stopped.load(std::sync::atomic::Ordering::Acquire) {
             return;
         }
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
-            let _ = sender.send(signal);
+            self.queue(sender, signal);
         } else if taken().is_some() {
             let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
             if early.len() < EARLY_MAX {
-                early.push(signal);
+                self.keep_early(&mut early, signal);
             }
         }
     }
@@ -435,7 +479,7 @@ impl Slot {
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let (reply, answer) = mpsc::channel();
-            let sent = sender.send(Signal::Control(chief.to_owned(), Some(reply))).is_ok();
+            let sent = self.queue(sender, Signal::Control(chief.to_owned(), Some(reply)));
             return sent.then_some(answer);
         }
         drop(sender);
@@ -463,7 +507,7 @@ impl Slot {
         let sender = self.sender.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(sender) = sender.as_ref() {
             let (reply, answer) = mpsc::channel();
-            if sender.send(Signal::Created(Box::new(record.clone()), Some(reply))).is_ok() {
+            if self.queue(sender, Signal::Created(Box::new(record.clone()), Some(reply))) {
                 return Some(BrainPending::Wait(answer));
             }
             return Some(BrainPending::Ready(BrainStart::NotStarted("error")));
@@ -480,7 +524,7 @@ impl Slot {
         // are bounded by MAX_CHIEFS), so its brain is never dropped.
         let mut early = self.early.lock().unwrap_or_else(PoisonError::into_inner);
         let (reply, answer) = mpsc::channel();
-        early.push(Signal::Created(Box::new(record.clone()), Some(reply)));
+        self.keep_early(&mut early, Signal::Created(Box::new(record.clone()), Some(reply)));
         drop(early);
         drop(sender);
         Some(BrainPending::Wait(answer))
@@ -517,7 +561,16 @@ impl ChiefBrains {
 /// Starts the supervisor for `mux`, whose clients connect on `socket`, when
 /// `CMUX_TUI_CHIEF_BRAINS` is set; `None` otherwise.
 pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
-    let config = config()?;
+    let Some(config) = config() else {
+        // No supervisor will run: what waited for one keeps no owner.
+        let slot = &mux.chiefs().brains;
+        let dropped =
+            std::mem::take(&mut *slot.early.lock().unwrap_or_else(PoisonError::into_inner));
+        for _ in dropped {
+            slot.handled();
+        }
+        return None;
+    };
     // Tests only (a debug build): hold the install until the test opens this
     // FIFO for writing, so a create made before it is proven to wait for the
     // supervisor's answer (tests/cli/chief_brains.rs). Opening a FIFO for
@@ -531,7 +584,10 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         let slot = &mux.chiefs().brains;
         let mut installed = slot.sender.lock().unwrap_or_else(PoisonError::into_inner);
         for early in slot.early.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
-            let _ = sender.send(early);
+            // Counted when it was kept (`keep_early`).
+            if sender.send(early).is_err() {
+                slot.handled();
+            }
         }
         *installed = Some(sender.clone());
     }
@@ -709,10 +765,37 @@ impl Supervisor {
                     let _ = done.send(());
                     return;
                 }
-                Some(signal) => self.handle(signal),
-                None => {}
+                Some(signal) => {
+                    let counted = !matches!(signal, Signal::Exited { .. });
+                    self.handle(signal);
+                    self.on_time();
+                    self.publish_kept(counted);
+                }
+                None => {
+                    self.on_time();
+                    self.publish_kept(false);
+                }
             }
-            self.on_time();
+        }
+    }
+
+    /// Publishes what keeps the owner ([`Slot::kept`]) after a signal or a
+    /// deadline: the brains with a process or a pending restart, and, when
+    /// `counted`, one queued signal fewer. The owner's keepers watch reads
+    /// it again when it changed (its client presence wake).
+    fn publish_kept(&self, counted: bool) {
+        use std::sync::atomic::Ordering;
+        let Some(mux) = self.mux.upgrade() else { return };
+        let slot = &mux.chiefs().brains;
+        let live =
+            self.brains.values().filter(|b| b.process.is_some() || b.retry_at.is_some()).count();
+        let before = slot.kept();
+        slot.live.store(live, Ordering::Release);
+        if counted {
+            slot.handled();
+        }
+        if slot.kept() != before {
+            mux.control_clients.notify_client_presence();
         }
     }
 

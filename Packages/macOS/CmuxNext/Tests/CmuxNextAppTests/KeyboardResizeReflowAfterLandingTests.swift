@@ -55,7 +55,7 @@ struct KeyboardResizeReflowAfterLandingTests {
         }
     }
 
-    /// FRAME OWNER S3 (`motion.frameOwner.contentPolicy` on), the app's pane content with a terminal in each pane: the
+    /// FRAME OWNER S3, the app's pane content with a terminal in each pane: the
     /// producer (the terminal surface) lays out once, at its final size no later than the press's first frame tick (one
     /// grid per terminal; FRAME OWNER S1B moved it there from the key's turn), and nothing in it lays out in any later
     /// frame of the spring or after the landing; the containers (the terminal hosts) lay out in every frame, and at the
@@ -64,7 +64,6 @@ struct KeyboardResizeReflowAfterLandingTests {
     func theProducerLaysOutOnceAndTheContainersEveryFrame(direction: LayoutDirection) throws {
         let rig = PaneGroundCoversPaneTests.Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
         defer { rig.close() }
-        rig.root.context.contentPolicyOverride = true
         let panes: [PaneID] = ["p1", "p2"]
         func sizes() throws -> [PaneID: (host: CGSize, surface: CGSize)] {
             try Dictionary(uniqueKeysWithValues: panes.map { pane in
