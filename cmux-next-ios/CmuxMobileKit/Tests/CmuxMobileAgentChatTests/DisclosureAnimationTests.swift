@@ -170,6 +170,22 @@ import UIKit
         return try #require(ids.last, "a \(kind) row on screen")
     }
 
+    /// A second tap inside the spring starts a second settle: the first one's completion leaves
+    /// the row settling (SwiftUI) until the second one ends, so it does not swap back to native
+    /// mid-animation.
+    @Test func aSecondTapKeepsTheRowSettlingUntilItsSpringEnds() {
+        let disclosures = ChatDisclosures()
+        disclosures.settle("tool-1", true)
+        disclosures.settle("tool-1", true)
+        let revision = disclosures.revision
+        disclosures.settle("tool-1", false)
+        #expect(disclosures.isSettling("tool-1"), "still settling after the first spring ends")
+        #expect(disclosures.revision == revision, "no swap while a spring still runs")
+        disclosures.settle("tool-1", false)
+        #expect(!disclosures.isSettling("tool-1"))
+        #expect(disclosures.revision != revision)
+    }
+
     /// Native lines (a finished thought, group and tool row) tapped open and closed with their
     /// SwiftUI row's button: each opens and closes over several frames, with no row drawn over it.
     @Test(arguments: ["thought", "group", "tool"])
@@ -195,6 +211,19 @@ import UIKit
         #expect(closing.between >= 3, "\(kind) closed over several frames, not in one: \(closing.heights.map { Int($0) })")
         #expect(closing.worstOverlap <= 1, "the row below \(kind) started \(closing.worstOverlap) pt above its bottom while it closed: \(closing.trace)")
         await chat.frames(10)
+
+        // A second open and close: both states were measured by now, and the list's reload used
+        // to lay the row out at its measured height in one frame instead of on the spring.
+        for open in [true, false] {
+            let again = try await fold(chat, id) {
+                toggleDisclosure(chat.list.context.foldHold, key: key, in: disclosures) { disclosures.set(key, open) }
+            }
+            let moved = open ? again.end > again.start + 40 : again.end < again.start - 40
+            #expect(moved, "\(kind) \(open ? "reopened" : "closed again"): \(again.start) -> \(again.end)")
+            #expect(again.between >= 3, "\(kind) \(open ? "reopened" : "closed again") over several frames, not in one: \(again.heights.map { Int($0) })")
+            #expect(again.worstOverlap <= 1, "the row below \(kind) started \(again.worstOverlap) pt above its bottom on the second \(open ? "open" : "close"): \(again.trace)")
+            await chat.frames(10)
+        }
         if kind != "thought" {
             // A thought the person touched stays SwiftUI (`ChatNativeEligibility`); a closed tool row
             // or group is native again once settled.
