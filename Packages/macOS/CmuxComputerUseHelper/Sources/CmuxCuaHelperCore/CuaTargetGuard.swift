@@ -245,9 +245,10 @@ struct CuaTargetGuard: Sendable {
               let last = scalars.lastIndex(where: { !isC0OrSpace($0) }) else { return false }
         var cleaned = String.UnicodeScalarView()
         for scalar in scalars[first...last] where !["\t", "\n", "\r"].contains(scalar) { cleaned.append(scalar) }
-        let parts = String(cleaned).split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-        guard parts.count == 2 else { return false }
-        let scheme = parts[0].lowercased()
+        // The colon as a code point, not a Character: a combining mark after it would join it into
+        // one grapheme and hide it from a Character split, while a browser still reads the scheme.
+        guard let colon = cleaned.firstIndex(of: ":") else { return false }
+        let scheme = String(String.UnicodeScalarView(cleaned[..<colon])).lowercased()
         return scheme == "cmux" || scheme.hasPrefix("cmux-") || scheme.hasPrefix("cmux+")
     }
 

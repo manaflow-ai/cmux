@@ -79,7 +79,8 @@ import Testing
     }
 
     @Test func aCmuxSchemeIsReadAsABrowserReadsIt() {
-        for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r"] {
+        for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r",
+                    "cmux:\u{301}x", "cmux:\u{200D}//x"] {
             #expect(CuaTargetGuard.opensCmux(url), "\(url)")
         }
         for url in ["https://cmux.dev", "about:blank", "notcmux:x", "file:///tmp/cmux"] {

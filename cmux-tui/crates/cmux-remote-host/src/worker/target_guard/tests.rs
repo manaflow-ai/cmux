@@ -402,7 +402,7 @@ async fn a_batch_step_never_navigates_to_cmux() {
 
 #[test]
 fn a_cmux_scheme_is_read_as_a_browser_reads_it() {
-    for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r"] {
+    for url in ["cmux:x", "\u{1}cmux:x", "c\tmux:x", "cm\nux://x", "  CMUX+ssh://b", "cmux-nightly:x\r", "cmux:\u{301}x", "cmux:\u{200D}//x"] {
         assert!(super::opens_cmux(url), "{url:?}");
     }
     for url in ["https://cmux.dev", "about:blank", "notcmux:x", "file:///tmp/cmux"] {
