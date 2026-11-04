@@ -52,7 +52,7 @@ struct WindowLiveResizeLeadingDragTests {
             window.sendEvent(rig.event(.leftMouseDown, press))
             Motion.liveResizeOverride = true
             defer { Motion.liveResizeOverride = nil }
-            func drag(_ dx: CGFloat) { window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + dx, y: press.y))) }
+            @MainActor func drag(_ dx: CGFloat) { window.sendEvent(rig.event(.leftMouseDragged, CGPoint(x: press.x + dx, y: press.y))) }
 
             // Three drags in one display frame: the first goes at once, the two after it wait for the frame tick.
             drag(12)
