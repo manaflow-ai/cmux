@@ -435,6 +435,18 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
  * verbs go to that app's control socket (--socket PATH or CMUX_SOCKET_PATH), so the app must be running
  * and signed in; its build decides the backend, which each step names from the answer when it says.
  */
+/** The ids of `cloud list-machines --json` rows that are not deleted. */
+export function machineIds(rows: any[]): string[] {
+  return rows.filter((m) => m && m.status !== "deleted").map((m) => String(m.id ?? m.machine_id ?? "")).filter(Boolean);
+}
+
+/** The one id in `after` that `before` lacks; null when there is none or more than one (never guess a machine to delete). */
+export function newMachineId(before: string[], after: string[]): string | null {
+  const seen = new Set(before);
+  const fresh = [...new Set(after.filter((id) => !seen.has(id)))];
+  return fresh.length === 1 ? fresh[0] : null;
+}
+
 async function appCliJourney(cli: string, socket: string | undefined, J: Journey, agent: string, prompt: string): Promise<void> {
   const env = { ...process.env, ...(socket ? { CMUX_SOCKET_PATH: socket } : {}) };
   const run = (words: string[], timeoutMs = 120_000) => {
@@ -454,16 +466,15 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
     return r;
   };
   const where = (j: any) => j?.api_base_url ?? j?.backend ?? j?.api ?? j?.origin ?? j?.host ?? "app";
-  // A plain name (CloudMachineRequest.isPlainName refuses spaces), unique to this run, so a create that
-  // answered `pending` without an id can still be found and deleted.
-  const appName = `journey-${J.meta.tag}`;
-  const findByName = async (): Promise<string | null> => {
+  // The backend refuses a create with a name ("can't create a machine with a size, idle pause, name or
+  // bootstrap yet"), so the create takes no flags. A create that answered `pending` without an id is found
+  // by the one id the account did not have before it; with two or more new ids, none is taken.
+  const listIds = (): string[] => {
     const r = run(["cloud", "list-machines", "--json"], 60_000);
-    const rows: any[] = r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []);
-    // `cloud list-machines --json` rows carry `title` (the app's CloudMachine), the API's `name`.
-    const row = rows.find((m) => (m?.title ?? m?.name) === appName && m.status !== "deleted");
-    return row ? String(row.id ?? row.machine_id) : null;
+    return machineIds(r.json?.machines ?? r.json?.items ?? (Array.isArray(r.json) ? r.json : []));
   };
+  let before: string[] | null = null;
+  const findNew = async (): Promise<string | null> => (before ? newMachineId(before, listIds()) : null);
   let machine: string | null = null;
   try {
     await J.step("app cli: signed in (cloud list-machines)", async () => {
@@ -476,8 +487,9 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: `issuer ${where(r.json)}` };
     });
     machine = await J.step("app cli: cloud new-machine", async () => {
-      const r = must("cloud new-machine", run(["cloud", "new-machine", "--name", appName, "--json"], 600_000));
-      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findByName());
+      before = listIds();
+      const r = must("cloud new-machine", run(["cloud", "new-machine", "--json"], 600_000));
+      const id = r.json?.machine_id ?? r.json?.machine?.id ?? r.json?.id ?? (await findNew());
       if (!id) throw new Error(`no machine id in ${short(r.json)}`);
       return { value: String(id), detail: `${id} via ${where(r.json)}` };
     });
@@ -504,8 +516,8 @@ async function appCliJourney(cli: string, socket: string | undefined, J: Journey
       return { value: null, detail: reply.slice(0, 280) };
     });
   } finally {
-    // Creation continues after a `pending` answer: look for the machine by name for a bounded while.
-    for (let t0 = Date.now(); !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findByName();
+    // Creation continues after a `pending` answer: look for the new machine for a bounded while.
+    for (let t0 = Date.now(); before && !machine && Date.now() - t0 < 180_000; await sleep(5000)) machine = await findNew();
     if (machine) {
       const id = machine;
       await J.step("app cli: cloud kill-machine", async () => {
