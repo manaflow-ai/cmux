@@ -298,8 +298,9 @@ def api_for(compare_answer, ref=None, runs=None, jobs=None) -> Api:
 
 
 class ApiReadTests(unittest.TestCase):
-    """Every read is an API read with the job's token: no git remote (the tick checks out with
-    persist-credentials: false) and no shallow history (it fetches 150 commits)."""
+    """nightly-next's head comes from git ls-remote of the public repository (no token, no API
+    budget), the refs API as its fallback; every other read is an API read with the job's token
+    and no shallow history (it fetches 150 commits)."""
 
     def test_the_head_comes_from_the_refs_api_and_the_gap_from_compare(self):
         api = api_for(compare("ahead", [(WAITING, 4), ("d" * 40, 2)]))
@@ -307,7 +308,35 @@ class ApiReadTests(unittest.TestCase):
         self.assertFalse(go, reason)
         self.assertIn("repos/o/r/git/ref/heads/nightly-next", api.paths)
         self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
-        self.assertNotIn("ls-remote", SCRIPT.read_text(encoding="utf-8"))
+
+    def test_the_head_comes_from_ls_remote_first_and_spends_no_api_read(self):
+        """2026-11-04: an exhausted installation budget failed the refs API read, and ticks
+        41791114042 and 41791169626 promoted nothing. git ls-remote costs no API budget."""
+        api = api_for(compare("ahead", [(WAITING, 4), ("d" * 40, 2)]))
+        asked = []
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api,
+                                      ls_remote=lambda repo, branch: asked.append((repo, branch)) or HEAD)
+        self.assertFalse(go, reason)
+        self.assertEqual(asked, [("o/r", "nightly-next")])
+        self.assertNotIn("repos/o/r/git/ref/heads/nightly-next", api.paths)
+        self.assertIn(f"repos/o/r/compare/{HEAD}...{TIP}?per_page=1&page=1", api.paths)
+
+    def test_a_rate_limited_refs_api_still_decides_when_ls_remote_answers(self):
+        api = api_for(compare("ahead", [(WAITING, 30)]), ref=OSError("HTTP 403: API rate limit exceeded for installation"))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, branch: HEAD)
+        self.assertNotIn("could not read nightly-next", reason)
+        self.assertTrue(go, reason)
+
+    def test_a_failed_ls_remote_falls_back_to_the_refs_api(self):
+        def broken(repo, branch):
+            raise OSError("git: not found")
+        api = api_for(compare("ahead", [(WAITING, 4), ("d" * 40, 2)]))
+        go, reason = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=broken)
+        self.assertFalse(go, reason)
+        self.assertIn("repos/o/r/git/ref/heads/nightly-next", api.paths)
+
+    def test_main_reads_the_head_with_ls_remote(self):
+        self.assertIn("ls_remote=watch.ls_remote_sha", SCRIPT.read_text(encoding="utf-8"))
 
     def test_the_oldest_waiting_commit_is_page_one_of_a_one_per_page_compare(self):
         """Page 1 at per_page=1 is the oldest commit after nightly-next (the API's documented order)."""
