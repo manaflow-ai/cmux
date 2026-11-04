@@ -3,13 +3,14 @@
 use super::*;
 
 /// Roster work a request asked for while another thread held the fold
-/// (`Mux::request_roster_work`). Behind its own short lock, never held across I/O.
-#[derive(Default)]
+/// (`Mux::request_roster_work`). Kept in the roster host, whose lock is
+/// short-held and never across I/O.
+#[derive(Debug, Default)]
 pub(super) struct RosterRequests {
     /// The highest journal sequence a request asked the roster to reach.
-    wanted: u64,
+    pub(super) wanted: u64,
     /// Terminals closed since, retired once the roster has folded the head.
-    retire: Vec<String>,
+    pub(super) retire: Vec<String>,
 }
 
 /// What the roster fold lock guards: it orders folds and roster snapshot
@@ -326,13 +327,12 @@ impl Mux {
     /// Records the work, then does it unless another thread holds the fold.
     fn request_roster_work(&self, through: Option<u64>, retire: Option<String>) {
         {
-            let mut requests =
-                self.agent_roster_requests.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(through) = through {
-                requests.wanted = requests.wanted.max(through);
+                host.requests.wanted = host.requests.wanted.max(through);
             }
             if let Some(terminal) = retire {
-                requests.retire.push(terminal);
+                host.requests.retire.push(terminal);
             }
         }
         self.drain_roster_requests();
@@ -361,9 +361,8 @@ impl Mux {
     /// Whether a request asked for a fold past the roster's cursor, or a
     /// retirement waits.
     fn roster_work_pending(&self) -> bool {
-        let requests = self.agent_roster_requests.lock().unwrap_or_else(PoisonError::into_inner);
-        let cursor = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner).cursor;
-        requests.wanted > cursor || !requests.retire.is_empty()
+        let host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+        host.requests.wanted > host.cursor || !host.requests.retire.is_empty()
     }
 
     /// The roster work, with `fold` held: fold the journal through what was
@@ -390,9 +389,8 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
         };
         let (mut target, retire) = {
-            let mut requests =
-                self.agent_roster_requests.lock().unwrap_or_else(PoisonError::into_inner);
-            (requests.wanted, std::mem::take(&mut requests.retire))
+            let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
+            (host.requests.wanted, std::mem::take(&mut host.requests.retire))
         };
         if from_head || !retire.is_empty() {
             let head = match fold.reader(&self.journal_kernel) {
@@ -443,11 +441,8 @@ impl Mux {
             }
             host.cursor = reached;
             cursor = reached;
-            drop(host);
             // A request that came meanwhile is folded in the same pass.
-            target = target.max(
-                self.agent_roster_requests.lock().unwrap_or_else(PoisonError::into_inner).wanted,
-            );
+            target = target.max(host.requests.wanted);
         }
         let (cursor, retired, snapshot) = {
             let mut host = self.agent_roster.lock().unwrap_or_else(PoisonError::into_inner);
