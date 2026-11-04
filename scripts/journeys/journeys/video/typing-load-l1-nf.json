@@ -162,6 +162,14 @@
       "as": "after"
     },
     {
+      "do": "rpc",
+      "method": "debug.hangs",
+      "params": {
+        "limit": 64
+      },
+      "title": "after the typing: the watchdog's main-thread stalls over its threshold, each with its sampled stack (finds a key stall such as the Ctrl-C one; reads only)"
+    },
+    {
       "do": "load_stop"
     },
     {

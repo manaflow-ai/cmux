@@ -70,6 +70,11 @@ def steps(profile, film):
         if film:
             s.append({"do": "video_stop", "name": name, "tail": 0.6})
     s.append({"do": "probe_mark", "as": "after"})
+    # The app watchdog's main-thread stalls over its threshold, each with its sampled stack: a read only, after every
+    # measured key and film, so each round carries the stall behind a slow key (the refactor owner's Ctrl-C key stall).
+    s.append({"do": "rpc", "method": "debug.hangs", "params": {"limit": 64},
+              "title": "after the typing: the watchdog's main-thread stalls over its threshold, each with its sampled stack "
+                       "(finds a key stall such as the Ctrl-C one; reads only)"})
     if profile != "L0":
         s.append({"do": "load_stop"})
     s.append({"do": "expect", "title": "after the typing: the terminal still shows its last typed text (the frame kept)",
