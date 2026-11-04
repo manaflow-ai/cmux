@@ -9,7 +9,6 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
-import { TRANSCRIPT_FOOTER_GAP, TRANSCRIPT_RUN_GAP } from "../transcriptGrid";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -817,15 +816,23 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
 };
 
 /// The live line at the bottom of a running turn never overlaps the row over it. Under a run of
-/// one-line rows it is one more line of the run, flush, 22 apart top to top (#31497,
-/// design/chat-transcript.md "One-line row pitch", transcriptGrid.ts `transcriptGap`), never a gap
-/// apart; under prose it keeps the footer slot's gap (`TRANSCRIPT_FOOTER_GAP`; Leo, 2026-10-21: "THE
+/// one-line rows it keeps the scaled run gap (Leo, 2026-11-04: "the gap between tool calls and
+/// thinking needs to be bigger"); under prose it keeps the footer slot's gap (Leo, 2026-10-21: "THE
 /// RUNNING A COMMAND IS WAY TOO CLOSE"). Its words shimmer, and its "⌃B to run in background" waits
 /// for the pointer.
 const liveLineClear = async (ctx: PlayContext) => {
   const doc = ctx.document;
   await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
   const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const live = doc.querySelector<HTMLElement>(".cv-worked.is-below")!.getBoundingClientRect();
+  // Resolve through a box so both Interface Size and document zoom enter the same geometry.
+  const probe = doc.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;width:0;height:var(--grid-gap-run)";
+  doc.body.append(probe);
+  const runGap = probe.getBoundingClientRect().height;
+  probe.style.height = "var(--grid-gap-footer)";
+  const footerGap = probe.getBoundingClientRect().height;
+  probe.remove();
   // A stacked message row's first line under it (messageLineLook.ts) is the row's last line.
   const over = [...doc.querySelectorAll(".cv-tool, .cv-msgline__preview, .cv-md")]
     .map((node) => ({
@@ -835,13 +842,11 @@ const liveLineClear = async (ctx: PlayContext) => {
     .filter(({ bottom }) => bottom <= words.top + 1);
   if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const nearest = over.reduce((a, b) => (b.bottom > a.bottom ? b : a));
-  const gap = words.top - nearest.bottom;
-  if (nearest.step && !(gap >= -0.5 && gap < TRANSCRIPT_RUN_GAP))
-    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not flush as one more line of it`);
-  if (!nearest.step && !(gap >= TRANSCRIPT_FOOTER_GAP))
-    throw new Error(
-      `the live line sits ${gap.toFixed(1)}px under the reply over it, not ${TRANSCRIPT_FOOTER_GAP}px or more`,
-    );
+  const gap = live.top - nearest.bottom;
+  if (nearest.step && Math.abs(gap - runGap) > 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the run over it, not the scaled ${runGap}px run gap`);
+  if (!nearest.step && gap < footerGap - 0.5)
+    throw new Error(`the live line sits ${gap.toFixed(1)}px under the reply over it, not ${footerGap}px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
   if (hint && getComputedStyle(hint).opacity !== "0")
     throw new Error("the ⌃B hint shows before the pointer is on the line");
@@ -2501,7 +2506,7 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, with the scaled run gap under the activity; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
