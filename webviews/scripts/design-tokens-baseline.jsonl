@@ -524,13 +524,13 @@
 {"file":"pages/apps/styles.css","kind":"spacing","property":"top","values":{"2px":1}}
 {"file":"pages/artifacts/styles.css","kind":"easing","property":"transition","values":{"transform var(--cmux-motion-micro) ease-out":1}}
 {"file":"pages/changelog/styles.css","kind":"duration","property":"transition","values":{"transform 120ms ease":2}}
-{"file":"pages/changelog/styles.css","kind":"font-weight","property":"font-weight","values":{"500":2,"700":1}}
-{"file":"pages/changelog/styles.css","kind":"height","property":"height","values":{"26px":1,"1px":1,"6px":1,"96px":1,"5px":1}}
-{"file":"pages/changelog/styles.css","kind":"radius","property":"border-radius","values":{"10px":2,"7px":1,"3px":3,"5px":1}}
-{"file":"pages/changelog/styles.css","kind":"spacing","property":"gap","values":{"10px":6,"6px":6,"14px":1}}
+{"file":"pages/changelog/styles.css","kind":"font-weight","property":"font-weight","values":{"500":1,"700":1}}
+{"file":"pages/changelog/styles.css","kind":"height","property":"height","values":{"1px":1,"6px":1,"96px":1,"5px":1}}
+{"file":"pages/changelog/styles.css","kind":"radius","property":"border-radius","values":{"10px":2,"3px":3,"5px":1}}
+{"file":"pages/changelog/styles.css","kind":"spacing","property":"gap","values":{"10px":6,"6px":6}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"margin","values":{"6px 0 8px":1,"16px 0 14px":1,"6px 0 0":1,"14px 0 2px":1,"2px 0 0":2,"0 0 10px":1,"0 0 2px":1,"6px 0 4px":1}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"margin-bottom","values":{"18px":1,"10px":1}}
-{"file":"pages/changelog/styles.css","kind":"spacing","property":"margin-top","values":{"22px":1,"18px":2,"10px":1,"2px":3,"6px":1,"14px":1,"3px":1}}
+{"file":"pages/changelog/styles.css","kind":"spacing","property":"margin-top","values":{"22px":1,"18px":2,"10px":1,"2px":3,"14px":1,"3px":1}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"padding","values":{"5px 0":1,"0 2px":1,"2px 0":1,"40px":1,"48px 32px 40px":1,"48px max(32px, calc((100% - 640px) / 2)) 96px":1,"40px 32px 96px calc(32px + var(--cll-gutter) + 24px)":1,"0 5px":1,"0 0 0 18px":1,"32px 24px 80px":1,"40px 8px":1,"0 10px 8px":1,"6px 10px":1,"40px 40px 80px":1,"10px 0":1,"2px 0 6px":1,"44px max(32px, calc((100% - 680px) / 2)) 96px":1,"9px 0":1}}
 {"file":"pages/changelog/styles.css","kind":"spacing","property":"padding-bottom","values":{"40px":1}}
 {"file":"pages/changelog/updateSurfaces.css","kind":"duration","property":"transition","values":{"color 0.12s ease-out":1,"opacity 0.12s ease-out":1}}
