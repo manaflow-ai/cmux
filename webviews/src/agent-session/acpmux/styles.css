@@ -155,11 +155,11 @@
   pointer-events:none;
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-top]::before{
-  inset-block-start:0;
+  inset-block-start:var(--cmux-hairline,.5px);
   background:linear-gradient(to bottom, var(--glass-tint), transparent);
 }
 .acpmux-menu.acpmux-composer-plus.ui-scroll-edge-fade[data-fade-bottom]::after{
-  inset-block-end:0;
+  inset-block-end:var(--cmux-hairline,.5px);
   background:linear-gradient(to bottom, transparent, var(--glass-tint));
 }
 @media (prefers-reduced-transparency:reduce){
