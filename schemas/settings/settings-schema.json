@@ -44071,6 +44071,201 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "cmux-fleet"
+        ],
+        [
+          {
+            "label" : "Deploying",
+            "program" : "deploy"
+          },
+          {
+            "icon" : "mode.build",
+            "label" : "Making {1}",
+            "link" : "https://example.com/{1}",
+            "match" : "^make (\\w+)"
+          },
+          {
+            "label" : "A or B",
+            "program" : [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.commandLabels.help",
+        "text" : "How the chat names background commands: preset names such as cmux-fleet, and rules with a program or pattern and a label."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.commandLabels",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "command",
+        "label",
+        "rule",
+        "preset",
+        "background",
+        "tray",
+        "shell"
+      ],
+      "kind" : "text",
+      "page_hidden" : true,
+      "path" : [
+        "agentPane",
+        "display",
+        "commandLabels"
+      ],
+      "refuses" : [
+        "cmux-fleet",
+        [
+          " "
+        ],
+        [
+          {
+            "label" : "No program or pattern"
+          }
+        ],
+        [
+          {
+            "program" : "x"
+          }
+        ],
+        [
+          {
+            "label" : "x",
+            "program" : [
+
+            ]
+          }
+        ],
+        [
+          {
+            "icon" : 1,
+            "label" : "x",
+            "program" : "x"
+          }
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "a list of preset names and rule objects, edited in cmux-next.json",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.commandLabels",
+        "text" : "Command Labels"
+      },
+      "validation" : "domain:command_labels"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,

@@ -20,6 +20,18 @@
           ]
         },
         {
+          "key": "agentPane.composerRing",
+          "title": "Composer Ring",
+          "help": "What the ring at the end of the composer shows: the chat's context usage, or your plan's usage limits (5-hour and weekly) when the harness reports them.",
+          "kind": "choice",
+          "default": "context",
+          "group": "Agent Chat",
+          "values": [
+            "context",
+            "planUsage"
+          ]
+        },
+        {
           "key": "agentPane.editedFiles.maxRows",
           "title": "Edited Files Shown",
           "help": "",
