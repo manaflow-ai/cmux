@@ -2006,6 +2006,9 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
 #[cfg(unix)]
 fn hand_key(mut link: std::os::unix::net::UnixStream, key: &str) {
     use std::io::{Read, Write};
+    // timeout: a child that never reaches KEY_READY must not retain the
+    // person key or strand a handoff thread forever.
+    let _ = link.set_read_timeout(Some(START_BUDGET));
     let mut said = [0u8; KEY_READY.len()];
     if link.read_exact(&mut said).is_err() || said != KEY_READY {
         tracing::warn!("the daemon did not say it is not dumpable: no person key was handed over");
