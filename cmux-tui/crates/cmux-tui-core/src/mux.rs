@@ -95,6 +95,8 @@ use cell_pixel_state::apply_cell_pixel_size_until;
 use cell_pixel_state::cell_pixel_retry_delay;
 use cell_pixel_state::validate_cell_pixel_convergence;
 mod client_sizing_state;
+/// A key's sizing note without the sizing lock (R-DAEMON-STATE stage S1).
+pub(crate) mod sizing_fast_path;
 use client_sizing_state::AppliedClientSize;
 use client_sizing_state::ClientResizeRequest;
 pub(crate) use client_sizing_state::ClientSizeRollback;
@@ -276,9 +278,9 @@ mod rows;
 mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
-pub(crate) use signaled_mutex::SignaledMutex;
 #[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
+pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
 mod command_history;
 pub(crate) mod keybindings;
 mod new_terminal_cwd;
@@ -535,7 +537,7 @@ pub struct Mux {
     workspace_lifecycles: Mutex<HashMap<WorkspaceId, Weak<Mutex<()>>>>,
     pending_workspace_surfaces: Mutex<HashMap<SurfaceId, WorkspaceId>>,
     client_sizing_lifecycle: Mutex<()>,
-    client_sizing: Mutex<ClientSizingState>,
+    client_sizing: sizing_fast_path::SizingMutex,
     /// Per-client focus memory (client-focus-v1): the most recent focus each
     /// client id reported, so a reconnecting client restores its own view
     /// instead of the shared session focus. In-memory and bounded; a mux
@@ -961,6 +963,8 @@ impl Mux {
         self.control_clients.set_input_lane_for_test(on);
         self.remote_relay().peers.set_publishing_for_test(on);
         self.surface_operation_admission.set_lock_free_for_test(on);
+        self.client_sizing.set_publishing_for_test(on);
+        self.activity.set_lock_free_for_test(on);
     }
 
     #[cfg(test)]

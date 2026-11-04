@@ -1196,8 +1196,9 @@ describe("the tray tells the truth", () => {
       }),
     );
     try {
-      // The tray names the cmux-ci step by its rule, its setup's substitution before it (commandRules.ts).
-      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · Fleet run"]);
+      // With no rule for cmux-ci (it is in the opt-in preset), the tray names its program, its
+      // setup's substitution before it (commandRules.ts).
+      expect(names(liveLines(root))).toEqual(["git rev-parse HEAD · cmux-ci run"]);
       expect(liveLines(root)[0]!.querySelector("button")?.getAttribute("title")).toBe(raw);
       expect(root.textContent).not.toContain("HEAD);");
       expect(root.textContent).not.toContain("--class");

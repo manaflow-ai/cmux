@@ -57,6 +57,8 @@
 #   hyperdrive-ensure     create or update the Hyperdrive config named after
 #                         the chosen environment from its CMUX_VM_DATABASE_URL
 #   deploy-staging        deploy the dispatched ref to staging, then smoke it
+#   tail-production       stream the production Worker's live events (wrangler tail) for
+#                         tail_minutes; repository Cloudflare secrets, feat-cmux-next only
 #   migrate-production    apply the landed cmux_vm migrations to cmux-prod main (job
 #                         migrate-production, feat-cmux-next only, environment
 #                         cmux-vm-production). Fails closed until the environment holds
@@ -100,7 +102,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -119,11 +121,15 @@ on:
         description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (for a token without the restore-backup scope); every other check still runs
         type: boolean
         default: false
+      tail_minutes:
+        description: tail-production only, minutes to stream the production Worker's events (at most 25)
+        type: string
+        default: "10"
 
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -530,11 +536,14 @@ jobs:
         run: bun scripts/smoke.ts
 
   deploy-production:
-    # Production (cx-b4h.5): dispatch only, from feat-cmux-next, in the same run as and after the green
-    # staging deploy of this exact SHA. The cmux-vm-production environment admits only
+    # Production (cx-b4h.5): dispatch only, from feat-cmux-next. The cmux-vm-production environment admits only
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
-    needs: smoke-staging
+    # Only the code check, not the staging deploy and smoke: NEXT production has no outside users, so a
+    # production deploy no longer waits on staging (Leo, 2026-11-04: "why did we have to take so long doing
+    # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
+    # migrations production lacks.
+    needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 25
     environment: cmux-vm-production
@@ -713,6 +722,53 @@ jobs:
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
+
+  tail-production:
+    # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,
+    # so a 503 "temporarily unavailable" shows the dependency behind it while someone reproduces it. Only the
+    # repository Cloudflare secrets are read (no environment). Printed per event:
+    # time, method, path, status, outcome, Durable Object RPC, log lines and exceptions (scripts/tail-filter.mjs);
+    # no headers, bodies or query strings, emails redacted.
+    name: tail production
+    # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Tail cmux-vm-production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.tail_minutes }}
+        run: |
+          set -euo pipefail
+          minutes="${MINUTES:-10}"
+          case "$minutes" in ''|*[!0-9]*) minutes=10 ;; esac
+          [ "$minutes" -ge 1 ] || minutes=1
+          [ "$minutes" -le 25 ] || minutes=25
+          echo "tailing cmux-vm-production for ${minutes}m"
+          # wrangler prints pretty JSON events on stdout and its banner on stderr; the filter keeps only the
+          # summary of each event (no headers or bodies: this log is public).
+          # timeout's exit 124 is the normal end of the window; any other failure (auth, wrangler, the filter) fails the job.
+          status=0
+          timeout "${minutes}m" node_modules/.bin/wrangler tail cmux-vm-production --format json 2> "$RUNNER_TEMP/wrangler-tail.err" \
+            | node scripts/tail-filter.mjs || status=$?
+          tail -n 5 "$RUNNER_TEMP/wrangler-tail.err" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
+          echo "tail ended"
+          [ "$status" = 0 ] || [ "$status" = 124 ] || exit "$status"
 
   migrate-production:
     # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): dispatch only, from

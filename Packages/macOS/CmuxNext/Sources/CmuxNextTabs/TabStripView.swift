@@ -129,6 +129,8 @@ public final class TabStripView: NSView {
     public internal(set) var isCrowded = false
     /// ``isCrowded`` changed; the pane's "…" (``PaneToolbarView/strip``) follows it.
     public var onCrowdedChange: ((Bool) -> Void)?
+    /// ``TabStripModel/holdsOneTab`` at the last sync: its change lays the pane out again (`syncFromModel`).
+    var laidOutOneTab: Bool?
     /// `result` indexed by tab (`slotIndex`), built on first use after each layout.
     var slotIndexCache: TabSlotIndex?
     /// The strip moves whose Core Animation transaction has not completed (`applyFrames`, `moveEnded`).
@@ -426,6 +428,7 @@ public final class TabStripView: NSView {
         // What changed while out of sight lands at once in its final place: nobody saw it move.
         if modelChangedWhileHidden {
             modelChangedWhileHidden = false
+            layOutPaneIfOneTabChanged()
             sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
