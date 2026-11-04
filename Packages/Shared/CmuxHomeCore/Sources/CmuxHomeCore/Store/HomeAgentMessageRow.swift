@@ -64,6 +64,9 @@ public struct HomeAgentMessageRow: Hashable, Sendable {
     /// first message the Chief sent it (a spawn task's first line), else its first clause (``title(of:)``); the agent's id
     /// when the Chief sent it nothing here. Empty for other rows.
     public var peerTitles: [String] = []
+    /// For an agents row: whether each agent, in the order of its `peers`, has a report newer than the one
+    /// the person last opened (its unread dot). Empty for other rows.
+    public var peerUnread: [Bool] = []
 
     /// About how many characters a title keeps before it is cut at a word edge (the pill clips the rest).
     public static let titleLength = 32
