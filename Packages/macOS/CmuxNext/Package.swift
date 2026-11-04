@@ -1156,6 +1156,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
+        // The Mac Screen against cmux-rd-proto's golden app lines (cmux rd serve|connect stdout).
+        .testTarget(
+            name: "CmuxNextMacScreenTests",
+            dependencies: ["CmuxNextMacScreen"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
         // whose runtime is on another machine. Decode and present come from
         // CmuxNextRemoteView; session state is the Rust client reducer.
