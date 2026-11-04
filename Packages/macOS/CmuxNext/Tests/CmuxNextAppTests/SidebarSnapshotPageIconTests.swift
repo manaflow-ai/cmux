@@ -33,11 +33,14 @@ struct SidebarSnapshotPageIconTests {
             SidebarWorkspace(id: WorkspaceID("globe"), title: "globe", icon: .pagePlaceholder, kind: .browser),
             SidebarWorkspace(id: WorkspaceID("chosen"), title: "chosen", icon: .symbol("star"), kind: .browser),
             SidebarWorkspace(id: WorkspaceID("text"), title: "text"),
+            // A terminal's own image icon draws as a favicon too: it restores as its loading symbol, never the globe.
+            SidebarWorkspace(id: WorkspaceID("asset"), title: "asset", icon: .favicon(Self.favicon())),
         ])
         #expect(icons["site"] == .some(.pagePlaceholder))
         #expect(icons["globe"] == .some(.pagePlaceholder))
         #expect(icons["chosen"] == .some(.symbol("star")))
         #expect(icons["text"] == .some(nil))
+        #expect(icons["asset"] == .some(.symbol("photo")))
     }
 
     @Test func anOlderSnapshotWithoutThePageSlotStillReads() throws {

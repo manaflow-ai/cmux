@@ -41,6 +41,8 @@ package nonisolated struct SidebarWorkspaceSnapshot: Codable, Hashable, Sendable
         case let .emoji(text, chip)?:
             icon = "emoji:" + text
             tint = chip?.rawValue
+        // Off a page row, a favicon is the workspace's own image or SVG icon: its loading symbol keeps the column.
+        case .favicon? where ws.kind != .browser: icon = "symbol:photo"
         case .favicon?, .pagePlaceholder?: icon = Self.pageIcon
         case nil: break
         }
