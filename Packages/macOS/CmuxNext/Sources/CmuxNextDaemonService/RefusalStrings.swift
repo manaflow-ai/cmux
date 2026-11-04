@@ -137,7 +137,7 @@ public nonisolated enum RefusalStrings {
     /// "<action> did not apply: ", in place of the raw command names (Leo, 2026-11-03, on "Move did not apply:
     /// set-personal-workspace: timed out: workspace.place (no reply within 2.0 seconds)": "idk what happened here").
     public static var daemonTimedOut: String {
-        text("refusal.daemon.timedOut", "cmux’s background service was busy and did not answer in time. Try again.")
+        text("refusal.daemon.timedOut", "cmux’s background service was busy and did not answer in time, so it may still apply.")
     }
     /// The local daemon is alive but has spent over 2 minutes restoring the
     /// session's terminals (`server.restore_timeout`); cmux keeps trying.
