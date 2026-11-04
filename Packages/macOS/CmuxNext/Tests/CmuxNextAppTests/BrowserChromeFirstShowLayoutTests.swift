@@ -12,7 +12,13 @@ import Testing
 /// unchanged and the content at the host's bounds (`install` set them), and skipped the forced layout a chrome needs;
 /// the toolbar stayed at its init frames (zero) until the page's host view asked for layout.
 @MainActor @Suite(.serialized, .closesItsWindows) struct BrowserChromeFirstShowLayoutTests {
-    @Test func aChromeShownInAnAlreadySizedPaneIsLaidOutInTheWindowsNextPass() {
+    /// How the chrome arrives in a pane that already has its size: `fresh` never laid out; `laidOutAtZero` laid out once
+    /// while still at its zero init frame (its subviews solved at 0x0, as when it is bound before it is installed);
+    /// `hidden` while the window is not on screen yet (a relaunch shows the window after its content).
+    enum Arrival: CaseIterable { case fresh, laidOutAtZero, hiddenWindow, hiddenLaidOutAtZero }
+
+    @Test(arguments: Arrival.allCases)
+    func aChromeShownInAnAlreadySizedPaneIsLaidOutInTheWindowsNextPass(_ arrival: Arrival) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -21,7 +27,8 @@ import Testing
         pane.barOrder = .aboveToolbar
         pane.frame = window.contentLayoutRect
         window.contentView = pane
-        window.orderFrontRegardless()
+        let hidden = arrival == .hiddenWindow || arrival == .hiddenLaidOutAtZero
+        if !hidden { window.orderFrontRegardless() }
         let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer {
             window.orderOut(nil)
@@ -30,8 +37,10 @@ import Testing
         }
         // The pane at its final size before any content, as on relaunch.
         pane.layoutSubtreeIfNeeded()
-        let chrome = BrowserChromeView(tab: page)
+        let chrome = pane.browserChrome.bind(page, state: BrowserChromeTabState())
+        if arrival == .laidOutAtZero || arrival == .hiddenLaidOutAtZero { chrome.layoutSubtreeIfNeeded() }
         pane.show(chrome)
+        if hidden { window.orderFrontRegardless() }
         // Only the window's own pass, what runs before the next frame: no layout of the pane or the chrome by hand.
         window.displayIfNeeded()
         #expect(chrome.frame.width > 0, "the chrome takes the pane's content area")
