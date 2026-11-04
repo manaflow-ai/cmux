@@ -13,9 +13,12 @@ test("a known harness keeps its shape and the same agent hue across transcript, 
   const id = "reviewer";
   const tone = agentTone(id);
   const views = [
-    <Avatar agent={{ id, name: "Reviewer", harness: "claude", state: "completed", parent: null, startedAt: 1 }} />,
-    <AgentLine name="Reviewer" status="done" state="Done" mark="claude" tone={tone} iconSize={14} />,
-    <AgentCard name="Reviewer" identity={id} harness="claude" state="done" />,
+    <Avatar
+      key="avatar"
+      agent={{ id, name: "Reviewer", harness: "claude", state: "completed", parent: null, startedAt: 1 }}
+    />,
+    <AgentLine key="line" name="Reviewer" status="done" state="Done" mark="claude" tone={tone} iconSize={14} />,
+    <AgentCard key="card" name="Reviewer" identity={id} harness="claude" state="done" />,
   ];
   for (const view of views) {
     const html = renderToStaticMarkup(view);
