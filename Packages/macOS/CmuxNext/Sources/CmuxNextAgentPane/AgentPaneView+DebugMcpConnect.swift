@@ -52,15 +52,36 @@ extension AgentPaneView {
                                             paths: (params["paths"] as? [Any])?.compactMap { $0 as? String } ?? [])
             return ["error": error ?? NSNull()]
         case "mcp_connect_ask":
-            if params["read"] as? Bool == true { return ["replies": debugMcpConnectAnswers] }
+            // A failed ask answers `error`, so a capture step that drives it is marked failed, never
+            // "ok" while no card opened.
+            if params["read"] as? Bool == true {
+                let replies = debugMcpConnectAnswers
+                if let problem = Self.debugMcpConnectProblem(replies) { return ["error": problem, "replies": replies] }
+                return ["replies": replies]
+            }
             let asked = await debugMcpConnectAsk(server: params["server"] as? String ?? "",
                                                  reason: params["reason"] as? String ?? "",
                                                  scope: params["scope"] as? String ?? "chat",
                                                  environment: await environment())
+            if let error = asked["error"] { return ["error": error] }
             return ["result": asked]
         default:
             return nil
         }
+    }
+
+    /// Why the debug asks' replies are not a success: none came back, acpmux refused one (an
+    /// empty reply), or one says `error`; nil when every reply has a `status`.
+    nonisolated static func debugMcpConnectProblem(_ replies: [String: Any]) -> String? {
+        guard !replies.isEmpty else { return "no MCP connect ask got an answer yet" }
+        for (session, reply) in replies {
+            guard let reply = reply as? [String: Any], !reply.isEmpty else {
+                return "acpmux refused the MCP connect ask of session \(session)"
+            }
+            if let error = reply["error"] { return "the MCP connect ask of session \(session) failed: \(error)" }
+            if reply["status"] == nil { return "the MCP connect ask of session \(session) answered no status" }
+        }
+        return nil
     }
 
     /// What the debug asks of this pane got back, by session: such as `connect: signInNeeded` with its

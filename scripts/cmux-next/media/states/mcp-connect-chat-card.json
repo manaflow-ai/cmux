@@ -1,6 +1,17 @@
 {
  "title": "MCP connect card in a real chat: an agent asks for a remote MCP server, the person connects it, cmux lists its tools. Before: the chat. After: connected. Record it with: cmux-ci capture SHA --state scripts/cmux-next/media/states/mcp-connect-chat-card.json",
  "launch_args": [],
+ "fakeHarness": true,
+ "settings": {
+  "agents": {
+   "trust": {
+    "projectRoots": [
+     "/tmp",
+     "/private/tmp"
+    ]
+   }
+  }
+ },
  "steps": [
   {
    "title": "Open a main workspace",
@@ -34,7 +45,20 @@
    }
   },
   {
-   "title": "Start the chat's session (the app's own acpmux daemon, so the card is real)",
+   "title": "A chat on acpmux's fake agent (no sign-in), in the trusted /tmp",
+   "rpc": {
+    "method": "debug.agent_pane",
+    "params": {
+     "action": "new_chat",
+     "harness": "fake",
+     "cwd": "/tmp"
+    }
+   },
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Start the chat's session on the app's own acpmux daemon",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
@@ -43,30 +67,6 @@
     }
    },
    "wait": 4,
-   "shot": false
-  },
-  {
-   "title": "Trust the folder, as the person does on the trust question",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "click",
-     "selector": ".acpmux-trust-ask-primary"
-    }
-   },
-   "wait": 3,
-   "shot": false
-  },
-  {
-   "title": "Send the prompt again now that the folder is trusted",
-   "rpc": {
-    "method": "debug.agent_pane",
-    "params": {
-     "action": "send_prompt",
-     "text": "Connect the DeepWiki MCP server so you can read a repo's docs"
-    }
-   },
-   "wait": 6,
    "shot": false
   },
   {
@@ -118,7 +118,7 @@
    "shot": true
   },
   {
-   "title": "What the agent's ask got back (connected, its tools)",
+   "title": "What the agent's ask got back (fails unless it was answered)",
    "rpc": {
     "method": "debug.agent_pane",
     "params": {
