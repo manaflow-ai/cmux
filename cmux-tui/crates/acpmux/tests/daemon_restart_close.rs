@@ -145,7 +145,7 @@ async fn a_failed_log_sync_stops_the_daemon_for_a_restart() {
     private(&home.join("config.json"), 0o600);
     // A chat on disk: a rename of it appends an acknowledged record without starting an agent.
     let id = "01a15903-0000-7000-8000-000000000a01";
-    let chat = home.join("sessions").join(&id);
+    let chat = home.join("sessions").join(id);
     std::fs::create_dir_all(&chat).unwrap();
     private(&home.join("sessions"), 0o700);
     private(&chat, 0o700);
