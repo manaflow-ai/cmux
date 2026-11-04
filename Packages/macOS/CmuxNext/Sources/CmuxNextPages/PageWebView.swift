@@ -378,7 +378,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
-        removeStandIn()
         traceMark(.pagePainted)
         paintedUptime = ProcessInfo.processInfo.systemUptime
         traceOpenEnd(showsChromium ? .paintedInChromium : .paintedInWebKit)
@@ -418,7 +417,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         chromiumSession?.page.setZoom(pageZoom)
         pushes.run(DesignSettings.shared.interfaceScaleScript, whileFrozen: .latest(.interfaceScale))
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
-        repaintStandIn() // its title is zoomed as the page's text is
     }
 
     /// Marks a claimed pooled host as used by real input.
@@ -437,7 +435,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webKitPieces?.view.frame = bounds
-        if let standIn { PageStandInLayer.withoutActions { standIn.frame = bounds } }
         glassFeed.hostDidLayout()
         layoutDiscardCover()
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
@@ -503,8 +500,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
-    /// The cold open's stand-in, over the page until its first frame (``showStandIn(title:)``).
-    var standIn: PageStandInLayer?
     /// A ``SignpostName/webuiOpen`` slice is open until the document's first paint (`traceOpenEnd`).
     var openTracePending = false
     /// Where the `webui.open` slices go (``PageTraceSink``).
@@ -606,7 +601,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     func applyTheme(force: Bool = false) {
         themeFollower.rebind()
-        repaintStandIn()
         guard loaded else { return }
         let theme = currentTheme()
         if force || theme.payloadJSON != appliedTheme {

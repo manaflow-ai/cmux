@@ -834,7 +834,6 @@ final class AppServices {
         cache.webKit.rendererStability = rendererStability
         pages.createTabs = cache.createTabs  // a page tab's close ends its create.tab wait
         pages.findWindow = { [weak self] key in self.flatMap { $0.pages.window(showing: key, among: $0.windows.controllers) } }  // a page tab whose window closed
-        pages.showsStandIns = self.features.isEnabled(.pageStandIn)
         // A page tab view freed with its page still in it (2026-10-28, handoff/cef-parent-tracker-crash.md).
         pages.onFreedAttached = { [crashKeys] page in
             crashKeys?.page.set(.unclosedAgentPaneMaker, CrashKeySlot.unclosedAgentPane(
