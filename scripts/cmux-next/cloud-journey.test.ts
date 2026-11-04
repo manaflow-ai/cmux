@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { nativeProofSkip } from "./cloud-journey";
+import { cliExecWithFallback, nativeProofSkip } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("backend names map to the cmux API Worker of each environment", () => {
@@ -96,5 +96,23 @@ describe("cloud journey: link_token on a Native machine", () => {
     expect(nativeProofSkip(refusal("owner.unreachable", "host_missing"))).toBeNull();
     expect(nativeProofSkip({ ok: true, value: { expires_at: 1 } })).toBeNull();
     expect(nativeProofSkip(undefined)).toBeNull();
+  });
+});
+
+describe("cloud journey: exec on a VM API machine", () => {
+  test("falls back to the machine exec route once the CLI answers cloud.provider.unsupported", async () => {
+    const calls: string[] = [];
+    const cli = async (c: string) => (calls.push(`cli ${c}`), { code: 1, stdout: "", stderr: "cmux: the cmux API refused the client session: 501 Not Implemented cloud.provider.unsupported" });
+    const direct = async (c: string) => (calls.push(`direct ${c}`), { code: 0, stdout: "ok", stderr: "" });
+    const journey = { meta: {} as Record<string, string> };
+    const exec = cliExecWithFallback(cli, direct, journey);
+    expect((await exec("a")).stdout).toBe("ok");
+    expect((await exec("b")).stdout).toBe("ok");
+    expect(calls).toEqual(["cli a", "direct a", "direct b"]);
+    expect(journey.meta.exec_route).toContain("CLI gap");
+  });
+  test("keeps every other CLI failure as the step's own", async () => {
+    const exec = cliExecWithFallback(async () => ({ code: 2, stdout: "", stderr: "boom" }), async () => { throw new Error("not used"); }, { meta: {} });
+    expect((await exec("a")).code).toBe(2);
   });
 });

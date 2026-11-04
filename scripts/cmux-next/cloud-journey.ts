@@ -266,6 +266,23 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/**
+ * The CLI's exec, until it answers cloud.provider.unsupported: `cmux machine access exec` mints a client session,
+ * which a VM API machine does not have, so the journey then runs every exec through the machine exec route
+ * (directExec's guest route) and names the CLI gap in the journey's meta instead of going red on it.
+ */
+export function cliExecWithFallback(cli: Exec, direct: Exec, journey: { meta: Record<string, string> }): Exec {
+  let fallback = false;
+  return async (command, timeoutMs) => {
+    if (fallback) return direct(command, timeoutMs);
+    const r = await cli(command, timeoutMs);
+    if (r.code === 0 || !`${r.stderr}${r.stdout}`.includes("cloud.provider.unsupported")) return r;
+    fallback = true;
+    journey.meta.exec_route = "machine exec route: cmux machine access exec answers cloud.provider.unsupported on a VM API machine (CLI gap)";
+    return direct(command, timeoutMs);
+  };
+}
+
 type HeadlessLink = { stateDir: string; linkSocket: string; bridgeSocket: string; close: () => Promise<void> };
 
 /** Start the userspace link and bridge its stdio dial into a Unix socket for link sync. */
@@ -676,7 +693,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       });
     }
 
-    const exec = cmux ? cliExec(cmux, api, created.id) : directExec(api, created.id, J);
+    const exec = cmux ? cliExecWithFallback(cliExec(cmux, api, created.id), directExec(api, created.id, J), J) : directExec(api, created.id, J);
     await J.step("first exec", async () => {
       const r = await exec("echo journey-ok; uname -m");
       if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
