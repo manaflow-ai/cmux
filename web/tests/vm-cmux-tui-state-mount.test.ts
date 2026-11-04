@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -256,6 +256,12 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
     readonly mountFails?: boolean;
     readonly copyFails?: boolean;
     readonly instanceId?: string;
+    /** Directories already in /tmp, each with a file inside. */
+    readonly tmpDirs?: readonly string[];
+    /** A plain file already at this /tmp name. */
+    readonly tmpFile?: string;
+    /** Makes mkdir fail for /tmp paths, as on a full root filesystem. */
+    readonly tmpMkdirFails?: boolean;
   };
 
   function writeTree(dir: string, files: Record<string, string>): void {
@@ -268,7 +274,7 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
 
   async function withEnsure(
     scenario: Scenario,
-    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string }) => void,
+    check: (paths: { status: number | null; stderr: string; bound: boolean; remote: string; reserved: string; tmp: string }) => void,
   ): Promise<void> {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-remote-state-"));
     try {
@@ -280,10 +286,14 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       const remote = path.join(home, ".local/state/cmux/remote");
       const reserved = path.join(state, ".cmux-remote");
       const bound = path.join(root, "bound");
+      const tmp = path.join(root, "tmp");
       mkdirSync(bin, { recursive: true });
       mkdirSync(varLib, { recursive: true });
       mkdirSync(etc, { recursive: true });
       mkdirSync(state, { recursive: true });
+      mkdirSync(tmp, { recursive: true });
+      for (const name of scenario.tmpDirs ?? []) writeTree(path.join(tmp, name), { kept: "" });
+      if (scenario.tmpFile) writeFileSync(path.join(tmp, scenario.tmpFile), "planted");
       writeFileSync(path.join(varLib, "cmux-tui-state.ext4"), "");
       if (!scenario.noMarker) writeFileSync(path.join(etc, "cmux-tui-state-reservation"), "");
       if (scenario.instanceId) writeFileSync(path.join(etc, "daemon-instance-id"), `${scenario.instanceId}\n`);
@@ -296,17 +306,24 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       stub(bin, "pgrep", scenario.daemonRunning ? "exit 0" : "exit 1");
       stub(bin, "chown", "exit 0");
       stub(bin, "flock", "exit 0");
+      stub(bin, "id", "echo 1000");
+      if (scenario.tmpMkdirFails) {
+        stub(bin, "mkdir", `case "$*" in *${tmp}*) exit 1 ;; esac\nexec /bin/mkdir "$@"`);
+      }
       if (scenario.copyFails) stub(bin, "cp", "exit 1");
       stub(bin, "df", 'echo "Filesystem 1024-blocks Used Available Capacity Mounted on"\necho "/dev/x 100 0 1048576 0% /"');
       const helper = path.join(root, "cmux-tui-state-mount");
-      writeFileSync(helper, helperSource.replaceAll("/var/lib/cmux", varLib).replaceAll("/etc/cmux", etc));
+      writeFileSync(
+        helper,
+        helperSource.replaceAll("/var/lib/cmux", varLib).replaceAll("/etc/cmux", etc).replaceAll('"/tmp/cmux-', `"${tmp}/cmux-`),
+      );
       chmodSync(helper, 0o755);
       const result = await runChild("/bin/sh", [helper, "ensure", home, "cmux"], {
         timeout: TEST_TIMEOUT_MS - 5_000,
         env: { PATH: `${bin}:/usr/bin:/bin` },
       });
       if (result.error) throw result.error;
-      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved });
+      check({ status: result.status, stderr: result.stderr, bound: existsSync(bound), remote, reserved, tmp });
       if (existsSync(bound) && !scenario.alreadyBound) {
         expect(readFileSync(bound, "utf8").trim()).toBe(`${reserved} ${remote}`);
       }
@@ -437,6 +454,31 @@ describe("cmux-tui remote state on the reserved filesystem", () => {
       expect(status).toBe(0);
       expect(bound).toBe(false);
       expect(existsSync(reserved)).toBe(false);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("the daemon's /tmp directories exist before it starts, since it cannot mkdir them on a full root", async () => {
+    await withEnsure({ tmpDirs: ["cmux-th-1000"] }, ({ status, tmp }) => {
+      expect(status).toBe(0);
+      for (const name of ["cmux-tui-1000", "cmux-th-1000", "cmux-image-paste-1000"]) {
+        expect(statSync(path.join(tmp, name)).isDirectory()).toBe(true);
+      }
+      expect(statSync(path.join(tmp, "cmux-tui-1000")).mode & 0o777).toBe(0o700);
+      expect(existsSync(path.join(tmp, "cmux-th-1000/kept"))).toBe(true);
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("a path someone else planted in /tmp is left alone, and a failed mkdir does not defer the daemon", async () => {
+    await withEnsure({ tmpFile: "cmux-tui-1000", tmpMkdirFails: true }, ({ status, stderr, tmp }) => {
+      expect(status).toBe(0);
+      expect(readFileSync(path.join(tmp, "cmux-tui-1000"), "utf8")).toBe("planted");
+      expect(stderr).toContain("could not create");
+    });
+  }, TEST_TIMEOUT_MS);
+
+  test("an image without a reservation creates nothing in /tmp", async () => {
+    await withEnsure({ noMarker: true }, ({ tmp }) => {
+      expect(existsSync(path.join(tmp, "cmux-tui-1000"))).toBe(false);
     });
   }, TEST_TIMEOUT_MS);
 

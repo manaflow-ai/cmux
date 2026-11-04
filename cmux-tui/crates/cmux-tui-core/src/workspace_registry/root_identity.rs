@@ -173,6 +173,22 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn sqlite_temp_files_leave_the_default_temp_directory_once_a_registry_opens() {
+        // SQLite's default /var/tmp is on the root disk: a spill there on a full
+        // root disk stopped the daemon with "database or disk is full".
+        let root = temp_root("sqlite-temp");
+        fs::create_dir_all(&root).unwrap();
+        let connection = open_registry_database(&root.join("registry.sqlite3")).unwrap();
+        let directory: String = connection
+            .query_row("PRAGMA temp_store_directory", [], |row| row.get(0))
+            .expect("this SQLite build keeps the pragma");
+        assert!(!directory.is_empty(), "temp files still use SQLite's default directory");
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn an_identity_write_never_replaces_a_file_and_leaves_no_temporary() {
         let root = temp_root("identity-write");
