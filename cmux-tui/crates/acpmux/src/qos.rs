@@ -102,6 +102,28 @@ fn agent_background() -> bool {
     std::env::var_os(ENV).is_some_and(|v| v == "background")
 }
 
+/// The daemon's tier once its config is read: with `store.journal` on, acknowledged replies wait
+/// on the journal's sync, so the daemon keeps the default disk tier (lead rule 2026-11-04: a reply
+/// the person waits for never waits on a throttled sync) and only its background threads yield
+/// ([`background_thread`]). Without the journal, [`Tier::Serving`] as before.
+pub fn enter_daemon(journal: bool) {
+    if journal {
+        // The default disk tier: nothing to set (the CPU is unchanged for the daemon either way).
+        return;
+    }
+    enter(Role::Daemon);
+}
+
+/// The calling thread, dedicated to background work for its whole life (the event journal's
+/// checkpointer): its disk I/O at the utility tier. Only for a thread that does nothing else: a
+/// thread-scope I/O policy also drops the thread out of QoS for good (see `imp::ThreadOnScreen`),
+/// so a pool thread that is reused must never take it.
+pub fn background_thread() {
+    if enabled() {
+        imp::thread_disk_utility();
+    }
+}
+
 /// Put this process in `role`'s tier. Call it first thing in `main`, before
 /// any thread starts: for [`Tier::Agent`] on macOS it re-executes the process
 /// in place and returns only when that is not done (already clamped, turned
@@ -158,7 +180,6 @@ mod imp {
 
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
-    #[cfg(test)]
     const IOPOL_SCOPE_THREAD: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
@@ -184,6 +205,14 @@ mod imp {
         // SAFETY: plain syscall wrapper with constant arguments.
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
+        }
+    }
+
+    /// The calling thread's disk I/O at utility (`background_thread`).
+    pub(super) fn thread_disk_utility() {
+        // SAFETY: plain syscall wrapper on the calling thread with constant arguments.
+        if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_UTILITY) } != 0 {
+            tracing::debug!("setiopolicy_np (thread): {}", std::io::Error::last_os_error());
         }
     }
 
@@ -362,6 +391,7 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn thread_disk_utility() {}
 
     /// nice +5: inherited by everything the process starts. Not undone (an
     /// unprivileged process cannot lower its nice value), and not needed to be.
@@ -397,6 +427,7 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn thread_disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
         clamp_cpu_utility();
@@ -416,6 +447,11 @@ mod imp {
         }
     }
 }
+
+// Its tests read macOS disk policies only.
+#[cfg(all(test, target_os = "macos"))]
+#[path = "qos_journal_tests.rs"]
+mod journal_tests;
 
 #[cfg(test)]
 mod tests {
