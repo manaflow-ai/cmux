@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "4177399658201",
+  "notes": "notes/4177399658201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 34764,
+      "title": "fix(cmux-next): a person's agent tab gives up on a stalled daemon in 10 s, not 120 s; late-daemon tests resume it in a defer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34667,
+      "title": "base red: web lint (fast) vp fmt --check on the Cloud folder-grant and emoji files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34621,
+      "title": "Subagent finished line: a chevron opens its final report under the line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 33988,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-1f0abddf9f2ffad7dc2e996b68a9f7a5c5417bdd",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34763,
+      "title": "ci: name each acpmux simulation sweep leg",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34302,
+      "title": "Use shared design-system controls in Background tasks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34695,
+      "title": "fix(webviews): move replayLogs.test.ts under test/ (tooling-tests base red from #34382)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34727,
+      "title": "cmux VM migrate-production: skip the cmux-old compat gate (cmux_vm-only change)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34738,
+      "title": "docs(sidebar): trailingColumnInset says where the slot ends since #32647's row gap",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34733,
+      "title": "base red: clippy -D warnings on cmux-wg-tun utun.rs (unused_qualifications) and acpmux repo_sync_tests.rs (field_reassign_with_default)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}
