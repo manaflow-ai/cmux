@@ -17,7 +17,7 @@
  * cmux-platform):
  *
  *   health -> sign in -> user.ensure -> install token -> create machine -> running (status) -> listed
- *   -> first exec -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
+ *   -> first exec -> pass Claude login -> start agent (acpmux on the machine) -> send chat -> reply -> connect (connect_info
  *   + link_token + link dial) -> handoff record -> sync push/pull (a folder round trip) -> pause -> resume -> delete
  *
  * Each step prints PASS/FAIL/SKIP with its latency; --out DIR also gets journey.json (the steps) and
@@ -28,9 +28,20 @@
  * POST /v1/cloud/machines/{id}/client-session, then the provider's exec-await). --cmux PATH runs every
  * exec through that cmux binary instead, so a CLI change is checked by the same journey.
  *
- * Secrets are read from the environment or files, sent only in headers, and never printed.
+ * Pass Claude login is the Mac's login copy (CloudCredentialTransfer, cmux-platform#587): the person's own
+ * `claude setup-token` login (CLAUDE_CODE_OAUTH_TOKEN from the environment or --credentials) goes from the
+ * client straight to their own machine over the machine routes, never kept by the platform. The journey runs
+ * the app's own preflight and installer programs, read from CloudCredentialInstaller.swift, through the same
+ * exec and fs/write routes, so a green reply proves the path a signed-in person's Cloud chat takes. Without a
+ * token the step is skipped and the reply fails "Not logged in".
+ *
+ * --probe-out FILE writes the run as one synthetic-probe result row (cmuxterm-hq probes.py: probe, at,
+ * outcome ok|fail, ms = send to first reply, error), --probe NAME naming it.
+ *
+ * Secrets are read from the environment or files, sent only in headers or request bodies, and never printed.
  */
 import { spawn, spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -284,6 +295,42 @@ async function startHeadlessLink(cmux: string, host: string, install: { id: stri
   };
 }
 
+/**
+ * The run as one synthetic-probe result row (cmuxterm-hq tools/fleet-reconcilers/probes.py): ok only when a reply
+ * was read back, with ms from the send to the first reply; otherwise fail with the first failed step.
+ */
+export function probeRow(probe: string, steps: Step[], run?: string, at = new Date()): Record<string, unknown> {
+  const send = steps.find((s) => s.step === "send chat");
+  const reply = steps.find((s) => s.step === "reply");
+  const failed = steps.find((s) => s.status === "fail");
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}) };
+  if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
+  return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran" };
+}
+
+/** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
+export function swiftRawString(source: string, name: string): string {
+  const m = new RegExp(`static let ${name} = #"""\\n([\\s\\S]*?)\\n([ \\t]*)"""#`).exec(source);
+  if (!m) throw new Error(`no ${name} in the installer source`);
+  const indent = m[2];
+  return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
+}
+
+/** The Mac's installer (CloudCredentialInstaller.swift), relative to this script in a cmux checkout. */
+export const INSTALLER_SWIFT = fileURLToPath(new URL("../../Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials/CloudCredentialInstaller.swift", import.meta.url));
+
+/** CloudCredentialInstaller.preflight and .command(provider: .claude, payloadPath:), built as the Swift builds them. */
+export function claudeLoginPrograms(installerSwift: string): { preflight: string; install: (payloadPath: string) => string } {
+  const preflight = swiftRawString(installerSwift, "preflight");
+  const script = swiftRawString(installerSwift, "script");
+  return {
+    preflight,
+    install: (payloadPath) =>
+      "set -e\n. /etc/cmux/agent-auth.sh\ncmux_agent_drop_model_plane_env\n" +
+      `python3 - ${shq("claude")} ${shq(payloadPath)} owner <<'CMUX_CREDENTIAL_INSTALL'\n${script}\nCMUX_CREDENTIAL_INSTALL`,
+  };
+}
+
 /** The guest's own cmux-tui (cloud_start_chat.rs GUEST_PRELUDE): the build the machine's acpmux runs. */
 const GUEST = 'export HOME="${HOME:-/home/cmux}"; cd "$HOME" 2>/dev/null || cd /; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; ';
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -422,9 +469,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const cmux = argValue("--cmux", argv);
   const keep = argv.includes("--keep");
   const only = new Set((argValue("--skip", argv) ?? "").split(",").filter(Boolean));
+  const claudeLogin = process.env.CLAUDE_CODE_OAUTH_TOKEN || creds.CLAUDE_CODE_OAUTH_TOKEN || "";
+  const probeOut = argValue("--probe-out", argv);
+  const probeName = argValue("--probe", argv) ?? `cloud-chat-replies-${backend.name === "prod" ? "production" : backend.name}`;
   const tag = `jr-${Date.now().toString(36)}`;
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session" });
   if (password) J.secrets.push(password);
+  if (claudeLogin) J.secrets.push(claudeLogin);
   const appCli = argValue("--app-cli", argv);
   if (appCli) {
     J.meta.exec = `app CLI ${appCli}`;
@@ -540,6 +591,34 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return { value: null, detail: r.stdout.trim().split("\n").join(" ") };
     });
 
+    if (agent !== "claude" || only.has("chat") || only.has("login")) {
+      J.skip("pass Claude login", agent !== "claude" ? `agent ${agent}` : "--skip");
+    } else if (!claudeLogin) {
+      J.skip("pass Claude login", "no CLAUDE_CODE_OAUTH_TOKEN: the reply needs the person's Claude login on the machine");
+    } else {
+      // CloudCredentialTransfer.perform on a Worker machines client: preflight, stage (exec as the work user makes
+      // the folder, fs/write as root puts the file in 0644), install, each through the routes the app uses.
+      await J.step("pass Claude login", async () => {
+        const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
+        const pre = await exec(programs.preflight);
+        if (pre.code !== 0) throw new Error(`preflight exit ${pre.code}: not an owner machine with the image's launchers`);
+        const folder = "/home/cmux/.cmux/credential-transfer";
+        const made = await exec(`umask 077 && mkdir -p -- ${shq(folder)} && chmod 700 -- ${shq(folder)} && test -O ${shq(folder)} && test ! -L ${shq(folder)}`);
+        if (made.code !== 0) throw new Error(`staging folder: exit ${made.code}`);
+        const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+        const w = await api.raw("POST", `/v1/cloud/machines/${created.id}/fs/write`, { path: file, dataBase64: Buffer.from(claudeLogin).toString("base64"), mode: 0o644 });
+        if (w.status < 200 || w.status >= 300 || w.body?.ok === false) throw new Error(`fs/write: HTTP ${w.status} ${short(w.body?.error?.code ?? "")}`);
+        const done = await exec(programs.install(file));
+        if (done.code !== 0) {
+          await exec(`rm -f -- ${shq(file)}`).catch(() => null);
+          throw new Error(`installer exit ${done.code}`); // the installer's output is never shown: it may name the token
+        }
+        const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
+        if (!own.stdout.includes("own-login")) throw new Error("installed, but the image's launcher does not see an own Claude login");
+        return { value: null, detail: "the person's own login, written by the app's installer; the launcher picks it" };
+      });
+    }
+
     const session = `journey-${tag}`;
     if (only.has("chat")) {
       J.skip("start agent", "--skip chat");
@@ -605,7 +684,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     J.skip("handoff (agent move)", "headless agent move requires a local session daemon socket; the Cloud guest session has no local source socket");
 
-    await J.step("sync push/pull (folder round trip)", async () => {
+    if (only.has("sync")) J.skip("sync push/pull (folder round trip)", "--skip sync");
+    else await J.step("sync push/pull (folder round trip)", async () => {
       if (!headlessLink) throw new Error("--cmux is required for link sync");
       const payload = Buffer.from(`journey ${tag} ${Date.now()}\n`.repeat(64)).toString("base64");
       const local = mkdtempSync(path.join(tmpdir(), `cmux-journey-sync-${tag}-`));
@@ -657,6 +737,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await cleanup();
   }
   const failed = J.steps.filter((s) => s.status === "fail");
+  if (probeOut) writeFileSync(probeOut, `${JSON.stringify(probeRow(probeName, J.steps, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
   console.log(`\n${failed.length ? "FAIL" : "PASS"} ${backend.name}: ${J.steps.filter((s) => s.status === "pass").length} passed, ${failed.length} failed, ${J.steps.filter((s) => s.status === "skip").length} skipped, ${(J.steps.reduce((n, s) => n + s.ms, 0) / 1000).toFixed(1)} s`);
   return failed.length ? 1 : 0;
 }
