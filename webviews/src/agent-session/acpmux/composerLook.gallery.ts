@@ -287,7 +287,6 @@ export default agentPaneEntry({
       snapshot: loopChat({ objective: "", autonomous: true, nextRunAt: GALLERY_NOW + 25_000 }),
       play: (ctx) => look(ctx, "codex"),
     },
-    },
     "newtab-codex-speed": {
       note: "Fast and Ultrafast are available before the first prompt, from the model's advertised tiers.",
       height: 520,
