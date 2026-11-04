@@ -33,9 +33,7 @@ function files(dir: string): string[] {
 }
 
 /** Page stylesheets: gallery fixtures and prototypes never ship. */
-const pageCSS = files(SRC).filter(
-  (file) => !/\/(gallery|prototypes?)\//.test(file) && !file.endsWith(".gallery.css"),
-);
+const pageCSS = files(SRC).filter((file) => !/\/(gallery|prototypes?)\//.test(file) && !file.endsWith(".gallery.css"));
 
 type Rule = { file: string; selector: string; decls: Map<string, string> };
 
@@ -67,14 +65,24 @@ function rules(file: string): Rule[] {
 const allRules = pageCSS.flatMap(rules);
 
 /** The tokens that are clear or translucent over a see-through window. */
-const BACKDROP = ["--agent-page-bg", "--agent-surface", "--agent-surface-elevated", "--agent-input-bg", "--agent-control", "--cmux-surface-background", "--cmux-surface-token", "--cmux-reading-background"];
+const BACKDROP = [
+  "--agent-page-bg",
+  "--agent-surface",
+  "--agent-surface-elevated",
+  "--agent-input-bg",
+  "--agent-control",
+  "--cmux-surface-background",
+  "--cmux-surface-token",
+  "--cmux-reading-background",
+];
 
 /** The bundles whose custom properties resolve from their own sheets: each pages/<name> page builds
  *  on its own base sheet, which this resolver does not order, so pages are left to the ink check. */
 const RESOLVED = ["agent-session/", "viewer-empty/"];
 /** A filled control: a button, an action, a pill or chip, a badge or check, a pressed tab. */
 const CONTROL = /button|action|primary|submit|answer|chip|pill|badge|check|toggle|tab\b|\[aria-pressed|\[data-primary/i;
-const isControl = (rule: Rule) => RESOLVED.some((prefix) => rule.file.startsWith(prefix)) && CONTROL.test(rule.selector);
+const isControl = (rule: Rule) =>
+  RESOLVED.some((prefix) => rule.file.startsWith(prefix)) && CONTROL.test(rule.selector);
 
 const firstVar = (value: string) => value.match(/^var\(\s*(--[\w-]+)/)?.[1];
 
@@ -194,9 +202,7 @@ const BASE_SHEETS = ["agent-session/shared/styles.css", "agent-session/acpmux/st
  *  declaration wins), under the theme's own. */
 const declared = (() => {
   const byBundle = new Map<string, Map<string, string>>();
-  const ordered = [...allRules].sort(
-    (a, b) => rank(a.file) - rank(b.file),
-  );
+  const ordered = [...allRules].sort((a, b) => rank(a.file) - rank(b.file));
   for (const rule of ordered) {
     const map = byBundle.get(bundle(rule.file)) ?? new Map<string, string>();
     byBundle.set(bundle(rule.file), map);
@@ -251,7 +257,8 @@ function call(text: string, name: string): string | undefined {
   let depth = 0;
   for (let index = name.length; index < text.length; index++) {
     if (text[index] === "(") depth++;
-    else if (text[index] === ")" && --depth === 0) return index === text.length - 1 ? text.slice(name.length + 1, -1) : undefined;
+    else if (text[index] === ")" && --depth === 0)
+      return index === text.length - 1 ? text.slice(name.length + 1, -1) : undefined;
   }
   return undefined;
 }
@@ -298,7 +305,10 @@ function resolve(text: string, vars: Map<string, string>, dark: boolean, depth =
     const [, first = "", second = ""] = args(mix);
     const part = (text: string) => {
       const match = text.match(/^(.*?)(?:\s+([\d.]+)%)?$/s)!;
-      return { color: resolve(match[1]!, vars, dark, depth + 1), weight: match[2] === undefined ? undefined : +match[2] / 100 };
+      return {
+        color: resolve(match[1]!, vars, dark, depth + 1),
+        weight: match[2] === undefined ? undefined : +match[2] / 100,
+      };
     };
     const a = part(first);
     const b = part(second);
@@ -318,7 +328,10 @@ function resolve(text: string, vars: Map<string, string>, dark: boolean, depth =
 }
 
 function hex(color: RGBA): string {
-  const byte = (value: number) => Math.round(value * 255).toString(16).padStart(2, "0");
+  const byte = (value: number) =>
+    Math.round(value * 255)
+      .toString(16)
+      .padStart(2, "0");
   return `#${byte(color.r)}${byte(color.g)}${byte(color.b)}${color.a < 1 ? byte(color.a) : ""}`;
 }
 
