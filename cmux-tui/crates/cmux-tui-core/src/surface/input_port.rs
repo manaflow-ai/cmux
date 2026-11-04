@@ -159,6 +159,10 @@ struct PortFrame {
     reconnect_by: Instant,
     /// The waiting writer of an [`InputReply::Written`] write; dropped unanswered when the frame is dropped.
     waiter: Option<FrameWaiter>,
+    /// A viewer-size control frame another writer of the connection queued behind the port's frames
+    /// ([`PortOrder::enqueue_after_pending`]): only its newest state matters, so a newer one replaces it while it
+    /// is the last frame queued.
+    control: bool,
 }
 
 impl PortFrame {
@@ -218,6 +222,38 @@ impl PortShared {
 pub(crate) struct PortOrder(Arc<PortShared>);
 
 impl PortOrder {
+    /// Queues the viewer-size frame `kind` (`ViewerSize`, `ReleaseViewer`) behind the frames the port holds and
+    /// returns true; false when the port holds none (or closed, or waits for a reconnect): the caller writes it
+    /// directly then, as no frame of the port is ahead of it. Nothing waits, so a size sent on a key's turn under
+    /// the sizing lock never waits for the port (#35082 review 1, item 4). A newer size replaces a queued one that
+    /// is still the last frame (nothing between them), so sizes cannot pile up behind a stalled port.
+    pub(crate) fn enqueue_after_pending(&self, kind: MessageKind, bytes: &[u8]) -> bool {
+        let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // Frames pending means the writer runs: it took a frame it has not finished, or one is queued.
+        if state.closed || state.reconnecting || state.finished >= state.accepted {
+            return false;
+        }
+        if let Some(last) = state.frames.back_mut().filter(|frame| frame.control) {
+            let before = last.cost();
+            last.kind = kind;
+            last.bytes = bytes.to_vec();
+            let after = last.cost();
+            state.queued_bytes = state.queued_bytes.saturating_sub(before).saturating_add(after);
+            return true;
+        }
+        let reconnect_by =
+            Instant::now().checked_add(reconnect_wait(&self.0)).unwrap_or_else(Instant::now);
+        let frame =
+            PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter: None, control: true };
+        // Not counted against the capacity: one control frame per run of other frames, a few bytes each.
+        state.queued_bytes = state.queued_bytes.saturating_add(frame.cost());
+        state.accepted = state.accepted.saturating_add(1);
+        state.frames.push_back(frame);
+        drop(state);
+        self.0.changed.notify_one();
+        true
+    }
+
     /// Waits until the port finished every frame it took before this call. Returns at once while the port's writer
     /// waits for a reconnect or when the port closed, and at `deadline`. Frames taken after the call do not extend
     /// the wait.
@@ -281,10 +317,17 @@ impl InputPort {
         self.enqueue_frame(terminal, kind, bytes, Some(waiter))?;
         match written.recv_timeout(self.reply_wait()) {
             Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "the terminal's input port stopped before it wrote the input",
-            )),
+            // The waiter's sender dropped unanswered: the writer stopped. A frame it had taken may be partly written.
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if state.load(Ordering::Acquire) == FRAME_TAKEN {
+                    Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, InputMayBeWritten))
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "the terminal's input port stopped before it wrote the input",
+                    ))
+                }
+            }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if state
                     .compare_exchange(
@@ -342,7 +385,7 @@ impl InputPort {
         let reconnect_by =
             Instant::now().checked_add(reconnect_wait(&self.shared)).unwrap_or_else(Instant::now);
         // Copied before the lock, so another write to this terminal never waits for this one's copy.
-        let frame = PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter };
+        let frame = PortFrame { kind, bytes: bytes.to_vec(), reconnect_by, waiter, control: false };
         let mut state = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(total) = state
             .queued_bytes
@@ -533,6 +576,9 @@ fn run_writer(shared: &PortShared, terminal: &Weak<PtyTerminalRuntime>) {
             // The waiting writer answers its request with the result.
             (written, Some(waiter)) => {
                 let _ = waiter.done.send(written);
+            }
+            (Err(error), None) if frame.control => {
+                eprintln!("cmux-tui: terminal host {:?} frame not written: {error}", frame.kind);
             }
             (Err(error), None) => eprintln!(
                 "cmux-tui: terminal input not written ({} bytes, already accepted): {error}",
