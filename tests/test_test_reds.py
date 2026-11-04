@@ -1211,14 +1211,13 @@ class VolatileTokens(unittest.TestCase):
                 self.assertNotEqual(head, base)
                 self.assertTrue(reds.same_error(head, base), (reds.volatile(head), reds.volatile(base)))
 
-    def test_runner_temp_macos_temp_times_and_durations_are_masked(self):
+    def test_runner_temp_macos_temp_and_times_are_masked(self):
         pairs = [
             ("wrote /home/runner/work/_temp/4b1c0e2a-9f7d-4d3e-8a55-0c1f2e3d4b5a.sh", "wrote /home/runner/work/_temp/"
              "8e2f1a3b-1c2d-4e5f-9a8b-7c6d5e4f3a2b.sh"),
             ("no such file: /private/var/folders/x1/abc_123/T/cmux-AbC/f.json",
-             "no such file: /var/folders/q9/zz_987/T/cmux-XyZ/f.json"),
+             "no such file: /var/folders/q9/zz_987/T/cmux-AbC/f.json"),
             ("stale since 2026-11-04T09:35:26.94Z", "stale since 2026-11-03T22:01:02Z"),
-            ("timed out after 1m3s", "timed out after 45s"),
         ]
         for head, base in pairs:
             with self.subTest(head=head):
@@ -1230,6 +1229,13 @@ class VolatileTokens(unittest.TestCase):
             ("no such file: /tmp/tmpab12cd34/a.json", "permission denied: /tmp/tmpzz99yy88/a.json"),
             ("expected stable to be in Sources/App/Feature.swift", "expected stable to be in Sources/App/Other.swift"),
             ("TypeError: undefined is not a function", "expect(received).toBe(expected)"),
+            # Only run-named temp dirs are masked: two plain files in /tmp or $RUNNER_TEMP stay two errors.
+            ("missing /tmp/release-notes.md", "missing /tmp/appcast.xml"),
+            ("missing /home/runner/work/_temp/notary-key.p8", "missing /home/runner/work/_temp/signing.keychain"),
+            ("no such file: /var/folders/x1/abc/T/a.json", "no such file: /var/folders/x1/abc/T/b.json"),
+            # A test's message keeps its numbers: a timing or count that changed is another failure.
+            ("render took 1200ms, budget 16ms", "render took 20ms, budget 16ms"),
+            ("expected 3m rows", "expected 5m rows"),
             # Ids outside a temp dir are compared as they are.
             ("session 0f3e2d1c-aaaa-4bbb-8ccc-1234567890ab expired", "session 9a8b7c6d-1111-4222-8333-abcdefabcdef expired"),
             ("error: artifact deadbeef1 missing", "error: artifact abcdef12 missing"),

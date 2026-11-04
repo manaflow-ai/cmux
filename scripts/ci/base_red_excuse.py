@@ -412,7 +412,7 @@ def mask_shas(text: str) -> str:
 
 def normalise_error(text: str) -> str:
     """An error line as compared with the base's: the annotation prefix dropped, commit shas, run-to-run tokens
-    (test_reds.volatile: temp dirs, the runner's checkout root, times, durations) and then
+    (test_reds.volatile: run-named temp dirs, the runner's checkout root, times) and then
     every number masked, so the same red on two runs is one line and a different red is not."""
     return re.sub(r"\d+", "#", test_reds.volatile(mask_shas(text.replace("##[error]", "").strip())))
 

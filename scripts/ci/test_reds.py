@@ -260,17 +260,22 @@ def passed_steps(lines: list[str], skip: set[int] | None = None) -> set[int]:
 # Tokens that differ run to run in the same error (2026-11-04: the same release-notary red on a PR and on the base
 # named /tmp/tmp.Pw5bL0wmeb on one side and another mktemp name on the other). volatile() masks them before two
 # errors are compared; it never decides on its own that a red is the base's, only that two lines say the same thing.
-# A temp dir's first component (mktemp's tmp.XXXXXXXXXX, Python's tmpXXXXXXXX, $RUNNER_TEMP's subdirs, macOS's
-# /var/folders/../T/), the runner's checkout root, an ISO time and a duration. Hex ids and UUIDs outside a temp dir
-# are compared as they are: a missing artifact deadbeef1 is not a missing artifact abcdef12 (base_red_excuse's
-# mask_shas masks only commit shas, for the same reason).
+# A temp dir named for its run: mktemp's tmp.XXXXXXXXXX and Python's tmpXXXXXXXX under /tmp or $RUNNER_TEMP, a UUID
+# under $RUNNER_TEMP, macOS's /var/folders/XX/YYYY/T root; the runner's checkout root; an ISO time. Only names shaped
+# like these: /tmp/release-notes.md and /tmp/appcast.xml stay two errors. Numbers are left to the caller
+# (base_red_excuse masks every digit of an error line; a test's message keeps its numbers, so a timing or count
+# that changed is still a different failure). Hex ids and UUIDs outside a temp dir are compared as they are: a
+# missing artifact deadbeef1 is not a missing artifact abcdef12 (base_red_excuse's mask_shas masks only commit shas
+# for the same reason).
+_TEMP_ROOT = r"(?:(?<![\w.])/tmp|(?:/[^/\s'\"]+)*/_temp)"
+_TEMP_NAME = (r"(?:tmp\.[A-Za-z0-9]{6,}|tmp[a-z0-9_]{8}|"
+              r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?![\w-])")
 VOLATILE = (
-    (re.compile(r"(?:/private)?/var/folders/[^/\s'\"]+/[^/\s'\"]+/T(?:/[^/\s'\"():,]+)?"), "<tmp>"),
-    (re.compile(r"(?:/[^/\s'\"]+)*/_temp(?:/[^/\s'\"():,]+)?"), "<tmp>"),
-    (re.compile(r"(?<![\w.])/tmp(?:/[^/\s'\"():,]+)?"), "<tmp>"),
+    (re.compile(r"(?:/private)?/var/folders/[^/\s'\"]+/[^/\s'\"]+/T(?=/|\b)"), "<tmp>"),
+    (re.compile(_TEMP_ROOT + "/" + _TEMP_NAME), "<tmp>"),
+    (re.compile(r"(?:/[^/\s'\"]+)*/_temp(?=/)"), "<runner-temp>"),
     (re.compile(r"(?:/home/runner/work|(?:/[^/\s'\"]+)*/_work)/[^/\s'\"]+/[^/\s'\"]+(?=/)"), "<workspace>"),
     (re.compile(r"\b\d{4}-\d\d-\d\d[T ]\d\d:\d\d(?::\d\d(?:[.,]\d+)?)?(?:Z|[+-]\d\d:?\d\d)?"), "<time>"),
-    (re.compile(r"\b\d+(?:\.\d+)?(?:ns|us|µs|ms|s|m|h)(?:\d+(?:\.\d+)?(?:ms|s|m))*\b"), "<duration>"),
 )
 
 
