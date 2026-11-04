@@ -35,6 +35,7 @@ struct HostAccountSignInAnalyticsTests {
             "cmux_sign_in_started", "cmux_sign_in_callback_received", "cmux_sign_in_succeeded",
         ])
         #expect(events[0].string("entrypoint") == "pane")
+        #expect(events[0].string("start_outcome") == "opened")
         #expect(events[0].properties["replaced_pending"] == .bool(false))
         #expect(events[1].string("delivery") == "sign_in_window")
         #expect(events[1].string("attempt_link") == "state")
@@ -211,8 +212,8 @@ struct HostAccountSignInAnalyticsTests {
         harness.tearDown()
     }
 
-    @Test("a socket sign-in on a signed-in app, and a browser attempt no user request opened, start nothing")
-    func unrequestedAttemptsStartNothing() async throws {
+    @Test("a socket sign-in on a signed-in app is a request without an attempt; a window no request opened is unmeasured")
+    func requestsWithoutAttempt() async throws {
         let harness = try await SignInAnalyticsHarness.make()
 
         // Already signed in: the flow returns at once and opens no window.
@@ -224,7 +225,44 @@ struct HostAccountSignInAnalyticsTests {
         await harness.waitForAttemptToEnd()
         harness.flow.syncAnalytics()
 
-        #expect(await harness.signInEvents().isEmpty)
+        let events = await harness.signInEvents()
+        #expect(events.map(\.name) == ["cmux_sign_in_started"])
+        #expect(events[0].string("entrypoint") == "socket")
+        #expect(events[0].string("start_outcome") == "already_signed_in")
+        #expect(events[0].string("attempt_id") == nil)
+        harness.tearDown()
+    }
+
+    @Test("Sign In again on an attempt that continues in the default browser is a reused request; the attempt keeps its result")
+    func reusedRequestKeepsAttribution() async throws {
+        let opened = OpenedExternalURLs()
+        let harness = try await SignInAnalyticsHarness.make(openExternalURL: { opened.open($0) })
+
+        harness.flow.startSignIn()
+        let session = await harness.sessions.session(0)
+        let callback = harness.callback(for: session)
+        // The window ends on a page that is not the callback, so the attempt
+        // continues in the default browser.
+        session.deliver(URL(string: "https://example.test/handler/sign-in?after_auth_return_to=1")!)
+        #expect(opened.urls.count == 1)
+        _ = harness.flow.startSignInForPane()
+        #expect(await harness.flow.handleCallbackURL(callback, delivery: .external))
+        await harness.waitForAttemptToEnd()
+        harness.flow.syncAnalytics()
+
+        let events = await harness.signInEvents()
+        #expect(events.map(\.name) == [
+            "cmux_sign_in_started", "cmux_sign_in_started",
+            "cmux_sign_in_callback_received", "cmux_sign_in_succeeded",
+        ])
+        let attemptID = try #require(events[0].string("attempt_id"))
+        #expect(events[0].string("start_outcome") == "opened")
+        #expect(events[1].string("start_outcome") == "reused")
+        #expect(events[1].string("entrypoint") == "pane")
+        #expect(events[1].string("attempt_id") == nil)
+        #expect(events[1].properties["replaced_pending"] == .bool(false))
+        #expect(events[2...].allSatisfy { $0.string("attempt_id") == attemptID })
+        #expect(harness.sessions.sessions.count == 1)
         harness.tearDown()
     }
 
@@ -296,7 +334,10 @@ private struct SignInAnalyticsHarness {
     let sink: SignInRecordingSink
     let suiteName: String
 
-    static func make(telemetryEnabled: Bool = true) async throws -> Self {
+    static func make(
+        telemetryEnabled: Bool = true,
+        openExternalURL: @escaping @MainActor (URL) -> Bool = { _ in false }
+    ) async throws -> Self {
         let sink = SignInRecordingSink()
         let suiteName = "HostAccountSignInAnalyticsTests.\(UUID().uuidString)"
         let analytics = ProductAnalytics(
@@ -311,7 +352,8 @@ private struct SignInAnalyticsHarness {
             client: TeamChangeAuthClient(),
             billingPlanClient: BillingPlanClient(session: OfflineURLProtocol.session()),
             sessionFactory: sessions,
-            analytics: analytics
+            analytics: analytics,
+            openExternalURL: openExternalURL
         )
         return Self(flow: flow, sessions: sessions, analytics: analytics, sink: sink, suiteName: suiteName)
     }
@@ -400,6 +442,15 @@ private final class ScriptedSignInWindows: HostBrowserAuthSessionFactory {
     func session(_ index: Int) async -> ScriptedSignInWindow {
         if index < sessions.count { return sessions[index] }
         return await withCheckedContinuation { waiters.append((index, $0)) }
+    }
+}
+
+@MainActor
+private final class OpenedExternalURLs {
+    private(set) var urls: [URL] = []
+    func open(_ url: URL) -> Bool {
+        urls.append(url)
+        return true
     }
 }
 

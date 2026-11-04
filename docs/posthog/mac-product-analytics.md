@@ -99,15 +99,15 @@ Enable's result is `cmux_cloud_enable_completed`. Upgrade continues as
 
 | Event | Fires when | Properties |
 | --- | --- | --- |
-| `cmux_sign_in_started` | A user request opens a browser sign-in attempt (Sign In, pane sign-in, Switch Account, socket `auth` sign-in); see [What counts as a start](#what-counts-as-a-start) | `attempt_id`, `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `replaced_pending` (bool), `replaced_attempt_id` (only when an earlier started sign-in had no result yet; that attempt's id) |
+| `cmux_sign_in_started` | The user asks to sign in (Sign In, pane sign-in, Switch Account, socket `auth` sign-in), once per request, as before. `start_outcome` says what the request did; see [Requests and attempts](#requests-and-attempts) | `entrypoint` (`app`, `pane`, `switch_account`, `socket`), `start_outcome` (`opened`, `reused`, `already_signed_in`), `replaced_pending` (bool), `attempt_id` (only when `opened`), `replaced_attempt_id` (only when `opened` and an earlier opened attempt had no result yet; that attempt's id) |
 | `cmux_sign_in_callback_received` | An auth callback URL was handed to the app's sign-in completion. Receipt only: its payload, state and tokens are not validated yet, so it does not prove the browser or provider sign-in succeeded. Once per attempt. | `attempt_id`, `delivery` (`sign_in_window`, `external`, `embedded_browser`), `attempt_link` (`state`, `none`) |
 | `cmux_sign_in_window_closed` | The user closes the sign-in window before a callback, which ends the window. Not a result: a callback from the same attempt can still arrive. Once per attempt. | `attempt_id` |
 | `cmux_sign_in_succeeded` | That sign-in completes, including one that ends on the account already signed in. A session restore does not count. | `attempt_id`, `attempt_link` |
 | `cmux_sign_in_failed` | That sign-in fails, once per attempt. A 429 that is still being retried is not a failure. A callback's failure goes to the attempt that issued its state. | `reason` (`offline`, `network`, `timed_out`, `server`, `invalid_link`, `browser_unavailable`, `unauthorized`, `rejected`, `cancelled`, `rate_limited`), `attempt_id` |
 | `cmux_signed_out` | The account signs out (captured before the identity reset) | none |
 
-`attempt_id` is a random UUID made for each started sign-in and held only in
-memory. It is derived from nothing, so it names no person, account, device,
+`attempt_id` is a random UUID made for each opened attempt
+(`start_outcome = 'opened'`) and held only in memory. It is derived from nothing, so it names no person, account, device,
 callback state or token. The app keeps, in memory only, which browser attempt
 issued each callback state. A callback, its success and its failure carry the
 `attempt_id` of the started sign-in whose browser attempt issued the state the
@@ -120,11 +120,16 @@ mean that sign-in caused it. A refused callback whose state no tracked
 attempt issued is credited to no attempt and is not measured. The app tracks
 the latest eight started sign-ins; a callback from an older one is not
 measured either. Failures the app sets outside a callback (`timed_out`,
-`browser_unavailable`) go to the newest start. `reason = cancelled` is never
+`browser_unavailable`) go to the newest opened attempt. `reason = cancelled` is never
 sent: closing the window is `cmux_sign_in_window_closed`.
 
-Events sent before this catalog had `attempt_id` carry no attempt properties.
-Leave them out of attempt-level queries.
+Events sent before this catalog had `attempt_id` carry no attempt properties
+and no `start_outcome`. Count them as requests; leave them out of
+attempt-level queries.
+
+One request is counted that the earlier app did not count: clicking Switch
+Account again while its window is open (it opens a new attempt with
+`entrypoint = switch_account`). Before, that click sent no start.
 
 ### Cloud
 
@@ -218,7 +223,8 @@ until they sign in to the app with that account.
 
 | Stage | Source | Measured |
 | --- | --- | --- |
-| Sign-in started, by entrypoint | `cmux_sign_in_started` (app) | Yes, when a user request opens a sign-in window. See [What counts as a start](#what-counts-as-a-start). |
+| Sign-in requested, by entrypoint | `cmux_sign_in_started` (app), every request | Yes |
+| Sign-in attempt opened | `cmux_sign_in_started` with `start_outcome = 'opened'` | Yes. See [Requests and attempts](#requests-and-attempts). |
 | Hosted page shown; provider or method chosen; provider sign-in finished or failed | The hosted sign-in page | **No.** See [Hosted page](#hosted-page). |
 | Callback handed to the app (receipt, not yet validated) | `cmux_sign_in_callback_received` (app) | Yes |
 | App finished the sign-in | `cmux_sign_in_succeeded` (app) | Yes |
@@ -230,15 +236,31 @@ The app opens the browser before the person picks a provider, so no app event
 says which provider or method was used, and a start without a callback does
 not show where on the page the person stopped.
 
-### What counts as a start
+### Requests and attempts
 
-`cmux_sign_in_started` is sent when a user request (Sign In in Settings or a
-pane, Switch Account, `auth.begin_sign_in` on the socket) opens a browser
-sign-in attempt. These open none and send no start:
+`cmux_sign_in_started` is sent once per user sign-in request (Sign In in
+Settings or a pane, Switch Account, `auth.begin_sign_in` on the socket), as
+before this change. `start_outcome` says what the request did:
 
-- A socket sign-in while the app is already signed in (it returns at once).
-- Sign In again while an attempt already continues in the default browser
-  (the app shows that attempt again).
+| `start_outcome` | Meaning | `attempt_id` |
+| --- | --- | --- |
+| `opened` | A new browser sign-in attempt opened. | The new attempt's id. |
+| `reused` | Sign In again while an attempt continues in the default browser. The app shows that attempt again; no new attempt. | None |
+| `already_signed_in` | A socket sign-in while the app is signed in. It returns at once; no attempt. | None |
+
+Only `opened` starts an attempt. `reused` and `already_signed_in` requests
+create no pending attempt, so they never take a later callback, success or
+failure from a real attempt. The `reused` attempt keeps its own `attempt_id`
+and results.
+
+Two denominators:
+
+- **Requests:** count of `cmux_sign_in_started`, split by `entrypoint` and
+  `start_outcome`. This is the count the event always had. Use it for "how
+  often do people ask to sign in".
+- **Attempts:** distinct `attempt_id` of `cmux_sign_in_started` with
+  `start_outcome = 'opened'`. Use it for conversion and outcomes; the query
+  below uses it.
 
 A browser attempt that no such request opened is not measured, and none of
 its steps are sent. Today that is the browser-app link handoff
@@ -303,7 +325,9 @@ data into this funnel or assume a cross-population identity join.
 - Leave out attempts started in the **last 24 hours**. This is a maturity
   heuristic for events queued by offline launches, not a guarantee that every
   queued event has arrived.
-- **Denominator: attempts.** Distinct `attempt_id` of `cmux_sign_in_started`.
+- **Denominator: attempts.** Distinct `attempt_id` of `cmux_sign_in_started`
+  with `start_outcome = 'opened'`. Request counts (every start) are a
+  separate denominator; see [Requests and attempts](#requests-and-attempts).
 - **Retry chains, if needed:** `replaced_attempt_id` links a retry to the
   attempt it replaced, exactly and without identity joins. A chain starts at a
   start with no `replaced_attempt_id`. A chain can hold a failure of one
@@ -336,6 +360,7 @@ WITH starts AS (
            properties.entrypoint AS entrypoint
     FROM events
     WHERE event = 'cmux_sign_in_started'
+      AND properties.start_outcome = 'opened'
       AND properties.attempt_id IS NOT NULL
       AND timestamp >= now() - INTERVAL 15 DAY
       AND timestamp < now() - INTERVAL 1 DAY

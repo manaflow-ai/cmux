@@ -50,10 +50,9 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
 
     // MARK: Account
 
-    /// The user started a sign-in. `replacedAttemptID` is the earlier started
-    /// sign-in that had no result yet, which this one replaces; it gets a
-    /// result only if a callback carrying its own state still arrives.
-    case signInStarted(attemptID: SignInAttemptID, entrypoint: SignInEntrypoint, replacedAttemptID: SignInAttemptID?)
+    /// The user asked to sign in, once per request. `start` says whether the
+    /// request opened a new attempt (with its `attempt_id`) or opened none.
+    case signInStarted(entrypoint: SignInEntrypoint, start: SignInStart)
     /// An auth callback reached the app: the browser side finished. Once per
     /// attempt. `link` says whether the callback carried that attempt's own
     /// state, which can belong to an earlier, replaced attempt.
@@ -175,13 +174,19 @@ public enum ProductAnalyticsEvent: Sendable, Equatable {
                 "outcome": .string(outcome.rawValue),
                 "visible_for": .string(visibleFor.rawValue),
             ]
-        case let .signInStarted(attemptID, entrypoint, replacedAttemptID):
+        case let .signInStarted(entrypoint, start):
             var properties: [String: AnalyticsValue] = [
-                "attempt_id": .string(attemptID.token),
                 "entrypoint": .string(entrypoint.rawValue),
-                "replaced_pending": .bool(replacedAttemptID != nil),
+                "start_outcome": .string(start.outcome.rawValue),
             ]
-            if let replacedAttemptID { properties["replaced_attempt_id"] = .string(replacedAttemptID.token) }
+            switch start {
+            case let .opened(attemptID, replacedAttemptID):
+                properties["attempt_id"] = .string(attemptID.token)
+                properties["replaced_pending"] = .bool(replacedAttemptID != nil)
+                if let replacedAttemptID { properties["replaced_attempt_id"] = .string(replacedAttemptID.token) }
+            case .noAttempt:
+                properties["replaced_pending"] = .bool(false)
+            }
             return properties
         case let .signInCallbackReceived(attemptID, delivery, link):
             return [

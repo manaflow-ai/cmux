@@ -61,7 +61,7 @@ struct ProductAnalyticsPipelineTests {
     @Test("opt-out sends nothing at all")
     func optOutStopsAllCapture() async {
         let harness = Harness(enabled: false)
-        harness.analytics.track(.signInStarted(attemptID: SignInAttemptID(), entrypoint: .app, replacedAttemptID: nil))
+        harness.analytics.track(.signInStarted(entrypoint: .app, start: .opened(SignInAttemptID(), replaced: nil)))
         harness.analytics.track(.signInWindowClosed(attemptID: SignInAttemptID()))
         harness.analytics.track(.upgradeEntrypointOpened(source: "mac_sidebar_badge", plan: "pro", destination: .pricingPage))
         harness.analytics.featureUsed(.commandPalette)

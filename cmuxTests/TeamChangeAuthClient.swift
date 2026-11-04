@@ -103,7 +103,8 @@ extension HostAccountFlow {
         client: TeamChangeAuthClient,
         billingPlanClient: BillingPlanClient = BillingPlanClient(),
         sessionFactory: (any HostBrowserAuthSessionFactory)? = nil,
-        analytics: ProductAnalytics = .app
+        analytics: ProductAnalytics = .app,
+        openExternalURL: @escaping @MainActor (URL) -> Bool = { _ in false }
     ) async throws -> HostAccountFlow {
         let defaults = try #require(UserDefaults(suiteName: "HostAccountFlowTeamChangeTests.\(UUID())"))
         let anchor = AuthPresentationContextProvider()
@@ -141,7 +142,7 @@ extension HostAccountFlow {
             callbackRouter: AuthCallbackRouter(),
             makeSignInURL: { URL(string: "http://127.0.0.1:1/sign-in?cmux_auth_state=\($0)")! },
             callbackScheme: { "cmux-test" },
-            openExternalURL: { _ in false }
+            openExternalURL: openExternalURL
         )
         let flow = HostAccountFlow(
             coordinator: coordinator,

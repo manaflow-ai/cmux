@@ -26,10 +26,12 @@ struct ProductAnalyticsEventCatalogTests {
          "cmux_cloud_welcome_button_clicked", ["trigger", "next_step", "button"]),
         (.cloudWelcomeClosed(trigger: .newCloudWorkspace, step: .upgrade, outcome: .notNow, visibleFor: .from3to10s),
          "cmux_cloud_welcome_closed", ["trigger", "next_step", "outcome", "visible_for"]),
-        (.signInStarted(attemptID: attempt, entrypoint: .pane, replacedAttemptID: nil), "cmux_sign_in_started",
-         ["attempt_id", "entrypoint", "replaced_pending"]),
-        (.signInStarted(attemptID: attempt, entrypoint: .app, replacedAttemptID: SignInAttemptID()), "cmux_sign_in_started",
-         ["attempt_id", "entrypoint", "replaced_pending", "replaced_attempt_id"]),
+        (.signInStarted(entrypoint: .pane, start: .opened(attempt, replaced: nil)), "cmux_sign_in_started",
+         ["attempt_id", "entrypoint", "start_outcome", "replaced_pending"]),
+        (.signInStarted(entrypoint: .app, start: .opened(attempt, replaced: SignInAttemptID())), "cmux_sign_in_started",
+         ["attempt_id", "entrypoint", "start_outcome", "replaced_pending", "replaced_attempt_id"]),
+        (.signInStarted(entrypoint: .socket, start: .noAttempt(.alreadySignedIn)), "cmux_sign_in_started",
+         ["entrypoint", "start_outcome", "replaced_pending"]),
         (.signInCallbackReceived(attemptID: attempt, delivery: .external, link: .state), "cmux_sign_in_callback_received",
          ["attempt_id", "delivery", "attempt_link"]),
         (.signInWindowClosed(attemptID: attempt), "cmux_sign_in_window_closed", ["attempt_id"]),
@@ -135,8 +137,10 @@ struct ProductAnalyticsEventCatalogTests {
     func signInPropertiesAreBounded() {
         let attempt = SignInAttemptID()
         let events: [ProductAnalyticsEvent] =
-            SignInEntrypoint.allCases.flatMap { entrypoint in
-                [nil, attempt].map { .signInStarted(attemptID: attempt, entrypoint: entrypoint, replacedAttemptID: $0) }
+            SignInEntrypoint.allCases.flatMap { entrypoint -> [ProductAnalyticsEvent] in
+                let starts: [SignInStart] = [.opened(attempt, replaced: nil), .opened(attempt, replaced: attempt)]
+                    + SignInStartOutcome.allCases.filter { $0 != .opened }.map { .noAttempt($0) }
+                return starts.map { .signInStarted(entrypoint: entrypoint, start: $0) }
             }
             + SignInCallbackDelivery.allCases.flatMap { delivery in
                 SignInAttemptLink.allCases.map { .signInCallbackReceived(attemptID: attempt, delivery: delivery, link: $0) }
@@ -148,6 +152,7 @@ struct ProductAnalyticsEventCatalogTests {
             .union(SignInCallbackDelivery.allCases.map(\.rawValue))
             .union(SignInFailureReason.allCases.map(\.rawValue))
             .union(SignInAttemptLink.allCases.map(\.rawValue))
+            .union(SignInStartOutcome.allCases.map(\.rawValue))
         for event in events {
             for (key, value) in event.properties {
                 switch (key, value) {

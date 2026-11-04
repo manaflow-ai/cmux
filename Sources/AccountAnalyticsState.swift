@@ -2,9 +2,10 @@ import CmuxAuthRuntime
 import CmuxProductAnalytics
 
 /// Turns account observations and browser sign-in steps into analytics
-/// actions: identify on sign-in, one attempt id per user-started sign-in, the
-/// attempt's callback and window close, a success or failure for it, and
-/// sign-out. Pure, so the transitions are tested without auth.
+/// actions: identify on sign-in, one start per user sign-in request, one
+/// attempt id per request that opened a browser attempt, the attempt's
+/// callback and window close, a success or failure for it, and sign-out.
+/// Pure, so the transitions are tested without auth.
 ///
 /// A callback is credited to the started sign-in whose browser attempt issued
 /// the state it carried, which can be an earlier, replaced one. A stateless
@@ -14,7 +15,7 @@ import CmuxProductAnalytics
 struct AccountAnalyticsState: Equatable {
     enum Action: Equatable {
         case identify(userID: String)
-        case signInStarted(SignInAttemptID, SignInEntrypoint, replaced: SignInAttemptID?)
+        case signInStarted(SignInEntrypoint, SignInStart)
         case signInCallbackReceived(SignInAttemptID, SignInCallbackDelivery, SignInAttemptLink)
         case signInWindowClosed(SignInAttemptID)
         case signInSucceeded(SignInAttemptID, SignInAttemptLink)
@@ -37,9 +38,18 @@ struct AccountAnalyticsState: Equatable {
     private var attempts: [Attempt] = []
     private static let maximumAttempts = 8
 
-    /// The entrypoint of a user request whose browser attempt has not opened
-    /// yet. Set and cleared around the synchronous `beginSignIn` call.
-    private var requestedEntrypoint: SignInEntrypoint?
+    /// One user sign-in request, from its start until the call that serves
+    /// it returns.
+    struct Request: Equatable {
+        fileprivate let id: UInt64
+        let entrypoint: SignInEntrypoint
+    }
+
+    /// The request whose call is running. The browser flow opens its attempt
+    /// synchronously inside that call, so an attempt opened now is its.
+    private var currentRequest: Request?
+    private var openedRequests: Set<UInt64> = []
+    private var nextRequestID: UInt64 = 0
 
     private(set) var userID: String?
     /// The user-started sign-in that has no result yet. Session restore never
@@ -48,16 +58,23 @@ struct AccountAnalyticsState: Equatable {
     var isSignInPending: Bool { pendingAttempt != nil }
     private var reportedFailure: SignInFailureReason?
 
-    /// The user asked for a sign-in from `entrypoint`. It becomes a started
-    /// sign-in only when the browser flow opens an attempt for it (an
-    /// already signed-in socket call or a reused handed-off window opens none).
-    mutating func signInRequested(_ entrypoint: SignInEntrypoint) {
-        requestedEntrypoint = entrypoint
+    /// The user asked to sign in from `entrypoint`. Its start is reported
+    /// when the browser flow opens an attempt for it (`opened`), or else when
+    /// the request ends.
+    mutating func signInRequested(_ entrypoint: SignInEntrypoint) -> Request {
+        nextRequestID &+= 1
+        let request = Request(id: nextRequestID, entrypoint: entrypoint)
+        currentRequest = request
+        return request
     }
 
-    /// The synchronous request is over; an unconsumed request is dropped.
-    mutating func signInRequestEnded() {
-        requestedEntrypoint = nil
+    /// The call that served `request` returned. A request that opened no
+    /// attempt is reported now, as `outcome`; it creates no pending attempt,
+    /// so it cannot take a later step's attribution.
+    mutating func signInRequestEnded(_ request: Request, withoutAttempt outcome: SignInStartOutcome) -> [Action] {
+        if currentRequest == request { currentRequest = nil }
+        guard openedRequests.remove(request.id) == nil else { return [] }
+        return [.signInStarted(request.entrypoint, .noAttempt(outcome))]
     }
 
     /// Starts a new attempt. A still-pending earlier attempt is replaced: it
@@ -73,7 +90,7 @@ struct AccountAnalyticsState: Equatable {
         if attempts.count > Self.maximumAttempts {
             attempts.removeFirst(attempts.count - Self.maximumAttempts)
         }
-        return [.signInStarted(attemptID, entrypoint, replaced: replaced)]
+        return [.signInStarted(entrypoint, .opened(attemptID, replaced: replaced))]
     }
 
     /// The user asked to sign out. The browser flow cancels any open attempt
@@ -125,12 +142,12 @@ struct AccountAnalyticsState: Equatable {
     ) -> [Action] {
         switch event {
         case let .attemptStarted(browserAttempt):
-            // Only a browser attempt the user asked for through this flow is
-            // measured; one opened by another caller stays unmeasured rather
-            // than joining a stale pending sign-in.
-            guard let entrypoint = requestedEntrypoint else { return [] }
-            requestedEntrypoint = nil
-            let actions = signInStarted(entrypoint)
+            // Only a browser attempt opened by a user request is measured;
+            // one opened by another caller stays unmeasured rather than
+            // joining a stale pending sign-in.
+            guard let request = currentRequest, !openedRequests.contains(request.id) else { return [] }
+            openedRequests.insert(request.id)
+            let actions = signInStarted(request.entrypoint)
             attempts[attempts.count - 1].browserAttempts.insert(browserAttempt)
             return actions
         case let .callbackReceived(source, browserAttempt):

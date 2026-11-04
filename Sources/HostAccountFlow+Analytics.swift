@@ -34,13 +34,29 @@ extension HostAccountFlow {
         analytics.identify(userID: userID)
     }
 
-    /// Runs `open` (a synchronous `beginSignIn` or the start of `signIn`) as
-    /// a user sign-in request from `entrypoint`; the browser attempt it opens,
-    /// if any, becomes the started sign-in.
-    func withSignInRequest<Result>(_ entrypoint: SignInEntrypoint, _ open: () -> Result) -> Result {
-        analyticsState.signInRequested(entrypoint)
-        defer { analyticsState.signInRequestEnded() }
+    /// Runs `open` (a synchronous `beginSignIn`) as a user sign-in request
+    /// from `entrypoint`. Every request sends `cmux_sign_in_started`: with the
+    /// attempt it opened, or as `withoutAttempt` when it opened none.
+    func withSignInRequest<Result>(
+        _ entrypoint: SignInEntrypoint,
+        withoutAttempt outcome: SignInStartOutcome,
+        _ open: () -> Result
+    ) -> Result {
+        let request = analyticsState.signInRequested(entrypoint)
+        defer { reportAnalytics(analyticsState.signInRequestEnded(request, withoutAttempt: outcome)) }
         return open()
+    }
+
+    /// The async variant, for the socket sign-in.
+    func withAsyncSignInRequest<Result>(
+        _ entrypoint: SignInEntrypoint,
+        withoutAttempt outcome: SignInStartOutcome,
+        _ open: () async -> Result
+    ) async -> Result {
+        let request = analyticsState.signInRequested(entrypoint)
+        let result = await open()
+        reportAnalytics(analyticsState.signInRequestEnded(request, withoutAttempt: outcome))
+        return result
     }
 
     /// Captures `cmux_signed_out` before the sign-out runs and ends any open
@@ -55,8 +71,8 @@ extension HostAccountFlow {
             switch action {
             case let .identify(userID):
                 analytics.identify(userID: userID)
-            case let .signInStarted(attempt, entrypoint, replaced):
-                analytics.track(.signInStarted(attemptID: attempt, entrypoint: entrypoint, replacedAttemptID: replaced))
+            case let .signInStarted(entrypoint, start):
+                analytics.track(.signInStarted(entrypoint: entrypoint, start: start))
             case let .signInCallbackReceived(attempt, delivery, link):
                 analytics.track(.signInCallbackReceived(attemptID: attempt, delivery: delivery, link: link))
             case let .signInWindowClosed(attempt):

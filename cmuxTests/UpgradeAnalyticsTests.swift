@@ -272,7 +272,7 @@ struct AccountAnalyticsStateTests {
         #expect(restoring.isEmpty)
         #expect(restored == [.identify(userID: "u1")])
         #expect(signedOut == [.signedOut])
-        #expect(started == [.signInStarted(attempt, .app, replaced: nil)])
+        #expect(started == [.signInStarted(.app, .opened(attempt, replaced: nil))])
         #expect(waiting.isEmpty)
         #expect(completed == [.identify(userID: "u2"), .signInSucceeded(attempt, .unlinked)])
         #expect(completedAgain.isEmpty)
