@@ -13,7 +13,9 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
-(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+  "thread-minimap-layout": "compact",
+};
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -69,8 +71,14 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport, a pane `paneWidth` wide, and a scroll offset.
 const VIEWPORT = 600;
 let paneWidth = 1040;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get: () => VIEWPORT,
+});
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
+  configurable: true,
+  get: () => paneWidth,
+});
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -81,14 +89,18 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
     offsets.set(this, value);
   },
 });
-dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+dom.window.HTMLElement.prototype.scrollTo = function (
+  this: HTMLElement,
+  options?: ScrollToOptions | number,
+) {
   this.scrollTop = typeof options === "number" ? 0 : (options?.top ?? 0);
 } as typeof HTMLElement.prototype.scrollTo;
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
-const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
+const { setBookmarkTransport } =
+  await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 // acpmux's bookmarks for the chat, answering at once (thread-bookmarks.test.tsx covers its replies).
 const acpmuxMarks = new Set<number>();
 setBookmarkTransport({
@@ -114,12 +126,22 @@ afterEach(() => {
 });
 
 const document = dom.window.document;
-const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
+const row = (id: string, kind: string, text?: string): AcpmuxRow => ({
+  id,
+  kind,
+  text,
+  version: 1,
+  at: 1,
+});
 const chat = (count: number) =>
   Array.from({ length: count }, (_, index) => [
     // Prompt rows are `user-<seq>`, the seq acpmux logs them at (a bookmark names it).
     row(`user-${index + 1}`, "user", `Question ${index}`),
-    row(`t${index}-answer`, "assistant", `Answer ${index}.\n\nWith a second paragraph so the turn has height.`),
+    row(
+      `t${index}-answer`,
+      "assistant",
+      `Answer ${index}.\n\nWith a second paragraph so the turn has height.`,
+    ),
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
@@ -136,7 +158,8 @@ async function mount(prompts: number) {
     ),
   );
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+  const scrolled = () =>
+    act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
   await act(async () => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
@@ -149,10 +172,13 @@ const tick = (index: number) => ticks()[index]!;
 const card = () => document.querySelector<HTMLElement>(".acpmux-minimap__card");
 const pointer = (type: string, target: Element, init: Record<string, unknown> = {}) =>
   act(async () => {
-    const Event = (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ?? dom.window.MouseEvent;
+    const Event =
+      (dom.window as unknown as { PointerEvent?: typeof MouseEvent }).PointerEvent ??
+      dom.window.MouseEvent;
     target.dispatchEvent(new Event(type, { bubbles: true, cancelable: true, button: 0, ...init }));
   });
-const enter = (index: number) => pointer("pointerover", tick(index), { relatedTarget: document.body });
+const enter = (index: number) =>
+  pointer("pointerover", tick(index), { relatedTarget: document.body });
 
 // The dirty-page model: every write marks the page dirty; a layout read while it is dirty counts as
 // one forced layout and cleans it.
@@ -166,7 +192,9 @@ const write = (_target?: unknown) => void (dirty = true);
 const ours = (target: unknown) => {
   if (!(target instanceof dom.window.Element)) return false;
   const shown = document.querySelector(".acpmux-minimap__card");
-  return !!target.closest(".acpmux-minimap, .acpmux-minimap__card") || target === shown?.parentElement;
+  return (
+    !!target.closest(".acpmux-minimap, .acpmux-minimap__card") || target === shown?.parentElement
+  );
 };
 const read = (target?: unknown) => {
   if (!counting || !dirty || !ours(target)) return;
@@ -197,7 +225,11 @@ const wrapGetter = (proto: object, name: string) => {
     },
   });
 };
-const wrapMethod = (proto: Record<string, unknown>, name: string, then: (target: unknown) => void) => {
+const wrapMethod = (
+  proto: Record<string, unknown>,
+  name: string,
+  then: (target: unknown) => void,
+) => {
   const original = proto[name] as (...args: unknown[]) => unknown;
   proto[name] = function (this: unknown, ...args: unknown[]) {
     then(this);
@@ -206,15 +238,20 @@ const wrapMethod = (proto: Record<string, unknown>, name: string, then: (target:
 };
 {
   const win = dom.window as unknown as Record<string, { prototype: Record<string, unknown> }>;
-  const styleProto = Object.getPrototypeOf(document.createElement("div").style) as Record<string, unknown>;
+  const styleProto = Object.getPrototypeOf(document.createElement("div").style) as Record<
+    string,
+    unknown
+  >;
   for (const name of Object.getOwnPropertyNames(styleProto)) wrapSetter(styleProto, name);
   const declaration = Object.getPrototypeOf(styleProto) as Record<string, unknown>;
   wrapSetter(declaration, "cssText");
   for (const name of ["setProperty", "removeProperty"]) wrapMethod(declaration, name, write);
   const element = win.Element!.prototype;
-  for (const name of ["setAttribute", "removeAttribute", "toggleAttribute"]) wrapMethod(element, name, write);
+  for (const name of ["setAttribute", "removeAttribute", "toggleAttribute"])
+    wrapMethod(element, name, write);
   const node = win.Node!.prototype;
-  for (const name of ["appendChild", "insertBefore", "removeChild", "replaceChild"]) wrapMethod(node, name, write);
+  for (const name of ["appendChild", "insertBefore", "removeChild", "replaceChild"])
+    wrapMethod(node, name, write);
   wrapSetter(node, "textContent");
   wrapSetter(node, "nodeValue");
   wrapSetter(win.CharacterData!.prototype, "data");
@@ -286,7 +323,8 @@ test("a row the sweep reaches forces at most three layouts, and a row it comes b
     // The transcript's scroll pacer runs on the page's own clock, and its frame sometimes lands in a
     // row's turn: that commit renders the rail and its card again with the same props, and the card's
     // place() reads once more. So each row may take one read past its own, and most rows take none.
-    const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+    const median = (values: number[]) =>
+      [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
     // A row seen first: the card's reads come first and its writes after, in at most three passes
     // (the prompt's lines with the card's place, the reply's natural height, the card's own height).
     expect(median(out)).toBeLessThanOrEqual(3);
@@ -296,6 +334,33 @@ test("a row the sweep reaches forces at most three layouts, and a row it comes b
     expect(median(back)).toBeLessThanOrEqual(1);
     expect(Math.max(...back)).toBeLessThanOrEqual(2);
   } finally {
+    await view.unmount();
+  }
+});
+
+test("a row the card fitted before measures again once the text size changed, at the same width", async () => {
+  const view = await mount(40);
+  jest.useFakeTimers();
+  const sized = document.createElement("style");
+  try {
+    for (const index of [4, 5, 6, 7]) {
+      await enter(index);
+      await frame();
+    }
+    const reply = () => card()!.querySelector<HTMLElement>(".acpmux-minimap__reply")!;
+    const before = reply().style.getPropertyValue("--acpmux-minimap-reply-line-height");
+    // A larger text size (or a denser layout) while the card is elsewhere: its observer sees no
+    // resize for this row, and the card is as wide as it was.
+    sized.textContent =
+      ".acpmux-minimap__reply { line-height: 31px; } .acpmux-minimap__prompt { line-height: 27px; }";
+    document.head.append(sized);
+    await enter(5);
+    await frame();
+    expect(card()!.textContent).toContain("Question 5");
+    expect(before).not.toBe("31px");
+    expect(reply().style.getPropertyValue("--acpmux-minimap-reply-line-height")).toBe("31px");
+  } finally {
+    sized.remove();
     await view.unmount();
   }
 });
