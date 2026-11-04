@@ -48,6 +48,8 @@ jobs:
           BASE: ${{ github.event.pull_request.base.ref }}
           BODY: ${{ github.event.pull_request.body }}
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           if [ ! -f scripts/ci/classic_api_guard.py ]; then
@@ -56,9 +58,43 @@ jobs:
             exit 0
           fi
           printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
-          # A rename counts as both its old and its new path.
-          gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
-            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/paths.txt"
+          # One record per changed file; a rename's old path also counts as changed, but not as a record.
+          if ! gh api --paginate "repos/$REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | [.filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"; then
+            # The REST listing shares the installation's rate limit (spent on 2026-11-04, which
+            # failed this check on every PR). Read the same paths from the PR's merge commit: its
+            # first parent is the base, so the diff is what the PR changes. --no-renames lists a
+            # rename as its old and new path, each its own record (never fewer records than files).
+            # Trees only, no blobs.
+            echo "::warning::The REST file listing failed; reading the changed paths from refs/pull/$PR/merge."
+            # The token goes through the environment, not git's argv.
+            export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader
+            GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+            export GIT_CONFIG_VALUE_0
+            # The merge ref can lag a push or a base move: use it only when its parents are this
+            # event's base and head.
+            if git fetch --no-tags --filter=blob:none --depth=2 \
+                 origin "+refs/pull/$PR/merge:refs/guard/merge" \
+               && [ "$(git rev-parse refs/guard/merge^1)" = "$BASE_SHA" ] \
+               && [ "$(git rev-parse refs/guard/merge^2)" = "$HEAD_SHA" ] \
+               && git diff --name-only --no-renames refs/guard/merge^1 refs/guard/merge > "$RUNNER_TEMP/files.tsv"; then
+              :
+            elif [ "$BASE" != "main" ]; then
+              # Into feat-cmux-next the guard only warns, so a missing listing warns too.
+              echo "::warning::Could not list the changed paths (no current merge ref either); this check only warns into $BASE."
+              exit 0
+            else
+              echo "::error::Could not list the changed paths; re-run this check."
+              exit 1
+            fi
+          fi
+          records=$(wc -l < "$RUNNER_TEMP/files.tsv" | tr -d ' ')
+          tr '\t' '\n' < "$RUNNER_TEMP/files.tsv" | sed '/^$/d' > "$RUNNER_TEMP/paths.txt"
+          # The guard comes from the base: a base older than --listed-records gets the old count.
+          listed=()
+          if grep -q -- '--listed-records' scripts/ci/classic_api_guard.py; then
+            listed=(--listed-records "$records")
+          fi
           python3 scripts/ci/classic_api_guard.py --base "$BASE" \
             --body-file "$RUNNER_TEMP/body.md" --paths-file "$RUNNER_TEMP/paths.txt" \
-            --expected-files "$CHANGED_FILES"
+            --expected-files "$CHANGED_FILES" "${listed[@]}"
