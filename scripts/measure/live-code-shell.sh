@@ -11,6 +11,11 @@ out="${1:?usage: live-code-shell.sh OUT}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 package="$root/Prototypes/ViewShell"
 mkdir -p "$out"
+probe="$package/Sources/ViewShell/LiveCodeProbeDot.swift"
+if [[ -e "$probe" || -L "$probe" ]]; then  # -L: a dangling link too, which `cat >` would follow
+  echo "live-code-shell: $probe already exists; this measurement writes and deletes that file" >&2
+  exit 1
+fi
 now() { python3 -c 'import time; print(f"{time.time():.3f}")'; }
 
 build_start=$(now)
@@ -23,17 +28,14 @@ live="$(mktemp -d "${TMPDIR:-/tmp}/live-code.XXXXXX")"
 shell=$!
 restore() {
   kill "$shell" 2>/dev/null || true
-  [[ -f "$out/Badge.swift.orig" ]] && cp "$out/Badge.swift.orig" "$package/Sources/ViewShell/Badge.swift"
+  # Only this run's backup: an OUT reused from an earlier run may hold an older Badge.swift.
+  [[ -n "$backed_up" ]] && cp "$out/Badge.swift.orig" "$package/Sources/ViewShell/Badge.swift"
   [[ -n "$probe_written" ]] && rm -f "$probe"
   rm -rf "$live"
 }
-probe="$package/Sources/ViewShell/LiveCodeProbeDot.swift"
 probe_written=""
+backed_up=""
 trap restore EXIT
-if [[ -e "$probe" || -L "$probe" ]]; then  # -L: a dangling link too, which `cat >` would follow
-  echo "live-code-shell: $probe already exists; this measurement writes and deletes that file" >&2
-  exit 1
-fi
 wait_for() { # PATTERN SECONDS
   for _ in $(seq 1 $(( $2 * 10 ))); do grep -q "$1" "$out/shell.log" && return 0; sleep 0.1; done
   echo "timed out waiting for: $1" >&2; cat "$out/shell.log" >&2
@@ -60,6 +62,7 @@ width_changed() {
 }
 wait_for "redrawn generation=0" 30
 cp "$package/Sources/ViewShell/Badge.swift" "$out/Badge.swift.orig"
+backed_up=1
 
 # 1. A value and type change inside the view: applies live.
 edit=$(now)
