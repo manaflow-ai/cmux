@@ -89,20 +89,7 @@ const BOILERPLATE: [&str; 4] = [
      focus.",
 ];
 
-pub(super) const INSTRUCTIONS: &str = "This chat runs in cmux: a terminal, tab or workspace \
-    the person asks for (\"on my right\", \"a new workspace\") is a cmux one, made and run with \
-    these tools, not your own shell. cmux tools run through cmux_exec scripts; its \
-    description lists the common ones. Selectors take a public id (ws_…, pane_…, tab_…, \
-    term_…), a unique prefix, <session>:<id> or an exact name; workspace, screen, pane and tab \
-    also take `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
-    other cmux servers (cua_*: computer use on Mac \
-    apps; secrets_*, sessions_*, subsessions_*, forum_*) come with their \
-    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
-    in_progress, retry with the key from the error; another server's call that fails \
-    in_progress has no key and may have run, so check its effect first. Tools never move the \
-    person's focus unless the call passes focus: true or the tool's purpose is focus. Name workspaces and tabs to the person \
-    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
-    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
+pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
 /// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
 pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
@@ -124,7 +111,11 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
     let bg = if tools.iter().any(|t| t["name"] == BG_START) { BG_STEER } else { "" };
     let github = if tools.iter().any(|t| t["name"] == GITHUB_STATUS) { GITHUB_STEER } else { "" };
-    let wrap_up = if tools.iter().any(|t| t["name"] == WRAP_UP) { WRAP_UP_STEER } else { "" };
+    let wrap_up = if tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(WRAP_UP)) {
+        WRAP_UP_STEER
+    } else {
+        ""
+    };
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
@@ -593,8 +584,12 @@ fn exec_mode(
                             record.set("idempotency_key", json!(key));
                         }
                         // The wrap-up's box, for the agent pane to draw from the transcript.
-                        if ok && name == WRAP_UP && answered["value"].is_object() {
-                            record.set("shown", answered["value"].clone());
+                        if ok
+                            && name == WRAP_UP
+                            && let Some(shown) =
+                                answered.get("value").filter(|value| value.is_object())
+                        {
+                            record.set("shown", shown.clone());
                         }
                         records.push(record);
                     }

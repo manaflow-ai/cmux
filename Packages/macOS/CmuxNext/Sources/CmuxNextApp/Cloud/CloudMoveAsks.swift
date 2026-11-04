@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): the agent runs the move's own action
@@ -13,6 +14,8 @@ import Foundation
 /// one Move to Cloud action (``CloudMove``) on that chat, as a person's run. "Always" records
 /// the folder for this Cloud account, team and API origin only: an agent's later ask in that
 /// scope starts the move at once, with "Ask first next time" to revoke it.
+///
+/// With `cloud.agentsStartWithoutAsking` on (the default, ``CloudAgentStartSetting``) no card asks: the move starts at once.
 ///
 /// An agent asks only for its own chat: the run's `caller.agent_session` names it, and a target of
 /// another tab is refused. Like every caller rule this trusts the caller's claim; a process that
@@ -72,8 +75,9 @@ final class CloudMoveAsks {
             // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
             if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
             asks[tabID] = Ask(folder: folder.root, always: false, scope: requestedScope)
-            if grants.contains(folder.root, scope: requestedScope, defaults: defaults()) {
-                asks[tabID]?.always = true
+            let delegated = services.settings?.cloudAgentsSkipAsking ?? CloudAgentStartSetting.defaultValue
+            if delegated || grants.contains(folder.root, scope: requestedScope, defaults: defaults()) {
+                asks[tabID]?.always = !delegated
                 start(tabID, services: services)
             } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)),
                             requestedScope == nil ? [.move, .notNow] : [.move, .notNow, .always], services: services) {
