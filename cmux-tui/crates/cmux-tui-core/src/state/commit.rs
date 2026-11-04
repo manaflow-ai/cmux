@@ -131,7 +131,7 @@ impl Mux {
     #[track_caller]
     pub(crate) fn write_registry_meta<T>(
         &self,
-        write: impl FnOnce(&rusqlite::Transaction<'_>) -> anyhow::Result<T>,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         self.workspace_registry.lock().unwrap().write_meta(write)
     }
