@@ -259,10 +259,10 @@ impl Resolver {
         let path = self.state_path();
         match fs::read_to_string(&path) {
             Ok(text) => {
-                if let Ok(current) = serde_json::from_str::<Persisted>(&text) {
-                    if Environment::parse(&current.name).ok().as_ref() == Some(&environment) {
-                        return self.selection(environment, current.revision.unwrap_or(0));
-                    }
+                if let Ok(current) = serde_json::from_str::<Persisted>(&text)
+                    && Environment::parse(&current.name).ok().as_ref() == Some(&environment)
+                {
+                    return self.selection(environment, current.revision.unwrap_or(0));
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

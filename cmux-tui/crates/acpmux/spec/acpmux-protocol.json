@@ -185,6 +185,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/context",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/context_override",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "agent-session-turn-prepare",
       "params": true,
       "result": true

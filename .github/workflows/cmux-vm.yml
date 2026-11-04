@@ -378,7 +378,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: check
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     environment: cmux-vm-staging
     concurrency:
       group: cmux-vm-deploy-staging
@@ -427,6 +427,20 @@ jobs:
         env:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-release.ts gate --tree cmux-vm --target staging --url-env CMUX_VM_DATABASE_URL
+      # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create machine, start agent, chat,
+      # reply, delete) on the version serving now, so the run after the deploy can tell the deploy's own
+      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1).
+      - name: Cloud journey baseline (before the deploy)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        working-directory: .
+        env:
+          JOURNEY_PHASE: baseline
+          TARGET: staging
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
       - name: Record the serving version (the rollback target)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -481,6 +495,32 @@ jobs:
           --url "${URL:-https://vm-staging.cmux.dev}" --routes release-smoke.json
           --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
           --wrangler node_modules/.bin/wrangler
+      # A step green before the deploy and red after it (exit 3) rolls the Worker back to the recorded
+      # version; a red that was already red before is reported in the summary and does not.
+      - name: Cloud journey after the deploy; roll back on a new red
+        if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
+        env:
+          JOURNEY_PHASE: after
+          TARGET: staging
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          bash ../../scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          if [ "$rc" != 3 ]; then exit 0; fi
+          previous="$(cat "$RUNNER_TEMP/cmux-vm-previous-version" 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "::error title=Cloud journey::the deploy turned journey steps red and no previous version is recorded; fix forward now"
+            exit 1
+          fi
+          node_modules/.bin/wrangler rollback "$previous" --name cmux-vm-staging -y --message "auto-rollback: Cloud journey red"
+          echo "::error title=Cloud journey::the deploy turned journey steps red; rolled cmux-vm-staging back to $previous"
+          exit 1
 
   smoke-staging:
     # The staging smoke chain is diagnostic only. Deployment ownership and
@@ -561,7 +601,7 @@ jobs:
     # migrations production lacks.
     needs: [check, migrate-production]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 25
+    timeout-minutes: 45
     environment: cmux-vm-production
     concurrency:
       group: cmux-vm-deploy-production
@@ -610,6 +650,20 @@ jobs:
         env:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-release.ts gate --tree cmux-vm --target production --url-env CMUX_VM_DATABASE_URL
+      # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create machine, start agent, chat,
+      # reply, delete) on the version serving now, so the run after the deploy can tell the deploy's own
+      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1).
+      - name: Cloud journey baseline (before the deploy)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        working-directory: .
+        env:
+          JOURNEY_PHASE: baseline
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
       - name: Record the serving version (the rollback target)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -664,6 +718,32 @@ jobs:
           --url "${URL:-https://vm.cmux.dev}" --routes release-smoke.json
           --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
           --wrangler node_modules/.bin/wrangler
+      # A step green before the deploy and red after it (exit 3) rolls the Worker back to the recorded
+      # version; a red that was already red before is reported in the summary and does not.
+      - name: Cloud journey after the deploy; roll back on a new red
+        if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
+        env:
+          JOURNEY_PHASE: after
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          bash ../../scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          if [ "$rc" != 3 ]; then exit 0; fi
+          previous="$(cat "$RUNNER_TEMP/cmux-vm-previous-version" 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "::error title=Cloud journey::the deploy turned journey steps red and no previous version is recorded; fix forward now"
+            exit 1
+          fi
+          node_modules/.bin/wrangler rollback "$previous" --name cmux-vm-production -y --message "auto-rollback: Cloud journey red"
+          echo "::error title=Cloud journey::the deploy turned journey steps red; rolled cmux-vm-production back to $previous"
+          exit 1
 
   smoke-production:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).

@@ -31,6 +31,7 @@ COLLECT = ROOT / "scripts/ci/webviews_test_results.py"
 COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 SHARDS = ROOT / "scripts/ci/webviews_test_shards.py"
 HISTORY = ROOT / "scripts/ci/webviews_test_history.py"
+REDS = ROOT / "scripts/ci/test_reds.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
@@ -366,7 +367,7 @@ class Workflow(unittest.TestCase):
                 subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
                 subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
                                 "commit", "-qm", "fixture"], check=True)
-                for source in (COLLECT, COMPARE, SHARDS, HISTORY):
+                for source in (COLLECT, COMPARE, SHARDS, HISTORY, REDS):
                     shutil.copy(source, repo / "scripts/ci" / source.name)
             runner_temp.mkdir()
             bins.mkdir()
@@ -383,7 +384,7 @@ class Workflow(unittest.TestCase):
             env = {**os.environ, "PATH": f"{bins}:{os.environ['PATH']}", "RUNNER_TEMP": str(runner_temp),
                    "BASE_REF": "", "CMUX_WEB_TEST_RESULTS": str(published / "webviews-head-results.json"),
                    "CMUX_WEB_TEST_MAX_FILE_TIMEOUT": "1", "CMUX_WEB_TEST_RETRIES": "0",
-                   "CMUX_WEB_TEST_JOBS": "1", "GITHUB_ACTIONS": "true"}
+                   "CMUX_WEB_TEST_JOBS": "1", "GITHUB_ACTIONS": "true", "TAP_TESTS_STATE": "off"}
             done = subprocess.run(["bash", "-eu", "-c", command("Test webviews")],
                                   cwd=head / "webviews", env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -490,7 +491,7 @@ class Workflow(unittest.TestCase):
             (bins / "bun").write_text(FAKE_BUN)
             (bins / "bun").chmod(0o755)
             (runner_temp / "head-results/runner").mkdir(parents=True)
-            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):  # as the head shard publishes them
+            for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):  # as the head shard publishes them
                 shutil.copy(runner, runner_temp / "head-results/runner")
             head_results = runner_temp / "head-results/webviews-head-results.json"
             head_results.write_text(json.dumps({f"{red} > received preview opens": False}))
@@ -498,7 +499,7 @@ class Workflow(unittest.TestCase):
             env.update(PATH=f"{bins}:{os.environ['PATH']}", RUNNER_TEMP=str(runner_temp), TMPDIR=str(tmp),
                        HEAD_RESULTS=str(head_results), BASE_RESULTS=str(runner_temp / "base-results.json"),
                        CMUX_NEXT_STYLE_GUARDS="warn", CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0",
-                       CMUX_WEB_TEST_FILE_TIMEOUT="10")
+                       CMUX_WEB_TEST_FILE_TIMEOUT="10", TAP_TESTS_STATE="off")
 
             def replay(checkout_step):
                 git("checkout", "-q", "--detach", merge)
@@ -529,6 +530,9 @@ class Workflow(unittest.TestCase):
                                             *args], check=True, capture_output=True, text=True).stdout.strip()
         red = "test/reasoning-own-control.test.ts"
         (repo / "webviews/test").mkdir(parents=True)
+        (repo / "scripts/ci").mkdir(parents=True)
+        for source in (COLLECT, COMPARE):
+            shutil.copy(source, repo / "scripts/ci" / source.name)
         (repo / "webviews" / red).write_text(body([]))
         git("init", "-q", "-b", "base")
         git("add", "-A")
@@ -547,7 +551,7 @@ class Workflow(unittest.TestCase):
         (bins / "bun").write_text(FAKE_BUN)
         (bins / "bun").chmod(0o755)
         (runner_temp / "head-results/runner").mkdir(parents=True)
-        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY):
+        for runner in (ROOT / "scripts/ci/run-webviews-tests.sh", COLLECT, COMPARE, HISTORY, REDS):
             shutil.copy(runner, runner_temp / "head-results/runner")
         head_results = runner_temp / "head-results/webviews-head-results.json"
         # The head shard's first run timed out on the frame and its retry budget was gone: the file is red unnamed.
@@ -559,7 +563,8 @@ class Workflow(unittest.TestCase):
                    GITHUB_SHA=merge, GITHUB_OUTPUT=str(output), HEAD_RESULTS=str(head_results),
                    BASE_RESULTS=str(runner_temp / "base-results.json"),
                    HEAD_RERUN=str(runner_temp / "head-rerun-results.json"), CMUX_NEXT_STYLE_GUARDS="warn",
-                   CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", CMUX_WEB_TEST_FILE_TIMEOUT="10")
+                   CMUX_WEB_TEST_JOBS="1", CMUX_WEB_TEST_RETRIES="0", CMUX_WEB_TEST_FILE_TIMEOUT="10",
+                   TAP_TESTS_STATE="off")
         run = lambda name, cwd: subprocess.run(["bash", "-eu", "-c", command(name)], cwd=cwd, env=env,
                                                capture_output=True, text=True, timeout=60)
         self.assertEqual(run("Use the merge parent as the base", repo).returncode, 0)
