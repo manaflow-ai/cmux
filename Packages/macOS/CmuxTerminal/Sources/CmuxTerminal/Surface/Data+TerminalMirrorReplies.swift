@@ -13,10 +13,9 @@ public import Foundation
 /// reports (`CSI row ; col R`, `CSI ? … R`), mode reports (`CSI … $ y`),
 /// window reports (`CSI … t`), Kitty keyboard flags (`CSI ? … u`), focus
 /// reports (`CSI I`, `CSI O`), and every terminated OSC, DCS and APC string.
-/// Keys, pastes and mouse reports pass through. A legacy Shift+F3
-/// (`CSI 1 ; 2 R`) is indistinguishable from a cursor report and is dropped
-/// with them; unterminated strings (Alt+] typed alone) pass through. A
-/// bracketed paste (`CSI 200 ~` … `CSI 201 ~`) passes through whole, so pasted
+/// Keys, pastes and mouse reports pass through; Ghostty sends a modified F3 as
+/// `CSI 13 ; m ~`, so no key it encodes looks like a cursor report. Unterminated
+/// strings (Alt+] typed alone) pass through. A bracketed paste (`CSI 200 ~` … `CSI 201 ~`) passes through whole, so pasted
 /// text that looks like a reply stays in the paste.
 extension Data {
     private static let escape: UInt8 = 0x1B
