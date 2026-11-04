@@ -166,7 +166,14 @@ export class ChildRowView {
         const item = index >= 0 ? existing!.items![index]! : undefined;
         const tool = item?.tool;
         const ended = task?.state !== "running";
-        if (task && rowId && existing && item && tool && (ended || (tool.background?.state ?? "running") === "running")) {
+        if (
+          task &&
+          rowId &&
+          existing &&
+          item &&
+          tool &&
+          (ended || (tool.background?.state ?? "running") === "running")
+        ) {
           const items = [...existing.items!];
           items[index] = {
             ...item,

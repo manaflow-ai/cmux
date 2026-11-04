@@ -209,6 +209,19 @@ def listed() -> tuple[int, str, str, dict]:
     return code, out, err, parsed(out) if code == 0 else {}
 
 
+def machine_status(machine: str) -> tuple[int, dict, str]:
+    """Return a redacted status summary when cleanup cannot kill a machine."""
+    code, out, err = cmux(
+        "cloud", "machine-status", "--target", f"machine:{machine}", "--json", timeout=60
+    )
+    value = parsed(out)
+    nested = value.get("machine") if isinstance(value.get("machine"), dict) else {}
+    status = value.get("status") or value.get("state") or nested.get("status") or nested.get("state")
+    summary = {"status": status} if isinstance(status, (str, int, float, bool)) else {}
+    detail = failure_text(err, out) if code != 0 else ""
+    return code, summary, detail
+
+
 def guest_events(machine: str, session: str) -> tuple[int, list[dict], str]:
     """Read raw ACP events from the guest, without putting the raw log in evidence."""
     prelude = 'export HOME="${HOME:-/home/cmux}"; c=cmux-tui; [ -x "$HOME/.cmux/bin/cmux-tui" ] && c="$HOME/.cmux/bin/cmux-tui"; '
@@ -368,8 +381,24 @@ killed = True
 if machine:
     code_k, out_k, err_k = cmux("cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json",
                                 timeout=120)
-    record("cloud kill-machine", code_k, "", failure_text(err_k, out_k) if code_k != 0 else "")
-    killed = code_k == 0
+    kill_detail = failure_text(err_k, out_k) if code_k != 0 else ""
+    if code_k != 0:
+        # A failed kill used to be silent, leaving the proof unable to distinguish a deleted
+        # machine from a leaked one. Ask the same app for one bounded status snapshot, then retry
+        # the destructive operation once; keep only the safe status/error summary in evidence.
+        status_code, status_summary, status_detail = machine_status(machine)
+        kill_detail = kill_detail or "kill-machine returned no error"
+        record("cloud kill-machine", code_k, "", kill_detail,
+               status_after_failure={"exit": status_code, **status_summary,
+                                     **({"error": status_detail} if status_detail else {})})
+        code_retry, out_retry, err_retry = cmux(
+            "cloud", "kill-machine", "--target", f"machine:{machine}", "--confirm", "--json", timeout=120
+        )
+        record("cloud kill-machine retry", code_retry, "", failure_text(err_retry, out_retry) if code_retry != 0 else "")
+        killed = code_retry == 0
+    else:
+        record("cloud kill-machine", code_k, "", "")
+        killed = True
 
 if not (code == 0 and reply_text):
     finish("fail: cloud start-chat gave no reply")

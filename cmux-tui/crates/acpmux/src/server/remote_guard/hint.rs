@@ -63,11 +63,15 @@ pub(in crate::server) async fn new_on(
     let method = crate::rpc::method::SESSION_NEW;
     let web = via_web(&p);
     // Creation is interactive (New Tab and composer), unlike a prompt's unbounded turn, but
-    // the deadline outlasts the peer's own start budget (`LinkTimings::start`): the peer
-    // answers a slow valid start, or fails it itself, before this ends, so a start is never
-    // dropped while it completes there. Only a peer whose handler hangs past its own budget
-    // reaches this error. Dropping the request removes its pending reply through ForgetPending.
-    let budget = peer.timings().start;
+    // this hazard bound outlasts the peer's own pooled-start envelope: the peer answers a slow
+    // valid start, or fails it itself, before this ends. A peer that stays connected and never
+    // answers is the remaining real hazard; dropping the request removes its pending reply.
+    // timeout: a remote handler that never answers needs a finite forwarding fallback, while a
+    // live start remains well beyond the old local 90-second budget.
+    // Match `peer::send_request`: the forwarded request must outlive both the
+    // generic peer budget and the peer's pooled-start hazard envelope.
+    let timings = peer.timings();
+    let budget = timings.request.max(timings.start);
     let result = tokio::time::timeout(budget, peer.request(method, p))
         .await
         .map_err(|_| {

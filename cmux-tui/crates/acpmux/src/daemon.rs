@@ -699,9 +699,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
             hub.hold_policies_again().await;
             hub.finish_startup().await;
-            // An agent the previous daemon left, started from a profile changed since, restarts
-            // on the new one between turns (`hub/profile_respawn.rs`).
-            hub.spawn_profile_respawns();
+            // An agent the previous daemon left, started from a profile changed since or running
+            // from a binary that an update moved, restarts on the profile and binary installed now,
+            // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
+            hub.spawn_startup_respawns();
             // Until shutdown aborts this task, on every path (a signal too).
             hub.run_after_startup().await;
         })
