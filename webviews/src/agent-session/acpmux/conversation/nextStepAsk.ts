@@ -13,13 +13,19 @@
 export type NextStepOption = { label: string; key?: "recap.yes" | "recap.notNow" };
 
 export type NextStepAsk = {
-  /// The tag the line carried, lowercased ("outward").
+  /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
+  /// call (wrapUp.ts).
   tag: string;
-  /// The question, through its last question mark, without the tag or a "For Leo:" lead.
+  /// What changed and where things stand, two or three sentences, muted above the question: only a
+  /// wrap-up call carries one.
+  recap?: string;
+  /// The question, through its last question mark, without the tag or a "For Leo:" lead. Empty
+  /// for a wrap-up with nothing to decide, which draws the recap alone.
   question: string;
   /// What the line said after the question ("My pick: yes."), muted under it; absent when nothing.
   detail?: string;
-  /// Two to four answers; the first is the primary (⌘↩).
+  /// Two to four answers; the first is the primary (⌘↩). A wrap-up's may hold one, or none with
+  /// no question.
   options: NextStepOption[];
   /// The answer's text without the ask's lines (the tagged line and its option list), which the
   /// card draws instead. Blank lines the removal leaves at the end are trimmed.

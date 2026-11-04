@@ -111,6 +111,21 @@ struct CloudStartSessionTests {
         }
     }
 
+    /// A terminal's or a script's start (the CLI `cmux cloud start-chat` runs `cloud start-session`)
+    /// creates its machine as the person's would, never waiting on the "Create a Cloud machine?" card,
+    /// unless the person turned `cloud.agentsStartWithoutAsking` off.
+    @Test func aCLIStartCreatesWithoutTheCardUnlessThePersonTurnedAskingOn() {
+        func startsAsPerson(_ origin: ActionOrigin, delegated: Bool) -> Bool {
+            let invocation = Self.invocation(["agent": .string("claude")], origin: origin)
+            return CloudStartCore().startsAsPerson(byPerson: CloudHandlers.origin(of: invocation) == .user, delegated: delegated)
+        }
+        for origin in [ActionOrigin.cli, .script, .remote] {
+            #expect(startsAsPerson(origin, delegated: true), "a \(origin) start would wait on the create card")
+            #expect(!startsAsPerson(origin, delegated: false), "asking turned on, a \(origin) start still asks")
+        }
+        #expect(startsAsPerson(.user, delegated: false), "the person's own run never asks")
+    }
+
     // MARK: Refusals before anything starts
 
     @Test func aScriptRunWithoutAMachineSaysHowToNameOne() throws {
@@ -542,11 +557,11 @@ struct CloudStartSessionTests {
     }
 
     @Test func theRetryCommandKeepsTheNameOneShellWord() {
-        #expect(CloudStartSession.shellQuoted("dev-1") == "dev-1")
-        #expect(CloudStartSession.shellQuoted("my dev") == "'my dev'")
-        #expect(CloudStartSession.shellQuoted("it's") == "'it'\\''s'")
-        #expect(CloudStartSession.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
-        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartSession.shellQuoted("my dev"), agent: "claude", reason: "x")
+        #expect(CloudStartCore.shellQuoted("dev-1") == "dev-1")
+        #expect(CloudStartCore.shellQuoted("my dev") == "'my dev'")
+        #expect(CloudStartCore.shellQuoted("it's") == "'it'\\''s'")
+        #expect(CloudStartCore.shellQuoted("a;rm -rf ~") == "'a;rm -rf ~'")
+        let message = CloudStartSessionStrings.createFailed("my dev", quoted: CloudStartCore.shellQuoted("my dev"), agent: "claude", reason: "x")
         #expect(message.contains("`cmux cloud start-session --name 'my dev' --agent claude`"))
         #expect(message.hasPrefix("Couldn't create Cloud machine `my dev` (x)"))
     }
