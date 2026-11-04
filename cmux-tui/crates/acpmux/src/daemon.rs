@@ -16,8 +16,8 @@ mod open_file_limit;
 #[cfg(unix)]
 pub(crate) use lock::socket_held_by_other;
 use lock::{
-    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, not_serving_recovery,
-    wait_for_lock_release, wait_for_lock_release_with_budget,
+    DaemonLock, LockHeld, acquire_lock, lock_has_live_holder, wait_for_lock_release,
+    wait_for_lock_release_with_budget,
 };
 mod running;
 pub use running::connect_running;
@@ -1387,14 +1387,6 @@ where
     start_and_connect(path, connect).await
 }
 
-/// How long a command waits for a daemon that holds the lock: a stopping one settles its agents
-/// first (`SHUTDOWN_BUDGET`, the router's stop and kill waits; 12.3 s on cosmic-gray on
-/// 2026-10-22), a starting one binds within `START_BUDGET`. The last start then has its own
-/// `START_BUDGET`.
-// A detached start may wait for the old owner before binding its own socket.
-// Keep its launcher alive through both phases, including the Windows pipe reader.
-const READINESS_BUDGET: Duration = START_BUDGET;
-
 /// How often a command tries again while another daemon holds the lock.
 const HANDOVER_RETRY: Duration = Duration::from_millis(250);
 
@@ -1476,6 +1468,16 @@ where
         }
         if let Ok(value) = connect().await {
             return Ok(Some(value));
+        }
+        // If systemd has already marked the unit inactive, its socket peer is
+        // gone; let the ordinary detached launch path recover it. A live unit
+        // keeps this wait open regardless of how long its request takes.
+        let active = tokio::process::Command::new(systemctl.clone())
+            .args(["--user", "is-active", "acpmux.service"])
+            .output();
+        match tokio::time::timeout(PROBE_BUDGET, active).await {
+            Ok(Ok(output)) if output.status.success() => {}
+            _ => return Ok(None),
         }
         tokio::time::sleep(HANDOVER_RETRY).await;
     }
@@ -1680,12 +1682,12 @@ async fn holder_elsewhere(path: &std::path::Path) -> Option<std::path::PathBuf> 
     }
     for socket in candidates {
         // The connect too: a stopped (suspended) daemon accepts and never answers `initialize`.
-        let asked = tokio::time::timeout(START_BUDGET, async {
-            let client = Client::connect(&socket).await?;
+        let Ok(client) = Client::connect(&socket).await else { continue };
+        let Ok(status) =
             client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await
-        })
-        .await;
-        let Ok(Ok(status)) = asked else { continue };
+        else {
+            continue;
+        };
         let serves =
             |key: &str| status.get(key).and_then(Value::as_str).map(std::path::PathBuf::from);
         if serves("home").as_deref() == Some(home.as_path())
@@ -1720,6 +1722,7 @@ async fn start_daemon() -> Result<String> {
 /// `start_daemon`, with a person key for the daemon (`start_keyed`).
 #[cfg(unix)]
 async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<String> {
+    #[cfg(target_os = "macos")]
     let path = socket_path();
     // Outside the login session (an ssh client): the daemon goes to the user's GUI
     // session so its agents read the login keychain (`daemon/login_session.rs`). A
@@ -1767,14 +1770,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         let mut line = String::new();
         tokio::io::BufReader::new(ready).read_line(&mut line).await.map(|_| line)
     };
-    match tokio::time::timeout(READINESS_BUDGET, wait).await {
-        Ok(read) => Ok(read.unwrap_or_default()),
-        Err(_) => Err(anyhow!(
-            "daemon did not come up at {} within {READINESS_BUDGET:?}; see {}",
-            path.display(),
-            home().join("daemon.log").display()
-        )),
-    }
+    // EOF means the detached child exited; a live child keeps the pipe open
+    // until it writes readiness. The pipe itself is the liveness signal, so a
+    // busy machine never turns a slow but live daemon into a startup failure.
+    wait.await.map(|read| read.unwrap_or_default())
 }
 /// The readiness line of a daemon that found the lock taken (`run`).
 #[cfg(target_os = "macos")]
@@ -1784,9 +1783,8 @@ const LOCK_HELD_LINE: &str = r#"{"ready":false,"lockHeld":true}"#;
 /// readiness (an empty line; the caller connects). A job that ended before its socket answered
 /// most likely found the lock taken by a daemon still stopping (`daemon shutdown`, `host
 /// update`): that is reported as [`LOCK_HELD_LINE`], so `start_and_connect` waits for that
-/// daemon within its handover budget and starts the next one, as it does for a daemon it
-/// spawned. launchd is asked every half second, each answer bounded by what is left of
-/// `START_BUDGET` (at most one second), so the wait never outlasts it by more than a poll.
+/// daemon while it still owns the lock and starts the next one, as it does for a daemon it
+/// spawned. launchd is asked every half second; the lock and job state are the liveness signals.
 #[cfg(target_os = "macos")]
 async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
     let deadline = tokio::time::Instant::now() + START_BUDGET;
@@ -1820,7 +1818,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
 /// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
 #[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    windows::start_daemon(&home(), &daemon_prefix(), READINESS_BUDGET).await
+    windows::start_daemon(&home(), &daemon_prefix()).await
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {

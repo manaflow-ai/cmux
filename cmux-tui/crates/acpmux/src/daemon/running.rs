@@ -17,10 +17,9 @@ use std::time::Duration;
 pub async fn connect_running() -> Result<Arc<Client>> {
     let path = socket_path();
     let lock = home().join("daemon.lock");
-    // This home's daemon serves another socket: no wait makes it serve this one. Bounded like
-    // the listing's own connects: a socket that accepts but never answers its hello.
+    // This home's daemon serves another socket: no wait makes it serve this one.
     #[cfg(unix)]
-    if !matches!(tokio::time::timeout(HANDOVER_RETRY, Client::connect(&path)).await, Ok(Ok(_)))
+    if Client::connect(&path).await.is_err()
         && lock_has_live_holder(&lock)
         && let Some(other) = super::holder_elsewhere(&path).await
     {
@@ -36,9 +35,9 @@ where
     Fut: std::future::Future<Output = Result<T>>,
 {
     loop {
-        // A short retry interval keeps closed sockets fast while an open socket
-        // is allowed to remain slow as long as its daemon lock holder lives.
-        if let Ok(Ok(value)) = tokio::time::timeout(HANDOVER_RETRY, connect()).await {
+        // A closed socket makes connect return immediately. An open socket is
+        // allowed to remain slow as long as its daemon lock holder lives.
+        if let Ok(value) = connect().await {
             return Ok(value);
         }
         if !held() {
@@ -102,24 +101,27 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn a_slow_but_alive_daemon_is_not_cut_off_by_the_old_budget() {
-        let tries = AtomicUsize::new(0);
-        let got = connect_running_with(
+        let task = tokio::spawn(connect_running_with(
             Path::new("/x/s"),
             || true,
-            || {
-                let n = tries.fetch_add(1, Ordering::SeqCst);
-                async move { if n < 120 { Err(anyhow::anyhow!("daemon is busy")) } else { Ok(n) } }
+            || async {
+                tokio::time::sleep(Duration::from_secs(31)).await;
+                Ok::<_, anyhow::Error>(())
             },
-        )
-        .await;
-        assert_eq!(got.unwrap(), 120);
+        ));
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(31)).await;
+        assert!(task.await.unwrap().is_ok());
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_closed_socket_fails_fast_even_when_the_connect_future_is_slow() {
-        let got =
-            connect_running_with(Path::new("/x/s"), || false, std::future::pending::<Result<()>>)
-                .await;
+        let got = connect_running_with(
+            Path::new("/x/s"),
+            || false,
+            || async { Err::<(), _>(anyhow::anyhow!("connection refused")) },
+        )
+        .await;
         let e = got.unwrap_err();
         assert_eq!(detail(&e), "no_daemon", "{e}");
     }

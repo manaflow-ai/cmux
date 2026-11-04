@@ -23,14 +23,8 @@ pub(super) async fn wait(home: &Path, socket: &Path) -> Option<Started> {
             Err(e) if e.downcast_ref::<super::LockHeld>().is_some() => {}
             Err(_) => return None,
         }
-        if let Ok(Ok(client)) =
-            tokio::time::timeout(super::HANDOVER_RETRY, crate::client::Client::connect(socket))
-                .await
-            && let Ok(Ok(status)) = tokio::time::timeout(
-                super::HANDOVER_RETRY,
-                client.request(crate::rpc::method::MUX_STATUS, json!({})),
-            )
-            .await
+        if let Ok(client) = crate::client::Client::connect(socket).await
+            && let Ok(status) = client.request(crate::rpc::method::MUX_STATUS, json!({})).await
         {
             // ACPMUX_SOCKET may name another home's daemon. Its endpoint is
             // not this launch's winner, even though it answers.

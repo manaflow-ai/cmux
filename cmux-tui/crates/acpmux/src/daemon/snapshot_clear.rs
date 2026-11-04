@@ -9,9 +9,7 @@ pub(crate) async fn clear_peer_snapshots() -> Result<()> {
 }
 
 async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
-    if let Ok(Ok(client)) =
-        tokio::time::timeout(Duration::from_secs(2), Client::connect_without_caller(socket)).await
-    {
+    if let Ok(client) = Client::connect_without_caller(socket).await {
         let status = client.request(crate::rpc::method::MUX_STATUS, serde_json::json!({})).await?;
         let served = status
             .get("home")
