@@ -206,7 +206,7 @@ body {
 /* A hover card (ui/Tooltip.tsx AnchoredCard, .ui-tooltip.ui-card) with no glass (a link card) keeps
    the solid popup surface and its own look; a toolbar hint (.ui-hint) is a tooltip. */
 .ui-card {
-  padding: var(--ds-space-2);
+  padding: var(--grid-base) calc(var(--grid-base) * 2);
   border-width: 1px;
   background: var(--surface-popup);
   -webkit-backdrop-filter: none;
