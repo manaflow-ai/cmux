@@ -3454,6 +3454,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MIRROR_PLAN: ${{ vars.CI_REBUILD_MIRROR != '0' && format('{0}/ci-rebuild-plan.json', runner.temp) || '' }}
+          REBUILD_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo --mirror-plan "$MIRROR_PLAN" \
             --extra "runner=${{ runner.os }}-${{ runner.arch }}" \
@@ -3517,16 +3518,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-      # A pass records itself for the next run on the same inputs: an artifact named after
-      # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
-      # takes only passes of this repository's own runs). Never from a fork pull request.
-      # An uncached (no_reuse) run records too.
-      - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/ci-job-pass"
-          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
-
       # Observe the candidate and the full run together. Until the measured
       # rollout is promoted, no candidate (or whole-tree hit) skips this job.
       # CI_REBUILD_MIRROR=0 restores the existing whole-tree reuse path.
@@ -3562,6 +3553,16 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           overwrite: true
+
+      # A pass records itself for the next run on the same inputs: an artifact named after
+      # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
+      # takes only passes of this repository's own runs). Never from a fork pull request.
+      # An uncached (no_reuse) run records too.
+      - name: Record this pass for the same inputs
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-job-pass"
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
         if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}

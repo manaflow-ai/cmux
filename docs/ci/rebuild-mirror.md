@@ -20,6 +20,10 @@ quarantined or flaky execution cannot publish a green candidate. Failed jobs
 still emit observations. Cancelled, skipped, missing and uncertain results do
 not count as successful comparisons.
 
+Receipts keep both the Actions job's `head_sha` and the built `sha`. For a PR,
+the latter is the synthetic merge commit. Reconciliation matches the scheduled
+job against `head_sha`; full execution is verified against the built `sha`.
+
 Artifacts:
 
 - `ci-rebuild-mirror-<job>-<run>-<attempt>`: full observation, retained three days.

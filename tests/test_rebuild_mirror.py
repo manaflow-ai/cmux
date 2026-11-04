@@ -158,6 +158,18 @@ class CandidateInputs(unittest.TestCase):
         self.assertEqual(record["previous_sha"], previous)
         self.assertNotEqual(record["previous_sha"], record["sha"])
 
+    def test_pr_job_keeps_both_actions_head_and_built_merge_commit(self):
+        plan = self.root / "plan.json"
+        head = "d" * 40
+        with mock.patch.dict(os.environ, {"REBUILD_HEAD_SHA": head}), \
+                mock.patch.object(mirror.job_reuse, "lookup", return_value={"hit": "false"}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            mirror.start(str(self.root), "HEAD", "release-compile", self.full(), plan)
+        record = json.loads(plan.read_text())
+        self.assertEqual(record["head_sha"], head)
+        self.assertEqual(record["sha"], self.git("rev-parse", "HEAD"))
+        self.assertNotEqual(record["sha"], record["head_sha"])
+
 
 def receipt(**changes):
     value = {"schema": mirror.SCHEMA, "repository": "example/repository", "run_id": "42",

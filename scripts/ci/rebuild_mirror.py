@@ -90,6 +90,9 @@ def start(root: str, rev: str, job: str, full: dict, output: Path) -> None:
     """Save the prediction before execution. Lookup failures never predict a skip."""
     record = {"schema": SCHEMA, "job": job, "started_at": time.time(), "mode": "mirror",
               "sha": inputs.git(root, "rev-parse", f"{rev}^{{commit}}"),
+              # Actions identifies a PR job by its branch head, while checkout
+              # and the execution receipt use its synthetic merge commit.
+              "head_sha": os.environ.get("REBUILD_HEAD_SHA", ""),
               "repository": os.environ.get("GITHUB_REPOSITORY", ""),
               "run_id": os.environ.get("GITHUB_RUN_ID", ""),
               "attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
