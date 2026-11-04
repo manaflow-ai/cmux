@@ -57,7 +57,9 @@ PLAN_KEY, PLAN = "cmuxVmPlan", "pro"
 
 class Target:
     """One staging test account and where its credential is sealed. A rotated GitHub key changes key_id;
-    `put` then refuses the bundle and the pin here is updated."""
+    `put` then refuses the bundle and the pin here is updated. GitHub gives both environments below the same
+    key_id with different key bytes (read from `.../environments/ENV/secrets/public-key` on 2026-11-04);
+    `put` checks both against the live key."""
 
     def __init__(self, email, display_name, repo, environment, key_id, key, email_secret, password_secret):
         self.email, self.display_name = email, display_name
@@ -148,7 +150,7 @@ class Stack:
         matches = [u for u in items if isinstance(u, dict)
                    and str(u.get("primary_email") or "").lower() == email.lower()]
         if len(matches) > 1:
-            raise ProvisionError(f"{len(matches)} staging users have the capture email; refusing to pick one")
+            raise ProvisionError(f"{len(matches)} staging users have that email; refusing to pick one")
         return matches[0] if matches else None
 
     def create(self, email, password, display_name=CAPTURE.display_name):
