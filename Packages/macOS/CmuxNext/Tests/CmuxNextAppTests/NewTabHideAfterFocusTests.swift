@@ -66,25 +66,19 @@ import Testing
         pane.view.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
         window.contentView = pane.view
         window.orderFrontRegardless()
+        pane.setPresence(.visible) // the layout reports the pane on screen: its tab renders, and the cache conceals it when it leaves
         state.selection.select(historyTab.id, in: pane.paneKey)
         pane.syncStripFromStore()
         pane.view.layoutSubtreeIfNeeded()
         for _ in 0..<12 where pane.currentTabKey != historyTab.id || page.contentView.window == nil { await Self.nextCommittedPass() }
         try #require(pane.currentTabKey == historyTab.id && page.contentView.window === window, "the History page never showed")
-        // Shown in the cache's content lifecycle too, as a page the app loaded (its hide is the cache's conceal).
-        services.cache.applyLifecycle(services.cache.lifecycle.send(.show(historyTab.id)))
-        try #require(!page.contentView.isHidden, "the History page's view does not show")
+        try #require(services.cache.phase(of: historyTab.id) == .mountedVisible && !page.contentView.isHidden,
+                     "the History page does not show in the cache (phase \(services.cache.phase(of: historyTab.id)))")
 
         // The page has the keyboard (a key view inside it is the first responder).
         let field = KeyLoopCountingView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         page.contentView.addSubview(field)
         try #require(window.makeFirstResponder(field), "the page's key view did not take the keyboard")
-        var keyboardInsideAtHide: Bool?
-        let watch = page.contentView.observe(\.isHidden, options: [.prior]) { view, change in
-            guard change.isPrior, !view.isHidden else { return }
-            keyboardInsideAtHide = (view.window?.firstResponder as? NSView)?.isDescendant(of: view) == true
-        }
-        defer { watch.invalidate() }
         field.keyLoopAsks = 0
 
         // The key's turn of New Terminal Tab (`PaneController.newTerminalTabNow`): the stand-in in the store, selected.
@@ -95,16 +89,26 @@ import Testing
         pane.selectWhenReported(surface: standIn.surface)
 
         try #require(pane.currentTabKey == standIn.id, "the key's turn did not switch to the stand-in")
-        let hidden = try #require(keyboardInsideAtHide, "the History page did not hide in the key's turn: the test no longer reaches the case")
-        #expect(!hidden, "the History page hid while it still had the keyboard: AppKit walks the key view loop")
+        // The key's turn hid the History page through the cache (conceal -> setContentVisible(false)), not only its pane view.
+        try #require(page.contentView.isHidden, "the History page did not hide in the key's turn: the test no longer reaches the case")
+        let resigned = try #require(field.resignedWhilePageShowed.first,
+                                    "the page's key view never gave up the keyboard (first responder now: \(String(describing: window.firstResponder)))")
+        #expect(resigned, "the page's key view gave up the keyboard only after its page hid: AppKit walked the key view loop \(field.keyLoopAsks) asks")
         #expect(field.keyLoopAsks == 0, "AppKit asked the page's key view for the key view loop \(field.keyLoopAsks) times")
     }
 }
 
-/// A key view that counts AppKit's key view loop asks (`nextValidKeyView`, `previousValidKeyView`).
+/// A key view that records, each time it gives up the keyboard, whether its page still showed (no hidden ancestor), and
+/// counts AppKit's key view loop asks (`nextValidKeyView`, `previousValidKeyView`). AppKit replaces a hidden first
+/// responder only after the hide set its flag, so a key view that gives up the keyboard behind a hidden ancestor was walked.
 private final class KeyLoopCountingView: NSView {
     var keyLoopAsks = 0
+    var resignedWhilePageShowed: [Bool] = []
     override var acceptsFirstResponder: Bool { true }
+    override func resignFirstResponder() -> Bool {
+        resignedWhilePageShowed.append(!isHiddenOrHasHiddenAncestor)
+        return super.resignFirstResponder()
+    }
     override var nextValidKeyView: NSView? {
         keyLoopAsks += 1
         return super.nextValidKeyView
