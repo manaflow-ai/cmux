@@ -45,7 +45,7 @@ struct DividerCursorNoRegionRebuildTests {
 
     /// A divider that springs away from a still pointer takes its resize cursor and hover with it, and the pointer at
     /// its new place gets them: both come from the current frames, never from where the handle was.
-    @Test func theResizeCursorFollowsADividerThatMovesUnderAStillPointer() throws {
+    @Test func theResizeCursorFollowsADividerThatMovesUnderAStillPointer() async throws {
         let columns = (0..<2).map { PaneMotionBench.column($0, rows: 3, width: 0.5) }
         let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
         defer { probe.close() }
@@ -61,6 +61,7 @@ struct DividerCursorNoRegionRebuildTests {
         var next = columns
         next[1] = PaneMotionBench.column(1, rows: 2, width: 0.5)
         probe.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(next))])
+        for _ in 0..<4 { await Task.yield() } // The layout syncs the model change on its observation turn.
         let frames = probe.settle()
         try #require(frames > 1, "the change started no spring")
         try #require(abs(center().y - old.y) > 40, "the divider did not move: \(old) -> \(center())")
