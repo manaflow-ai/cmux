@@ -219,8 +219,7 @@
    as before the lens; under Lens the lens bends the wallpaper at its rim under a specular line.
    It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
    Transparency makes it the same grey, opaque. */
-.cv-user__bubble,
-.cv-user__edit {
+.cv-user__bubble {
   /* The selected borderless arm keeps a stronger glass fill for wallpaper contrast while its
      outline is removed. The fill remains liquid glass; it is not a solid message plate. */
   --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
@@ -232,7 +231,22 @@
   --glass-rim: 0;
   --glass-backdrop: none;
 }
-.acpmux-shell :is(.cv-user__bubble, .cv-user__edit) {
+.acpmux-shell .cv-user__bubble {
+  --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
+}
+/* The prompt open for editing (UserBubble.tsx PromptEditor) wears the bubble's glass: the same
+   tint, no edge and no rim. */
+.cv-user__edit {
+  --glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 10%, var(--glass-surface));
+  --glass-edge: transparent;
+  --glass-rim: 0;
+  --glass-backdrop: none;
+}
+.acpmux-shell .cv-user__edit {
   --glass-tint: color-mix(in srgb, var(--agent-text) 14%, transparent);
   /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
   --glass-opaque: color-mix(in srgb, var(--agent-text) 14%, var(--glass-surface));
@@ -240,14 +254,14 @@
 
 /* Message-surface gallery arms. The selected default is borderless; the historical bordered arm
    remains available for before/after captures without changing the app's other surfaces. */
-:root[data-message-surfaces="bordered"] :is(.cv-user__bubble, .cv-user__edit) {
+:root[data-message-surfaces="bordered"] .cv-user__bubble {
   --glass-tint: var(--cv-bubble);
   --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
   --glass-edge: var(--acpmux-composer-edge, transparent);
   /* The page's rim strength again (0 under appearance.borders none). */
   --glass-rim: inherit;
 }
-:root[data-message-surfaces="bordered"] .acpmux-shell :is(.cv-user__bubble, .cv-user__edit) {
+:root[data-message-surfaces="bordered"] .acpmux-shell .cv-user__bubble {
   --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
   --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
