@@ -1622,7 +1622,7 @@ class SpringApp(FakeApp):
 
     S = round(0.05 * 1304, 2)
 
-    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.33, hit_pt=24.0, drag_ms=400):
+    def __init__(self, clock, offset, response=0.6, key_ms=25, latency_s=0.40, hit_pt=24.0, drag_ms=400):
         super().__init__()
         self.clock, self.offset, self.response, self.key_ms, self.latency_s = clock, offset, response, key_ms, latency_s
         self.hit_pt, self.drag_ms = hit_pt, drag_ms
@@ -1806,8 +1806,9 @@ class KeyThenDragTests(unittest.TestCase):
         self.assertIn("no overlap", j.px["film_not_run"])
 
     def test_a_press_off_the_edge_is_a_miss(self):
-        app = SpringApp(self.clock, 8000.0, latency_s=0.9, hit_pt=7.0)  # a far later mouse-down: the press is off the edge
-        j, _ = self.run_step(app, {"divider": 1}, [150, 0])
+        # A far later mouse-down on a slow (x0.125) spring: the edge is 17 pt past the press, off a 7 pt hit band.
+        app = SpringApp(self.clock, 8000.0, response=1.2, latency_s=0.9, hit_pt=7.0)
+        j, _ = self.run_step(app, {"divider": 1}, [150, 0], response=1.2)
         note = j.video["notes"]["pixel"]["key_then_drag"]
         self.assertFalse(note["grabbed"])
         self.assertIsNone(app.grabbed)

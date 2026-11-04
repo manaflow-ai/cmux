@@ -871,7 +871,8 @@ def step_px_hold_tab_close(j, step):
 KEY_STEP = 0.05  # PaneResize.step: a key resize moves a column's width by 5% of the viewport
 HIT_WIDTH_KEY = "metrics.dividerHitWidth"  # the divider drag area's width; only the hit bands read it (no pane frame)
 KEY_DOWN_S = 0.025  # a CuaDriver key reaches the app 20-28 ms after its call starts (cmux22 sweeps)
-DRAG_DOWN_S = 0.33  # a CuaDriver drag's mouse-down reaches the app 260-400 ms after its call starts (12 drags, cmux22)
+DRAG_DOWN_S = 0.40  # a CuaDriver drag's mouse-down reaches the app 390-407 ms after its call starts (6 drags, cmux22 and
+                    # cmux24, 2026-11-04; 260-400 ms on cmux22 on 2026-11-03): at 0.33 the x0.125 column press missed the edge
 MOVING_PT = 0.25  # an edge moved this far in the 3 refreshes before the mouse-down is still moving (half a device px at 2x)
 GRAB_SHARE = 0.5  # the dragged edge followed the pointer: it moved at least this share of the drag
 
