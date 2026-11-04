@@ -13,6 +13,8 @@ public struct WindowViewGeometry {
         public let name: String
         public let rect: CGRect
         public let drawn: Bool
+        /// Drawn and with an area: on screen.
+        public var isVisible: Bool { drawn && rect.width > 0 && rect.height > 0 }
     }
 
     public static let maxDepth = 16
@@ -56,17 +58,19 @@ public struct WindowViewGeometry {
         }
         for (id, now) in entries {
             guard let was = previous.entries[id] else {
-                if now.drawn { note("\(now.name) appeared \(Self.text(now.rect))") }
+                if now.isVisible { note("\(now.name) appeared \(Self.text(now.rect))") }
                 continue
             }
-            guard was.drawn || now.drawn else { continue }
-            if was.drawn != now.drawn {
-                note("\(now.name) \(now.drawn ? "shown" : "hidden") \(Self.text(now.rect))")
+            // A view with no area draws nothing: an empty status dot shown or hidden, or a toolbar laid out from zero size
+            // (that one counts once it has an area).
+            guard was.isVisible || now.isVisible else { continue }
+            if was.isVisible != now.isVisible {
+                note("\(now.name) \(now.isVisible ? "shown" : "hidden") \(Self.text(was.isVisible ? was.rect : now.rect))")
             } else if was.rect != now.rect {
                 note("\(now.name) moved \(Self.text(was.rect)) -> \(Self.text(now.rect))")
             }
         }
-        for (id, was) in previous.entries where was.drawn && entries[id] == nil {
+        for (id, was) in previous.entries where was.isVisible && entries[id] == nil {
             note("\(was.name) went away \(Self.text(was.rect))")
         }
         return (total, lines.sorted())
