@@ -23,3 +23,23 @@ public enum SidebarFoldPersist: Equatable, Sendable {
         return attempt < retries ? .retry : .giveUp
     }
 }
+
+extension SidebarFoldPersist {
+    /// Runs `send`, a save that sets an absolute value (a fold, a workspace's place), so a second send of it is
+    /// harmless; a reply that missed its deadline (`mayHaveApplied`) sends it again on the fold's policy and backoff,
+    /// with no notice. Throws the refusal at once, or the last missed deadline once the retries are spent (the caller
+    /// then re-reads the store). Leo, 2026-11-04, on "Move did not apply: set-personal-workspace: timed out: ...".
+    @discardableResult
+    public static func resending<Value>(owner: String, backoff: Backoff = backoff, isolation: isolated (any Actor)? = #isolation,
+                                        mayHaveApplied: (any Error) -> Bool, _ send: () async throws -> Value) async throws -> Value {
+        var backoff = backoff
+        for attempt in 0..<retries {
+            do { return try await send() } catch {
+                guard after(attempt: attempt, mayHaveApplied: mayHaveApplied(error)) == .retry else { throw error }
+                // concurrency-allow: Backoff.wait is an async clock sleep (it suspends this task, never blocks a thread)
+                try await backoff.wait(owner: owner)
+            }
+        }
+        return try await send() // the last send: a missed deadline now ends it, and the caller re-reads the store
+    }
+}

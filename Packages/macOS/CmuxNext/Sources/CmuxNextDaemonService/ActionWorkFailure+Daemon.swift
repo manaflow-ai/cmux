@@ -29,11 +29,18 @@ extension ActionWorkFailure {
             return
         }
         let daemonError = error as? DaemonError
-        var timedOut = false
-        if case .timedOut = daemonError { timedOut = true }
-        self.init("\(label): \(error)", mayHaveApplied: timedOut, terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        self.init("\(label): \(error)", mayHaveApplied: daemonError?.isMissedDeadline == true,
+                  terminalMayAppear: daemonError?.isTerminalStartTimeout == true)
+        // What a person reads (`notice(title:)`): never the daemon's text, the command label or an op name. A missed
+        // deadline or a dropped connection shows nothing; the store's echo or the reconnect shows what the daemon holds.
+        if cause == .text { cause = daemonError?.isLostConnection == true ? .connection : .daemon }
         // The person reads why in their language; a caller keeps the daemon's error (restore fuzz h3).
         if daemonError?.isDiskFull == true { shownReason = RefusalStrings.diskFull }
+        switch daemonError {
+        case .missingCapabilities?, .sessionRestoreTimedOut?: shownReason = RefusalStrings.describe(error)
+        case .endpointBlocked(let reason)?: shownReason = reason
+        default: break
+        }
     }
 }
 
