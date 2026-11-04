@@ -334,7 +334,9 @@ export default agentPaneEntry({
       note: "Opened, the message grows in place under its line, with no box, and nothing else draws: no status block, no result JSON.",
       snapshot: sends(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        // Stacked (#33249), a shut row's toggle holds no words and sits on the recipient's chip, which
+        // opens the subagent; the person clicks the message's first line under the row, which toggles it.
+        await ctx.click({ selector: ".cv-agentmsg__below" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
       },
     },
@@ -342,7 +344,7 @@ export default agentPaneEntry({
       note: "A long message opens capped near eight lines, the rest a scroll away under a fade.",
       snapshot: long(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-agentmsg__toggle" });
+        await ctx.click({ selector: ".cv-agentmsg__below" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-message__text"));
       },
     },
@@ -369,7 +371,7 @@ export default agentPaneEntry({
       },
     },
     "folded-run": {
-      note: "Four consecutive messages from claude-sr2: four lines, each where it arrived (they no longer fold into one card); each line opens its whole message.",
+      note: 'Four consecutive messages from claude-sr2: one "Received 4 messages" row (#32720), closed, with claude-sr2\'s mark; opened, each message is its own line, and each line opens its whole message.',
       snapshot: foldedRun(),
     },
     "folded-run-mixed": {
@@ -377,9 +379,14 @@ export default agentPaneEntry({
       snapshot: foldedMixedRun(),
     },
     "folded-run-opened": {
-      note: "The burst with every line opened: each received message's panel holds its whole body.",
+      note: "The burst's row and every line opened: each received message's panel holds its whole body.",
       snapshot: foldedRun(),
       play: async (ctx) => {
+        // The four gather in one "Received 4 messages" row (#32720), closed: open it first.
+        const head = ".cv-lane-batch[data-kind='inbox'] .cv-lane-batch__toggle";
+        await ctx.waitFor(() => ctx.document.querySelector(`${head}, .cv-received`));
+        if (ctx.document.querySelector(head)?.getAttribute("aria-expanded") === "false")
+          await ctx.click({ selector: head });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received").length >= 4);
         for (const toggle of ctx.document.querySelectorAll<HTMLButtonElement>(".cv-received .cv-disclosure__toggle"))
           toggle.click();

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest"
 import { installAuthorityVersion, withInstallAuthority } from "../src/domains/user-authority.ts"
 import type { UserState } from "../src/domains/user.ts"
 import type { TeamState } from "../src/domains/team.ts"
-import { hostNetworkTarget } from "../src/host-network-target.ts"
+import { hostNetworkTarget, hostNetworkTargetOwner } from "../src/host-network-target.ts"
 import { vmReceiverPeers } from "../src/cloud-vm-receiver-peers.ts"
 import type { NetworkIdentityView } from "../src/user-do.ts"
 import { post, sessionToken } from "./cloud-bind-support.ts"
@@ -151,6 +151,7 @@ describe("TeamDO Native RPCs", () => {
     recheckCloudDial(e: string, p: Principal, permit: unknown): Promise<boolean>
     vmReceiverPeers(e: string, target: unknown): Promise<unknown>
     hostNetworkTarget(e: string, p: Principal, params: unknown): Promise<{ ok: boolean; code?: string }>
+    hostNetworkTargetOwner(e: string, p: Principal, params: unknown): Promise<{ ok: boolean; code?: string }>
   }
 
   it("answers nothing for a team this owner does not hold", async () => {
@@ -160,6 +161,7 @@ describe("TeamDO Native RPCs", () => {
     expect(await team.recheckCloudDial("team_00000000000000000077", p, {})).toBe(false)
     expect(await team.vmReceiverPeers("team_00000000000000000077", {})).toBeNull()
     expect(await team.hostNetworkTarget("team_00000000000000000077", p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await team.hostNetworkTargetOwner("team_00000000000000000077", p, {})).toMatchObject({ ok: false, code: "auth.forbidden" })
   })
 
   const state = { team: { id: TEAM, kind: "stack", display_name: "Team" }, members: { [p.user!]: { user: p.user!, role: "owner", display_name: "O" } }, hosts: {} } as unknown as TeamState
@@ -240,6 +242,12 @@ describe("TeamDO Native reads with live authority", () => {
   it("returns the team network target after a successful read", async () => {
     const w = await world()
     expect(await hostNetworkTarget(targetDeps(w), p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN, mesh: MESH, ipv4_cidr: "10.128.0.0/20" } })
+  })
+
+  it("verifies the owner without reading the mesh", async () => {
+    const w = await world()
+    const deps = targetDeps(w)
+    expect(await hostNetworkTargetOwner(deps, p, {})).toEqual({ ok: true, revision: "7", value: { team: TEAM, tenant: TENANT, project: "project", origin: ORIGIN } })
   })
 
   it.each(["regrant", "rejoin", "leave"] as const)("refuses the target when the caller's %s happens during the mesh read", async (change) => {

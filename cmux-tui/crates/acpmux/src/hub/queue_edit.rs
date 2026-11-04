@@ -29,7 +29,33 @@ fn same_device(run: Option<&str>, editor: Option<&str>) -> Option<String> {
     run.filter(|d| editor == Some(*d)).map(str::to_owned)
 }
 
-/// The stricter of two controls: an edit never runs a prompt under looser rules than either
+/// Whether the waiting prompt `prompt_id` is one of the agent's own slash commands: its first
+/// words name a command of the agent's newest `available_commands_update` (`/compact`, a skill),
+/// never a path or a word the agent does not list.
+fn queued_agent_command(session: &Session, prompt_id: &str) -> bool {
+    let name = {
+        let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(q) = queue.iter().find(|q| q.prompt_id == prompt_id) else { return false };
+        match super::forum::slash_command(&q.run.blocks) {
+            Some(name) => name.to_owned(),
+            None => return false,
+        }
+    };
+    lists_command(session.meta().available_commands.as_ref(), &name)
+}
+
+/// Whether an `available_commands_update` lists the command `name` (case aside).
+fn lists_command(update: Option<&Value>, name: &str) -> bool {
+    update.and_then(|u| u.get("availableCommands")).and_then(Value::as_array).is_some_and(
+        |commands| {
+            commands.iter().any(|c| {
+                c.get("name").and_then(Value::as_str).is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        },
+    )
+}
+
+/// The stricter of two controls:an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
 fn stricter(a: Control, b: Control) -> Control {
     match (a, b) {
@@ -239,11 +265,18 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize, editor)?)
             }
             "send_now" => {
-                let sent =
+                // One of the agent's own commands (`/compact`) runs only as a turn of its own:
+                // steered in, Claude Code reads it as words and thinks about them instead (Leo,
+                // 2026-11-03: "this should have just started compacting"). Send now on one stops
+                // the running turn and runs it next, as `interrupt` does.
+                let sent = if session.turn().is_some() && queued_agent_command(session, prompt_id) {
+                    self.interrupt_for_queued(session, prompt_id, editor).await?
+                } else {
                     match self.send_queued_now(session, prompt_id, control, device, editor)? {
                         Some(sent) => Some(sent),
                         None => self.step_now(session, prompt_id, control, device, editor).await?,
-                    };
+                    }
+                };
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
@@ -252,7 +285,12 @@ impl Hub {
                 reply.set("sent", json!(sent));
                 json!(sent.is_some())
             }
-            "resume" => json!(self.resume_queue(session)),
+            "resume" => {
+                let resumed = self.resume_queue(session);
+                // The Stop's hold is over: what the inbox held back goes in (`inbox_review`).
+                self.inbox_review(session);
+                json!(resumed)
+            }
             "withdraw" => json!(self.withdraw_steer(session, prompt_id, control, editor).await?),
             _ => {
                 let e = "op must be update, move, send_now, interrupt, resume or withdraw";

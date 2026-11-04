@@ -11,8 +11,9 @@
 //!   user's own servers stay).
 //! - Skills: Claude Code gets a session-only plugin named `cmux`
 //!   (`--plugin-dir`) whose skills are `cmux:cmux-browser`,
-//!   `cmux:cmux-cua` and `cmux:acpmux` (the acpmux CLI guide, for driving
-//!   sessions from a shell). The skill text is compiled in from `skills/` and
+//!   `cmux:cmux-cua`, `cmux:cmux-customization` (settings, and a view of the
+//!   person's own that an agent writes as the customize app) and
+//!   `cmux:acpmux` (the acpmux CLI guide, for driving sessions from a shell). The skill text is compiled in from `skills/` and
 //!   written once per content hash under `<ACPMUX_HOME>/agent-tools/`.
 //!   Only the skill descriptions reach the prompt (progressive disclosure).
 //!   `cmux-cua` is model-invocable: its description claims tasks in a
@@ -207,6 +208,19 @@ const SKILL_FILES: &[(&str, &str)] = &[
         include_str!("../../../../skills/cmux-browser/templates/form-automation.sh"),
     ),
     ("cmux-cua/SKILL.md", include_str!("../../../../skills/cmux-cua/SKILL.md")),
+    ("cmux-customization/SKILL.md", include_str!("../../../../skills/cmux-customization/SKILL.md")),
+    (
+        "cmux-customization/references/examples.md",
+        include_str!("../../../../skills/cmux-customization/references/examples.md"),
+    ),
+    (
+        "cmux-customization/references/local-app-views.md",
+        include_str!("../../../../skills/cmux-customization/references/local-app-views.md"),
+    ),
+    (
+        "cmux-customization/references/viewer-types.md",
+        include_str!("../../../../skills/cmux-customization/references/viewer-types.md"),
+    ),
     ("acpmux/SKILL.md", include_str!("../skills/acpmux/SKILL.md")),
 ];
 
@@ -1067,11 +1081,21 @@ fn bg_hooks() -> String {
     let mut words = vec![this.exe.to_string_lossy().into_owned()];
     let home = crate::config::home().to_string_lossy().into_owned();
     words.extend(this.args_lossy(&[crate::bg_hook::HOOK_ARG, home.as_str()]));
+    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
+        "hooks": [{"type": "command", "command": hook_command(&words), "timeout": 10}]}]}})
+    .to_string()
+}
+
+/// The hook's shell command: `words` quoted, then `|| true`. Claude Code blocks the tool call
+/// when a PreToolUse hook exits 2, and the hook only ever turns a call away through the JSON it
+/// prints on success, so a failure (a binary that is gone, or one that does not know
+/// `__bg-hook`, such as the cmux CLI, whose usage errors exit 2) lets the call run instead of
+/// refusing every Bash call of the chat (gcp-codex-swarm-09, 2026-11-02:
+/// `unknown resource scope "__bg-hook"` on each call).
+pub(crate) fn hook_command(words: &[String]) -> String {
     let quoted: Vec<String> =
         words.iter().map(|w| format!("'{}'", w.replace('\'', "'\\''"))).collect();
-    json!({"hooks": {"PreToolUse": [{"matcher": "Bash",
-        "hooks": [{"type": "command", "command": quoted.join(" "), "timeout": 10}]}]}})
-    .to_string()
+    format!("{} || true", quoted.join(" "))
 }
 
 /// The signed helper's own `cmux-cua` (`<app>/Contents/Library/cmux Computer

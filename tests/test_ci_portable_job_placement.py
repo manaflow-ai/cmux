@@ -112,6 +112,79 @@ class NightlyOnly(unittest.TestCase):
                 result = placement.decide(config, runners, snapshot(), NOW)
                 self.assertNotEqual(result.mini_runner, NIGHTLY_ONLY)
 
+    def test_reservation_route_reads_capacity_without_a_side_label(self):
+        """decide's place-reserved offers the reservation; an unset side label must not skip the read."""
+        calls = []
+
+        class Client:
+            def __init__(self, token, repo, **kwargs):
+                calls.append(token)
+
+            def runners(self, use_state=True):
+                return [nightly_only("cmux15-glaeda-nightly-only-2")]
+
+            def snapshot(self, now):
+                return snapshot()
+
+        config = self.config(SIDE_LABEL="", GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="route",
+                             SNAPSHOT_TOKEN="snapshot")
+        with mock.patch.object(placement.pool, "GitHub", Client):
+            runners, _ = placement.read(config, NOW)
+        self.assertEqual(len(runners), 1)
+        self.assertEqual(placement.decide(config, runners, snapshot(), NOW).mini_runner, NIGHTLY_ONLY)
+        # Not a nightly, no reservation offered, or an attempt that may not move: no read, as before.
+        for changes in ({"NIGHTLY": ""}, {"NIGHTLY_ONLY_LABEL": ""}, {"GITHUB_RUN_ATTEMPT": "2"}):
+            with self.subTest(changes=changes), mock.patch.object(placement.pool, "GitHub", Client):
+                calls.clear()
+                self.assertEqual(placement.read({**config, **changes}, NOW), (None, None))
+                self.assertEqual(calls, [])
+
+    def test_reservation_with_no_idle_runner_waits_three_minutes_then_leaves_jobs_unplaced(self):
+        """Run 41481821056: a reservation Mac started nothing for 11 minutes. Placement re-reads for at
+        most 180 s and leaves the jobs to their runs-on tail (hosted Ubuntu on attempt 1)."""
+        busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True)]
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", return_value=(busy, fresh)) as read, \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30, 60, 90, 120, 150, 180]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer"):
+            self.assertEqual(placement.main(self.config(SIDE_LABEL="")), 0)
+        self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), 180)
+        self.assertEqual(read.call_count, 7)
+        self.assertEqual(write.call_args.args[0].mini_jobs, ())
+
+    def test_decide_light_jobs_wait_one_re_read_not_three_minutes(self):
+        """Run 41655282358: place-reserved waited 163 s in decide, on the feed's critical path."""
+        busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True)]
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        for seconds, slept in (("30", 30), ("600", 180), ("", 180)):
+            with self.subTest(seconds=seconds), \
+                 mock.patch.object(placement, "read", return_value=(busy, fresh)), \
+                 mock.patch.object(placement.time, "monotonic", side_effect=[0, 0, 30, 60, 90, 120, 150, 180]), \
+                 mock.patch.object(placement.time, "sleep") as sleep, \
+                 mock.patch.object(placement, "write"), \
+                 mock.patch.object(placement.signal, "setitimer"):
+                placement.main(self.config(SIDE_LABEL="", NIGHTLY_WAIT_SECONDS=seconds))
+                self.assertEqual(sum(call.args[0] for call in sleep.call_args_list), slept)
+        workflow = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
+        step = next(s for s in workflow["jobs"]["decide"]["steps"] if s.get("id") == "place-reserved")
+        self.assertEqual(step["env"]["NIGHTLY_WAIT_SECONDS"], "30")
+
+    def test_reservation_runner_freed_during_the_wait_takes_the_jobs(self):
+        busy = [nightly_only("cmux15-glaeda-nightly-only-2", busy=True)]
+        freed = [nightly_only(f"cmux15-glaeda-nightly-only-{index}") for index in range(3)]
+        fresh = {"generated_at": dt.datetime.now(dt.timezone.utc).isoformat(), "pools": {}}
+        with mock.patch.object(placement, "read", side_effect=[(busy, fresh), (freed, fresh)]), \
+             mock.patch.object(placement.time, "monotonic", side_effect=[0, 0]), \
+             mock.patch.object(placement.time, "sleep") as sleep, \
+             mock.patch.object(placement, "write") as write, \
+             mock.patch.object(placement.signal, "setitimer"):
+            self.assertEqual(placement.main(self.config(SIDE_LABEL="")), 0)
+        sleep.assert_called_once_with(30)
+        self.assertEqual(write.call_args.args[0].mini_runner, NIGHTLY_ONLY)
+        self.assertEqual(write.call_args.args[0].mini_jobs, tuple(LIGHT.split()))
+
     def test_nightly_light_placement_reads_the_reservation_variable(self):
         text = (WORKFLOWS / "nightly.yml").read_text(encoding="utf-8")
         step = text[text.index("- name: Place the light jobs on a free mini"):]
@@ -553,9 +626,11 @@ class Wiring(unittest.TestCase):
         nightly = jobs("nightly.yml")
         step = next(step for step in nightly["build-nightly-app"]["steps"] if step.get("id") == "place-light-start")
         self.assertEqual(step["env"]["NIGHTLY"], "1")
-        expected_pools = {"prepare-nightly-variant-primary": "linux_32",
+        # About one core each (.github/runners.json linux_sizes): the Linux 4 vCPU pool, and 16 vCPU
+        # for prepare-nightly-variant's retry after a failed primary.
+        expected_pools = {"prepare-nightly-variant-primary": "linux_4",
                           "prepare-nightly-variant": "linux_16",
-                          "await-nightly-tree-marker": "linux_32"}
+                          "await-nightly-tree-marker": "linux_4"}
         for name in step["env"]["JOBS"].split():
             with self.subTest(job=name):
                 job = nightly[name]

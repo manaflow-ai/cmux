@@ -32,7 +32,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The disclosure chevron: one glyph that turns as the group opens and closes (Lawrence msg 15763).
     private let chevron = DisclosureChevronView()
     /// The members' roll-up, in the sidebar's status colors (Lawrence msg 11983).
-    private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.usesStatusColors = true; return view }()
+    /// It draws at its box's size whatever the scale setting, as the rows' badges do (`RowBadgeView`), so a header's
+    /// mark and its rows' marks read at one size (Leo 2026-11-03: "symbol size discrepancy groups vs workspaces").
+    private let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        view.usesStatusColors = true
+        view.ignoresScaleSetting = true
+        return view
+    }()
     /// The spinner's slot: it fades and collapses its width as loading starts and stops (u-group-header-detail).
     private lazy var activitySlot = SidebarRevealSlotView(activity) { [weak activity] in activity?.showsGlyph ?? false }
     /// Loading stopped: the spinner keeps drawing while its slot fades and collapses, then goes idle.
@@ -222,6 +229,10 @@ final class GroupHeaderRowView: SidebarRowView {
     var debugBadge: UnreadState { badge.state }
     /// Whether the header shows a loading or activity mark.
     var debugActivityVisible: Bool { activity.state.isVisible }
+    /// The header's status mark's frame, in the header's coordinates (`SidebarStatusGlyphParityTests`).
+    var debugActivityFrame: CGRect { activitySlot.convert(activity.frame, to: self) }
+    /// Whether the header's mark ignores the scale setting, as the rows' badges do (`SidebarStatusGlyphParityTests`).
+    var debugActivityIgnoresScale: Bool { activity.ignoresScaleSetting }
     /// The member count a collapsed header shows, nil when it shows none.
     var countText: String? { count.isHidden || count.stringValue.isEmpty ? nil : count.stringValue }
     /// The count's label, laid out (`SidebarGroupChromeLookTests`).
@@ -288,7 +299,8 @@ final class GroupHeaderRowView: SidebarRowView {
             // and a drop take tonal steps over it (the open editor lights its more button only).
             let tokens = themeTokens
             let look = look
-            if look.style != .band { return paintQuiet(tokens, look) }
+            // A group nobody colored draws as a plain row: no bar, only the row's own hover and drop fills.
+            if look.style != .band || tint.isNone { return paintQuiet(tokens, look) }
             let chip = tint.headerChip(themed: look.themed)
             var fill = chip.fill
             if isHovered { fill = tokens.hoverFill.composited(over: fill) }
@@ -348,7 +360,7 @@ final class GroupHeaderRowView: SidebarRowView {
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
-        guard look.style == .wash else {
+        guard look.style == .wash, !tint.isNone else {
             pill.backgroundColor = nil
             return paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered ? tokens.hoverFill.nsColor : nil)
         }
@@ -362,6 +374,7 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func layout() {
         super.layout()
+        activity.dotDiameter = SidebarStyle.statusDotSize // a roll-up's dot, as every row's (Lawrence msg 19696)
         let b = layoutBounds
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -419,7 +432,8 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
-            let w = badge.preferredWidth, h = SidebarStyle.badgeHeight
+            // A dot is round, the status dot's diameter; a count is the badge's height.
+            let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
             trailing = columns.trailingEdge(before: badge.frame)
         } else {
@@ -427,8 +441,10 @@ final class GroupHeaderRowView: SidebarRowView {
         }
         // The spinner fades and its slot collapses as loading stops (grows as it starts): the
         // items around it close up with no hole (`setHoverSlotShown`, instant under Reduce Motion).
-        let ind = SidebarStyle.indicatorSize
-        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: ind)
+        // The mark's box is a workspace row's for the same state (`SidebarStyle.statusMarkSide(for:)`): the warning's
+        // 14 pt, the spinner's status glyph size, on the column every row's mark centers on.
+        let markSide = SidebarStyle.statusMarkSide(for: activity.state)
+        let slotFrame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: markSide)
         setHoverSlotShown(activitySlot, onColumn, frame: slotFrame, fades: (fadesNextActivity || fades) && !showsActions) { [weak self] in
             guard let self, self.activityEnding else { return }
             self.activityEnding = false
@@ -502,6 +518,18 @@ extension GroupHeaderRowView {
     /// The status the remote group's dot shows (tests).
     var debugMachineTone: SectionHeaderRowView.StatusTone? { machineDot.isHidden ? nil : machineTone }
 
+    /// The machine mark's side: a status mark's in the trailing column, as every row's trailing marks; the leading
+    /// glyph's in the icon column.
+    func machineMarkSide(_ look: SidebarHostGroupLook) -> CGFloat {
+        look == .leadingMark ? SidebarStyle.leadingGlyphSide : SidebarStyle.statusGlyphSize
+    }
+
+    /// The machine's emoji or symbol, else its kind's glyph (a Cloud machine, another computer), `side` square.
+    fileprivate static func machineImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
+        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
+        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
+    }
+
     fileprivate func configureMachine(_ machine: SidebarMachine?) {
         guard let machine else {
             self.machine = nil
@@ -515,8 +543,11 @@ extension GroupHeaderRowView {
         let tone = SectionHeaderRowView.tone(machine, hostGroup: true)
         machineTone = tone
         let look = hostLook
-        let symbol: IconName = machine.kind == .cloud ? .cloud : .machineRemote
-        machineMark.image = NSImage.icon(symbol, size: SidebarStyle.leadingGlyphSide)
+        // The machine's own icon at a status mark's size, the size of every row's trailing mark: drawn at the leading
+        // glyph's side it read larger than the rows' under it (Leo 2026-11-02: "the sizes of the icons for groups and
+        // workspaces aren't the same size anymore they should be"). Leading, it takes the icon column's glyph size, as a
+        // group's own icon does.
+        machineMark.image = Self.machineImage(SidebarMachineMark(machine), side: machineMarkSide(look))
         machineMark.isHidden = look == .dotOnly
         // The quiet look keeps the dot for a machine that needs the person (or is on its way).
         let quiet = look == .markQuietWhenConnected && (tone == .success || tone == nil)
@@ -566,7 +597,7 @@ extension GroupHeaderRowView {
             x = machineWords.frame.minX - Metrics.space1
         }
         if !machineMark.isHidden, !leadsWithMachineMark {
-            let side = SidebarStyle.leadingGlyphSide
+            let side = machineMarkSide(hostLook)
             machineMark.frame = NSRect(x: x - side, y: (height - side) / 2, width: side, height: side)
             x = machineMark.frame.minX - Metrics.space2
         }

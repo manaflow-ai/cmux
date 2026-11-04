@@ -18,7 +18,16 @@ final class NotificationsPanelController {
     private let context: AppActionContext
     private var panel: NotificationsPanel?
     private let motion = CornerPanelMotion()
-    private let card = NotificationsPanelView()
+    /// The panel's view, made on first open (REOPEN-F7: building it in AppActions.bind cost 13 ms before the first frame).
+    private var card: NotificationsPanelView {
+        if let cardView { return cardView }
+        let card = NotificationsPanelView()
+        card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
+        card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
+        cardView = card
+        return card
+    }
+    private(set) var cardView: NotificationsPanelView?
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
     private var loaded = false
@@ -27,11 +36,7 @@ final class NotificationsPanelController {
     /// Bumped per reload, so a slow reply never replaces a newer one.
     private var generation = 0
 
-    init(context: AppActionContext) {
-        self.context = context
-        card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
-        card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
-    }
+    init(context: AppActionContext) { self.context = context }
 
     var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
 
@@ -207,10 +212,12 @@ final class NotificationsPanelController {
 
     // MARK: Keyboard
 
-    /// Escape closes; Up and Down select; Return opens; Delete dismisses.
+    /// Escape closes; Up and Down select; Return opens; Delete clears the selected row, Cmd-Delete all.
     private func handleKey(_ event: NSEvent) -> Bool {
         // A closing panel that kept the keys (no visible window to hand them to) takes none.
-        guard isShown, event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else { return false }
+        let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        if isShown, modifiers == .command, [51, 117].contains(event.keyCode), !rows.isEmpty { perform("clearAllNotifications", nil); return true }
+        guard isShown, modifiers.isEmpty else { return false }
         let selected = selection.index(in: rows).map { rows[$0] }
         switch event.keyCode {
         case 53:

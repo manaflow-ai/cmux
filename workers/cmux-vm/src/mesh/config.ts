@@ -75,6 +75,8 @@ export const MESH_SLOTS = 2048;
 export interface MeshConfigService {
   /** `actor` is an actorRef (`service:<id>`, `user:<id>`, `key:<id>`): the caller, or the creator of the row a credential-free request redeems. */
   readonly enabledFor: (tenantId: TenantId, actor: string) => boolean;
+  /** The configured service actor refs that may bootstrap a tenant's mesh. */
+  readonly serviceActors: ReadonlySet<string>;
   /** CMUX_VM_MESH_EXPERIMENT itself: off means no mesh route reads anything, even before a tenant is known. */
   readonly experiment: boolean;
   readonly budgets: MeshBudgets;
@@ -95,6 +97,7 @@ export const makeMeshConfig = (input: MeshConfigInput): MeshConfigService => {
   const services = new Set((input.serviceIds ?? []).map((id) => `service:${id}`));
   return {
     enabledFor: (tenantId, actor) => input.experiment && (allowed.has(tenantId) || services.has(actor)),
+    serviceActors: services,
     experiment: input.experiment,
     budgets: { ...DEFAULT_MESH_BUDGETS, ...input.budgets },
   };

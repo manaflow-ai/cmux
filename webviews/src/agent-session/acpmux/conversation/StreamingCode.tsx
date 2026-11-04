@@ -21,43 +21,65 @@ import { entranceAllowed } from "../../shared/pageReveal";
 export function PlainCode({
   code,
   lang,
+  label,
   open = false,
   actions,
+  artifactIdentity,
+  artifactRevision,
 }: {
   code: string;
   lang: string;
+  label?: string;
   open?: boolean;
   actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const t = useT();
-  const look = useCodeHeaderLook(lang);
+  const look = useCodeHeaderLook(lang, label);
   // A tree drawn in box-drawing characters (├─ │) draws on lines that touch (conversation.css
   // `.cv-codeblock--diagram`); read once per code, not per render.
   const diagram = useMemo(() => isDiagram(code, lang), [code, lang]);
-  const lines = code.split("\n");
-  // An open fence's trailing empty line is the newline before a line still arriving; drawing it
-  // would make the card a line taller than the closed card it becomes.
-  if (open && lines.length > 1 && lines.at(-1) === "") lines.pop();
   return (
     <div
       className={`cv-codeblock cv-codeblock--plain${codeHeaderClass(look)}${diagram ? " cv-codeblock--diagram" : ""}`}
       ref={menuPartRef({ code })}
     >
-      <CodeHeader look={look} lang={lang}>
-        {!open && <OpenPreview code={code} lang={lang} />}
+      <CodeHeader look={look} lang={lang} label={label}>
+        <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <CopyButton text={code} label={t("code.copy")} />
         {actions}
       </CodeHeader>
       <div className="cv-codeblock__body">
-        <pre className="cv-code-plain selectable">
-          {lines.map((line, index) => (
-            <div key={index} className="cv-code-plain__line">
-              {line || "​"}
-            </div>
-          ))}
-        </pre>
+        <PlainCodeLines code={code} trimTrailingLine={open || !diagram} />
       </div>
     </div>
+  );
+}
+
+/// The same visible lines serve the lazy chunk and the worker wait. Pierre treats a final newline
+/// as the end of the last line, not an extra empty row.
+export function PlainCodeLines({
+  code,
+  trimTrailingLine = true,
+  wrap = false,
+}: {
+  code: string;
+  trimTrailingLine?: boolean;
+  wrap?: boolean;
+}) {
+  const lines = (trimTrailingLine ? code.replace(/\n$/, "") : code).split("\n");
+  return (
+    <pre
+      className="cv-code-plain selectable"
+      style={wrap ? { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } : undefined}
+    >
+      {lines.map((line, index) => (
+        <div key={index} className="cv-code-plain__line">
+          {line || "​"}
+        </div>
+      ))}
+    </pre>
   );
 }
 
@@ -65,14 +87,22 @@ export function PlainCode({
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
+type CodeHandoffProps = {
+  code: string;
+  lang: string;
+  actions?: ReactNode;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+};
+
+export function CodeHandoff(props: CodeHandoffProps) {
   // A diagram stays the plain card (CodeBlock.tsx): nothing to hand over.
-  const diagram = useMemo(() => isDiagram(code, lang), [code, lang]);
-  if (diagram) return <PlainCode code={code} lang={lang} actions={actions} />;
-  return <CodeHandoffFade code={code} lang={lang} actions={actions} />;
+  const diagram = useMemo(() => isDiagram(props.code, props.lang), [props.code, props.lang]);
+  if (diagram) return <PlainCode {...props} />;
+  return <CodeHandoffFade {...props} />;
 }
 
-function CodeHandoffFade({ code, lang, actions }: { code: string; lang: string; actions?: ReactNode }) {
+function CodeHandoffFade({ code, lang, actions, artifactIdentity, artifactRevision }: CodeHandoffProps) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -117,9 +147,30 @@ function CodeHandoffFade({ code, lang, actions }: { code: string; lang: string; 
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} actions={actions} />}
-      <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} actions={stage === "done" ? actions : undefined} />
+      {stage !== "done" && (
+        <PlainCode
+          code={code}
+          lang={lang}
+          actions={actions}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      )}
+      <div
+        className="cv-code-handoff__real"
+        // Keep duplicate highlighted controls out of keyboard and assistive technology traversal
+        // while the plain card is visible underneath.
+        aria-hidden={stage !== "done" || undefined}
+        inert={stage !== "done" || undefined}
+        onAnimationEnd={() => setStage("done")}
+      >
+        <CodeBlock
+          code={code}
+          lang={lang}
+          actions={stage === "done" ? actions : undefined}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
       </div>
     </div>
   );

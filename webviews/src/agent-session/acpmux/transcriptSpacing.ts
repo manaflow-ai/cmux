@@ -94,30 +94,229 @@ export const TRANSCRIPT_SPACING: readonly SpacingRow[] = [
     source: "consecutive one-line rows sit flush, whether in one run or two rows",
   },
   {
-    id: "step-to-live",
-    between: 'a one-line row and the live line under it ("Sending message to …"), centre to centre',
-    value: 22,
-    tolerance: 0.5,
-    source: "the live line is a one-line row",
-  },
-  {
-    id: "live-to-step",
-    between: 'the live line and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
+    id: "step-to-waiting",
+    between: 'a one-line row and the waiting group under it ("2 messages from 2 sessions"), centre to centre',
     value: 22,
     tolerance: 0.5,
     source: "the waiting group's head is a one-line row",
   },
+  {
+    id: "step-to-live",
+    between: 'the waiting group and the live line under it ("Sending message to …"), centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row, and the running turn\'s last (Leo, 2026-11-03: "thinking shimmer not being at the bottom looks bad")',
+  },
 ];
 
-/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): ChatGPT's sizes (Leo:
- * "didn't i always say we can do it like chatgpt"), Claude's placement (the gaps above). */
+/** Every other row kind of Leo's 2026-11-02 23:59Z capture (a received line, "Scheduled check", an
+ * expanded "Ran 2 commands", "Compacting the conversation…"; Leo: "these are all so stupid looking" /
+ * "the spacing" / "y'all need to just go study"), measured over gallery variant `all-kinds` by
+ * test/transcript-spacing-kinds.test.ts. Targets and references: design/transcript-spacing.md, "Row
+ * kinds". */
+export const TRANSCRIPT_SPACING_KINDS: readonly SpacingRow[] = [
+  {
+    id: "body-line",
+    between: "two wrapped lines of one paragraph, centre to centre",
+    value: 22.75,
+    tolerance: 0.5,
+    source: "our 14 on 22.75 (holds); ChatGPT desktop, Codex desktop and chatgpt.com 24; Claude Code desktop ~15 on 20",
+  },
+  {
+    id: "footer-to-received",
+    between: "a reply footer's glyph centre and the received message line under it, centre to centre",
+    value: 51,
+    tolerance: 1,
+    source: "as footer-to-next: 16 + 24 + 11; Claude 24 from the button row to the next block",
+  },
+  {
+    id: "received-to-status",
+    between: 'a received message line and the "Scheduled check" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3); no reference shows a received line over a scheduled check",
+  },
+  {
+    id: "status-to-run",
+    between: '"Scheduled check" and the "Ran 2 commands" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "run-to-child",
+    between: '"Ran 2 commands", opened, and its first command, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      "our flush run (rule 3); Codex desktop 26.6 to its first command, Claude Code desktop 36.75 into its bordered card",
+  },
+  {
+    id: "child-pitch",
+    between: "an opened run's two commands, centre to centre",
+    value: 22,
+    tolerance: 0.5,
+    source: "our one-line pitch (rule 3); Codex desktop 26, Claude Code desktop 34 (a card row with dividers)",
+  },
+  {
+    id: "child-to-prose",
+    between: "an opened run's last command and the reply under it, centre to centre",
+    value: 38.375,
+    tolerance: 1,
+    source: "as step-to-prose: 11 + 16 + 11.375",
+  },
+  {
+    id: "footer-to-prompt",
+    between: "a reply footer's glyph centre and the next prompt bubble's top edge",
+    value: 48,
+    tolerance: 1,
+    source:
+      "16 + grid turn gap 32 (Leo's centring, settled-spacing turn-gap); Claude Code desktop 34.5, chatgpt.com 73 (16 + 57)",
+  },
+  {
+    id: "prompt-to-status",
+    between: "a prompt bubble's bottom edge and the compaction line under it, centre",
+    value: 43,
+    tolerance: 1,
+    source: "as prompt-to-step: 32 + 11",
+  },
+  {
+    id: "status-to-prose",
+    between: "a finished compaction line and the reply under it, centre to centre",
+    value: 38.375,
+    tolerance: 1,
+    source: "a status line keeps a run's 16 from prose (rule 4)",
+  },
+  {
+    id: "step-to-status",
+    between: 'a one-line tool row and "Compacting the conversation…" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      "one-line rows sit flush (rule 3): notices are one-line rows; no reference shows a compaction line by a tool row",
+  },
+];
+
+/** The status rows at the bottom of a running turn (design/transcript-spacing.md, "Row kinds", the
+ * status rows; Leo, 2026-11-03 04:44Z, on two captures of a running Claude chat where they stood
+ * 55 to 70 apart, then cramped: "this is pretty bad spacing and formatting" / "i thought we made this
+ * stuff smaller"). Each is a one-line row: a folded run, "Subagent finished", the live "Thinking"
+ * line, the waiting group's "1 message from 1 session", another agent's received line and "Sent to"
+ * sit flush on the 22 pitch (rule 3), 16 from the prose around them (rule 4). Measured over gallery
+ * variants `working-bottom`, `reply-received`, `notes-live` and `status-prompt` by test/transcript-spacing-kinds.test.ts. */
+export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
+  variant: "working-bottom" | "reply-received" | "notes-live" | "status-prompt";
+})[] = [
+  {
+    id: "work-to-subagent",
+    variant: "working-bottom",
+    between: '"Sent a message, ran 3 commands, used 3 tools" and "Subagent finished" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "subagent-to-waiting",
+    variant: "working-bottom",
+    between: '"Subagent finished" and "1 message from 1 session" under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the waiting group's head is a one-line row (rule 3, step-to-waiting)",
+  },
+  {
+    id: "waiting-to-live",
+    variant: "working-bottom",
+    between: '"1 message from 1 session" and the live "Thinking" line under it, the turn\'s last, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+  {
+    id: "reply-footer-to-received",
+    variant: "reply-received",
+    between: "an earlier reply's footer glyph centre (hover-revealed) and the received line under it, centre to centre",
+    value: 51,
+    tolerance: 1,
+    source: "as footer-to-received: 16 + 24 + 11",
+  },
+  {
+    id: "received-to-sent",
+    variant: "reply-received",
+    between: 'another agent\'s received line and the "Sent to" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "one-line rows sit flush (rule 3)",
+  },
+  {
+    id: "sent-to-live",
+    variant: "reply-received",
+    between: '"Sent to" and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source: "the live line is a one-line row (rule 3, step-to-live)",
+  },
+  {
+    id: "note-to-live",
+    variant: "notes-live",
+    between:
+      'the last "Background task finished" note, after "Received 6 messages", and the live "Thinking" line under it, centre to centre',
+    value: 22,
+    tolerance: 0.5,
+    source:
+      'the live line is a one-line row (rule 3, step-to-live); Leo, 2026-11-03: "this feels like too awkward of a gap :("',
+  },
+  {
+    id: "status-to-prompt",
+    variant: "status-prompt",
+    between: "a turn's last status row (\"Subagent finished\") and the next prompt bubble's top edge",
+    value: 43,
+    tolerance: 1,
+    source: 'step-to-prompt: 11 + 32 (rule 5); Leo, 2026-11-03: "why is the spacing like this it\'s weird"',
+  },
+  {
+    id: "prompt-to-sent",
+    variant: "status-prompt",
+    between: "a prompt bubble's bottom edge and the centre of its turn's first status row (\"Sent to …\")",
+    value: 43,
+    tolerance: 1,
+    source: "prompt-to-step: 32 + 11 (rule 5)",
+  },
+];
+
+/** A session link chip on a one-line row (a received line's sender, "Sent to"'s recipient): no taller
+ * than the row's text, so the row reads as one line of words (Leo, 2026-11-03, on a bordered chip
+ * taller than its row's text: "i thought we made this stuff smaller"). Claude Code desktop names the
+ * sender inline, underlined, at the row's size; ChatGPT draws a name as plain text. Measured over
+ * gallery variant `reply-received` by test/transcript-spacing-kinds.test.ts. */
+export const SESSION_CHIP = {
+  /** The chip's box over its label's glyph box, CSS px: at most this much taller (ours 1em + 4px,
+   * 18 at 14px, about 1.5 over the glyphs; the 22 chip it replaces stood 5 over them). */
+  overText: 3,
+  /** The chip's label is the row's own size: its font size over the row's text's, CSS px. */
+  fontDelta: 0,
+  pending: undefined as string | undefined,
+} as const;
+
+/** An opened run's commands sit this far in from its head's text (design/transcript-spacing.md, "Row
+ * kinds"): text left edge to text left edge. Ours and Codex desktop 0, the icon in the head's column;
+ * Claude Code desktop +7 inside a bordered card. */
+export const RUN_CHILD = {
+  indent: 0,
+  tolerance: 1,
+  pending: undefined as string | undefined,
+} as const;
+
+/** The footer's icon buttons (design/transcript-spacing.md, "Reply footer"): Claude's sizes in
+ * ChatGPT's 32 line (Leo, 2026-11-02, of ChatGPT's 20 in 32: "WHY ARE THESE SO BIG"), Claude's
+ * placement (the gaps above). */
 export const FOOTER = {
-  /** Icon glyph box, CSS px: chatgpt.com 20 (Claude 16). */
-  glyph: 20,
-  /** Button hit box: chatgpt.com 32 (Claude 24). */
-  button: 32,
+  /** Icon glyph box, CSS px: Claude 16 (chatgpt.com 20). */
+  glyph: 16,
+  /** Button hit box: grid transcript-action-control 28 (chatgpt.com 32, Claude 24). */
+  button: 28,
   /** Button to button, left edge to left edge: the buttons touch in both apps. */
-  pitch: 32,
+  pitch: 28,
   pending: undefined as string | undefined,
 } as const;
 
@@ -132,3 +331,11 @@ export const BUBBLE = {
   radius: 12,
   pending: undefined as string | undefined,
 } as const;
+
+/** Any two consecutive one-line rows, whatever their kind (design/transcript-spacing.md rule 3):
+ * another agent's received line, a background turn's line ("Scheduled check"), a tool run and its
+ * opened steps, a compaction ("Compacting the conversation…") and the other status rows sit flush,
+ * 22 apart centre to centre, with no gap between them (Leo, 2026-11-02, on a Claude chat where
+ * they stood a block apart: "these are all so stupid looking"). Measured by
+ * test/transcript-system-rows.test.ts on gallery entry agent-pane.transcript-system-rows. */
+export const SYSTEM_ROW_PITCH = 22;

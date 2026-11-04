@@ -159,7 +159,6 @@ const scripts = (dir: string) =>
 /// one whatever shape its JSX takes.
 const ENTRANCES: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": { count: 1, what: "the hand-off error line under the header" },
-  "src/agent-session/acpmux/DiffPanel.tsx": { count: 1, what: "the diff side panel, from the right" },
   "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
@@ -184,8 +183,8 @@ const entranceCalls = (source: string) => source.match(/\bdata-enter\b["']?\s*[=
 /// keyframes are built.
 const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/agent-session/acpmux/App.tsx": {
-    count: 2,
-    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack",
+    count: 4,
+    what: "a cold-opened chat's transcript fades in; a bottom tool fold moves the transcript as one stack, holds the rows under the opened line and cuts what rises at it (#32943)",
   },
   "src/agent-session/acpmux/chatSwitch.ts": {
     count: 1,
@@ -207,6 +206,11 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   "src/files-panel-motion.ts": { count: 2, what: "the files panel slides in from its edge" },
   "src/motion/SyncTitle.tsx": { count: 3, what: "a title's new text cross-fades" },
   "src/motion/useSyncListMotion.ts": { count: 3, what: "list rows arrive, move and leave" },
+  "src/ui/motion/SlidingIndicator.tsx": {
+    count: 1,
+    what: "a tab bar's or segmented control's highlight travels to the selected item",
+  },
+  "src/ui/motion/ViewSwap.tsx": { count: 2, what: "a swapped view's content enters, or an accent band sweeps it" },
 };
 
 /// How many times a script drives the Web Animations API.

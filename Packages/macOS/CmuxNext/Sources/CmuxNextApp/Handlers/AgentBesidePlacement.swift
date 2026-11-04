@@ -191,7 +191,7 @@ enum AgentBesidePlacement {
             defer { finish() }
             let source = controller ?? services.paneController(for: anchor)
             let measured = source.map { LinkOpener.rightColumn(beside: $0) } ?? RightColumnPlacement.Column()
-            let kind: RightColumnPlacement.Kind? = tab.kind == .browser ? .browser : (tab.kind == .pty ? .terminal : nil)
+            let kind = RightColumnPlacement.Kind(opening: tab.kind, document: tab.page == InternalPageID.diff.rawValue)
             let decision = RightColumnPlacement.decide(measured, opening: kind)
             let destination: PaneController? = {
                 guard case .tab(let id) = decision, let id else { return nil }

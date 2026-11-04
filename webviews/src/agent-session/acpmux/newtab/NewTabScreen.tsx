@@ -3,6 +3,7 @@ import { authBlocksSend, authText, useSessionAuth } from "../sessionAuth";
 import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
 import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -122,6 +123,7 @@ import {
 } from "../slashCommands";
 import { useNewTabCommand, type NewTabCommandActions } from "./useNewTabCommand";
 import { useHarnessesListed } from "../catalog";
+import { agentName } from "../agents";
 import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
@@ -544,7 +546,8 @@ export function NewTabScreen(props: Props) {
     const element = fieldElement();
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
-  const dropLandingTarget = useCallback(() => fieldElement()?.parentElement ?? null, []);
+  // The input card, which a file drag rings (composer/DropOverlay.tsx).
+  const dropLandingTarget = useCallback(() => fieldElement()?.closest(".nt-box") ?? null, []);
   const submitNow = useRef(() => {});
   const continueAfterSetup = useRef<(harness: string) => void>(() => {});
   const openSetup = () => {
@@ -608,6 +611,10 @@ export function NewTabScreen(props: Props) {
       if (mode === "cloud") {
         saved.pick(undefined);
         setMachine(undefined);
+        // The chip's folder may be a recent project nobody clicked (`recent ?? seeded`): picking
+        // Cloud is the person's pick of it too, so the host grants it (workspace.useFolder) and the
+        // Cloud start may copy it. Without this the host refused it as outside the tab's folders.
+        if (envFolder) props.onProjectPicked?.(envFolder);
       }
       props.runMode?.onMode(mode);
     },
@@ -787,12 +794,14 @@ export function NewTabScreen(props: Props) {
     parentSignIn?.authObservation,
   );
 
-  // The Ask row names the agent Return asks and the model on its chip.
+  // The Ask row names the agent Return asks and, once the catalog lists it, the model on its chip.
+  // A harness the chip names always has the row: a last pick stands before the catalog lists it
+  // (newTabStart), and with no row Return took the prompt to the web search under that chip.
   const ask = useMemo(() => {
+    if (!harness) return undefined;
     const entry = snapshot.catalog.find((agent) => agent.id === harness);
-    if (!harness || !entry) return undefined;
-    const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
-    return { harness, agent: entry.name, ...(model ? { model } : {}) };
+    const model = entry?.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
+    return { harness, agent: agentName(harness, entry?.name), ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
   // Shell mode's text is a command line, where a `/` starts a path.
   const commandAt = shell ? undefined : commandTrigger;
@@ -997,12 +1006,14 @@ export function NewTabScreen(props: Props) {
   // field keeps the keyboard and the list its highlight.
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const listEdges = useScrollEdges();
   const attachList = useCallback(
     (node: HTMLDivElement | null) => {
       list.current = node;
+      listEdges(node);
       if (host) setShown(node);
     },
-    [host],
+    [host, listEdges],
   );
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
@@ -1644,6 +1655,8 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   setBrowseError(undefined);
                   touch();
+                  // A local one starts on this Mac: a machine picked before is no longer where.
+                  if (saved.list.find((other) => other.id === id)?.kind === "local") setMachine(undefined);
                   saved.pick(id);
                   requestAnimationFrame(() => field.current?.focus());
                 },
@@ -2213,8 +2226,14 @@ export function NewTabScreen(props: Props) {
             initialFocus={false}
             finalFocus={false}
           >
-            {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-            <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
+            <div
+              ref={attachList}
+              className="nt-rows ui-scroll-edge-fade"
+              id="nt-rows"
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+              role="listbox"
+              aria-label={nt("suggestions")}
+            >
               {rows.map((row, index) =>
                 inStrip(row) ? null : (
                   <div

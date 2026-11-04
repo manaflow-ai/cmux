@@ -33,8 +33,9 @@ struct Bootstrap {
     private_key: String,
 }
 
-fn refused() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "cloud.native.bootstrap_refused")
+/// `step` names the check, never a value: the app shows the message in `link_route`.
+fn refused(step: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, format!("cloud.native.bootstrap_refused: {step}"))
 }
 
 /// The inherited pair names the parent, not the child. Return a fresh pair's
@@ -60,34 +61,42 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
         let left = deadline
             .checked_duration_since(std::time::Instant::now())
             .filter(|left| !left.is_zero())
-            .ok_or_else(refused)?;
+            .ok_or_else(|| refused("timeout"))?;
         stream.set_read_timeout(Some(left))?;
         let mut byte = [0];
-        stream.read_exact(&mut byte).map_err(|_| refused())?;
+        stream.read_exact(&mut byte).map_err(|_| refused("read"))?;
         if byte[0] == b'\n' {
             break;
         }
         if bytes.len() >= 4096 {
-            return Err(refused());
+            return Err(refused("size"));
         }
         bytes.push(byte[0]);
     }
-    let bootstrap: Bootstrap = serde_json::from_slice(&bytes).map_err(|_| refused())?;
+    let bootstrap: Bootstrap =
+        serde_json::from_slice(&bytes).map_err(|error| refused(&json_step(&error)))?;
     let encoded = Zeroizing::new(bootstrap.private_key);
-    if bootstrap.version != 2
-        || !bootstrap.install.starts_with("inst_")
+    if bootstrap.version != 2 {
+        return Err(refused("version"));
+    }
+    if !bootstrap.install.starts_with("inst_")
         || bootstrap.install.len() <= 5
         || !cmux_link::stamp::valid_id(&bootstrap.install)
-        || !bootstrap.team.strip_prefix("team_").is_some_and(|hex| {
-            hex.len() == 20 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        })
-        || !native_id(&bootstrap.mesh, "mesh_")
     {
-        return Err(refused());
+        return Err(refused("install"));
     }
-    let decoded = Zeroizing::new(STANDARD.decode(encoded.as_bytes()).map_err(|_| refused())?);
+    if !bootstrap.team.strip_prefix("team_").is_some_and(|hex| {
+        hex.len() == 20 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    }) {
+        return Err(refused("team"));
+    }
+    if !native_id(&bootstrap.mesh, "mesh_") {
+        return Err(refused("mesh"));
+    }
+    let decoded =
+        Zeroizing::new(STANDARD.decode(encoded.as_bytes()).map_err(|_| refused("private_key"))?);
     if decoded.len() != 32 {
-        return Err(refused());
+        return Err(refused("private_key"));
     }
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&decoded);
@@ -98,12 +107,31 @@ fn read_identity(stream: &mut UnixStream) -> io::Result<Identity> {
         bootstrap.ipv4_cidr,
         bootstrap.tunnel,
     )
-    .map_err(|_| refused())?;
+    .map_err(|error| {
+        let message = error.to_string();
+        let step = message.strip_prefix("cloud.native.route_refused: ").unwrap_or(&message);
+        refused(&format!("route {step}"))
+    })?;
     Ok(Identity {
         config: LinkConfig { install: bootstrap.install, port: 0, server_identity: None },
         key,
         route,
     })
+}
+
+/// Names a missing or unknown field (a schema mismatch between app and CLI), never a value: serde's
+/// other messages can quote what was sent.
+fn json_step(error: &serde_json::Error) -> String {
+    let message = error.to_string();
+    for kind in ["missing field `", "unknown field `"] {
+        if let Some(field) = message.strip_prefix(kind).and_then(|rest| rest.split('`').next())
+            && field.len() <= 64
+            && field.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return format!("json {}{field}", kind.trim_end_matches('`'));
+        }
+    }
+    format!("json {:?}", error.classify()).to_lowercase()
 }
 
 pub(super) fn native_id(value: &str, prefix: &str) -> bool {
@@ -146,8 +174,40 @@ mod tests {
                 Err(error) => error,
                 Ok(_) => panic!("must refuse"),
             };
-            assert_eq!(error.to_string(), "cloud.native.bootstrap_refused");
+            let message = error.to_string();
+            assert!(message.starts_with("cloud.native.bootstrap_refused: "), "{message}");
+            assert!(
+                !message.contains("attacker-choice") && !message.contains("private-invalid-key"),
+                "{message}"
+            );
         }
+    }
+
+    #[test]
+    fn native_cloud_broker_names_a_route_refusal_once() {
+        let (mut reader, mut parent) = UnixStream::pair().unwrap();
+        let mut value_to_send = bootstrap();
+        value_to_send["tunnel"]["meshAddress"] = serde_json::json!("10.129.0.5");
+        writeln!(parent, "{value_to_send}").unwrap();
+        let Err(error) = read_identity(&mut reader) else { panic!("must refuse") };
+        assert_eq!(
+            error.to_string(),
+            "cloud.native.bootstrap_refused: route meshAddress outside ipv4_cidr"
+        );
+    }
+
+    #[test]
+    fn json_step_names_the_missing_or_unknown_field() {
+        #[derive(Debug, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Probe {
+            #[allow(dead_code)]
+            version: u32,
+        }
+        let missing = serde_json::from_str::<Probe>("{}").unwrap_err();
+        assert_eq!(json_step(&missing), "json missing field version");
+        let unknown = serde_json::from_str::<Probe>(r#"{"version":1,"origin":2}"#).unwrap_err();
+        assert_eq!(json_step(&unknown), "json unknown field origin");
     }
 
     #[test]

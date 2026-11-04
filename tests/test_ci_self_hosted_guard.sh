@@ -1085,11 +1085,19 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)"
   local trusted_list='fromJSON[(]'"'"'[[]"ubuntu-24[.]04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
-  # The signer route's exact runs-on line (its exception below).
+  # The signer route's exact runs-on line (its exception below). Hosted Ubuntu that was slow to start decide or
+  # the pick (scripts/ci/hosted_queue_wait.py) sends attempt 1 to the re-run route too: run 41684606067's
+  # signer-app queued 9.3 min on hosted.
   local signer_route
   signer_route=$(cat <<'SIGNER_ROUTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.pick-nightly-sign-runner.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
 SIGNER_ROUTE
+)
+  # The nightly's sign pick, the same way from decide's read (run 41684606067: 6.8 min on hosted).
+  local signer_pick_stall_route
+  signer_pick_stall_route=$(cat <<'SIGNER_PICK_STALL_ROUTE'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') && fromJSON(vars.RUNNER_POOLS).linux_4 || 'ubuntu-24.04' }}
+SIGNER_PICK_STALL_ROUTE
 )
   # The pick holds no signing material, so its re-run reads the declared Linux 4 vCPU pool.
   local signer_pick_route
@@ -1100,7 +1108,7 @@ SIGNER_PICK_ROUTE
   # signer-build takes the nightly's early fleet placement (#29864) first, then the same route.
   local signer_build_route
   signer_build_route=$(cat <<'SIGNER_BUILD_ROUTE'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || github.run_attempt > 1 && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || needs.decide.outputs.early_attempt == format('{0}', github.run_attempt) && contains(needs.decide.outputs.early_linux_jobs, ' signer-build ') && needs.decide.outputs.early_linux_runner || (github.run_attempt > 1 || needs.decide.outputs.hosted_slow == 'true') && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
 SIGNER_BUILD_ROUTE
 )
   # "<workflow>:<line content>" -> why it stays GitHub-hosted. Exact lines only.
@@ -1134,6 +1142,7 @@ SIGNER_BUILD_ROUTE
     # unstarted hands the nightly to the macOS signer. Leo, 2026-11-01: "surely we measured the signign we
     # dont need 32/16 just for signing", then "surely github has linux hosted we can just use".
     "nightly.yml:$signer_route"
+    "nightly.yml:$signer_pick_stall_route"
     "nightly.yml:$signer_build_route"
     "cmux-next-dev-daily.yml:$signer_pick_route"
     # sentry-dsyms-nightly takes the pick's line (it holds no signing material): a network-bound Sentry

@@ -80,6 +80,41 @@ import Testing
         #expect(sidebar.hitTest(point) == nil)
     }
 
+    @Test func rootRoutesOnlyUnclaimedReachPointsAndOccludesTheVisibleSurface() throws {
+        let design = DesignSettings.shared
+        let before = design.chromeStyle
+        defer { design.chromeStyle = before }
+        let (window, root) = root(style: .card)
+        defer { window.close() }
+
+        let sidebar = root.sidebar
+        let reach = sidebar.visualPaneReach
+        #expect(reach > 0)
+        let frame = sidebar.convert(sidebar.bounds, to: root)
+        #expect(sidebar.visualFrame(in: root) == CGRect(x: frame.minX, y: frame.minY, width: frame.width + reach, height: frame.height))
+        #expect(sidebar.occluderRectInWindow == sidebar.visualFrame(in: nil))
+
+        let band = NSPoint(x: frame.maxX + reach / 2, y: frame.midY)
+        let routed = try #require(sidebar.routePaneReach(root, at: band, in: root))
+        #expect(routed !== root)
+        #expect(routed === sidebar || routed.isDescendant(of: sidebar))
+        // A sibling's hit keeps its z-order; a point inside the frame or past the band stays the root's.
+        let sibling = NSView()
+        #expect(sidebar.routePaneReach(sibling, at: band, in: root) === sibling)
+        #expect(sidebar.routePaneReach(root, at: NSPoint(x: frame.midX, y: frame.midY), in: root) === root)
+        #expect(sidebar.routePaneReach(root, at: NSPoint(x: frame.maxX + reach + 1, y: frame.midY), in: root) === root)
+
+        root.sidebarSide = .right
+        root.layoutSubtreeIfNeeded()
+        let right = sidebar.convert(sidebar.bounds, to: root)
+        #expect(sidebar.visualFrame(in: root).minX == right.minX - sidebar.visualPaneReach)
+        #expect(sidebar.visualFrame(in: root).maxX == right.maxX)
+
+        sidebar.isHidden = true
+        #expect(sidebar.occluderRectInWindow == nil)
+        #expect(sidebar.routePaneReach(root, at: band, in: root) === root)
+    }
+
     @Test func styleSwitchRemountsTheDividerAtTheNewSurfaceEdge() throws {
         let design = DesignSettings.shared
         let before = design.chromeStyle

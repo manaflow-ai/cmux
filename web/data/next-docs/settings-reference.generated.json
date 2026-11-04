@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 557,
+  "count": 564,
   "sections": [
     {
       "id": "general",
@@ -215,6 +215,14 @@
           "group": "Chats"
         },
         {
+          "key": "agents.chats.sessionRecap",
+          "title": "Session Recap",
+          "help": "When you come back to a Claude chat after 5 minutes or more, show a line on where it stands. Each recap is one small extra model call that counts toward your usage.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Chats"
+        },
+        {
           "key": "agents.defaultPermissionMode",
           "title": "Permission Mode for New Chats",
           "help": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -239,6 +247,18 @@
             "deepseek/deepseek-v4.1-flash",
             "deepseek/deepseek-v4-flash",
             "deepseek/deepseek-v4-pro"
+          ]
+        },
+        {
+          "key": "agents.promptCache",
+          "title": "Prompt Cache",
+          "help": "How long Claude Code keeps a chat's prompt cached. One hour keeps replies after a pause cheap; its cache writes cost a little more.",
+          "kind": "choice",
+          "default": "1h",
+          "group": "Agent Chat",
+          "values": [
+            "1h",
+            "5m"
           ]
         },
         {
@@ -2242,6 +2262,14 @@
           "group": "Window Background"
         },
         {
+          "key": "appearance.favoriteThemes",
+          "title": "Starred Themes",
+          "help": "Themes starred in a theme picker. The picker lists them first.",
+          "kind": "string_list",
+          "default": [],
+          "group": "App Theme"
+        },
+        {
           "key": "appearance.focusIndicator",
           "title": "Focused Pane",
           "help": "How the focused pane stands out: its border, subtler tabs in the other panes, both or neither.",
@@ -2377,6 +2405,19 @@
           "values": [
             "shared",
             "perPane"
+          ]
+        },
+        {
+          "key": "appearance.rotateFavoriteThemes",
+          "title": "Rotate Starred Themes",
+          "help": "When cmux opens, the terminal theme changes to the next starred theme. Needs two starred themes, and has no effect while Match System Appearance is on.",
+          "kind": "choice",
+          "default": "off",
+          "group": "App Theme",
+          "values": [
+            "off",
+            "launch",
+            "daily"
           ]
         },
         {
@@ -5449,8 +5490,8 @@
         },
         {
           "key": "feed.github.enabled",
-          "title": "Connect GitHub",
-          "help": "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first.",
+          "title": "GitHub Inbox",
+          "help": "Inbox shows your GitHub notifications",
           "kind": "toggle",
           "default": false,
           "group": "GitHub Inbox"
@@ -5488,6 +5529,14 @@
             "title",
             "full"
           ]
+        },
+        {
+          "key": "feed.needsYouInChief",
+          "title": "Pin Needs You in Chief",
+          "help": "Open requests, such as permission prompts and questions, are pinned at the top of your Chief's conversation. The Feed always lists them.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Feed"
         },
         {
           "key": "notifications.attention.agentChatBlinkCount",
@@ -5942,6 +5991,14 @@
           "group": "Machine Colors"
         },
         {
+          "key": "cloud.agentsStartWithoutAsking",
+          "title": "Let Agents Start Cloud Sessions Without Asking",
+          "help": "An agent's `cmux cloud start-session` creates or resumes the Cloud machine and starts its session with no Start card in the chat. Only you can turn this on.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
           "key": "cloud.newWorkspaceFolder",
           "title": "New Cloud Workspaces Start In",
           "help": "Current Folder copies the folder you work in (its whole git working copy) to the new machine. Empty Folder starts in the machine's own empty folder.",
@@ -5957,6 +6014,14 @@
           "key": "cloud.newWorkspacesInCloud",
           "title": "Run New Workspaces in Cloud",
           "help": "Each new workspace (Cmd-N, the sidebar's +) gets its own new Cloud machine. Agent chats you start in it run on that machine.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Cloud Workspaces"
+        },
+        {
+          "key": "cloud.useMyClaudeLoginOnMyCloudMachines",
+          "title": "Use My Claude Login on My Own Cloud Machines",
+          "help": "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead.",
           "kind": "toggle",
           "default": false,
           "group": "Cloud Workspaces"

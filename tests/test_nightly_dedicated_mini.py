@@ -18,9 +18,12 @@ LABEL = "glaeda-nightly-only-m4pro"
 VARIABLE = "vars.CI_NIGHTLY_ONLY_RUNNER"
 BUILDER = "glaeda-nightly-only-m4pro-builder"
 BUILDER_VARIABLE = "vars.CI_NIGHTLY_ONLY_BUILDER_RUNNER"
-EARLY = ("decide", "resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-         "build-nightly-inputs", "find-nightly-next-recovery", "pick-nightly-build-runner",
-         "build-nightly-ghostty-cli-helper")
+EARLY = ("build-nightly-inputs", "build-nightly-ghostty-cli-helper")
+# Light jobs take the reservation only through decide's live placement (place-reserved), never as a bare
+# label: GitHub never moves a queued job, so a reservation that starts nothing held them with no fallback
+# (run 41481821056: 555 s). Unplaced, attempt 1 takes hosted Ubuntu.
+PLACED = ("resolve-nightly-cmux-tui-client", "find-nightly-next-recovery", "pick-nightly-build-runner",
+          "resolve-nightly-ghostty-cli-helper")
 VERIFY_OWNED = ("verify-signed-nightly", "verify-final-dmg-nightly", "signer-dmg-image", "launch-smoke-nightly")
 DOC = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
 
@@ -49,6 +52,61 @@ class DedicatedMini(unittest.TestCase):
         for job in EARLY:
             with self.subTest(job=job):
                 self.assertEqual(selected(job, context()), LABEL)
+
+    def test_decide_bootstraps_on_hosted_ubuntu_not_the_reservation(self):
+        # No earlier job can admit decide on the fleet; attempt 1 takes the declared hosted bootstrap.
+        self.assertNotIn(VARIABLE, DOC["jobs"]["decide"]["runs-on"])
+        self.assertEqual(selected("decide", context()), "ubuntu-24.04")
+        self.assertEqual(selected("decide", context(**{VARIABLE: ""})), "ubuntu-24.04")
+        pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
+        self.assertEqual(selected("decide", context(**{"github.run_attempt": 2, "vars.RUNNER_POOLS": pools})),
+                         "blacksmith-16vcpu-ubuntu-2404")
+
+    def placed(self, jobs, label=LABEL, attempt="1", **changes):
+        return context(**{"needs.decide.outputs.early_attempt": attempt,
+                          "needs.decide.outputs.early_mini_runner": label,
+                          "needs.decide.outputs.early_mini_jobs": f" {' '.join(jobs)} " if jobs else "",
+                          **changes})
+
+    def test_light_jobs_take_the_reservation_only_when_decide_placed_them(self):
+        for job in PLACED:
+            with self.subTest(job=job):
+                self.assertNotIn(VARIABLE, DOC["jobs"][job]["runs-on"])
+                self.assertEqual(selected(job, self.placed(PLACED)), LABEL)
+                # Unplaced (no idle reservation runner within three minutes, or capacity unread): hosted Ubuntu.
+                self.assertEqual(selected(job, context()), "ubuntu-24.04")
+                self.assertEqual(selected(job, self.placed([other for other in PLACED if other != job])),
+                                 "ubuntu-24.04")
+                # A placement from another attempt is never reused.
+                pools = '{"linux_16": "blacksmith-16vcpu-ubuntu-2404", "linux_32": "blacksmith-32vcpu-ubuntu-2404"}'
+                self.assertEqual(selected(job, self.placed(PLACED, attempt="1", **{"github.run_attempt": 2,
+                                                                                 "vars.RUNNER_POOLS": pools})),
+                                 "blacksmith-16vcpu-ubuntu-2404")
+
+    def test_reservation_route_places_the_light_jobs_with_the_bounded_wait(self):
+        steps = {step.get("id"): step for step in DOC["jobs"]["decide"]["steps"]}
+        place = steps["place-reserved"]
+        values = context(**{"steps.decide.outputs.track": "nightly-next",
+                            "steps.decide.outputs.should_build": "true"})
+        condition = parse_expression(place["if"].removeprefix("${{").removesuffix("}}"))
+        self.assertTrue(evaluate(condition, values))
+        for changes in ({VARIABLE: ""}, {"github.run_attempt": 2},
+                        {"github.repository": "other/cmux", "github.repository_owner": "other"},
+                        {"steps.decide.outputs.should_build": "false"}):
+            with self.subTest(changes=changes):
+                self.assertFalse(evaluate(condition, {**values, **changes}))
+        self.assertEqual(place["run"], "python3 scripts/ci/portable_job_placement.py")
+        env = place["env"]
+        self.assertEqual(set(env["JOBS"].split()), set(PLACED))
+        self.assertEqual((env["NIGHTLY"], env["NIGHTLY_WAIT_FOR_FLEET"], env["REQUIRE_LIVE_CAPACITY"]), ("1", "1", "1"))
+        self.assertIn(VARIABLE, env["NIGHTLY_ONLY_LABEL"])
+        self.assertTrue(place["continue-on-error"])
+        # The routing token now mints on the reservation route too, so placement can read the runners.
+        token = parse_expression(steps["early-route-token"]["if"].removeprefix("${{").removesuffix("}}"))
+        self.assertTrue(evaluate(token, {**values, "vars.CI_PR_POOL_OWNED": "1", "vars.GLAEDA_ROUTE_APP_ID": "1"}))
+        outputs = DOC["jobs"]["decide"]["outputs"]
+        self.assertIn("steps.place-reserved.outputs.mini_runner", outputs["early_mini_runner"])
+        self.assertIn("steps.place-reserved.outputs.mini_jobs", outputs["early_mini_jobs"])
 
     def test_exception_is_exact_label_next_repository_and_first_attempt(self):
         for job in EARLY:
