@@ -77,6 +77,12 @@ requests on a connection run in order on one dispatch thread. Under the "journal
 the daemon), and the same `identify` runs on a connection of its own as the control. It reports
 both identify latencies and the closes'.
 
+The daemon starts as the app starts it, with `--terminal-reap-grace-seconds 30`
+(--reap-grace-seconds; a negative value leaves the flag out): a closed terminal ends after the
+grace, and at most 16 closed terminals wait it out with their PTY. Without the flag a close leaves
+the terminal running unplaced, so a scenario that creates and closes a few hundred terminals runs
+the Mac out of PTYs (511 on macOS); "journal-step" then "head-of-line" did, on two Macs.
+
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
 """
@@ -180,6 +186,9 @@ class Bench:
         self.env = env
         argv = [self.args.bin, "--headless", "--session", self.session, "--socket", self.sock_path,
                 "--state", os.path.join(self.root, "state")]
+        if self.args.reap_grace_seconds >= 0:
+            # As the app starts its daemon (DaemonLauncher): closed terminals end after the grace.
+            argv += ["--terminal-reap-grace-seconds", str(self.args.reap_grace_seconds)]
         self.daemon_log = open(os.path.join(self.root, "daemon.log"), "a")
         self.daemon = subprocess.Popen(argv, stdout=self.daemon_log, stderr=subprocess.STDOUT, env=env,
                                        start_new_session=True)
@@ -1092,6 +1101,8 @@ def main():
                     help="resize-mirror: how many times to run its 5 bursts per case")
     ap.add_argument("--journal-ticks", type=int, default=3,
                     help="journal-step: maintenance ticks (30 s apart) the load runs through")
+    ap.add_argument("--reap-grace-seconds", type=int, default=30,
+                    help="the daemon's --terminal-reap-grace-seconds, as the app passes it; negative: leave it out")
     args = ap.parse_args()
     b = Bench(args)
     status = 0
