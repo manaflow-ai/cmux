@@ -7,7 +7,7 @@
   max-width: var(--acpmux-column, 720px);
   /* Keep the message, status line and disclosure in the same shell footprint while the
      native handoff swaps this view for the live transcript. */
-  min-height: 112px;
+  min-height: calc(4 * var(--grid-row));
   margin: 24px auto 0;
   padding: 0 16px;
   box-sizing: border-box;

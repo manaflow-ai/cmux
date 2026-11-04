@@ -3,9 +3,53 @@
 // pulsing dot), the facts known so far, and a failure in the host's words; each arm of the
 // `cloud-start-look` experiment draws the same facts.
 import { afterEach, expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
 import { CloudStartView, startupChecklist } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
+
+let dom: JSDOM | undefined;
+let root: Root | undefined;
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+function installDom(): HTMLElement {
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+  });
+  const requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(Date.now()), 0) as unknown as number;
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "Node",
+    "HTMLElement",
+    "Element",
+    "MouseEvent",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Node: dom.window.Node,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    MouseEvent: dom.window.MouseEvent,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame,
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom.window.document.getElementById("root")!;
+}
 
 const start: CloudStartProgress = {
   key: "k",
@@ -22,7 +66,16 @@ const start: CloudStartProgress = {
 const arm = (name: string) => {
   (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "cloud-start-look": name };
 };
-afterEach(() => {
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  root = undefined;
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
   delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
 });
 
@@ -47,6 +100,19 @@ test("a failed start opens the details disclosure with the host facts", () => {
   expect(html).toContain('aria-expanded="true"');
   expect(html).toContain('data-step-id="machine"');
   for (const fact of ["paint", "paint-dev · 4 CPU", ">2<", "Limited"]) expect(html).toContain(fact);
+});
+
+test("a healthy start opens its details when the disclosure is requested", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<CloudStartView start={start} />);
+  });
+  const summary = container.querySelector<HTMLButtonElement>(".acpmux-cloud-start__summary");
+  expect(summary?.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => summary?.click());
+  expect(summary?.getAttribute("aria-expanded")).toBe("true");
+  expect(container.querySelector('[data-step-id="machine"]')).toBeTruthy();
 });
 
 test("the steps arm keeps its legacy step list behind the disclosure", () => {
